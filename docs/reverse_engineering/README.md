@@ -17,6 +17,11 @@ installation paths external. Commit only abstract schemas, behavioral and
 architectural descriptions, non-copyrightable measurements, appropriate hashes
 or identifiers, and user-created or synthetic fixtures.
 
-Next investigation: establish the candidate-147 `TAff0100` `.ff` envelope metadata
-on the cataloged base/patch/localized samples before approving parser or loader
-behavior. Keep later shared-structure and gameplay investigations bounded.
+The [signed PC fastfile envelope](0002-fastfile-envelope.md) records six bounded
+sample observations and primary-source corroboration of PC version 147, a
+312-byte envelope and a conservative metadata-inspector contract. Format
+understanding is INVESTIGATING; signature and payload validity remain unknown.
+
+Next bounded work: implement the envelope-only inspector after outer-agent review.
+Payload decoding, loader APIs, shared game structures and gameplay require later
+evidence tasks.

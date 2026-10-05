@@ -13,6 +13,12 @@ has inspected original file metadata and representative container prefixes/hashe
 No original scripts, entity definitions or runtime behavior have been inspected.
 Overall, gameplay and visual fidelity remain **UNKNOWN**.
 
+The [fastfile envelope investigation](reverse_engineering/0002-fastfile-envelope.md)
+has established a conservative 312-byte signed PC metadata contract on six
+samples, corroborated against immutable public OAT source. Format understanding is
+**INVESTIGATING**; handoff 0005 is reviewed and accepted. No inspector or payload
+decoder is implemented, and no signature or full-file validity is established.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -61,15 +67,16 @@ the executable baseline.
 
 ## Next bounded work
 
-1. Investigate the candidate-147 `TAff0100` `.ff` envelope metadata on the three
-   cataloged base/patch/localized samples, without guessing unsupported structure.
+1. Implement one bounded safe Rust envelope-only metadata inspector using
+   findings 0002 and the accepted [handoff 0005](handoffs/0005-fastfile-envelope-evidence.md).
+   Payload decoding and Bevy loader integration require separate evidence tasks.
 2. Document observable shared engine/game structures and evidence-backed
    ECS/asset boundaries in later bounded tasks.
 
 The outer agent sequences those tasks with exactly one active subagent and updates
 this file after reviewing each handoff. Rendering, BO2 entity architecture, asset
 loading and gameplay remain unimplemented. Reverse engineering has only the
-bounded file-availability/prefix observations described above.
+bounded file-availability and envelope observations described above.
 
 Review: the outer agent inspected all source/configuration and substantive
 documentation, independently parsed the manifests/configuration, checked key
@@ -81,3 +88,6 @@ tests (two passed), formatting, Clippy and executable smoke checks; all passed.
 Asset review independently confirmed aggregate file counts/lengths, all three
 fastfile prefix observations, one representative hash, external configuration
 boundaries and exclusion of real source/output paths from tracked documentation.
+Envelope review independently confirmed marker/version/auth-marker/flags/name
+fields and bounds across all six samples and inspected cited primary format
+sources. The support contract remains intentionally narrower than a full decoder.

@@ -10,6 +10,8 @@
 - [Bevy build handoff](handoffs/0003-bevy-build-foundation.md): stable toolchain, headless lifecycle and executable checks.
 - [Local asset catalog](reverse_engineering/0001-local-asset-catalog.md): external source availability, candidate containers and bounded prefix/hash evidence.
 - [Asset catalog handoff](handoffs/0004-licensed-asset-catalog.md): read-only discovery, output boundaries and validation.
+- [Fastfile envelope evidence](reverse_engineering/0002-fastfile-envelope.md): 312-byte signed PC metadata contract, source corroboration and unknown payload boundaries.
+- [Envelope evidence handoff](handoffs/0005-fastfile-envelope-evidence.md): bounded sample observations, inspector scope and validation.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately
