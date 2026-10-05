@@ -71,6 +71,11 @@ unchanged 150/150/gate1 samples, then stopped on a generic identity refusal; nat
 profile requalification passed. Solo game over preceded an established melee contact.
 This gives no actor damage/death comparison. Reset earlier and improve refusal
 diagnostics for a controlled repeat; do not infer terminal health from the refusal.
+The [diagnostic repeat](reverse_engineering/damage-life-state-18.md) passed 15
+synthetic checks and a fresh five-sample baseline. Its live run accepted 319 unchanged
+150/150/gate1 samples before refusing changed active-byte flags with the admitted
+active bit still set. Aiming input changed the view and fired one shot; no hit or
+actor death was proven. The original is left at the fresh match's pause menu.
 Solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.

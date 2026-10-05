@@ -150,3 +150,22 @@ pool reuse or benign flag changes from that generic reason. No selected-actor da
 sensitivity or terminal-health agreement was demonstrated. Original receipts remain
 external. Next reset the scenario earlier and expose refusal field names before a
 controlled repeat; preserve exact identity checks until evidence supports changing them.
+
+The diagnostic repeat used fresh solo Richtofen, score 500, ammo 8/32, no purchases
+or objective activation, paused on the first observed playable frame. Five baseline
+samples again qualified 150/150, gate 1. Parent started session30051, resumed, saw a
+zombie behind the central spawn window, then attempted an aiming drag. The drag API
+does not support the supplied mouse-button option; the action sharply changed the
+view and ammo became 7/32. Parent immediately returned to the pause menu. No hit,
+melee contact or actor kill was established.
+
+Samples 0 through 318 accepted unchanged 150/150, gate 1; sample 319 ended with
+`selected_identity_changed:active`, without health. All other pinned identity
+comparisons had passed for that sample. Final profile qualification passed, total
+reads 41,918 bytes; shell session exit 1. This identifies full active-byte variation
+as this repeat's refusal, not the historical trial's cause or an actor-death proof.
+The admitted active bit remained set, because the snapshot's active-bit check had
+passed. Other flag semantics remain unqualified; no admission check was relaxed.
+Task18 external trial SHA-256 is
+3e956d93c9d90bcff6ff27c240abaf259dea37e299e13fa1da787bb4306c5294.
+Neither trial supplies selected-actor damage sensitivity or final-health evidence.
