@@ -66,7 +66,11 @@ is promoted to a universal rule. Review is complete: the new ordered-queue repla
 passes independently; all 40 focused tests and 120 workspace tests pass. See
 [combat comparison handoff](handoffs/damage-life-state-23.md).
 
-Next repeat a controlled actor comparison and qualify coop timing. Multiplayer is required for
+Next implement the [separate solo/last-eligible session-loss boundary](reverse_engineering/damage-life-state-24.md):
+solo without available Quick Revive blocks ordinary downed setup; last-eligible
+multiplayer can enter it before session end. Later intermission sets current 100,
+without changing maximum; immediate native numeric effects remain unqualified.
+Repeat a controlled actor comparison and qualify coop timing. Multiplayer is required for
 bleedout proof; no second-player availability is established. Fidelity remains
 APPROXIMATE / INVESTIGATING, and the goal is incomplete. Launch original through
 the desktop Plutonium launcher; Origins uses the robot-head planet icon.
