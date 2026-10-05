@@ -101,6 +101,10 @@ measured camera conditions and equivalent reconstructed comparisons remain pendi
    Six retained positive/zero point crossings agree exactly with the independent
    scalar reconstruction, not native execution. Player dimensions/masks are explicit
    unknowns; no general box support or world aggregation is claimed.
+   [Task0037](handoffs/0037-original-standing-player-trace-request.md) qualifies
+   three bounds/mask forwarding functions into that builder, but no ordinary
+   standing-player caller or defaults. Resolve a player movement owner/callback
+   and its actual bounds writes before integrating player collision.
    All 8,417 candidates remain admitted, but static ownership/transforms and all
    265 absent model providers remain unresolved. Source residuals remain visible
    (30,706 strict violations, maximum 0.09950868785381317 raw units); the original
@@ -138,18 +142,26 @@ implementation keeps the repository's sequential-delegation policy.
 - Previous Goal chat is paused; its worker finished and reports no owned operation
   running. Its hourly auto-resume monitor is also paused.
 - The latest reviewed collision increments are linked in the handoffs below.
-- Task0026 is PARTIAL and was not accepted by outer review. Its two original reads
-  produced no collision brush. Preserve its pending files and external evidence;
-  do not treat synthetic passes as a successful original-data read.
-- Pending task0026 files: findings0018, handoff0026, and the reverse-engineering
-  index. The old project-state and docs-index edits are preserved in the historical
-  snapshots below. The old chat reports punctuation encoding defects in three
-  candidate documents; repair locally when reviewing them, without another audit cycle.
+- Task0026 is now reviewed and retained as historical PARTIAL evidence. Its two
+  original reads produced no brush; Task0028 later names the failed bounds.nonnull
+  predicate and recovers one. Punctuation is repaired; historical project-state
+  and docs-index proposals remain in the snapshots below. Accepting the historical
+  record does not establish original geometry or gameplay fidelity.
+- Task0037 is reviewed as PARTIAL: bounds/mask forwarding is qualified, ordinary
+  standing-player inputs remain unknown. All collision workers are stopped;
+  this documentation integration performs no original-game reads or inputs.
 - One task-local synthetic executable was overwritten during the old investigation;
   original identity/test receipts survive, but exact old bytes do not. This does
   not establish asset corruption or require redoing unrelated accepted work.
 
 ## Validation and essential references
+
+Collision documentation integration passes local link, heading, content and
+whitespace checks. Outer review verifies Task0026's fourteen retained fixed
+identities and Task0037's24 windows, three complete functions and66 worker-closure
+identities before review edits; nine forwarding checks rerun successfully without
+a process observer.
+No production code changed, so the unchanged workspace gates below are not rerun.
 
 Damage integration through `7e241cc` passes locked metadata (eleven members),
 all 167 workspace tests, formatting and warning-denying all-target Clippy.
@@ -201,7 +213,8 @@ README for the existing snapshot viewer commands. Do not reinstall working tools
 - [Rust brush collection](handoffs/0034-rust-brush-collection.md)
 - [Original moving-brush contract](handoffs/0035-original-brush-trace-consumer.md)
 - [Rust moving-brush query](handoffs/0036-rust-moving-brush-trace.md)
-- [Pending collision result](handoffs/0026-origins-collision-brush-boundary.md)
+- [Standing-player request investigation](handoffs/0037-original-standing-player-trace-request.md)
+- [Historical partial collision result](handoffs/0026-origins-collision-brush-boundary.md)
 - [Collision source/loader evidence](reverse_engineering/0018-origins-collision-brush-boundary.md)
 - [Fidelity status](fidelity/README.md)
 - [Historical project state](project-state-history-2026-10-05.md) and

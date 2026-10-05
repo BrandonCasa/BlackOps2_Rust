@@ -198,3 +198,16 @@ original Origins clipmap brush's plane/bounds boundary toward movement/collision
 Outer review accepts the scoped PARTIAL evidence and independent checks; no
 player collision rule or calibrated scene is inferred from static data.
 Data/access remains INVESTIGATING; overall/gameplay/visual fidelity UNKNOWN.
+
+The historical [collision brush boundary](0018-origins-collision-brush-boundary.md)
+is reviewed and retained as PARTIAL. Its two decoder attempts produce no accepted
+brush record; Task0028 later resolves the stage3 predicate and recovers one brush.
+Historical preservation exceptions remain explicit; documentation acceptance does
+not promote the failed observation or establish player semantics.
+
+The [standing-player request investigation](0025-original-standing-player-trace-request.md)
+is reviewed and retained as PARTIAL. Three qualified native functions forward
+caller-owned bounds/masks into the existing capsule-like builder; ordinary player
+association, standing extents, mask and stance selection remain unproved. Outer
+review verifies retained identities and reruns nine synthetic forwarding cases.
+Native forwarding is INVESTIGATING; standing-player/gameplay fidelity is UNKNOWN.
