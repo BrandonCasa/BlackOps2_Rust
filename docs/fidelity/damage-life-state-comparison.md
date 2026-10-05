@@ -34,3 +34,28 @@ uncontrolled attempt, not a successful original/Rust comparison. Numerical healt
 damage, death timing, player downing and coop revival remain unmeasured. Resume a
 controlled trial only after input/session ownership is resolved; verify attack
 binding and baseline speed before collecting repeatable outcomes.
+
+## Session control and solo follow-up
+
+The user subsequently granted this chat control and specified that ordinary
+bleedout requires more than one player; solo cannot supply that comparison.
+Two fresh Origins solo starts were observed in the same r5354 LAN window,
+each lobby showing one player and maximum one. Spawn observations showed round 1,
+score 500 and ammunition 8/32, with no purchase or combat input by this chat.
+The first later observation showed a result scoreboard with zero kills and one
+down. The second showed GAME OVER / survived one round, followed by the same
+zero-kill, one-down result. Attack contact and the exact lethal instant were not
+captured. These are solo terminal-outcome observations, not a numerical damage
+comparison, a controlled actor death or evidence for cooperative bleedout.
+
+During the second trial, console commands requested timescale 0.5 using both
+the user-suggested prefixed form and the direct form. Subsequent console
+completion displayed current/default timescale 1; a successful slowdown was
+not established. The direct timescale 1 command was submitted and completion
+again displayed current/default 1. No wall-clock/game-clock conversion or timing
+claim is admitted. Console closed; the session was left at the Origins lobby.
+No scripts were injected, process memory written or original files modified.
+
+Session ownership is now resolved. Cooperative comparison still requires a
+multiplayer setup with an eligible second player. Source/native investigation
+continues independently; it does not substitute for live cooperative observation.

@@ -22,9 +22,10 @@ formatting and warning-denying Clippy pass. The demo verifies 13 exact ordered
 outcomes and exits 0. Scoped fidelity is APPROXIMATE: native damage arithmetic,
 raw interaction/timing and live agreement remain unresolved. The first
 [original comparison attempt](fidelity/damage-life-state-comparison.md) is PARTIAL;
-unexplained input changes prevented controlled outcome attribution, so game input
-stopped pending session-control clarification. Next: investigate ordinary coop
-bleedout/terminal disposition while comparison ownership is resolved. Launch the
+unexplained input changes prevented controlled outcome attribution. The user then
+granted session control; solo follow-up observed game-over/results, but no numeric
+damage or coop bleedout comparison. Bleedout comparison needs multiple players.
+Next: investigate ordinary coop bleedout/terminal disposition. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
 ## Objective and working policy
