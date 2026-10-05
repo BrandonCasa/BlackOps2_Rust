@@ -36,8 +36,11 @@ network-frame interval is explicitly collapsed. A bounded external read-only
 of current/entity-max/client-max 100, with 15 synthetic checks. Its first live run
 accepted 966 unchanged baseline samples and refused 34 unstable samples; it did
 not establish damage sensitivity. Online mod-author notes corroborate baseline
-health 100 and melee damage 60, separately from live proof. Next resolve observer
-sensitivity with field-name diagnostics during one isolated hit, then qualify
+health 100 and melee damage 60, separately from live proof. The subsequent
+[diagnostic trial](reverse_engineering/damage-life-state-09.md) accepted 972 unchanged
+100/100/100 samples and refused 28 solely for changing local-state pointers;
+irrelevant flag changes do not explain that run. Next trace actual native player
+damage writes against the observer's selected entity table/current field, then qualify
 timing admission and compare in multiplayer; solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
