@@ -78,6 +78,12 @@ Identity hashes are declarations until independently checked. Original runtime
 ownership, player dimensions, masks and contact rules remain unresolved; these
 queries are not yet integrated into player movement.
 
+The collection report also runs three single-brush float32 moving point queries
+per positive/zero-side representative using the
+[recovered native contract](docs/architecture/moving-brush-trace.md). Their zero
+extents/all-bits mask are explicit diagnostic inputs. Native runtime output
+comparison and stationary/world traces remain unverified or unsupported.
+
 Render a user-created asymmetric fixture, or one explicitly selected diagnostic
 snapshot, to a **new** external directory:
 

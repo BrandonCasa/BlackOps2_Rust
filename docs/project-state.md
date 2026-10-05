@@ -32,8 +32,10 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
 - `crates/physics`: safe owned convex halfspaces and deterministic point-segment
   clipping across all 8,417 selected diagnostic map-leaf brushes, including 3,178
   zero-side axial hulls. Queries preserve coefficients and use exact entry/source-key
-  ties; precision diagnostics stay separate. Original runtime ownership, player
-  traces and live source-shape comparisons remain unresolved.
+  ties; precision diagnostics stay separate. A separate single moving-brush adapter
+  now implements the evidenced native scalar-f32 request/contact contract with
+  explicit shape, mask and incoming result. World/player traces and runtime output
+  comparisons remain unresolved.
 - `tools/comparison_tools/geometry_viewer`: renders three offscreen raw-coordinate
   solid/wireframe views and a windowed perspective inspection scene with diagnostic
   keyboard flight/look/reset. Accepted external snapshot: 191,259 positions,
@@ -65,16 +67,20 @@ measured camera conditions and equivalent reconstructed comparisons remain pendi
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the
    accepted external snapshot instead of restarting asset extraction.
-2. Implement the task0035 finite-f32 single moving-brush contract using the existing
-   admitted source record and explicit shape, mask and incoming result. The authentic
+2. Qualify the separate stationary wrapper and standing-player request boundary,
+   then assemble evidence-backed collision for player movement. Task0036 implements
+   the finite-f32 single moving-brush contract on existing admitted records. The authentic
    native consumer clips lower XYZ, upper XYZ, then sides; zero-side records retain
    the axial constraints and stored vertices are not consulted. It uses capsule-like
    support, an entry-only 0.125 raw-unit allowance, distinct startsolid/allsolid/contact
    writes and ordered plane ties. Preserve the unusual upper-Z result overwrite.
    The existing f64 queries remain diagnostic; their arithmetic and tie rules are
    not the native contract. Equal centered endpoints take an uninvestigated wrapper
-   route and are outside the next moving-only adapter. See
+   route and are rejected by the moving-only adapter. See
    [original contract](reverse_engineering/0024-original-brush-trace-consumer.md).
+   Six retained positive/zero point crossings agree exactly with the independent
+   scalar reconstruction, not native execution. Player dimensions/masks are explicit
+   unknowns; no general box support or world aggregation is claimed.
    All 8,417 candidates remain admitted, but static ownership/transforms and all
    265 absent model providers remain unresolved. Source residuals remain visible
    (30,706 strict violations, maximum 0.09950868785381317 raw units); the original
@@ -125,6 +131,13 @@ implementation keeps the repository's sequential-delegation policy.
 
 ## Validation and essential references
 
+Task0036 passes locked/offline metadata (eight members), all 127 workspace tests,
+formatting and strict all-target Clippy. Four external tests are ignored by default;
+the new retained-input opt-in separately passes. Outer review repeats that opt-in,
+its six exact independent-model comparisons and the retained collection inspector.
+All 8,417 source records/words and residual totals remain unchanged. No new original
+reads or unsafe code; worker execution is stopped. Native outputs, player movement,
+world/stationary traces and performance comparisons remain unverified.
 Task0035 recovers the native moving-brush/request contract through a named builtin
 and direct call chain. Fifteen complete functions (8,515 bytes), registration and
 constant identities requalify with read-only handles. Twenty-four synthetic f32
@@ -132,32 +145,15 @@ versus rational cases and eight registration checks pass. Outer review independe
 checks retained span hashes and reruns all 24 analytic cases. No native invocation,
 runtime output comparison or player default is established; unchanged Cargo gates
 were not rerun. Worker execution is stopped and handles are closed.
-Task0034 integrates the bounded collection reader, owned hull sequence and inspector.
-All 114 workspace tests, locked metadata, formatting and strict Clippy pass; three
-opt-in external tests separately pass. Outer review reruns both collection external
-tests and the retained collection/legacy-brush inspectors successfully. Native
-qualification passes 25 actual cases and 13 independent rejection cases; the single
-original read retains all 17,108 sides and 68,642 vertices. Child/threads are cleaned and prior
-identities preserved. Original player collision remains UNKNOWN; no game trace,
-GPU integration or performance comparison is claimed.
-Task0033 passes 39 actual native cases and 16 independent checker rejection cases.
-Its single original read retains a 2,634,532-byte metadata graph; replay agrees on
-8,417 candidate IDs, 14,551 reached nodes and 40,004 charged work units. Box overlap
-is absent under the diagnostic traversal. Input identities agree and child/threads
-are cleaned. Tasks0031/0032 resolve the rejected tuple and separate box association;
-task0030's 23 native/nine checker cases remain synthetic evidence.
-These documentation-only results add no Rust implementation; unchanged workspace
-gates were not repeated.
-Task0029 adds brush admission and executable segment queries: all 92 workspace
-tests, locked metadata, formatting and Clippy pass. The opt-in external record
-test separately passes every raw word/metadata check; outer original inspector
-execution also passes. Original player/gameplay fidelity remains unverified.
-Task0027 adds executable inspection controls: all 80 workspace tests, locked
-metadata, formatting and Clippy pass. Outer bounded window checks on synthetic
-and accepted external geometry each pass at35 updates with scripted input,
-prepared GPU mesh/pipelines and foreground960x720 readback. Legacy synthetic
-offscreen rendering also passes on Vulkan. Physical keyboard routing, sustained
-use and original comparisons remain unverified. Run applicable gates:
+Retained task0034 geometry contains all 17,108 sides and 68,642 vertices; its
+producer/checker and task0033 candidate replay were reviewed. The diagnostic graph
+reaches 14,551 nodes and excludes the separately identified box. Full source and
+test receipts are linked in their handoffs; those results do not prove runtime
+static ownership or the unsupported collision families.
+The accepted task0027 window checks pass at35 updates on synthetic and external
+geometry with scripted input, GPU mesh/pipeline readiness and foreground960x720
+readback. Legacy offscreen rendering passes on Vulkan. Physical keyboard routing,
+sustained use and original comparisons remain unverified. Run applicable gates:
 `cargo metadata --locked
 --no-deps --format-version 1`, `cargo test --workspace --locked`, `cargo fmt --all
 -- --check`, and `cargo clippy --workspace --all-targets --locked -- -D warnings`.
@@ -177,6 +173,7 @@ README for the existing snapshot viewer commands. Do not reinstall working tools
 - [Diagnostic map-leaf membership](handoffs/0033-origins-map-leaf-brush-membership.md)
 - [Rust brush collection](handoffs/0034-rust-brush-collection.md)
 - [Original moving-brush contract](handoffs/0035-original-brush-trace-consumer.md)
+- [Rust moving-brush query](handoffs/0036-rust-moving-brush-trace.md)
 - [Pending collision result](handoffs/0026-origins-collision-brush-boundary.md)
 - [Collision source/loader evidence](reverse_engineering/0018-origins-collision-brush-boundary.md)
 - [Fidelity status](fidelity/README.md)

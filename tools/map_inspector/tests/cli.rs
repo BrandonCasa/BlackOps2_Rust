@@ -398,6 +398,7 @@ fn synthetic_collection() -> Vec<u8> {
     use serde_json::{Value, json};
     let mut brush: Value = serde_json::from_slice(&synthetic_brush()).unwrap();
     brush["schema"] = json!(34);
+    brush["contents"] = json!(1);
     let mut axial = brush.clone();
     axial["brush_index"] = json!(0);
     axial["side_count"] = json!(0);
@@ -429,6 +430,8 @@ fn collection_mode_queries_all_records_reports_zero_side_discrepancy_and_redacts
         "vertex_set_max_error_raw_units=Some(1.0) f32_joint_witness=Unavailable",
         "diagnostic_six_axial_endpoints_source_shape_unproved",
         "original_player_collision_fidelity: UNKNOWN",
+        "moving_f32_positive_representative: single_brush point_subset zero_extents all_bits_mask incoming_fraction=1 stationary=unsupported original_output_comparison=unverified",
+        "moving_f32_zero_side_representative_x_crossing: status=entry fraction=0.187500000 startsolid=false allsolid=false normal_present=true plane=axial",
     ] {
         assert!(emitted.contains(expected), "missing {expected}: {emitted}");
     }

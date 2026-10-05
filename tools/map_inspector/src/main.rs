@@ -9,12 +9,13 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use bo2_assets::brush_collection::{CollectionError, read_brush_collection};
-use bo2_assets::brush_snapshot::{BrushError, read_brush_snapshot};
+use bo2_assets::brush_snapshot::{BrushError, BrushSnapshot, read_brush_snapshot};
 use bo2_assets::geometry_snapshot::{GeometrySnapshot, SnapshotError, read_geometry_snapshot};
 use bo2_physics::{
-    DVec3,
+    DVec3, Vec3,
     brush::{Convention, ConvexBrush, QueryError},
     brush_collection::BrushCollection,
+    moving_brush_trace::{ContactPlane, MovingBrushRequest, TraceEffect, TraceResult},
 };
 
 const HELP: &str = "Usage: bo2-map-inspector [--] <diagnostic-snapshot-file>
@@ -37,6 +38,9 @@ No source coordinates, bits, paths or materials are emitted.
 All selected records, including diagnostic zero-side axial hulls, participate.
 Source identity hashes are declarations; standalone inspection cannot authenticate
 the original or prove runtime world ownership. Unsupported families stay explicit.
+Representatives also exercise one-brush f32 moving point queries with diagnostic
+zero extents/all-bits masks. Stationary queries and original output comparison
+remain unsupported/unverified; these are not collection/world traces.
 
 Exit codes: 0 success/help, 1 input/inspection/output failure, 2 invalid arguments.";
 
@@ -305,6 +309,7 @@ fn inspect_brush_collection(path: &Path) -> Result<(), InspectorError> {
             .precision_diagnostics(s)
             .map_err(InspectorError::Query)?;
         writeln!(output,"{name}_precision: source_vertices={} reconstructed_vertices={} strict_violations={} old_tolerant_violations={} vertex_set_max_error_raw_units={:?} f32_joint_witness={:?}\n{name}_geometry: {}",s.vertices_bits().len(),d.reconstructed_vertices,d.strict_violations,d.old_tolerant_violations,d.vertex_set_max_error,d.rounding_witness,if s.sides().is_empty(){"diagnostic_six_axial_endpoints_source_shape_unproved"}else{"preserved_sides_plus_six_axial_endpoints"}).map_err(output_error)?;
+        write_moving_probes(&mut output, name, s).map_err(output_error)?;
         let [lo, hi] = hull.endpoints();
         let center = (lo + hi) / 2.0;
         let span = hi - lo;
@@ -340,6 +345,64 @@ fn inspect_brush_collection(path: &Path) -> Result<(), InspectorError> {
                 None => writeln!(output, "probe_{name}_{probe}: no_hit"),
             }
             .map_err(output_error)?;
+        }
+    }
+    Ok(())
+}
+fn write_moving_probes(
+    output: &mut impl Write,
+    name: &str,
+    brush: &BrushSnapshot,
+) -> io::Result<()> {
+    writeln!(
+        output,
+        "moving_f32_{name}: single_brush point_subset zero_extents all_bits_mask incoming_fraction=1 stationary=unsupported original_output_comparison=unverified"
+    )?;
+    let lo = brush.mins_bits().map(f32::from_bits);
+    let hi = brush.maxs_bits().map(f32::from_bits);
+    let center = std::array::from_fn::<_, 3, _>(|axis| (lo[axis] + hi[axis]) * 0.5);
+    for (axis, label) in ["x", "y", "z"].into_iter().enumerate() {
+        let mut start = center;
+        let mut end = center;
+        let span = hi[axis] - lo[axis];
+        start[axis] -= span;
+        end[axis] += span;
+        let mut result = TraceResult {
+            normal: Vec3::ZERO,
+            fraction: 1.0,
+            surface_flags: 0,
+            contents: 0,
+            startsolid: false,
+            allsolid: false,
+            opaque_flag_2c: 0,
+        };
+        let effect = MovingBrushRequest::new(
+            Vec3::from_array(start),
+            Vec3::from_array(end),
+            Vec3::ZERO,
+            Vec3::ZERO,
+            u32::MAX,
+        )
+        .and_then(|request| request.trace(brush, &mut result));
+        match effect {
+            Ok(effect) => {
+                let (status, plane) = match effect {
+                    TraceEffect::Entry(ContactPlane::Axial { .. }) => ("entry", "axial"),
+                    TraceEffect::Entry(ContactPlane::Side { .. }) => ("entry", "side"),
+                    TraceEffect::Inside => ("inside", "none"),
+                    TraceEffect::Rejected => ("rejected", "none"),
+                    TraceEffect::MaskedOut => ("masked_out", "none"),
+                };
+                writeln!(
+                    output,
+                    "moving_f32_{name}_{label}_crossing: status={status} fraction={:.9} startsolid={} allsolid={} normal_present={} plane={plane}",
+                    result.fraction,
+                    result.startsolid,
+                    result.allsolid,
+                    matches!(effect, TraceEffect::Entry(_))
+                )?;
+            }
+            Err(error) => writeln!(output, "moving_f32_{name}_{label}_crossing: {error}")?,
         }
     }
     Ok(())

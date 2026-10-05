@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
-//! Finite owned mathematical brush geometry. No player/runtime collision rules.
+//! Diagnostic brush geometry and native-evidenced single moving-brush queries.
 pub mod brush;
 pub mod brush_collection;
-pub use bevy::math::DVec3;
+pub mod moving_brush_trace;
+pub use bevy::math::{DVec3, Vec3};

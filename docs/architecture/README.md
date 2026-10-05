@@ -64,6 +64,12 @@ every hull and resolve equal entry parameters by source key. The inspector adds
 remain explicit. Hashes are caller-checkable declarations, not authentication.
 See the [collection boundary](diagnostic-brush-collection.md).
 
+The [single moving-brush query](moving-brush-trace.md) borrows the same admitted
+record and implements the recovered scalar-f32 capsule-like support/contact rules.
+Caller shape, mask, incoming result and aggregation order remain explicit; stationary
+and full world/player queries are outside this boundary. Existing f64 diagnostic
+queries and precision analysis remain separate from that native-evidenced adapter.
+
 Rendering now contains the consuming [diagnostic Mesh adapter](diagnostic-mesh-adapter.md).
 It moves validated position/index vectors into Bevy Float32x3/U32 TriangleList
 storage with MAIN_WORLD usage and returns every ordered surface record unchanged.
