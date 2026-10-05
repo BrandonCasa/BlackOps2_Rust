@@ -25,7 +25,11 @@ raw interaction/timing and live agreement remain unresolved. The first
 unexplained input changes prevented controlled outcome attribution. The user then
 granted session control; solo follow-up observed game-over/results, but no numeric
 damage or coop bleedout comparison. Bleedout comparison needs multiple players.
-Next: investigate ordinary coop bleedout/terminal disposition. Launch the
+Reviewed [bleedout evidence](reverse_engineering/damage-life-state-06.md) finds a
+source-default 45-second countdown, post-countdown deferral during active revival
+and ordinary spectator disposition. Final spectator health remains unqualified.
+Next implement the resolved episode-bound terminal transition and preserve this
+health uncertainty. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
 ## Objective and working policy
