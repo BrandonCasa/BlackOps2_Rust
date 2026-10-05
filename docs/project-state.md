@@ -15,17 +15,20 @@ Implemented: safe Bevy Vitality and fixed-step ordered commands for resolved dam
 admitted coop downing, revival begin/cancel/completion and episode-bound expiry.
 Checked tokens reject stale inputs; active revival defers expiry. Ordinary no-bonus
 revival restores 100/100; human terminal health stays positive pending spectator
-qualification. Episode-bound Bevy timing now supplies the ordinary coop countdown
-and deferred polling. Solo/last-player lethal policy, raw impacts/interactions, revive clocks,
+qualification. Episode/attempt-bound Bevy timing supplies the ordinary coop countdown,
+deferred polling and sampled revival progress. Solo/last-player lethal policy, raw impacts/interactions,
 regen, perks and spectator/session assembly remain outside the admitted boundary.
 ActorDead current health is explicitly unknown (`None`); signed pre-notification
 subtraction is a separate typed result. See [correction handoff](handoffs/damage-life-state-19.md).
 
-Latest executable validation: 10 locked metadata members, all 111 workspace tests,
-formatting and warning-denying Clippy pass. Outer independently repeated 31 focused
+Latest executable validation: 10 locked metadata members, all 119 workspace tests,
+formatting and warning-denying Clippy pass. Outer independently repeated 39 focused
 gameplay/Origins tests and the demo: 21 ordered outcomes plus countdown through active
 revival, deferral at 45s and cancellation/poll termination at 45.1s. See
-[clock handoff](handoffs/damage-life-state-20.md); timing remains APPROXIMATE pending coop comparison.
+[bleedout handoff](handoffs/damage-life-state-20.md) and
+[sampled revive handoff](handoffs/damage-life-state-22.md). Timed revive restores100/100
+after an admitted final wait despite release; downed reviver cancels before success.
+Ideal3s/50ms Duration timing is APPROXIMATE, not proof of60 original float iterations.
 
 Evidence: [source](reverse_engineering/damage-life-state-01.md),
 [revival](reverse_engineering/damage-life-state-03.md),

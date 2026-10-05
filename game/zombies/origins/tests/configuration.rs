@@ -44,3 +44,10 @@ fn ordinary_coop_source_timing_is_sampled45_seconds_and100_millisecond_poll() {
         std::time::Duration::from_millis(100)
     );
 }
+
+#[test]
+fn ordinary_revive_timing_is_explicit_ideal_duration_adaptation() {
+    let timing = bo2_origins::ordinary_coop_revive_timing().unwrap();
+    assert_eq!(timing.duration(), std::time::Duration::from_secs(3));
+    assert_eq!(timing.interval(), std::time::Duration::from_millis(50));
+}

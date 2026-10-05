@@ -74,7 +74,8 @@ populate an actor stage. This adds no second queue, entity registry or dependenc
 Begin requires a human Downed target, its current episode reference and an externally
 admitted Standing human reviver Entity. The fixed system also checks current reviver
 existence/Standing state. Raw same-team/use/touch/facing/sight, eligibility modifiers
-and timing are caller admission; no automatic3-second progress is implemented.
+are caller admission. The optional progress clock below supplies phased timing;
+this resolved transition does not implement raw interaction.
 Self-revive, active-attempt replacement and nonhuman/standing targets reject.
 An active attempt must be cancelled before a new begin is admitted.
 
@@ -173,7 +174,7 @@ active deferral, cancel/retry, order permutations, stale/wrong/missing identity,
 positive terminal health and counter/numeric maxima. Actor tests also cover
 h-1/h/h+1, signed large differences, no later floor, unknown final health and
 deterministic stage-preserving repeats. These establish synthetic correctness
-and engine integration. Raw revival interaction,3-second sampling, live bleedout
+and engine integration. Raw revival interaction, live revival/bleedout
 timing comparisons, spectator/respawn, regen, perks and solo/session-end remain next tasks.
 
 
@@ -217,5 +218,47 @@ cancellation then poll/terminal at45.1seconds, and clock retirement. It uses the
 queue and `Time<Fixed>` delta; render pacing tests replay the same fixed steps with
 0/1/2/3-step updates. Tests also cover the45-second boundary, repeated deferral,
 atomic receipts/ID rejection, stale/revived/redowned clocks, missing/wrong identity,
-component retirement and invalid timing. This adds no revive-progress clock, raw
+component retirement and invalid timing. This expiry helper adds no raw
 interaction, regen, solo/session-end or spectator policy.
+
+
+## Ordinary coop sampled revival progress
+
+`revive_clock::ReviveClock` binds one checked target/episode/attempt token and
+validated restoration to a Bevy once Timer. `ReviveTiming` admits positive duration
+and interval with interval no longer than duration; Origins supplies an explicit
+ideal Duration adaptation of source03's3s threshold and0.05s waits. It does not
+emulate floating accumulation or VM scheduling. **60 ideal waits in this diagnostic
+are not evidence for60 original loop iterations**; precision, scheduling and fixed
+quantization remain APPROXIMATE pending multiplayer comparison.
+
+Assembly samples resolved eligibility at AwaitingEligibility, before admitting a
+wait. The helper cannot determine held use, touch/facing, team, tool, traces or
+trigger arbitration. Waiting rejects another eligibility sample atomically, so
+release during the final admitted wait does not create a fabricated continuous
+cancellation rule. After wait completion, fresh supplied reviver state must be a
+Standing human; absent/nonhuman/downed revivers yield cancellation before threshold
+success. Otherwise one interval is credited, capped at the duration. Oversized delta
+cannot speculate several waits/eligibility samples; excess elapsed time is discarded.
+An unfinished attempt returns to the sample phase; a new token/clock starts at0.
+
+Ready Cancel/Complete decisions enter the existing queue under assembly-selected
+producer order and globally increasing IDs. They mutate no health directly; qualified
+restoration comes from Origins/source04. One in-flight decision blocks production.
+Only matching ID/target/result kind and restored values acknowledge completion;
+matching lifecycle errors retire, while unrelated receipts/queue failures are atomic.
+Target/reviver identity mistakes reject normally. Missing/stale episode/attempt or
+unsupported lifecycle retires the clock. Assembly must retire clocks/queued requests,
+old results and held tokens before same-Entity component replacement; no generation
+claim covers component replacement. Raw damage/cancel/complete/sampling order remains
+explicit, including a reviver becoming downed after a timing decision: existing queue
+completion admission checks the current Standing reviver again.
+
+The demo retains21 resolved assertions and the elapsed bleedout case, then runs an
+actual50ms fixed-time revival to ideal3seconds, admits the final wait before release,
+and verifies queued100/100 restoration/clock retirement. Tests cover cancellation/
+restart, final-wait release versus downed reviver, overshoot, stale/missing identities,
+receipt/value mismatch, bounds/configuration and render-pacing replay. The integrated
+replay repeatedly defers already-expired bleedout, then explicitly queues completion
+before a same-step poll; successful revival makes that poll stale. No hidden expiry
+priority, auto/staff/perk revival,100ms initiation thinker or raw interaction is added.

@@ -300,6 +300,7 @@ fn main() -> DemoResult<()> {
         "PASS: down/cancel/restart/revive100/redown; stale inputs rejected; expiry deferred then terminal after cancel; positive terminal health preserved; actor dead with unknown final health and explicit signed pre-notification subtraction. Fidelity APPROXIMATE: ordinary positive player subtraction statically qualified; actor direct subtraction statically qualified before notifications; final callback health unknown; active native dispatch unqualified; scoped live player100->40 agrees with admitted60; full/coop/actor comparisons incomplete; revive100 combines Steam script and qualified Plutonium native evidence; terminal network-frame interval collapsed; final spectator health unknown; coop comparison pending. Initial health and teammate/interaction/expiry timing are admitted demonstration inputs; no raw revive interaction."
     );
     timed_bleedout_demo()?;
+    timed_revive_demo()?;
     Ok(())
 }
 
@@ -467,6 +468,173 @@ fn timed_bleedout_demo() -> DemoResult<()> {
     }
     println!(
         "PASS timed coop:450 fixed100ms steps count through active revival to Deferred at45s; ordered cancel then100ms poll terminates at45.1s; clock retired. APPROXIMATE ideal simulation/quantization and collapsed network-frame cleanup; live coop comparison pending."
+    );
+    Ok(())
+}
+
+#[derive(Resource)]
+struct ReviveDemo {
+    target: Entity,
+    reviver: Entity,
+    next: u64,
+    eligibility: ReviveEligibility,
+    receipts: Vec<(Duration, LifeCommandResult)>,
+    error: Option<String>,
+}
+fn produce_revive(
+    time: Res<Time<Fixed>>,
+    vitality: Query<&Vitality>,
+    mut clocks: Query<&mut ReviveClock>,
+    mut queue: ResMut<LifeCommandQueue>,
+    mut demo: ResMut<ReviveDemo>,
+) {
+    if demo.error.is_some() {
+        return;
+    }
+    let target = demo.target;
+    let reviver = demo.reviver;
+    let Ok(mut clock) = clocks.get_mut(target) else {
+        demo.error = Some("missing revive clock".into());
+        return;
+    };
+    if clock.is_retired() {
+        return;
+    }
+    let v = vitality.get(target).ok().copied();
+    let rv = vitality.get(reviver).ok().copied();
+    if clock.awaits_eligibility()
+        && let Err(error) = clock.sample_eligibility(target, v, reviver, demo.eligibility)
+    {
+        demo.error = Some(error.to_string());
+        return;
+    }
+    match clock.tick(target, v, reviver, rv, time.delta()) {
+        Ok(Some(_)) => {
+            let Some(next) = demo.next.checked_add(1) else {
+                demo.error = Some("revive demo request ID exhausted".into());
+                return;
+            };
+            if let Err(error) = clock.enqueue(&mut queue, demo.next) {
+                demo.error = Some(error.to_string());
+                return;
+            }
+            demo.next = next;
+        }
+        Ok(None) => {}
+        Err(error) => demo.error = Some(error.to_string()),
+    }
+}
+fn acknowledge_revive(
+    time: Res<Time<Fixed>>,
+    mut clocks: Query<&mut ReviveClock>,
+    mut results: ResMut<LifeCommandResults>,
+    mut demo: ResMut<ReviveDemo>,
+) {
+    for receipt in results.drain() {
+        match clocks.get_mut(demo.target) {
+            Ok(mut clock) if clock.in_flight() == Some(receipt.id) => {
+                if let Err(error) = clock.acknowledge(receipt) {
+                    demo.error = Some(error.to_string());
+                }
+            }
+            _ => demo.error = Some("unexpected timed revive receipt".into()),
+        }
+        demo.receipts.push((time.elapsed(), receipt));
+    }
+}
+fn timed_revive_demo() -> DemoResult<()> {
+    let mut app = bo2_core::headless_app(ScheduleRunnerPlugin::run_once());
+    app.add_plugins(LifeStatePlugin);
+    app.insert_resource(Time::<Fixed>::from_duration(Duration::from_millis(50)));
+    app.insert_resource(TimeUpdateStrategy::FixedTimesteps(0));
+    app.update();
+    let target = app
+        .world_mut()
+        .spawn(bo2_origins::unperked_human(
+            100,
+            PlayerLethalPolicy::DownWithEligibleTeammate,
+        )?)
+        .id();
+    let reviver = app
+        .world_mut()
+        .spawn(bo2_origins::unperked_human(
+            100,
+            PlayerLethalPolicy::DownWithEligibleTeammate,
+        )?)
+        .id();
+    let mut v = *app
+        .world()
+        .get::<Vitality>(target)
+        .ok_or("missing revive target")?;
+    v.apply(ResolvedDamage::new(100)?)?;
+    let token = v.begin_revive(
+        target,
+        reviver,
+        v.downed_episode().ok_or("missing revive episode")?,
+    )?;
+    let clock = ReviveClock::new(
+        target,
+        v,
+        token,
+        bo2_origins::ordinary_coop_revive_timing()?,
+        bo2_origins::ordinary_coop_revive_restoration()?,
+    )?;
+    app.world_mut().entity_mut(target).insert((v, clock));
+    app.insert_resource(ReviveDemo {
+        target,
+        reviver,
+        next: 0,
+        eligibility: ReviveEligibility::Eligible,
+        receipts: Vec::new(),
+        error: None,
+    });
+    app.add_systems(FixedUpdate, produce_revive.before(ApplyLifeCommands));
+    app.add_systems(FixedUpdate, acknowledge_revive.after(ApplyLifeCommands));
+    app.insert_resource(TimeUpdateStrategy::FixedTimesteps(1));
+    for _ in 0..59 {
+        app.update();
+    }
+    if !app.world().resource::<ReviveDemo>().receipts.is_empty() {
+        return Err("ideal revive completed before3s".into());
+    }
+    let v = *app
+        .world()
+        .get::<Vitality>(target)
+        .ok_or("missing final-wait target")?;
+    app.world_mut()
+        .get_mut::<ReviveClock>(target)
+        .ok_or("missing final-wait clock")?
+        .sample_eligibility(target, Some(v), reviver, ReviveEligibility::Eligible)?;
+    // Assembly reports release after admitting the final wait. No continuous rule.
+    app.world_mut().resource_mut::<ReviveDemo>().eligibility = ReviveEligibility::Ineligible;
+    app.update();
+    let demo = app.world().resource::<ReviveDemo>();
+    if let Some(error) = &demo.error {
+        return Err(error.clone().into());
+    }
+    if demo.receipts.len() != 1
+        || demo.receipts[0].0 != Duration::from_secs(3)
+        || demo.receipts[0].1.id != 0
+        || demo.receipts[0].1.target != target
+        || demo.receipts[0].1.result
+            != Ok(LifeCommandOutcome::Revived {
+                current: 100,
+                maximum: 100,
+            })
+        || app
+            .world()
+            .get::<Vitality>(target)
+            .map(|v| (v.state(), v.current(), v.maximum()))
+            != Some((LifeState::Standing, Some(100), 100))
+        || !app
+            .world()
+            .get::<ReviveClock>(target)
+            .is_some_and(ReviveClock::is_retired)
+    {
+        return Err("timed revive verification failed".into());
+    }
+    println!(
+        "PASS timed revive: ideal Duration progress3s with50ms admitted waits; release in final wait does not resample eligibility; ordered completion restores100/100 and retires attempt clock. APPROXIMATE float accumulation/VM scheduling/quantization;60 ideal waits here are not proof of60 original iterations; live coop comparison pending."
     );
     Ok(())
 }

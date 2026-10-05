@@ -9,6 +9,11 @@
 //! See docs/reverse_engineering/damage-life-state-{01,06,10,14,15}.md and
 //! docs/fidelity/damage-life-state-comparison.md for evidence and limits.
 
+pub mod revive_clock;
+pub use revive_clock::{
+    ReviveClock, ReviveClockError, ReviveDecision, ReviveEligibility, ReviveTiming,
+};
+
 pub mod bleedout;
 pub use bleedout::{BleedoutClock, BleedoutClockError, BleedoutTiming};
 

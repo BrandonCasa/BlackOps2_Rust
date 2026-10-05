@@ -6,8 +6,8 @@
 use std::time::Duration;
 
 use bo2_gameplay::{
-    BleedoutClockError, BleedoutTiming, LifeStateError, PlayerLethalPolicy, ReviveRestoration,
-    Vitality,
+    BleedoutClockError, BleedoutTiming, LifeStateError, PlayerLethalPolicy, ReviveClockError,
+    ReviveRestoration, ReviveTiming, Vitality,
 };
 
 /// Unperked health-reboot maximum, with no persistent health bonus.
@@ -38,4 +38,10 @@ pub fn fallback_ordinary_actor(current: u32) -> Result<Vitality, LifeStateError>
 /// Runtime dvar equivalence and multiplayer timing comparison remain unqualified.
 pub fn ordinary_coop_bleedout_timing() -> Result<BleedoutTiming, BleedoutClockError> {
     BleedoutTiming::new(Duration::from_secs(45), Duration::from_millis(100))
+}
+
+/// Ideal Duration adaptation of source03's3s threshold and0.05s waits.
+/// Exact original float accumulation/VM step count and live coop timing unqualified.
+pub fn ordinary_coop_revive_timing() -> Result<ReviveTiming, ReviveClockError> {
+    ReviveTiming::new(Duration::from_secs(3), Duration::from_millis(50))
 }
