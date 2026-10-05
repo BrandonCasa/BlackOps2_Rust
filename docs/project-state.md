@@ -46,15 +46,18 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
 
 ## Immediate implementation direction
 
-In the isolated appearance worktree, next recover the selected opaque material's
-actual shader arguments, normal/tangent encodings, states and lighting dependencies;
-implement its supported equations before expanding material families and world
-coverage. Keep gray diagnostics. Remaining 6,468 surfaces and original shading /
-lighting are unsupported. See [first texture increment](handoffs/materials-0001-textured-surface.md).
-Outer workspace tests, locked metadata, formatting and Clippy pass for this increment;
-actual GPU checks verify the texture, mip chain and synthetic UV orientation.
+The reviewed first texture increment and selected opaque material contract are
+integrated. All five selected image dependencies resolve; shader equations are
+recovered, but packed normal/tangent/lightmap-UV formats, runtime technique
+selection, global bindings and transfer conventions remain unproved. Original
+shaded-scene admission is unsupported. Remaining 6,468 surfaces and complete
+original shading/lighting are unsupported; gray diagnostics remain available.
+See [texture increment](handoffs/materials-0001-textured-surface.md) and
+[material contract](handoffs/materials-0002-opaque-contract.md). The appearance
+worker is stopped; this appearance goal pauses after integration at the user's
+request. Further appearance implementation requires resuming that work.
 An original spawn observation was captured externally through Plutonium LAN;
-measured camera conditions and equivalent reconstructed comparisons are still pending.
+measured camera conditions and equivalent reconstructed comparisons remain pending.
 
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the

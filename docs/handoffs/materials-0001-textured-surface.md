@@ -40,6 +40,11 @@ VALIDATION:
 - User-created four-quadrant DDS/plane GPU run exits0 at20updates; rawX quadrant
   ordering red/green above blue/white inspected. No original comparison claimed.
 
+- Main integration preserves the eight-member physics graph and workspace serde pins.
+- Combined main gates pass: locked metadata,100tests (one external opt-in ignored),
+  formatting, Clippy workspace/all-targets -Dwarnings and diff check. Original GPU
+  receipts above were retained; no new original comparison was performed in integration.
+
 FIDELITY STATUS:
 INVESTIGATING
 
