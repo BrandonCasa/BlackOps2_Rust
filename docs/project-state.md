@@ -64,13 +64,15 @@ measured camera conditions and equivalent reconstructed comparisons remain pendi
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the
    accepted external snapshot instead of restarting asset extraction.
-2. Resolve the one-past terminal identifier before selecting static-world collision.
-   Task0031 captures embedded provider0/node14967: its sole identifier8417 equals
-   both brush counts8417, with contents0 and a list outside both counted index pools.
-   It is invalid in both ranges; a larger embedded pool does not explain it.
-   An empty sentinel or unused-node interpretation remains unproved. Establish
-   the producer/consumer convention and owner reachability before world admission.
-   No membership record or static collection is admitted.
+2. Admit ordinary owner membership while retaining the separate box association.
+   Task0032 links box_model's raw leaf root to the last embedded node 14,967 and
+   its terminal list containing 8,417, outside the ordinary brush range 0..8,417.
+   The separate box brush is outside that pool; decoded pointers do not equal
+   pool ends. None of 4,791 map leaves or 265 ordinary models directly names this
+   root. Preserve the association explicitly and reject it from ordinary selection
+   if a candidate owner closure reaches it; do not silently skip its identifier.
+   Transitive reachability, T6 traversal/runtime semantics and null model-provider
+   resolution remain unproved. No membership record or static collection is admitted.
    Original brush producer/runtime rounding also remains unverified.
 3. Measure the player hull, collision masks and step/slide rules before integrating
    movement. Point-segment queries do not establish original player traces.
@@ -118,10 +120,11 @@ implementation keeps the repository's sequential-delegation policy.
 
 ## Validation and essential references
 
-Task0031 passes 12 native diagnostic cases and 12 malformed-record checks.
-Its single original read captures the exact rejected tuple with the range guard
-unchanged; it admits no membership. Input identities agree and child/threads are
-cleaned. Task0030's 23 native/nine checker cases remain synthetic evidence.
+Task0032 passes 18 box-specific and 12 retained native cases, plus 24 validator
+rejection cases. Its single original read confirms the box-field/root/list relation
+with the ordinary range guard unchanged; it admits no membership. Input identities
+agree and child/threads are cleaned. Task0031 captured the exact rejected tuple;
+task0030's 23 native/nine checker cases remain synthetic evidence.
 These documentation-only results add no Rust implementation; unchanged workspace
 gates were not repeated.
 Task0029 adds brush admission and executable segment queries: all 92 workspace
@@ -149,6 +152,7 @@ README for the existing snapshot viewer commands. Do not reinstall working tools
 - [Rust brush collision boundary](handoffs/0029-rust-brush-collision.md)
 - [Unresolved world-brush membership](handoffs/0030-origins-world-brush-membership.md)
 - [One-past leaf-brush identifier](handoffs/0031-origins-leaf-brush-index-namespace.md)
+- [Separate box-brush association](handoffs/0032-origins-box-brush-membership.md)
 - [Pending collision result](handoffs/0026-origins-collision-brush-boundary.md)
 - [Collision source/loader evidence](reverse_engineering/0018-origins-collision-brush-boundary.md)
 - [Fidelity status](fidelity/README.md)
