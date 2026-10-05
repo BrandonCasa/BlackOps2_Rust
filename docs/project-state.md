@@ -55,7 +55,11 @@ The [mirror trial](reverse_engineering/damage-life-state-13.md) confirms live fi
 sensitivity: 43 accepted samples at 40/40, with maxima 100/100, out of 957 accepted
 and 43 refused records. Next repeat an isolated-hit comparison and qualify one
 ordinary actor terminal transition, then qualify timing admission in multiplayer;
-solo supplies no bleedout proof. Launch the
+the [actor native trace](reverse_engineering/damage-life-state-14.md) now supports
+nonlethal subtraction and shows negative health retained/floored at -999 before
+the death handler. Final callback-normalized health remains unknown; qualify that
+single ordinary handler before changing the current approximate ActorDead health 0.
+Solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
 ## Objective and working policy

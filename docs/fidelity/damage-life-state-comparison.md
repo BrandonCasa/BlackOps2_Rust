@@ -121,3 +121,13 @@ It does not prove a single isolated melee contact, active builtin dispatch,
 full raw-damage policy or lethal/down/revive/bleedout agreement. Fidelity remains
 **APPROXIMATE / INVESTIGATING**; repeat an isolated-hit comparison before claiming
 MATCHED. Original data and numeric receipts remain external.
+
+## Actor comparison preparation follow-up
+
+A subsequent fresh solo match was paused at spawn to inspect attack bindings.
+Keyboard navigation reached Options/Controls/Look, but Combat-tab coordinate clicks,
+Right, Tab and Ctrl+Tab did not expose combat bindings. No binding was intentionally
+changed; no combat input or kill was admitted. Escape returned to the visible pause
+menu. This supplies no actor death comparison. Qualify attack input before resuming
+that controlled case; native actor findings are separately recorded in
+[task14](../reverse_engineering/damage-life-state-14.md).
