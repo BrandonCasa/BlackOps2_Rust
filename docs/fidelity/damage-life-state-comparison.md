@@ -131,3 +131,22 @@ changed; no combat input or kill was admitted. Escape returned to the visible pa
 menu. This supplies no actor death comparison. Qualify attack input before resuming
 that controlled case; native actor findings are separately recorded in
 [task14](../reverse_engineering/damage-life-state-14.md).
+
+## Selected-actor trial
+
+The [task17 sampler](../reverse_engineering/damage-life-state-17.md) first qualified
+five paused entity25 samples at current/max 150/150, gate 1. The parent then started
+one finite trial, resumed with Escape and issued one V input from the saved melee
+binding. The resume screenshot showed Nikolai score 500, facing the spawn workbench;
+the subsequent screenshot showed GAME OVER / survived one round, score 470. No melee
+animation, contact, actor kill or visual association with entity25 was established.
+
+Trial samples 0 through 317 all accepted 150/150, gate 1. Sample 318 refused
+`selected_identity_changed` without health and ended recording. Final native profile
+qualification passed; total reads 41,828 bytes. The shell session exited 1; the
+sampler's refusal path specifies exit 2. The refusal records no changed identity
+field names, so its particular cause cannot be recovered. Do not infer actor death,
+pool reuse or benign flag changes from that generic reason. No selected-actor damage
+sensitivity or terminal-health agreement was demonstrated. Original receipts remain
+external. Next reset the scenario earlier and expose refusal field names before a
+controlled repeat; preserve exact identity checks until evidence supports changing them.

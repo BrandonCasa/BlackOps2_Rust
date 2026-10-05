@@ -66,6 +66,11 @@ The [identity check](reverse_engineering/damage-life-state-16.md) qualifies nati
 classname/targetname/noteworthy token fields, but not their selected-entity decoding
 or special-spawn exclusions. Fresh round one with no objective activation supports
 controlled inference only. Use those explicit limits in the next finite actor trial.
+The [selected-actor trial](fidelity/damage-life-state-comparison.md) accepted 318
+unchanged 150/150/gate1 samples, then stopped on a generic identity refusal; native
+profile requalification passed. Solo game over preceded an established melee contact.
+This gives no actor damage/death comparison. Reset earlier and improve refusal
+diagnostics for a controlled repeat; do not infer terminal health from the refusal.
 Solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
