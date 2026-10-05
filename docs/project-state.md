@@ -24,9 +24,12 @@ outcomes and exits 0. Next: investigate revival/bleedout and qualify native heal
 arithmetic with original comparison. The reviewed
 [revive contract](reverse_engineering/damage-life-state-03.md) establishes
 ordinary completion/cancellation, max-health reboot 100 and expiry deferral while
-being revived. Native restored current health is unknown; do not silently set it
-to 100. Downed-episode identity is needed to reject stale completions. Next resolve
-native restoration, then implement the supported transition. Launch original BO2 through the desktop
+being revived. The reviewed [native restoration evidence](reverse_engineering/damage-life-state-04.md)
+qualifies the observed Plutonium runtime's revive/setmaxhealth writes: composing
+them with the source no-bonus reboot supports completed revive current/max 100.
+Actual coop comparison and loaded runtime-script identity remain unverified.
+Next implement this scoped restoration with downed-episode identity to reject
+stale completions. Launch original BO2 through the desktop
 Plutonium launcher; select Origins using the robot-head planet icon. This
 increment does not complete revival, original comparisons or the full goal.
 
