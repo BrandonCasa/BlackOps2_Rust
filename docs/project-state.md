@@ -9,30 +9,24 @@ configuration, a runnable headless demonstration, deterministic tests and origin
 comparisons. See [ownership and acceptance](architecture/damage-life-state-goal.md).
 Collision/movement and static-world appearance continue in separate worktrees.
 The user explicitly permits one active delegated worker per worktree; review and
-sequence workers locally. The first licensed-script investigation is reviewed:
-[damage evidence](reverse_engineering/damage-life-state-01.md) and
-[handoff](handoffs/damage-life-state-01.md). Separate player/actor routes, player
-lethal equality and last-stand health 1 are observed in compiled patch scripts.
-Native arithmetic, player numeric conversion, revival and live comparisons are
-unresolved. The reviewed [resolved damage implementation](architecture/damage-life-state.md)
-and [handoff](handoffs/damage-life-state-02.md) add safe Bevy health/state handling,
-Origins configuration and a headless demonstration. Scoped fidelity is APPROXIMATE.
+sequence workers locally. Reviewed damage, revive-script and runtime restoration
+evidence is linked from the [implemented boundary](architecture/damage-life-state.md).
+Shared safe Bevy components now process resolved damage and ordinary coop revival
+begin/cancel/completion in explicit fixed-step request order. Checked episode and
+attempt tokens reject stale completions; Origins supplies qualified no-bonus
+restoration of current/max health 100. Component replacement requires caller input
+retirement. See [implementation handoff](handoffs/damage-life-state-05.md).
 
-Outer locked metadata (10 members), all 86 workspace tests, formatting and
-warning-denying Clippy pass. The demo verifies exact ordered damage/downing/death
-outcomes and exits 0. Next: investigate revival/bleedout and qualify native health
-arithmetic with original comparison. The reviewed
-[revive contract](reverse_engineering/damage-life-state-03.md) establishes
-ordinary completion/cancellation, max-health reboot 100 and expiry deferral while
-being revived. The reviewed [native restoration evidence](reverse_engineering/damage-life-state-04.md)
-qualifies the observed Plutonium runtime's revive/setmaxhealth writes: composing
-them with the source no-bonus reboot supports completed revive current/max 100.
-Actual coop comparison and loaded runtime-script identity remain unverified.
-Next implement this scoped restoration with downed-episode identity to reject
-stale completions. Launch original BO2 through the desktop
-Plutonium launcher; select Origins using the robot-head planet icon. This
-increment does not complete revival, original comparisons or the full goal.
-
+Outer validation: locked metadata has 10 members; all 95 workspace tests,
+formatting and warning-denying Clippy pass. The demo verifies 13 exact ordered
+outcomes and exits 0. Scoped fidelity is APPROXIMATE: native damage arithmetic,
+raw interaction/timing and live agreement remain unresolved. The first
+[original comparison attempt](fidelity/damage-life-state-comparison.md) is PARTIAL;
+unexplained input changes prevented controlled outcome attribution, so game input
+stopped pending session-control clarification. Next: investigate ordinary coop
+bleedout/terminal disposition while comparison ownership is resolved. Launch the
+original through the desktop Plutonium launcher; Origins uses the robot-head
+planet icon. These increments do not complete original comparisons or the goal.
 ## Objective and working policy
 
 Reimplement the full Black Ops II Zombies Origins game in stable Rust with Bevy,
