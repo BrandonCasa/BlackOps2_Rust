@@ -46,8 +46,11 @@ subtraction at that exact field and an integer-only positive damage argument;
 active VM dispatch and execution remain unqualified. The reviewed
 [numeric correction](handoffs/damage-life-state-11.md) now admits positive signed
 32-bit damage/health/restoration values and rejects oversized inputs atomically.
-Next qualify active dispatch,
-timing admission and compare in multiplayer; solo supplies no bleedout proof. Launch the
+Three bounded [dispatch leads](reverse_engineering/damage-life-state-12.md) found
+no active VM slot; that survey is closed without proving execution or overrides.
+Next compare the qualified client health mirror against entity current during
+one controlled trial, then qualify timing admission and compare in multiplayer;
+solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
 ## Objective and working policy
