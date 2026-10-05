@@ -9,13 +9,18 @@ configuration, a runnable headless demonstration, deterministic tests and origin
 comparisons. See [ownership and acceptance](architecture/damage-life-state-goal.md).
 Collision/movement and static-world appearance continue in separate worktrees.
 The user explicitly permits one active delegated worker per worktree; review and
-sequence workers locally. The first worker is investigating damage application
-and lethal routing through existing external script tooling. No gameplay values
-or transitions are implemented or accepted yet; fidelity is UNKNOWN.
+sequence workers locally. The first licensed-script investigation is reviewed:
+[damage evidence](reverse_engineering/damage-life-state-01.md) and
+[handoff](handoffs/damage-life-state-01.md). Separate player/actor routes, player
+lethal equality and last-stand health 1 are observed in compiled patch scripts.
+Native arithmetic, player numeric conversion, revival and live comparisons are
+unresolved. No gameplay is implemented yet; scoped fidelity is INVESTIGATING.
 
-Baseline locked metadata and formatting pass in this worktree. Workspace tests
-are compiling; their result is pending. Original-data findings and scoped
-comparison evidence must precede implementation claims.
+Baseline locked metadata, all 80 workspace tests, formatting and warning-denying
+Clippy pass in this worktree. Next: implement the resolved-damage/health boundary
+with separate human downing and ordinary actor terminal routing, preserving
+native arithmetic as explicit inference pending comparison. This increment does
+not complete revival, original comparisons or the full goal.
 
 ## Objective and working policy
 
