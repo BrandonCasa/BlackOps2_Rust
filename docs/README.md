@@ -17,6 +17,8 @@
 - [Framing evidence handoff](handoffs/0007-fastfile-block-framing-evidence.md): bounded noncontiguous probes, unchanged originals and external-tool recommendation.
 - [Decoded Origins candidate directory](reverse_engineering/0004-origins-asset-directory.md): verified external OAT listing, type/reference-marker counts and a bounded geometry-access question.
 - [Directory evidence handoff](handoffs/0008-origins-asset-directory.md): repeated listing, tool/source identity and read/emit validation.
+- [GfxWorld surface boundary](reverse_engineering/0005-gfxworld-surface-boundary.md): repeated aggregate index-range/material-pointer observations and unestablished vertex-stream interpretation.
+- [Surface boundary handoff](handoffs/0009-gfxworld-surface-boundary.md): pinned external metadata tooling, synthetic checks, observed relationships and next vertex-stream investigation.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately

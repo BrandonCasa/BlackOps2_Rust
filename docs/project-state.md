@@ -1,6 +1,6 @@
 # Project state
 
-Updated: 2026-10-04.
+Updated: 2026-10-05.
 
 Overall objective: faithful personal-use Origins reimplementation in stable Rust
 with Bevy, reusable Zombies architecture, and external licensed assets.
@@ -38,6 +38,18 @@ types, including one `gfxworld` and related map-world families. Reference marker
 are counted, but dependencies/decoded properties are not established. Findings
 and [handoff 0008](handoffs/0008-origins-asset-directory.md) are reviewed and accepted.
 No tracked decoder, extraction or Bevy asset-loading integration was added.
+
+The [GfxWorld surface-boundary investigation](reverse_engineering/0005-gfxworld-surface-boundary.md)
+has repeated aggregate observations of that same single world through separately
+instrumented pinned external OAT source. Its 6,469 surfaces' tested triangle/index
+spans partition all 449,721 index elements with zero gaps/repeats, and every surface
+material pointer joins to one of 280 unique non-reference-marked material pool
+entries. Vertex interpretation remains unestablished: 6,236 surfaces have zero
+declared vertices despite nonzero triangles, and the tested stream-1 starting
+offset fails for 12 surfaces. This is no corruption conclusion or render-readiness
+claim. Findings and [handoff 0009](handoffs/0009-gfxworld-surface-boundary.md) are
+reviewed and accepted. Structure availability remains **INVESTIGATING**; no tracked
+decoder, unsafe exception, asset loader, geometry or rendering API was added.
 
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
@@ -91,6 +103,26 @@ no original-game evidence or executable functionality.
   map identifiers agreed; source and binary identities remained unchanged.
   Synthetic output-cap/deadline self-checks also terminated their children and
   recorded incomplete/timeout without opening originals.
+- The separately instrumented external OAT Release/Win32 target built successfully
+  from pinned source/submodules after process-local prerequisite/header corrections.
+  The build's initial 15-minute bound was extended with outer-agent authorization
+  to 30 and at most 40 total minutes while the same target progressed. All 26 native
+  synthetic arithmetic/null/signed/truncation/policy/reference/coverage checks passed.
+  The adapted supervisor passed its 256-KiB combined-output and 0.1-second synthetic
+  deadline checks, then two one-input metadata observations exited 0 within the
+  unchanged 120-second/256-KiB decode limits (1.172/0.671 seconds, 2,541 bytes each).
+  Observed peak working sets were 391,979,008/391,254,016 bytes; no hard decoder memory
+  cap is claimed. Aggregate equality, source/binary preservation and no dump/extra
+  output checks passed. Complete vertex byte spans and original-game comparison
+  remain unverified; unchanged Cargo gates were not repeated.
+- Outer-agent review independently reran all 26 native synthetic checks and both
+  supervisor selfchecks, then repeated two metadata observations (0.719/0.688
+  seconds, 2,541 bytes each). All four observations agree exactly; originals and
+  both binaries remain unchanged, and no unexpected process outputs were created.
+  The pinned checkout, nine clean submodules, eleven pristine source files,
+  scoped instrumentation, helper identities and documentation boundaries passed
+  independent review. Checkout line endings were normalized only for comparison
+  with Git blobs; recorded working-file hashes matched exactly.
 
 The [Bevy build handoff](handoffs/0003-bevy-build-foundation.md) records exact
 versions, checks and limits. Its code and validation are reviewed and accepted.
@@ -107,8 +139,11 @@ at that stage.
 
 The subsequent directory task decoded one fastfile in memory through external
 OAT LIST, without dumping asset contents. Original files remain unchanged; raw
-listings and the released tool remain external. No payload field values, geometry
-buffers or scripts have been copied into the repository.
+listings and the released tool remain external. The surface-boundary task built
+separate pinned external tooling and inspected that same decoded world's aggregate
+descriptors/index consistency/material pointer matches. Only permitted summaries
+enter the repository; vertex/index values, material names/pointer addresses, bodies and
+scripts remain unemitted by that metadata adapter. No originals were copied.
 
 Absolute installation/output roots are set only in ignored
 `config/local_assets.toml`; inspection summaries stay external. The schema matches
@@ -118,11 +153,12 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Investigate the one listed `gfxworld`'s surface triangle-range to world-draw
-   buffer/material-reference boundary. Stock OAT LIST exposes names only and
-   the release has no registered T6 `GfxWorld` dumper; separately scope an external
-   pinned-decoder metadata adapter for permitted aggregate/range/reference
-   observations, with synthetic checks and source-preservation limits.
+1. Investigate the same `gfxworld`'s per-surface vertex-stream interpretation:
+   zero `vertexCount` cases, `firstVertex`, both byte offsets and material-dependent
+   stream requirements. The new index/material evidence supplies a bounded access
+   route but does not support assuming a universal logical vertex slice. Establish complete
+   byte spans/encoding before a safe representative geometry adapter; keep output
+   aggregate-only and the same one-zone external/source-preservation boundaries.
 2. Document observable shared engine/game structures and evidence-backed
    ECS/asset boundaries in later bounded tasks, selected from actual decoded
    structures rather than additional envelope metadata alone.
@@ -132,6 +168,8 @@ this file after reviewing each handoff. Rendering, BO2 entity architecture, asse
 loading and gameplay remain unimplemented. Reverse engineering has the bounded
 file-availability, envelope, transport-framing and single decoded-directory
 observations described above; no original-game behavior or appearance comparison.
+The surface-boundary observation adds aggregate index/material relationships and
+explicitly unestablished vertex interpretation; it does not establish renderability.
 
 Review: the outer agent inspected all source/configuration and substantive
 documentation, independently parsed the manifests/configuration, checked key
@@ -158,4 +196,10 @@ Directory review covered findings/handoff 0008, the external observation and
 supervisor helpers, release contents, listing framing and source interpretations.
 Independent listing/identity/budget checks, documentation links/content boundaries
 and whitespace checks passed. No tracked Rust or dependency changes required
-new Cargo gates. The next task remains one bounded decoded geometry observation.
+new Cargo gates.
+Surface review covered findings/handoff 0009 and every substantive external
+instrumentation/check/supervisor change. Independent synthetic, repeated original
+observation, identity, documentation link/content and whitespace checks passed.
+Index/material boundaries are accepted as scoped observations; universal vertex
+slices and complete stream spans remain unestablished. The next bounded task
+resolves per-surface vertex-stream interpretation before a geometry adapter.

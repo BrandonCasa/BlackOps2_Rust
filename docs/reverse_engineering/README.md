@@ -38,5 +38,14 @@ The [decoded Origins candidate directory](0004-origins-asset-directory.md) recor
 two identical listings of one external `zm_tomb.ff` using the verified OAT release.
 Its 7,549 entries across 31 types include map-world and geometry families. Counts
 and reference markers establish directory availability, not dependency resolution,
-decoded geometry properties or fidelity. A bounded external metadata adapter for
-one `gfxworld` surface/draw-buffer/material boundary is the next access question.
+decoded geometry properties or fidelity. It supplied the bounded external
+metadata-adapter question investigated in findings 0005 below.
+
+The [GfxWorld surface boundary](0005-gfxworld-surface-boundary.md) records two
+identical aggregate observations through a separately instrumented pinned external
+decoder. Its 6,469 surfaces partition all 449,721 index elements under the tested
+triangle-range interpretation, and all material pointers join to 280 unique
+non-reference-marked pool entries. The vertex slice candidate is not universal:
+6,236 surfaces declare zero vertices despite nonzero triangles, and complete byte
+spans remain unknown. These observations constrain the next per-surface vertex
+stream investigation; they establish neither render readiness nor visual fidelity.
