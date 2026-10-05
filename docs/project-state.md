@@ -20,8 +20,8 @@ retirement. See [implementation handoff](handoffs/damage-life-state-05.md).
 Validation: locked metadata has 10 members; all 102 workspace tests,
 formatting and warning-denying Clippy pass. The demo verifies 21 exact ordered
 outcomes and exits 0. Outer repeated 22 focused tests and the demo after range correction.
-Scoped fidelity is APPROXIMATE: active native dispatch, actor arithmetic,
-raw interaction/timing and live agreement remain unresolved. The first
+Scoped fidelity is APPROXIMATE: active native dispatch, final actor health,
+raw interaction/timing and full live agreement remain unresolved. The first
 [original comparison attempt](fidelity/damage-life-state-comparison.md) is PARTIAL;
 unexplained input changes prevented controlled outcome attribution. The user then
 granted session control. Solo follow-up observed game-over/results; the latest
@@ -57,8 +57,11 @@ and 43 refused records. Next repeat an isolated-hit comparison and qualify one
 ordinary actor terminal transition, then qualify timing admission in multiplayer;
 the [actor native trace](reverse_engineering/damage-life-state-14.md) now supports
 nonlethal subtraction and shows negative health retained/floored at -999 before
-the death handler. Final callback-normalized health remains unknown; qualify that
-single ordinary handler before changing the current approximate ActorDead health 0.
+the death handler. The bounded [handler follow-up](reverse_engineering/damage-life-state-15.md)
+qualifies an active AI/entity backlink and selected handler, which clears the
+repeat-impact gate. Ordinary archetype and callback/cleanup health effects remain
+unqualified. Keep ActorDead health 0 explicitly approximate; next prefer a controlled
+ordinary-actor final-health comparison over another broad callback survey.
 Solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
