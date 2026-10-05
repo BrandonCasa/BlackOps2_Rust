@@ -118,6 +118,12 @@ presentation therefore cannot be one Boolean (I). This is not proof of complete
 ownership persistence after arbitrary power loss: other scripts/FFOTD/runtime
 paths have not all been traced.
 
+The later [Pack-a-Punch investigation](pack-a-punch-02.md) also inspected the
+generic `_zm_power::perk_power_off` callback: it directly invokes shared perk
+pause before emitting the machine off notification. Its dispatch on a particular
+Origins generator-loss path remains unresolved. The Juggernog loop's lack of a
+pause call must therefore not be generalized to the complete power dispatcher.
+
 The shared post-purchase path also checks trigger power after completion and may
 invoke perk pause after a one-second script delay. Paused ownership remains in a
 separate disabled-perk record and blocks another purchase. A purchase that crosses
