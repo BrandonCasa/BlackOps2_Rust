@@ -7,7 +7,8 @@ with Bevy, reusable Zombies architecture, and external licensed assets.
 
 Foundation task is reviewed and accepted. Local Git is initialized on
 `main`, with no remote. `bo2-core`, `bo2-boot`, `bo2-assets`,
-`bo2-asset-inspector`, and `bo2-map-inspector` are Cargo members. Boot runs a minimal
+`bo2-asset-inspector`, `bo2-map-inspector`, and `bo2-rendering` are Cargo members.
+Boot runs a minimal
 headless Bevy lifecycle smoke check; assets/tooling provide a signed-PC envelope
 metadata inspector and a project-owned diagnostic geometry snapshot consumer.
 Other responsibility directories remain placeholders. A bounded external asset catalog
@@ -102,6 +103,17 @@ is reviewed and accepted for this bounded bridge. Rust with
 Bevy remains the engine/game implementation; no tracked code, Bevy Mesh/loader,
 renderer, units/draw/appearance proof or original-game comparison is added.
 
+The [diagnostic Bevy Mesh adapter](architecture/diagnostic-mesh-adapter.md) now
+consumes the accepted snapshot into Float32x3 position/U32 index TriangleList
+storage with MAIN_WORLD usage and returns all ordered surface metadata unchanged.
+All three vectors transfer ownership without another full geometry copy. Synthetic
+tests and one complete accepted external snapshot check demonstrate actual Bevy
+Assets<Mesh> registration/retrieval/removal and exact data preservation. Rendering
+adds member-specific asset/mesh features; assets stays std-only, and core/boot/
+inspectors remain unchanged. [Handoff 0014](handoffs/0014-bevy-diagnostic-mesh-adapter.md)
+is reviewed and accepted. No original coordinate mapping, draw/material
+semantics, asynchronous loader, graphical output or fidelity comparison is added.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -114,18 +126,20 @@ no original-game evidence or executable functionality.
   Cargo bin was added once to user PATH, preserving existing entries. Existing
   desktop/terminal sessions may require restarting to refresh PATH.
 - Bevy 0.19.1 is pinned centrally, with default features disabled and only `std`
-  explicitly enabled. Its declared MSRV is 1.95.0; this workspace supports and
+  explicitly enabled centrally; rendering additionally enables asset/mesh features
+  at its member boundary. Its declared MSRV is 1.95.0; this workspace supports and
   tests the pinned 1.99.0 compiler. Cargo generated the retained `Cargo.lock`.
 - `cargo metadata --locked --no-deps --format-version 1`, `cargo test --workspace`
-  (61 tests: 14 envelope parser, 25 snapshot parser, nine envelope inspector,
-  eleven snapshot inspector and two lifecycle/failure tests),
+  (67 tests: 14 envelope parser, 25 snapshot parser, nine envelope inspector,
+  eleven snapshot inspector, six Mesh adapter/engine and two lifecycle/failure tests),
   `cargo fmt --all -- --check`, and
   `cargo clippy --workspace --all-targets -- -D warnings` passed.
 - `cargo run -p bo2-boot -- --smoke` passed with startup=1, updates=3 and
   probe_updates=3, exiting 0. Default smoke/help exit 0; unsupported arguments
   exit 2. These are engine development checks, not original-game comparisons.
 - Dependency/unsafe/asset-boundary review and `git diff --check` passed. No
-  graphical or asset-loading plugin is assembled; no gameplay comparisons,
+  graphical plugin is assembled. Headless adapter checks now assemble Bevy's asset
+  and mesh plugins with an in-memory source; no gameplay comparisons,
   other-platform validation or performance measurements have occurred.
 - The inspector passed all six findings-0002 external samples, with expected
   metadata and ranges, exit 0 and matching disk stems. Its envelope reads totaled
@@ -255,6 +269,27 @@ whitespace review passes for all five documentation files; this bounded bridge i
 accepted. Unchanged Cargo gates intentionally not rerun. Data understanding INVESTIGATING; overall,
 visual and gameplay fidelity UNKNOWN. No graphical/gameplay comparison occurred.
 
+Task 0014 passes locked no-deps metadata, all 67 workspace tests (61 retained plus
+six new adapter/engine cases), formatting, warning-denying Clippy, unchanged Bevy
+smoke 1/3/3 and both inspector help commands. Five functional-file hashes match
+before/after final gates. Active feature-graph review distinguishes asset/mesh/image
+support from lock-only optional/target entries; no renderer/window/PBR is active.
+The one accepted 4,404,568-byte snapshot with SHA-256
+`ffe639e3779310e300d7562f91f9ebf8c659126472e2d583558882031215181f`
+passes three complete streaming bit/reference/metadata comparisons after conversion,
+engine retrieval and removal: 191,259 positions, 449,721 indices, 149,907 triangles,
+6,469 surfaces, 6,236 zero source counts and seven categories. The external harness
+exits 0 in 1.406 seconds with 477 stdout bytes and empty stderr, under 120 seconds/
+256 KiB capture. Input SHA/length/write-time/file identity, native source/helpers
+and non-owned tracked files remain unchanged. No original fastfile/native producer
+is accessed; GPU/appearance/original-game checks remain unperformed. Parent
+independently reran all frozen final gates and the complete harness successfully
+in parent-review-072632 (harness0.250seconds,477 stdout bytes,empty stderr), with
+input/harness/functional identities unchanged. Parent dependency and 188-record
+non-documentation preservation review pass, along with all ten candidates,
+56 relative links, seven pinned source anchors, ten handoff headings and content/
+whitespace checks. This bounded diagnostic adapter is reviewed and accepted.
+
 ## External source availability
 
 The [local asset catalog](reverse_engineering/0001-local-asset-catalog.md) identifies
@@ -281,22 +316,19 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Assign one bounded **Rust Bevy Mesh** adapter
-   using the accepted diagnostic consumer and complete external snapshot. Preserve
-   raw positions/ordered u32 references and use Bevy mesh/asset/lifecycle ownership;
-   no units/axes/winding conversion or appearance claim is established. Synthetic
-   and complete external accounting checks must retain every record/reference,
-   zero count and category. Graphical original-game comparison and asynchronous
-   AssetLoader remain separately scoped. Complete attribute/material import still
-   requires separate stream1/layout investigation, including format0's at-capacity
-   cases. Original geometry remains external and never enters tracked fixtures.
+1. Before graphical placement/comparison, establish original units/axes/winding in
+   one separately bounded investigation. Asynchronous AssetLoader and complete
+   attribute/material import remain separately scoped; stream1/layout investigation
+   includes format0's at-capacity cases. Original geometry remains external and
+   never enters tracked fixtures.
 2. Document observable shared engine/game structures and evidence-backed
    ECS/asset boundaries in later bounded tasks, selected from actual decoded
    structures rather than additional envelope metadata alone.
 
 The outer agent sequences those tasks with exactly one active subagent and updates
-this file after reviewing each handoff. Rendering, BO2 entity architecture, asset
-loading and gameplay remain unimplemented. Reverse engineering has the bounded
+this file after reviewing each handoff. Graphical rendering, BO2 entity architecture,
+asynchronous asset loading and gameplay remain unimplemented. Reverse engineering
+has the bounded
 file-availability, envelope, transport-framing and single decoded-directory
 observations described above; no original-game behavior or appearance comparison.
 The surface-boundary observation adds aggregate index/material relationships and

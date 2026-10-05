@@ -1,0 +1,11 @@
+[package]
+name = "bo2-rendering"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Preserving diagnostic geometry adapters using Bevy mesh ownership"
+
+[dependencies]
+bo2-assets = { path = "../assets" }
+bevy = { workspace = true, features = ["bevy_asset", "bevy_mesh"] }

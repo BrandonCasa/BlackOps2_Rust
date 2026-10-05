@@ -3,9 +3,9 @@
 ## Current implementation
 
 Local Cargo dependency edges are `bo2-boot -> bo2-core`,
-`bo2-asset-inspector -> bo2-assets` and `bo2-map-inspector -> bo2-assets`.
-Core and boot depend on the same workspace-pinned Bevy 0.19.1 release.
-All five local crates forbid unsafe code.
+`bo2-asset-inspector -> bo2-assets`, `bo2-map-inspector -> bo2-assets` and
+`bo2-rendering -> bo2-assets`. Core, boot and rendering depend on the same
+workspace-pinned Bevy 0.19.1 release. All six local crates forbid unsafe code.
 Core exposes the project name and `headless_app(ScheduleRunnerPlugin)`, a small
 composition function returning a Bevy `App` with `MinimalPlugins`. Bevy owns
 the ECS world, entity identity, schedules, task pools, frame counter, time and
@@ -47,16 +47,26 @@ It has no original-file decoder, exporter, Bevy loader or renderer. Synthetic
 contract success establishes neither original-format support nor fidelity;
 task 0012 is reviewed and accepted. Bevy retains asset/mesh/runtime ownership.
 
+Rendering now contains the consuming [diagnostic Mesh adapter](diagnostic-mesh-adapter.md).
+It moves validated position/index vectors into Bevy Float32x3/U32 TriangleList
+storage with MAIN_WORLD usage and returns every ordered surface record unchanged.
+No coordinate mapping, attribute generation or draw/material semantics is selected.
+Its synthetic tests and one complete accepted external snapshot check exercise
+actual headless Bevy Assets<Mesh> ownership; no loader or graphical output is added.
+Assets stays std-only. This bounded task is reviewed and accepted.
+
 Bevy is the selected engine, ECS, rendering, and application foundation. The
 [decision record](../adr/0001-bevy-foundation.md) records version evidence and the
-minimal feature choice. No renderer/window/asset plugin is assembled. Some
-upstream support types may be compiled by Bevy's feature dependencies; this does
-not initialize a graphical runtime. There are no original-game architecture
-findings yet. No custom ECS or renderer is approved.
+minimal feature choice. Rendering locally enables asset/mesh features, including
+their upstream image support; central defaults remain disabled. Boot assembles no
+renderer/window/asset plugin. Headless adapter validation assembles Bevy AssetPlugin
+and MeshPlugin with an in-memory source, with no graphical runtime. These diagnostic
+boundaries establish no original-game engine architecture. No custom ECS or renderer
+is approved.
 
 ## Planned responsibilities
 
-Directories other than core, assets, boot, asset_inspector and map_inspector are reserved
+Directories other than core, assets, rendering, boot, asset_inspector and map_inspector are reserved
 locations, not Cargo members or finalized APIs. Add a crate/module only when a
 bounded task supplies evidence
 and justifies its dependency boundary; merge or refine these directories when

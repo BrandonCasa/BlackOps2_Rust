@@ -27,6 +27,8 @@
 - [Diagnostic snapshot reader handoff](handoffs/0012-diagnostic-geometry-snapshot-reader.md): std-only consumer, explicit-input inspector, synthetic validation and unimplemented producer/Bevy integration.
 - [Origins diagnostic geometry snapshot](reverse_engineering/0008-origins-diagnostic-geometry-snapshot.md): complete external position/index preservation, repeated bytes and source/producer/Rust accounting.
 - [External snapshot handoff](handoffs/0013-origins-diagnostic-geometry-snapshot.md): supervised conversion, synthetic/source-bit checks, exact restoration and next Rust Bevy Mesh task.
+- [Diagnostic Mesh adapter](architecture/diagnostic-mesh-adapter.md): unchanged diagnostic data in Bevy Mesh storage, retained metadata, member features and headless engine asset ownership.
+- [Mesh adapter handoff](handoffs/0014-bevy-diagnostic-mesh-adapter.md): synthetic preservation, one complete external snapshot check and frozen-file workspace validation.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately
