@@ -90,8 +90,11 @@ synthetic checks and an uninvoked Windows controller. Its PARTIAL preparation
 separates exact file guarding from same-context standard-child path inference,
 registration log evidence, actual module observations and retained-job teardown.
 No SDK runtime, new engine subsystem or Rust unsafe exception is admitted.
-Outer review accepts the preparation with concrete controller/fixture repairs
-required before execution; see its source-review section.
+Task0024's required bounded source repairs are reviewed and accepted, with tests of
+the actual controller/adapter through injected operations and compile-only native
+validation. Source preparation is distinct from unmeasured Windows/SDK runtime;
+the hard outer supervisor and direct standard-child observations remain absent.
+See its repair section and [handoff0024](../handoffs/0024-ordinary-sdk-qualifier-repair.md).
 
 ## Planned responsibilities
 

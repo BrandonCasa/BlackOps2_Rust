@@ -150,3 +150,14 @@ Outer review accepts this PARTIAL preparation and requires the concrete repairs
 listed in its design before execution: canonical paths, constructor ownership,
 module gates, normal exit, evidence binding and cleanup/budget reporting. Accepted
 preparation is not runtime admission.
+
+[Task0024](../handoffs/0024-ordinary-sdk-qualifier-repair.md) repairs those seven
+source issues in the same qualifier. Actual controller/adapter tests use injected
+operations, and the corrected x86 fixture/ABI objects compile without execution.
+Module identities precede their commands, normal fixture exit precedes remaining
+job termination, raw evidence is identity-bound, and partial resource release is
+reported accurately. Outer review accepts source repair as COMPLETE; runtime remains
+unadmitted. The thread watchdog has no hard outer90s process-supervisor guarantee.
+Missing durable evidence denies qualification; actual terminal/preservation proof
+can still permit cleanup after an output failure. Standard-child/log delivery
+inferences, named-parent prerequisites and historical/rename limits remain explicit.

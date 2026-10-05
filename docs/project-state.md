@@ -487,41 +487,72 @@ INVESTIGATING and overall/gameplay/visual fidelity UNKNOWN. The concrete next st
 is outer review of exact candidates and those scoped admission predicates before
 any separately admitted startup/device/teardown runtime.
 
+## Ordinary SDK qualifier source repair
+
+Task0024's seven task0023 source repairs are reviewed and accepted. The fresh
+external candidate centralizes canonical paths, owns partial constructions before
+fallible work, checks DbgHelp/D3D11 before authorization, observes normal fixture
+exit, retains identity-bound raw logs/output and reports partial resource states/
+sentinel removal accurately. Non-optimizable admission binds actual code/build/
+header/tool paths and pinned binaries; attempted storage totals and watchdog
+outcomes/time bases are preserved. Fourteen actual-controller groups (also under
+Python `-O`) and eleven direct adapter groups pass using injected operations.
+Corrected x86 native and x86/x64 ABI compilation pass, with285 final identities
+including the Python tool retained. Launch audit traps report zero forbidden events.
+The initial test injection failure and source revisions remain immutable externally.
+
+Preparation performs no SDK/native fixture/profile runtime. Task0023 worker134
+and parent-review36 artifacts plus their manifests, and106 starting non-owned
+tracked/config records, remain unchanged in bytes/hash/mtime. Exactly six owned
+docs change. Cargo's unchanged74-test/GPU/inspector baseline is SKIPPED. Data/access
+remains INVESTIGATING; overall/gameplay/visual fidelity remains UNKNOWN.
+The hard outer90s supervisor is absent: the actual independent thread covers the
+native body, while15s terminal checks do not bound every controller/Win32 call or
+preservation read. Child context/log completeness stay source-conditioned inferences;
+configuration branch and named parent/cache metadata remain later predicates.
+Task0021 rename/history and task0022 A/general-quota limits are unpromoted.
+
+Independent outer review matches all129 frozen artifacts, six candidate docs and
+all285 build identities. Copied controller14/optimized14/adapter11 groups pass
+with zero native/process launch attempts; PE/ABI, four pre-admission rejections
+and an owned-file extended-path comparison pass. The root wrapper's initial
+standard-library import failure and corrected results remain external. This is
+source preparation acceptance; SDK runtime and original fidelity stay unmeasured.
+
 ## Next bounded work
 
-1. Repair task0023's concrete ordinary-name x86 qualifier: canonical paths,
-   partial-construction ownership, pre-effect module gates, normal-exit observation,
-   identity-bound raw evidence and accurate admission/budget/cleanup reporting.
-   Test its actual controller path and compile the corrected native fixture without
-   runtime. Then review exact source/build manifests, same-context child inference
-   and target-log evidence before separate execution admission. Qualify
-   a directory-name control only for a named race required by that route.
-   Preserve task0021's four cases and task0022's two cases/A probe omission; no
-   automatic scenario repeat. Historical inventory/general quota rules and actual
-   SDK identities remain unproven. Avoid a generic process-control detour.
-2. Separately apply accepted protections to the ordinary-name user-created x86
-   startup/device/teardown qualifier with process-specific config/cache/directory
-   and actual working-directory/module identity protection, pre-load TEMP routing,
-   independent deadline and owned crash-child cleanup. Distinguish registration
-   success/fallback under those protections before any separately admitted SDK run.
-   A supported pre-init config/cache override is not established
-   within the inspected APIs; no universal impossibility is claimed. The outer agent
-   reviews that evidence before any exact-target x86 menu capture/replay admission.
-   A menu frame proves transport only; loaded Origins evidence and
-   exact patch/draw correspondence precede the asymmetric-patch camera/visible-side
-   calibration in findings0009. C2M's fixed
-   asset addresses and public field labels are not validated access. Original
-   active-view consumer/address/schema work is the fallback for missing transform
-   access;synthetic capture/replay is qualified but original compatibility remains
-   untested. Original
-   gravity/basis/angle/front state and an independent unit reference remain
-   unresolved; diagnostic ambiguity selects no transform. Asynchronous AssetLoader and complete
-   attribute/material import remain separately scoped; stream1/layout investigation
-   includes format0's at-capacity cases. Original geometry remains external and
-   never enters tracked fixtures.
-3. Document observable shared engine/game structures and evidence-backed
-   ECS/asset boundaries in later bounded tasks, selected from actual decoded
-   structures rather than additional envelope metadata alone.
+1. Make the next rendering milestone a reproducible calibrated Origins geometry
+   scene in the existing Bevy tooling. Establish orientation, scale and camera/
+   visible-side correspondence from original evidence for one asymmetric patch,
+   following findings0009. Investigate one same-build original active-view
+   consumer/address/schema as the existing fallback; public field labels and
+   C2M's fixed asset addresses alone are not validated access. Keep investigation
+   and evidence-backed scene implementation in separate bounded tasks. Raw
+   diagnostic rendering remains labeled; complete materials/lighting come later.
+2. Time-box the capture route to at most one additional small prerequisite task
+   before explicit reassessment. Select it only to close a named blocker to that
+   concrete camera/geometry measurement. Task0024 still leaves named parent/cache/
+   conf admission, thread-only supervision and child/log inferences unresolved;
+   acceptance does not authorize unsafe execution or weaker preservation. If the
+   route cannot produce the measurement, record the specific limit and use the
+   active-view/data fallback or another narrow route. Avoid a general process-
+   control framework. Preserve prior scenarios/failures; no automatic repeats.
+3. Then investigate and implement one measured player movement/collision behavior
+   toward a playable vertical slice, using reusable Bevy systems and meaningful
+   tests. A rendering-access obstacle must not indefinitely postpone independent
+   movement investigation that can proceed safely. Select tasks for new original
+   observations, evidence-backed Rust behavior and inspectable scene/playable
+   milestones; every tooling task must name the exact game milestone it enables.
+
+The progress-review steering narrows task selection while preserving the full
+Origins objective, evidence standards, asset boundaries and sequential delegation.
+Original gravity/basis/angles/front state and an independent unit reference remain
+unresolved. Diagnostic ambiguity selects no transform. Synthetic capture/replay
+does not establish original compatibility, and a menu frame would prove transport
+only. Asynchronous asset loading and full attribute/material import remain separate
+scopes, including stream1 format0's at-capacity cases. Original geometry stays
+external. Overall/gameplay/visual fidelity remains UNKNOWN until actual comparison
+evidence supports promotion.
 
 The outer agent sequences those tasks with exactly one active subagent and updates
 this file after reviewing each handoff. Diagnostic graphical output now exists;

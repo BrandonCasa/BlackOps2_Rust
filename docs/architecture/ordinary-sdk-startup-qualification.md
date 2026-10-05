@@ -1,12 +1,12 @@
 # Ordinary-name SDK startup qualification
 
-Task0023 prepares one external, ordinary-name, user-created x86 RenderDoc
-startup/device/teardown qualifier. Preparation is **PARTIAL**: native candidates
-compile and synthetic protocol checks pass, but the Windows controller is
-uninvoked, its guards/watchdog/cleanup integration is unmeasured, and direct
-standard-child resolver/module observations are unavailable in the inspected
-interfaces. This record admits no SDK runtime. It defines a concrete next review,
-not a new sandbox, production wrapper or game abstraction.
+Task0023 prepared one external, ordinary-name, user-created x86 RenderDoc
+startup/device/teardown qualifier and was accepted as **PARTIAL** with seven
+source repairs required. Task0024 completes those bounded source repairs for
+outer review: the corrected fixture compiles, and injected operations exercise
+the actual controller and adapter. Windows/SDK runtime remains uninvoked and
+unmeasured; direct standard-child resolver/module observations remain unavailable.
+This record admits no runtime and introduces no game or engine abstraction.
 
 The full faithful stable Rust with Bevy Origins objective remains unfinished.
 All seven Rust crates keep `forbid(unsafe_code)`; Bevy retains App, ECS, schedules,
@@ -37,7 +37,7 @@ machine-readable records stay in external `0023-ordinary-sdk-startup-qualifier-d
 UTF-8/tomllib resolves only configured inspection output and rejects workspace
 containment. Preparation reads no profile/config/cache contents or original data.
 
-The current candidates are `ordinary-qualifier-v3.cpp`, its I386/PE32 executable,
+Task0023's candidates were `ordinary-qualifier-v3.cpp`, its I386/PE32 executable,
 `controller-windows-v3.py`, the small pure `controller-v1.py`, unchanged copies
 of task0022's native/PID parser/ABI sources, and `protocol-v3.json`.
 The native fixture dynamically loads the SDK and D3D11 only after its gates;
@@ -124,8 +124,9 @@ entries. Directory write-time changes are not restored or claimed equal.
 The resolver's CreateParentDirectory walks upward until an existing directory
 and creates only missing parents. Requiring the named canonical `A` and its
 source-identified parent to exist removes that ordinary missing-parent branch
-under stable names. Recheck these exact names/IDs before load, each gate and
-terminal release; CWD and TEMP use owned fixed existing directories. Parent
+under stable names. Check exact names/IDs in the fixture's preload, load-return,
+device-destruction and final context records and at terminal release; held guards
+continue across the API/device gates. CWD and TEMP use owned fixed existing directories. Parent
 directory handles are identity observations. Task0021's attribute-anchor rename
 failure is not repaired, and no shared/profile DACL mutation is authorized.
 
@@ -185,7 +186,9 @@ children during its single crash-handler construction. The independent watchdog
 is a thread in the controller; no extra cooperating child or capacity probe exists.
 OS-added members are not counted away or assumed prevented by a quota.
 
-Body work is at most60s, teardown15s and an outer supervision admission ceiling90s.
+The historical v3 proposal was body60s, teardown15s and outer supervision90s.
+The corrected v4 wiring below narrows these claims to actual checks; a hard
+outer90s process supervisor is absent.
 Combined stdout/stderr is32,768 bytes, at most64 records/4,096 bytes each. Own TEMP
 has at most64 entries,262,144 bytes per file and1 MiB total; receipts have1 MiB
 aggregate. Inventory uses16 PID slots, at most10 stable double-snapshot attempts
@@ -221,7 +224,8 @@ still-open-job active0 and listempty. Polling must acquire any additional live
 members within bounds. Retain total/terminated counters and report historical
 members missed between samples; stable empty cleanup is not historical recovery.
 
-Require pipe EOF/readers joined, watchdog joined and private pipe closure;
+Record pipe EOF separately from reader termination, require joined readers and
+watchdog and truthfully record private pipe closure;
 serialize held and reopened file equality and named-directory predicates before
 closing job/file protection. The share-exclusive staging sentinel has a held-handle
 receipt and owned-name/removal receipt; it is not falsely claimed reopened for data.
@@ -230,6 +234,103 @@ fail-stop with protection/job handles retained and an explicit unresolved receip
 no automatic retry, guard release or completion claim. Such a guardian hold needs
 outer resolution and is not a promised finite successful cleanup. Abrupt controller
 death/last-handle-close historical coverage is unqualified by this candidate.
+
+## Task0024 corrected candidate
+
+External0024-ordinary-sdk-qualifier-repair contains `controller-v4.py`,
+`windows-ops-v4.py`, `ordinary-qualifier-v4.cpp`, `protocol-v4.json`, the retained
+public app header/native/PID parser/ABI sources, `build-v4.py` and two focused
+test sources. The accepted task0023 worker and parent-review trees remain immutable.
+The seven repairs have the following concrete behavior:
+
+- One canonical comparator handles absolute drive paths and the actual extended
+  drive prefix, including case/separator normalization. UNC, device, volume-GUID,
+  relative, drive-relative, alternate-stream and dot/trailing-dot/space components
+  are rejected. Handle file IDs still establish identity; normalization alone is
+  not protection. Tests include the previously reproduced incorrect prefix.
+- Every successful file, directory, process, job and pipe acquisition enters the
+  controller ledger before fallible identity/construction work. Job/watchdog
+  constructors register through callbacks before limits/thread start. Reopened
+  handles and partial pipe construction are tracked, including failed identities.
+- The native fixture reports SDK and DbgHelp before `load_return`; the consumer
+  checks them before `bind`. It loads/reports D3D11 before `api_bound`, and the
+  consumer checks it before `device`. Mandatory identity sets, record schemas,
+  exact phase values and release observations are enforced by the actual consumer.
+  COM Release counts describe observations, not general object destruction.
+- After `done`, the controller waits at most5s within the body deadline for the
+  exact fixture's normal exit/code. Only afterward does it terminate remaining
+  retained-job members. Nonzero/timeout/failure paths still clean up. SDK and
+  D3D11 presence after FreeLibrary are recorded; final process/job evidence controls
+  protection release. Acquired/owned process signal and exit receipts are retained.
+- Both paused `load_return` and `api_bound` gates require one exact capture-log
+  name in fresh owned TEMP/RenderDoc. Pinned `core.cpp` selects `RenderDoc_app`,
+  while `win32_stringio.cpp` constructs the timestamp filename. Target log names
+  are absent before load, and the standard replay child uses the different replay
+  prefix. This binds source producer, fixture PID/creation and phase under the
+  admitted same-context assumptions; it is not a direct child callback or PID
+  field from the log. A retained log handle, two equal bounded full-byte snapshots,
+  metadata/EOF and reopened name/file-ID checks reject rotation or ambiguity.
+  Actual raw log, stdout and stderr bytes are retained. Incomplete evidence stays
+  UNKNOWN and denies the next gate. Lossless log delivery remains source-conditioned
+  INFERRED; no public registration-success query or forced failure is introduced.
+- Per-resource `pending`, `closed` and owned-sentinel `released` states replace
+  blanket retention claims. Absence-before/CREATE_NEW/delete-on-close ownership
+  binds the exact conf/staging producer names; absence is checked after closure.
+  Partial close/removal failures deny qualification and remain visible. Readers
+  drain after the output cap without a blocking queue; reader errors/missing EOF
+  deny evidence completeness but stopped readers after terminal process/job proof
+  can be cleaned up. A failed durable terminal receipt also denies qualification;
+  actual in-memory terminal/preservation proof can permit release despite storage
+  failure. Remaining handles or missing terminal/preservation proof cause an
+  honestly described guardian hold, not a claim that all guards remain held.
+- Admission uses explicit non-optimizable checks before platform imports. Required
+  labels bind actual candidate paths, pinned SDK/CLI hashes and the full build/
+  header/tool closure, rechecked before creation and resume. Source/manifest/log
+  bounds precede reads/allocation. Receipt
+  accounting conservatively charges attempted writes and never resets. Raw query
+  storage failure is recorded separately from actual cleanup observation.
+
+V4 admits at most one later scenario, without retry: four maximum explicit process
+creations (controller1, fixture1, source-predicted standard children at most2),
+with no extra supervisor process. Requested flags8200/limit8 are queried back;
+no hard total-member quota is claimed. Cleanup retains actual query-back limits
+without requiring admission limits after failed job setup; ordered stable accounting/
+PID and terminal checks still apply. Combined stdout/stderr32,768 bytes,
+records64/line4,096, TEMP64 entries/file262,144/total1 MiB, attempted receipts1 MiB,
+PID capacity/distinct acquired16, at most10 stable pairs per gate/200 total and
+raw job262,144 remain enforced. Conf/cache/binary limits are1/16/64 MiB; native
+same-handle hash/log reads check10s deadlines. Build closure has at most320 records
+and its manifest is bounded to1 MiB before reading.
+
+An independent watchdog thread retains the job and records its monotonic start,
+deadline, fired/stopped/start-failure/error outcome and termination result. It
+acts after60s independently of a blocked native fixture. Cleanup checks15s for
+terminal queries/reader joins; that is not a hard deadline on blocking controller/
+Win32 calls or subsequent per-file preservation hashing. There is no implemented
+hard outer90s supervisor or abrupt-controller-death/last-close guarantee. A later
+review must explicitly accept this thread-only limitation or prepare a narrowly
+scoped process supervisor before admission; no such runtime is authorized here.
+
+The corrected x86 fixture and x86/x64 ABI objects compile using installed public
+headers;285 actual source/header/tool/build identities, including the Python tool,
+are retained. Fourteen
+actual-controller test groups (also under Python `-O`) and eleven direct adapter
+test groups pass with injected operations only, including launch audit traps with
+zero forbidden events. The initial test injection failure,
+distinct revisions and complete private logs remain external. These checks establish
+source preparation, not Windows integration, SDK behavior or fidelity.
+[Handoff0024](../handoffs/0024-ordinary-sdk-qualifier-repair.md) records validation,
+preservation and remaining admission predicates.
+
+Outer review accepts Task0024 as COMPLETE for source repair and preparation.
+All129 frozen artifacts and six candidate documents match the terminal manifest;
+all285 actual build identities match independently. Copied actual-controller14,
+optimized-controller14 and adapter11 groups pass under independent native/process
+launch traps, with zero launch attempts. Independent PE32/x86, both ABI targets,
+four pre-admission rejections and an owned-file extended-path comparison pass.
+The root review wrapper initially broke a standard-library import by replacing a
+class with a function; its failure and corrected wrapper/results remain external.
+No SDK/profile/native-fixture runtime occurred, and the limitations above remain.
 
 ## Outer review and required repair
 
