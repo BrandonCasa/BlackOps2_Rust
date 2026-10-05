@@ -62,6 +62,10 @@ qualifies an active AI/entity backlink and selected handler, which clears the
 repeat-impact gate. Ordinary archetype and callback/cleanup health effects remain
 unqualified. Keep ActorDead health 0 explicitly approximate; next prefer a controlled
 ordinary-actor final-health comparison over another broad callback survey.
+The [identity check](reverse_engineering/damage-life-state-16.md) qualifies native
+classname/targetname/noteworthy token fields, but not their selected-entity decoding
+or special-spawn exclusions. Fresh round one with no objective activation supports
+controlled inference only. Use those explicit limits in the next finite actor trial.
 Solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
