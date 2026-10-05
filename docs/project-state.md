@@ -11,7 +11,8 @@ damage/death and one round before expanding remaining Origins systems.
 The full goal is not complete when the first vertical slice works.
 
 Read this brief, the relevant source/tests, and only the evidence needed for the
-next code change. Keep one delegated worker active at a time. Keep documentation
+next code change. Keep one delegated worker active per worktree (user clarification
+on 2026-10-05); independent worktrees may run concurrently. Keep documentation
 to a short handoff and an updated current brief; avoid repeating historical audits.
 Investigations should resolve a named implementation question. Do not make a
 complete capture framework or perfect understanding of every subsystem a
@@ -26,6 +27,8 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
 - `crates/assets`: bounded fastfile envelope inspection and a safe reader for the
   project-owned geometry snapshot format. This is not a complete Rust BO2 decoder.
 - `crates/rendering`: preserves snapshot positions/indices in a Bevy Mesh.
+- External collision evidence now contains one bounded Origins brush (four sides,
+  sixteen vertices). Raw data remains external; there is no Rust collision adapter.
 - `tools/comparison_tools/geometry_viewer`: renders three offscreen raw-coordinate
   solid/wireframe views and a windowed perspective inspection scene with diagnostic
   keyboard flight/look/reset. Accepted external snapshot: 191,259 positions,
@@ -40,12 +43,13 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the
    accepted external snapshot instead of restarting asset extraction.
-2. Resolve the collision reader's concrete failure toward
-   a standing movement slice: task0026 rejects at embedded ClipInfo admission,
-   before selecting any brush. Check the existing separate `pInfo` loader lead and
-   identify the failing count/null/span predicate. Do not repeat broad surveys.
-3. Implement a reusable Rust collision/movement boundary once the required
-   original evidence is available, with focused behavioral/error-path tests.
+2. Use the retained task0028 brush to resolve its float32 storage/solver discrepancy
+   and build the safe Rust collision boundary. Header admission is resolved:
+   core arrays are present; parallel bounds/contents and `pInfo` are absent.
+   One plane convention reconstructs exact bounds, but vertex disagreement reaches
+   0.0005449587606563 raw units. No full geometric compatibility is established.
+3. Implement a reusable Rust collision/movement boundary using that evidence,
+   with focused behavioral/error-path tests and explicit remaining uncertainty.
    Camera-capture difficulties must not indefinitely block independent gameplay work.
 4. Continue through one evidenced weapon, zombie, damage/death and round, then
    compare and expand toward the full Origins scope. Keep visible progress and
@@ -91,6 +95,7 @@ README for the existing snapshot viewer commands. Do not reinstall working tools
 - [Snapshot contract](architecture/diagnostic-geometry-snapshot.md)
 - [Accepted renderer milestone](handoffs/0020-bevy-offscreen-geometry-diagnostic.md)
 - [Interactive inspection milestone](handoffs/0027-interactive-geometry-inspection.md)
+- [One recovered collision brush](handoffs/0028-origins-collision-brush-recovery.md)
 - [Pending collision result](handoffs/0026-origins-collision-brush-boundary.md)
 - [Collision source/loader evidence](reverse_engineering/0018-origins-collision-brush-boundary.md)
 - [Fidelity status](fidelity/README.md)
