@@ -2,6 +2,21 @@
 
 Updated: 2026-10-05. This is the current working brief; historical detail is linked below.
 
+## Active isolated damage/life-state goal
+
+This worktree owns shared player/ordinary-zombie damage and life states, Origins
+configuration, a runnable headless demonstration, deterministic tests and original
+comparisons. See [ownership and acceptance](architecture/damage-life-state-goal.md).
+Collision/movement and static-world appearance continue in separate worktrees.
+The user explicitly permits one active delegated worker per worktree; review and
+sequence workers locally. The first worker is investigating damage application
+and lethal routing through existing external script tooling. No gameplay values
+or transitions are implemented or accepted yet; fidelity is UNKNOWN.
+
+Baseline locked metadata and formatting pass in this worktree. Workspace tests
+are compiling; their result is pending. Original-data findings and scoped
+comparison evidence must precede implementation claims.
+
 ## Objective and working policy
 
 Reimplement the full Black Ops II Zombies Origins game in stable Rust with Bevy,
