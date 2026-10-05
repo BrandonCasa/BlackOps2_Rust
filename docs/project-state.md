@@ -451,16 +451,36 @@ the tracked example, and boot does not load it. The catalog/handoff is reviewed
 and accepted. The catalog task did not rerun compiler gates because it changed
 only documentation/local configuration. Current executable checks are listed above.
 
+The [owned-job inventory discriminator](reverse_engineering/0016-windows-owned-job-inventory-discriminator.md)
+now supplies two fresh job measurements with live flags8200/limits1/2. Accounting2/4
+agrees with distinct2/4 acquired member IDs; extra images report conhost.exe
+basename, without causal or historical attribution. B's one never-resumed probe
+assignment fails with quota error1816; A's probe is omitted after a preserved
+controller assertion. The full qualification is PARTIAL. All acquired2/4 members
+are terminal after explicit retained-job termination; still-open-job accounting
+active0/listempty, EOF/readers/handles and held/reopened file preservation pass.
+[Handoff0022](handoffs/0022-windows-owned-job-inventory-discriminator.md) records
+32 synthetic checks, ABI/build validation and exactly two consumed scenarios.
+General quota rules, historical task0021 last-close inventory and its directory-name
+failure remain unproven. No SDK/original action, unsafe change or fidelity promotion
+occurs; unchanged74-test Cargo/GPU/inspector gates are intentionally not repeated.
+The outer agent reviewed and accepted this scoped PARTIAL result. Independent
+raw-buffer/member/launch/teardown/preservation checks pass; all242 frozen worker
+artifacts and six candidate identities match before outer documentation edits.
+The next selected task is the concrete ordinary-name SDK qualifier design;
+native SDK execution requires its separately reviewed protocol.
+
 ## Next bounded work
 
-1. Discriminate task0021's unexpected owned-job accounting with one bounded
-   PID-list/creation-time/limit observation on user-created fixtures before any
-   new SDK execution. Retain the job handle for terminal accounting; qualify a
-   directory-name control if the later route requires it. Correct static ABI and
-   empty-job flag query-back do not replace those missing observations. Preserve
-   the consumed four-case results; do not repeat native scenarios automatically.
-   Actual SDK target/child path and early module identity remain unobserved.
-2. Separately apply accepted protections to one ordinary-name user-created x86
+1. Outer-review the concrete ordinary-name user-created x86 SDK startup/device/
+   teardown qualifier design using fresh exact-job PID inventory and retained-job
+   cleanup. Establish process-specific config/cache/CWD/TEMP/early-module identity
+   gates and registration-success/fallback evidence; qualify a directory-name
+   control only if required by that route before separate execution admission.
+   Preserve task0021's four cases and task0022's two cases/A probe omission; no
+   automatic scenario repeat. Historical inventory/general quota rules and actual
+   SDK identities remain unproven. Avoid a generic process-control detour.
+2. Separately apply accepted protections to the ordinary-name user-created x86
    startup/device/teardown qualifier with process-specific config/cache/directory
    and actual working-directory/module identity protection, pre-load TEMP routing,
    independent deadline and owned crash-child cleanup. Distinguish registration

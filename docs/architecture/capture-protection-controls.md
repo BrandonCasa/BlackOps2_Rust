@@ -7,6 +7,16 @@ Rust wrapper or game abstraction. Bevy keeps engine ownership; all seven Rust
 crates and their unsafe policies remain unchanged. No SDK or original runtime is
 admitted by this record.
 
+[Findings0016](../reverse_engineering/0016-windows-owned-job-inventory-discriminator.md)
+adds fresh-job inventory and retained-handle termination evidence. Its full
+qualification is PARTIAL because A's planned probe was omitted. New2/4 counters
+agree with2/4 distinct exact-job handles; the additional images report conhost.exe
+basename without establishing creator/purpose. B's one suspended assignment is
+rejected with error1816 under queried limit2. This qualifies that denial and fresh
+whole-job teardown, not a hard total-member quota or task0021's historical entries.
+The outer agent reviewed and accepted this scoped PARTIAL evidence, including
+independent raw-buffer/member/preservation checks and the terminal artifact freeze.
+
 The relevant source requirements remain [startup conditions 0012](../reverse_engineering/0012-sdk-capture-startup-write-conditions.md)
 and [Windows edges 0013](../reverse_engineering/0013-sdk-windows-startup-edge-closure.md):
 configuration refresh by the standard replay-marked child, dirty D3D11 cache writes
@@ -93,6 +103,7 @@ the SDK's actual path resolution or library behavior.
 | Explicit pre-creation TMP/TEMP | Actual parent/child `GetTempPathW` and directory IDs match | Environment routing does not redirect KnownFolder configuration/cache or prevent other paths |
 | Loaded user-created DLL identity | Actual module path/file ID/export match held launch-time artifact | No real SDK, DbgHelp/dependency inventory or all-module closure |
 | Non-inheritable kill-on-close job | Exact live parent and child become signaled; pipe EOF/readers/handles finish | Active-limit/accounting discrepancy unresolved; remaining job inventory cannot be queried after last close |
+| Fresh exact-job PID inventory and retained-handle termination | Distinct live2/4 members acquired; all signal exit22, active0/listempty before job close; B probe fails1816 | A probe omitted; general quota/extra-member creation unproven; historical job inventory not recovered |
 
 Microsoft documents [file sharing](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew),
 [file identity](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle),
@@ -109,10 +120,12 @@ API contracts are separate from the host-specific outcomes.
 
 ## Next admission
 
-First resolve the unexpected owned-job accounting with one separately bounded
-PID-list/creation-time discriminator, and qualify a directory-name control if the
-later route requires one. Do not repeat task0021's four cases automatically.
-Then outer-review a concrete ordinary-name x86 SDK startup/device/teardown design
+The fresh PID-list/creation-time discriminator now establishes distinct2/4 member
+inventories and retained-job teardown; historical task0021 entries and general
+limit semantics remain unproven. Its A probe omission is preserved, with no new
+scenario admitted. Qualify a directory-name control if the concrete later route
+requires one; task0021's failed anchor predicate remains unchanged.
+Outer-review a concrete ordinary-name x86 SDK startup/device/teardown design
 that can establish the actual target and standard child resolver identities,
 guarded config/cache/parent paths, early loaded library/CWD identities, registration
 success versus fallback and cleanup. The tested cooperation gate and owned DACLs

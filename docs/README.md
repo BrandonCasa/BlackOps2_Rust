@@ -46,6 +46,9 @@
 - [Windows fixture protection](reverse_engineering/0015-windows-fixture-protection-qualification.md): four finite native cases, allowed directory rename, owned ACL denials and unexplained job accounting.
 - [Fixture protection handoff](handoffs/0021-windows-fixture-protection-qualification.md): PARTIAL qualification, terminal cleanup, static ABI audit and next discriminator.
 
+- [Owned-job inventory discriminator](reverse_engineering/0016-windows-owned-job-inventory-discriminator.md): fresh distinct member accounting, live limit query-back, one rejected probe and retained-job teardown.
+- [Inventory discriminator handoff](handoffs/0022-windows-owned-job-inventory-discriminator.md): two consumed scenarios, retained A failure, exact cleanup and qualification limits.
+
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately
 from inferences and unknowns.

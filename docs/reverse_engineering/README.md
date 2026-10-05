@@ -176,3 +176,13 @@ rename succeeds, and job accounting exceeds the requested active limit; correct
 static ABI and empty-job query-back do not explain that discrepancy. No SDK,
 original, geometry or profile access occurs. Data/access remains INVESTIGATING;
 overall/gameplay/visual fidelity UNKNOWN.
+
+The [owned-job inventory discriminator](0016-windows-owned-job-inventory-discriminator.md)
+is PARTIAL for the full two-scenario qualification. Fresh accounting2/4 agrees
+with2/4 distinct acquired members, including conhost.exe image identities, with
+zero duplicate entries. Live settings return requested limits1/2; one suspended B
+probe is rejected with quota error1816. Retained-job explicit termination signals
+all acquired members and yields active0/listempty before close. A's probe is
+omitted after a preserved assertion failure. Creator/general quota semantics and
+task0021's historical inventory remain unproven; its directory-name gap remains.
+No SDK/original action or fidelity promotion occurs.
