@@ -141,3 +141,18 @@ stable Rust with Bevy Origins objective remains active.
 
 Outer review accepts the bounded PARTIAL source closure after source-predicate,
 terminal-identity, documentation and preservation checks. No runtime is admitted.
+
+The [SDK Windows startup edge closure](0013-sdk-windows-startup-edge-closure.md)
+is COMPLETE for the three named source edges. Capture startup initializes symbols
+with explicit "."; replay startup skips that call. Breakpad registration success
+skips fallback DLL/thread/path-ID setup; constructors do not explicitly create a
+dump file. Windows/library internals and actual identities remain UNKNOWN. The
+ordinary-name synthetic qualifier remains a prerequisite for original access,
+with protection before SDK load, process-specific identities and child supervision;
+no runtime is admitted by this source result. Data/access remains INVESTIGATING;
+overall, gameplay and visual fidelity UNKNOWN.
+
+Outer review accepts the three-edge closure after source/evidence/documentation
+and preservation checks. The next implementation task qualifies the existing
+raw-geometry boundary through a Bevy graphical diagnostic with unresolved
+original orientation and units explicitly labeled.

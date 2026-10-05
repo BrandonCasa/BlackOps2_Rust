@@ -175,6 +175,19 @@ action occurs; six safe Rust crates and Bevy boundaries remain unchanged. Data/a
 understanding remains INVESTIGATING; overall, gameplay and visual fidelity UNKNOWN.
 The full stable Rust with Bevy Origins objective remains active and unfinished.
 
+The [Windows startup edge closure](reverse_engineering/0013-sdk-windows-startup-edge-closure.md)
+is reviewed and accepted as COMPLETE for the three assigned public-source edges.
+Capture startup requests adjacent DbgHelp and initializes symbols with "." before
+log/config setup; replay startup skips it. Breakpad pipe registration success
+skips fallback DLL/thread/path-ID setup. The generator constructor stores state
+without loading libraries or creating a dump; caller TEMP directory creation and
+conditional later dump writes remain distinct. Windows/library internals and
+actual process/module/path identities stay UNKNOWN. [Handoff 0019](handoffs/0019-sdk-windows-startup-edge-closure.md)
+records bounded source/preservation/documentation validation. No SDK or original
+runtime occurred; the 67-test baseline, six safe crates and Bevy ownership are
+unchanged. The full stable Rust with Bevy Origins objective remains active;
+data/access INVESTIGATING and overall/gameplay/visual UNKNOWN.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -396,12 +409,18 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Close the directly reached Win32 Callstack and Breakpad ExceptionHandler/
-   MinidumpGenerator constructor startup edges in a separately bounded immutable
-   public-source task, as identified by findings 0012. Then separately qualify an
-   ordinary-name user-created x86 startup/device/teardown route with process-specific
-   config/cache/directory identity protection, pre-load TEMP routing and owned
-   crash-child cleanup. A supported pre-init config/cache override is not established
+1. Qualify Bevy render-world extraction and external diagnostic image output for
+   the existing raw geometry Mesh boundary. Use synthetic geometry first, then the
+   one accepted external snapshot without transforming source coordinates. Camera
+   framing, neutral display material and culling are diagnostic choices; original
+   orientation, units, visible side and appearance remain unresolved. This enables
+   concrete calibration-patch selection without claiming original rendering.
+2. Separately design/admit one ordinary-name user-created x86
+   startup/device/teardown qualifier with process-specific config/cache/directory
+   and actual working-directory/module identity protection, pre-load TEMP routing,
+   independent deadline and owned crash-child cleanup. Distinguish registration
+   success/fallback under those protections before any separately admitted SDK run.
+   A supported pre-init config/cache override is not established
    within the inspected APIs; no universal impossibility is claimed. The outer agent
    reviews that evidence before any exact-target x86 menu capture/replay admission.
    A menu frame proves transport only; loaded Origins evidence and
@@ -416,7 +435,7 @@ only documentation/local configuration. Current executable checks are listed abo
    attribute/material import remain separately scoped; stream1/layout investigation
    includes format0's at-capacity cases. Original geometry remains external and
    never enters tracked fixtures.
-2. Document observable shared engine/game structures and evidence-backed
+3. Document observable shared engine/game structures and evidence-backed
    ECS/asset boundaries in later bounded tasks, selected from actual decoded
    structures rather than additional envelope metadata alone.
 

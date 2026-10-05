@@ -37,6 +37,8 @@
 - [Frame-capture pilot handoff](handoffs/0017-original-frame-capture-access-pilot.md): bounded tool/guard qualification, preserved failures and the next original startup discriminator.
 - [SDK capture startup write conditions](reverse_engineering/0012-sdk-capture-startup-write-conditions.md): capture/replay/crash-child configuration, D3D11 cache, log/directory effects and remaining source edges.
 - [SDK startup conditions handoff](handoffs/0018-sdk-capture-startup-write-conditions.md): pinned source closure, role-specific guard conclusions and the next constructor-edge investigation.
+- [SDK Windows startup edge closure](reverse_engineering/0013-sdk-windows-startup-edge-closure.md): early symbol initialization, Breakpad registration/fallback and lazy dump creation.
+- [Windows startup edge handoff](handoffs/0019-sdk-windows-startup-edge-closure.md): three source edges closed with explicit Windows/library leaves and the minimum synthetic identity gate.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately
