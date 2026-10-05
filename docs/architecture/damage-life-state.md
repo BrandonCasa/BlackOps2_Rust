@@ -1,76 +1,94 @@
-# Resolved damage and life state
+# Resolved damage and coop revival
 
-This increment follows [licensed script evidence](../reverse_engineering/damage-life-state-01.md).
-Fidelity is APPROXIMATE: player lethal routing/downed assignment are source
-observations; player/actor health subtraction and actor zero-clamping remain inferred
-native behavior. Positive integer player damage is an implementation admission restriction,
-not a recovered VM conversion rule. Original comparisons are still required.
+This boundary follows [damage evidence](../reverse_engineering/damage-life-state-01.md),
+[ordinary revive source](../reverse_engineering/damage-life-state-03.md) and
+[qualified native restoration](../reverse_engineering/damage-life-state-04.md).
+Fidelity remains APPROXIMATE: native damage subtraction/clamping is inferred;
+revive100/100 composes Steam build24784239 scripts with inspected Plutonium native
+behavior. Loaded runtime-script agreement and live original comparisons remain
+unverified. Positive integer player damage is an implementation admission restriction.
 
-## Ownership and counterexamples
+## Ownership and state
 
-`bo2-gameplay` owns a Bevy `Vitality` component, validated `ResolvedDamage`, the
-resolved application system, and request/result resources. `bo2-origins` depends
-on gameplay and exposes the observed unperked maximum100/downed1/actor fallback150
-configuration. The headless demonstration depends on both and the existing core
-composition. Gameplay has no Origins dependency; no existing engine crate changes.
+`bo2-gameplay` owns validated health, `Vitality`, typed lifecycle commands/results
+and one Bevy fixed-step system. `bo2-origins` supplies observed unperked maximum100,
+downed1, fallback actor150, and ordinary no-bonus coop restoration100/100. Gameplay
+has no Origins dependency. The demo assembles both with existing core; no new
+engine foundation, registry, timer framework or dependency is added.
 
-One private-invariant component holds current/max health, route and life state.
-An enum captures the meaningful human/ordinary-actor variation without inheritance
-or duplicate health components. Public constructors require positive current
-health no greater than maximum. Actor terminal state is the only zero-health
-state; player downed health remains positive. This prevents treating health0 as a
-universal death/downing signal. Special actors with cannot-die flags are explicitly
-outside this ordinary-actor constructor's admission contract.
+Private Vitality fields keep current/max, human/ordinary-actor route, authoritative
+life state, episode/attempt counters and active attempt coherent. Shared numeric
+validation and ordered processing prevent duplicated player/zombie health systems.
+A universal death route would contradict positive-health downing and native revive.
+Actor death is terminal health0; human Downed remains positive. Ordinary actor
+cannot-die flags/special enemies and solo/last-player lethal routing are excluded.
 
-Resolved positive damage below current health subtracts without underflow.
-Equality/greater damage downs an admitted coop human or kills an ordinary actor.
-Downed/dead repeats return `Ignored` without state mutation. Solo/last-player
-lethal policy returns `UnsupportedPlayerPolicy` atomically; nonlethal damage still
-applies. Session assembly must refresh teammate policy when eligibility changes.
-No solo game-end behavior is fabricated. Current health is caller-supplied in
-Origins constructors: neither100 nor150 proves actual spawn/round initialization.
+Damage less than current health subtracts; equality/greater downs an admitted coop
+human or kills an ordinary actor. Unsupported solo/last-player lethal damage rejects
+atomically. Downed/dead repeat damage is ignored. Downing increments checked u64
+episode counter. The Origins initial current health remains caller-selected: max100
+or fallback150 does not establish actual spawn/round state.
 
-The alternative of separate player/zombie health systems duplicates numeric
-validation and event ordering. A universal terminal-death system contradicts the
-observed positive-health last-stand and session-dependent route. Native conversion,
-negative/healing damage, new actor archetypes, or engine comparison findings may
-require refining this boundary rather than extending it silently.
+## Resolved revive admission
 
-## Bevy scheduling and deterministic admission
+Begin requires a human Downed target, its current episode reference and an externally
+admitted Standing human reviver Entity. The fixed system also checks current reviver
+existence/Standing state. Raw same-team/use/touch/facing/sight, eligibility modifiers
+and timing are caller admission; no automatic3-second progress is implemented.
+Self-revive, active-attempt replacement and nonhuman/standing targets reject.
+An active attempt must be cancelled before a new begin is admitted.
 
-Pinned Bevy0.19.1 `FixedUpdate`, `TimeUpdateStrategy`, resources, query-by-Entity
-and system sets were inspected before implementation. `ResolvedDamagePlugin`
-registers one application system in `ApplyResolvedDamage` on `FixedUpdate`.
-Bevy owns entity identity, ECS lifecycle and fixed scheduling. The plugin sets no
-rate; this untimed boundary does not establish original simulation frequency.
+Begin increments checked u64 attempt counter and returns a private token binding
+target Entity generation, reviver, episode and attempt. Cancel requires that active
+token and leaves authoritative Downed/health unchanged. This follows source trigger
+semantics despite a script laststand flag being cleared after failed attempts.
+Completion requires matching token plus a still-Standing human reviver and validated
+positive current<=maximum restoration. Map assembly supplies100/100 for the admitted
+ordinary no-bonus path; shared gameplay does not assume full health. Restoration
+also preserves the configured future downed-health invariant. Completion sets
+Standing, clears active attempt, then later ordered damage can down a new episode.
 
-Callers submit requests with strictly increasing u64 IDs, including across fixed
-steps. Duplicate/reordered IDs fail before admission. No counter increment can
-overflow; u64::MAX is a valid final ID. Accepted requests retain caller order and
-are applied on the next fixed step, using direct entity lookup rather than query
-iteration. Failed target lookup returns a result instead of panicking. A despawned
-entity cannot alias a newly spawned entity because Bevy IDs include generations.
+Cancelled/replaced-attempt completion returns StaleAttempt; a prior downed episode
+returns StaleEpisode. Standing target returns NotDowned, actor NotHuman, wrong-token
+target WrongTarget, missing/no-component/despawned target MissingTarget. Missing,
+despawned, downed or actor reviver returns InvalidReviver. Completion failure leaves
+active attempt and target unchanged; caller may explicitly cancel for cleanup.
+Exhausted episode/attempt counters return CounterExhausted without mutation/wrapping.
+No terminal-human/bleedout or session-end behavior is invented.
 
-Producer systems must run before `ApplyResolvedDamage` and define their mutual
-order; result consumers run after it. The queue does not invent a global producer
-ordering or a general replay framework. Submit the same ordered inputs at the
-same simulation boundaries for equivalence; differing render pacing must not
-alter which inputs are admitted. Queue/result storage is caller-drained and no
-capacity/drop policy is silently selected. Results persist across empty steps.
+Counters/tokens apply to a **continuous Vitality component lifetime**. Removing or
+replacing Vitality on the same living Entity requires assembly to retire pending
+commands, held tokens/episode references and old result receipts first. Bevy Entity
+generation does not change on component replacement, so it cannot prevent those
+counter-reset aliases. `retire_pending_target` returns pending commands for explicit
+retirement while preserving other targets and request-ID history; held inputs remain
+caller-owned. This is an admission boundary, not automatic lifecycle interception.
 
-## Executable demonstration and limits
+## Fixed ordering and demonstration
 
-Run `cargo run -p bo2-damage-life-state-demo --locked`. It explicitly selects
-initial player100 and actor150, assumes eligible teammate policy, submits resolved
-nonlethal/lethal/repeated impacts, drives Bevy's fixed loop through `App::update`,
-and checks positive-health downing and zero-health actor death before exit0.
-Its resolved60 impact is synthetic input; it does not model every original melee
-hit, impact filtering or timing. No original files are read.
+LifeCommandQueue replaces the damage-only queue. All Damage/Begin/Cancel/Complete
+commands share strictly increasing caller IDs across fixed steps and execute in
+that accepted order on FixedUpdate, via direct entity lookup. Duplicate/reordered
+IDs reject before enqueue. u64::MAX is a valid final request ID; there is no wrapping
+counter. ApplyLifeCommands lets producers/consumers define before/after ordering;
+multiple producers must specify mutual order. No query iteration order, hidden
+revive/death priority or original simultaneous-event policy is assumed.
 
-Tests cover h-1/h/h+1, u32 limits, invalid values, atomic unsupported policy,
-terminal repeats, missing/despawned components/entities, duplicate/reordered IDs,
-and repeated replay across different spawn order and zero/multiple fixed steps
-per application update. This is synthetic executable correctness and Bevy
-integration, not original-game fidelity. Revival, bleedout, regen, shield,
-same-attacker filtering, weapons, rounds, raw impact and game-end rules remain
-outside this boundary. Resolve those in bounded evidence/implementation tasks.
+Bevy0.19.1 owns ECS/entities/fixed scheduling. No original simulation rate is selected.
+Identical input order at simulation boundaries gives identical results despite
+application/render pacing. Queue/results persist until caller consumption; no
+capacity/drop policy is selected. Current results must be consumed/retired before
+component replacement. No parallel queue or general replay framework is added.
+
+Run `cargo run -p bo2-damage-life-state-demo --locked`. It explicitly selects initial
+health/teammate admission, then verifies13 exact ordered outcomes: nonlethal/down,
+begin/cancel, stale completion, restart, revived100/100, subsequent damage/redown,
+stale episode rejection, actor nonlethal/death/repeat. It asserts intermediate restored
+Standing health and terminal actor state before exit0. No original assets are read.
+
+Tests preserve damage cases and exercise success, cancel/restart, invalid/stale
+identities, missing/despawned/nonhuman targets/revivers, invalid restoration,
+u32/u64 boundaries, atomic counter exhaustion, component-input retirement and
+repeated mixed lifecycle replay with0/1/3 fixed steps per update. These are synthetic
+correctness and engine integration. Raw revival interaction,3-second sampling,
+bleedout, regen, perks, solo/session-end and original comparison remain next tasks.

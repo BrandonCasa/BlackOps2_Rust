@@ -1,7 +1,20 @@
 #![forbid(unsafe_code)]
 
-use bo2_gameplay::{DamageError, LifeState, PlayerLethalPolicy};
+use bo2_gameplay::{LifeState, LifeStateError, PlayerLethalPolicy};
 use bo2_origins::*;
+
+#[test]
+fn coop_restoration_uses_qualified_health_instead_of_downed_health() {
+    let mut player = unperked_human(100, PlayerLethalPolicy::DownWithEligibleTeammate).unwrap();
+    player
+        .apply(bo2_gameplay::ResolvedDamage::new(100).unwrap())
+        .unwrap();
+    assert_eq!(player.current(), 1);
+    assert_eq!(
+        ordinary_coop_revive_restoration(),
+        bo2_gameplay::ReviveRestoration::new(100, 100)
+    );
+}
 
 #[test]
 fn configuration_preserves_explicit_current_health() {
@@ -14,10 +27,10 @@ fn configuration_preserves_explicit_current_health() {
     assert_eq!((actor.current(), actor.maximum()), (70, 150));
     assert_eq!(
         fallback_ordinary_actor(151),
-        Err(DamageError::InvalidCurrent)
+        Err(LifeStateError::InvalidCurrent)
     );
     assert_eq!(
         unperked_human(0, PlayerLethalPolicy::DownWithEligibleTeammate),
-        Err(DamageError::InvalidCurrent)
+        Err(LifeStateError::InvalidCurrent)
     );
 }

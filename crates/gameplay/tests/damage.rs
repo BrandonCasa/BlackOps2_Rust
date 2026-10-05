@@ -41,26 +41,26 @@ fn human_and_actor_boundary_cases() {
 
 #[test]
 fn invalid_values_and_maximum_amount_do_not_overflow() {
-    assert_eq!(ResolvedDamage::new(0), Err(DamageError::ZeroDamage));
+    assert_eq!(ResolvedDamage::new(0), Err(LifeStateError::ZeroDamage));
     assert_eq!(
         Vitality::ordinary_actor(1, 0),
-        Err(DamageError::ZeroMaximum)
+        Err(LifeStateError::ZeroMaximum)
     );
     assert_eq!(
         Vitality::ordinary_actor(0, 100),
-        Err(DamageError::InvalidCurrent)
+        Err(LifeStateError::InvalidCurrent)
     );
     assert_eq!(
         Vitality::ordinary_actor(101, 100),
-        Err(DamageError::InvalidCurrent)
+        Err(LifeStateError::InvalidCurrent)
     );
     assert_eq!(
         Vitality::human(100, 100, 0, PlayerLethalPolicy::DownWithEligibleTeammate),
-        Err(DamageError::InvalidDownedHealth)
+        Err(LifeStateError::InvalidDownedHealth)
     );
     assert_eq!(
         Vitality::human(100, 100, 101, PlayerLethalPolicy::DownWithEligibleTeammate),
-        Err(DamageError::InvalidDownedHealth)
+        Err(LifeStateError::InvalidDownedHealth)
     );
     let mut actor = Vitality::ordinary_actor(u32::MAX, u32::MAX).unwrap();
     actor.apply(damage(u32::MAX - 1)).unwrap();
@@ -77,22 +77,23 @@ fn unresolved_session_policy_is_atomic_and_can_be_refreshed() {
     let before = human;
     assert_eq!(
         human.apply(damage(80)),
-        Err(DamageError::UnsupportedPlayerPolicy)
+        Err(LifeStateError::UnsupportedPlayerPolicy)
     );
     assert_eq!(human, before);
     human.set_player_policy(PlayerLethalPolicy::DownWithEligibleTeammate);
-    assert_eq!(
+    assert!(matches!(
         human.apply(damage(80)),
         Ok(DamageOutcome::Downed {
             before: 80,
-            after: 1
+            after: 1,
+            ..
         })
-    );
+    ));
 }
 
 fn app() -> App {
     let mut app = App::new();
-    app.add_plugins((MinimalPlugins, ResolvedDamagePlugin));
+    app.add_plugins((MinimalPlugins, LifeStatePlugin));
     // Bevy's first real-time update initializes the clock with zero elapsed time.
     app.insert_resource(TimeUpdateStrategy::FixedTimesteps(0));
     app.update();
@@ -109,65 +110,67 @@ fn actual_fixed_schedule_handles_missing_despawned_and_ambiguous_requests() {
     let absent_component = app.world_mut().spawn_empty().id();
     let despawned = app.world_mut().spawn_empty().id();
     app.world_mut().despawn(despawned);
-    let mut queue = app.world_mut().resource_mut::<DamageQueue>();
+    let mut queue = app.world_mut().resource_mut::<LifeCommandQueue>();
     for (id, target) in [(1, actor), (2, absent_component), (3, despawned)] {
         queue
-            .submit(DamageRequest {
+            .submit(LifeCommandRequest {
                 id,
                 target,
-                damage: damage(10),
+                command: LifeCommand::Damage(damage(10)),
             })
             .unwrap();
     }
     assert_eq!(
-        queue.submit(DamageRequest {
+        queue.submit(LifeCommandRequest {
             id: 3,
             target: actor,
-            damage: damage(1)
+            command: LifeCommand::Damage(damage(1))
         }),
-        Err(DamageError::NonIncreasingRequestId)
+        Err(LifeStateError::NonIncreasingRequestId)
     );
     assert_eq!(
-        queue.submit(DamageRequest {
+        queue.submit(LifeCommandRequest {
             id: 2,
             target: actor,
-            damage: damage(1)
+            command: LifeCommand::Damage(damage(1))
         }),
-        Err(DamageError::NonIncreasingRequestId)
+        Err(LifeStateError::NonIncreasingRequestId)
     );
     assert_eq!(app.world().get::<Vitality>(actor).unwrap().current(), 10);
     app.world_mut().run_schedule(FixedUpdate);
     let results: Vec<_> = app
         .world_mut()
-        .resource_mut::<DamageResults>()
+        .resource_mut::<LifeCommandResults>()
         .drain()
         .collect();
     assert_eq!(results.iter().map(|r| r.id).collect::<Vec<_>>(), [1, 2, 3]);
     assert_eq!(
         results[0].result,
-        Ok(DamageOutcome::ActorDied { before: 10 })
+        Ok(LifeCommandOutcome::Damage(DamageOutcome::ActorDied {
+            before: 10
+        }))
     );
-    assert_eq!(results[1].result, Err(DamageError::MissingTarget));
-    assert_eq!(results[2].result, Err(DamageError::MissingTarget));
+    assert_eq!(results[1].result, Err(LifeStateError::MissingTarget));
+    assert_eq!(results[2].result, Err(LifeStateError::MissingTarget));
     app.world_mut()
-        .resource_mut::<DamageQueue>()
-        .submit(DamageRequest {
+        .resource_mut::<LifeCommandQueue>()
+        .submit(LifeCommandRequest {
             id: u64::MAX,
             target: actor,
-            damage: damage(1),
+            command: LifeCommand::Damage(damage(1)),
         })
         .unwrap();
     app.world_mut().run_schedule(FixedUpdate);
     assert_eq!(
         app.world_mut()
-            .resource_mut::<DamageResults>()
+            .resource_mut::<LifeCommandResults>()
             .drain()
             .next()
             .unwrap()
             .result,
-        Ok(DamageOutcome::Ignored {
+        Ok(LifeCommandOutcome::Damage(DamageOutcome::Ignored {
             state: LifeState::ActorDead
-        })
+        }))
     );
 }
 
@@ -175,7 +178,7 @@ fn actual_fixed_schedule_handles_missing_despawned_and_ambiguous_requests() {
 struct ReplaySnapshot {
     human: Vitality,
     actor: Vitality,
-    results: Vec<(u64, Result<DamageOutcome, DamageError>)>,
+    results: Vec<(u64, Result<LifeCommandOutcome, LifeStateError>)>,
 }
 
 fn replay(pacing: &[u32], reverse_spawn: bool) -> ReplaySnapshot {
@@ -200,11 +203,11 @@ fn replay(pacing: &[u32], reverse_spawn: bool) -> ReplaySnapshot {
         (5, actor, 1),
     ] {
         app.world_mut()
-            .resource_mut::<DamageQueue>()
-            .submit(DamageRequest {
+            .resource_mut::<LifeCommandQueue>()
+            .submit(LifeCommandRequest {
                 id,
                 target,
-                damage: damage(amount),
+                command: LifeCommand::Damage(damage(amount)),
             })
             .unwrap();
     }
@@ -216,7 +219,7 @@ fn replay(pacing: &[u32], reverse_spawn: bool) -> ReplaySnapshot {
     let a = *app.world().get::<Vitality>(actor).unwrap();
     let results = app
         .world_mut()
-        .resource_mut::<DamageResults>()
+        .resource_mut::<LifeCommandResults>()
         .drain()
         .map(|r| (r.id, r.result))
         .collect();
@@ -235,10 +238,10 @@ fn replay_equivalence_across_entity_order_and_fixed_loop_pacing() {
     assert_eq!(expected.results.len(), 6);
     assert_eq!(
         expected.results[0].1,
-        Ok(DamageOutcome::Hurt {
+        Ok(LifeCommandOutcome::Damage(DamageOutcome::Hurt {
             before: 100,
             after: 40
-        })
+        }))
     );
     assert_eq!(expected, replay(&[1, 1, 1], false));
     assert_eq!(expected, replay(&[0, 0, 3], true));

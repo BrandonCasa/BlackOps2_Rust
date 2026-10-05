@@ -6,9 +6,9 @@ The damage worktree adds `bo2-gameplay`, `bo2-origins` and
 `bo2-damage-life-state-demo` to the seven foundation/tool members below.
 Dependency edges are `bo2-origins -> bo2-gameplay` and
 `bo2-damage-life-state-demo -> bo2-core, bo2-gameplay, bo2-origins`.
-These crates forbid unsafe code. The [resolved damage boundary](damage-life-state.md)
+These crates forbid unsafe code. The [resolved life-state boundary](damage-life-state.md)
 documents the shared Bevy health/state component, ordered FixedUpdate processing
-and Origins configuration. Native arithmetic is inferred and fidelity APPROXIMATE;
+and damage/revive Origins configuration. Native damage arithmetic is inferred and fidelity APPROXIMATE;
 synthetic tests and the runnable demo do not establish original-game comparison.
 
 Local Cargo dependency edges are `bo2-boot -> bo2-core`,
