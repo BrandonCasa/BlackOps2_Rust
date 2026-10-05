@@ -11,6 +11,11 @@ Boot is diagnostic only; all other responsibility directories are placeholders.
 Bevy is selected but not integrated. No original game data has been inspected.
 Overall and system fidelity remain **UNKNOWN**.
 
+The ten required repository-local skills are present under `.agents/skills/`.
+Each guides one bounded responsibility with evidence, implementation, validation
+and escalation requirements. The skill task is reviewed and accepted; it adds
+no original-game evidence or executable functionality.
+
 ## Validation state
 
 - Git and Python are available. Rust `cargo`, `rustc`, and `rustup` are unavailable
@@ -25,22 +30,27 @@ Overall and system fidelity remain **UNKNOWN**.
   Rust compile, diagnostic run, or Bevy validation is claimed.
 - `Cargo.lock` remains pending generation by Cargo. No gameplay comparisons or
   performance measurements have occurred.
+- The bundled skill-creator validator accepted all ten skills using an isolated
+  uv/PyYAML environment. Exact skill names, folder names and all 30 relative
+  skill links/handoff anchors were checked. No Rust code changed in this task;
+  the pending compiler/runtime gates remain pending.
 
 ## Next bounded work
 
-1. Create the ten required bounded skills under `.agents/skills/`.
-2. Resolve Rust toolchain availability through a dedicated setup task and
-   run the pending workspace validation.
-3. Locate/catalog licensed external game data without copying it into Git.
-4. Document observable shared engine/game structures, then integrate a compatible
-   Bevy application and evidence-backed ECS/asset boundaries in bounded tasks.
+1. Establish a verified stable Rust and headless Bevy application foundation,
+   including the pending workspace validation.
+2. Locate/catalog licensed external game data without copying it into Git.
+3. Document observable shared engine/game structures and evidence-backed
+   ECS/asset boundaries in bounded tasks.
 
 The outer agent sequences those tasks with exactly one active subagent and updates
 this file after reviewing each handoff. Rendering, entity architecture, asset
 loading, gameplay, reverse engineering, and toolchain installation were outside
-the foundation task.
+the foundation and skill tasks.
 
 Review: the outer agent inspected all source/configuration and substantive
 documentation, independently parsed the manifests/configuration, checked key
 ignore rules, and scanned candidates for local paths and unsafe/embedded content.
 Structural validation passed; compiler validation remains pending as stated.
+The outer agent also reviewed all ten skill procedures and independently reran
+the bundled validator successfully for each skill.

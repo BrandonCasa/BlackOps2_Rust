@@ -6,6 +6,7 @@
 - [Fidelity](fidelity/README.md): comparison statuses and evidence requirements.
 - [Decisions](adr/README.md): architecture decision records.
 - [Foundation handoff](handoffs/0001-workspace-foundation.md): first task's result and validation.
+- [Skill handoff](handoffs/0002-project-skills.md): the ten bounded project skills and validation.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately
