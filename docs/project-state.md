@@ -39,8 +39,11 @@ not establish damage sensitivity. Online mod-author notes corroborate baseline
 health 100 and melee damage 60, separately from live proof. The subsequent
 [diagnostic trial](reverse_engineering/damage-life-state-09.md) accepted 972 unchanged
 100/100/100 samples and refused 28 solely for changing local-state pointers;
-irrelevant flag changes do not explain that run. Next trace actual native player
-damage writes against the observer's selected entity table/current field, then qualify
+irrelevant flag changes do not explain that run. The subsequent
+[native writer trace](reverse_engineering/damage-life-state-10.md) confirms signed
+subtraction at that exact field and an integer-only positive damage argument;
+active VM dispatch and execution remain unqualified. Next correct Rust's admitted
+numeric range to the supported positive signed subset, then qualify active dispatch,
 timing admission and compare in multiplayer; solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
