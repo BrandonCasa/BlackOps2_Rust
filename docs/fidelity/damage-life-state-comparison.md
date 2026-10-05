@@ -169,3 +169,13 @@ passed. Other flag semantics remain unqualified; no admission check was relaxed.
 Task18 external trial SHA-256 is
 3e956d93c9d90bcff6ff27c240abaf259dea37e299e13fa1da787bb4306c5294.
 Neither trial supplies selected-actor damage sensitivity or final-health evidence.
+
+Task21 qualifies native active-bit admission and preserves other exact identity
+checks. Parent fresh solo Nikolai500/ammo8/32 baseline accepts five150/150/gate1
+samples. Finite session21299 exits0 with959 accepted unchanged samples,58s cap,
+final native/process qualification and99428bytes read. No refusal occurs. Two
+keyboard shots (ammo8->7->6), one stance input, visible central-window zombie and
+later GAMEOVER1round/470 establish no selected-actor hit or death. Score stayed500
+on shots; scoreboard kills0/downs1. Thus health sensitivity/final-health comparison
+remain incomplete. See [Task21 receipts and limits](../reverse_engineering/damage-life-state-21.md).
+Keyboard attack input works without mouse rotation; temporary binding restored.

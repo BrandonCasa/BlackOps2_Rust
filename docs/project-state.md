@@ -42,10 +42,12 @@ controlled inference. Do not broaden the closed VM/handler surveys by default.
 health 100 to 40 agrees with resolved damage 60; contact count and return-to-100
 cause remain unqualified. Actor trials accepted unchanged 150/150/gate1, then
 refused identity changes; latest named active-byte variation with active bit retained.
-No actor hit/death was established. [Sampler diagnostics](reverse_engineering/damage-life-state-18.md)
-pass 15 synthetic checks and a fresh five-sample baseline. Original is now at the
-Origins solo lobby after ending the disposable aiming trial. Temporary keyboard
-attack/look bindings were removed; no new actor comparison was established.
+No actor hit/death was established. [Active-bit qualification](reverse_engineering/damage-life-state-21.md)
+masks only the native enumeration bit; all other identities remain exact. Outer42
+synthetic checks and five paused150/150/gate1 samples pass. Finite live trial959
+accepted unchanged samples reaches58s without identity refusal; final qualification
+passes. Two keyboard shots and a stance input establish input recovery, not hits.
+Original is at Origins solo lobby; temporary L attack binding restored. No jobs remain.
 
 Next repeat a controlled actor comparison and qualify coop timing. Multiplayer is required for
 bleedout proof; no second-player availability is established. Fidelity remains
