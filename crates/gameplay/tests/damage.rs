@@ -378,3 +378,103 @@ fn replay_equivalence_across_entity_order_and_fixed_loop_pacing() {
     assert_eq!(expected, replay(&[0, 0, 3], true));
     assert_eq!(expected, replay(&[3], false));
 }
+
+#[test]
+fn live_actor_trace_replays_resolved_differences_without_final_health_claim() {
+    // Task23 trial03: accepted signed observations, not weapon payloads or shot counts.
+    // Differences are supplied as resolved inputs; the final 22 is a conditional
+    // arithmetic replay, not proof that the original callback retained this SUB.
+    let observed_positive = [150_u32, 128, 106, 84, 62, 40, 23, 11];
+    let inferred_inputs = [22, 22, 22, 22, 22, 17, 12, 22];
+    let mut app = app();
+    let target = app
+        .world_mut()
+        .spawn(Vitality::ordinary_actor(150, 150).unwrap())
+        .id();
+    for (id, amount) in inferred_inputs.into_iter().enumerate() {
+        let before = observed_positive[id];
+        let after = if id + 1 < observed_positive.len() {
+            i32::try_from(observed_positive[id + 1]).unwrap()
+        } else {
+            -11
+        };
+        let stage = ActorSubtraction {
+            before,
+            amount,
+            after,
+        };
+        app.world_mut()
+            .resource_mut::<LifeCommandQueue>()
+            .submit(LifeCommandRequest {
+                id: u64::try_from(id).unwrap(),
+                target,
+                command: LifeCommand::Damage(damage(amount)),
+            })
+            .unwrap();
+        app.world_mut().run_schedule(FixedUpdate);
+        let results: Vec<_> = app
+            .world_mut()
+            .resource_mut::<LifeCommandResults>()
+            .drain()
+            .collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            (results[0].id, results[0].target),
+            (u64::try_from(id).unwrap(), target)
+        );
+        let actor = *app.world().get::<Vitality>(target).unwrap();
+        assert_eq!(actor.maximum(), 150);
+        assert_eq!(actor.actor_subtraction(), Some(stage));
+        if after > 0 {
+            assert_eq!(
+                results[0].result,
+                Ok(LifeCommandOutcome::Damage(DamageOutcome::Hurt {
+                    before,
+                    after: u32::try_from(after).unwrap()
+                }))
+            );
+            assert_eq!(
+                (actor.state(), actor.current()),
+                (LifeState::ActorAlive, Some(u32::try_from(after).unwrap()))
+            );
+        } else {
+            assert_eq!(
+                results[0].result,
+                Ok(LifeCommandOutcome::Damage(DamageOutcome::ActorDied {
+                    subtraction: stage
+                }))
+            );
+            assert_eq!(
+                (actor.state(), actor.current()),
+                (LifeState::ActorDead, None)
+            );
+        }
+    }
+    let terminal = *app.world().get::<Vitality>(target).unwrap();
+    app.world_mut()
+        .resource_mut::<LifeCommandQueue>()
+        .submit(LifeCommandRequest {
+            id: 8,
+            target,
+            command: LifeCommand::Damage(damage(22)),
+        })
+        .unwrap();
+    app.world_mut().run_schedule(FixedUpdate);
+    assert_eq!(
+        app.world_mut()
+            .resource_mut::<LifeCommandResults>()
+            .drain()
+            .next()
+            .unwrap()
+            .result,
+        Ok(LifeCommandOutcome::Damage(DamageOutcome::Ignored {
+            state: LifeState::ActorDead
+        }))
+    );
+    assert_eq!(*app.world().get::<Vitality>(target).unwrap(), terminal);
+    // Exact integer comparison exposes a deliberately different supplied input;
+    // no tolerance or weapon constant is fitted to make a discrepancy pass.
+    let mut different = Vitality::ordinary_actor(150, 150).unwrap();
+    different.apply(damage(23)).unwrap();
+    assert_ne!(different.current(), Some(observed_positive[1]));
+}

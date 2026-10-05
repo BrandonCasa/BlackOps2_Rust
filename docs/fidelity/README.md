@@ -3,8 +3,9 @@
 Overall status: **UNKNOWN**. External Origins geometry has been inspected, and
 safe Rust readers, a Bevy Mesh adapter and an offscreen diagnostic renderer are
 qualified. Original orientation, units, camera, materials and appearance remain
-unresolved. No live Origins comparison or evidence-backed gameplay system is
-implemented. Compilation and synthetic tool qualification are not fidelity proof.
+unresolved. Shared resolved damage and admitted coop life-state systems are
+implemented; scoped live health comparisons are recorded below. Compilation and
+synthetic tool qualification alone are not fidelity proof.
 
 Data/access understanding is **INVESTIGATING**; [project state](../project-state.md)
 records accepted evidence and its limits.
@@ -13,7 +14,8 @@ records accepted evidence and its limits.
 | --- | --- | --- |
 | Geometry, visuals, lighting, and animation | UNKNOWN | No original comparison; [diagnostic tooling only](../architecture/diagnostic-geometry-render.md) |
 | Movement, input, physics, and collision | UNKNOWN | None |
-| Weapons, projectiles, damage, and death | UNKNOWN | None |
+| Weapons and projectiles | UNKNOWN | No weapon or projectile comparison |
+| Resolved damage and life states | APPROXIMATE / INVESTIGATING | [Scoped original health comparisons](damage-life-state-comparison.md); raw impact admission, solo/session policy and live coop timing remain unresolved |
 | Zombies, AI, navigation, spawning, and rounds | UNKNOWN | None |
 | Characters, audio, HUD, and UI | UNKNOWN | None |
 | Perks, drops, and power-ups | UNKNOWN | None |

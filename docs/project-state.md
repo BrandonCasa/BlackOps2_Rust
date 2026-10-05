@@ -21,7 +21,7 @@ regen, perks and spectator/session assembly remain outside the admitted boundary
 ActorDead current health is explicitly unknown (`None`); signed pre-notification
 subtraction is a separate typed result. See [correction handoff](handoffs/damage-life-state-19.md).
 
-Latest executable validation: 10 locked metadata members, all 119 workspace tests,
+Latest executable validation: 10 locked metadata members, all 120 workspace tests,
 formatting and warning-denying Clippy pass. Outer independently repeated 39 focused
 gameplay/Origins tests and the demo: 21 ordered outcomes plus countdown through active
 revival, deferral at 45s and cancellation/poll termination at 45.1s. See
@@ -50,10 +50,21 @@ masks only the native enumeration bit; all other identities remain exact. Outer4
 synthetic checks and five paused150/150/gate1 samples pass. Finite live trial959
 accepted unchanged samples reaches58s without identity refusal; final qualification
 passes. Two keyboard shots and a stance input establish input recovery, not hits.
-Original is at Origins solo lobby; temporary L attack binding restored. No jobs remain.
+Temporary L attack binding was restored; no observer recording remains running.
 Separate no-attack repeat observed741 stable150/gate1 samples, then13 stable-999/gate0
 samples around session end, followed by team-change refusal. This proves signed
 observation sensitivity, not ordinary combat final health; cleanup route untraced.
+
+Latest user-controlled fresh solo trial recorded one actor decreasing from 150
+through 128, 106, 84, 62, 40, 23 and 11, then fourteen samples at -11 with its
+damage gate cleared. Exact observer identities held until a subsequent team-change
+refusal; final executable qualification passed. User reports roughly two magazines
+and clearing the round. Per-shot damage, hit locations and callback-stage attribution
+are unresolved. Original is paused under user control. Task23 records the
+comparison and resolved-boundary replay; neither final health nor weapon damage
+is promoted to a universal rule. Review is complete: the new ordered-queue replay
+passes independently; all 40 focused tests and 120 workspace tests pass. See
+[combat comparison handoff](handoffs/damage-life-state-23.md).
 
 Next repeat a controlled actor comparison and qualify coop timing. Multiplayer is required for
 bleedout proof; no second-player availability is established. Fidelity remains

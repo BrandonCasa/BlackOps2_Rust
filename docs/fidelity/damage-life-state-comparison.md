@@ -194,4 +194,72 @@ not supply ordinary-death final health. SHA-256:
 f7ec14a435a417de6e3fe0ee31d0f18b99b244f68587bba09bd134bd7ba92f87.
 Passive captures appeared unchanged until a subsequent input revealed game-over;
 refresh foreground before future observations and do not infer precise timing
-from these screenshots. Original now at solo lobby; bindings unchanged, no jobs remain.
+from these screenshots. At the end of that earlier trial, original was at solo lobby; bindings unchanged,
+no jobs remained.
+
+
+## User-controlled actor numeric sequence and resolved replay
+
+2026-10-05: original Plutonium r5354 LAN, Origins solo, fresh round 1 Nikolai,
+score 500 and spawn pistol ammo 8/32 at preparation. Parent controlled preparation
+and sampler start; user then played and reported roughly two magazines fired and
+all zombies in the round killed. This is user-reported combat context, not exact
+shot count, hit location, visible-target-to-entity mapping or death-frame proof.
+Parent subsequently observed the pause menu. Perk/generator/objective exclusions
+were not confirmed for the played interval and are not claimed. Random actor/input
+conditions and the relationship between shots and samples remain uncontrolled.
+
+Task21's read-only observer retained slot 3/entity 25 and exact pointer/backlink,
+sentient/team/selector/handler admission, with native active-bit comparison.
+Process 42012/creation 134357079689703421 and executable/header/native profile
+qualified before and after. Steam source build 24784239 equivalence to loaded
+runtime scripts remains unqualified. External receipt `trial03-user-control.jsonl`
+has SHA-256 072df30aee2f91b7d0b091161c5a1a6d667b318baaa6ba957b7a09e192bb841e.
+Session 45453 ended with shell exit 1; observer identity-refusal path specifies
+exit 2. Final `qualified_after` is true, with 56,976 bytes read. No worker game
+control or new original sampling occurred in this analysis.
+
+Of 489 JSONL records, 487 are accepted samples, one is a no-health refusal and one
+is final qualification. Maximum remains 150 throughout accepted observations:
+
+| Samples | Current | Gate | Count |
+| --- | ---: | ---: | ---: |
+| 0-450 |150|1|451|
+| 451-453 |128|1|3|
+| 454-456 |106|1|3|
+| 457-459 |84|1|3|
+| 460-462 |62|1|3|
+| 463-465 |40|1|3|
+| 466-469 |23|1|4|
+| 470-472 |11|1|3|
+| 473-486 |-11|0|14|
+
+Sample 487 refuses `selected_team_changed`, emits no health and ends recording.
+Adjacent observed decreases are 22, 22, 22, 22, 22, 17, 12 and 22 health units.
+The first changed acquisition starts 26.926 s after sample 0 acquisition start;
+negative/gate-0 acquisitions span 28.237-29.022 s, with refusal at 29.072-29.075 s.
+Conservative brackets from the preceding acquisition start to the next changed
+acquisition end are 68.183-69.640 ms. These bound observer sampling, not attack
+cadence, number of hits or native instruction/callback timing. No attack timestamp
+or health value is reused from a refusal.
+
+The new `live_actor_trace_replays_resolved_differences_without_final_health_claim`
+regression in gameplay damage tests supplies those differences to the existing
+ordered Bevy queue. All seven positive steps agree exactly, with zero integer
+tolerance. A conditional last input of 22 at health 11 yields the typed signed
+pre-notification stage -11 and ActorDead with current None; repeated terminal
+input preserves that unknown final health. A deliberately changed first input
+fails the same exact numeric comparison. Inputs inferred by differencing samples
+are delivered **resolved-boundary assumptions**, not measured raw weapon payloads.
+There is no claim that pistol damage is 22 or that one decrease equals one shot.
+
+This is the first selected-actor combat-associated health sensitivity sequence;
+user-reported round kills strengthen combat attribution relative to the prior
+no-attack -999 cleanup case. Arithmetic agreement has no discrepancy for the
+supplied resolved cases. Original -11/gate 0 is consistent with signed subtraction
+and handler gate clearing, but the sample does not identify its callback stage or
+prove universal final death health. Keep ActorDead.current None. Classification,
+between-sample same-pointer reuse, exact invocation and repeatability remain
+Task21 limits. Status remains **APPROXIMATE / INVESTIGATING**, not broad MATCHED.
+Repeat an isolated, visibly associated actor hit with action details before
+qualifying raw impact/weapon behavior or final callback health.
