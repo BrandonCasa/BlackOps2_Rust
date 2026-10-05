@@ -82,7 +82,8 @@ work does not itself advance the implemented game.
 
 ### Origins mechanics research
 
-Dedicated source-only research is on `codex/origins-mechanics-research`; see
+Source-only research from `codex/origins-mechanics-research` is merged into main
+at `8af13e8`; see
 [coverage and gaps](reverse_engineering/origins-mechanics/README.md),
 [proposed shared boundaries](architecture/origins-mechanics-proposal.md) and
 [dependency-ordered tasks](reverse_engineering/origins-mechanics/implementation-backlog.md).

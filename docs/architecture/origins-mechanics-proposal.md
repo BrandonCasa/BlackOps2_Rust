@@ -9,7 +9,9 @@ for bounded next work.
 
 ## Existing ownership and evidence
 
-This worktree's Cargo graph still has seven members. `bo2-core` composes Bevy
+The research baseline `80e6726` has seven Cargo members; main integration at
+`8af13e8` retains the eighth, `bo2-physics`, from the separately reviewed collision
+work. Its convex brush/segment queries establish no mechanics APIs. `bo2-core` composes Bevy
 `MinimalPlugins`; boot is a headless smoke check. Geometry tools do not provide
 gameplay identity, inventory, interaction or round APIs. Reserved directories in
 [the architecture](README.md) are responsibilities, not established abstractions.
