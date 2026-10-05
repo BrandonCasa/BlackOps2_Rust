@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 
 //! Resolved damage, admitted coop revival and bleedout disposition. Ordinary positive
-//! player subtraction is statically qualified; actor arithmetic remains inferred.
-//! Active original dispatch/execution is unqualified; revival configuration is external.
+//! player subtraction has static evidence and one scoped live comparison. Native
+//! actor subtraction is qualified; final ActorDead zero normalization is approximate.
+//! Active original dispatch is unqualified; revival configuration is external.
 //! Expiry timing is external; terminal human health is preserved pending qualification.
-//! See docs/reverse_engineering/damage-life-state-{01,06,10}.md for evidence and limits.
+//! See docs/reverse_engineering/damage-life-state-{01,06,10,14,15}.md and
+//! docs/fidelity/damage-life-state-comparison.md for evidence and limits.
 
 use std::num::NonZeroU32;
 

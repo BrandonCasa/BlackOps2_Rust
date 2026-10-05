@@ -5,12 +5,17 @@ This boundary follows [damage evidence](../reverse_engineering/damage-life-state
 [qualified native restoration](../reverse_engineering/damage-life-state-04.md) and
 [ordinary coop bleedout](../reverse_engineering/damage-life-state-06.md) and
 [native damage writer](../reverse_engineering/damage-life-state-10.md).
-Fidelity remains APPROXIMATE: ordinary positive player subtraction is statically
-qualified in the inspected native routine; active VM dispatch/execution and live
-comparison remain unqualified. Actor subtraction/zero-clamping remains inferred;
-revive100/100 composes Steam build24784239 scripts with inspected Plutonium native
-behavior. Loaded runtime-script agreement and live original comparisons remain
-unverified. Native integer payload/sign checks support positive signed damage admission;
+Fidelity remains APPROXIMATE. Player subtraction has static native evidence and
+one [live 100-to-40 comparison](../fidelity/damage-life-state-comparison.md);
+exact contact attribution and active VM dispatch remain unqualified.
+[Actor native arithmetic](../reverse_engineering/damage-life-state-14.md)
+supports subtraction and permits negative health before the death handler.
+The [selected handler](../reverse_engineering/damage-life-state-15.md) clears
+the repeat-impact gate, but ordinary archetype and final callback/cleanup health
+effects remain unqualified. ActorDead zero normalization is an explicit approximation.
+Revive100/100 composes Steam build24784239 scripts with inspected Plutonium native
+behavior; loaded runtime-script agreement and live coop comparisons remain unverified.
+Native integer payload/sign checks support positive signed damage admission;
 upstream conversions and excluded native policy/scaling paths remain unqualified.
 
 ## Ownership and state
@@ -30,8 +35,9 @@ casts. Oversized health returns HealthOutOfRange; oversized damage returns
 DamageOutOfRange. Existing zero and current>maximum errors remain for values in
 range. Native signed getter/storage evidence supports this positive health subset
 as a project restriction; native setters do not enforce positivity.
-Ordinary-actor admission shares this conservative domain; native10 does not prove
-actor conversion/arithmetic. ActorDead current0 is an internal terminal exception.
+Ordinary-actor admission shares this conservative domain, supported by native14's
+integer argument and signed subtraction. ActorDead current0 is an internal terminal
+exception whose final numeric value remains approximate.
 Private constructors validate before any lifecycle mutation; restoration rejection leaves
 the active attempt intact. Bounds and comparisons make nonlethal subtraction safe.
 A universal death route would contradict positive-health downing and native revive.
