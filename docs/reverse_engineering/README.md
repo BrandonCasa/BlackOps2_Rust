@@ -81,3 +81,17 @@ geometry remain external, task9 is restored exactly, and the excluded monitoring
 race/repair is documented. Data understanding remains INVESTIGATING; visual,
 gameplay and overall fidelity UNKNOWN. The next bounded task uses Rust Bevy Mesh;
 full attributes/materials still need separate stream1/layout evidence.
+
+The [Origins coordinate evidence](0009-origins-coordinate-evidence.md) distinguishes
+Bevy's pinned destination conventions from C2M's OBJ scale/Face choices and the
+unresolved original basis. Two complete accepted-snapshot analyses preserve
+own-bounds inclusion under nine conflicting mappings/scales; neither those
+checks nor synthetic determinant tests select original units/up/angles/front.
+No new original decode or transform is added. The PARTIAL investigation requires
+one controlled original camera/visible-side calibration, with an independent
+unit reference for physical scale. Data understanding remains INVESTIGATING;
+overall, gameplay and visual fidelity remain UNKNOWN.
+
+Outer review accepts the bounded coordinate investigation after independent
+synthetic, repeated snapshot, source, preservation and documentation checks;
+its PARTIAL result and unresolved original conventions remain explicit.

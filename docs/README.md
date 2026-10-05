@@ -29,6 +29,8 @@
 - [External snapshot handoff](handoffs/0013-origins-diagnostic-geometry-snapshot.md): supervised conversion, synthetic/source-bit checks, exact restoration and next Rust Bevy Mesh task.
 - [Diagnostic Mesh adapter](architecture/diagnostic-mesh-adapter.md): unchanged diagnostic data in Bevy Mesh storage, retained metadata, member features and headless engine asset ownership.
 - [Mesh adapter handoff](handoffs/0014-bevy-diagnostic-mesh-adapter.md): synthetic preservation, one complete external snapshot check and frozen-file workspace validation.
+- [Origins coordinate evidence](reverse_engineering/0009-origins-coordinate-evidence.md): pinned destination/exporter distinctions, repeated mapping ambiguity and unresolved original coordinate conventions.
+- [Coordinate evidence handoff](handoffs/0015-origins-coordinate-evidence.md): snapshot-only analysis, excluded handle-position attempt, preservation and the next original calibration.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately

@@ -114,6 +114,16 @@ inspectors remain unchanged. [Handoff 0014](handoffs/0014-bevy-diagnostic-mesh-a
 is reviewed and accepted. No original coordinate mapping, draw/material
 semantics, asynchronous loader, graphical output or fidelity comparison is added.
 
+The [coordinate evidence investigation](reverse_engineering/0009-origins-coordinate-evidence.md)
+is PARTIAL: pinned Bevy destination conventions and C2M's OBJ scale/Face choices
+are distinguished from original units/up/basis/angles/front state. Two complete
+accepted-snapshot analyses preserve own-bounds inclusion under nine conflicting
+mappings/scales. That ambiguity supports no graphical conversion. No new original
+decode, native mutation, Rust/API/transform or renderer is added.
+[Handoff 0015](handoffs/0015-origins-coordinate-evidence.md) records the remaining
+original calibration and validation limits; outer review accepts this bounded
+investigation with its PARTIAL result and unresolved coordinate semantics.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -290,6 +300,25 @@ non-documentation preservation review pass, along with all ten candidates,
 56 relative links, seven pinned source anchors, ten handoff headings and content/
 whitespace checks. This bounded diagnostic adapter is reviewed and accepted.
 
+Task 0015's snapshot-only external checks pass 24 synthetic parser/numeric cases,
+48 signed-permutation/96 face-order cases and six supervisor cleanup cases.
+An excluded buffered-handle/mmap rehash failure is preserved and reproduced with
+synthetic data; corrected unbuffered same-handle hashes and exception cleanup pass.
+Two frozen authoritative runs exit 0 in 3.031/3.000 seconds, 695 stdout bytes each,
+empty stderr, complete accepted counts and all nine own-bounds violation counts
+zero. Source SHA/length/write-time/device/file-ID agree with the accepted task 0014
+identity. No original-game/render/unit comparison occurs. Final 230-record
+preservation and five-document checks pass; unchanged Rust/Cargo/Bevy/inspector
+gates retain task 0014's accepted 67-test baseline and are intentionally not rerun.
+Parent independently reproduces all frozen synthetic/supervisor cases, its own
+mmap regression and two matching observations (3.000/2.969 seconds, 695 stdout
+bytes, empty stderr), with accepted input identity unchanged. Parent confirms
+230 preservation records, 84 independent non-owned tracked/config identities,
+four frozen helpers, 31 artifact byte/SHA identities, pinned sources, five
+candidates, 75 relative links, 12 source anchors, ten headings and content/
+whitespace checks. The coordinate investigation is reviewed and accepted with
+PARTIAL semantics; no original mapping or fidelity claim is added.
+
 ## External source availability
 
 The [local asset catalog](reverse_engineering/0001-local-asset-catalog.md) identifies
@@ -316,8 +345,11 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Before graphical placement/comparison, establish original units/axes/winding in
-   one separately bounded investigation. Asynchronous AssetLoader and complete
+1. Before graphical placement/comparison, perform one separately bounded original
+   camera/visible-side coordinate calibration on an asymmetric static world patch,
+   as specified in findings 0009. Original gravity/basis/angle/front state and an
+   independent unit reference remain unresolved; diagnostic ambiguity selects no
+   transform. Asynchronous AssetLoader and complete
    attribute/material import remain separately scoped; stream1/layout investigation
    includes format0's at-capacity cases. Original geometry remains external and
    never enters tracked fixtures.
