@@ -21,7 +21,12 @@ Origins configuration and a headless demonstration. Scoped fidelity is APPROXIMA
 Outer locked metadata (10 members), all 86 workspace tests, formatting and
 warning-denying Clippy pass. The demo verifies exact ordered damage/downing/death
 outcomes and exits 0. Next: investigate revival/bleedout and qualify native health
-arithmetic with original comparison. Launch original BO2 through the desktop
+arithmetic with original comparison. The reviewed
+[revive contract](reverse_engineering/damage-life-state-03.md) establishes
+ordinary completion/cancellation, max-health reboot 100 and expiry deferral while
+being revived. Native restored current health is unknown; do not silently set it
+to 100. Downed-episode identity is needed to reject stale completions. Next resolve
+native restoration, then implement the supported transition. Launch original BO2 through the desktop
 Plutonium launcher; select Origins using the robot-head planet icon. This
 increment does not complete revival, original comparisons or the full goal.
 
