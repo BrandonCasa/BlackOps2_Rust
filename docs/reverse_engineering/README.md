@@ -60,3 +60,13 @@ count-owner sentinel. The twelve earlier stream-1 failures are exactly end-offse
 cases with positive counts; required stream-1 spans and attribute encoding remain
 unknown. Structure remains INVESTIGATING; position-prefix validation is the next
 bounded measurement before geometry import.
+
+The [GfxWorld candidate position prefix](0007-gfxworld-position-prefix.md)
+tests all 191,259 candidate records and all 449,721 per-surface references as
+finite little-endian float32 triples. Every reference fits its surface's separate
+`bounds[0]`/`bounds[1]` ordered-endpoint candidate exactly across all seven formats
+and every zero-count surface. The embedded `tris.mins`/`tris.maxs` endpoint
+candidate fails on every surface, so the two bounds families are not interchangeable.
+This supports the candidate prefix without a unit conversion or geometry import;
+original bounds/draw semantics, required stream-1 spans and other attributes remain
+unknown. Structure remains INVESTIGATING; gameplay and visual fidelity remain UNKNOWN.

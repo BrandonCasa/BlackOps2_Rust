@@ -65,6 +65,18 @@ stream1 spans and all attribute encodings remain unverified. Findings and
 Task9 tooling is restored byte for byte, and separate task10 evidence remains
 external. No Rust/Bevy geometry or rendering integration is added.
 
+The [position-prefix investigation](reverse_engineering/0007-gfxworld-position-prefix.md)
+now checks every candidate record and surface reference. All 191,259 addressed
+records are finite little-endian float32 triples, and all 449,721 reference visits
+fit their own surface's separate bounds-array endpoint candidate exactly, across
+all seven observed formats and all 6,236 zero-count surfaces. The embedded tris
+endpoint candidate fails on every surface; the bounds families are not interchangeable.
+The predeclared four-ULP diagnostic changes no outcomes. Findings and
+[handoff 0011](handoffs/0011-gfxworld-position-prefix.md) are reviewed and accepted.
+Task9 tooling is restored exactly and task10 remains unchanged. Position consistency
+supports a candidate prefix without proving original layout/draw semantics, units,
+appearance or complete geometry support. No Rust/Bevy API or import is added.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -156,6 +168,25 @@ no original-game evidence or executable functionality.
   nine helper/artifact hashes, the public C2M blob against its pinned tree, and
   task9's restored source/header/binary/exact patch. Documentation/content,
   source-link and whitespace checks passed; encoding and fidelity remain unknown.
+- Task0011's 46 new position-prefix synthetic cases and accepted 22+26 checks
+  passed before originals. The final same-host native build exited 0 without
+  warnings in 14.625 seconds; cumulative 46.312 seconds including two type corrections
+  stayed within 900 seconds. Two fresh schema 11 observations exited 0 in 7.797/7.407
+  seconds, 5,751 bytes each, within 120 seconds/256 KiB and the 8,192-byte record cap.
+  Exact repeated aggregates, complete group/unique-address/reference categories,
+  admitted reads, supervisor limit children, no-extra-output and original/four-tool
+  identities passed. Peaks 391,479,296/390,627,328 bytes were observed, not capped.
+  Task9 source/header/binary/exact patch restored; 13 pristine source identities and
+  nine clean pinned submodules checked; task10 unchanged. No original-game comparison
+  or tracked-code change occurred; Cargo gates were not repeated. Outer review
+  independently reran all 46+22+26 native checks, supervisor limit children and
+  two observations (5.375/5.406 seconds, 5,751 bytes each). All four records agree
+  exactly; original/four-tool identities and no-extra-output checks passed.
+  Nineteen external artifacts, thirteen pristine source identities, eleven upstream
+  Git blobs, nine clean pinned submodules and exact task9 restoration passed review.
+  All 46 relative links, six source anchors, ten handoff headings, content boundaries
+  and whitespace checks passed. Accepted position consistency establishes no
+  original-game behavior or appearance fidelity.
 
 The [Bevy build handoff](handoffs/0003-bevy-build-foundation.md) records exact
 versions, checks and limits. Its code and validation are reviewed and accepted.
@@ -186,13 +217,14 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Validate the same `gfxworld`'s candidate stream-0 position prefix before
-   position decoding/import: admitted 36-byte addresses, internal float32
-   finite-value and declared-bounds consistency across all seven observed formats
-   and every zero-count case; synthetic invalid/truncated-float checks first.
-   Keep output aggregate-only and the same one-zone external/source-preservation
-   boundaries. Required stream1/layout mapping and other attributes remain
-   unresolved prerequisites for complete geometry/material import.
+1. Implement one safe Rust reader and read-only inspector for a project-owned,
+   bounded diagnostic position/index snapshot contract, using synthetic fixtures.
+   This prepares the accepted position/index evidence for a later external producer
+   and Bevy geometry adapter. Preserve raw position values and triangle references;
+   do not adopt units, axes, winding, materials or other attributes without evidence.
+   No original content enters this reader task or tracked fixtures.
+   A complete material/attribute import still requires separate stream1/layout
+   investigation, including format 0's at-capacity cases.
 2. Document observable shared engine/game structures and evidence-backed
    ECS/asset boundaries in later bounded tasks, selected from actual decoded
    structures rather than additional envelope metadata alone.
@@ -243,3 +275,9 @@ and preservation records. Independent checks accepted the complete candidate
 group accounting and logical-base intervals without promoting attribute encoding
 or original draw semantics. The next task measures candidate positions against
 finite-value and declared surface-bounds checks before import.
+The subsequent position-prefix task supplies complete finite/containment evidence
+and rejects the embedded-bounds endpoint candidate. Its findings/handoff 0011,
+external instrumentation, synthetic tests, repeated observations and preservation
+records passed outer review and independent reproduction; no fidelity status is
+promoted by that measurement. The next bounded task implements the diagnostic
+snapshot consumer before any external geometry producer or Bevy mesh adapter.
