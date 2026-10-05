@@ -1,13 +1,16 @@
 #![forbid(unsafe_code)]
 
-//! Resolved damage, admitted coop revival and bleedout disposition. Native player/actor
-//! damage arithmetic remains explicit inference; revival configuration is external.
+//! Resolved damage, admitted coop revival and bleedout disposition. Ordinary positive
+//! player subtraction is statically qualified; actor arithmetic remains inferred.
+//! Active original dispatch/execution is unqualified; revival configuration is external.
 //! Expiry timing is external; terminal human health is preserved pending qualification.
-//! See docs/reverse_engineering/damage-life-state-{01,06}.md for evidence and limits.
+//! See docs/reverse_engineering/damage-life-state-{01,06,10}.md for evidence and limits.
 
 use std::num::NonZeroU32;
 
 use bevy::prelude::*;
+
+const MAX_POSITIVE_NATIVE_INTEGER: u32 = i32::MAX.unsigned_abs();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifeStateError {
@@ -15,6 +18,10 @@ pub enum LifeStateError {
     InvalidCurrent,
     ZeroDamage,
     InvalidDownedHealth,
+    /// A supplied current, maximum or downed health exceeds i32::MAX.
+    HealthOutOfRange,
+    /// A supplied resolved damage amount exceeds i32::MAX.
+    DamageOutOfRange,
     UnsupportedPlayerPolicy,
     MissingTarget,
     NonIncreasingRequestId,
@@ -36,12 +43,16 @@ impl std::fmt::Display for LifeStateError {
 
 impl std::error::Error for LifeStateError {}
 
-/// Integer admission is a project restriction; original player conversion is unknown.
+/// Admits only positive signed-32-bit integer payloads, matching the inspected
+/// native player entry. Upstream conversion and active VM dispatch remain unqualified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResolvedDamage(NonZeroU32);
 
 impl ResolvedDamage {
     pub fn new(amount: u32) -> Result<Self, LifeStateError> {
+        if amount > MAX_POSITIVE_NATIVE_INTEGER {
+            return Err(LifeStateError::DamageOutOfRange);
+        }
         NonZeroU32::new(amount)
             .map(Self)
             .ok_or(LifeStateError::ZeroDamage)
@@ -81,6 +92,8 @@ enum DamageRoute {
 }
 
 /// Private fields keep life-state/health invariants together without a registry.
+/// Admitted current/maximum/downed health is in 1..=i32::MAX. Only ActorDead
+/// internally carries current zero. u32 storage avoids signed arithmetic/casts.
 /// Before removing/replacing this component on a living Entity, assembly must
 /// retire pending commands and all externally held tokens/episode references.
 /// Bevy entity generations do not change when components are replaced. Counters
@@ -104,6 +117,9 @@ impl Vitality {
         state: LifeState,
     ) -> Result<Self, LifeStateError> {
         let maximum = NonZeroU32::new(maximum).ok_or(LifeStateError::ZeroMaximum)?;
+        if maximum.get() > MAX_POSITIVE_NATIVE_INTEGER || current > MAX_POSITIVE_NATIVE_INTEGER {
+            return Err(LifeStateError::HealthOutOfRange);
+        }
         if current == 0 || current > maximum.get() {
             return Err(LifeStateError::InvalidCurrent);
         }
@@ -126,6 +142,9 @@ impl Vitality {
     ) -> Result<Self, LifeStateError> {
         let downed_health =
             NonZeroU32::new(downed_health).ok_or(LifeStateError::InvalidDownedHealth)?;
+        if downed_health.get() > MAX_POSITIVE_NATIVE_INTEGER {
+            return Err(LifeStateError::HealthOutOfRange);
+        }
         if downed_health.get() > maximum {
             return Err(LifeStateError::InvalidDownedHealth);
         }
@@ -168,8 +187,9 @@ impl Vitality {
     }
 
     /// Lethal player classification/downed assignment follow inspected scripts.
-    /// Native health subtraction for both routes and actor zero-clamping are
-    /// inferred, pending original-game comparison. Raw impact policy is excluded.
+    /// Ordinary positive player subtraction is statically qualified in native10;
+    /// active dispatch/execution is unqualified. Actor subtraction/zero-clamping
+    /// remain inferred. Raw impact policy and native raw lethal values are excluded.
     pub fn apply(&mut self, damage: ResolvedDamage) -> Result<DamageOutcome, LifeStateError> {
         if matches!(
             self.state,
@@ -423,6 +443,9 @@ pub struct ReviveRestoration {
 impl ReviveRestoration {
     pub fn new(current: u32, maximum: u32) -> Result<Self, LifeStateError> {
         let maximum = NonZeroU32::new(maximum).ok_or(LifeStateError::ZeroMaximum)?;
+        if maximum.get() > MAX_POSITIVE_NATIVE_INTEGER || current > MAX_POSITIVE_NATIVE_INTEGER {
+            return Err(LifeStateError::HealthOutOfRange);
+        }
         let current = NonZeroU32::new(current)
             .filter(|v| v.get() <= maximum.get())
             .ok_or(LifeStateError::InvalidCurrent)?;
@@ -609,16 +632,16 @@ mod counter_tests {
     #[test]
     fn terminal_transition_needs_no_counter_increment_or_health_arithmetic() {
         let mut player = Vitality::human(
-            u32::MAX,
-            u32::MAX,
-            u32::MAX,
+            i32::MAX.unsigned_abs(),
+            i32::MAX.unsigned_abs(),
+            i32::MAX.unsigned_abs(),
             PlayerLethalPolicy::DownWithEligibleTeammate,
         )
         .unwrap();
         player.episode = u64::MAX - 1;
         player.attempt = u64::MAX - 1;
         player
-            .apply(ResolvedDamage::new(u32::MAX).unwrap())
+            .apply(ResolvedDamage::new(i32::MAX.unsigned_abs()).unwrap())
             .unwrap();
         let target = Entity::from_bits(1);
         let expiry = player.downed_expiry(target).unwrap();
@@ -633,8 +656,8 @@ mod counter_tests {
         assert_eq!(
             player.expire_downed(target, expiry),
             Ok(ExpiryOutcome::Terminated {
-                current: u32::MAX,
-                maximum: u32::MAX
+                current: i32::MAX.unsigned_abs(),
+                maximum: i32::MAX.unsigned_abs()
             })
         );
         let terminal = player;

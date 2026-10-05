@@ -282,7 +282,7 @@ fn main() -> DemoResult<()> {
         return Err("ordered lifecycle verification failed".into());
     }
     println!(
-        "PASS: down/cancel/restart/revive100/redown; stale inputs rejected; expiry deferred then terminal after cancel; positive terminal health preserved; actor dead. Fidelity APPROXIMATE: damage arithmetic inferred; revive100 combines Steam script and qualified Plutonium native evidence; terminal network-frame interval collapsed; final spectator health unknown; coop comparison pending. Initial health and teammate/interaction/expiry timing are admitted demonstration inputs; no raw revive or bleedout timer."
+        "PASS: down/cancel/restart/revive100/redown; stale inputs rejected; expiry deferred then terminal after cancel; positive terminal health preserved; actor dead. Fidelity APPROXIMATE: ordinary positive player subtraction statically qualified; actor arithmetic inferred; active native dispatch/live comparison unqualified; revive100 combines Steam script and qualified Plutonium native evidence; terminal network-frame interval collapsed; final spectator health unknown; coop comparison pending. Initial health and teammate/interaction/expiry timing are admitted demonstration inputs; no raw revive or bleedout timer."
     );
     Ok(())
 }

@@ -8,7 +8,9 @@ Dependency edges are `bo2-origins -> bo2-gameplay` and
 `bo2-damage-life-state-demo -> bo2-core, bo2-gameplay, bo2-origins`.
 These crates forbid unsafe code. The [resolved life-state boundary](damage-life-state.md)
 documents the shared Bevy health/state component, ordered FixedUpdate processing
-and damage/revive Origins configuration. Native damage arithmetic is inferred and fidelity APPROXIMATE;
+and damage/revive Origins configuration. Ordinary positive player subtraction is
+statically qualified; actor arithmetic is inferred; active native dispatch/live
+comparison is unqualified. Fidelity remains APPROXIMATE;
 synthetic tests and the runnable demo do not establish original-game comparison.
 
 Local Cargo dependency edges are `bo2-boot -> bo2-core`,

@@ -79,6 +79,15 @@ fn restoration_validation_wrong_target_and_nonhuman_are_atomic() {
         .begin_revive(target, reviver, v.downed_episode().unwrap())
         .unwrap();
     let before = v;
+    for excess in [i32::MAX.unsigned_abs() + 1, u32::MAX] {
+        for (current, maximum) in [(excess, i32::MAX.unsigned_abs()), (1, excess)] {
+            // A failed restoration cannot enter the command/API or consume the attempt.
+            let result = ReviveRestoration::new(current, maximum)
+                .and_then(|restoration| v.complete_revive(target, token, restoration));
+            assert_eq!(result, Err(LifeStateError::HealthOutOfRange));
+            assert_eq!(v, before);
+        }
+    }
     assert_eq!(
         v.complete_revive(reviver, token, restore()),
         Err(LifeStateError::WrongTarget)
@@ -87,10 +96,13 @@ fn restoration_validation_wrong_target_and_nonhuman_are_atomic() {
     v.complete_revive(
         target,
         token,
-        ReviveRestoration::new(u32::MAX, u32::MAX).unwrap(),
+        ReviveRestoration::new(i32::MAX.unsigned_abs(), i32::MAX.unsigned_abs()).unwrap(),
     )
     .unwrap();
-    assert_eq!((v.current(), v.maximum()), (u32::MAX, u32::MAX));
+    assert_eq!(
+        (v.current(), v.maximum()),
+        (i32::MAX.unsigned_abs(), i32::MAX.unsigned_abs())
+    );
     let mut actor = Vitality::ordinary_actor(10, 10).unwrap();
     let episode = token.episode();
     assert_eq!(

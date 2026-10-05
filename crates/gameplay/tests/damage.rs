@@ -9,7 +9,7 @@ fn damage(amount: u32) -> ResolvedDamage {
 
 #[test]
 fn human_and_actor_boundary_cases() {
-    for amount in [99, 100, 101, u32::MAX] {
+    for amount in [99, 100, 101, i32::MAX.unsigned_abs()] {
         let mut human =
             Vitality::human(100, 100, 1, PlayerLethalPolicy::DownWithEligibleTeammate).unwrap();
         let mut actor = Vitality::ordinary_actor(100, 150).unwrap();
@@ -24,13 +24,13 @@ fn human_and_actor_boundary_cases() {
             assert_eq!((human.state(), human.current()), (LifeState::Downed, 1));
             assert_eq!((actor.state(), actor.current()), (LifeState::ActorDead, 0));
             assert_eq!(
-                human.apply(damage(u32::MAX)),
+                human.apply(damage(i32::MAX.unsigned_abs())),
                 Ok(DamageOutcome::Ignored {
                     state: LifeState::Downed
                 })
             );
             assert_eq!(
-                actor.apply(damage(u32::MAX)),
+                actor.apply(damage(i32::MAX.unsigned_abs())),
                 Ok(DamageOutcome::Ignored {
                     state: LifeState::ActorDead
                 })
@@ -62,11 +62,51 @@ fn invalid_values_and_maximum_amount_do_not_overflow() {
         Vitality::human(100, 100, 101, PlayerLethalPolicy::DownWithEligibleTeammate),
         Err(LifeStateError::InvalidDownedHealth)
     );
-    let mut actor = Vitality::ordinary_actor(u32::MAX, u32::MAX).unwrap();
-    actor.apply(damage(u32::MAX - 1)).unwrap();
+    let mut actor =
+        Vitality::ordinary_actor(i32::MAX.unsigned_abs(), i32::MAX.unsigned_abs()).unwrap();
+    actor.apply(damage(i32::MAX.unsigned_abs() - 1)).unwrap();
     assert_eq!(actor.current(), 1);
-    actor.apply(damage(u32::MAX)).unwrap();
+    actor.apply(damage(i32::MAX.unsigned_abs())).unwrap();
     assert_eq!(actor.current(), 0);
+}
+
+#[test]
+fn positive_signed_domain_is_enforced_at_every_damage_health_entry() {
+    let limit = i32::MAX.unsigned_abs();
+    let policy = PlayerLethalPolicy::DownWithEligibleTeammate;
+    for excess in [limit + 1, u32::MAX] {
+        assert_eq!(
+            ResolvedDamage::new(excess),
+            Err(LifeStateError::DamageOutOfRange)
+        );
+        for (current, maximum) in [(excess, limit), (1, excess)] {
+            assert_eq!(
+                Vitality::ordinary_actor(current, maximum),
+                Err(LifeStateError::HealthOutOfRange)
+            );
+            assert_eq!(
+                Vitality::human(current, maximum, 1, policy),
+                Err(LifeStateError::HealthOutOfRange)
+            );
+        }
+        assert_eq!(
+            Vitality::human(1, limit, excess, policy),
+            Err(LifeStateError::HealthOutOfRange)
+        );
+    }
+    let mut human = Vitality::human(limit, limit, limit, policy).unwrap();
+    assert_eq!(
+        human.apply(damage(limit - 1)),
+        Ok(DamageOutcome::Hurt {
+            before: limit,
+            after: 1
+        })
+    );
+    human.apply(damage(limit)).unwrap();
+    assert_eq!(
+        (human.current(), human.maximum(), human.state()),
+        (limit, limit, LifeState::Downed)
+    );
 }
 
 #[test]

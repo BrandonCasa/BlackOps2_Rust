@@ -17,9 +17,10 @@ attempt tokens reject stale completions; Origins supplies qualified no-bonus
 restoration of current/max health 100. Component replacement requires caller input
 retirement. See [implementation handoff](handoffs/damage-life-state-05.md).
 
-Outer validation: locked metadata has 10 members; all 101 workspace tests,
+Validation: locked metadata has 10 members; all 102 workspace tests,
 formatting and warning-denying Clippy pass. The demo verifies 21 exact ordered
-outcomes and exits 0. Scoped fidelity is APPROXIMATE: native damage arithmetic,
+outcomes and exits 0. Outer repeated 22 focused tests and the demo after range correction.
+Scoped fidelity is APPROXIMATE: active native dispatch, actor arithmetic,
 raw interaction/timing and live agreement remain unresolved. The first
 [original comparison attempt](fidelity/damage-life-state-comparison.md) is PARTIAL;
 unexplained input changes prevented controlled outcome attribution. The user then
@@ -42,8 +43,10 @@ health 100 and melee damage 60, separately from live proof. The subsequent
 irrelevant flag changes do not explain that run. The subsequent
 [native writer trace](reverse_engineering/damage-life-state-10.md) confirms signed
 subtraction at that exact field and an integer-only positive damage argument;
-active VM dispatch and execution remain unqualified. Next correct Rust's admitted
-numeric range to the supported positive signed subset, then qualify active dispatch,
+active VM dispatch and execution remain unqualified. The reviewed
+[numeric correction](handoffs/damage-life-state-11.md) now admits positive signed
+32-bit damage/health/restoration values and rejects oversized inputs atomically.
+Next qualify active dispatch,
 timing admission and compare in multiplayer; solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.

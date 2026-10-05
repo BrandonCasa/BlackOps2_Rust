@@ -3,11 +3,15 @@
 This boundary follows [damage evidence](../reverse_engineering/damage-life-state-01.md),
 [ordinary revive source](../reverse_engineering/damage-life-state-03.md) and
 [qualified native restoration](../reverse_engineering/damage-life-state-04.md) and
-[ordinary coop bleedout](../reverse_engineering/damage-life-state-06.md).
-Fidelity remains APPROXIMATE: native damage subtraction/clamping is inferred;
+[ordinary coop bleedout](../reverse_engineering/damage-life-state-06.md) and
+[native damage writer](../reverse_engineering/damage-life-state-10.md).
+Fidelity remains APPROXIMATE: ordinary positive player subtraction is statically
+qualified in the inspected native routine; active VM dispatch/execution and live
+comparison remain unqualified. Actor subtraction/zero-clamping remains inferred;
 revive100/100 composes Steam build24784239 scripts with inspected Plutonium native
 behavior. Loaded runtime-script agreement and live original comparisons remain
-unverified. Positive integer player damage is an implementation admission restriction.
+unverified. Native integer payload/sign checks support positive signed damage admission;
+upstream conversions and excluded native policy/scaling paths remain unqualified.
 
 ## Ownership and state
 
@@ -20,6 +24,16 @@ engine foundation, registry, timer framework or dependency is added.
 Private Vitality fields keep current/max, human/ordinary-actor route, authoritative
 life state, episode/attempt counters and active attempt coherent. Shared numeric
 validation and ordered processing prevent duplicated player/zombie health systems.
+All admitted current, maximum, downed health and restoration values and resolved
+damage amounts fit1..=i32::MAX. Public APIs/storage remain u32, with no truncating
+casts. Oversized health returns HealthOutOfRange; oversized damage returns
+DamageOutOfRange. Existing zero and current>maximum errors remain for values in
+range. Native signed getter/storage evidence supports this positive health subset
+as a project restriction; native setters do not enforce positivity.
+Ordinary-actor admission shares this conservative domain; native10 does not prove
+actor conversion/arithmetic. ActorDead current0 is an internal terminal exception.
+Private constructors validate before any lifecycle mutation; restoration rejection leaves
+the active attempt intact. Bounds and comparisons make nonlethal subtraction safe.
 A universal death route would contradict positive-health downing and native revive.
 Actor death is terminal health0; human Downed and HumanTerminal remain positive.
 Numeric health is not an alive/revival predicate. HumanTerminal preserves the last
@@ -127,7 +141,8 @@ health1/max100 plus actor death before exit0. No original assets are read.
 
 Tests preserve damage cases and exercise success, cancel/restart, invalid/stale
 identities, missing/despawned/nonhuman targets/revivers, invalid restoration,
-u32/u64 boundaries, atomic counter exhaustion, component-input retirement and
+positive signed numeric bounds and u64 counter maxima, atomic counter exhaustion,
+component-input retirement and
 repeated mixed lifecycle replay with0/1/3 fixed steps per update. Expiry tests cover
 active deferral, cancel/retry, order permutations, stale/wrong/missing identity,
 positive terminal health and counter/numeric maxima. These are synthetic correctness

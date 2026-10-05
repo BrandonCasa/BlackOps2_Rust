@@ -46,7 +46,7 @@ fn deferral_cancel_terminal_and_repeats_preserve_positive_health() {
     assert_eq!(v.downed_episode(), None);
     assert_eq!(v.expire_downed(target, expiry), Ok(ExpiryOutcome::Ignored));
     assert_eq!(
-        v.apply(ResolvedDamage::new(u32::MAX).unwrap()),
+        v.apply(ResolvedDamage::new(i32::MAX.unsigned_abs()).unwrap()),
         Ok(DamageOutcome::Ignored {
             state: LifeState::HumanTerminal
         })
