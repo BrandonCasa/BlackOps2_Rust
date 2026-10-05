@@ -124,6 +124,22 @@ decode, native mutation, Rust/API/transform or renderer is added.
 original calibration and validation limits; outer review accepts this bounded
 investigation with its PARTIAL result and unresolved coordinate semantics.
 
+The [original calibration access investigation](reverse_engineering/0010-original-coordinate-calibration-access.md)
+is PARTIAL: pinned C2M asset access lacks executable/build validation and an active
+camera schema. Public OAT camera/matrix/cull declarations provide leads without
+original consumers. Official pinned RenderDoc sources provide a conditional
+per-draw inputs/constants/front/cull access candidate, without this game's actual
+capture/replay compatibility. One exact-name check finds no current Zombies process;
+native CUA capture is unavailable. No original executable, memory, container or snapshot
+is opened, and no telemetry/renderer/API is added. [Handoff 0016](handoffs/0016-original-calibration-access.md)
+records the access matrix and next bounded same-build frame-access pilot, with an
+original active-view consumer/schema task as fallback;
+original units/up/basis/angles/front and the full calibration remain unresolved.
+Outer review accepts the PARTIAL access investigation after independent source,
+preservation, documentation and supervisor-provenance checks. No original read,
+live availability check or unchanged Cargo gate was repeated. The capture pilot
+is the next bounded access task, not an established calibration route.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -345,11 +361,14 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Before graphical placement/comparison, perform one separately bounded original
-   camera/visible-side coordinate calibration on an asymmetric static world patch,
-   as specified in findings 0009. Original gravity/basis/angle/front state and an
-   independent unit reference remain unresolved; diagnostic ambiguity selects no
-   transform. Asynchronous AssetLoader and complete
+1. Investigate one separately bounded same-build one-frame capture/replay access
+   pilot, as specified in findings 0010, before the
+   asymmetric-patch camera/visible-side calibration in findings 0009. C2M's fixed
+   asset addresses and public field labels are not validated access. Original
+   active-view consumer/address/schema work is the fallback for missing transform
+   access; no capture or telemetry is usable yet. Original
+   gravity/basis/angle/front state and an independent unit reference remain
+   unresolved; diagnostic ambiguity selects no transform. Asynchronous AssetLoader and complete
    attribute/material import remain separately scoped; stream1/layout investigation
    includes format0's at-capacity cases. Original geometry remains external and
    never enters tracked fixtures.

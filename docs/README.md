@@ -31,6 +31,8 @@
 - [Mesh adapter handoff](handoffs/0014-bevy-diagnostic-mesh-adapter.md): synthetic preservation, one complete external snapshot check and frozen-file workspace validation.
 - [Origins coordinate evidence](reverse_engineering/0009-origins-coordinate-evidence.md): pinned destination/exporter distinctions, repeated mapping ambiguity and unresolved original coordinate conventions.
 - [Coordinate evidence handoff](handoffs/0015-origins-coordinate-evidence.md): snapshot-only analysis, excluded handle-position attempt, preservation and the next original calibration.
+- [Original calibration access](reverse_engineering/0010-original-coordinate-calibration-access.md): pinned asset-memory/build assumptions, missing original view access and a conditional graphics-capture candidate.
+- [Calibration access handoff](handoffs/0016-original-calibration-access.md): prerequisite matrix, exact-name availability, conditional frame-access candidate and preservation.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately

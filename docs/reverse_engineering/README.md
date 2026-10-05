@@ -95,3 +95,19 @@ overall, gameplay and visual fidelity remain UNKNOWN.
 Outer review accepts the bounded coordinate investigation after independent
 synthetic, repeated snapshot, source, preservation and documentation checks;
 its PARTIAL result and unresolved original conventions remain explicit.
+
+The [original calibration access investigation](0010-original-coordinate-calibration-access.md)
+is PARTIAL. C2M selects a process name and fixed asset addresses without a build
+bridge; its asset reader supplies no active-view schema. OAT camera/matrix/cull
+labels are public leads, without original consumer or draw-state evidence. One
+exact-name availability check finds no original Zombies process, and native CUA
+capture is unavailable. Official pinned RenderDoc sources provide a conditional
+per-draw input/constant/front/cull route, with this game's capture/replay support
+unobserved and viewer guesses excluded. No executable, memory, original container
+or snapshot is opened. Prefer one bounded same-build one-frame capture/replay
+access pilot before full calibration; an original active-view consumer/schema
+investigation is the fallback for missing transformation access. Data understanding
+remains INVESTIGATING; overall, gameplay and visual fidelity UNKNOWN.
+Outer review accepts the PARTIAL access result after independent source,
+preservation, provenance and documentation checks; capture compatibility and
+original coordinate conventions remain unestablished.
