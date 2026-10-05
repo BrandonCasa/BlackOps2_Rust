@@ -8,9 +8,15 @@ application foundation.
 The default application runs a minimal headless Bevy lifecycle smoke check.
 Separate inspectors read metadata and diagnostic snapshots; a Bevy diagnostic
 tool renders unchanged raw snapshot geometry to external offscreen images or
-opens it in a window with diagnostic flight controls. No gameplay has been
-implemented. Gameplay and visual fidelity
+opens it in a window with diagnostic flight controls. A separate headless damage
+demonstration applies ordered resolved impacts to an Origins-configured player
+and ordinary actor. This boundary is **APPROXIMATE**; native arithmetic and
+original comparisons remain unresolved. Overall gameplay and visual fidelity
 remain **UNKNOWN**; envelope format understanding is **INVESTIGATING**.
+
+Run `cargo run -p bo2-damage-life-state-demo --locked` for verified synthetic
+player downing and actor death. See [damage boundary and limits](docs/architecture/damage-life-state.md).
+Revival, bleedout, raw hit policy and solo game-end behavior remain unimplemented.
 
 Original assets stay external. Never commit, embed, or redistribute proprietary
 assets, binaries, scripts, extracted content, generated dumps, or local installation

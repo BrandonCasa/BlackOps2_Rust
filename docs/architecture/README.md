@@ -2,6 +2,15 @@
 
 ## Current implementation
 
+The damage worktree adds `bo2-gameplay`, `bo2-origins` and
+`bo2-damage-life-state-demo` to the seven foundation/tool members below.
+Dependency edges are `bo2-origins -> bo2-gameplay` and
+`bo2-damage-life-state-demo -> bo2-core, bo2-gameplay, bo2-origins`.
+These crates forbid unsafe code. The [resolved damage boundary](damage-life-state.md)
+documents the shared Bevy health/state component, ordered FixedUpdate processing
+and Origins configuration. Native arithmetic is inferred and fidelity APPROXIMATE;
+synthetic tests and the runnable demo do not establish original-game comparison.
+
 Local Cargo dependency edges are `bo2-boot -> bo2-core`,
 `bo2-asset-inspector -> bo2-assets`, `bo2-map-inspector -> bo2-assets` and
 `bo2-rendering -> bo2-assets` and `bo2-geometry-viewer -> bo2-assets, bo2-rendering`.
@@ -106,7 +115,8 @@ See its repair section and [handoff0024](../handoffs/0024-ordinary-sdk-qualifier
 
 ## Planned responsibilities
 
-Directories other than core, assets, rendering, boot, asset_inspector, map_inspector
+Directories other than core, assets, rendering, gameplay, boot, zombies/origins,
+asset_inspector, map_inspector, comparison_tools/damage_life_state_demo
 and comparison_tools/geometry_viewer are reserved
 locations, not Cargo members or finalized APIs. Add a crate/module only when a
 bounded task supplies evidence

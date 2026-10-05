@@ -14,13 +14,16 @@ sequence workers locally. The first licensed-script investigation is reviewed:
 [handoff](handoffs/damage-life-state-01.md). Separate player/actor routes, player
 lethal equality and last-stand health 1 are observed in compiled patch scripts.
 Native arithmetic, player numeric conversion, revival and live comparisons are
-unresolved. No gameplay is implemented yet; scoped fidelity is INVESTIGATING.
+unresolved. The reviewed [resolved damage implementation](architecture/damage-life-state.md)
+and [handoff](handoffs/damage-life-state-02.md) add safe Bevy health/state handling,
+Origins configuration and a headless demonstration. Scoped fidelity is APPROXIMATE.
 
-Baseline locked metadata, all 80 workspace tests, formatting and warning-denying
-Clippy pass in this worktree. Next: implement the resolved-damage/health boundary
-with separate human downing and ordinary actor terminal routing, preserving
-native arithmetic as explicit inference pending comparison. This increment does
-not complete revival, original comparisons or the full goal.
+Outer locked metadata (10 members), all 86 workspace tests, formatting and
+warning-denying Clippy pass. The demo verifies exact ordered damage/downing/death
+outcomes and exits 0. Next: investigate revival/bleedout and qualify native health
+arithmetic with original comparison. Launch original BO2 through the desktop
+Plutonium launcher; select Origins using the robot-head planet icon. This
+increment does not complete revival, original comparisons or the full goal.
 
 ## Objective and working policy
 
@@ -40,8 +43,9 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
 
 ## Working implementation
 
-- Seven Cargo members: core, assets, rendering, boot, asset inspector, map inspector,
-  and the geometry viewer. Stable Rust 1.99.0 / Bevy 0.19.1 are pinned; retain the
+- Ten Cargo members: core, assets, rendering, gameplay, Origins configuration,
+  boot, asset inspector, map inspector, geometry viewer and damage demo.
+  Stable Rust 1.99.0 / Bevy 0.19.1 are pinned; retain the
   existing toolchain unless an actual implementation requirement needs a change.
 - `crates/assets`: bounded fastfile envelope inspection and a safe reader for the
   project-owned geometry snapshot format. This is not a complete Rust BO2 decoder.
@@ -51,7 +55,9 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
   keyboard flight/look/reset. Accepted external snapshot: 191,259 positions,
   149,907 triangles, 6,469 surfaces. Geometry and decoded assets remain external.
 - `game/boot`: a headless lifecycle smoke check. There is no interactive game,
-  player movement, collision implementation, weapon, zombie or round yet.
+  player movement, collision implementation, weapon, zombie AI or round yet.
+  The separate damage demo implements a resolved life-state boundary, not an
+  interactive game or complete zombie/player controller.
 - Original orientation, units, camera, materials and lighting remain unresolved.
   Overall/gameplay/visual fidelity is UNKNOWN; data access is INVESTIGATING.
 
