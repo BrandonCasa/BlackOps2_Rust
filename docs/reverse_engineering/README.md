@@ -26,3 +26,10 @@ The [envelope inspector handoff](../handoffs/0006-fastfile-envelope-inspector.md
 records the implemented conservative metadata parser/tool, synthetic tests and
 six unchanged external sample identities. Payload decoding, loader APIs, shared
 game structures and gameplay require later evidence tasks.
+
+The [signed PC transport framing](0003-fastfile-block-framing.md) records repeated
+metadata-only scans through all six files, plaintext chunk lengths, zero suffix
+accounting and the distinction between on-disk transport and internal authentication
+state. It supplies an optional bounded scanner contract and recommends a single
+external OAT asset-directory listing as the next access task. No decoded contents
+or authenticity are established; format understanding remains INVESTIGATING.

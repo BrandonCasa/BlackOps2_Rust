@@ -23,6 +23,14 @@ and synthetic tests; [handoff 0006](handoffs/0006-fastfile-envelope-inspector.md
 is reviewed and accepted. No payload decoder, signature verification or
 full-file validity is established.
 
+The [transport-framing investigation](reverse_engineering/0003-fastfile-block-framing.md)
+has repeated bounded noncontiguous metadata scans through the same six files.
+Plaintext length fields and zero suffixes give exact byte accounting; chunk bodies
+remain unread except for separate identity hashing. Authentication hash state is
+internal to the corroborating decoder, not another stored header. Findings and
+[handoff 0007](handoffs/0007-fastfile-block-framing-evidence.md) are reviewed and accepted.
+No Rust scanner/decoder or authenticated/decoded asset evidence was added.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -53,6 +61,12 @@ no original-game evidence or executable functionality.
   write times matched the accepted sample identities and showed no mutation.
   The validation driver and metadata JSON remain in the configured external output.
   Those checks establish metadata support, not authentication or gameplay fidelity.
+- Framing review independently reproduced chunk counts, ranges, stream rotation,
+  suffix alignment and exact accounting across all six samples, reading 67,211
+  structural bytes. Twelve additional hash passes and same-handle file metadata
+  confirmed unchanged accepted identities. Public source and official release
+  metadata corroborate the next external listing route. Boundary filler remains
+  source-only evidence; authentication and decoded content remain unverified.
 - The bundled skill-creator validator accepted all ten skills using an isolated
   uv/PyYAML environment. Exact skill names, folder names and all 30 relative
   skill links/handoff anchors were checked. Skill acceptance remains unchanged.
@@ -77,17 +91,18 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Investigate the authenticated block framing immediately after the 312-byte
-   signed-PC fastfile envelope. Establish the next bounded metadata-reader
-   contract, using local samples and primary-source corroboration. Keep payload
-   decoding, cryptographic keys and Bevy loader implementation out of that task.
+1. Use pinned external OAT Unlinker listing on one
+   `zm_tomb.ff` to observe actual decoded asset types/identifiers. Keep binaries,
+   raw listings/logs and originals external; verify digest, scoped runtime results
+   and original identity. Listing is not geometry/dependency/fidelity proof.
 2. Document observable shared engine/game structures and evidence-backed
-   ECS/asset boundaries in later bounded tasks.
+   ECS/asset boundaries in later bounded tasks, selected from actual decoded
+   structures rather than additional envelope metadata alone.
 
 The outer agent sequences those tasks with exactly one active subagent and updates
 this file after reviewing each handoff. Rendering, BO2 entity architecture, asset
 loading and gameplay remain unimplemented. Reverse engineering has only the
-bounded file-availability and envelope observations described above.
+bounded file-availability, envelope and transport-framing observations described above.
 
 Review: the outer agent inspected all source/configuration and substantive
 documentation, independently parsed the manifests/configuration, checked key
@@ -106,3 +121,7 @@ Inspector review covered every new source/test and the format/tool boundary.
 Independent locked metadata, 25 workspace tests, formatting, Clippy, Bevy smoke,
 inspector build and six real-sample CLI checks passed. Sample hashes, lengths and
 write times were unchanged; paths and opaque bytes remain excluded from output.
+Framing review covered findings/handoff 0007, source corroboration, the optional
+scanner contract and the external-tool recommendation. Independent sample scans,
+identity checks, documentation links/content boundaries and whitespace checks
+passed. Rust/compiler gates were not repeated for this documentation-only task.
