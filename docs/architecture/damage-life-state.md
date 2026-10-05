@@ -106,7 +106,8 @@ It records identity, not a timer/deadline. `ExpireDowned` enters the same queue 
 damage/revival; direct `expire_downed` has the same validated transition contract.
 Caller admits ordinary multiplayer coop expiry timing. Current solo/last-player
 policy rejects UnsupportedPlayerPolicy without mutation, leaving session disposition
-to a separate boundary. No 45-second clock, guessed tick count or automatic retry exists.
+to a separate boundary. The optional clock below supplies timing admission; the
+terminal transition itself has no clock or automatic retry.
 
 An active valid revive attempt returns `Deferred(expiry)` without mutation. Producer
 may retain that exact input and retry after cancellation using a new globally
@@ -172,5 +173,49 @@ active deferral, cancel/retry, order permutations, stale/wrong/missing identity,
 positive terminal health and counter/numeric maxima. Actor tests also cover
 h-1/h/h+1, signed large differences, no later floor, unknown final health and
 deterministic stage-preserving repeats. These establish synthetic correctness
-and engine integration. Raw revival interaction,3-second sampling, bleedout timing,
-spectator/respawn, regen, perks, solo/session-end and coop comparison remain next tasks.
+and engine integration. Raw revival interaction,3-second sampling, live bleedout
+timing comparisons, spectator/respawn, regen, perks and solo/session-end remain next tasks.
+
+
+## Ordinary coop timing admission
+
+`bleedout::BleedoutClock` composes Bevy0.19.1 `Timer` in once mode with the existing
+`DownedExpiry` identity and `LifeCommandQueue`. It performs no health mutation and
+adds no scheduler, entity registry or input queue. `BleedoutTiming` is sampled once:
+positive whole-second countdowns are supported; zero/fractional countdowns and zero
+poll intervals are typed errors. Floating/NaN dvars and fractional source wait
+semantics are not admitted. Origins supplies source-default45seconds and100ms
+polling from build24784239; loaded-runtime equivalence and live coop timing remain
+unqualified. Other positive polling intervals are explicit caller configuration,
+not claims of original Origins defaults.
+
+Start one clock immediately after admitted ordinary coop downing, with another
+eligible player and source06 exclusions satisfied. Assembly must supply the exact
+Entity and current Vitality when ticking with `Time<Fixed>::delta()`. A successful
+revive, terminal state or changed episode retires the old clock instead of resetting
+it for redown. Missing targets/unsupported policy retire with typed errors; wrong
+Entity is rejected atomically. Assembly must refresh eligibility, remove retired
+components and retire queued inputs/results/held references before same-Entity
+Vitality replacement. Entity generation alone does not detect component replacement.
+
+Countdown continues through active revival. At the deadline the clock produces a
+due identity; assembly calls `enqueue` with a globally increasing ID in its explicit
+producer order. One in-flight request blocks further production. Queue rejection
+leaves the clock due and unchanged. Only acknowledgement of that exact ID/target
+and matching Deferred identity clears in-flight state and starts the poll timer.
+Canceling revival never resets the countdown. Matching terminal/ignored/error
+receipts retire the clock; unrelated or repeated receipts are rejected atomically.
+This is ideal simulation elapsed time; fixed-step quantization and acknowledgement
+latency apply, and overshoot is not carried across Deferred polls. Source VM/network
+scheduling drift and the collapsed notification/network-frame cleanup remain
+APPROXIMATE pending ordinary multiplayer comparisons. There is no hidden expiry
+priority: cancellation/completion/expiry retain the existing ordered queue semantics.
+
+The demo preserves21 resolved-boundary assertions and adds a timed scenario with
+450 actual100ms fixed steps while revival is active, Deferred at45seconds, ordered
+cancellation then poll/terminal at45.1seconds, and clock retirement. It uses the real
+queue and `Time<Fixed>` delta; render pacing tests replay the same fixed steps with
+0/1/2/3-step updates. Tests also cover the45-second boundary, repeated deferral,
+atomic receipts/ID rejection, stale/revived/redowned clocks, missing/wrong identity,
+component retirement and invalid timing. This adds no revive-progress clock, raw
+interaction, regen, solo/session-end or spectator policy.

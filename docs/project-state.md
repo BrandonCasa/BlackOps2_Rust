@@ -15,15 +15,17 @@ Implemented: safe Bevy Vitality and fixed-step ordered commands for resolved dam
 admitted coop downing, revival begin/cancel/completion and episode-bound expiry.
 Checked tokens reject stale inputs; active revival defers expiry. Ordinary no-bonus
 revival restores 100/100; human terminal health stays positive pending spectator
-qualification. Solo/last-player lethal policy, raw impacts/interactions, clocks,
+qualification. Episode-bound Bevy timing now supplies the ordinary coop countdown
+and deferred polling. Solo/last-player lethal policy, raw impacts/interactions, revive clocks,
 regen, perks and spectator/session assembly remain outside the admitted boundary.
 ActorDead current health is explicitly unknown (`None`); signed pre-notification
 subtraction is a separate typed result. See [correction handoff](handoffs/damage-life-state-19.md).
 
-Latest executable validation: 10 locked metadata members, all 104 workspace tests,
-formatting and warning-denying Clippy pass; demo verifies 21 ordered outcomes, exit 0.
-Outer independently repeated 24 focused gameplay/Origins tests and the demo after
-the actor health correction. Tasks through 18 supplied documentation/external observers.
+Latest executable validation: 10 locked metadata members, all 111 workspace tests,
+formatting and warning-denying Clippy pass. Outer independently repeated 31 focused
+gameplay/Origins tests and the demo: 21 ordered outcomes plus countdown through active
+revival, deferral at 45s and cancellation/poll termination at 45.1s. See
+[clock handoff](handoffs/damage-life-state-20.md); timing remains APPROXIMATE pending coop comparison.
 
 Evidence: [source](reverse_engineering/damage-life-state-01.md),
 [revival](reverse_engineering/damage-life-state-03.md),
@@ -41,8 +43,9 @@ health 100 to 40 agrees with resolved damage 60; contact count and return-to-100
 cause remain unqualified. Actor trials accepted unchanged 150/150/gate1, then
 refused identity changes; latest named active-byte variation with active bit retained.
 No actor hit/death was established. [Sampler diagnostics](reverse_engineering/damage-life-state-18.md)
-pass 15 synthetic checks and a fresh five-sample baseline. Original is left in the
-fresh solo match's Escape menu after an aiming input changed view and fired one shot.
+pass 15 synthetic checks and a fresh five-sample baseline. Original is now at the
+Origins solo lobby after ending the disposable aiming trial. Temporary keyboard
+attack/look bindings were removed; no new actor comparison was established.
 
 Next repeat a controlled actor comparison and qualify coop timing. Multiplayer is required for
 bleedout proof; no second-player availability is established. Fidelity remains

@@ -34,3 +34,13 @@ fn configuration_preserves_explicit_current_health() {
         Err(LifeStateError::InvalidCurrent)
     );
 }
+
+#[test]
+fn ordinary_coop_source_timing_is_sampled45_seconds_and100_millisecond_poll() {
+    let timing = bo2_origins::ordinary_coop_bleedout_timing().unwrap();
+    assert_eq!(timing.countdown(), std::time::Duration::from_secs(45));
+    assert_eq!(
+        timing.poll_interval(),
+        std::time::Duration::from_millis(100)
+    );
+}

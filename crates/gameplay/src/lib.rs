@@ -4,9 +4,13 @@
 //! player subtraction has static evidence and one scoped live comparison. Native
 //! actor subtraction is qualified before notifications; final ActorDead health is unknown.
 //! Active original dispatch is unqualified; revival configuration is external.
-//! Expiry timing is external; terminal human health is preserved pending qualification.
+//! Coop timing admission is a separate Bevy clock; terminal human health is
+//! preserved pending qualification.
 //! See docs/reverse_engineering/damage-life-state-{01,06,10,14,15}.md and
 //! docs/fidelity/damage-life-state-comparison.md for evidence and limits.
+
+pub mod bleedout;
+pub use bleedout::{BleedoutClock, BleedoutClockError, BleedoutTiming};
 
 use std::num::NonZeroU32;
 

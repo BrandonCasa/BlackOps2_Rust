@@ -3,7 +3,12 @@
 //! Scoped configuration from licensed build24784239 patch-script observations.
 //! Current health is chosen by the caller; this does not establish spawn/round state.
 
-use bo2_gameplay::{LifeStateError, PlayerLethalPolicy, ReviveRestoration, Vitality};
+use std::time::Duration;
+
+use bo2_gameplay::{
+    BleedoutClockError, BleedoutTiming, LifeStateError, PlayerLethalPolicy, ReviveRestoration,
+    Vitality,
+};
 
 /// Unperked health-reboot maximum, with no persistent health bonus.
 pub const UNPERKED_MAXIMUM: u32 = 100;
@@ -27,4 +32,10 @@ pub fn unperked_human(
 
 pub fn fallback_ordinary_actor(current: u32) -> Result<Vitality, LifeStateError> {
     Vitality::ordinary_actor(current, ACTOR_FALLBACK_HEALTH)
+}
+
+/// Shared source default sampled once for admitted ordinary coop, build24784239.
+/// Runtime dvar equivalence and multiplayer timing comparison remain unqualified.
+pub fn ordinary_coop_bleedout_timing() -> Result<BleedoutTiming, BleedoutClockError> {
+    BleedoutTiming::new(Duration::from_secs(45), Duration::from_millis(100))
 }
