@@ -179,3 +179,19 @@ later GAMEOVER1round/470 establish no selected-actor hit or death. Score stayed5
 on shots; scoreboard kills0/downs1. Thus health sensitivity/final-health comparison
 remain incomplete. See [Task21 receipts and limits](../reverse_engineering/damage-life-state-21.md).
 Keyboard attack input works without mouse rotation; temporary binding restored.
+
+A separate fresh Nikolai solo repeat (Task21 trial02) used only two W movement
+inputs, pause/resume and no attack input. Paused baseline five150/150/gate1 samples
+qualified. Finite session17308 ended terminal shell exit1, sampler identity-refusal
+path2; final qualification passed,81096bytes. Samples0..740 accepted150/150/gate1;
+741 refused unstable current/gate without health;742..754 accepted-999/150/gate0;
+755 refused selected_team_changed and stopped. Other pinned identities remained
+admitted for the signed-health samples. Original subsequently showed GAMEOVER,
+one round/470. No actor hit, ordinary combat death or exact event-time alignment
+was established. Session cleanup is a plausible cause, not a traced route.
+This demonstrates signed terminal observation and conservative refusal; it does
+not supply ordinary-death final health. SHA-256:
+f7ec14a435a417de6e3fe0ee31d0f18b99b244f68587bba09bd134bd7ba92f87.
+Passive captures appeared unchanged until a subsequent input revealed game-over;
+refresh foreground before future observations and do not infer precise timing
+from these screenshots. Original now at solo lobby; bindings unchanged, no jobs remain.

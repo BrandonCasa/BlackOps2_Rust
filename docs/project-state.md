@@ -48,6 +48,9 @@ synthetic checks and five paused150/150/gate1 samples pass. Finite live trial959
 accepted unchanged samples reaches58s without identity refusal; final qualification
 passes. Two keyboard shots and a stance input establish input recovery, not hits.
 Original is at Origins solo lobby; temporary L attack binding restored. No jobs remain.
+Separate no-attack repeat observed741 stable150/gate1 samples, then13 stable-999/gate0
+samples around session end, followed by team-change refusal. This proves signed
+observation sensitivity, not ordinary combat final health; cleanup route untraced.
 
 Next repeat a controlled actor comparison and qualify coop timing. Multiplayer is required for
 bleedout proof; no second-player availability is established. Fidelity remains
