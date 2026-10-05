@@ -64,11 +64,13 @@ measured camera conditions and equivalent reconstructed comparisons remain pendi
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the
    accepted external snapshot instead of restarting asset extraction.
-2. Resolve the leaf-brush identifier namespace before selecting static-world
-   collision. Task0030's single original observation rejected `brush_index` at
-   stage3: a terminal identifier is outside its declaring provider's brush-index range.
-   The provider/node/value tuple was not emitted. No membership record or static
-   collection is admitted; shared-pool and sentinel interpretations are unproved.
+2. Resolve the one-past terminal identifier before selecting static-world collision.
+   Task0031 captures embedded provider0/node14967: its sole identifier8417 equals
+   both brush counts8417, with contents0 and a list outside both counted index pools.
+   It is invalid in both ranges; a larger embedded pool does not explain it.
+   An empty sentinel or unused-node interpretation remains unproved. Establish
+   the producer/consumer convention and owner reachability before world admission.
+   No membership record or static collection is admitted.
    Original brush producer/runtime rounding also remains unverified.
 3. Measure the player hull, collision masks and step/slide rules before integrating
    movement. Point-segment queries do not establish original player traces.
@@ -116,10 +118,12 @@ implementation keeps the repository's sequential-delegation policy.
 
 ## Validation and essential references
 
-Task0030's source/fixture work passes 23 native cases and nine checker cases,
-but the original namespace join failed. Its child/threads were cleaned and input
-identities preserved. This documentation-only result adds no Rust implementation;
-unchanged workspace gates were not repeated.
+Task0031 passes 12 native diagnostic cases and 12 malformed-record checks.
+Its single original read captures the exact rejected tuple with the range guard
+unchanged; it admits no membership. Input identities agree and child/threads are
+cleaned. Task0030's 23 native/nine checker cases remain synthetic evidence.
+These documentation-only results add no Rust implementation; unchanged workspace
+gates were not repeated.
 Task0029 adds brush admission and executable segment queries: all 92 workspace
 tests, locked metadata, formatting and Clippy pass. The opt-in external record
 test separately passes every raw word/metadata check; outer original inspector
@@ -144,6 +148,7 @@ README for the existing snapshot viewer commands. Do not reinstall working tools
 - [One recovered collision brush](handoffs/0028-origins-collision-brush-recovery.md)
 - [Rust brush collision boundary](handoffs/0029-rust-brush-collision.md)
 - [Unresolved world-brush membership](handoffs/0030-origins-world-brush-membership.md)
+- [One-past leaf-brush identifier](handoffs/0031-origins-leaf-brush-index-namespace.md)
 - [Pending collision result](handoffs/0026-origins-collision-brush-boundary.md)
 - [Collision source/loader evidence](reverse_engineering/0018-origins-collision-brush-boundary.md)
 - [Fidelity status](fidelity/README.md)
