@@ -1,0 +1,10 @@
+[package]
+name = "bo2-map-inspector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Read-only explicit-input project diagnostic geometry snapshot inspector"
+
+[dependencies]
+bo2-assets = { path = "../../crates/assets" }

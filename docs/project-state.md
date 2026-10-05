@@ -6,9 +6,10 @@ Overall objective: faithful personal-use Origins reimplementation in stable Rust
 with Bevy, reusable Zombies architecture, and external licensed assets.
 
 Foundation task is reviewed and accepted. Local Git is initialized on
-`main`, with no remote. `bo2-core`, `bo2-boot`, `bo2-assets` and
-`bo2-asset-inspector` are Cargo members. Boot runs a minimal headless Bevy lifecycle
-smoke check; assets/tooling now provide one signed-PC envelope metadata inspector.
+`main`, with no remote. `bo2-core`, `bo2-boot`, `bo2-assets`,
+`bo2-asset-inspector`, and `bo2-map-inspector` are Cargo members. Boot runs a minimal
+headless Bevy lifecycle smoke check; assets/tooling provide a signed-PC envelope
+metadata inspector and a project-owned diagnostic geometry snapshot consumer.
 Other responsibility directories remain placeholders. A bounded external asset catalog
 has inspected original file metadata and representative container prefixes/hashes.
 No original scripts, entity definitions or runtime behavior have been inspected.
@@ -77,6 +78,18 @@ Task9 tooling is restored exactly and task10 remains unchanged. Position consist
 supports a candidate prefix without proving original layout/draw semantics, units,
 appearance or complete geometry support. No Rust/Bevy API or import is added.
 
+The [diagnostic geometry snapshot v1 contract](architecture/diagnostic-geometry-snapshot.md)
+and safe std-only reader now validate synthetic finite XYZ positions, explicit u32
+indices, ordered surface triangle partitions, opaque source category/count metadata
+and separate own-surface endpoint containment. Values/order are preserved, including
+unreferenced/equal positions, degenerate triangles and zero source counts. Fixed
+count/byte/allocation/reference/read-retry policies precede body reads; typed errors
+redact paths/raw fields. `bo2-map-inspector` reads one explicit regular snapshot
+file read-only and emits bounded counts/categories/status. Task 0012 is implemented
+with synthetic fixtures; [handoff 0012](handoffs/0012-diagnostic-geometry-snapshot-reader.md)
+is reviewed and accepted. No original snapshot, external producer, Bevy Mesh/asset loader,
+renderer or original comparison is added. The format is ours, not a BO2 disk format.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -92,7 +105,8 @@ no original-game evidence or executable functionality.
   explicitly enabled. Its declared MSRV is 1.95.0; this workspace supports and
   tests the pinned 1.99.0 compiler. Cargo generated the retained `Cargo.lock`.
 - `cargo metadata --locked --no-deps --format-version 1`, `cargo test --workspace`
-  (25 tests: 14 parser, nine inspector and two lifecycle/failure tests),
+  (61 tests: 14 envelope parser, 25 snapshot parser, nine envelope inspector,
+  eleven snapshot inspector and two lifecycle/failure tests),
   `cargo fmt --all -- --check`, and
   `cargo clippy --workspace --all-targets -- -D warnings` passed.
 - `cargo run -p bo2-boot -- --smoke` passed with startup=1, updates=3 and
@@ -191,6 +205,24 @@ no original-game evidence or executable functionality.
 The [Bevy build handoff](handoffs/0003-bevy-build-foundation.md) records exact
 versions, checks and limits. Its code and validation are reviewed and accepted.
 
+Task 0012's synthetic consumer checks now pass: locked no-deps metadata, 61 workspace
+tests (25 new parser, 2 map-inspector unit, 9 map-inspector integration and 25 existing),
+formatting and warning-denying Clippy. Bevy smoke remains 1/3/3 with exit 0; snapshot
+help exits 0. The CLI's two additional 136-byte external synthetic runs each emitted
+1,070 bytes, with exact repeat/count/category/redaction and unchanged hash/write
+time. The parent also reports two matching independent 4,404,568-byte full-count
+synthetic CLI runs, 1,162 output bytes each and unchanged same-handle identity.
+Outer review independently passed all 61 workspace tests, locked metadata,
+formatting, Clippy, Bevy smoke and snapshot help, with nine functional-file hashes
+unchanged during verification. All 14 candidates, 48 relative links, ten handoff
+headings, dependency/unsafe/content boundaries and whitespace checks passed.
+The final binary also reproduced the independently encoded full-size synthetic
+fixture's complete counts and unchanged identity; records remain external in
+`parent-review-020124/`. This bounded consumer task is reviewed and accepted.
+These are diagnostic consumer checks only; no
+original geometry or graphical/gameplay comparison has occurred. See handoff 0012
+for the fixed policies, actual read/emit boundaries and remaining limits.
+
 ## External source availability
 
 The [local asset catalog](reverse_engineering/0001-local-asset-catalog.md) identifies
@@ -217,12 +249,15 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Implement one safe Rust reader and read-only inspector for a project-owned,
-   bounded diagnostic position/index snapshot contract, using synthetic fixtures.
-   This prepares the accepted position/index evidence for a later external producer
-   and Bevy geometry adapter. Preserve raw position values and triangle references;
-   do not adopt units, axes, winding, materials or other attributes without evidence.
-   No original content enters this reader task or tracked fixtures.
+1. Assign one bounded external diagnostic
+   snapshot producer using the accepted position/index candidate and documented
+   v1 contract. Preserve every group record and every ordered triangle reference,
+   including zero source counts, unreferenced records and degenerate triangles;
+   retain separate surface endpoints. Supervise one explicit licensed input and
+   external output, verify complete category/accounting and source preservation,
+   then inspect that external snapshot with the accepted reader. No original
+   content enters tracked fixtures. A later Bevy Mesh adapter/graphical comparison
+   is a separate task; no units/axes/winding conversion is established.
    A complete material/attribute import still requires separate stream1/layout
    investigation, including format 0's at-capacity cases.
 2. Document observable shared engine/game structures and evidence-backed
@@ -279,5 +314,6 @@ The subsequent position-prefix task supplies complete finite/containment evidenc
 and rejects the embedded-bounds endpoint candidate. Its findings/handoff 0011,
 external instrumentation, synthetic tests, repeated observations and preservation
 records passed outer review and independent reproduction; no fidelity status is
-promoted by that measurement. The next bounded task implements the diagnostic
-snapshot consumer before any external geometry producer or Bevy mesh adapter.
+promoted by that measurement. The diagnostic snapshot consumer is now implemented
+on synthetic inputs and passed outer review before any external geometry producer
+or Bevy mesh adapter.

@@ -568,6 +568,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo2-map-inspector"
+version = "0.1.0"
+dependencies = [
+ "bo2-assets",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/assets", "game/boot", "tools/asset_inspector"]
+members = ["crates/core", "crates/assets", "game/boot", "tools/asset_inspector", "tools/map_inspector"]
 default-members = ["game/boot"]
 resolver = "3"
 

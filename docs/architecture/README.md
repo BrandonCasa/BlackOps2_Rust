@@ -2,9 +2,10 @@
 
 ## Current implementation
 
-Local Cargo dependency edges are `bo2-boot -> bo2-core` and
-`bo2-asset-inspector -> bo2-assets`. Core and boot depend on the same
-workspace-pinned Bevy 0.19.1 release. All four local crates forbid unsafe code.
+Local Cargo dependency edges are `bo2-boot -> bo2-core`,
+`bo2-asset-inspector -> bo2-assets` and `bo2-map-inspector -> bo2-assets`.
+Core and boot depend on the same workspace-pinned Bevy 0.19.1 release.
+All five local crates forbid unsafe code.
 Core exposes the project name and `headless_app(ScheduleRunnerPlugin)`, a small
 composition function returning a Bevy `App` with `MinimalPlugins`. Bevy owns
 the ECS world, entity identity, schedules, task pools, frame counter, time and
@@ -16,7 +17,7 @@ updates and an `AppExit` message from the final schedule. The smoke check's thre
 updates and 1 ms runner pause have no original-game or fixed-step meaning. No
 gameplay components, simulation rate or BO2 entity schema is approved by this task.
 
-Assets contains one std-only reusable fastfile format adapter supported by
+Assets contains a std-only reusable fastfile format adapter supported by
 [findings 0002](../reverse_engineering/0002-fastfile-envelope.md). Its
 `inspect_pc_signed_envelope` API accepts a reader at offset zero and a length from
 the same opened file. It stages 12 then 312 bytes in one fixed buffer and retains
@@ -35,6 +36,17 @@ asset server, engine or entity abstraction is introduced. The format/tooling
 boundary has no Bevy dependency because it uses no engine facilities; Bevy keeps
 all existing engine ownership.
 
+Assets also contains the [diagnostic geometry snapshot v1 reader](diagnostic-geometry-snapshot.md).
+This is a project-owned exchange contract for finite XYZ positions, explicit u32
+triangle references and ordered surface ranges with opaque source categories/counts
+and separate endpoints. Checked sizes/lengths/policies precede body reads and
+fallible allocations. Each surface validates only its own references against its
+exact endpoints; values and order are preserved. The thin `bo2-map-inspector`
+reads one explicit regular file and emits bounded counts/categories/status only.
+It has no original-file decoder, exporter, Bevy loader or renderer. Synthetic
+contract success establishes neither original-format support nor fidelity;
+task 0012 is reviewed and accepted. Bevy retains asset/mesh/runtime ownership.
+
 Bevy is the selected engine, ECS, rendering, and application foundation. The
 [decision record](../adr/0001-bevy-foundation.md) records version evidence and the
 minimal feature choice. No renderer/window/asset plugin is assembled. Some
@@ -44,7 +56,7 @@ findings yet. No custom ECS or renderer is approved.
 
 ## Planned responsibilities
 
-Directories other than core, assets, boot and asset_inspector are reserved
+Directories other than core, assets, boot, asset_inspector and map_inspector are reserved
 locations, not Cargo members or finalized APIs. Add a crate/module only when a
 bounded task supplies evidence
 and justifies its dependency boundary; merge or refine these directories when
@@ -71,7 +83,7 @@ that avoids duplication of Bevy functionality.
 | `game/zombies/origins` | Origins-specific configuration, mechanics, and assembly based on evidence. |
 | `game/boot` | Application entrypoint and final assembly; currently a bounded headless lifecycle smoke plugin. |
 | `tools/asset_inspector` | Read-only bounded asset inspectors with permitted output. |
-| `tools/map_inspector` | Read-only geometry/entity metadata inspection. |
+| `tools/map_inspector` | Current explicit-input diagnostic geometry snapshot counts inspector; further geometry/entity inspection requires separate evidence. |
 | `tools/comparison_tools` | Reproducible behavior/visual/performance comparisons. |
 | `tests` | Cross-layer tests and explicitly user-created or synthetic fixtures. |
 | `config` | Tracked placeholder templates and ignored local configuration. |
