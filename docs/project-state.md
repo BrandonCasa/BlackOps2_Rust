@@ -7,9 +7,9 @@ with Bevy, reusable Zombies architecture, and external licensed assets.
 
 Foundation task is reviewed and accepted. Local Git is initialized on
 `main`, with no remote. Only `bo2-core` and `bo2-boot` are Cargo members.
-Boot is diagnostic only; all other responsibility directories are placeholders.
-Bevy is selected but not integrated. No original game data has been inspected.
-Overall and system fidelity remain **UNKNOWN**.
+Boot now runs a minimal headless Bevy lifecycle smoke check. All other
+responsibility directories remain placeholders. No original game data has been
+inspected. Overall and system fidelity remain **UNKNOWN**.
 
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
@@ -18,39 +18,43 @@ no original-game evidence or executable functionality.
 
 ## Validation state
 
-- Git and Python are available. Rust `cargo`, `rustc`, and `rustup` are unavailable
-  on PATH; no toolchain was installed.
-- The outer agent confirmed an available Visual Studio x64 linker and Windows
-  SDK. This does not replace the missing Rust toolchain or a successful build.
-- Cargo manifests and the example configuration were structurally checked using
-  Python's TOML parser; workspace paths and the single dependency direction were checked.
-- Git ignore behavior and tracked candidates were checked for local asset/output,
-  build, configuration, and secret exclusions. Example configuration remains trackable.
-- `cargo metadata`, test, format, and Clippy execution remain pending. No successful
-  Rust compile, diagnostic run, or Bevy validation is claimed.
-- `Cargo.lock` remains pending generation by Cargo. No gameplay comparisons or
-  performance measurements have occurred.
+- Stable Rust 1.99.0, Cargo, rustfmt and Clippy were installed through official
+  rustup and validated on `x86_64-pc-windows-msvc`, using the existing linker/SDK.
+  Cargo bin was added once to user PATH, preserving existing entries. Existing
+  desktop/terminal sessions may require restarting to refresh PATH.
+- Bevy 0.19.1 is pinned centrally, with default features disabled and only `std`
+  explicitly enabled. Its declared MSRV is 1.95.0; this workspace supports and
+  tests the pinned 1.99.0 compiler. Cargo generated the retained `Cargo.lock`.
+- `cargo metadata --no-deps --format-version 1`, `cargo test --workspace` (two
+  lifecycle/failure tests), `cargo fmt --all -- --check`, and
+  `cargo clippy --workspace --all-targets -- -D warnings` passed.
+- `cargo run -p bo2-boot -- --smoke` passed with startup=1, updates=3 and
+  probe_updates=3, exiting 0. Default smoke/help exit 0; unsupported arguments
+  exit 2. These are engine development checks, not original-game comparisons.
+- Dependency/unsafe/asset-boundary review and `git diff --check` passed. No
+  graphical or asset-loading plugin is assembled; no gameplay comparisons,
+  other-platform validation or performance measurements have occurred.
 - The bundled skill-creator validator accepted all ten skills using an isolated
   uv/PyYAML environment. Exact skill names, folder names and all 30 relative
-  skill links/handoff anchors were checked. No Rust code changed in this task;
-  the pending compiler/runtime gates remain pending.
+  skill links/handoff anchors were checked. Skill acceptance remains unchanged.
+
+The [Bevy build handoff](handoffs/0003-bevy-build-foundation.md) records exact
+versions, checks and limits. Its code and validation are reviewed and accepted.
 
 ## Next bounded work
 
-1. Establish a verified stable Rust and headless Bevy application foundation,
-   including the pending workspace validation.
-2. Locate/catalog licensed external game data without copying it into Git.
-3. Document observable shared engine/game structures and evidence-backed
+1. Locate/catalog licensed external game data without copying it into Git.
+2. Document observable shared engine/game structures and evidence-backed
    ECS/asset boundaries in bounded tasks.
 
 The outer agent sequences those tasks with exactly one active subagent and updates
-this file after reviewing each handoff. Rendering, entity architecture, asset
-loading, gameplay, reverse engineering, and toolchain installation were outside
-the foundation and skill tasks.
+this file after reviewing each handoff. Rendering, BO2 entity architecture, asset
+loading, gameplay and reverse engineering remain unimplemented.
 
 Review: the outer agent inspected all source/configuration and substantive
 documentation, independently parsed the manifests/configuration, checked key
 ignore rules, and scanned candidates for local paths and unsafe/embedded content.
-Structural validation passed; compiler validation remains pending as stated.
-The outer agent also reviewed all ten skill procedures and independently reran
-the bundled validator successfully for each skill.
+Structural validation passed. The outer agent also reviewed all ten skill
+procedures and independently reran the bundled validator for each skill.
+Bevy review included all source changes and independent locked metadata, workspace
+tests (two passed), formatting, Clippy and executable smoke checks; all passed.

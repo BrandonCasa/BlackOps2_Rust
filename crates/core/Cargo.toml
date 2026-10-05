@@ -2,5 +2,9 @@
 name = "bo2-core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 publish.workspace = true
-description = "Minimal shared workspace identity; gameplay architecture is not implemented"
+description = "Minimal reusable headless Bevy application composition"
+
+[dependencies]
+bevy.workspace = true

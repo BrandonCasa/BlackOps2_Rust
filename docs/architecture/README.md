@@ -2,14 +2,25 @@
 
 ## Current implementation
 
-The only Cargo dependency edge is `bo2-boot -> bo2-core`. Both crates forbid unsafe
-code and have no third-party dependencies. Core exposes only a project-name
-constant; boot prints a diagnostic status. Neither implements gameplay or an
-engine. There are no original-game architecture findings yet.
+The local Cargo dependency edge is `bo2-boot -> bo2-core`; both also depend on the
+same workspace-pinned Bevy 0.19.1 release. Both local crates forbid unsafe code.
+Core exposes the project name and `headless_app(ScheduleRunnerPlugin)`, a small
+composition function returning a Bevy `App` with `MinimalPlugins`. Bevy owns
+the ECS world, entity identity, schedules, task pools, frame counter, time and
+application lifecycle. The caller chooses the runner policy and adds plugins.
+
+Boot owns argument handling and a development-only `SmokeCheckPlugin`. Its
+synthetic resource/component validate startup, deferred entity spawning, repeated
+updates and an `AppExit` message from the final schedule. The smoke check's three
+updates and 1 ms runner pause have no original-game or fixed-step meaning. No
+gameplay components, simulation rate or BO2 entity schema is approved by this task.
 
 Bevy is the selected engine, ECS, rendering, and application foundation. The
-[decision record](../adr/0001-bevy-foundation.md) records this user requirement and
-the work still needed to integrate it. No custom ECS or renderer is approved.
+[decision record](../adr/0001-bevy-foundation.md) records version evidence and the
+minimal feature choice. No renderer/window/asset plugin is assembled. Some
+upstream support types may be compiled by Bevy's feature dependencies; this does
+not initialize a graphical runtime. There are no original-game architecture
+findings yet. No custom ECS or renderer is approved.
 
 ## Planned responsibilities
 
@@ -20,7 +31,7 @@ that avoids duplication of Bevy functionality.
 
 | Directory | Responsibility |
 | --- | --- |
-| `crates/core` | Minimal lower-level shared definitions, only when justified; no map-specific behavior or replacement engine. |
+| `crates/core` | Shared minimal Bevy headless composition and justified lower-level definitions; no map or development-smoke behavior. |
 | `crates/math` | Evidence-required math utilities that Bevy does not already provide. |
 | `crates/assets` | Safe external asset access, format adapters, and metadata; no embedded originals. |
 | `crates/rendering` | Bevy rendering integration and evidence-backed visual configuration, not a separate renderer. |
@@ -37,7 +48,7 @@ that avoids duplication of Bevy functionality.
 | `crates/diagnostics` | Permitted diagnostics, measurements, and profiling instrumentation. |
 | `game/zombies/common` | Assembly and shared Zombies configuration above reusable system crates. |
 | `game/zombies/origins` | Origins-specific configuration, mechanics, and assembly based on evidence. |
-| `game/boot` | Application entrypoint and final assembly; currently diagnostic only. |
+| `game/boot` | Application entrypoint and final assembly; currently a bounded headless lifecycle smoke plugin. |
 | `tools/asset_inspector` | Read-only bounded asset inspectors with permitted output. |
 | `tools/map_inspector` | Read-only geometry/entity metadata inspection. |
 | `tools/comparison_tools` | Reproducible behavior/visual/performance comparisons. |
