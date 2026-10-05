@@ -9,3 +9,4 @@ description = "Bounded read-only BO2 metadata and project diagnostic snapshot re
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"

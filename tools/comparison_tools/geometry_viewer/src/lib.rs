@@ -22,6 +22,7 @@ pub enum DiagnosticError {
         kind: io::ErrorKind,
     },
     Snapshot(SnapshotError),
+    Appearance(bo2_assets::appearance::AppearanceError),
     NotRegularFile,
     WorkspacePath,
     EmptyGeometry,

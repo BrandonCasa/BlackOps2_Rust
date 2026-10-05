@@ -48,6 +48,14 @@ pub fn run(
     frames: Option<u32>,
     smoke: bool,
 ) -> Result<(), DiagnosticError> {
+    run_with_image(geometry, frames, smoke, None)
+}
+pub fn run_with_image(
+    geometry: PreparedGeometry,
+    frames: Option<u32>,
+    smoke: bool,
+    image: Option<Image>,
+) -> Result<(), DiagnosticError> {
     let completed = Arc::new(AtomicBool::new(false));
     let gpu = GpuProbe {
         ready: Arc::new(AtomicBool::new(false)),
@@ -62,6 +70,9 @@ pub fn run(
         resize_constraints: bevy::window::WindowResizeConstraints { min_width: 320.0, min_height: 240.0, max_width: 4096.0, max_height: 4096.0 },
         ..default()
     }));
+    if let Some(image) = image {
+        app.insert_resource(ColorPreview(image));
+    }
     app.insert_resource(Scene(Some(geometry)))
         .insert_resource(Session {
             frames: 0,

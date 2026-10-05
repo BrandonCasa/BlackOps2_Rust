@@ -39,8 +39,22 @@ use std::{
 };
 
 mod interactive;
+mod scene;
 
-const HELP: &str = "Usage: bo2-geometry-viewer --synthetic --output <new-external-directory>
+#[derive(Resource)]
+struct ColorPreview(Image);
+#[derive(Resource)]
+struct PreviewTextureProof {
+    handle: Handle<Image>,
+    mips: u32,
+    size: bevy::render::render_resource::Extent3d,
+    format: TextureFormat,
+    bytes: usize,
+}
+
+const HELP: &str = "Usage: bo2-geometry-viewer --scene <external-scene.json> (--output <new-external-directory> | --interactive [--frames <64..600>])
+Appearance scene v1 currently isolates one surface: unlit base texture and original corner UVs, linear diagnostic transfer. Full original materials/lighting unsupported; fidelity INVESTIGATING.
+Usage: bo2-geometry-viewer --synthetic --output <new-external-directory>
        bo2-geometry-viewer --snapshot <single-external-snapshot> --output <new-external-directory>
        bo2-geometry-viewer (--synthetic | --snapshot <single-external-snapshot>) --interactive [--frames <64..600>]
        bo2-geometry-viewer (--synthetic | --snapshot <single-external-snapshot>) --interactive-smoke [--frames <64..600>]
@@ -80,10 +94,12 @@ enum Action {
     CheckGpu,
     Render {
         input: Option<OsString>,
+        scene: bool,
         output: OsString,
     },
     Interactive {
         input: Option<OsString>,
+        scene: bool,
         frames: Option<u32>,
         smoke: bool,
     },
@@ -100,14 +116,18 @@ fn arguments(mut args: impl Iterator<Item = OsString>) -> Result<Action, ()> {
     }
     let input = if first == "--synthetic" {
         None
-    } else if first == "--snapshot" {
+    } else if first == "--snapshot" || first == "--scene" {
         Some(args.next().ok_or(())?)
     } else {
         return Err(());
     };
+    let scene = first == "--scene";
     let mode = args.next().ok_or(())?;
     if mode == "--interactive" || mode == "--interactive-smoke" {
         let smoke = mode == "--interactive-smoke";
+        if scene && smoke {
+            return Err(());
+        }
         let frames = match args.next() {
             None => smoke.then_some(180),
             Some(flag) if flag == "--frames" => {
@@ -122,6 +142,7 @@ fn arguments(mut args: impl Iterator<Item = OsString>) -> Result<Action, ()> {
         };
         return Ok(Action::Interactive {
             input,
+            scene,
             frames,
             smoke,
         });
@@ -133,7 +154,11 @@ fn arguments(mut args: impl Iterator<Item = OsString>) -> Result<Action, ()> {
     if args.next().is_some() {
         return Err(());
     }
-    Ok(Action::Render { input, output })
+    Ok(Action::Render {
+        input,
+        scene,
+        output,
+    })
 }
 fn main() -> ExitCode {
     let action = match arguments(env::args_os().skip(1)) {
@@ -148,12 +173,36 @@ fn main() -> ExitCode {
     let result = std::panic::catch_unwind(|| match action {
         Action::Help => writeln!(io::stdout().lock(), "{HELP}").map_err(|e| io_error("stdout", e)),
         Action::CheckGpu => check_gpu(),
-        Action::Render { input, output } => execute(input.as_deref(), Path::new(&output)),
+        Action::Render {
+            input,
+            scene,
+            output,
+        } => {
+            if scene {
+                scene::execute(
+                    Path::new(input.as_ref().ok_or(DiagnosticError::Encoding)?),
+                    Path::new(&output),
+                )
+            } else {
+                execute(input.as_deref(), Path::new(&output))
+            }
+        }
         Action::Interactive {
             input,
+            scene,
             frames,
             smoke,
-        } => interactive::run(load_geometry(input.as_deref())?, frames, smoke),
+        } => {
+            if scene {
+                scene::interactive(
+                    Path::new(input.as_ref().ok_or(DiagnosticError::Encoding)?),
+                    frames,
+                    smoke,
+                )
+            } else {
+                interactive::run(load_geometry(input.as_deref())?, frames, smoke)
+            }
+        }
     })
     .unwrap_or(Err(DiagnosticError::EnginePanic));
     match result {
@@ -219,7 +268,7 @@ fn load_geometry(input: Option<&std::ffi::OsStr>) -> Result<PreparedGeometry, Di
 fn execute(input: Option<&std::ffi::OsStr>, output: &Path) -> Result<(), DiagnosticError> {
     let geometry = load_geometry(input)?;
     let output = new_output(output)?;
-    let report = render(geometry)?;
+    let report = render(geometry, None)?;
     let mut coverage = [0; 3];
     for (i, bytes) in report.images.iter().enumerate() {
         coverage[i] = foreground_pixels(bytes)?;
@@ -365,6 +414,34 @@ fn render_app(overlay: bool, started: Instant) -> Result<App, DiagnosticError> {
 
 fn spawn_mesh(world: &mut World, mesh: Mesh) -> Handle<Mesh> {
     let handle = world.resource_mut::<Assets<Mesh>>().add(mesh);
+    if let Some(preview) = world.remove_resource::<ColorPreview>() {
+        let mips = preview.0.texture_descriptor.mip_level_count;
+        let size = preview.0.texture_descriptor.size;
+        let format = preview.0.texture_descriptor.format;
+        let bytes = preview.0.data.as_ref().map_or(0, Vec::len);
+        let image = world.resource_mut::<Assets<Image>>().add(preview.0);
+        world.insert_resource(PreviewTextureProof {
+            handle: image.clone(),
+            mips,
+            size,
+            format,
+            bytes,
+        });
+        let material = world
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial {
+                base_color_texture: Some(image),
+                unlit: true,
+                cull_mode: None,
+                ..default()
+            });
+        world.spawn((
+            Mesh3d(handle.clone()),
+            MeshMaterial3d(material),
+            Transform::IDENTITY,
+        ));
+        return handle;
+    }
     let material = world
         .resource_mut::<Assets<StandardMaterial>>()
         .add(StandardMaterial {
@@ -409,10 +486,14 @@ fn feature_check(app: &App) -> Result<(), DiagnosticError> {
     Ok(())
 }
 
-fn render(geometry: PreparedGeometry) -> Result<Report, DiagnosticError> {
+fn render(geometry: PreparedGeometry, image: Option<Image>) -> Result<Report, DiagnosticError> {
+    let appearance = image.is_some();
     let started = Instant::now();
     let deadline = Duration::from_secs(60);
     let mut app = render_app(true, started)?;
+    if let Some(image) = image {
+        app.insert_resource(ColorPreview(image));
+    }
     feature_check(&app)?;
     let adapter = app
         .world()
@@ -488,12 +569,33 @@ fn render(geometry: PreparedGeometry) -> Result<Report, DiagnosticError> {
             .get_resource::<RenderAssets<RenderMesh>>()
             .and_then(|assets| assets.get(handle.id()));
         let prepared = gpu_mesh.is_some_and(|m| m.vertex_count as usize == positions && matches!(m.buffer_info, RenderMeshBufferInfo::Indexed { count, index_format: bevy::render::render_resource::IndexFormat::Uint32 } if count as usize == indices));
+        let texture_ready = app
+            .world()
+            .get_resource::<PreviewTextureProof>()
+            .is_none_or(|proof| {
+                render_world
+                    .get_resource::<RenderAssets<bevy::render::texture::GpuImage>>()
+                    .and_then(|assets| assets.get(proof.handle.id()))
+                    .is_some_and(|image| {
+                        image.had_data
+                            && image.texture_descriptor.mip_level_count == proof.mips
+                            && image.texture_descriptor.size == proof.size
+                            && image.texture_descriptor.format == proof.format
+                    })
+            });
         if !requested
+            && texture_ready
             && frames >= 16
             && prepared
             && cache.waiting_pipelines().next().is_none()
             && cache.pipelines().next().is_some()
         {
+            if let Some(proof) = app.world().get_resource::<PreviewTextureProof>() {
+                println!(
+                    "Appearance GPU image prepared: {}x{}, {} mips, {:?}, {} source chain bytes",
+                    proof.size.width, proof.size.height, proof.mips, proof.format, proof.bytes
+                );
+            }
             for (i, target) in targets.iter().enumerate() {
                 app.world_mut()
                     .spawn(Screenshot::image(target.clone()))
@@ -530,7 +632,7 @@ fn render(geometry: PreparedGeometry) -> Result<Report, DiagnosticError> {
             if !cpu
                 .asset_usage
                 .contains(RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD)
-                || cpu.attributes().count() != 1
+                || cpu.attributes().count() != if appearance { 2 } else { 1 }
                 || !matches!(cpu.attribute(Mesh::ATTRIBUTE_POSITION), Some(VertexAttributeValues::Float32x3(v)) if v.len() == positions && v.as_ptr() == position_pointer)
                 || !matches!(cpu.indices(), Some(Indices::U32(v)) if v.len() == indices && v.as_ptr() == index_pointer)
             {
@@ -590,7 +692,8 @@ mod tests {
             Ok(Action::Interactive {
                 input: None,
                 frames: None,
-                smoke: false
+                smoke: false,
+                scene: false
             })
         ));
         assert!(matches!(
@@ -598,7 +701,8 @@ mod tests {
             Ok(Action::Interactive {
                 input: Some(_),
                 frames: Some(180),
-                smoke: true
+                smoke: true,
+                scene: false
             })
         ));
         for frames in ["64", "600"] {
@@ -622,6 +726,19 @@ mod tests {
         ] {
             assert!(parse(invalid).is_err());
         }
+    }
+    #[test]
+    fn scene_modes_keep_diagnostic_smoke_separate() {
+        let parse = |args: &[&str]| arguments(args.iter().map(OsString::from));
+        assert!(matches!(
+            parse(&["--scene", "scene.json", "--output", "new"]),
+            Ok(Action::Render { scene: true, .. })
+        ));
+        assert!(matches!(
+            parse(&["--scene", "scene.json", "--interactive"]),
+            Ok(Action::Interactive { scene: true, .. })
+        ));
+        assert!(parse(&["--scene", "scene.json", "--interactive-smoke"]).is_err());
     }
     #[test]
     fn bounded_writer_fails_without_writing_past_the_cap() {

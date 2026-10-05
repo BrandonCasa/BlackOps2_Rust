@@ -37,10 +37,24 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
   149,907 triangles, 6,469 surfaces. Geometry and decoded assets remain external.
 - `game/boot`: a headless lifecycle smoke check. There is no interactive game,
   player movement, player collision integration, weapon, zombie or round yet.
-- Original orientation, units, camera, materials and lighting remain unresolved.
+- The integrated viewer adds --scene with a bounded external manifest bound
+  to snapshot SHA256. One original surface renders recovered corner UVs and a
+  native BC1 texture with all ten mip levels and its source sampler. This is an
+  explicitly unlit, linear diagnostic preview, not a complete original material.
+- Original orientation, units, camera, full materials and lighting remain unresolved.
   Overall/gameplay/visual fidelity is UNKNOWN; data access is INVESTIGATING.
 
 ## Immediate implementation direction
+
+In the isolated appearance worktree, next recover the selected opaque material's
+actual shader arguments, normal/tangent encodings, states and lighting dependencies;
+implement its supported equations before expanding material families and world
+coverage. Keep gray diagnostics. Remaining 6,468 surfaces and original shading /
+lighting are unsupported. See [first texture increment](handoffs/materials-0001-textured-surface.md).
+Outer workspace tests, locked metadata, formatting and Clippy pass for this increment;
+actual GPU checks verify the texture, mip chain and synthetic UV orientation.
+An original spawn observation was captured externally through Plutonium LAN;
+measured camera conditions and equivalent reconstructed comparisons are still pending.
 
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the

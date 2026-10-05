@@ -36,3 +36,5 @@ pub fn diagnostic_mesh(snapshot: GeometrySnapshot) -> (Mesh, Vec<SnapshotSurface
     mesh.insert_indices(Indices::U32(indices));
     (mesh, surfaces)
 }
+
+pub mod appearance;
