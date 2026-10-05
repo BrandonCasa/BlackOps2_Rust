@@ -521,28 +521,55 @@ source preparation acceptance; SDK runtime and original fidelity stay unmeasured
 
 ## Next bounded work
 
-1. Make the next rendering milestone a reproducible calibrated Origins geometry
+Task0025's [offline active-view investigation](reverse_engineering/0017-original-active-view-consumer.md)
+is reviewed and accepted as PARTIAL. The admitted original executable identity
+matches; one actual candidate
+has zero direct preferred-address references over all12,531,720 file-backed section
+bytes. Three512-byte static windows and one reached callee establish no trustworthy
+camera consumer, locator or scalar layout. Protection remains a hypothesis. Its
+[handoff](handoffs/0025-original-active-view-consumer.md) records29 pure parser cases,
+unchanged non-owned/prior task0024 identities and external original-only evidence.
+No runtime view/calibration or playable result is claimed. The explicit reassessment
+is that the offline fallback did not enable camera calibration; **no further capture
+prerequisite is selected now**. Data/access stays INVESTIGATING; overall/gameplay/
+visual fidelity stays UNKNOWN.
+
+Independent outer checks match43 terminal artifacts, five sealed candidates,
+109 non-owned records and prior Task0024 worker129/root78 freezes. All29 copied
+pure tests pass under launch traps with zero attempts; retained search/range/tool
+metrics,114 links, LF/privacy/headings/scope/whitespace pass. The fourth original
+hash has control-flow evidence only, without a separately retained numeric receipt;
+its later regex failure is reproduced on synthetic text. No original scan or
+unchanged Cargo/GPU gate is repeated by review.
+
+1. Investigate one original Origins clipmap brush's plane/bounds boundary from
+   the already catalogued licensed map, independently of camera capture. Establish
+   observed structure and geometric consistency toward standing movement/collision
+   before a separate safe Rust/Bevy adapter or measured fixed-step behavior task.
+   Player masks, capsule dimensions, speed, timing, units and live collision
+   behavior remain unresolved until directly evidenced.
+2. Retain the next rendering milestone as a reproducible calibrated Origins geometry
    scene in the existing Bevy tooling. Establish orientation, scale and camera/
    visible-side correspondence from original evidence for one asymmetric patch,
-   following findings0009. Investigate one same-build original active-view
-   consumer/address/schema as the existing fallback; public field labels and
-   C2M's fixed asset addresses alone are not validated access. Keep investigation
+   following findings0009. Task0025 supplies no usable active-view read route;
+   public field labels and C2M's fixed asset addresses remain unvalidated. Revisit
+   access only with new discriminating evidence. Keep investigation
    and evidence-backed scene implementation in separate bounded tasks. Raw
    diagnostic rendering remains labeled; complete materials/lighting come later.
-2. Time-box the capture route to at most one additional small prerequisite task
+3. Preserve the capture-route cap of at most one additional small prerequisite task
    before explicit reassessment. Select it only to close a named blocker to that
-   concrete camera/geometry measurement. Task0024 still leaves named parent/cache/
+   concrete camera/geometry measurement; none is selected now. Task0024 still
+   leaves named parent/cache/
    conf admission, thread-only supervision and child/log inferences unresolved;
    acceptance does not authorize unsafe execution or weaker preservation. If the
    route cannot produce the measurement, record the specific limit and use the
    active-view/data fallback or another narrow route. Avoid a general process-
    control framework. Preserve prior scenarios/failures; no automatic repeats.
-3. Then investigate and implement one measured player movement/collision behavior
-   toward a playable vertical slice, using reusable Bevy systems and meaningful
-   tests. A rendering-access obstacle must not indefinitely postpone independent
-   movement investigation that can proceed safely. Select tasks for new original
-   observations, evidence-backed Rust behavior and inspectable scene/playable
-   milestones; every tooling task must name the exact game milestone it enables.
+
+A rendering-access obstacle must not indefinitely postpone independent movement
+investigation that can proceed safely. Select tasks for new original observations,
+evidence-backed Rust behavior and inspectable scene/playable milestones; every
+tooling task must name the exact game milestone it enables.
 
 The progress-review steering narrows task selection while preserving the full
 Origins objective, evidence standards, asset boundaries and sequential delegation.

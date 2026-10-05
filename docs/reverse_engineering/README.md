@@ -186,3 +186,14 @@ all acquired members and yields active0/listempty before close. A's probe is
 omitted after a preserved assertion failure. Creator/general quota semantics and
 task0021's historical inventory remain unproven; its directory-name gap remains.
 No SDK/original action or fidelity promotion occurs.
+
+The [original active-view consumer investigation](0017-original-active-view-consumer.md)
+is PARTIAL. One observed candidate has no direct preferred-address reference in
+the admitted file-backed section spans, and bounded static viability checks recover
+no registration/producer/camera consumer or scalar layout. Protection remains a
+hypothesis. The offline fallback does not enable patch calibration; no further
+capture prerequisite is selected now. The next bounded investigation targets one
+original Origins clipmap brush's plane/bounds boundary toward movement/collision.
+Outer review accepts the scoped PARTIAL evidence and independent checks; no
+player collision rule or calibrated scene is inferred from static data.
+Data/access remains INVESTIGATING; overall/gameplay/visual fidelity UNKNOWN.

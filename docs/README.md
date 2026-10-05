@@ -52,6 +52,8 @@
 - [Ordinary SDK startup qualifier](architecture/ordinary-sdk-startup-qualification.md): concrete phase/path/registration protocol, compile-only candidates, uninvoked controller and separate runtime review predicates.
 - [Qualifier preparation handoff](handoffs/0023-ordinary-sdk-startup-qualifier-design.md): PARTIAL preparation, synthetic checks, preserved prior freezes and unmeasured runtime limits.
 - [Qualifier repair handoff](handoffs/0024-ordinary-sdk-qualifier-repair.md): corrected source/ownership/module/log/teardown gates, actual injected controller/adapter checks, compile-only validation and explicit remaining admission limits.
+- [Original active-view consumer](reverse_engineering/0017-original-active-view-consumer.md): bounded same-executable static evidence, negative candidate reference and missing camera consumer/layout.
+- [Active-view investigation handoff](handoffs/0025-original-active-view-consumer.md): PARTIAL offline fallback, preserved identities/pure parser checks and explicit reassessment toward independent movement evidence.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately
