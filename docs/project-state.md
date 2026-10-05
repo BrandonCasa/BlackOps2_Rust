@@ -29,7 +29,15 @@ Plaintext length fields and zero suffixes give exact byte accounting; chunk bodi
 remain unread except for separate identity hashing. Authentication hash state is
 internal to the corroborating decoder, not another stored header. Findings and
 [handoff 0007](handoffs/0007-fastfile-block-framing-evidence.md) are reviewed and accepted.
-No Rust scanner/decoder or authenticated/decoded asset evidence was added.
+The framing task added no Rust scanner/decoder or authenticated/decoded asset evidence.
+
+The [decoded directory investigation](reverse_engineering/0004-origins-asset-directory.md)
+has now listed the single `zone/all/zm_tomb.ff` twice through a digest-verified
+external OAT v0.33.0 release. Both runs expose the same 7,549 entries across 31
+types, including one `gfxworld` and related map-world families. Reference markers
+are counted, but dependencies/decoded properties are not established. Findings
+and [handoff 0008](handoffs/0008-origins-asset-directory.md) are reviewed and accepted.
+No tracked decoder, extraction or Bevy asset-loading integration was added.
 
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
@@ -70,6 +78,19 @@ no original-game evidence or executable functionality.
 - The bundled skill-creator validator accepted all ten skills using an isolated
   uv/PyYAML environment. Exact skill names, folder names and all 30 relative
   skill links/handoff anchors were checked. Skill acceptance remains unchanged.
+- Verified external OAT version/help and two one-file LIST runs exited 0 with
+  zero warnings/errors, within 120-second/8-MiB capture limits. Ordered entries,
+  type totals and source/binary identity checks agreed; no dump outputs occurred.
+  Observed peak working set was approximately 391.6 MB; no hard decoder memory
+  cap is claimed. Parser framing/type-table checks and four external synthetic
+  cases passed. Signature acceptance is a source-supported OAT result, not an
+  independent authenticity or installation-integrity verification.
+- Outer review verified the archive and all 162 unpacked package files, checked
+  immutable primary sources, and independently reproduced two matching listings
+  and both synthetic supervisor limits. All 7,549 ordered entries and selected
+  map identifiers agreed; source and binary identities remained unchanged.
+  Synthetic output-cap/deadline self-checks also terminated their children and
+  recorded incomplete/timeout without opening originals.
 
 The [Bevy build handoff](handoffs/0003-bevy-build-foundation.md) records exact
 versions, checks and limits. Its code and validation are reviewed and accepted.
@@ -80,8 +101,14 @@ The [local asset catalog](reverse_engineering/0001-local-asset-catalog.md) ident
 one Steam-registered BO2 installation, Zombies app `212910` manifest build
 `24784239`, English labels, and `zm_tomb`/`zmb_tomb` zone, sound and video
 candidates. Data availability is **INVESTIGATING**; filenames do not yet prove
-Origins identity or asset dependencies. Eight representative samples have recorded
-SHA-256 identities; no originals were copied, decoded, extracted or modified.
+Origins identity or asset dependencies. The catalog recorded eight representative
+SHA-256 identities without copying, decoding, extracting or modifying originals
+at that stage.
+
+The subsequent directory task decoded one fastfile in memory through external
+OAT LIST, without dumping asset contents. Original files remain unchanged; raw
+listings and the released tool remain external. No payload field values, geometry
+buffers or scripts have been copied into the repository.
 
 Absolute installation/output roots are set only in ignored
 `config/local_assets.toml`; inspection summaries stay external. The schema matches
@@ -91,18 +118,20 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Use pinned external OAT Unlinker listing on one
-   `zm_tomb.ff` to observe actual decoded asset types/identifiers. Keep binaries,
-   raw listings/logs and originals external; verify digest, scoped runtime results
-   and original identity. Listing is not geometry/dependency/fidelity proof.
+1. Investigate the one listed `gfxworld`'s surface triangle-range to world-draw
+   buffer/material-reference boundary. Stock OAT LIST exposes names only and
+   the release has no registered T6 `GfxWorld` dumper; separately scope an external
+   pinned-decoder metadata adapter for permitted aggregate/range/reference
+   observations, with synthetic checks and source-preservation limits.
 2. Document observable shared engine/game structures and evidence-backed
    ECS/asset boundaries in later bounded tasks, selected from actual decoded
    structures rather than additional envelope metadata alone.
 
 The outer agent sequences those tasks with exactly one active subagent and updates
 this file after reviewing each handoff. Rendering, BO2 entity architecture, asset
-loading and gameplay remain unimplemented. Reverse engineering has only the
-bounded file-availability, envelope and transport-framing observations described above.
+loading and gameplay remain unimplemented. Reverse engineering has the bounded
+file-availability, envelope, transport-framing and single decoded-directory
+observations described above; no original-game behavior or appearance comparison.
 
 Review: the outer agent inspected all source/configuration and substantive
 documentation, independently parsed the manifests/configuration, checked key
@@ -125,3 +154,8 @@ Framing review covered findings/handoff 0007, source corroboration, the optional
 scanner contract and the external-tool recommendation. Independent sample scans,
 identity checks, documentation links/content boundaries and whitespace checks
 passed. Rust/compiler gates were not repeated for this documentation-only task.
+Directory review covered findings/handoff 0008, the external observation and
+supervisor helpers, release contents, listing framing and source interpretations.
+Independent listing/identity/budget checks, documentation links/content boundaries
+and whitespace checks passed. No tracked Rust or dependency changes required
+new Cargo gates. The next task remains one bounded decoded geometry observation.

@@ -33,3 +33,10 @@ accounting and the distinction between on-disk transport and internal authentica
 state. It supplies an optional bounded scanner contract and recommends a single
 external OAT asset-directory listing as the next access task. No decoded contents
 or authenticity are established; format understanding remains INVESTIGATING.
+
+The [decoded Origins candidate directory](0004-origins-asset-directory.md) records
+two identical listings of one external `zm_tomb.ff` using the verified OAT release.
+Its 7,549 entries across 31 types include map-world and geometry families. Counts
+and reference markers establish directory availability, not dependency resolution,
+decoded geometry properties or fidelity. A bounded external metadata adapter for
+one `gfxworld` surface/draw-buffer/material boundary is the next access question.

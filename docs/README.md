@@ -15,6 +15,8 @@
 - [Envelope inspector handoff](handoffs/0006-fastfile-envelope-inspector.md): reusable bounded parser, explicit-input CLI, synthetic tests and six external sample checks.
 - [Fastfile transport framing](reverse_engineering/0003-fastfile-block-framing.md): plaintext chunk metadata, suffix accounting, authentication dependencies and the next decoded-directory access route.
 - [Framing evidence handoff](handoffs/0007-fastfile-block-framing-evidence.md): bounded noncontiguous probes, unchanged originals and external-tool recommendation.
+- [Decoded Origins candidate directory](reverse_engineering/0004-origins-asset-directory.md): verified external OAT listing, type/reference-marker counts and a bounded geometry-access question.
+- [Directory evidence handoff](handoffs/0008-origins-asset-directory.md): repeated listing, tool/source identity and read/emit validation.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately
