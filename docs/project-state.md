@@ -33,7 +33,7 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
   clipping across all 8,417 selected diagnostic map-leaf brushes, including 3,178
   zero-side axial hulls. Queries preserve coefficients and use exact entry/source-key
   ties; precision diagnostics stay separate. Original runtime ownership, player
-  traces and zero-side source shape remain unresolved.
+  traces and live source-shape comparisons remain unresolved.
 - `tools/comparison_tools/geometry_viewer`: renders three offscreen raw-coordinate
   solid/wireframe views and a windowed perspective inspection scene with diagnostic
   keyboard flight/look/reset. Accepted external snapshot: 191,259 positions,
@@ -65,16 +65,20 @@ measured camera conditions and equivalent reconstructed comparisons remain pendi
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the
    accepted external snapshot instead of restarting asset extraction.
-2. Use the integrated `--brush-collection` queries and retained task0034 geometry
-   to resolve a bounded source/convention discrepancy before player integration.
-   All 8,417 task0033 candidates are admitted without omissions; the separate box
-   is excluded. Traversal remains diagnostic and all 265 model providers are absent,
-   so original static ownership/transforms remain unproved. Full source scans find
-   30,706 strict violations across 4,186 brushes, with maximum positive residual
-   0.09950868785381317 raw units. A zero-side representative has 12 source vertices
-   versus eight axial corners and vertex-set error 4.0. Geometry is preserved;
-   no snapping, contact epsilon or silent exclusion hides those discrepancies.
-   Original producer/runtime rounding and zero-side source shape remain unresolved.
+2. Implement the task0035 finite-f32 single moving-brush contract using the existing
+   admitted source record and explicit shape, mask and incoming result. The authentic
+   native consumer clips lower XYZ, upper XYZ, then sides; zero-side records retain
+   the axial constraints and stored vertices are not consulted. It uses capsule-like
+   support, an entry-only 0.125 raw-unit allowance, distinct startsolid/allsolid/contact
+   writes and ordered plane ties. Preserve the unusual upper-Z result overwrite.
+   The existing f64 queries remain diagnostic; their arithmetic and tie rules are
+   not the native contract. Equal centered endpoints take an uninvestigated wrapper
+   route and are outside the next moving-only adapter. See
+   [original contract](reverse_engineering/0024-original-brush-trace-consumer.md).
+   All 8,417 candidates remain admitted, but static ownership/transforms and all
+   265 absent model providers remain unresolved. Source residuals remain visible
+   (30,706 strict violations, maximum 0.09950868785381317 raw units); the original
+   contact allowance does not repair them or prove producer rounding.
 3. Measure the player hull, collision masks and step/slide rules before integrating
    movement. Point-segment queries do not establish original player traces.
    Camera-capture difficulties must not indefinitely block independent gameplay work.
@@ -121,6 +125,13 @@ implementation keeps the repository's sequential-delegation policy.
 
 ## Validation and essential references
 
+Task0035 recovers the native moving-brush/request contract through a named builtin
+and direct call chain. Fifteen complete functions (8,515 bytes), registration and
+constant identities requalify with read-only handles. Twenty-four synthetic f32
+versus rational cases and eight registration checks pass. Outer review independently
+checks retained span hashes and reruns all 24 analytic cases. No native invocation,
+runtime output comparison or player default is established; unchanged Cargo gates
+were not rerun. Worker execution is stopped and handles are closed.
 Task0034 integrates the bounded collection reader, owned hull sequence and inspector.
 All 114 workspace tests, locked metadata, formatting and strict Clippy pass; three
 opt-in external tests separately pass. Outer review reruns both collection external
@@ -165,6 +176,7 @@ README for the existing snapshot viewer commands. Do not reinstall working tools
 - [Separate box-brush association](handoffs/0032-origins-box-brush-membership.md)
 - [Diagnostic map-leaf membership](handoffs/0033-origins-map-leaf-brush-membership.md)
 - [Rust brush collection](handoffs/0034-rust-brush-collection.md)
+- [Original moving-brush contract](handoffs/0035-original-brush-trace-consumer.md)
 - [Pending collision result](handoffs/0026-origins-collision-brush-boundary.md)
 - [Collision source/loader evidence](reverse_engineering/0018-origins-collision-brush-boundary.md)
 - [Fidelity status](fidelity/README.md)

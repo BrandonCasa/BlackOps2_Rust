@@ -62,6 +62,22 @@ failure and 2 for invalid arguments. The CLI does not load TOML or discover file
 See the [inspector handoff](docs/handoffs/0006-fastfile-envelope-inspector.md) for
 tests, external sample checks and limits.
 
+Inspect retained external brush geometry and exercise diagnostic segment queries:
+
+```sh
+cargo run -p bo2-map-inspector -- --brush "<external schema28 brush record>"
+cargo run -p bo2-map-inspector -- --brush-collection "<external schema34 collection>"
+```
+
+The [collection boundary](docs/architecture/diagnostic-brush-collection.md) admits
+every selected record, preserves source coefficients and reports unsupported
+families and source-vertex discrepancies. The accepted Origins collection has
+8,417 records, including 3,178 diagnostic zero-side axial hulls. These commands
+emit bounded counts, segment probes and precision summaries without changing files.
+Identity hashes are declarations until independently checked. Original runtime
+ownership, player dimensions, masks and contact rules remain unresolved; these
+queries are not yet integrated into player movement.
+
 Render a user-created asymmetric fixture, or one explicitly selected diagnostic
 snapshot, to a **new** external directory:
 
@@ -98,7 +114,7 @@ window readback before exiting. This checks engine input integration, not physic
 keyboard routing or original-game comparison. Use an independent 120-second
 supervisor for bounded GPU/driver checks.
 
-`crates/core`, `crates/assets`, `crates/rendering`, `game/boot`, both inspectors
+`crates/core`, `crates/assets`, `crates/physics`, `crates/rendering`, `game/boot`, both inspectors
 and `tools/comparison_tools/geometry_viewer` are Cargo members.
 Other directories reserve responsibilities. See [repository rules](AGENTS.md),
 [documentation index](docs/README.md), [workspace boundaries](docs/architecture/README.md),
