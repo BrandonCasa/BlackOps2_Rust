@@ -5,80 +5,50 @@ Updated: 2026-10-05. This is the current working brief; historical detail is lin
 ## Active isolated damage/life-state goal
 
 This worktree owns shared player/ordinary-zombie damage and life states, Origins
-configuration, a runnable headless demonstration, deterministic tests and original
-comparisons. See [ownership and acceptance](architecture/damage-life-state-goal.md).
-Collision/movement and static-world appearance continue in separate worktrees.
-The user explicitly permits one active delegated worker per worktree; review and
-sequence workers locally. Reviewed damage, revive-script and runtime restoration
-evidence is linked from the [implemented boundary](architecture/damage-life-state.md).
-Shared safe Bevy components now process resolved damage and ordinary coop revival
-begin/cancel/completion in explicit fixed-step request order. Checked episode and
-attempt tokens reject stale completions; Origins supplies qualified no-bonus
-restoration of current/max health 100. Component replacement requires caller input
-retirement. See [implementation handoff](handoffs/damage-life-state-05.md).
+configuration, a runnable headless demo, deterministic tests and original comparisons.
+See [ownership and acceptance](architecture/damage-life-state-goal.md) and the
+[implemented boundary](architecture/damage-life-state.md). Collision/movement and
+static-world appearance have separate worktrees. The user permits one active
+worker per worktree; review and sequence each local task before committing.
 
-Validation: locked metadata has 10 members; all 102 workspace tests,
-formatting and warning-denying Clippy pass. The demo verifies 21 exact ordered
-outcomes and exits 0. Outer repeated 22 focused tests and the demo after range correction.
-Scoped fidelity is APPROXIMATE: active native dispatch, final actor health,
-raw interaction/timing and full live agreement remain unresolved. The first
-[original comparison attempt](fidelity/damage-life-state-comparison.md) is PARTIAL;
-unexplained input changes prevented controlled outcome attribution. The user then
-granted session control. Solo follow-up observed game-over/results; the latest
-[numeric comparison](fidelity/damage-life-state-comparison.md) captured entity and
-client mirror health 100 to 40, agreeing with the Rust resolved-60 case. Exact
-contact count/timing and return-to-100 cause remain unqualified. Bleedout comparison
-needs multiple players.
-Reviewed [bleedout evidence](reverse_engineering/damage-life-state-06.md) finds a
-source-default 45-second countdown, post-countdown deferral during active revival
-and ordinary spectator disposition. Final spectator health remains unqualified.
-The reviewed [terminal implementation](handoffs/damage-life-state-07.md) adds
-episode-bound expiry, active-revive deferral and explicit HumanTerminal state while
-preserving qualified numeric health. Timing admission is external; the source
-network-frame interval is explicitly collapsed. A bounded external read-only
-[health observer](handoffs/damage-life-state-08.md) qualifies a paused solo baseline
-of current/entity-max/client-max 100, with 15 synthetic checks. Its first live run
-accepted 966 unchanged baseline samples and refused 34 unstable samples; it did
-not establish damage sensitivity. Online mod-author notes corroborate baseline
-health 100 and melee damage 60, separately from live proof. The subsequent
-[diagnostic trial](reverse_engineering/damage-life-state-09.md) accepted 972 unchanged
-100/100/100 samples and refused 28 solely for changing local-state pointers;
-irrelevant flag changes do not explain that run. The subsequent
-[native writer trace](reverse_engineering/damage-life-state-10.md) confirms signed
-subtraction at that exact field and an integer-only positive damage argument;
-active VM dispatch and execution remain unqualified. The reviewed
-[numeric correction](handoffs/damage-life-state-11.md) now admits positive signed
-32-bit damage/health/restoration values and rejects oversized inputs atomically.
-Three bounded [dispatch leads](reverse_engineering/damage-life-state-12.md) found
-no active VM slot; that survey is closed without proving execution or overrides.
-The [mirror trial](reverse_engineering/damage-life-state-13.md) confirms live field
-sensitivity: 43 accepted samples at 40/40, with maxima 100/100, out of 957 accepted
-and 43 refused records. Next repeat an isolated-hit comparison and qualify one
-ordinary actor terminal transition, then qualify timing admission in multiplayer;
-the [actor native trace](reverse_engineering/damage-life-state-14.md) now supports
-nonlethal subtraction and shows negative health retained/floored at -999 before
-the death handler. The bounded [handler follow-up](reverse_engineering/damage-life-state-15.md)
-qualifies an active AI/entity backlink and selected handler, which clears the
-repeat-impact gate. Ordinary archetype and callback/cleanup health effects remain
-unqualified. Keep ActorDead health 0 explicitly approximate; next prefer a controlled
-ordinary-actor final-health comparison over another broad callback survey.
-The [identity check](reverse_engineering/damage-life-state-16.md) qualifies native
-classname/targetname/noteworthy token fields, but not their selected-entity decoding
-or special-spawn exclusions. Fresh round one with no objective activation supports
-controlled inference only. Use those explicit limits in the next finite actor trial.
-The [selected-actor trial](fidelity/damage-life-state-comparison.md) accepted 318
-unchanged 150/150/gate1 samples, then stopped on a generic identity refusal; native
-profile requalification passed. Solo game over preceded an established melee contact.
-This gives no actor damage/death comparison. Reset earlier and improve refusal
-diagnostics for a controlled repeat; do not infer terminal health from the refusal.
-The [diagnostic repeat](reverse_engineering/damage-life-state-18.md) passed 15
-synthetic checks and a fresh five-sample baseline. Its live run accepted 319 unchanged
-150/150/gate1 samples before refusing changed active-byte flags with the admitted
-active bit still set. Aiming input changed the view and fired one shot; no hit or
-actor death was proven. The original is left at the fresh match's pause menu.
-Solo supplies no bleedout proof. Launch the
-original through the desktop Plutonium launcher; Origins uses the robot-head
-planet icon. These increments do not complete original comparisons or the goal.
+Implemented: safe Bevy Vitality and fixed-step ordered commands for resolved damage,
+admitted coop downing, revival begin/cancel/completion and episode-bound expiry.
+Checked tokens reject stale inputs; active revival defers expiry. Ordinary no-bonus
+revival restores 100/100; human terminal health stays positive pending spectator
+qualification. Solo/last-player lethal policy, raw impacts/interactions, clocks,
+regen, perks and spectator/session assembly remain outside the admitted boundary.
+ActorDead health 0 is approximate and needs an explicit unresolved numeric result.
+
+Latest executable validation: 10 locked metadata members, all 102 workspace tests,
+formatting and warning-denying Clippy pass; demo verifies 21 ordered outcomes, exit 0.
+Outer repeated 22 focused tests and demo after the signed-input range correction.
+Later tasks through 18 changed documentation/external observers, not gameplay.
+
+Evidence: [source](reverse_engineering/damage-life-state-01.md),
+[revival](reverse_engineering/damage-life-state-03.md),
+[native restoration](reverse_engineering/damage-life-state-04.md),
+[bleedout](reverse_engineering/damage-life-state-06.md),
+[player writer](reverse_engineering/damage-life-state-10.md) and
+[actor arithmetic/handler](reverse_engineering/damage-life-state-14.md).
+Native actor subtraction permits negative pre-handler health; final callback/cleanup
+health remains unqualified. [Identity findings](reverse_engineering/damage-life-state-16.md)
+qualify token fields, not ordinary archetype. Fresh round one/no objectives is a
+controlled inference. Do not broaden the closed VM/handler surveys by default.
+
+[Original comparison record](fidelity/damage-life-state-comparison.md): entity/client
+health 100 to 40 agrees with resolved damage 60; contact count and return-to-100
+cause remain unqualified. Actor trials accepted unchanged 150/150/gate1, then
+refused identity changes; latest named active-byte variation with active bit retained.
+No actor hit/death was established. [Sampler diagnostics](reverse_engineering/damage-life-state-18.md)
+pass 15 synthetic checks and a fresh five-sample baseline. Original is left in the
+fresh solo match's Escape menu after an aiming input changed view and fired one shot.
+
+Next implement the evidence-backed actor numeric-health correction, then repeat a
+controlled actor comparison and qualify coop timing. Multiplayer is required for
+bleedout proof; no second-player availability is established. Fidelity remains
+APPROXIMATE / INVESTIGATING, and the goal is incomplete. Launch original through
+the desktop Plutonium launcher; Origins uses the robot-head planet icon.
+
 ## Objective and working policy
 
 Reimplement the full Black Ops II Zombies Origins game in stable Rust with Bevy,
