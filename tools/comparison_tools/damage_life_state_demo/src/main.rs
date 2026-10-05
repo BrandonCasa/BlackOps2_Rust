@@ -80,6 +80,11 @@ fn main() -> DemoResult<()> {
     if episode.number() != 1 {
         return Err("unexpected first episode".into());
     }
+    let old_expiry = app
+        .world()
+        .get::<Vitality>(human)
+        .ok_or("missing player")?
+        .downed_expiry(human)?;
     let begin = step(
         &mut app,
         2,
@@ -154,6 +159,62 @@ fn main() -> DemoResult<()> {
     results.push(step(&mut app, 10, actor, damage(100)?)?);
     results.push(step(&mut app, 11, actor, damage(50)?)?);
     results.push(step(&mut app, 12, actor, damage(1)?)?);
+    results.push(step(
+        &mut app,
+        13,
+        human,
+        LifeCommand::ExpireDowned(old_expiry),
+    )?);
+    let expiry = app
+        .world()
+        .get::<Vitality>(human)
+        .ok_or("missing player")?
+        .downed_expiry(human)?;
+    let begin = step(
+        &mut app,
+        14,
+        human,
+        LifeCommand::BeginRevive {
+            reviver: teammate,
+            episode: next_episode,
+        },
+    )?;
+    let terminal_attempt = token(begin)?;
+    results.push(begin);
+    results.push(step(
+        &mut app,
+        15,
+        human,
+        LifeCommand::ExpireDowned(expiry),
+    )?);
+    results.push(step(
+        &mut app,
+        16,
+        human,
+        LifeCommand::CancelRevive(terminal_attempt),
+    )?);
+    results.push(step(
+        &mut app,
+        17,
+        human,
+        LifeCommand::ExpireDowned(expiry),
+    )?);
+    results.push(step(
+        &mut app,
+        18,
+        human,
+        LifeCommand::CompleteRevive {
+            token: terminal_attempt,
+            restore,
+        },
+    )?);
+    results.push(step(&mut app, 19, human, damage(100)?)?);
+    results.push(step(
+        &mut app,
+        20,
+        human,
+        LifeCommand::ExpireDowned(expiry),
+    )?);
     let expected = [
         Ok(LifeCommandOutcome::Damage(DamageOutcome::Hurt {
             before: 100,
@@ -192,6 +253,19 @@ fn main() -> DemoResult<()> {
         Ok(LifeCommandOutcome::Damage(DamageOutcome::Ignored {
             state: LifeState::ActorDead,
         })),
+        Err(LifeStateError::StaleEpisode),
+        Ok(LifeCommandOutcome::ReviveBegan(terminal_attempt)),
+        Ok(LifeCommandOutcome::Expiry(ExpiryOutcome::Deferred(expiry))),
+        Ok(LifeCommandOutcome::ReviveCanceled),
+        Ok(LifeCommandOutcome::Expiry(ExpiryOutcome::Terminated {
+            current: 1,
+            maximum: 100,
+        })),
+        Err(LifeStateError::NotDowned),
+        Ok(LifeCommandOutcome::Damage(DamageOutcome::Ignored {
+            state: LifeState::HumanTerminal,
+        })),
+        Ok(LifeCommandOutcome::Expiry(ExpiryOutcome::Ignored)),
     ];
     if results.iter().map(|r| r.result).collect::<Vec<_>>() != expected
         || app
@@ -199,11 +273,16 @@ fn main() -> DemoResult<()> {
             .get::<Vitality>(actor)
             .map(|v| (v.state(), v.current()))
             != Some((LifeState::ActorDead, 0))
+        || app
+            .world()
+            .get::<Vitality>(human)
+            .map(|v| (v.state(), v.current(), v.maximum()))
+            != Some((LifeState::HumanTerminal, 1, 100))
     {
         return Err("ordered lifecycle verification failed".into());
     }
     println!(
-        "PASS: down/cancel/restart/revive100/redown; stale completions rejected; actor dead. Fidelity APPROXIMATE: damage arithmetic inferred; revive100 combines Steam script and qualified Plutonium native evidence; live comparison pending. Initial health and teammate/interaction/timing admission are demonstration inputs, not full raw revival."
+        "PASS: down/cancel/restart/revive100/redown; stale inputs rejected; expiry deferred then terminal after cancel; positive terminal health preserved; actor dead. Fidelity APPROXIMATE: damage arithmetic inferred; revive100 combines Steam script and qualified Plutonium native evidence; terminal network-frame interval collapsed; final spectator health unknown; coop comparison pending. Initial health and teammate/interaction/expiry timing are admitted demonstration inputs; no raw revive or bleedout timer."
     );
     Ok(())
 }

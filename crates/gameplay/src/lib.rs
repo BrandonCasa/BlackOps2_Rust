@@ -1,8 +1,9 @@
 #![forbid(unsafe_code)]
 
-//! Resolved damage and admitted coop revival lifecycle. Native player/actor
+//! Resolved damage, admitted coop revival and bleedout disposition. Native player/actor
 //! damage arithmetic remains explicit inference; revival configuration is external.
-//! See docs/reverse_engineering/damage-life-state-01.md for evidence and limits.
+//! Expiry timing is external; terminal human health is preserved pending qualification.
+//! See docs/reverse_engineering/damage-life-state-{01,06}.md for evidence and limits.
 
 use std::num::NonZeroU32;
 
@@ -63,6 +64,9 @@ pub enum PlayerLethalPolicy {
 pub enum LifeState {
     Standing,
     Downed,
+    /// No longer damageable/revivable; numeric health is not an alive predicate.
+    /// Spectator/session assembly and final native health effects are outside this state.
+    HumanTerminal,
     ActorAlive,
     ActorDead,
 }
@@ -167,7 +171,10 @@ impl Vitality {
     /// Native health subtraction for both routes and actor zero-clamping are
     /// inferred, pending original-game comparison. Raw impact policy is excluded.
     pub fn apply(&mut self, damage: ResolvedDamage) -> Result<DamageOutcome, LifeStateError> {
-        if matches!(self.state, LifeState::Downed | LifeState::ActorDead) {
+        if matches!(
+            self.state,
+            LifeState::Downed | LifeState::HumanTerminal | LifeState::ActorDead
+        ) {
             return Ok(DamageOutcome::Ignored { state: self.state });
         }
         let before = self.current;
@@ -208,6 +215,59 @@ impl Vitality {
 
     pub fn downed_episode(self) -> Option<DownedEpisode> {
         (self.state == LifeState::Downed).then_some(DownedEpisode(self.episode))
+    }
+
+    /// Bind an externally resolved expiry to this Entity and downed episode.
+    /// This creates no timer or scheduled retry. Retire it before component replacement.
+    pub fn downed_expiry(self, target: Entity) -> Result<DownedExpiry, LifeStateError> {
+        let episode = DownedEpisode(self.episode);
+        self.check_episode(episode)?;
+        Ok(DownedExpiry { target, episode })
+    }
+
+    /// Caller admits ordinary coop expiry timing. The source notification/network-frame
+    /// interval is collapsed into this resolved transition, an explicit approximation.
+    /// Active revival defers without mutation or retry scheduling. Current/max remain
+    /// the last qualified values; native spectator-spawn health is not established.
+    pub fn expire_downed(
+        &mut self,
+        target: Entity,
+        expiry: DownedExpiry,
+    ) -> Result<ExpiryOutcome, LifeStateError> {
+        if expiry.target != target {
+            return Err(LifeStateError::WrongTarget);
+        }
+        if !matches!(self.route, DamageRoute::Human { .. }) {
+            return Err(LifeStateError::NotHuman);
+        }
+        if self.episode != expiry.episode.0 {
+            return Err(LifeStateError::StaleEpisode);
+        }
+        if self.state == LifeState::HumanTerminal {
+            return Ok(ExpiryOutcome::Ignored);
+        }
+        // A successful revive retires this episode's expiry even before redown.
+        if self.state != LifeState::Downed {
+            return Err(LifeStateError::StaleEpisode);
+        }
+        if matches!(
+            self.route,
+            DamageRoute::Human {
+                policy: PlayerLethalPolicy::SoloOrLastEligiblePlayer,
+                ..
+            }
+        ) {
+            return Err(LifeStateError::UnsupportedPlayerPolicy);
+        }
+        if self.active_revive.is_some() {
+            return Ok(ExpiryOutcome::Deferred(expiry));
+        }
+        self.state = LifeState::HumanTerminal;
+        self.active_revive = None;
+        Ok(ExpiryOutcome::Terminated {
+            current: self.current,
+            maximum: self.maximum.get(),
+        })
     }
 
     fn check_episode(&self, episode: DownedEpisode) -> Result<(), LifeStateError> {
@@ -305,6 +365,35 @@ impl DownedEpisode {
     }
 }
 
+/// Episode and Entity generation bind expiry to one continuous component lifetime.
+/// Timing/coop admission is external; this is not a deadline or raw timer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DownedExpiry {
+    target: Entity,
+    episode: DownedEpisode,
+}
+
+impl DownedExpiry {
+    pub fn target(self) -> Entity {
+        self.target
+    }
+    pub fn episode(self) -> DownedEpisode {
+        self.episode
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpiryOutcome {
+    /// Producer may retain/retry this input with a new request ID after cancellation.
+    Deferred(DownedExpiry),
+    Terminated {
+        current: u32,
+        maximum: u32,
+    },
+    /// The same episode is already terminal; no state or health changed.
+    Ignored,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReviveToken {
     target: Entity,
@@ -370,6 +459,7 @@ pub struct LifeCommandRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifeCommand {
     Damage(ResolvedDamage),
+    ExpireDowned(DownedExpiry),
     BeginRevive {
         reviver: Entity,
         episode: DownedEpisode,
@@ -384,6 +474,7 @@ pub enum LifeCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifeCommandOutcome {
     Damage(DamageOutcome),
+    Expiry(ExpiryOutcome),
     ReviveBegan(ReviveToken),
     ReviveCanceled,
     Revived { current: u32, maximum: u32 },
@@ -475,6 +566,9 @@ fn apply_life_commands(
                     LifeCommand::Damage(damage) => {
                         target.apply(damage).map(LifeCommandOutcome::Damage)
                     }
+                    LifeCommand::ExpireDowned(expiry) => target
+                        .expire_downed(request.target, expiry)
+                        .map(LifeCommandOutcome::Expiry),
                     LifeCommand::BeginRevive { reviver, episode } => {
                         if !reviver_valid {
                             return Err(LifeStateError::InvalidReviver);
@@ -511,6 +605,45 @@ fn apply_life_commands(
 #[cfg(test)]
 mod counter_tests {
     use super::*;
+
+    #[test]
+    fn terminal_transition_needs_no_counter_increment_or_health_arithmetic() {
+        let mut player = Vitality::human(
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            PlayerLethalPolicy::DownWithEligibleTeammate,
+        )
+        .unwrap();
+        player.episode = u64::MAX - 1;
+        player.attempt = u64::MAX - 1;
+        player
+            .apply(ResolvedDamage::new(u32::MAX).unwrap())
+            .unwrap();
+        let target = Entity::from_bits(1);
+        let expiry = player.downed_expiry(target).unwrap();
+        let token = player
+            .begin_revive(target, Entity::from_bits(2), expiry.episode())
+            .unwrap();
+        assert_eq!(
+            (expiry.episode().number(), token.attempt()),
+            (u64::MAX, u64::MAX)
+        );
+        player.cancel_revive(target, token).unwrap();
+        assert_eq!(
+            player.expire_downed(target, expiry),
+            Ok(ExpiryOutcome::Terminated {
+                current: u32::MAX,
+                maximum: u32::MAX
+            })
+        );
+        let terminal = player;
+        assert_eq!(
+            player.expire_downed(target, expiry),
+            Ok(ExpiryOutcome::Ignored)
+        );
+        assert_eq!(player, terminal);
+    }
 
     #[test]
     fn episode_exhaustion_is_atomic() {

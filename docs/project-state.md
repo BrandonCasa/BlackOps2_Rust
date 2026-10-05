@@ -17,8 +17,8 @@ attempt tokens reject stale completions; Origins supplies qualified no-bonus
 restoration of current/max health 100. Component replacement requires caller input
 retirement. See [implementation handoff](handoffs/damage-life-state-05.md).
 
-Outer validation: locked metadata has 10 members; all 95 workspace tests,
-formatting and warning-denying Clippy pass. The demo verifies 13 exact ordered
+Outer validation: locked metadata has 10 members; all 101 workspace tests,
+formatting and warning-denying Clippy pass. The demo verifies 21 exact ordered
 outcomes and exits 0. Scoped fidelity is APPROXIMATE: native damage arithmetic,
 raw interaction/timing and live agreement remain unresolved. The first
 [original comparison attempt](fidelity/damage-life-state-comparison.md) is PARTIAL;
@@ -28,8 +28,11 @@ damage or coop bleedout comparison. Bleedout comparison needs multiple players.
 Reviewed [bleedout evidence](reverse_engineering/damage-life-state-06.md) finds a
 source-default 45-second countdown, post-countdown deferral during active revival
 and ordinary spectator disposition. Final spectator health remains unqualified.
-Next implement the resolved episode-bound terminal transition and preserve this
-health uncertainty. Launch the
+The reviewed [terminal implementation](handoffs/damage-life-state-07.md) adds
+episode-bound expiry, active-revive deferral and explicit HumanTerminal state while
+preserving qualified numeric health. Timing admission is external; the source
+network-frame interval is explicitly collapsed. Next qualify timing admission and
+compare in multiplayer; solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
 ## Objective and working policy
