@@ -31,8 +31,14 @@ and ordinary spectator disposition. Final spectator health remains unqualified.
 The reviewed [terminal implementation](handoffs/damage-life-state-07.md) adds
 episode-bound expiry, active-revive deferral and explicit HumanTerminal state while
 preserving qualified numeric health. Timing admission is external; the source
-network-frame interval is explicitly collapsed. Next qualify timing admission and
-compare in multiplayer; solo supplies no bleedout proof. Launch the
+network-frame interval is explicitly collapsed. A bounded external read-only
+[health observer](handoffs/damage-life-state-08.md) qualifies a paused solo baseline
+of current/entity-max/client-max 100, with 15 synthetic checks. Its first live run
+accepted 966 unchanged baseline samples and refused 34 unstable samples; it did
+not establish damage sensitivity. Online mod-author notes corroborate baseline
+health 100 and melee damage 60, separately from live proof. Next resolve observer
+sensitivity with field-name diagnostics during one isolated hit, then qualify
+timing admission and compare in multiplayer; solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
 ## Objective and working policy

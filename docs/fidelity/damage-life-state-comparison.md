@@ -76,3 +76,23 @@ and some player-damage claims conflict at 50 versus 60. Licensed selected spawn,
 weapon and numeric conversion evidence is required before adopting these additional
 constants. No HUD numeric damage display is assumed. Task08 investigates a bounded
 read-only hidden-health observer instead of inferring damage from score or hit count.
+
+## Numeric observer trial 01
+
+The qualified external [observer](../reverse_engineering/damage-life-state-08.md)
+ran for 1,000 samples during a fresh r5354 solo round-1 match, starting paused.
+The outer agent resumed through Escape and issued no purchase, combat, console or
+timescale input. The finite process exited 0 after 55.743646 seconds: 966 accepted
+samples all reported current/entity-max/client-max 100/100/100; 34 records refused
+unstable snapshots between approximately 21.145 and 55.354 seconds. Later UI
+observation showed the result scoreboard with zero kills and one down. The hit
+and terminal instant were not captured or synchronized with numeric reads.
+
+Result: **PARTIAL / INVESTIGATING**. No 100-to-40 damage transition was admitted.
+Constant accepted baseline values do not prove damage sensitivity or contradict
+the source-backed value 60. The original refusal records lack changed-field
+detail; that information cannot be recovered. The external observer now reports
+changed field names without raw values or weakened checks. Full flag-word
+comparison may reject irrelevant flag changes; another controlled fresh-state
+trial must resolve that possibility. Post-trial invalid local-state pointers were
+safely refused without health. No original files or process memory were written.
