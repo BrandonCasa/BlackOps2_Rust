@@ -8,9 +8,18 @@ application foundation.
 The default application runs a minimal headless Bevy lifecycle smoke check.
 Separate inspectors read metadata and diagnostic snapshots; a Bevy diagnostic
 tool renders unchanged raw snapshot geometry to external offscreen images or
-opens it in a window with diagnostic flight controls. No gameplay has been
-implemented. Gameplay and visual fidelity
+opens it in a window with diagnostic flight controls. A separate headless damage
+demonstration applies ordered resolved impacts to an Origins-configured player
+and ordinary actor, with coop revival and bleedout clocks. This boundary is
+**APPROXIMATE**; scoped original health comparisons support resolved arithmetic,
+while raw impact admission and final actor health remain unresolved. Overall gameplay and visual fidelity
 remain **UNKNOWN**; envelope format understanding is **INVESTIGATING**.
+
+Run `cargo run -p bo2-damage-life-state-demo --locked` for synthetic player downing,
+actor death, ordered revival and timed bleedout/revival scenarios. See
+[damage boundary and limits](docs/architecture/damage-life-state.md).
+Raw hit policy and solo game-end behavior remain unimplemented; live coop timing
+comparison remains pending.
 
 Original assets stay external. Never commit, embed, or redistribute proprietary
 assets, binaries, scripts, extracted content, generated dumps, or local installation
@@ -120,8 +129,9 @@ window readback before exiting. This checks engine input integration, not physic
 keyboard routing or original-game comparison. Use an independent 120-second
 supervisor for bounded GPU/driver checks.
 
-`crates/core`, `crates/assets`, `crates/physics`, `crates/rendering`, `game/boot`, both inspectors
-and `tools/comparison_tools/geometry_viewer` are Cargo members.
+`crates/core`, `crates/assets`, `crates/physics`, `crates/rendering`, `crates/gameplay`,
+`game/boot`, `game/zombies/origins`, both inspectors, the geometry viewer and
+`tools/comparison_tools/damage_life_state_demo` are Cargo members.
 Other directories reserve responsibilities. See [repository rules](AGENTS.md),
 [documentation index](docs/README.md), [workspace boundaries](docs/architecture/README.md),
 [project state](docs/project-state.md), and [fidelity status](docs/fidelity/README.md).

@@ -1,0 +1,12 @@
+[package]
+name = "bo2-damage-life-state-demo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bevy.workspace = true
+bo2-core = { path = "../../../crates/core" }
+bo2-gameplay = { path = "../../../crates/gameplay" }
+bo2-origins = { path = "../../../game/zombies/origins" }

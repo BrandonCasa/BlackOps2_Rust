@@ -2,6 +2,23 @@
 
 Updated: 2026-10-05. This is the current working brief; historical detail is linked below.
 
+## Integrated damage and life states
+
+The damage goal is paused at the user's request. Reviewed work through
+`7e241cc` is integrated into main: safe Bevy Vitality, ordered resolved-damage and
+coop revival/expiry commands, stale-token checks, episode-bound bleedout and
+sampled revival clocks, Origins configuration and a runnable headless demo.
+See the [boundary](architecture/damage-life-state.md) and
+[latest comparison handoff](handoffs/damage-life-state-23.md).
+
+Original player health 100 to 40 and a combat-associated actor sequence from
+150 to -11 support scoped resolved arithmetic comparisons. Final actor health
+remains unknown; raw impacts, live coop timing and solo/session-loss implementation
+remain unresolved. [Source24](reverse_engineering/damage-life-state-24.md) separates
+solo without available Quick Revive from last-eligible multiplayer; Task25 was
+stopped before edits. No observer runs; the original game is under user control.
+Fidelity remains APPROXIMATE / INVESTIGATING. Integrated validation is recorded below.
+
 ## Objective and working policy
 
 Reimplement the full Black Ops II Zombies Origins game in stable Rust with Bevy,
@@ -21,8 +38,9 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
 
 ## Working implementation
 
-- Eight Cargo members: core, assets, physics, rendering, boot, asset inspector, map inspector,
-  and the geometry viewer. Stable Rust 1.99.0 / Bevy 0.19.1 are pinned; retain the
+- Eleven Cargo members: core, assets, physics, rendering, gameplay, Origins configuration,
+  boot, asset inspector, map inspector, geometry viewer and damage demo.
+  Stable Rust 1.99.0 / Bevy 0.19.1 are pinned; retain the
   existing toolchain unless an actual implementation requirement needs a change.
 - `crates/assets`: bounded fastfile envelope inspection and a safe reader for the
   project-owned geometry snapshot format, external schema28 brush records and
@@ -41,7 +59,9 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
   keyboard flight/look/reset. Accepted external snapshot: 191,259 positions,
   149,907 triangles, 6,469 surfaces. Geometry and decoded assets remain external.
 - `game/boot`: a headless lifecycle smoke check. There is no interactive game,
-  player movement, player collision integration, weapon, zombie or round yet.
+  player movement, player collision integration, weapon, zombie AI or round yet.
+  The integrated damage demo runs the shared resolved life-state boundary, rather
+  than an interactive game or complete zombie/player controller.
 - The integrated viewer adds --scene with a bounded external manifest bound
   to snapshot SHA256. One original surface renders recovered corner UVs and a
   native BC1 texture with all ten mip levels and its source sampler. This is an
@@ -130,6 +150,13 @@ implementation keeps the repository's sequential-delegation policy.
   not establish asset corruption or require redoing unrelated accepted work.
 
 ## Validation and essential references
+
+Damage integration through `7e241cc` passes locked metadata (eleven members),
+all 167 workspace tests, formatting and warning-denying all-target Clippy.
+Four external collision tests remain ignored by default. The damage demo passes
+21 ordered outcomes plus elapsed bleedout and sampled revival scenarios in main.
+Existing collision/rendering implementation and pending collision documents are
+preserved. See [integration handoff](handoffs/damage-life-state-integration.md).
 
 Task0036 passes locked/offline metadata (eight members), all 127 workspace tests,
 formatting and strict all-target Clippy. Four external tests are ignored by default;

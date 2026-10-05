@@ -1310,6 +1310,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo2-damage-life-state-demo"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bo2-core",
+ "bo2-gameplay",
+ "bo2-origins",
+]
+
+[[package]]
+name = "bo2-gameplay"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "bo2-geometry-viewer"
 version = "0.1.0"
 dependencies = [
@@ -1335,6 +1352,13 @@ dependencies = [
  "bevy",
  "bo2-assets",
  "serde_json",
+]
+
+[[package]]
+name = "bo2-origins"
+version = "0.1.0"
+dependencies = [
+ "bo2-gameplay",
 ]
 
 [[package]]

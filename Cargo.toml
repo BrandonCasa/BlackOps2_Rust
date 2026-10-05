@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/assets", "crates/physics", "crates/rendering", "game/boot", "tools/asset_inspector", "tools/map_inspector", "tools/comparison_tools/geometry_viewer"]
+members = ["crates/core", "crates/assets", "crates/physics", "crates/rendering", "crates/gameplay", "game/boot", "game/zombies/origins", "tools/asset_inspector", "tools/map_inspector", "tools/comparison_tools/geometry_viewer", "tools/comparison_tools/damage_life_state_demo"]
 default-members = ["game/boot"]
 resolver = "3"
 

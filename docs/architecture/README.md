@@ -2,12 +2,24 @@
 
 ## Current implementation
 
+The workspace includes `bo2-gameplay`, `bo2-origins` and
+`bo2-damage-life-state-demo` alongside the eight foundation/tool members below.
+Dependency edges are `bo2-origins -> bo2-gameplay` and
+`bo2-damage-life-state-demo -> bo2-core, bo2-gameplay, bo2-origins`.
+These crates forbid unsafe code. The [resolved life-state boundary](damage-life-state.md)
+documents the shared Bevy health/state component, ordered FixedUpdate processing
+and damage/revive Origins configuration. Ordinary positive player subtraction is
+statically qualified; actor pre-notification arithmetic is qualified. Scoped
+[live health comparisons](../fidelity/damage-life-state-comparison.md) support
+player subtraction and actor health sensitivity; raw impacts and final actor
+health remain unresolved. Fidelity remains APPROXIMATE.
+
 Local Cargo dependency edges are `bo2-boot -> bo2-core`,
 `bo2-asset-inspector -> bo2-assets`, `bo2-map-inspector -> bo2-assets, bo2-physics`,
 `bo2-physics -> bo2-assets` and
 `bo2-rendering -> bo2-assets` and `bo2-geometry-viewer -> bo2-assets, bo2-rendering`.
 Core, boot, physics, rendering and the viewer depend on the same workspace-pinned Bevy
-0.19.1 release. All eight local crates forbid unsafe code.
+0.19.1 release. All eleven local crates forbid unsafe code.
 Core exposes the project name and `headless_app(ScheduleRunnerPlugin)`, a small
 composition function returning a Bevy `App` with `MinimalPlugins`. Bevy owns
 the ECS world, entity identity, schedules, task pools, frame counter, time and
@@ -128,7 +140,8 @@ See its repair section and [handoff0024](../handoffs/0024-ordinary-sdk-qualifier
 
 ## Planned responsibilities
 
-Directories other than core, assets, physics, rendering, boot, asset_inspector, map_inspector
+Directories other than core, assets, physics, rendering, gameplay, boot, zombies/origins,
+asset_inspector, map_inspector, comparison_tools/damage_life_state_demo
 and comparison_tools/geometry_viewer are reserved
 locations, not Cargo members or finalized APIs. Add a crate/module only when a
 bounded task supplies evidence
