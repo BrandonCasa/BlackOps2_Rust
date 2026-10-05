@@ -133,7 +133,8 @@ fn main() -> DemoResult<()> {
         },
     )?);
     let restored = app.world().get::<Vitality>(human).ok_or("missing player")?;
-    if (restored.current(), restored.maximum(), restored.state()) != (100, 100, LifeState::Standing)
+    if (restored.current(), restored.maximum(), restored.state())
+        != (Some(100), 100, LifeState::Standing)
     {
         return Err("revive restoration mismatch".into());
     }
@@ -248,7 +249,11 @@ fn main() -> DemoResult<()> {
             after: 50,
         })),
         Ok(LifeCommandOutcome::Damage(DamageOutcome::ActorDied {
-            before: 50,
+            subtraction: ActorSubtraction {
+                before: 50,
+                amount: 50,
+                after: 0,
+            },
         })),
         Ok(LifeCommandOutcome::Damage(DamageOutcome::Ignored {
             state: LifeState::ActorDead,
@@ -271,18 +276,26 @@ fn main() -> DemoResult<()> {
         || app
             .world()
             .get::<Vitality>(actor)
-            .map(|v| (v.state(), v.current()))
-            != Some((LifeState::ActorDead, 0))
+            .map(|v| (v.state(), v.current(), v.actor_subtraction()))
+            != Some((
+                LifeState::ActorDead,
+                None,
+                Some(ActorSubtraction {
+                    before: 50,
+                    amount: 50,
+                    after: 0,
+                }),
+            ))
         || app
             .world()
             .get::<Vitality>(human)
             .map(|v| (v.state(), v.current(), v.maximum()))
-            != Some((LifeState::HumanTerminal, 1, 100))
+            != Some((LifeState::HumanTerminal, Some(1), 100))
     {
         return Err("ordered lifecycle verification failed".into());
     }
     println!(
-        "PASS: down/cancel/restart/revive100/redown; stale inputs rejected; expiry deferred then terminal after cancel; positive terminal health preserved; actor dead. Fidelity APPROXIMATE: ordinary positive player subtraction statically qualified; actor arithmetic inferred; active native dispatch/live comparison unqualified; revive100 combines Steam script and qualified Plutonium native evidence; terminal network-frame interval collapsed; final spectator health unknown; coop comparison pending. Initial health and teammate/interaction/expiry timing are admitted demonstration inputs; no raw revive or bleedout timer."
+        "PASS: down/cancel/restart/revive100/redown; stale inputs rejected; expiry deferred then terminal after cancel; positive terminal health preserved; actor dead with unknown final health and explicit signed pre-notification subtraction. Fidelity APPROXIMATE: ordinary positive player subtraction statically qualified; actor direct subtraction statically qualified before notifications; final callback health unknown; active native dispatch unqualified; scoped live player100->40 agrees with admitted60; full/coop/actor comparisons incomplete; revive100 combines Steam script and qualified Plutonium native evidence; terminal network-frame interval collapsed; final spectator health unknown; coop comparison pending. Initial health and teammate/interaction/expiry timing are admitted demonstration inputs; no raw revive or bleedout timer."
     );
     Ok(())
 }

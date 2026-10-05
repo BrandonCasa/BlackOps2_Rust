@@ -41,7 +41,7 @@ fn deferral_cancel_terminal_and_repeats_preserve_positive_health() {
     let terminal = v;
     assert_eq!(
         (v.state(), v.current(), v.maximum()),
-        (LifeState::HumanTerminal, 1, 100)
+        (LifeState::HumanTerminal, Some(1), 100)
     );
     assert_eq!(v.downed_episode(), None);
     assert_eq!(v.expire_downed(target, expiry), Ok(ExpiryOutcome::Ignored));

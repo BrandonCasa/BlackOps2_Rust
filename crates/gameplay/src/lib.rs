@@ -2,7 +2,7 @@
 
 //! Resolved damage, admitted coop revival and bleedout disposition. Ordinary positive
 //! player subtraction has static evidence and one scoped live comparison. Native
-//! actor subtraction is qualified; final ActorDead zero normalization is approximate.
+//! actor subtraction is qualified before notifications; final ActorDead health is unknown.
 //! Active original dispatch is unqualified; revival configuration is external.
 //! Expiry timing is external; terminal human health is preserved pending qualification.
 //! See docs/reverse_engineering/damage-life-state-{01,06,10,14,15}.md and
@@ -94,14 +94,15 @@ enum DamageRoute {
 }
 
 /// Private fields keep life-state/health invariants together without a registry.
-/// Admitted current/maximum/downed health is in 1..=i32::MAX. Only ActorDead
-/// internally carries current zero. u32 storage avoids signed arithmetic/casts.
+/// Admitted current/maximum/downed health is in 1..=i32::MAX. ActorDead has
+/// unresolved final current health; its signed subtraction stage is separate.
 /// Before removing/replacing this component on a living Entity, assembly must
 /// retire pending commands and all externally held tokens/episode references.
 /// Bevy entity generations do not change when components are replaced. Counters
 /// apply only to this continuous component lifetime, not a replacement's lifetime.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Vitality {
+    // Last modeled positive health; retained on ActorDead, never exposed as final.
     current: u32,
     maximum: NonZeroU32,
     state: LifeState,
@@ -109,6 +110,7 @@ pub struct Vitality {
     episode: u64,
     attempt: u64,
     active_revive: Option<ReviveToken>,
+    actor_subtraction: Option<ActorSubtraction>,
 }
 
 impl Vitality {
@@ -133,6 +135,7 @@ impl Vitality {
             episode: 0,
             attempt: 0,
             active_revive: None,
+            actor_subtraction: None,
         })
     }
 
@@ -170,8 +173,16 @@ impl Vitality {
         )
     }
 
-    pub fn current(self) -> u32 {
-        self.current
+    /// Current modeled health is unknown after actor terminal routing. No numeric
+    /// zero or subtraction-stage value is substituted for post-callback health.
+    pub fn current(self) -> Option<u32> {
+        (self.state != LifeState::ActorDead).then_some(self.current)
+    }
+
+    /// Last modeled direct actor subtraction, before notification/callback effects.
+    /// It is not a measurement or the actor's final post-callback current health.
+    pub fn actor_subtraction(self) -> Option<ActorSubtraction> {
+        self.actor_subtraction
     }
     pub fn maximum(self) -> u32 {
         self.maximum.get()
@@ -189,9 +200,9 @@ impl Vitality {
     }
 
     /// Lethal player classification/downed assignment follow inspected scripts.
-    /// Ordinary positive player subtraction is statically qualified in native10;
-    /// active dispatch/execution is unqualified. Actor subtraction/zero-clamping
-    /// remain inferred. Raw impact policy and native raw lethal values are excluded.
+    /// Actor subtraction models native14's direct instruction before notifications.
+    /// Caller admits ordinary lethal routing; final actor health remains unresolved.
+    /// No later -999 floor is applied across unqualified notification side effects.
     pub fn apply(&mut self, damage: ResolvedDamage) -> Result<DamageOutcome, LifeStateError> {
         if matches!(
             self.state,
@@ -200,19 +211,46 @@ impl Vitality {
             return Ok(DamageOutcome::Ignored { state: self.state });
         }
         let before = self.current;
-        if damage.amount() < before {
-            self.current = before - damage.amount();
-            return Ok(DamageOutcome::Hurt {
-                before,
-                after: self.current,
-            });
-        }
         match self.route {
+            DamageRoute::OrdinaryActor => {
+                let signed_before =
+                    i32::try_from(before).map_err(|_| LifeStateError::HealthOutOfRange)?;
+                let signed_amount =
+                    i32::try_from(damage.amount()).map_err(|_| LifeStateError::DamageOutOfRange)?;
+                let after = signed_before
+                    .checked_sub(signed_amount)
+                    .ok_or(LifeStateError::HealthOutOfRange)?;
+                let subtraction = ActorSubtraction {
+                    before,
+                    amount: damage.amount(),
+                    after,
+                };
+                self.actor_subtraction = Some(subtraction);
+                if after > 0 {
+                    self.current = before - damage.amount();
+                    Ok(DamageOutcome::Hurt {
+                        before,
+                        after: self.current,
+                    })
+                } else {
+                    self.state = LifeState::ActorDead;
+                    Ok(DamageOutcome::ActorDied { subtraction })
+                }
+            }
             DamageRoute::Human {
-                policy: PlayerLethalPolicy::SoloOrLastEligiblePlayer,
-                ..
-            } => Err(LifeStateError::UnsupportedPlayerPolicy),
-            DamageRoute::Human { downed_health, .. } => {
+                policy,
+                downed_health,
+            } => {
+                if damage.amount() < before {
+                    self.current = before - damage.amount();
+                    return Ok(DamageOutcome::Hurt {
+                        before,
+                        after: self.current,
+                    });
+                }
+                if policy == PlayerLethalPolicy::SoloOrLastEligiblePlayer {
+                    return Err(LifeStateError::UnsupportedPlayerPolicy);
+                }
                 let episode = self
                     .episode
                     .checked_add(1)
@@ -225,12 +263,6 @@ impl Vitality {
                     after: self.current,
                     episode: DownedEpisode(episode),
                 })
-            }
-            DamageRoute::OrdinaryActor => {
-                // Inferred native arithmetic: lethal amount clamps at zero.
-                self.current = 0;
-                self.state = LifeState::ActorDead;
-                Ok(DamageOutcome::ActorDied { before })
             }
         }
     }
@@ -455,6 +487,15 @@ impl ReviveRestoration {
     }
 }
 
+/// Model of the qualified direct SUB instruction, before any native notification.
+/// Negative/zero after values are not final health or an automatic -999 floor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActorSubtraction {
+    pub before: u32,
+    pub amount: u32,
+    pub after: i32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DamageOutcome {
     Hurt {
@@ -467,7 +508,7 @@ pub enum DamageOutcome {
         episode: DownedEpisode,
     },
     ActorDied {
-        before: u32,
+        subtraction: ActorSubtraction,
     },
     Ignored {
         state: LifeState,

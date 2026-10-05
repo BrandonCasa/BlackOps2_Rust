@@ -18,11 +18,23 @@ fn human_and_actor_boundary_cases() {
         assert_eq!(human.maximum(), 100);
         assert_eq!(actor.maximum(), 150);
         if amount < 100 {
-            assert_eq!((human.state(), human.current()), (LifeState::Standing, 1));
-            assert_eq!((actor.state(), actor.current()), (LifeState::ActorAlive, 1));
+            assert_eq!(
+                (human.state(), human.current()),
+                (LifeState::Standing, Some(1))
+            );
+            assert_eq!(
+                (actor.state(), actor.current()),
+                (LifeState::ActorAlive, Some(1))
+            );
         } else {
-            assert_eq!((human.state(), human.current()), (LifeState::Downed, 1));
-            assert_eq!((actor.state(), actor.current()), (LifeState::ActorDead, 0));
+            assert_eq!(
+                (human.state(), human.current()),
+                (LifeState::Downed, Some(1))
+            );
+            assert_eq!(
+                (actor.state(), actor.current()),
+                (LifeState::ActorDead, None)
+            );
             assert_eq!(
                 human.apply(damage(i32::MAX.unsigned_abs())),
                 Ok(DamageOutcome::Ignored {
@@ -37,6 +49,69 @@ fn human_and_actor_boundary_cases() {
             );
         }
     }
+}
+
+#[test]
+fn actor_subtraction_is_a_signed_stage_not_terminal_final_health() {
+    for (amount, signed_after) in [(99, 1), (100, 0), (101, -1), (1100, -1000)] {
+        let mut actor = Vitality::ordinary_actor(100, 150).unwrap();
+        assert_eq!(actor.actor_subtraction(), None);
+        let stage = ActorSubtraction {
+            before: 100,
+            amount,
+            after: signed_after,
+        };
+        let outcome = actor.apply(damage(amount)).unwrap();
+        assert_eq!(actor.actor_subtraction(), Some(stage));
+        if signed_after > 0 {
+            assert_eq!(
+                outcome,
+                DamageOutcome::Hurt {
+                    before: 100,
+                    after: 1
+                }
+            );
+            assert_eq!(actor.current(), Some(1));
+        } else {
+            assert_eq!(outcome, DamageOutcome::ActorDied { subtraction: stage });
+            assert_eq!(actor.current(), None);
+            assert_eq!(actor.state(), LifeState::ActorDead);
+            let terminal = actor;
+            assert_eq!(
+                actor.apply(damage(1)),
+                Ok(DamageOutcome::Ignored {
+                    state: LifeState::ActorDead
+                })
+            );
+            assert_eq!(actor, terminal);
+        }
+        assert_eq!(actor.maximum(), 150);
+    }
+}
+
+#[test]
+fn actor_large_signed_difference_is_safe_without_later_floor() {
+    let limit = i32::MAX.unsigned_abs();
+    let mut actor = Vitality::ordinary_actor(1, limit).unwrap();
+    let stage = ActorSubtraction {
+        before: 1,
+        amount: limit,
+        after: 1 - i32::MAX,
+    };
+    assert_eq!(
+        actor.apply(damage(limit)),
+        Ok(DamageOutcome::ActorDied { subtraction: stage })
+    );
+    assert_eq!(actor.actor_subtraction(), Some(stage));
+    assert_eq!(actor.current(), None);
+    assert_eq!(actor.maximum(), limit);
+    let mut human =
+        Vitality::human(100, 100, 1, PlayerLethalPolicy::DownWithEligibleTeammate).unwrap();
+    human.apply(damage(60)).unwrap();
+    assert_eq!(human.current(), Some(40));
+    human.apply(damage(limit)).unwrap();
+    assert_eq!(human.current(), Some(1));
+    assert_eq!(human.actor_subtraction(), None);
 }
 
 #[test]
@@ -65,9 +140,9 @@ fn invalid_values_and_maximum_amount_do_not_overflow() {
     let mut actor =
         Vitality::ordinary_actor(i32::MAX.unsigned_abs(), i32::MAX.unsigned_abs()).unwrap();
     actor.apply(damage(i32::MAX.unsigned_abs() - 1)).unwrap();
-    assert_eq!(actor.current(), 1);
+    assert_eq!(actor.current(), Some(1));
     actor.apply(damage(i32::MAX.unsigned_abs())).unwrap();
-    assert_eq!(actor.current(), 0);
+    assert_eq!(actor.current(), None);
 }
 
 #[test]
@@ -105,7 +180,7 @@ fn positive_signed_domain_is_enforced_at_every_damage_health_entry() {
     human.apply(damage(limit)).unwrap();
     assert_eq!(
         (human.current(), human.maximum(), human.state()),
-        (limit, limit, LifeState::Downed)
+        (Some(limit), limit, LifeState::Downed)
     );
 }
 
@@ -176,7 +251,10 @@ fn actual_fixed_schedule_handles_missing_despawned_and_ambiguous_requests() {
         }),
         Err(LifeStateError::NonIncreasingRequestId)
     );
-    assert_eq!(app.world().get::<Vitality>(actor).unwrap().current(), 10);
+    assert_eq!(
+        app.world().get::<Vitality>(actor).unwrap().current(),
+        Some(10)
+    );
     app.world_mut().run_schedule(FixedUpdate);
     let results: Vec<_> = app
         .world_mut()
@@ -187,7 +265,11 @@ fn actual_fixed_schedule_handles_missing_despawned_and_ambiguous_requests() {
     assert_eq!(
         results[0].result,
         Ok(LifeCommandOutcome::Damage(DamageOutcome::ActorDied {
-            before: 10
+            subtraction: ActorSubtraction {
+                before: 10,
+                amount: 10,
+                after: 0
+            }
         }))
     );
     assert_eq!(results[1].result, Err(LifeStateError::MissingTarget));
@@ -275,6 +357,15 @@ fn replay_equivalence_across_entity_order_and_fixed_loop_pacing() {
     let expected = replay(&[1, 1, 1], false);
     assert_eq!(expected.human.state(), LifeState::Downed);
     assert_eq!(expected.actor.state(), LifeState::ActorDead);
+    assert_eq!(expected.actor.current(), None);
+    assert_eq!(
+        expected.actor.actor_subtraction(),
+        Some(ActorSubtraction {
+            before: 1,
+            amount: 1,
+            after: 0
+        })
+    );
     assert_eq!(expected.results.len(), 6);
     assert_eq!(
         expected.results[0].1,

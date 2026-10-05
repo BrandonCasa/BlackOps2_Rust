@@ -12,7 +12,9 @@ exact contact attribution and active VM dispatch remain unqualified.
 supports subtraction and permits negative health before the death handler.
 The [selected handler](../reverse_engineering/damage-life-state-15.md) clears
 the repeat-impact gate, but ordinary archetype and final callback/cleanup health
-effects remain unqualified. ActorDead zero normalization is an explicit approximation.
+effects remain unqualified. ActorDead therefore exposes unknown final current
+health instead of fabricating zero. Direct signed subtraction is modeled separately
+before native notifications; it is not the final post-callback value.
 Revive100/100 composes Steam build24784239 scripts with inspected Plutonium native
 behavior; loaded runtime-script agreement and live coop comparisons remain unverified.
 Native integer payload/sign checks support positive signed damage admission;
@@ -30,18 +32,21 @@ Private Vitality fields keep current/max, human/ordinary-actor route, authoritat
 life state, episode/attempt counters and active attempt coherent. Shared numeric
 validation and ordered processing prevent duplicated player/zombie health systems.
 All admitted current, maximum, downed health and restoration values and resolved
-damage amounts fit1..=i32::MAX. Public APIs/storage remain u32, with no truncating
-casts. Oversized health returns HealthOutOfRange; oversized damage returns
+damage amounts fit1..=i32::MAX. Inputs/positive storage remain u32, with checked
+signed conversion and no truncating casts. Oversized health returns HealthOutOfRange; oversized damage returns
 DamageOutOfRange. Existing zero and current>maximum errors remain for values in
 range. Native signed getter/storage evidence supports this positive health subset
 as a project restriction; native setters do not enforce positivity.
 Ordinary-actor admission shares this conservative domain, supported by native14's
-integer argument and signed subtraction. ActorDead current0 is an internal terminal
-exception whose final numeric value remains approximate.
+integer argument and signed subtraction.
 Private constructors validate before any lifecycle mutation; restoration rejection leaves
 the active attempt intact. Bounds and comparisons make nonlethal subtraction safe.
 A universal death route would contradict positive-health downing and native revive.
-Actor death is terminal health0; human Downed and HumanTerminal remain positive.
+`current()` returns Option<u32>: Some positive modeled health for human states and
+ActorAlive, None for ActorDead's unresolved final health. Internally terminal actors
+retain their last modeled standing health; it cannot be returned as final current.
+No zero compatibility shim or signed-stage-to-final substitution exists. Human
+Downed and HumanTerminal remain positive.
 Numeric health is not an alive/revival predicate. HumanTerminal preserves the last
 qualified current/max because native spectator-spawn health remains unknown. Ordinary actor
 cannot-die flags/special enemies and solo/last-player lethal routing are excluded.
@@ -51,6 +56,18 @@ human or kills an ordinary actor. Unsupported solo/last-player lethal damage rej
 atomically. Downed/dead repeat damage is ignored. Downing increments checked u64
 episode counter. The Origins initial current health remains caller-selected: max100
 or fallback150 does not establish actual spawn/round state.
+
+`ActorSubtraction { before, amount, after }` records the last actor direct arithmetic
+stage; after is signed i32 and computed with checked conversion/subtraction. It is
+available via actor_subtraction() for nonlethal and lethal impacts; ActorDied also
+carries it. Nonlethal Hurt retains its positive before/after contract. Lethal routing
+sets ActorDead with current None, without assigning a final numeric health. Values
+such as0,-1,-1000 and1-i32MAX remain valid stage outputs. Native14's later-999 floor
+is not applied: an intervening notification's effects have not been qualified.
+Caller admission supplies ordinary terminal routing despite unqualified native
+callbacks/archetype; numeric-stage equality does not prove original invocation.
+Terminal repeats preserve the stage and unknown health. Human impacts never
+populate an actor stage. This adds no second queue, entity registry or dependency.
 
 ## Resolved revive admission
 
@@ -143,7 +160,8 @@ begin/cancel, stale completion, restart, revived100/100, subsequent damage/redow
 stale episode rejection, actor nonlethal/death/repeat, stale expiry, active expiry
 deferral, cancellation/terminal expiry, rejected completion and terminal damage/expiry
 repeats. It asserts intermediate restored Standing health and final human terminal
-health1/max100 plus actor death before exit0. No original assets are read.
+health1/max100 plus actor death with unknown final current and exact signed
+subtraction stage before exit0. No original assets are read.
 
 Tests preserve damage cases and exercise success, cancel/restart, invalid/stale
 identities, missing/despawned/nonhuman targets/revivers, invalid restoration,
@@ -151,6 +169,8 @@ positive signed numeric bounds and u64 counter maxima, atomic counter exhaustion
 component-input retirement and
 repeated mixed lifecycle replay with0/1/3 fixed steps per update. Expiry tests cover
 active deferral, cancel/retry, order permutations, stale/wrong/missing identity,
-positive terminal health and counter/numeric maxima. These are synthetic correctness
+positive terminal health and counter/numeric maxima. Actor tests also cover
+h-1/h/h+1, signed large differences, no later floor, unknown final health and
+deterministic stage-preserving repeats. These establish synthetic correctness
 and engine integration. Raw revival interaction,3-second sampling, bleedout timing,
 spectator/respawn, regen, perks, solo/session-end and coop comparison remain next tasks.

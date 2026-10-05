@@ -27,7 +27,7 @@ fn cancel_restart_complete_and_redown_rejects_stale_episode() {
         Err(LifeStateError::AttemptAlreadyActive)
     );
     v.cancel_revive(target, old).unwrap();
-    assert_eq!((v.current(), v.state()), (1, LifeState::Downed));
+    assert_eq!((v.current(), v.state()), (Some(1), LifeState::Downed));
     let token = v.begin_revive(target, reviver, episode).unwrap();
     let before = v;
     assert_eq!(
@@ -38,14 +38,14 @@ fn cancel_restart_complete_and_redown_rejects_stale_episode() {
     v.complete_revive(target, token, restore()).unwrap();
     assert_eq!(
         (v.current(), v.maximum(), v.state()),
-        (100, 100, LifeState::Standing)
+        (Some(100), 100, LifeState::Standing)
     );
     assert_eq!(
         v.complete_revive(target, token, restore()),
         Err(LifeStateError::NotDowned)
     );
     v.apply(ResolvedDamage::new(60).unwrap()).unwrap();
-    assert_eq!(v.current(), 40);
+    assert_eq!(v.current(), Some(40));
     v.apply(ResolvedDamage::new(40).unwrap()).unwrap();
     assert_eq!(v.downed_episode().unwrap().number(), 2);
     assert_eq!(
@@ -101,7 +101,7 @@ fn restoration_validation_wrong_target_and_nonhuman_are_atomic() {
     .unwrap();
     assert_eq!(
         (v.current(), v.maximum()),
-        (i32::MAX.unsigned_abs(), i32::MAX.unsigned_abs())
+        (Some(i32::MAX.unsigned_abs()), i32::MAX.unsigned_abs())
     );
     let mut actor = Vitality::ordinary_actor(10, 10).unwrap();
     let episode = token.episode();

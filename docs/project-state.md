@@ -17,12 +17,13 @@ Checked tokens reject stale inputs; active revival defers expiry. Ordinary no-bo
 revival restores 100/100; human terminal health stays positive pending spectator
 qualification. Solo/last-player lethal policy, raw impacts/interactions, clocks,
 regen, perks and spectator/session assembly remain outside the admitted boundary.
-ActorDead health 0 is approximate and needs an explicit unresolved numeric result.
+ActorDead current health is explicitly unknown (`None`); signed pre-notification
+subtraction is a separate typed result. See [correction handoff](handoffs/damage-life-state-19.md).
 
-Latest executable validation: 10 locked metadata members, all 102 workspace tests,
+Latest executable validation: 10 locked metadata members, all 104 workspace tests,
 formatting and warning-denying Clippy pass; demo verifies 21 ordered outcomes, exit 0.
-Outer repeated 22 focused tests and demo after the signed-input range correction.
-Later tasks through 18 changed documentation/external observers, not gameplay.
+Outer independently repeated 24 focused gameplay/Origins tests and the demo after
+the actor health correction. Tasks through 18 supplied documentation/external observers.
 
 Evidence: [source](reverse_engineering/damage-life-state-01.md),
 [revival](reverse_engineering/damage-life-state-03.md),
@@ -43,8 +44,7 @@ No actor hit/death was established. [Sampler diagnostics](reverse_engineering/da
 pass 15 synthetic checks and a fresh five-sample baseline. Original is left in the
 fresh solo match's Escape menu after an aiming input changed view and fired one shot.
 
-Next implement the evidence-backed actor numeric-health correction, then repeat a
-controlled actor comparison and qualify coop timing. Multiplayer is required for
+Next repeat a controlled actor comparison and qualify coop timing. Multiplayer is required for
 bleedout proof; no second-player availability is established. Fidelity remains
 APPROXIMATE / INVESTIGATING, and the goal is incomplete. Launch original through
 the desktop Plutonium launcher; Origins uses the robot-head planet icon.
