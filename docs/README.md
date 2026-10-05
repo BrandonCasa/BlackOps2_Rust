@@ -19,6 +19,8 @@
 - [Directory evidence handoff](handoffs/0008-origins-asset-directory.md): repeated listing, tool/source identity and read/emit validation.
 - [GfxWorld surface boundary](reverse_engineering/0005-gfxworld-surface-boundary.md): repeated aggregate index-range/material-pointer observations and unestablished vertex-stream interpretation.
 - [Surface boundary handoff](handoffs/0009-gfxworld-surface-boundary.md): pinned external metadata tooling, synthetic checks, observed relationships and next vertex-stream investigation.
+- [GfxWorld vertex-stream boundary](reverse_engineering/0006-gfxworld-vertex-stream-boundary.md): complete candidate stream-0 group accounting, zero-count distinctions, logical-base intervals and stream-1 limits.
+- [Vertex-stream handoff](handoffs/0010-gfxworld-vertex-stream-boundary.md): aggregate observations, source/tool preservation, remaining encoding questions and next position-prefix validation.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately

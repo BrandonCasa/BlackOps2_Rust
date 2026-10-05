@@ -51,6 +51,20 @@ claim. Findings and [handoff 0009](handoffs/0009-gfxworld-surface-boundary.md) a
 reviewed and accepted. Structure availability remains **INVESTIGATING**; no tracked
 decoder, unsafe exception, asset loader, geometry or rendering API was added.
 
+The [vertex-stream investigation](reverse_engineering/0006-gfxworld-vertex-stream-boundary.md)
+now admits every surface, including all 6,236 zero-count cases, under a public
+Black Ops II extractor's 36-byte stream-0 addressing candidate. All 320 group
+extents fit their next boundary and align exactly at 16 bytes; 191,259 records
+plus 1,492 padding bytes account for the complete stream. Group firstVertex
+intervals partition the logical capacity in a different order. The 285 zero-only
+groups and 35 positive-only groups reject a simple count-owner sentinel; selective
+count population remains unexplained. Stream1's twelve earlier failures are
+positive-count surfaces starting exactly at capacity, all format0; required
+stream1 spans and all attribute encodings remain unverified. Findings and
+[handoff 0010](handoffs/0010-gfxworld-vertex-stream-boundary.md) are reviewed and accepted.
+Task9 tooling is restored byte for byte, and separate task10 evidence remains
+external. No Rust/Bevy geometry or rendering integration is added.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -123,6 +137,25 @@ no original-game evidence or executable functionality.
   scoped instrumentation, helper identities and documentation boundaries passed
   independent review. Checkout line endings were normalized only for comparison
   with Git blobs; recorded working-file hashes matched exactly.
+- Task0010's 22 new native synthetic checks and the accepted 26 checks passed.
+  The initial same-target build completed in 224.781 seconds within 900 seconds;
+  same-host follow-ups completed within 15 seconds. One header-only build emitted
+  stale keys and is excluded from follow-up validation; translation-unit changes
+  forced fresh-key builds. The authoritative final observation pair exited0 in
+  1.203/0.719 seconds with 6,163 bytes each, under 120-second/256-KiB limits.
+  Aggregate equality, group/index/byte/category accounting, original/tool
+  identities, supervisor selfchecks and no-extra-output checks passed. Task9's
+  exact source/header/binary hashes and patch were restored; eleven pristine
+  sources and official binary remain unchanged. Native memory remains uncapped;
+  no vertex bytes or original-game comparison were used. Cargo gates remain
+  unchanged and were not repeated for this documentation-only task.
+  Outer-agent review also reran 22+26 native cases, supervisor limit children and
+  two final observations (0.656/0.672 seconds, 6,163 bytes each); all four final
+  aggregates agree. Final review verified nine clean pinned submodules, all thirteen
+  recorded source identities (eleven upstream files and two generated loaders),
+  nine helper/artifact hashes, the public C2M blob against its pinned tree, and
+  task9's restored source/header/binary/exact patch. Documentation/content,
+  source-link and whitespace checks passed; encoding and fidelity remain unknown.
 
 The [Bevy build handoff](handoffs/0003-bevy-build-foundation.md) records exact
 versions, checks and limits. Its code and validation are reviewed and accepted.
@@ -153,12 +186,13 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Investigate the same `gfxworld`'s per-surface vertex-stream interpretation:
-   zero `vertexCount` cases, `firstVertex`, both byte offsets and material-dependent
-   stream requirements. The new index/material evidence supplies a bounded access
-   route but does not support assuming a universal logical vertex slice. Establish complete
-   byte spans/encoding before a safe representative geometry adapter; keep output
-   aggregate-only and the same one-zone external/source-preservation boundaries.
+1. Validate the same `gfxworld`'s candidate stream-0 position prefix before
+   position decoding/import: admitted 36-byte addresses, internal float32
+   finite-value and declared-bounds consistency across all seven observed formats
+   and every zero-count case; synthetic invalid/truncated-float checks first.
+   Keep output aggregate-only and the same one-zone external/source-preservation
+   boundaries. Required stream1/layout mapping and other attributes remain
+   unresolved prerequisites for complete geometry/material import.
 2. Document observable shared engine/game structures and evidence-backed
    ECS/asset boundaries in later bounded tasks, selected from actual decoded
    structures rather than additional envelope metadata alone.
@@ -201,5 +235,11 @@ Surface review covered findings/handoff 0009 and every substantive external
 instrumentation/check/supervisor change. Independent synthetic, repeated original
 observation, identity, documentation link/content and whitespace checks passed.
 Index/material boundaries are accepted as scoped observations; universal vertex
-slices and complete stream spans remain unestablished. The next bounded task
-resolves per-surface vertex-stream interpretation before a geometry adapter.
+slices and complete stream spans remained unestablished at that stage. The next
+bounded task investigated per-surface vertex-stream interpretation before an adapter.
+Vertex-stream review covered findings/handoff 0010, the source-supported candidate,
+all final instrumentation/supervisor/test changes, revision-specific observations
+and preservation records. Independent checks accepted the complete candidate
+group accounting and logical-base intervals without promoting attribute encoding
+or original draw semantics. The next task measures candidate positions against
+finite-value and declared surface-bounds checks before import.

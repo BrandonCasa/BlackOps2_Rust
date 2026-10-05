@@ -49,3 +49,14 @@ non-reference-marked pool entries. The vertex slice candidate is not universal:
 6,236 surfaces declare zero vertices despite nonzero triangles, and complete byte
 spans remain unknown. These observations constrain the next per-surface vertex
 stream investigation; they establish neither render readiness nor visual fidelity.
+
+The [GfxWorld vertex-stream boundary](0006-gfxworld-vertex-stream-boundary.md)
+tests a public Black Ops II extractor's 36-byte stream-0 addressing candidate
+against all 6,469 surfaces, including every zero-count case. The 320 offset groups
+account for all 191,259 logical vertex extents and the entire stream-0 capacity
+with 16-byte alignment padding. Group logical-base intervals also partition the
+logical capacity, while zero-only versus positive-only groups reject a simple
+count-owner sentinel. The twelve earlier stream-1 failures are exactly end-offset
+cases with positive counts; required stream-1 spans and attribute encoding remain
+unknown. Structure remains INVESTIGATING; position-prefix validation is the next
+bounded measurement before geometry import.
