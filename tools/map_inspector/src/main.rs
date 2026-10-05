@@ -8,9 +8,15 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
+use bo2_assets::brush_snapshot::{BrushError, read_brush_snapshot};
 use bo2_assets::geometry_snapshot::{GeometrySnapshot, SnapshotError, read_geometry_snapshot};
+use bo2_physics::{
+    DVec3,
+    brush::{Convention, ConvexBrush, QueryError},
+};
 
 const HELP: &str = "Usage: bo2-map-inspector [--] <diagnostic-snapshot-file>
+       bo2-map-inspector --brush <one-schema28-record>
        bo2-map-inspector --help
 
 Read-only inspection of one project-owned diagnostic geometry exchange snapshot v1.
@@ -18,6 +24,11 @@ This is not a BO2 disk format. Emits bounded counts/categories/status only; no
 positions, index values, bounds, paths or names. Source authenticity, rendering
 and original-game fidelity remain unverified. Fixed resource policies apply.
 No recursive discovery, configuration loading, automatic originals or output files.
+
+--brush reads one project-owned external schema28 brush record (64KiB maximum).
+It emits counts, endpoint-derived point-segment probes and precision diagnostics.
+Diagnostic n dot point - distance <= 0 is not original player collision proof.
+No source coordinates, bits, paths or materials are emitted.
 
 Exit codes: 0 success/help, 1 input/inspection/output failure, 2 invalid arguments.";
 
@@ -35,6 +46,7 @@ fn main() -> ExitCode {
     let result = match action {
         Action::Help => writeln!(io::stdout().lock(), "{HELP}").map_err(output_error),
         Action::Inspect(path) => inspect(Path::new(&path)),
+        Action::Brush(path) => inspect_brush(Path::new(&path)),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -48,6 +60,7 @@ fn main() -> ExitCode {
 enum Action {
     Help,
     Inspect(OsString),
+    Brush(OsString),
 }
 
 fn arguments(mut arguments: impl Iterator<Item = OsString>) -> Result<Action, ()> {
@@ -57,6 +70,7 @@ fn arguments(mut arguments: impl Iterator<Item = OsString>) -> Result<Action, ()
             Ok(Action::Inspect(path))
         }
         (Some(separator), Some(path), None) if separator == "--" => Ok(Action::Inspect(path)),
+        (Some(mode), Some(path), None) if mode == "--brush" => Ok(Action::Brush(path)),
         _ => Err(()),
     }
 }
@@ -66,6 +80,8 @@ enum InspectorError {
     InputIo { kind: io::ErrorKind },
     NotRegularFile,
     Snapshot(SnapshotError),
+    Brush(BrushError),
+    Query(QueryError),
     OutputIo { kind: io::ErrorKind },
 }
 
@@ -78,9 +94,68 @@ impl fmt::Display for InspectorError {
             Self::InputIo { kind } => write!(output, "input access failed ({kind:?})"),
             Self::NotRegularFile => output.write_str("input is not a regular file"),
             Self::Snapshot(error) => error.fmt(output),
+            Self::Brush(error) => error.fmt(output),
+            Self::Query(error) => error.fmt(output),
             Self::OutputIo { kind } => write!(output, "output write failed ({kind:?})"),
         }
     }
+}
+
+fn inspect_brush(path: &Path) -> Result<(), InspectorError> {
+    let mut file = File::open(path).map_err(input_error)?;
+    let metadata = file.metadata().map_err(input_error)?;
+    if !metadata.is_file() {
+        return Err(InspectorError::NotRegularFile);
+    }
+    let snapshot = read_brush_snapshot(&mut file, metadata.len()).map_err(InspectorError::Brush)?;
+    let hull = ConvexBrush::from_snapshot(&snapshot, Convention::DiagnosticMinusDistanceAtMostZero)
+        .map_err(InspectorError::Query)?;
+    let diagnostics = hull
+        .precision_diagnostics(&snapshot)
+        .map_err(InspectorError::Query)?;
+    let [lo, hi] = hull.endpoints();
+    let center = (lo + hi) / 2.0;
+    let span = hi - lo;
+    // These are named diagnostic probes, not player dimensions, velocities or
+    // assertions that the endpoint midpoint must lie in every admitted hull.
+    let mut probes = Vec::with_capacity(5);
+    probes.push((
+        "midpoint_stationary",
+        hull.clip_segment(center, center)
+            .map_err(InspectorError::Query)?,
+    ));
+    for axis in 0..3 {
+        let mut offset = DVec3::ZERO;
+        offset[axis] = span[axis];
+        probes.push((
+            ["x_crossing", "y_crossing", "z_crossing"][axis],
+            hull.clip_segment(center - offset, center + offset)
+                .map_err(InspectorError::Query)?,
+        ));
+    }
+    probes.push((
+        "outside_stationary",
+        hull.clip_segment(hi + span, hi + span)
+            .map_err(InspectorError::Query)?,
+    ));
+    let mut output = io::stdout().lock();
+    writeln!(output, "inspection: schema28 brush contract valid\nside_records: {}\nvertex_records: {}\nconstraints: {}\nparallel_bounds_present: {}\nparallel_contents_present: {}\nconvention: diagnostic_n_dot_point_minus_distance_le_zero\nstrict_source_violations: {}\nold_tolerant_source_violations: {}\nmax_positive_residual_raw_units: {:.17}\nreconstructed_vertices: {}\nvertex_set_max_error_raw_units: {:?}\nf32_rounding_joint_witness: {:?}\nwitness_vertex_set_max_error_raw_units: {:?}\nmax_coefficient_rounding_cell_fraction: {:.12}\nmax_vertex_rounding_cell_fraction: {:.12}\noriginal_producer_rounding: unverified\noriginal_player_collision_fidelity: UNKNOWN",
+        snapshot.sides().len(), snapshot.vertices_bits().len(), hull.planes().len(), snapshot.midpoint_bits().is_some(), snapshot.parallel_contents().is_some(),
+        diagnostics.strict_violations, diagnostics.old_tolerant_violations, diagnostics.max_positive_residual,
+        diagnostics.reconstructed_vertices, diagnostics.vertex_set_max_error, diagnostics.rounding_witness, diagnostics.witness_vertex_set_max_error,
+        diagnostics.max_coefficient_cell_fraction, diagnostics.max_vertex_cell_fraction).map_err(output_error)?;
+    for (name, hit) in probes {
+        match hit {
+            Some(hit) => writeln!(
+                output,
+                "probe_{name}: entering={:.12} exiting={:.12} start_inside={}",
+                hit.entering, hit.exiting, hit.start_inside
+            ),
+            None => writeln!(output, "probe_{name}: no_hit"),
+        }
+        .map_err(output_error)?;
+    }
+    Ok(())
 }
 
 fn input_error(error: io::Error) -> InspectorError {

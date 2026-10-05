@@ -3,10 +3,11 @@
 ## Current implementation
 
 Local Cargo dependency edges are `bo2-boot -> bo2-core`,
-`bo2-asset-inspector -> bo2-assets`, `bo2-map-inspector -> bo2-assets` and
+`bo2-asset-inspector -> bo2-assets`, `bo2-map-inspector -> bo2-assets, bo2-physics`,
+`bo2-physics -> bo2-assets` and
 `bo2-rendering -> bo2-assets` and `bo2-geometry-viewer -> bo2-assets, bo2-rendering`.
-Core, boot, rendering and the viewer depend on the same workspace-pinned Bevy
-0.19.1 release. All seven local crates forbid unsafe code.
+Core, boot, physics, rendering and the viewer depend on the same workspace-pinned Bevy
+0.19.1 release. All eight local crates forbid unsafe code.
 Core exposes the project name and `headless_app(ScheduleRunnerPlugin)`, a small
 composition function returning a Bevy `App` with `MinimalPlugins`. Bevy owns
 the ECS world, entity identity, schedules, task pools, frame counter, time and
@@ -47,6 +48,13 @@ reads one explicit regular file and emits bounded counts/categories/status only.
 It has no original-file decoder, exporter, Bevy loader or renderer. Synthetic
 contract success establishes neither original-format support nor fidelity;
 task 0012 is reviewed and accepted. Bevy retains asset/mesh/runtime ownership.
+
+Assets also admits bounded external schema28 brush records through a private
+deserialization boundary. Physics preserves their halfspaces with Bevy math and
+adds allocation-free point-segment clipping; precision diagnostics remain separate
+from queries. The inspector exposes this through `--brush`. This is diagnostic
+geometry, with no player hull, collision masks or original trace fidelity yet.
+See the [convex-brush boundary](diagnostic-brush-collision.md).
 
 Rendering now contains the consuming [diagnostic Mesh adapter](diagnostic-mesh-adapter.md).
 It moves validated position/index vectors into Bevy Float32x3/U32 TriangleList
@@ -106,7 +114,7 @@ See its repair section and [handoff0024](../handoffs/0024-ordinary-sdk-qualifier
 
 ## Planned responsibilities
 
-Directories other than core, assets, rendering, boot, asset_inspector, map_inspector
+Directories other than core, assets, physics, rendering, boot, asset_inspector, map_inspector
 and comparison_tools/geometry_viewer are reserved
 locations, not Cargo members or finalized APIs. Add a crate/module only when a
 bounded task supplies evidence

@@ -8,3 +8,7 @@ description = "Read-only explicit-input project diagnostic geometry snapshot ins
 
 [dependencies]
 bo2-assets = { path = "../../crates/assets" }
+bo2-physics = { path = "../../crates/physics" }
+
+[dev-dependencies]
+serde_json.workspace = true

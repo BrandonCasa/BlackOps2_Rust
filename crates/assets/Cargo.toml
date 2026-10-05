@@ -5,3 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 description = "Bounded read-only BO2 metadata and project diagnostic snapshot readers"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

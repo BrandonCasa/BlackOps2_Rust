@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/assets", "crates/rendering", "game/boot", "tools/asset_inspector", "tools/map_inspector", "tools/comparison_tools/geometry_viewer"]
+members = ["crates/core", "crates/assets", "crates/physics", "crates/rendering", "game/boot", "tools/asset_inspector", "tools/map_inspector", "tools/comparison_tools/geometry_viewer"]
 default-members = ["game/boot"]
 resolver = "3"
 
@@ -11,3 +11,5 @@ publish = false
 
 [workspace.dependencies]
 bevy = { version = "=0.19.1", default-features = false, features = ["std"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"

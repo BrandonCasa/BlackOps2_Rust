@@ -21,6 +21,84 @@ fn text(output: &Output) -> String {
     )
 }
 
+fn synthetic_brush() -> Vec<u8> {
+    use serde_json::json;
+    let bits = |x: f32| x.to_bits();
+    // User-created translated box; deliberately private-looking coordinates.
+    let x = 1234.125_f32;
+    let mut vertices = Vec::new();
+    for a in [x, x + 1.0] {
+        for b in [0.0, 1.0] {
+            for c in [0.0, 1.0] {
+                vertices.push([bits(a), bits(b), bits(c)]);
+            }
+        }
+    }
+    serde_json::to_vec(&json!({"schema":28,"brush_index":1,"side_first":0,"vertex_first":0,"side_count":1,"vertex_count":8,"contents":0,
+    "parallel_bounds_present":false,"parallel_contents_present":false,"parallel_contents":null,"midpoint_bits":null,"halfsize_bits":null,
+    "mins_bits":[bits(x),0,0],"maxs_bits":[bits(x+1.0),bits(1.0),bits(1.0)],"axial_cflags":[0,0,0,0,0,0],"axial_sflags":[0,0,0,0,0,0],
+    "sides":[{"plane_index":0,"cflags":0,"sflags":0,"normal_bits":[bits(1.0),0,0],"dist_bits":bits(x+1.0),"type":0,"signbits":0}],"vertices_bits":vertices})).unwrap()
+}
+
+#[test]
+fn brush_mode_exercises_queries_and_redacts_input_while_preserving_it() {
+    let bytes = synthetic_brush();
+    let fixture = Fixture::new(OsStr::new("PRIVATE_BRUSH.json"), &bytes);
+    let output = run(&[OsStr::new("--brush"), fixture.path.as_os_str()]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    let emitted = text(&output);
+    for expected in [
+        "schema28 brush contract valid",
+        "side_records: 1",
+        "vertex_records: 8",
+        "constraints: 7",
+        "strict_source_violations: 0",
+        "old_tolerant_source_violations: 0",
+        "original_player_collision_fidelity: UNKNOWN",
+        "probe_x_crossing: entering=0.250000000000 exiting=0.750000000000 start_inside=false",
+        "probe_outside_stationary: no_hit",
+    ] {
+        assert!(emitted.contains(expected), "missing {expected}: {emitted}");
+    }
+    assert!(!emitted.contains("PRIVATE"));
+    assert!(!emitted.contains("1234.125"));
+    assert!(!emitted.contains("normal_bits"));
+    assert!(output.stdout.len() < 2048);
+    assert!(output.stderr.is_empty());
+    assert_eq!(fs::read(&fixture.path).unwrap(), bytes);
+    let again = run(&[OsStr::new("--brush"), fixture.path.as_os_str()]);
+    assert_eq!(output.stdout, again.stdout);
+}
+
+#[test]
+fn brush_argument_and_malformed_record_errors_are_redacted_without_partial_output() {
+    for args in [
+        vec![OsStr::new("--brush")],
+        vec![
+            OsStr::new("--brush"),
+            OsStr::new("PRIVATE"),
+            OsStr::new("extra"),
+        ],
+    ] {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(!text(&output).contains("PRIVATE"));
+    }
+    for bytes in [
+        b"{PRIVATE_RECORD".to_vec(),
+        vec![b' '; 65537],
+        b"{}".to_vec(),
+    ] {
+        let fixture = Fixture::new(OsStr::new("PRIVATE_BRUSH.json"), &bytes);
+        let output = run(&[OsStr::new("--brush"), fixture.path.as_os_str()]);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert!(!text(&output).contains("PRIVATE"));
+        assert!(text(&output).contains("brush record rejected"));
+        assert_eq!(fs::read(&fixture.path).unwrap(), bytes);
+    }
+}
+
 // Independently encoded, entirely arbitrary user-created triangle, never an
 // original asset or derivative. Floating-point values are private to the fixture.
 fn synthetic(variant: bool) -> Vec<u8> {
