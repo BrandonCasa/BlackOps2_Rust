@@ -9,6 +9,8 @@ use bo2_assets::geometry_snapshot::{
     GeometrySnapshot, SnapshotError, SnapshotSurface, read_geometry_snapshot,
 };
 
+pub mod camera;
+
 pub const IMAGE_SIDE: u32 = 512;
 pub const IMAGE_BYTES: usize = IMAGE_SIDE as usize * IMAGE_SIDE as usize * 4;
 pub const VIEW_NAMES: [&str; 3] = ["raw-z", "raw-x", "raw-oblique"];
@@ -33,6 +35,7 @@ pub enum DiagnosticError {
     BackgroundOnly,
     Encoding,
     Preservation,
+    InteractiveValidation,
 }
 
 impl fmt::Display for DiagnosticError {

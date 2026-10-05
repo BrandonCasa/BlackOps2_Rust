@@ -27,8 +27,9 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
   project-owned geometry snapshot format. This is not a complete Rust BO2 decoder.
 - `crates/rendering`: preserves snapshot positions/indices in a Bevy Mesh.
 - `tools/comparison_tools/geometry_viewer`: renders three offscreen raw-coordinate
-  solid/wireframe views. Accepted external snapshot: 191,259 positions, 149,907
-  triangles, 6,469 surfaces. Geometry producer/decoded assets remain external.
+  solid/wireframe views and a windowed perspective inspection scene with diagnostic
+  keyboard flight/look/reset. Accepted external snapshot: 191,259 positions,
+  149,907 triangles, 6,469 surfaces. Geometry and decoded assets remain external.
 - `game/boot`: a headless lifecycle smoke check. There is no interactive game,
   player movement, collision implementation, weapon, zombie or round yet.
 - Original orientation, units, camera, materials and lighting remain unresolved.
@@ -36,11 +37,10 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
 
 ## Immediate implementation direction
 
-1. Inspect the actual Rust sources and choose one small executable milestone.
-   Extend the existing Bevy geometry tooling into an interactive inspection scene
-   if useful; identify free-camera controls as diagnostic, not original movement.
-   Reuse the accepted external snapshot instead of restarting asset extraction.
-2. Resolve the collision reader's concrete failure if it is the shortest route to
+1. Use the existing interactive inspection scene when useful; its free-camera
+   axes, speed and projection are diagnostic, not original movement. Reuse the
+   accepted external snapshot instead of restarting asset extraction.
+2. Resolve the collision reader's concrete failure toward
    a standing movement slice: task0026 rejects at embedded ClipInfo admission,
    before selecting any brush. Check the existing separate `pInfo` loader lead and
    identify the failing count/null/span predicate. Do not repeat broad surveys.
@@ -74,9 +74,13 @@ work does not itself advance the implemented game.
 
 ## Validation and essential references
 
-The review chat independently ran all 74 workspace tests successfully before the
-restart. Later changes were documentation/external tooling; no new Rust behavior
-has been validated. Run applicable gates for code changes: `cargo metadata --locked
+Task0027 adds executable inspection controls: all 80 workspace tests, locked
+metadata, formatting and Clippy pass. Outer bounded window checks on synthetic
+and accepted external geometry each pass at35 updates with scripted input,
+prepared GPU mesh/pipelines and foreground960x720 readback. Legacy synthetic
+offscreen rendering also passes on Vulkan. Physical keyboard routing, sustained
+use and original comparisons remain unverified. Run applicable gates:
+`cargo metadata --locked
 --no-deps --format-version 1`, `cargo test --workspace --locked`, `cargo fmt --all
 -- --check`, and `cargo clippy --workspace --all-targets --locked -- -D warnings`.
 If Cargo is absent from the shell PATH, use the existing user Cargo installation.
@@ -86,6 +90,7 @@ README for the existing snapshot viewer commands. Do not reinstall working tools
 - [Architecture and crate responsibilities](architecture/README.md)
 - [Snapshot contract](architecture/diagnostic-geometry-snapshot.md)
 - [Accepted renderer milestone](handoffs/0020-bevy-offscreen-geometry-diagnostic.md)
+- [Interactive inspection milestone](handoffs/0027-interactive-geometry-inspection.md)
 - [Pending collision result](handoffs/0026-origins-collision-brush-boundary.md)
 - [Collision source/loader evidence](reverse_engineering/0018-origins-collision-brush-boundary.md)
 - [Fidelity status](fidelity/README.md)

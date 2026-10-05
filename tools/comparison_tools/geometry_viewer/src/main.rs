@@ -38,8 +38,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod interactive;
+
 const HELP: &str = "Usage: bo2-geometry-viewer --synthetic --output <new-external-directory>
        bo2-geometry-viewer --snapshot <single-external-snapshot> --output <new-external-directory>
+       bo2-geometry-viewer (--synthetic | --snapshot <single-external-snapshot>) --interactive [--frames <64..600>]
+       bo2-geometry-viewer (--synthetic | --snapshot <single-external-snapshot>) --interactive-smoke [--frames <64..600>]
        bo2-geometry-viewer --help
        bo2-geometry-viewer --check-gpu
 
@@ -59,7 +63,16 @@ allocations; camera admission rejects extreme/poorly resolved/empty data. At mos
 600 app updates and 60 seconds checked between engine calls; use an independent
 120-second supervisor because engine/driver/file calls can block. At most three
 2-MiB PNG files plus <=2-KiB metadata; failed task-owned outputs may remain.
-No window, interactive input, original game, original decoder or project AssetLoader.
+Interactive mode opens a 960x720 perspective inspection window: W/S forward/back,
+A/D strafe, E/Q raw +Y/-Y, arrows look (no roll), Shift 5x speed, Ctrl 0.1x,
+R reset/reframe, Escape or window close exit. Speed = bounds radius/second;
+axes/speed/projection are diagnostic choices. No collision or original movement.
+No output files in interactive mode. --frames bounds app updates and 60 seconds;
+--interactive-smoke defaults to 180 updates, exercises move/look/reset through
+Bevy keyboard messages, waits for prepared GPU mesh/pipelines and validates one
+in-memory window readback before clean exit. External 120-second supervision
+still applies. Smoke does not qualify physical keyboard routing or fidelity.
+No original game, original decoder or project AssetLoader.
 Errors report type/stage only. Exit: 0 success/help, 1 diagnostic failure, 2 arguments.";
 
 enum Action {
@@ -68,6 +81,11 @@ enum Action {
     Render {
         input: Option<OsString>,
         output: OsString,
+    },
+    Interactive {
+        input: Option<OsString>,
+        frames: Option<u32>,
+        smoke: bool,
     },
 }
 fn arguments(mut args: impl Iterator<Item = OsString>) -> Result<Action, ()> {
@@ -87,7 +105,28 @@ fn arguments(mut args: impl Iterator<Item = OsString>) -> Result<Action, ()> {
     } else {
         return Err(());
     };
-    if args.next().is_none_or(|v| v != "--output") {
+    let mode = args.next().ok_or(())?;
+    if mode == "--interactive" || mode == "--interactive-smoke" {
+        let smoke = mode == "--interactive-smoke";
+        let frames = match args.next() {
+            None => smoke.then_some(180),
+            Some(flag) if flag == "--frames" => {
+                let value = args.next().ok_or(())?;
+                let frames = value.to_str().ok_or(())?.parse::<u32>().map_err(|_| ())?;
+                if !(64..=600).contains(&frames) || args.next().is_some() {
+                    return Err(());
+                }
+                Some(frames)
+            }
+            _ => return Err(()),
+        };
+        return Ok(Action::Interactive {
+            input,
+            frames,
+            smoke,
+        });
+    }
+    if mode != "--output" {
         return Err(());
     }
     let output = args.next().ok_or(())?;
@@ -110,6 +149,11 @@ fn main() -> ExitCode {
         Action::Help => writeln!(io::stdout().lock(), "{HELP}").map_err(|e| io_error("stdout", e)),
         Action::CheckGpu => check_gpu(),
         Action::Render { input, output } => execute(input.as_deref(), Path::new(&output)),
+        Action::Interactive {
+            input,
+            frames,
+            smoke,
+        } => interactive::run(load_geometry(input.as_deref())?, frames, smoke),
     })
     .unwrap_or(Err(DiagnosticError::EnginePanic));
     match result {
@@ -154,7 +198,7 @@ fn new_output(path: &Path) -> Result<PathBuf, DiagnosticError> {
     fs::create_dir(&output).map_err(|e| io_error("output reservation", e))?;
     Ok(output)
 }
-fn execute(input: Option<&std::ffi::OsStr>, output: &Path) -> Result<(), DiagnosticError> {
+fn load_geometry(input: Option<&std::ffi::OsStr>) -> Result<PreparedGeometry, DiagnosticError> {
     let snapshot = match input {
         None => synthetic_snapshot()?,
         Some(input) => {
@@ -170,7 +214,10 @@ fn execute(input: Option<&std::ffi::OsStr>, output: &Path) -> Result<(), Diagnos
             read_geometry_snapshot(&mut file, metadata.len()).map_err(DiagnosticError::Snapshot)?
         }
     };
-    let geometry = prepare(snapshot)?;
+    prepare(snapshot)
+}
+fn execute(input: Option<&std::ffi::OsStr>, output: &Path) -> Result<(), DiagnosticError> {
+    let geometry = load_geometry(input)?;
     let output = new_output(output)?;
     let report = render(geometry)?;
     let mut coverage = [0; 3];
@@ -265,8 +312,7 @@ struct Report {
 const OVERLAY_FEATURES: WgpuFeatures =
     WgpuFeatures::POLYGON_MODE_LINE.union(WgpuFeatures::IMMEDIATES);
 
-fn render_app(overlay: bool, started: Instant) -> Result<App, DiagnosticError> {
-    let deadline = Duration::from_secs(60);
+fn configured_app(overlay: bool, window: Option<Window>) -> App {
     let mut app = App::new();
     app.register_asset_source(
         AssetSourceId::Default,
@@ -276,21 +322,35 @@ fn render_app(overlay: bool, started: Instant) -> Result<App, DiagnosticError> {
     if overlay {
         settings.features |= OVERLAY_FEATURES;
     }
-    app.add_plugins(
-        DefaultPlugins
-            .set(RenderPlugin {
-                render_creation: settings.into(),
-                ..default()
-            })
-            .set(WindowPlugin {
-                primary_window: None,
-                exit_condition: ExitCondition::DontExit,
-                ..default()
-            }),
-    );
+    let interactive = window.is_some();
+    let plugins = DefaultPlugins
+        .set(RenderPlugin {
+            render_creation: settings.into(),
+            ..default()
+        })
+        .set(WindowPlugin {
+            primary_window: window,
+            exit_condition: if interactive {
+                ExitCondition::OnPrimaryClosed
+            } else {
+                ExitCondition::DontExit
+            },
+            ..default()
+        });
+    // Enabling the window dependency must not create an event loop in legacy offscreen paths.
+    if interactive {
+        app.add_plugins(plugins);
+    } else {
+        app.add_plugins(plugins.disable::<bevy::winit::WinitPlugin>());
+    }
     if overlay {
         app.add_plugins(WireframePlugin::default());
     }
+    app
+}
+fn render_app(overlay: bool, started: Instant) -> Result<App, DiagnosticError> {
+    let deadline = Duration::from_secs(60);
+    let mut app = configured_app(overlay, None);
     while app.plugins_state() == PluginsState::Adding {
         if started.elapsed() > deadline {
             return Err(DiagnosticError::Deadline);
@@ -301,6 +361,28 @@ fn render_app(overlay: bool, started: Instant) -> Result<App, DiagnosticError> {
     app.finish();
     app.cleanup();
     Ok(app)
+}
+
+fn spawn_mesh(world: &mut World, mesh: Mesh) -> Handle<Mesh> {
+    let handle = world.resource_mut::<Assets<Mesh>>().add(mesh);
+    let material = world
+        .resource_mut::<Assets<StandardMaterial>>()
+        .add(StandardMaterial {
+            base_color: Color::srgb(0.72, 0.72, 0.72),
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        });
+    world.spawn((
+        Mesh3d(handle.clone()),
+        MeshMaterial3d(material),
+        Transform::IDENTITY,
+        Wireframe,
+        WireframeColor {
+            color: Color::srgb(0.12, 0.12, 0.12),
+        },
+    ));
+    handle
 }
 
 fn check_gpu() -> Result<(), DiagnosticError> {
@@ -356,25 +438,7 @@ fn render(geometry: PreparedGeometry) -> Result<Report, DiagnosticError> {
         Some(Indices::U32(v)) => v.as_ptr(),
         _ => return Err(DiagnosticError::Preservation),
     };
-    let handle = app.world_mut().resource_mut::<Assets<Mesh>>().add(mesh);
-    let material = app
-        .world_mut()
-        .resource_mut::<Assets<StandardMaterial>>()
-        .add(StandardMaterial {
-            base_color: Color::srgb(0.72, 0.72, 0.72),
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        });
-    app.world_mut().spawn((
-        Mesh3d(handle.clone()),
-        MeshMaterial3d(material),
-        Transform::IDENTITY,
-        Wireframe,
-        WireframeColor {
-            color: Color::srgb(0.12, 0.12, 0.12),
-        },
-    ));
+    let handle = spawn_mesh(app.world_mut(), mesh);
     let targets = views.map(|view| {
         let target =
             app.world_mut()
@@ -514,6 +578,47 @@ mod tests {
             &["--synthetic"][..],
             &["--snapshot", "in", "--output", "out", "extra"][..],
             &["in", "out"][..],
+        ] {
+            assert!(parse(invalid).is_err());
+        }
+    }
+    #[test]
+    fn interactive_modes_admit_one_input_and_bounded_frames_only() {
+        let parse = |args: &[&str]| arguments(args.iter().map(OsString::from));
+        assert!(matches!(
+            parse(&["--synthetic", "--interactive"]),
+            Ok(Action::Interactive {
+                input: None,
+                frames: None,
+                smoke: false
+            })
+        ));
+        assert!(matches!(
+            parse(&["--snapshot", "in", "--interactive-smoke"]),
+            Ok(Action::Interactive {
+                input: Some(_),
+                frames: Some(180),
+                smoke: true
+            })
+        ));
+        for frames in ["64", "600"] {
+            assert!(matches!(
+                parse(&["--synthetic", "--interactive", "--frames", frames]),
+                Ok(Action::Interactive {
+                    frames: Some(_),
+                    ..
+                })
+            ));
+        }
+        for invalid in [
+            &["--synthetic", "--interactive", "--frames"][..],
+            &["--synthetic", "--interactive", "--frames", "0"][..],
+            &["--synthetic", "--interactive", "--frames", "63"][..],
+            &["--synthetic", "--interactive-smoke", "--frames", "601"][..],
+            &["--synthetic", "--interactive-smoke", "--frames", "NaN"][..],
+            &["--synthetic", "--interactive", "--output", "out"][..],
+            &["--synthetic", "--interactive", "--frames", "180", "extra"][..],
+            &["--snapshot", "--interactive"][..],
         ] {
             assert!(parse(invalid).is_err());
         }

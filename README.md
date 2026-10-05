@@ -6,9 +6,10 @@ copy of the original game. Bevy is the selected engine, ECS, rendering, and
 application foundation.
 
 The default application runs a minimal headless Bevy lifecycle smoke check.
-Separate inspectors read metadata and diagnostic snapshots; a finite Bevy
-offscreen tool renders unchanged raw snapshot geometry to external diagnostic
-images. No gameplay has been implemented. Gameplay and visual fidelity
+Separate inspectors read metadata and diagnostic snapshots; a Bevy diagnostic
+tool renders unchanged raw snapshot geometry to external offscreen images or
+opens it in a window with diagnostic flight controls. No gameplay has been
+implemented. Gameplay and visual fidelity
 remain **UNKNOWN**; envelope format understanding is **INVESTIGATING**.
 
 Original assets stay external. Never commit, embed, or redistribute proprietary
@@ -76,6 +77,26 @@ triangle-edge overlay. All mesh data and identity Transform are retained.
 These are chosen Bevy views; original orientation, units, visible side, camera,
 materials and appearance remain unresolved. Use an independent 120-second
 supervisor for GPU/driver calls. No original game or SDK capture is involved.
+
+Inspect the same raw geometry in a window with a diagnostic free camera:
+
+```sh
+cargo run -p bo2-geometry-viewer -- --synthetic --interactive
+cargo run -p bo2-geometry-viewer -- --snapshot "<external snapshot>" --interactive
+cargo run -p bo2-geometry-viewer -- --synthetic --interactive-smoke
+```
+
+W/S move forward/back, A/D strafe, E/Q move along raw +Y/-Y, and arrow keys look.
+Shift increases speed fivefold; Ctrl reduces it to one tenth. R resets and reframes
+the bounds; Escape or window close exits. Speed is one bounds radius per second.
+The perspective camera, raw +Y up, speed and flight behavior are diagnostic choices;
+there is no collision or original player movement. Original fidelity remains UNKNOWN.
+Interactive modes write no files. `--interactive --frames <64..600>` bounds updates;
+`--interactive-smoke` defaults to 180 updates and exercises scripted Bevy keyboard
+messages for movement/look/reset, GPU mesh/pipeline readiness and a foreground
+window readback before exiting. This checks engine input integration, not physical
+keyboard routing or original-game comparison. Use an independent 120-second
+supervisor for bounded GPU/driver checks.
 
 `crates/core`, `crates/assets`, `crates/rendering`, `game/boot`, both inspectors
 and `tools/comparison_tools/geometry_viewer` are Cargo members.

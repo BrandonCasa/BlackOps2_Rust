@@ -70,6 +70,14 @@ Bevy is the selected engine, ECS, rendering, and application foundation. The
 [decision record](../adr/0001-bevy-foundation.md) records version evidence and the
 minimal feature choice. Rendering locally enables asset/mesh features; the viewer
 locally enables PBR/render/camera/core-pipeline facilities and PNG encoding.
+Task0027 adds a windowed diagnostic viewer mode using the same Mesh/display setup,
+Bevy WinitPlugin, InputPlugin and a tool-local inspection camera component/plugin.
+Perspective, raw +Y up and flight controls are explicit diagnostic choices.
+The viewer locally enables window/keyboard/x11 features; legacy offscreen mode
+disables WinitPlugin. Scripted input and window readback checks establish engine
+integration, without original movement or rendering fidelity. See
+[handoff0027](../handoffs/0027-interactive-geometry-inspection.md).
+
 Central defaults remain disabled. Boot assembles no
 renderer/window/asset plugin. Headless adapter validation assembles Bevy AssetPlugin
 and MeshPlugin with an in-memory source, with no graphical runtime. These diagnostic
