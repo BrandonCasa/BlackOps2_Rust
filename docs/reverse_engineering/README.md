@@ -70,3 +70,14 @@ candidate fails on every surface, so the two bounds families are not interchange
 This supports the candidate prefix without a unit conversion or geometry import;
 original bounds/draw semantics, required stream-1 spans and other attributes remain
 unknown. Structure remains INVESTIGATING; gameplay and visual fidelity remain UNKNOWN.
+
+The [Origins diagnostic geometry snapshot](0008-origins-diagnostic-geometry-snapshot.md)
+connects that evidence to the accepted safe Rust v1 consumer. Two complete external
+productions preserve all 191,259 records, 449,721 ordered references and 6,469
+surfaces, including all 6,236 zero-count cases. Their 4,404,568 bytes and source
+prefix/reference/metadata/bounds bits agree exactly; independent file accounting
+and each Rust reader match complete counts/categories. Tooling and derivative
+geometry remain external, task9 is restored exactly, and the excluded monitoring
+race/repair is documented. Data understanding remains INVESTIGATING; visual,
+gameplay and overall fidelity UNKNOWN. The next bounded task uses Rust Bevy Mesh;
+full attributes/materials still need separate stream1/layout evidence.

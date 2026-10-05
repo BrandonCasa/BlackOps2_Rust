@@ -25,6 +25,8 @@
 - [Position-prefix handoff](handoffs/0011-gfxworld-position-prefix.md): bounded complete observations, numerical policy, synthetic checks, restoration and remaining layout questions.
 - [Diagnostic geometry snapshot contract](architecture/diagnostic-geometry-snapshot.md): project-owned v1 byte layout, exact preservation, ordered surface ranges, bounds checks, fixed policies and engine boundaries.
 - [Diagnostic snapshot reader handoff](handoffs/0012-diagnostic-geometry-snapshot-reader.md): std-only consumer, explicit-input inspector, synthetic validation and unimplemented producer/Bevy integration.
+- [Origins diagnostic geometry snapshot](reverse_engineering/0008-origins-diagnostic-geometry-snapshot.md): complete external position/index preservation, repeated bytes and source/producer/Rust accounting.
+- [External snapshot handoff](handoffs/0013-origins-diagnostic-geometry-snapshot.md): supervised conversion, synthetic/source-bit checks, exact restoration and next Rust Bevy Mesh task.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately

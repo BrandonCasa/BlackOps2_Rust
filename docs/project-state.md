@@ -87,8 +87,20 @@ count/byte/allocation/reference/read-retry policies precede body reads; typed er
 redact paths/raw fields. `bo2-map-inspector` reads one explicit regular snapshot
 file read-only and emits bounded counts/categories/status. Task 0012 is implemented
 with synthetic fixtures; [handoff 0012](handoffs/0012-diagnostic-geometry-snapshot-reader.md)
-is reviewed and accepted. No original snapshot, external producer, Bevy Mesh/asset loader,
-renderer or original comparison is added. The format is ours, not a BO2 disk format.
+is reviewed and accepted. Task0012 added no original snapshot, external producer,
+Bevy Mesh/asset loader, renderer or original comparison. The format is ours,
+not a BO2 disk format; task0013's subsequent bridge is recorded below.
+
+The [external diagnostic snapshot bridge](reverse_engineering/0008-origins-diagnostic-geometry-snapshot.md)
+now preserves all 191,259 candidate group records, 449,721 ordered references and
+6,469 surfaces, including all 6,236 zero-count cases, in two identical 4,404,568-byte
+v1 files. Exact source-bit readback, independent section/reference checks and each
+safe Rust consumer agree on complete counts/categories/metadata/bounds. All tooling
+and derivative geometry stay external; task9 source/header/exe/exact patch are
+restored and task10/task11 remain unchanged. [Handoff 0013](handoffs/0013-origins-diagnostic-geometry-snapshot.md)
+is reviewed and accepted for this bounded bridge. Rust with
+Bevy remains the engine/game implementation; no tracked code, Bevy Mesh/loader,
+renderer, units/draw/appearance proof or original-game comparison is added.
 
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
@@ -223,6 +235,26 @@ These are diagnostic consumer checks only; no
 original geometry or graphical/gameplay comparison has occurred. See handoff 0012
 for the fixed policies, actual read/emit boundaries and remaining limits.
 
+Task 0013's complete external producer passes 129 new native synthetic checks plus
+46+22+26 accepted checks, synthetic C++ to Rust/Python proof, and the fresh native
+build without warnings. Its authoritative pair exits 0 in 0.750/0.750 seconds,
+2,436 capture bytes each; both 4,404,568-byte snapshots have SHA-256
+`ffe639e3779310e300d7562f91f9ebf8c659126472e2d583558882031215181f`.
+Complete source-bit/section/category/accounting matches both Rust reader results
+(0.062/0.078 seconds, 1,138 bytes each). Capture/deadline/artifact/unexpected-output/
+rename-race/exception cleanup tests pass. One earlier monitoring-race attempt is
+excluded and explicitly invalid; repaired supervision precedes fresh original
+loads. Before/after source/tool identities and exact task9 restoration hold;
+13 pristine sources, nine clean pinned submodules and task10/task11 are unchanged.
+Parent independently passes all 223 native checks and seven supervisor selfchecks,
+then reproduces two equal full snapshots (native 0.782/0.750 seconds, Rust
+0.078/0.078 seconds). All four authoritative outputs and aggregates agree, with
+source/tool preservation. Parent preservation and all30 frozen task13 helper/
+artifact identities also pass independent review. Parent content/link/heading/
+whitespace review passes for all five documentation files; this bounded bridge is
+accepted. Unchanged Cargo gates intentionally not rerun. Data understanding INVESTIGATING; overall,
+visual and gameplay fidelity UNKNOWN. No graphical/gameplay comparison occurred.
+
 ## External source availability
 
 The [local asset catalog](reverse_engineering/0001-local-asset-catalog.md) identifies
@@ -249,17 +281,15 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Assign one bounded external diagnostic
-   snapshot producer using the accepted position/index candidate and documented
-   v1 contract. Preserve every group record and every ordered triangle reference,
-   including zero source counts, unreferenced records and degenerate triangles;
-   retain separate surface endpoints. Supervise one explicit licensed input and
-   external output, verify complete category/accounting and source preservation,
-   then inspect that external snapshot with the accepted reader. No original
-   content enters tracked fixtures. A later Bevy Mesh adapter/graphical comparison
-   is a separate task; no units/axes/winding conversion is established.
-   A complete material/attribute import still requires separate stream1/layout
-   investigation, including format 0's at-capacity cases.
+1. Assign one bounded **Rust Bevy Mesh** adapter
+   using the accepted diagnostic consumer and complete external snapshot. Preserve
+   raw positions/ordered u32 references and use Bevy mesh/asset/lifecycle ownership;
+   no units/axes/winding conversion or appearance claim is established. Synthetic
+   and complete external accounting checks must retain every record/reference,
+   zero count and category. Graphical original-game comparison and asynchronous
+   AssetLoader remain separately scoped. Complete attribute/material import still
+   requires separate stream1/layout investigation, including format0's at-capacity
+   cases. Original geometry remains external and never enters tracked fixtures.
 2. Document observable shared engine/game structures and evidence-backed
    ECS/asset boundaries in later bounded tasks, selected from actual decoded
    structures rather than additional envelope metadata alone.
