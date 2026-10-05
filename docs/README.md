@@ -5,6 +5,7 @@ implemented code, pending work, next executable milestones, and validation.
 Read source/tests next; retrieve historical evidence only for a specific question.
 
 - [Architecture](architecture/README.md): Bevy ownership and crate boundaries.
+- [Origins mechanics research](reverse_engineering/origins-mechanics/README.md): source-backed representatives, boundary proposals and implementation backlog.
 - [Snapshot format](architecture/diagnostic-geometry-snapshot.md): current Rust input contract.
 - [Geometry rendering](architecture/diagnostic-geometry-render.md): existing executable diagnostic.
 - [Pending collision handoff](handoffs/0026-origins-collision-brush-boundary.md): incomplete investigation.
