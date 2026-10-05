@@ -5,9 +5,10 @@ visuals, and reusable Zombies architecture through evidence from a licensed loca
 copy of the original game. Bevy is the selected engine, ECS, rendering, and
 application foundation.
 
-The repository runs a minimal headless Bevy application with a bounded lifecycle
-smoke check and a separate read-only fastfile envelope inspector. No game assets
-are loaded and no gameplay has been implemented. Gameplay and visual fidelity
+The default application runs a minimal headless Bevy lifecycle smoke check.
+Separate inspectors read metadata and diagnostic snapshots; a finite Bevy
+offscreen tool renders unchanged raw snapshot geometry to external diagnostic
+images. No gameplay has been implemented. Gameplay and visual fidelity
 remain **UNKNOWN**; envelope format understanding is **INVESTIGATING**.
 
 Original assets stay external. Never commit, embed, or redistribute proprietary
@@ -22,6 +23,8 @@ and the native build tools for your platform; Windows requires the MSVC linker
 and Windows SDK. Bevy is pinned to released version 0.19.1 with default features
 disabled and only `std` explicitly enabled. Compatibility evidence and the
 headless boundary are recorded in the [Bevy decision](docs/adr/0001-bevy-foundation.md).
+The diagnostic render tool locally enables the pinned engine's PBR/rendering
+facilities; central umbrella defaults and the boot application remain unchanged.
 
 ```sh
 cargo run -p bo2-boot -- --smoke
@@ -58,7 +61,24 @@ failure and 2 for invalid arguments. The CLI does not load TOML or discover file
 See the [inspector handoff](docs/handoffs/0006-fastfile-envelope-inspector.md) for
 tests, external sample checks and limits.
 
-`crates/core`, `crates/assets`, `game/boot` and `tools/asset_inspector` are Cargo
-members. Other directories reserve responsibilities. See [repository rules](AGENTS.md),
+Render a user-created asymmetric fixture, or one explicitly selected diagnostic
+snapshot, to a **new** external directory:
+
+```sh
+cargo run -p bo2-geometry-viewer -- --check-gpu
+cargo run -p bo2-geometry-viewer -- --synthetic --output "<new external directory>"
+cargo run -p bo2-geometry-viewer -- --snapshot "<external snapshot>" --output "<new external directory>"
+```
+
+The [offscreen diagnostic](docs/architecture/diagnostic-geometry-render.md) emits
+three 512x512 raw-Z/raw-X/oblique images with a neutral unlit solid and built-in
+triangle-edge overlay. All mesh data and identity Transform are retained.
+These are chosen Bevy views; original orientation, units, visible side, camera,
+materials and appearance remain unresolved. Use an independent 120-second
+supervisor for GPU/driver calls. No original game or SDK capture is involved.
+
+`crates/core`, `crates/assets`, `crates/rendering`, `game/boot`, both inspectors
+and `tools/comparison_tools/geometry_viewer` are Cargo members.
+Other directories reserve responsibilities. See [repository rules](AGENTS.md),
 [documentation index](docs/README.md), [workspace boundaries](docs/architecture/README.md),
 [project state](docs/project-state.md), and [fidelity status](docs/fidelity/README.md).

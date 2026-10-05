@@ -7,7 +7,8 @@ with Bevy, reusable Zombies architecture, and external licensed assets.
 
 Foundation task is reviewed and accepted. Local Git is initialized on
 `main`, with no remote. `bo2-core`, `bo2-boot`, `bo2-assets`,
-`bo2-asset-inspector`, `bo2-map-inspector`, and `bo2-rendering` are Cargo members.
+`bo2-asset-inspector`, `bo2-map-inspector`, `bo2-rendering`, and
+`bo2-geometry-viewer` are Cargo members.
 Boot runs a minimal
 headless Bevy lifecycle smoke check; assets/tooling provide a signed-PC envelope
 metadata inspector and a project-owned diagnostic geometry snapshot consumer.
@@ -188,6 +189,26 @@ runtime occurred; the 67-test baseline, six safe crates and Bevy ownership are
 unchanged. The full stable Rust with Bevy Origins objective remains active;
 data/access INVESTIGATING and overall/gameplay/visual UNKNOWN.
 
+The [offscreen geometry diagnostic](architecture/diagnostic-geometry-render.md)
+is reviewed and accepted. Explicit synthetic/single-snapshot modes
+use the existing reader/CPU Mesh adapter, add render-world usage while retaining
+CPU data, and render three chosen raw-coordinate views to external images.
+Neutral unlit solid, orthographic framing and built-in one-pixel triangle-edge
+overlay are diagnostic choices; original axes, units, visible side, camera,
+materials and appearance remain unresolved. Actual Vulkan extraction/readback,
+independent synthetic projection/internal-edge checks and the one accepted
+snapshot identity pass. Solid baseline and an outer-authorized overlay extension
+are separately retained; two successful accepted runs use the same unchanged
+snapshot. An external CPU check explains18 raw-X line-only/subpixel additions
+without claiming exact original or per-face raster equivalence.
+[Handoff 0020](handoffs/0020-bevy-offscreen-geometry-diagnostic.md) records74 passing
+workspace tests, locked gates, image identities and preservation. Outer review
+checked all source and documentation, all six overlay images, the bounded CPU
+explanation, 15 candidate identities, 114 local links and 117 frozen external
+artifact identities. Final code hashes match the passing gate receipts; broad
+Rust gates and GPU runs were not repeated. All seven local crates forbid unsafe
+code; no original game/SDK action or fidelity comparison is introduced.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -201,19 +222,21 @@ no original-game evidence or executable functionality.
   desktop/terminal sessions may require restarting to refresh PATH.
 - Bevy 0.19.1 is pinned centrally, with default features disabled and only `std`
   explicitly enabled centrally; rendering additionally enables asset/mesh features
-  at its member boundary. Its declared MSRV is 1.95.0; this workspace supports and
+  at its member boundary; the viewer locally enables PBR/rendering and PNG support.
+  Its declared MSRV is 1.95.0; this workspace supports and
   tests the pinned 1.99.0 compiler. Cargo generated the retained `Cargo.lock`.
 - `cargo metadata --locked --no-deps --format-version 1`, `cargo test --workspace`
-  (67 tests: 14 envelope parser, 25 snapshot parser, nine envelope inspector,
-  eleven snapshot inspector, six Mesh adapter/engine and two lifecycle/failure tests),
+  (74 tests: retained67 plus seven diagnostic camera/preservation/CLI/output cases),
   `cargo fmt --all -- --check`, and
   `cargo clippy --workspace --all-targets -- -D warnings` passed.
 - `cargo run -p bo2-boot -- --smoke` passed with startup=1, updates=3 and
   probe_updates=3, exiting 0. Default smoke/help exit 0; unsupported arguments
   exit 2. These are engine development checks, not original-game comparisons.
-- Dependency/unsafe/asset-boundary review and `git diff --check` passed. No
-  graphical plugin is assembled. Headless adapter checks now assemble Bevy's asset
-  and mesh plugins with an in-memory source; no gameplay comparisons,
+- Boot still assembles no graphical plugin. Headless adapter checks assemble
+  Bevy's asset and mesh plugins with an in-memory source; the separate finite
+  viewer now qualifies actual Bevy graphical extraction/readback on local Vulkan.
+  Dependency/unsafe/asset-boundary and whitespace reviews pass for task 0020;
+  no gameplay comparisons,
   other-platform validation or performance measurements have occurred.
 - The inspector passed all six findings-0002 external samples, with expected
   metadata and ranges, exit 0 and matching disk stems. Its envelope reads totaled
@@ -409,13 +432,13 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Qualify Bevy render-world extraction and external diagnostic image output for
-   the existing raw geometry Mesh boundary. Use synthetic geometry first, then the
-   one accepted external snapshot without transforming source coordinates. Camera
-   framing, neutral display material and culling are diagnostic choices; original
-   orientation, units, visible side and appearance remain unresolved. This enables
-   concrete calibration-patch selection without claiming original rendering.
-2. Separately design/admit one ordinary-name user-created x86
+1. Qualify process/file protection controls on user-created fixtures before any
+   new SDK execution. The bounded task covers exact owned-process and working-
+   directory/module identity, protected config/cache/directory fixtures, pre-load
+   TEMP routing, an independent deadline and owned-child cleanup. Record actual
+   Windows outcomes and gaps; do not infer protection from source alone. Outer
+   review must accept this evidence before admitting the SDK qualifier.
+2. Separately apply accepted protections to one ordinary-name user-created x86
    startup/device/teardown qualifier with process-specific config/cache/directory
    and actual working-directory/module identity protection, pre-load TEMP routing,
    independent deadline and owned crash-child cleanup. Distinguish registration
@@ -440,8 +463,9 @@ only documentation/local configuration. Current executable checks are listed abo
    structures rather than additional envelope metadata alone.
 
 The outer agent sequences those tasks with exactly one active subagent and updates
-this file after reviewing each handoff. Graphical rendering, BO2 entity architecture,
-asynchronous asset loading and gameplay remain unimplemented. Reverse engineering
+this file after reviewing each handoff. Diagnostic graphical output now exists;
+original rendering semantics, BO2 entity architecture, asynchronous asset loading
+and gameplay remain unimplemented. Reverse engineering
 has the bounded
 file-availability, envelope, transport-framing and single decoded-directory
 observations described above; no original-game behavior or appearance comparison.

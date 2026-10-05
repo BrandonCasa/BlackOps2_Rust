@@ -4,8 +4,9 @@
 
 Local Cargo dependency edges are `bo2-boot -> bo2-core`,
 `bo2-asset-inspector -> bo2-assets`, `bo2-map-inspector -> bo2-assets` and
-`bo2-rendering -> bo2-assets`. Core, boot and rendering depend on the same
-workspace-pinned Bevy 0.19.1 release. All six local crates forbid unsafe code.
+`bo2-rendering -> bo2-assets` and `bo2-geometry-viewer -> bo2-assets, bo2-rendering`.
+Core, boot, rendering and the viewer depend on the same workspace-pinned Bevy
+0.19.1 release. All seven local crates forbid unsafe code.
 Core exposes the project name and `headless_app(ScheduleRunnerPlugin)`, a small
 composition function returning a Bevy `App` with `MinimalPlugins`. Bevy owns
 the ECS world, entity identity, schedules, task pools, frame counter, time and
@@ -55,10 +56,21 @@ Its synthetic tests and one complete accepted external snapshot check exercise
 actual headless Bevy Assets<Mesh> ownership; no loader or graphical output is added.
 Assets stays std-only. This bounded task is reviewed and accepted.
 
+The [offscreen raw-geometry diagnostic](diagnostic-geometry-render.md) now composes
+that reader/adapter with Bevy rendering, fixed image targets and screenshot
+readback. Its explicit synthetic/single-snapshot modes preserve raw arrays,
+surface metadata and identity mesh Transform; chosen orthographic cameras,
+neutral unlit solid and built-in one-pixel wireframe are diagnostic display only.
+Outer review accepts the synthetic projection/internal-edge qualification and
+two retained runs of one accepted snapshot identity on Vulkan. Original calibration
+and fidelity remain unresolved. No loader, production-game integration or new
+engine subsystem is introduced.
+
 Bevy is the selected engine, ECS, rendering, and application foundation. The
 [decision record](../adr/0001-bevy-foundation.md) records version evidence and the
-minimal feature choice. Rendering locally enables asset/mesh features, including
-their upstream image support; central defaults remain disabled. Boot assembles no
+minimal feature choice. Rendering locally enables asset/mesh features; the viewer
+locally enables PBR/render/camera/core-pipeline facilities and PNG encoding.
+Central defaults remain disabled. Boot assembles no
 renderer/window/asset plugin. Headless adapter validation assembles Bevy AssetPlugin
 and MeshPlugin with an in-memory source, with no graphical runtime. These diagnostic
 boundaries establish no original-game engine architecture. No custom ECS or renderer
@@ -66,7 +78,8 @@ is approved.
 
 ## Planned responsibilities
 
-Directories other than core, assets, rendering, boot, asset_inspector and map_inspector are reserved
+Directories other than core, assets, rendering, boot, asset_inspector, map_inspector
+and comparison_tools/geometry_viewer are reserved
 locations, not Cargo members or finalized APIs. Add a crate/module only when a
 bounded task supplies evidence
 and justifies its dependency boundary; merge or refine these directories when
@@ -94,7 +107,7 @@ that avoids duplication of Bevy functionality.
 | `game/boot` | Application entrypoint and final assembly; currently a bounded headless lifecycle smoke plugin. |
 | `tools/asset_inspector` | Read-only bounded asset inspectors with permitted output. |
 | `tools/map_inspector` | Current explicit-input diagnostic geometry snapshot counts inspector; further geometry/entity inspection requires separate evidence. |
-| `tools/comparison_tools` | Reproducible behavior/visual/performance comparisons. |
+| `tools/comparison_tools` | Reproducible diagnostics/comparisons; geometry_viewer currently renders raw diagnostic geometry offscreen with unresolved original calibration. |
 | `tests` | Cross-layer tests and explicitly user-created or synthetic fixtures. |
 | `config` | Tracked placeholder templates and ignored local configuration. |
 | `docs/architecture` | Evidence-backed architectural conclusions and boundaries. |

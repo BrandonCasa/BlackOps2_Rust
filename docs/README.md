@@ -39,6 +39,9 @@
 - [SDK startup conditions handoff](handoffs/0018-sdk-capture-startup-write-conditions.md): pinned source closure, role-specific guard conclusions and the next constructor-edge investigation.
 - [SDK Windows startup edge closure](reverse_engineering/0013-sdk-windows-startup-edge-closure.md): early symbol initialization, Breakpad registration/fallback and lazy dump creation.
 - [Windows startup edge handoff](handoffs/0019-sdk-windows-startup-edge-closure.md): three source edges closed with explicit Windows/library leaves and the minimum synthetic identity gate.
+- [Offscreen diagnostic geometry](architecture/diagnostic-geometry-render.md): finite raw-coordinate Bevy views, preserved mesh data and built-in edge overlay.
+- [Bevy render qualification](reverse_engineering/0014-bevy-raw-geometry-render-qualification.md): synthetic projection/edge checks, actual GPU readback and retained external snapshot images.
+- [Offscreen diagnostic handoff](handoffs/0020-bevy-offscreen-geometry-diagnostic.md): implementation, qualified outputs, privacy/preservation limits and workspace validation.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately

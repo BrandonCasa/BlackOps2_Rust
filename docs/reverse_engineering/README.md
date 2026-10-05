@@ -156,3 +156,14 @@ Outer review accepts the three-edge closure after source/evidence/documentation
 and preservation checks. The next implementation task qualifies the existing
 raw-geometry boundary through a Bevy graphical diagnostic with unresolved
 original orientation and units explicitly labeled.
+
+The [Bevy raw-geometry render qualification](0014-bevy-raw-geometry-render-qualification.md)
+now demonstrates preserved diagnostic mesh ownership, actual offscreen Vulkan
+readback and independent synthetic projection/internal-edge checks. One accepted
+snapshot identity is rendered first as a solid baseline, then through the
+outer-authorized built-in edge overlay. Original orientation/units/front/materials
+and appearance remain unresolved. Eighteen raw-X overlay-only pixels are explained
+by existing projected subpixel source edges in a bounded CPU check, with no new
+GPU run or universal identical-silhouette claim. Overall/gameplay/visual fidelity
+remain UNKNOWN. Outer review accepts the diagnostic after source, image, identity,
+preservation and documentation checks; original comparison remains outstanding.

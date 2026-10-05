@@ -125,8 +125,12 @@ records, and checked all ten candidates, 56 relative links, seven pinned source
 anchors and ten handoff headings. Acceptance covers diagnostic storage and engine
 ownership; it does not promote original fidelity.
 
-GPU extraction, graphical output, original appearance/timing comparison,
-coordinate/winding measurement, asynchronous loaders, full attributes/materials,
-profiling, other platforms and forced allocator exhaustion remain unperformed.
+Task 0014 itself performed no GPU extraction or graphical output. The later
+[task 0020 diagnostic tool](diagnostic-geometry-render.md) opts this returned mesh
+into RENDER_WORLD while retaining MAIN_WORLD, and qualifies offscreen images
+with chosen cameras/material/edge overlay. It leaves this adapter contract unchanged.
+Original appearance/timing comparison, coordinate/winding measurement,
+asynchronous loaders, full attributes/materials, profiling, other platforms
+and forced allocator exhaustion remain unperformed.
 The original full Origins objective is unchanged; this adapter proves diagnostic
 storage preservation and engine ownership only.
