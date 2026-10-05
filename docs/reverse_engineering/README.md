@@ -167,3 +167,12 @@ by existing projected subpixel source edges in a bounded CPU check, with no new
 GPU run or universal identical-silhouette claim. Overall/gameplay/visual fidelity
 remain UNKNOWN. Outer review accepts the diagnostic after source, image, identity,
 preservation and documentation checks; original comparison remains outstanding.
+
+The [Windows fixture protection qualification](0015-windows-fixture-protection-qualification.md)
+is reviewed and accepted as PARTIAL. Four user-created cases measure guarded file
+reads/mutation denial, owned directory ACLs, pre-creation TEMP inheritance,
+suspended image admission and exact-pair deadline cleanup. Attribute-only directory
+rename succeeds, and job accounting exceeds the requested active limit; correct
+static ABI and empty-job query-back do not explain that discrepancy. No SDK,
+original, geometry or profile access occurs. Data/access remains INVESTIGATING;
+overall/gameplay/visual fidelity UNKNOWN.

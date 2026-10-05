@@ -76,6 +76,12 @@ and MeshPlugin with an in-memory source, with no graphical runtime. These diagno
 boundaries establish no original-game engine architecture. No custom ECS or renderer
 is approved.
 
+The [capture protection controls](capture-protection-controls.md) are an external
+fixture-only protocol, reviewed and accepted as PARTIAL. Held file sharing, owned DACLs,
+pre-creation TEMP routing, suspended identity admission and exact-pair job cleanup
+are measured; directory-anchor rename and unexpected job accounting remain PARTIAL.
+No production wrapper, SDK execution or Rust/Bevy ownership change is introduced.
+
 ## Planned responsibilities
 
 Directories other than core, assets, rendering, boot, asset_inspector, map_inspector

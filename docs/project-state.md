@@ -214,6 +214,27 @@ Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
 no original-game evidence or executable functionality.
 
+The [Windows fixture protection qualification](reverse_engineering/0015-windows-fixture-protection-qualification.md)
+is reviewed and accepted as PARTIAL. Four finite self-authored x86 cases establish
+held-file mutation denial, owned DACL creation/write denial, parent/child TEMP and
+identity admission, suspended mismatch rejection and exact-pair last-job-handle
+cleanup. Attribute-only directory anchors allow creation and rename; accounting
+reports active4 despite requested limit2. Installed-header static assertions and
+empty-job flags0x2008/limit2 query-back pass without explaining prior accounting.
+[Handoff 0021](handoffs/0021-windows-fixture-protection-qualification.md) and the
+[external protection protocol](architecture/capture-protection-controls.md) retain
+failures, actual limits and next admission gaps. No SDK/original/profile/geometry
+access or tracked code/config/dependency change occurs; the74-test foundation is
+unchanged. Data/access INVESTIGATING and overall/gameplay/visual UNKNOWN.
+
+Task0021 outer review inspected fixture/guardian/build/ABI source and all four
+case receipts, independently checked 100 non-owned tracked/config records, 117
+prior artifacts including timestamps, 11 launch-source/build records and 147
+frozen task artifacts, and passed all seven candidates' 108 local links, ten
+primary links, privacy/LF/heading/whitespace checks. The allowed directory rename,
+missing case2 serialized end-handle values and unproven unidentified-entry teardown
+remain explicit. No additional native case or unchanged Rust/GPU gate was run.
+
 ## Validation state
 
 - Stable Rust 1.99.0, Cargo, rustfmt and Clippy were installed through official
@@ -432,12 +453,13 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Qualify process/file protection controls on user-created fixtures before any
-   new SDK execution. The bounded task covers exact owned-process and working-
-   directory/module identity, protected config/cache/directory fixtures, pre-load
-   TEMP routing, an independent deadline and owned-child cleanup. Record actual
-   Windows outcomes and gaps; do not infer protection from source alone. Outer
-   review must accept this evidence before admitting the SDK qualifier.
+1. Discriminate task0021's unexpected owned-job accounting with one bounded
+   PID-list/creation-time/limit observation on user-created fixtures before any
+   new SDK execution. Retain the job handle for terminal accounting; qualify a
+   directory-name control if the later route requires it. Correct static ABI and
+   empty-job flag query-back do not replace those missing observations. Preserve
+   the consumed four-case results; do not repeat native scenarios automatically.
+   Actual SDK target/child path and early module identity remain unobserved.
 2. Separately apply accepted protections to one ordinary-name user-created x86
    startup/device/teardown qualifier with process-specific config/cache/directory
    and actual working-directory/module identity protection, pre-load TEMP routing,

@@ -42,6 +42,9 @@
 - [Offscreen diagnostic geometry](architecture/diagnostic-geometry-render.md): finite raw-coordinate Bevy views, preserved mesh data and built-in edge overlay.
 - [Bevy render qualification](reverse_engineering/0014-bevy-raw-geometry-render-qualification.md): synthetic projection/edge checks, actual GPU readback and retained external snapshot images.
 - [Offscreen diagnostic handoff](handoffs/0020-bevy-offscreen-geometry-diagnostic.md): implementation, qualified outputs, privacy/preservation limits and workspace validation.
+- [Capture protection controls](architecture/capture-protection-controls.md): external fixture protocol, measured sharing/DACL/identity/job boundaries and admission gaps.
+- [Windows fixture protection](reverse_engineering/0015-windows-fixture-protection-qualification.md): four finite native cases, allowed directory rename, owned ACL denials and unexplained job accounting.
+- [Fixture protection handoff](handoffs/0021-windows-fixture-protection-qualification.md): PARTIAL qualification, terminal cleanup, static ABI audit and next discriminator.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately
