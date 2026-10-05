@@ -138,7 +138,27 @@ original units/up/basis/angles/front and the full calibration remain unresolved.
 Outer review accepts the PARTIAL access investigation after independent source,
 preservation, documentation and supervisor-provenance checks. No original read,
 live availability check or unchanged Cargo gate was repeated. The capture pilot
-is the next bounded access task, not an established calibration route.
+below investigates that candidate without establishing a calibration route.
+
+The [original frame-capture access pilot](reverse_engineering/0011-original-frame-capture-access-pilot.md)
+is PARTIAL and reviewed and accepted by the outer agent. A signed portable x86 RenderDoc route captures
+and replays a user-created D3D11 frame with exact known input/raster/36-byte vertex/
+12-byte index/80-byte constant state and reflection. Corrected same-handle minimal
+identity/headers confirm the catalogued I386/PE32 target. No original process
+query,launch,instrumentation,capture or replay occurred. Actual target SDK folder
+routing and ordinary-name crash startup remain unqualified;capture-mode versus
+replay-mode side effects need source investigation before original admission.
+[Handoff 0017](handoffs/0017-original-frame-capture-access-pilot.md) preserves consumed
+attempts,source-backed contract corrections,guard/job evidence and exact limits.
+Complete synthetic access supplies no original compatibility,Origins view or
+coordinate/fidelity claim. No tracked Rust/Cargo/architecture change occurred;
+task 0014's accepted 67-test baseline is retained without rerunning unchanged gates.
+Outer review independently accepts the exact synthetic result, all 501 frozen
+artifact references, 482 preservation records, 75 local links, 16 pinned source
+anchors, privacy/content/heading checks and the 20 archive-policy cases. The
+482-record parent and worker identities agree exactly; two standard Git line-ending
+warnings were classified without repeating preservation. No original read, SDK
+operation or unchanged Cargo gate was repeated during this final review.
 
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
@@ -361,12 +381,17 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Investigate one separately bounded same-build one-frame capture/replay access
-   pilot, as specified in findings 0010, before the
-   asymmetric-patch camera/visible-side calibration in findings 0009. C2M's fixed
+1. Investigate pinned capture-mode versus replay-mode SDK startup read/write
+   conditions,actual target folder routing and ordinary-name crash-child/TEMP
+   behavior,as specified by the PARTIAL findings0011 pilot. Qualify a supported
+   protected startup route before separately admitting one exact-target x86 menu
+   capture/replay. A menu frame proves transport only;loaded Origins evidence and
+   exact patch/draw correspondence precede the asymmetric-patch camera/visible-side
+   calibration in findings0009. C2M's fixed
    asset addresses and public field labels are not validated access. Original
    active-view consumer/address/schema work is the fallback for missing transform
-   access; no capture or telemetry is usable yet. Original
+   access;synthetic capture/replay is qualified but original compatibility remains
+   untested. Original
    gravity/basis/angle/front state and an independent unit reference remain
    unresolved; diagnostic ambiguity selects no transform. Asynchronous AssetLoader and complete
    attribute/material import remain separately scoped; stream1/layout investigation

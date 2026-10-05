@@ -111,3 +111,18 @@ remains INVESTIGATING; overall, gameplay and visual fidelity UNKNOWN.
 Outer review accepts the PARTIAL access result after independent source,
 preservation, provenance and documentation checks; capture compatibility and
 original coordinate conventions remain unestablished.
+
+The [original frame-capture access pilot](0011-original-frame-capture-access-pilot.md)
+is PARTIAL. One signed portable RenderDoc route captures and replays a user-created
+x86 D3D11 frame with exact known layout,bindings,rasterizer,vertex/index/constants
+and reflection state. Minimal original identity/headers confirm the catalogue's
+I386/PE32 executable. No original runtime attempt occurred: the game's SDK folder
+view and ordinary-name crash startup remain unqualified. Capture-mode versus
+replay-mode write conditions are the next source-level discriminator. Synthetic
+access does not establish game compatibility,loaded Origins state,patch/draw
+correspondence or camera mapping. Original-data understanding remains
+INVESTIGATING; overall,gameplay and visual fidelity UNKNOWN.
+
+Outer review accepts the bounded PARTIAL pilot after independent source, result,
+artifact, preservation, documentation and privacy checks. The next task resolves
+capture-mode startup effects before any original runtime admission.

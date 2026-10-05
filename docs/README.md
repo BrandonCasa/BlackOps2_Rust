@@ -33,6 +33,8 @@
 - [Coordinate evidence handoff](handoffs/0015-origins-coordinate-evidence.md): snapshot-only analysis, excluded handle-position attempt, preservation and the next original calibration.
 - [Original calibration access](reverse_engineering/0010-original-coordinate-calibration-access.md): pinned asset-memory/build assumptions, missing original view access and a conditional graphics-capture candidate.
 - [Calibration access handoff](handoffs/0016-original-calibration-access.md): prerequisite matrix, exact-name availability, conditional frame-access candidate and preservation.
+- [Original frame-capture access pilot](reverse_engineering/0011-original-frame-capture-access-pilot.md): signed portable SDK, current executable bitness, exact synthetic replay state and unresolved original startup routing.
+- [Frame-capture pilot handoff](handoffs/0017-original-frame-capture-access-pilot.md): bounded tool/guard qualification, preserved failures and the next original startup discriminator.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately
