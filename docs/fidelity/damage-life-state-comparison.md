@@ -59,3 +59,20 @@ No scripts were injected, process memory written or original files modified.
 Session ownership is now resolved. Cooperative comparison still requires a
 multiplayer setup with an eligible second player. Source/native investigation
 continues independently; it does not substitute for live cooperative observation.
+
+## Online damage-value cross-check
+
+At the user's request, searched BO2/Origins health and damage on 2026-10-05.
+The [BO2-Reimagined author's change notes](https://github.com/Jbleezy/BO2-Reimagined)
+describe changing ordinary player health from 100 to 150 and zombie damage to
+players from 60 to 50. These baseline claims corroborate the selected local
+script evidence for no-bonus health 100 and actor melee field 60. The mod's changed
+values are not Origins configuration, and its notes are not a live comparison.
+
+Community results commonly propose first-round zombie health 150, normal knife
+damage 150, health growth of 100 per round through round 9, then a 1.1 multiplier.
+These are investigative leads only: search results mix BO1, BO2, BO3 and mods,
+and some player-damage claims conflict at 50 versus 60. Licensed selected spawn,
+weapon and numeric conversion evidence is required before adopting these additional
+constants. No HUD numeric damage display is assumed. Task08 investigates a bounded
+read-only hidden-health observer instead of inferring damage from score or hit count.
