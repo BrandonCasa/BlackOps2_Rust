@@ -1,0 +1,5 @@
+# Copy to the ignored local_assets.toml. Keep both paths outside this repository.
+# Reference template only: the diagnostic boot does not load this configuration.
+[assets]
+installation_root = "<absolute path to your licensed BO2 installation>"
+inspection_output = "<absolute path outside this repository for local inspection output>"

@@ -1,0 +1,9 @@
+[package]
+name = "bo2-boot"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Diagnostic boot scaffold for the Origins Rust reimplementation"
+
+[dependencies]
+bo2-core = { path = "../../crates/core" }
