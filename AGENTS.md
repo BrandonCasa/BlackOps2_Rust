@@ -1,5 +1,15 @@
 # Project rules
 
+## Documentation working set
+
+Start with `docs/project-state.md`, then the source/tests and evidence relevant to
+the next implementation. Dated history snapshots and old handoffs are lookup
+references, not a mandatory full reading list. Keep project state concise and
+replace stale status instead of appending repeated audits. Record one short
+handoff per bounded task; link detailed evidence rather than duplicating it across
+indexes. Documentation supports executable Rust progress and does not substitute
+for implementing and validating the game.
+
 ## Goal and specification
 
 Reimplement Black Ops II Zombies exclusively for Origins in idiomatic stable Rust
