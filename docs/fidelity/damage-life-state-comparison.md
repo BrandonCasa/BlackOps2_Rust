@@ -96,3 +96,28 @@ changed field names without raw values or weakened checks. Full flag-word
 comparison may reject irrelevant flag changes; another controlled fresh-state
 trial must resolve that possibility. Post-trial invalid local-state pointers were
 safely refused without health. No original files or process memory were written.
+
+## Numeric comparison: entity and client mirror trial
+
+The next [qualified finite trial](../reverse_engineering/damage-life-state-13.md)
+used fresh r5354 LAN Origins solo, Nikolai, round 1, score 500 and ammo 8/32.
+The outer agent resumed from the paused baseline and issued no further gameplay
+input. UI snapshots showed ordinary zombies climbing the right spawn-room window,
+then GAME OVER / survived one round with the player prostrate, nearby zombies and
+score 470. Exact attack contacts and lethal timing were not captured or aligned.
+
+Of 1,000 records, 957 were accepted: 914 showed entity current/client mirror
+100/100 and 43 showed 40/40. Both maxima remained 100. The other 43 records refused
+changing local-state pointers and emitted no health. Samples 943 to 944 changed
+100 to 40; 944 through 986 retained 40; 987 returned to 100. Return-to-100 cause is
+unqualified and is not admitted as regeneration, revival or terminal health.
+
+Outer review independently counted these groups and reran the current Rust demo:
+request 0 applies source-backed resolved damage 60 at health 100 and asserts
+`Hurt { before: 100, after: 40 }`; all 21 demo outcomes pass, exit 0. The original
+numeric decrease of 60 agrees with that nonlethal Rust case. This is one scoped
+numeric comparison, with live damage sensitivity now demonstrated in both fields.
+It does not prove a single isolated melee contact, active builtin dispatch,
+full raw-damage policy or lethal/down/revive/bleedout agreement. Fidelity remains
+**APPROXIMATE / INVESTIGATING**; repeat an isolated-hit comparison before claiming
+MATCHED. Original data and numeric receipts remain external.

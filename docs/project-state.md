@@ -24,8 +24,11 @@ Scoped fidelity is APPROXIMATE: active native dispatch, actor arithmetic,
 raw interaction/timing and live agreement remain unresolved. The first
 [original comparison attempt](fidelity/damage-life-state-comparison.md) is PARTIAL;
 unexplained input changes prevented controlled outcome attribution. The user then
-granted session control; solo follow-up observed game-over/results, but no numeric
-damage or coop bleedout comparison. Bleedout comparison needs multiple players.
+granted session control. Solo follow-up observed game-over/results; the latest
+[numeric comparison](fidelity/damage-life-state-comparison.md) captured entity and
+client mirror health 100 to 40, agreeing with the Rust resolved-60 case. Exact
+contact count/timing and return-to-100 cause remain unqualified. Bleedout comparison
+needs multiple players.
 Reviewed [bleedout evidence](reverse_engineering/damage-life-state-06.md) finds a
 source-default 45-second countdown, post-countdown deferral during active revival
 and ordinary spectator disposition. Final spectator health remains unqualified.
@@ -48,8 +51,10 @@ active VM dispatch and execution remain unqualified. The reviewed
 32-bit damage/health/restoration values and rejects oversized inputs atomically.
 Three bounded [dispatch leads](reverse_engineering/damage-life-state-12.md) found
 no active VM slot; that survey is closed without proving execution or overrides.
-Next compare the qualified client health mirror against entity current during
-one controlled trial, then qualify timing admission and compare in multiplayer;
+The [mirror trial](reverse_engineering/damage-life-state-13.md) confirms live field
+sensitivity: 43 accepted samples at 40/40, with maxima 100/100, out of 957 accepted
+and 43 refused records. Next repeat an isolated-hit comparison and qualify one
+ordinary actor terminal transition, then qualify timing admission in multiplayer;
 solo supplies no bleedout proof. Launch the
 original through the desktop Plutonium launcher; Origins uses the robot-head
 planet icon. These increments do not complete original comparisons or the goal.
