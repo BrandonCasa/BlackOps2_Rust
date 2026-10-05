@@ -77,7 +77,7 @@ impl fmt::Debug for ConvexBrush {
 impl ConvexBrush {
     pub fn from_snapshot(snapshot: &BrushSnapshot, _: Convention) -> Result<Self, QueryError> {
         let side_count = snapshot.sides().len();
-        if side_count == 0 || side_count > MAX_SIDES {
+        if (side_count == 0 && snapshot.schema() != 34) || side_count > MAX_SIDES {
             return Err(QueryError::InvalidSnapshot);
         }
         let mins = decode(snapshot.mins_bits());
@@ -170,12 +170,7 @@ impl ConvexBrush {
         }))
     }
 
-    /// Reproduces task0028's declared diagnostic solver thresholds, then tests a
-    /// distinct storage-rounding hypothesis. These thresholds never enter queries.
-    pub fn precision_diagnostics(
-        &self,
-        snapshot: &BrushSnapshot,
-    ) -> Result<PrecisionDiagnostics, QueryError> {
+    fn check_snapshot(&self, snapshot: &BrushSnapshot) -> Result<(), QueryError> {
         let check = Self::from_snapshot(snapshot, Convention::DiagnosticMinusDistanceAtMostZero)?;
         if self.plane_count != check.plane_count
             || self.planes().iter().zip(check.planes()).any(|(a, b)| {
@@ -185,25 +180,57 @@ impl ConvexBrush {
         {
             return Err(QueryError::SnapshotMismatch);
         }
+        Ok(())
+    }
+    /// Linear retained-vertex/plane residual scan, without reconstruction,
+    /// coefficient witnesses or allocations. The old threshold is diagnostic only.
+    pub fn source_vertex_diagnostics(
+        &self,
+        snapshot: &BrushSnapshot,
+    ) -> Result<SourceVertexDiagnostics, QueryError> {
+        self.check_snapshot(snapshot)?;
+        let mut report = SourceVertexDiagnostics {
+            vertices: snapshot.vertices_bits().len(),
+            ..Default::default()
+        };
+        for &words in snapshot.vertices_bits() {
+            let vertex = decode(words);
+            for &plane in self.planes() {
+                let residual = plane.residual(vertex)?;
+                report.max_positive_residual = report.max_positive_residual.max(residual);
+                report.strict_violations += usize::from(residual > 0.0);
+                report.old_tolerant_violations +=
+                    usize::from(residual > plane.old_tolerance(vertex));
+            }
+        }
+        Ok(report)
+    }
+    /// Reproduces task0028's declared diagnostic solver thresholds, then tests a
+    /// distinct storage-rounding hypothesis. These thresholds never enter queries.
+    pub fn precision_diagnostics(
+        &self,
+        snapshot: &BrushSnapshot,
+    ) -> Result<PrecisionDiagnostics, QueryError> {
+        let residuals = self.source_vertex_diagnostics(snapshot)?;
         let vertices: Vec<_> = snapshot
             .vertices_bits()
             .iter()
             .copied()
             .map(decode)
             .collect();
-        let mut report = PrecisionDiagnostics::default();
-        for &v in &vertices {
-            for &plane in self.planes() {
-                let r = plane.residual(v)?;
-                report.max_positive_residual = report.max_positive_residual.max(r);
-                report.strict_violations += usize::from(r > 0.0);
-                report.old_tolerant_violations += usize::from(r > plane.old_tolerance(v));
-            }
-        }
+        let mut report = PrecisionDiagnostics {
+            max_positive_residual: residuals.max_positive_residual,
+            strict_violations: residuals.strict_violations,
+            old_tolerant_violations: residuals.old_tolerant_violations,
+            ..Default::default()
+        };
         let reconstructed = reconstruct(self.planes(), self.mins, self.maxs)?;
         report.reconstructed_vertices = reconstructed.len();
         report.vertex_set_max_error = set_error(&vertices, &reconstructed);
-        if vertices.is_empty() {
+        // With no source side planes there is no coefficient witness to solve.
+        // Endpoint-derived six-axial geometry is diagnostic; stored vertices
+        // need not be complete corners. Preserve their discrepancy explicitly.
+        if vertices.is_empty() || snapshot.sides().is_empty() {
             return Ok(report);
         }
         // Construct ONE joint coefficient witness, not independent per-residual
@@ -293,6 +320,14 @@ impl ConvexBrush {
         };
         Ok(report)
     }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct SourceVertexDiagnostics {
+    pub vertices: usize,
+    pub strict_violations: usize,
+    pub old_tolerant_violations: usize,
+    pub max_positive_residual: f64,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

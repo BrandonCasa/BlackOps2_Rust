@@ -56,6 +56,14 @@ from queries. The inspector exposes this through `--brush`. This is diagnostic
 geometry, with no player hull, collision masks or original trace fidelity yet.
 See the [convex-brush boundary](diagnostic-brush-collision.md).
 
+Schema34 adds a bounded source-keyed collection using the same admitted brush
+data and ConvexBrush abstraction. All selected records are retained, including
+explicitly diagnostic zero-side axial hulls. Allocation-free segment queries visit
+every hull and resolve equal entry parameters by source key. The inspector adds
+`--brush-collection`; retained-vertex residuals and unsupported collision families
+remain explicit. Hashes are caller-checkable declarations, not authentication.
+See the [collection boundary](diagnostic-brush-collection.md).
+
 Rendering now contains the consuming [diagnostic Mesh adapter](diagnostic-mesh-adapter.md).
 It moves validated position/index vectors into Bevy Float32x3/U32 TriangleList
 storage with MAIN_WORLD usage and returns every ordered surface record unchanged.

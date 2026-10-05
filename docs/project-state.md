@@ -25,14 +25,15 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
   and the geometry viewer. Stable Rust 1.99.0 / Bevy 0.19.1 are pinned; retain the
   existing toolchain unless an actual implementation requirement needs a change.
 - `crates/assets`: bounded fastfile envelope inspection and a safe reader for the
-  project-owned geometry snapshot format and external schema28 brush records.
+  project-owned geometry snapshot format, external schema28 brush records and
+  bounded schema34 source-keyed brush collections.
   This is not a complete Rust BO2 decoder.
 - `crates/rendering`: preserves snapshot positions/indices in a Bevy Mesh.
 - `crates/physics`: safe owned convex halfspaces and deterministic point-segment
-  clipping, exercised against one external Origins brush (four sides, sixteen
-  vertices). Precision diagnostics stay separate from collision queries. A joint
-  float32-storage witness is numerically consistent with the stored words; the
-  strict vertex discrepancy remains 0.0005449587606563 raw units.
+  clipping across all 8,417 selected diagnostic map-leaf brushes, including 3,178
+  zero-side axial hulls. Queries preserve coefficients and use exact entry/source-key
+  ties; precision diagnostics stay separate. Original runtime ownership, player
+  traces and zero-side source shape remain unresolved.
 - `tools/comparison_tools/geometry_viewer`: renders three offscreen raw-coordinate
   solid/wireframe views and a windowed perspective inspection scene with diagnostic
   keyboard flight/look/reset. Accepted external snapshot: 191,259 positions,
@@ -64,18 +65,16 @@ measured camera conditions and equivalent reconstructed comparisons remain pendi
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the
    accepted external snapshot instead of restarting asset extraction.
-2. Extend executable queries to the retained diagnostic map-leaf candidate.
-   Task0033 captures and independently replays the bounded graph: all 8,417 ordinary
-   brush IDs are reached; the separate box-associated node 14,967/value 8,417 is
-   excluded from that candidate. Relative child offsets, negative-1 adjacency and
-   zero-root emptiness remain explicit diagnostic interpretations, not T6 trace proof.
-   All 265 model providers are absent, so model ownership/transforms remain unresolved;
-   do not infer that every candidate is an original runtime static from this result.
-   Geometry bodies still need collection admission. Counts fit existing upper caps
-   (0..24 sides, 4..32 vertices); 3,178 zero-side brushes need an explicit diagnostic
-   reader/constructor revision. Their stored vertex counts 6..12 do not establish
-   complete six-axial hull/source-vertex agreement. Preserve that uncertainty.
-   Original brush producer/runtime rounding also remains unverified.
+2. Use the integrated `--brush-collection` queries and retained task0034 geometry
+   to resolve a bounded source/convention discrepancy before player integration.
+   All 8,417 task0033 candidates are admitted without omissions; the separate box
+   is excluded. Traversal remains diagnostic and all 265 model providers are absent,
+   so original static ownership/transforms remain unproved. Full source scans find
+   30,706 strict violations across 4,186 brushes, with maximum positive residual
+   0.09950868785381317 raw units. A zero-side representative has 12 source vertices
+   versus eight axial corners and vertex-set error 4.0. Geometry is preserved;
+   no snapping, contact epsilon or silent exclusion hides those discrepancies.
+   Original producer/runtime rounding and zero-side source shape remain unresolved.
 3. Measure the player hull, collision masks and step/slide rules before integrating
    movement. Point-segment queries do not establish original player traces.
    Camera-capture difficulties must not indefinitely block independent gameplay work.
@@ -122,6 +121,14 @@ implementation keeps the repository's sequential-delegation policy.
 
 ## Validation and essential references
 
+Task0034 integrates the bounded collection reader, owned hull sequence and inspector.
+All 114 workspace tests, locked metadata, formatting and strict Clippy pass; three
+opt-in external tests separately pass. Outer review reruns both collection external
+tests and the retained collection/legacy-brush inspectors successfully. Native
+qualification passes 25 actual cases and 13 independent rejection cases; the single
+original read retains all 17,108 sides and 68,642 vertices. Child/threads are cleaned and prior
+identities preserved. Original player collision remains UNKNOWN; no game trace,
+GPU integration or performance comparison is claimed.
 Task0033 passes 39 actual native cases and 16 independent checker rejection cases.
 Its single original read retains a 2,634,532-byte metadata graph; replay agrees on
 8,417 candidate IDs, 14,551 reached nodes and 40,004 charged work units. Box overlap
@@ -157,6 +164,7 @@ README for the existing snapshot viewer commands. Do not reinstall working tools
 - [One-past leaf-brush identifier](handoffs/0031-origins-leaf-brush-index-namespace.md)
 - [Separate box-brush association](handoffs/0032-origins-box-brush-membership.md)
 - [Diagnostic map-leaf membership](handoffs/0033-origins-map-leaf-brush-membership.md)
+- [Rust brush collection](handoffs/0034-rust-brush-collection.md)
 - [Pending collision result](handoffs/0026-origins-collision-brush-boundary.md)
 - [Collision source/loader evidence](reverse_engineering/0018-origins-collision-brush-boundary.md)
 - [Fidelity status](fidelity/README.md)

@@ -51,13 +51,15 @@ pub struct BrushSide {
 }
 
 // deserialize_with makes every nullable key REQUIRED: absent differs from null.
-fn nullable<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
+pub(crate) fn nullable<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Option<T>, D::Error> {
     Option::<T>::deserialize(d)
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawBrushSnapshot {
+pub(crate) struct RawBrushSnapshot {
     schema: u32,
     brush_index: u32,
     side_first: u32,
@@ -137,11 +139,21 @@ impl BrushSnapshot {
     }
 }
 impl RawBrushSnapshot {
-    fn validate(&self) -> Result<(), BrushError> {
-        if self.schema != 28 {
+    pub(crate) fn admit(
+        self,
+        schema: u32,
+        minimum_sides: usize,
+    ) -> Result<BrushSnapshot, BrushError> {
+        self.validate(schema, minimum_sides)?;
+        Ok(BrushSnapshot(self))
+    }
+    fn validate(&self, schema: u32, minimum_sides: usize) -> Result<(), BrushError> {
+        if self.schema != schema {
             return Err(BrushError::UnsupportedSchema);
         }
-        if !(1..=MAX_SIDES).contains(&self.side_count) || self.vertex_count > MAX_VERTICES {
+        if !(minimum_sides..=MAX_SIDES).contains(&self.side_count)
+            || self.vertex_count > MAX_VERTICES
+        {
             return Err(BrushError::LimitExceeded);
         }
         if self.sides.len() != self.side_count || self.vertices_bits.len() != self.vertex_count {
@@ -200,7 +212,18 @@ pub fn read_brush_snapshot(
     reader: &mut impl Read,
     expected_bytes: u64,
 ) -> Result<BrushSnapshot, BrushError> {
-    if expected_bytes > MAX_BYTES as u64 {
+    let bytes = read_bounded(reader, expected_bytes, MAX_BYTES)?;
+    let snapshot: RawBrushSnapshot =
+        serde_json::from_slice(&bytes).map_err(|_| BrushError::InvalidJson)?;
+    snapshot.admit(28, 1)
+}
+
+pub(crate) fn read_bounded(
+    reader: &mut impl Read,
+    expected_bytes: u64,
+    maximum: usize,
+) -> Result<Vec<u8>, BrushError> {
+    if expected_bytes > maximum as u64 {
         return Err(BrushError::LimitExceeded);
     }
     let mut bytes = Vec::new();
@@ -210,7 +233,7 @@ pub fn read_brush_snapshot(
     let mut scratch = [0u8; 4096];
     let mut interruptions = 0;
     loop {
-        let limit = scratch.len().min(MAX_BYTES + 1 - bytes.len());
+        let limit = scratch.len().min(maximum + 1 - bytes.len());
         let n = match reader.read(&mut scratch[..limit]) {
             Ok(n) => n,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => {
@@ -228,7 +251,7 @@ pub fn read_brush_snapshot(
         if n > limit {
             return Err(BrushError::InvalidReadCount);
         }
-        if bytes.len() + n > MAX_BYTES {
+        if bytes.len() + n > maximum {
             return Err(BrushError::LimitExceeded);
         }
         bytes
@@ -242,8 +265,5 @@ pub fn read_brush_snapshot(
     if bytes.len() as u64 != expected_bytes {
         return Err(BrushError::LengthMismatch);
     }
-    let snapshot: RawBrushSnapshot =
-        serde_json::from_slice(&bytes).map_err(|_| BrushError::InvalidJson)?;
-    snapshot.validate()?;
-    Ok(BrushSnapshot(snapshot))
+    Ok(bytes)
 }

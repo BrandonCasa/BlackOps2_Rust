@@ -394,3 +394,78 @@ impl Drop for Fixture {
         let _ = fs::remove_dir(&self.directory);
     }
 }
+fn synthetic_collection() -> Vec<u8> {
+    use serde_json::{Value, json};
+    let mut brush: Value = serde_json::from_slice(&synthetic_brush()).unwrap();
+    brush["schema"] = json!(34);
+    let mut axial = brush.clone();
+    axial["brush_index"] = json!(0);
+    axial["side_count"] = json!(0);
+    axial["sides"] = json!([]);
+    axial["vertex_first"] = json!(8);
+    axial["vertex_count"] = json!(2);
+    axial["vertices_bits"] = json!([
+        brush["vertices_bits"][0].clone(),
+        brush["vertices_bits"][7].clone()
+    ]);
+    serde_json::to_vec(&json!({"schema":34,"interpretation":"diagnostic_relative_negative_adjacent_zero_empty","source":{"bytes":1,"sha256":"01".repeat(32),"membership_bytes":2,"membership_sha256":"02".repeat(32)},"selection":{"status":"admitted","reached_nodes":3,"keys":[{"provider_id":0,"brush_id":1},{"provider_id":0,"brush_id":0}]},"coverage":{"models":0,"absent_model_providers":0,"box_excluded":true,"triangles":4,"partitions":5,"aabb_trees":6,"static_models":7,"dynents":[0,0,0,0]},"providers":[{"id":0,"planes":1,"sides":1,"vertices":10,"brushes":2,"optional_bounds_present":false,"optional_contents_present":false}],"record_count":2,"records":[{"provider_id":0,"brush":brush},{"provider_id":0,"brush":axial}]})).unwrap()
+}
+#[test]
+fn collection_mode_queries_all_records_reports_zero_side_discrepancy_and_redacts() {
+    let bytes = synthetic_collection();
+    let fixture = Fixture::new(OsStr::new("PRIVATE_COLLECTION.json"), &bytes);
+    let output = run(&[OsStr::new("--brush-collection"), fixture.path.as_os_str()]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    let emitted = text(&output);
+    for expected in [
+        "schema34 diagnostic brush collection contract valid",
+        "selected_records: 2",
+        "admitted_queryable_hulls: 2",
+        "zero_side_axial_diagnostic_hulls: 1",
+        "identity_binding: declarations_only_no_original_authentication",
+        "unsupported_triangles: 4",
+        "exact_entering_then_lowest_source_key",
+        "zero_side_representative_precision: source_vertices=2 reconstructed_vertices=8",
+        "vertex_set_max_error_raw_units=Some(1.0) f32_joint_witness=Unavailable",
+        "diagnostic_six_axial_endpoints_source_shape_unproved",
+        "original_player_collision_fidelity: UNKNOWN",
+    ] {
+        assert!(emitted.contains(expected), "missing {expected}: {emitted}");
+    }
+    assert!(output.stdout.len() < 4096);
+    assert!(output.stderr.is_empty());
+    for private in [
+        "PRIVATE",
+        "1234.125",
+        "normal_bits",
+        "provider_id",
+        "brush_id",
+    ] {
+        assert!(!emitted.contains(private));
+    }
+    assert_eq!(fs::read(&fixture.path).unwrap(), bytes);
+    let again = run(&[OsStr::new("--brush-collection"), fixture.path.as_os_str()]);
+    assert_eq!(output.stdout, again.stdout);
+}
+#[test]
+fn collection_argument_and_admission_failures_redact_and_emit_no_summary() {
+    for args in [
+        vec![OsStr::new("--brush-collection")],
+        vec![
+            OsStr::new("--brush-collection"),
+            OsStr::new("PRIVATE"),
+            OsStr::new("extra"),
+        ],
+    ] {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(!text(&output).contains("PRIVATE"));
+    }
+    for bytes in [b"{PRIVATE".to_vec(), b"{}".to_vec(), synthetic_brush()] {
+        let fixture = Fixture::new(OsStr::new("PRIVATE_BAD_COLLECTION.json"), &bytes);
+        let output = run(&[OsStr::new("--brush-collection"), fixture.path.as_os_str()]);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert!(!text(&output).contains("PRIVATE"));
+    }
+}

@@ -8,15 +8,18 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
+use bo2_assets::brush_collection::{CollectionError, read_brush_collection};
 use bo2_assets::brush_snapshot::{BrushError, read_brush_snapshot};
 use bo2_assets::geometry_snapshot::{GeometrySnapshot, SnapshotError, read_geometry_snapshot};
 use bo2_physics::{
     DVec3,
     brush::{Convention, ConvexBrush, QueryError},
+    brush_collection::BrushCollection,
 };
 
 const HELP: &str = "Usage: bo2-map-inspector [--] <diagnostic-snapshot-file>
        bo2-map-inspector --brush <one-schema28-record>
+       bo2-map-inspector --brush-collection <one-schema34-collection>
        bo2-map-inspector --help
 
 Read-only inspection of one project-owned diagnostic geometry exchange snapshot v1.
@@ -29,6 +32,11 @@ No recursive discovery, configuration loading, automatic originals or output fil
 It emits counts, endpoint-derived point-segment probes and precision diagnostics.
 Diagnostic n dot point - distance <= 0 is not original player collision proof.
 No source coordinates, bits, paths or materials are emitted.
+
+--brush-collection reads an external schema34 collection (32MiB maximum).
+All selected records, including diagnostic zero-side axial hulls, participate.
+Source identity hashes are declarations; standalone inspection cannot authenticate
+the original or prove runtime world ownership. Unsupported families stay explicit.
 
 Exit codes: 0 success/help, 1 input/inspection/output failure, 2 invalid arguments.";
 
@@ -47,6 +55,7 @@ fn main() -> ExitCode {
         Action::Help => writeln!(io::stdout().lock(), "{HELP}").map_err(output_error),
         Action::Inspect(path) => inspect(Path::new(&path)),
         Action::Brush(path) => inspect_brush(Path::new(&path)),
+        Action::BrushCollection(path) => inspect_brush_collection(Path::new(&path)),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -61,6 +70,7 @@ enum Action {
     Help,
     Inspect(OsString),
     Brush(OsString),
+    BrushCollection(OsString),
 }
 
 fn arguments(mut arguments: impl Iterator<Item = OsString>) -> Result<Action, ()> {
@@ -71,6 +81,9 @@ fn arguments(mut arguments: impl Iterator<Item = OsString>) -> Result<Action, ()
         }
         (Some(separator), Some(path), None) if separator == "--" => Ok(Action::Inspect(path)),
         (Some(mode), Some(path), None) if mode == "--brush" => Ok(Action::Brush(path)),
+        (Some(mode), Some(path), None) if mode == "--brush-collection" => {
+            Ok(Action::BrushCollection(path))
+        }
         _ => Err(()),
     }
 }
@@ -81,6 +94,7 @@ enum InspectorError {
     NotRegularFile,
     Snapshot(SnapshotError),
     Brush(BrushError),
+    Collection(CollectionError),
     Query(QueryError),
     OutputIo { kind: io::ErrorKind },
 }
@@ -95,6 +109,7 @@ impl fmt::Display for InspectorError {
             Self::NotRegularFile => output.write_str("input is not a regular file"),
             Self::Snapshot(error) => error.fmt(output),
             Self::Brush(error) => error.fmt(output),
+            Self::Collection(error) => error.fmt(output),
             Self::Query(error) => error.fmt(output),
             Self::OutputIo { kind } => write!(output, "output write failed ({kind:?})"),
         }
@@ -220,6 +235,115 @@ original_game_fidelity: UNKNOWN",
     Ok(())
 }
 
+fn inspect_brush_collection(path: &Path) -> Result<(), InspectorError> {
+    let mut file = File::open(path).map_err(input_error)?;
+    let metadata = file.metadata().map_err(input_error)?;
+    if !metadata.is_file() {
+        return Err(InspectorError::NotRegularFile);
+    }
+    let snapshot =
+        read_brush_collection(&mut file, metadata.len()).map_err(InspectorError::Collection)?;
+    let collection =
+        BrushCollection::from_snapshot(&snapshot, Convention::DiagnosticMinusDistanceAtMostZero)
+            .map_err(InspectorError::Query)?;
+    let zero = snapshot
+        .records()
+        .iter()
+        .filter(|r| r.snapshot().sides().is_empty())
+        .count();
+    let sides: usize = snapshot
+        .records()
+        .iter()
+        .map(|r| r.snapshot().sides().len())
+        .sum();
+    let vertices: usize = snapshot
+        .records()
+        .iter()
+        .map(|r| r.snapshot().vertices_bits().len())
+        .sum();
+    let c = snapshot.coverage();
+    let mut output = io::stdout().lock();
+    let residuals = collection
+        .source_vertex_diagnostics(&snapshot)
+        .map_err(InspectorError::Query)?;
+    writeln!(output,"inspection: schema34 diagnostic brush collection contract valid\nselected_records: {}\nadmitted_queryable_hulls: {}\nzero_side_axial_diagnostic_hulls: {}\nside_records: {}\nsource_vertex_records: {}\nreached_selection_nodes: {}\nselection_interpretation: diagnostic_relative_negative_adjacent_zero_empty\nidentity_binding: declarations_only_no_original_authentication\nsource_coordinates: untransformed\nmodel_providers_absent: {} of {}\nbox_excluded: {}\nunsupported_triangles: {}\nunsupported_partitions: {}\nunsupported_aabb_trees: {}\nunsupported_static_models: {}\nunsupported_dynents: {}\nunsupported: masks_player_hulls_terrain_runtime_transforms\nnearest_tie_policy: exact_entering_then_lowest_source_key\ndata_interpretation_fidelity: INVESTIGATING\noriginal_player_collision_fidelity: UNKNOWN",
+      snapshot.records().len(),collection.brushes().len(),zero,sides,vertices,snapshot.reached_nodes(),c.absent_model_providers,c.models,c.box_excluded,c.triangles,c.partitions,c.aabb_trees,c.static_models,c.dynents.iter().map(|&n|u64::from(n)).sum::<u64>()).map_err(output_error)?;
+    for (group, d) in [("all", residuals.all), ("zero_side", residuals.zero_side)] {
+        writeln!(output,"source_residuals_{group}: strict_violations={} old_tolerant_violations={} strict_affected_brushes={} old_tolerant_affected_brushes={} max_positive_residual_raw_units={:.17}",d.strict_violations,d.old_tolerant_violations,d.strict_affected_brushes,d.old_tolerant_affected_brushes,d.max_positive_residual).map_err(output_error)?;
+    }
+    for (name, index) in [
+        (
+            "positive_representative",
+            snapshot
+                .records()
+                .iter()
+                .position(|r| !r.snapshot().sides().is_empty()),
+        ),
+        (
+            "zero_side_representative",
+            snapshot
+                .records()
+                .iter()
+                .position(|r| {
+                    r.snapshot().sides().is_empty() && r.snapshot().vertices_bits().len() != 8
+                })
+                .or_else(|| {
+                    snapshot
+                        .records()
+                        .iter()
+                        .position(|r| r.snapshot().sides().is_empty())
+                }),
+        ),
+    ] {
+        let Some(index) = index else {
+            writeln!(output, "{name}: unavailable").map_err(output_error)?;
+            continue;
+        };
+        let hull = collection.brushes()[index].hull();
+        let s = snapshot.records()[index].snapshot();
+        let d = hull
+            .precision_diagnostics(s)
+            .map_err(InspectorError::Query)?;
+        writeln!(output,"{name}_precision: source_vertices={} reconstructed_vertices={} strict_violations={} old_tolerant_violations={} vertex_set_max_error_raw_units={:?} f32_joint_witness={:?}\n{name}_geometry: {}",s.vertices_bits().len(),d.reconstructed_vertices,d.strict_violations,d.old_tolerant_violations,d.vertex_set_max_error,d.rounding_witness,if s.sides().is_empty(){"diagnostic_six_axial_endpoints_source_shape_unproved"}else{"preserved_sides_plus_six_axial_endpoints"}).map_err(output_error)?;
+        let [lo, hi] = hull.endpoints();
+        let center = (lo + hi) / 2.0;
+        let span = hi - lo;
+        let probes = [
+            ("midpoint_stationary", center, center),
+            (
+                "x_crossing",
+                center - DVec3::X * span.x,
+                center + DVec3::X * span.x,
+            ),
+            (
+                "y_crossing",
+                center - DVec3::Y * span.y,
+                center + DVec3::Y * span.y,
+            ),
+            (
+                "z_crossing",
+                center - DVec3::Z * span.z,
+                center + DVec3::Z * span.z,
+            ),
+            ("outside_stationary", hi + span, hi + span),
+        ];
+        for (probe, start, end) in probes {
+            match collection
+                .clip_segment(start, end)
+                .map_err(InspectorError::Query)?
+            {
+                Some(hit) => writeln!(
+                    output,
+                    "probe_{name}_{probe}: entering={:.12} exiting={:.12} start_inside={}",
+                    hit.interval.entering, hit.interval.exiting, hit.interval.start_inside
+                ),
+                None => writeln!(output, "probe_{name}_{probe}: no_hit"),
+            }
+            .map_err(output_error)?;
+        }
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
