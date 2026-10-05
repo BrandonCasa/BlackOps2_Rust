@@ -160,6 +160,21 @@ anchors, privacy/content/heading checks and the 20 archive-policy cases. The
 warnings were classified without repeating preservation. No original read, SDK
 operation or unchanged Cargo gate was repeated during this final review.
 
+The [SDK capture startup write investigation](reverse_engineering/0012-sdk-capture-startup-write-conditions.md)
+is reviewed and accepted as PARTIAL. Pinned source distinguishes capture config
+reads from replay-only refresh, while the resolver can create parent directories
+in either role. D3D11 device/cache ownership and common shader initialization also
+apply to capture; dirty cache destruction can write the shared cache. The standard
+crash child exports the replay marker and can refresh config before parsing --crash.
+Default logging, TEMP/template/dump directories and conditional crash-report/UI
+effects are traced. Directly reached Windows/Breakpad constructor edges and actual
+target/child resolver identity remain unknown within the bounded source closure.
+[Handoff 0018](handoffs/0018-sdk-capture-startup-write-conditions.md) records the
+role/phase/predicate conclusions and validation. No SDK, original or Cargo runtime
+action occurs; six safe Rust crates and Bevy boundaries remain unchanged. Data/access
+understanding remains INVESTIGATING; overall, gameplay and visual fidelity UNKNOWN.
+The full stable Rust with Bevy Origins objective remains active and unfinished.
+
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
 and escalation requirements. The skill task is reviewed and accepted; it adds
@@ -381,11 +396,15 @@ only documentation/local configuration. Current executable checks are listed abo
 
 ## Next bounded work
 
-1. Investigate pinned capture-mode versus replay-mode SDK startup read/write
-   conditions,actual target folder routing and ordinary-name crash-child/TEMP
-   behavior,as specified by the PARTIAL findings0011 pilot. Qualify a supported
-   protected startup route before separately admitting one exact-target x86 menu
-   capture/replay. A menu frame proves transport only;loaded Origins evidence and
+1. Close the directly reached Win32 Callstack and Breakpad ExceptionHandler/
+   MinidumpGenerator constructor startup edges in a separately bounded immutable
+   public-source task, as identified by findings 0012. Then separately qualify an
+   ordinary-name user-created x86 startup/device/teardown route with process-specific
+   config/cache/directory identity protection, pre-load TEMP routing and owned
+   crash-child cleanup. A supported pre-init config/cache override is not established
+   within the inspected APIs; no universal impossibility is claimed. The outer agent
+   reviews that evidence before any exact-target x86 menu capture/replay admission.
+   A menu frame proves transport only; loaded Origins evidence and
    exact patch/draw correspondence precede the asymmetric-patch camera/visible-side
    calibration in findings0009. C2M's fixed
    asset addresses and public field labels are not validated access. Original

@@ -126,3 +126,18 @@ INVESTIGATING; overall,gameplay and visual fidelity UNKNOWN.
 Outer review accepts the bounded PARTIAL pilot after independent source, result,
 artifact, preservation, documentation and privacy checks. The next task resolves
 capture-mode startup effects before any original runtime admission.
+
+The [SDK capture startup write conditions](0012-sdk-capture-startup-write-conditions.md)
+are PARTIAL. Capture mode reads configuration without refreshing its file, but
+the resolver can create parents and D3D11 capture devices can dirty/save the
+shared cache. The standard crash child is replay-marked and can refresh config
+before parsing --crash. TEMP logging/directory and conditional crash-report/UI
+effects are traced separately. Directly reached Windows/Breakpad constructor
+edges and actual target/child folder identities remain unknown. The next bounded
+public-source task closes those edges before ordinary-name synthetic startup
+qualification. No SDK or original runtime action occurs; data/access understanding
+remains INVESTIGATING, overall/gameplay/visual fidelity UNKNOWN, and the full
+stable Rust with Bevy Origins objective remains active.
+
+Outer review accepts the bounded PARTIAL source closure after source-predicate,
+terminal-identity, documentation and preservation checks. No runtime is admitted.
