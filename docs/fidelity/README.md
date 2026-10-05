@@ -1,12 +1,17 @@
 # Fidelity status
 
-Overall status: **UNKNOWN**. No original data or live behavior has been inspected,
-and no gameplay, rendering, or comparison system has been implemented. Successful
-workspace compilation, when available, will not constitute fidelity evidence.
+Overall status: **UNKNOWN**. External Origins geometry has been inspected, and
+safe Rust readers, a Bevy Mesh adapter and an offscreen diagnostic renderer are
+qualified. Original orientation, units, camera, materials and appearance remain
+unresolved. No live Origins comparison or evidence-backed gameplay system is
+implemented. Compilation and synthetic tool qualification are not fidelity proof.
+
+Data/access understanding is **INVESTIGATING**; [project state](../project-state.md)
+records accepted evidence and its limits.
 
 | System | Status | Comparison evidence |
 | --- | --- | --- |
-| Geometry, visuals, lighting, and animation | UNKNOWN | None |
+| Geometry, visuals, lighting, and animation | UNKNOWN | No original comparison; [diagnostic tooling only](../architecture/diagnostic-geometry-render.md) |
 | Movement, input, physics, and collision | UNKNOWN | None |
 | Weapons, projectiles, damage, and death | UNKNOWN | None |
 | Zombies, AI, navigation, spawning, and rounds | UNKNOWN | None |

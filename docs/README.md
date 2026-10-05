@@ -49,6 +49,9 @@
 - [Owned-job inventory discriminator](reverse_engineering/0016-windows-owned-job-inventory-discriminator.md): fresh distinct member accounting, live limit query-back, one rejected probe and retained-job teardown.
 - [Inventory discriminator handoff](handoffs/0022-windows-owned-job-inventory-discriminator.md): two consumed scenarios, retained A failure, exact cleanup and qualification limits.
 
+- [Ordinary SDK startup qualifier](architecture/ordinary-sdk-startup-qualification.md): concrete phase/path/registration protocol, compile-only candidates, uninvoked controller and separate runtime review predicates.
+- [Qualifier preparation handoff](handoffs/0023-ordinary-sdk-startup-qualifier-design.md): PARTIAL preparation, synthetic checks, preserved prior freezes and unmeasured runtime limits.
+
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately
 from inferences and unknowns.

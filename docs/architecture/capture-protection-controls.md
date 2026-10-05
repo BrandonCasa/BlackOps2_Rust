@@ -133,3 +133,20 @@ are not authorization to apply profile ACLs or evidence of a supported pre-init
 SDK path override. Windows/library effects remain untraced leaves; they are not
 an invented universal no-write requirement or a full-goal blocker. Any SDK or
 original runtime remains separately scoped and admitted.
+
+The [ordinary SDK qualifier preparation](ordinary-sdk-startup-qualification.md)
+now supplies that concrete phase protocol, compile-only native candidates and
+an uninvoked Windows controller. It remains PARTIAL and admits no runtime.
+Exact existing conf/cache guards plus an absent-before owned staging sentinel
+precede loading; the standard child's resolver/CWD/module correspondence is an
+explicit same-context source inference. Direct child pre-init observation and
+direct registration-success querying are unavailable in the inspected interfaces.
+Lossless target-log evidence and namespace stability need explicit scoped review;
+they are not universal no-write requirements. The watchdog acts independently
+of the native body, and retained-job terminal evidence precedes guard release.
+FreeLibrary success alone does not prove SDK module disappearance. Task0021's
+rename/historical gaps and task0022's A omission/general-quota limits remain intact.
+Outer review accepts this PARTIAL preparation and requires the concrete repairs
+listed in its design before execution: canonical paths, constructor ownership,
+module gates, normal exit, evidence binding and cleanup/budget reporting. Accepted
+preparation is not runtime admission.

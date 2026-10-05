@@ -467,16 +467,35 @@ occurs; unchanged74-test Cargo/GPU/inspector gates are intentionally not repeate
 The outer agent reviewed and accepted this scoped PARTIAL result. Independent
 raw-buffer/member/launch/teardown/preservation checks pass; all242 frozen worker
 artifacts and six candidate identities match before outer documentation edits.
-The next selected task is the concrete ordinary-name SDK qualifier design;
-native SDK execution requires its separately reviewed protocol.
+The [ordinary SDK qualifier design](architecture/ordinary-sdk-startup-qualification.md)
+and [handoff0023](handoffs/0023-ordinary-sdk-startup-qualifier-design.md) now prepare
+that concrete protocol with compile-only x86 candidates, synthetic checks and an
+uninvoked Windows controller. Outer review accepts the PARTIAL preparation with
+specific repairs required before execution. Frozen artifact/candidate/build
+identities,66 copied pure tests and four pre-admission rejections pass independent
+review; the canonical-prefix mismatch is independently reproduced on an owned file.
+Existing cache, a selectable existing/owned-absent conf guard and an owned
+absent-before staging guard precede loading; current profile state is unobserved.
+standard-child path/CWD/module correspondence uses an explicit same-context source
+inference. Registration success has no public direct query; complete target logs
+support inferred success or witnessed fallback. Namespace/log-delivery assumptions
+and actual controller/watchdog/guard/teardown behavior remain unmeasured. No SDK,
+native fixture or profile runtime is consumed, no prior scenario is repeated, and
+the unchanged74-test Cargo/GPU/inspector baseline is intentionally SKIPPED.
+All seven safe Rust crates and Bevy ownership remain unchanged; data/access stays
+INVESTIGATING and overall/gameplay/visual fidelity UNKNOWN. The concrete next step
+is outer review of exact candidates and those scoped admission predicates before
+any separately admitted startup/device/teardown runtime.
 
 ## Next bounded work
 
-1. Outer-review the concrete ordinary-name user-created x86 SDK startup/device/
-   teardown qualifier design using fresh exact-job PID inventory and retained-job
-   cleanup. Establish process-specific config/cache/CWD/TEMP/early-module identity
-   gates and registration-success/fallback evidence; qualify a directory-name
-   control only if required by that route before separate execution admission.
+1. Repair task0023's concrete ordinary-name x86 qualifier: canonical paths,
+   partial-construction ownership, pre-effect module gates, normal-exit observation,
+   identity-bound raw evidence and accurate admission/budget/cleanup reporting.
+   Test its actual controller path and compile the corrected native fixture without
+   runtime. Then review exact source/build manifests, same-context child inference
+   and target-log evidence before separate execution admission. Qualify
+   a directory-name control only for a named race required by that route.
    Preserve task0021's four cases and task0022's two cases/A probe omission; no
    automatic scenario repeat. Historical inventory/general quota rules and actual
    SDK identities remain unproven. Avoid a generic process-control detour.

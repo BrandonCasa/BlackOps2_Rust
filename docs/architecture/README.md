@@ -79,8 +79,19 @@ is approved.
 The [capture protection controls](capture-protection-controls.md) are an external
 fixture-only protocol, reviewed and accepted as PARTIAL. Held file sharing, owned DACLs,
 pre-creation TEMP routing, suspended identity admission and exact-pair job cleanup
-are measured; directory-anchor rename and unexpected job accounting remain PARTIAL.
+are measured. Fresh exact-job inventory accounts for the observed2/4 distinct
+members and qualifies retained-job teardown. Directory-name enforcement, general
+quota behavior and historical last-close inventory remain unresolved.
 No production wrapper, SDK execution or Rust/Bevy ownership change is introduced.
+
+The [ordinary SDK startup qualifier](ordinary-sdk-startup-qualification.md)
+prepares one concrete external x86 phase protocol, compiled native candidates,
+synthetic checks and an uninvoked Windows controller. Its PARTIAL preparation
+separates exact file guarding from same-context standard-child path inference,
+registration log evidence, actual module observations and retained-job teardown.
+No SDK runtime, new engine subsystem or Rust unsafe exception is admitted.
+Outer review accepts the preparation with concrete controller/fixture repairs
+required before execution; see its source-review section.
 
 ## Planned responsibilities
 
