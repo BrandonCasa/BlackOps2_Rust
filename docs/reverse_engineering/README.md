@@ -3,9 +3,10 @@
 A bounded [local asset catalog](0001-local-asset-catalog.md) records a
 Steam-registered BO2 source, aggregate file metadata, Origins candidate
 identifiers, and representative prefix/hash observations. Data availability is
-INVESTIGATING. No scripts, entity definitions or live behavior have been inspected;
-gameplay and visual fidelity remain UNKNOWN. No engine/game API is approved from
-the filename and prefix evidence.
+INVESTIGATING. Later [Origins mechanics research](origins-mechanics/README.md)
+interprets retained licensed compiled scripts for bounded gameplay questions.
+Gameplay and visual fidelity remain UNKNOWN without original comparisons; no
+engine/game API is approved from filename and prefix evidence.
 
 Each bounded investigation should record its question, source/build identifiers,
 reproducible inspection procedure, observed structure, permitted measurements,

@@ -80,6 +80,21 @@ work does not itself advance the implemented game.
 
 ## Restart and pending work
 
+### Origins mechanics research
+
+Dedicated source-only research is on `codex/origins-mechanics-research`; see
+[coverage and gaps](reverse_engineering/origins-mechanics/README.md),
+[proposed shared boundaries](architecture/origins-mechanics-proposal.md) and
+[dependency-ordered tasks](reverse_engineering/origins-mechanics/implementation-backlog.md).
+Original compiled-script interpretation supports representative round accounting,
+perk purchase, generator capture and inventory/progression transitions. These
+documents propose future gameplay work; they add no production Rust or fidelity
+comparison. Research fidelity is INVESTIGATING, gameplay remains UNKNOWN.
+The other chats own collision/movement, appearance and damage/downing/revival.
+Shared original-game input requires runtime-owner coordination.
+This research uses the user's specific four-worker exception; ordinary
+implementation keeps the repository's sequential-delegation policy.
+
 - Previous Goal chat is paused; its worker finished and reports no owned operation
   running. Its hourly auto-resume monitor is also paused.
 - The latest reviewed collision increments are linked in the handoffs below.

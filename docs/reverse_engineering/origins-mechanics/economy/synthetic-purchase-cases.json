@@ -1,0 +1,25 @@
+{
+  "purpose": "Synthetic abstract purchase oracle; not original-runtime or production-game tests",
+  "defaults": {"points": 2500, "price": 2500, "count": 0, "limit": 4, "zone_controlled": true, "global_power": false, "active_owned": false, "paused_owned": false, "busy": false},
+  "cases": [
+    {"id": "one_point_short", "input": {"points": 2499}, "expect": "insufficient", "balance": 2499},
+    {"id": "exact_price", "input": {}, "expect": "paid_pending", "balance": 0},
+    {"id": "one_point_surplus", "input": {"points": 2501}, "expect": "paid_pending", "balance": 1},
+    {"id": "capacity_equal", "input": {"count": 4}, "expect": "capacity", "balance": 2500},
+    {"id": "capacity_below", "input": {"count": 3}, "expect": "paid_pending", "balance": 0},
+    {"id": "active_duplicate", "input": {"active_owned": true}, "expect": "owned", "balance": 2500},
+    {"id": "paused_duplicate", "input": {"paused_owned": true}, "expect": "owned", "balance": 2500},
+    {"id": "busy_before_duplicate", "input": {"busy": true, "active_owned": true}, "expect": "busy", "balance": 2500},
+    {"id": "owned_before_power", "input": {"active_owned": true, "zone_controlled": false}, "expect": "owned", "balance": 2500},
+    {"id": "power_before_points", "input": {"zone_controlled": false, "points": 2499}, "expect": "unpowered", "balance": 2499},
+    {"id": "points_before_capacity", "input": {"points": 2499, "count": 4}, "expect": "insufficient", "balance": 2499},
+    {"id": "global_power_does_not_substitute", "input": {"zone_controlled": false, "global_power": true}, "expect": "unpowered", "balance": 2500},
+    {"id": "supplied_effective_price", "input": {"price": 1200, "points": 1200}, "expect": "paid_pending", "balance": 0, "note": "Invented effective price tests one application; no modifier factor claimed"},
+    {"id": "supplied_dynamic_cap", "input": {"limit": 5, "count": 4}, "expect": "paid_pending", "balance": 0, "note": "Invented callback result; no Origins cap override claimed"}
+  ],
+  "staged_cases": [
+    {"id": "pending_then_complete_then_repeat", "events": ["use", "use", "complete", "use"], "balance": 0, "grants": 1, "debits": 1, "owned": true, "count": 1},
+    {"id": "pending_then_cancel", "events": ["use", "cancel"], "balance": 0, "grants": 0, "debits": 1, "owned": false, "count": 0}
+  ],
+  "excluded": ["same-frame script-thread scheduling", "power-loss completion race", "native weapon animation duration", "life-state persistence", "global refund policy", "modifier activation and formula"]
+}
