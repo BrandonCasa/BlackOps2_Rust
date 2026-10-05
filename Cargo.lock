@@ -542,6 +542,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo2-asset-inspector"
+version = "0.1.0"
+dependencies = [
+ "bo2-assets",
+]
+
+[[package]]
+name = "bo2-assets"
+version = "0.1.0"
+
+[[package]]
 name = "bo2-boot"
 version = "0.1.0"
 dependencies = [

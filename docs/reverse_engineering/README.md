@@ -22,6 +22,7 @@ sample observations and primary-source corroboration of PC version 147, a
 312-byte envelope and a conservative metadata-inspector contract. Format
 understanding is INVESTIGATING; signature and payload validity remain unknown.
 
-Next bounded work: implement the envelope-only inspector after outer-agent review.
-Payload decoding, loader APIs, shared game structures and gameplay require later
-evidence tasks.
+The [envelope inspector handoff](../handoffs/0006-fastfile-envelope-inspector.md)
+records the implemented conservative metadata parser/tool, synthetic tests and
+six unchanged external sample identities. Payload decoding, loader APIs, shared
+game structures and gameplay require later evidence tasks.

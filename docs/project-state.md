@@ -6,9 +6,10 @@ Overall objective: faithful personal-use Origins reimplementation in stable Rust
 with Bevy, reusable Zombies architecture, and external licensed assets.
 
 Foundation task is reviewed and accepted. Local Git is initialized on
-`main`, with no remote. Only `bo2-core` and `bo2-boot` are Cargo members.
-Boot now runs a minimal headless Bevy lifecycle smoke check. All other
-responsibility directories remain placeholders. A bounded external asset catalog
+`main`, with no remote. `bo2-core`, `bo2-boot`, `bo2-assets` and
+`bo2-asset-inspector` are Cargo members. Boot runs a minimal headless Bevy lifecycle
+smoke check; assets/tooling now provide one signed-PC envelope metadata inspector.
+Other responsibility directories remain placeholders. A bounded external asset catalog
 has inspected original file metadata and representative container prefixes/hashes.
 No original scripts, entity definitions or runtime behavior have been inspected.
 Overall, gameplay and visual fidelity remain **UNKNOWN**.
@@ -16,8 +17,11 @@ Overall, gameplay and visual fidelity remain **UNKNOWN**.
 The [fastfile envelope investigation](reverse_engineering/0002-fastfile-envelope.md)
 has established a conservative 312-byte signed PC metadata contract on six
 samples, corroborated against immutable public OAT source. Format understanding is
-**INVESTIGATING**; handoff 0005 is reviewed and accepted. No inspector or payload
-decoder is implemented, and no signature or full-file validity is established.
+**INVESTIGATING**; handoff 0005 is reviewed and accepted. The conservative
+envelope-only inspector is implemented with bounded reads, typed redacted errors
+and synthetic tests; [handoff 0006](handoffs/0006-fastfile-envelope-inspector.md)
+is reviewed and accepted. No payload decoder, signature verification or
+full-file validity is established.
 
 The ten required repository-local skills are present under `.agents/skills/`.
 Each guides one bounded responsibility with evidence, implementation, validation
@@ -33,8 +37,9 @@ no original-game evidence or executable functionality.
 - Bevy 0.19.1 is pinned centrally, with default features disabled and only `std`
   explicitly enabled. Its declared MSRV is 1.95.0; this workspace supports and
   tests the pinned 1.99.0 compiler. Cargo generated the retained `Cargo.lock`.
-- `cargo metadata --no-deps --format-version 1`, `cargo test --workspace` (two
-  lifecycle/failure tests), `cargo fmt --all -- --check`, and
+- `cargo metadata --locked --no-deps --format-version 1`, `cargo test --workspace`
+  (25 tests: 14 parser, nine inspector and two lifecycle/failure tests),
+  `cargo fmt --all -- --check`, and
   `cargo clippy --workspace --all-targets -- -D warnings` passed.
 - `cargo run -p bo2-boot -- --smoke` passed with startup=1, updates=3 and
   probe_updates=3, exiting 0. Default smoke/help exit 0; unsupported arguments
@@ -42,6 +47,12 @@ no original-game evidence or executable functionality.
 - Dependency/unsafe/asset-boundary review and `git diff --check` passed. No
   graphical or asset-loading plugin is assembled; no gameplay comparisons,
   other-platform validation or performance measurements have occurred.
+- The inspector passed all six findings-0002 external samples, with expected
+  metadata and ranges, exit 0 and matching disk stems. Its envelope reads totaled
+  1,872 bytes. Separate before/after full-stream hashes (12 passes), lengths and
+  write times matched the accepted sample identities and showed no mutation.
+  The validation driver and metadata JSON remain in the configured external output.
+  Those checks establish metadata support, not authentication or gameplay fidelity.
 - The bundled skill-creator validator accepted all ten skills using an isolated
   uv/PyYAML environment. Exact skill names, folder names and all 30 relative
   skill links/handoff anchors were checked. Skill acceptance remains unchanged.
@@ -61,15 +72,15 @@ SHA-256 identities; no originals were copied, decoded, extracted or modified.
 Absolute installation/output roots are set only in ignored
 `config/local_assets.toml`; inspection summaries stay external. The schema matches
 the tracked example, and boot does not load it. The catalog/handoff is reviewed
-and accepted. Code/compiler gates were not rerun for this
-documentation/configuration-only task; the accepted Bevy validation above remains
-the executable baseline.
+and accepted. The catalog task did not rerun compiler gates because it changed
+only documentation/local configuration. Current executable checks are listed above.
 
 ## Next bounded work
 
-1. Implement one bounded safe Rust envelope-only metadata inspector using
-   findings 0002 and the accepted [handoff 0005](handoffs/0005-fastfile-envelope-evidence.md).
-   Payload decoding and Bevy loader integration require separate evidence tasks.
+1. Investigate the authenticated block framing immediately after the 312-byte
+   signed-PC fastfile envelope. Establish the next bounded metadata-reader
+   contract, using local samples and primary-source corroboration. Keep payload
+   decoding, cryptographic keys and Bevy loader implementation out of that task.
 2. Document observable shared engine/game structures and evidence-backed
    ECS/asset boundaries in later bounded tasks.
 
@@ -91,3 +102,7 @@ boundaries and exclusion of real source/output paths from tracked documentation.
 Envelope review independently confirmed marker/version/auth-marker/flags/name
 fields and bounds across all six samples and inspected cited primary format
 sources. The support contract remains intentionally narrower than a full decoder.
+Inspector review covered every new source/test and the format/tool boundary.
+Independent locked metadata, 25 workspace tests, formatting, Clippy, Bevy smoke,
+inspector build and six real-sample CLI checks passed. Sample hashes, lengths and
+write times were unchanged; paths and opaque bytes remain excluded from output.

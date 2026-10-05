@@ -1,0 +1,10 @@
+[package]
+name = "bo2-asset-inspector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Explicit-input read-only signed PC fastfile envelope inspector"
+
+[dependencies]
+bo2-assets = { path = "../../crates/assets" }

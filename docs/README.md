@@ -12,6 +12,7 @@
 - [Asset catalog handoff](handoffs/0004-licensed-asset-catalog.md): read-only discovery, output boundaries and validation.
 - [Fastfile envelope evidence](reverse_engineering/0002-fastfile-envelope.md): 312-byte signed PC metadata contract, source corroboration and unknown payload boundaries.
 - [Envelope evidence handoff](handoffs/0005-fastfile-envelope-evidence.md): bounded sample observations, inspector scope and validation.
+- [Envelope inspector handoff](handoffs/0006-fastfile-envelope-inspector.md): reusable bounded parser, explicit-input CLI, synthetic tests and six external sample checks.
 
 Keep original assets, raw extractions, copyrighted scripts, dumps, and local
 installation paths outside tracked documentation. Record observations separately

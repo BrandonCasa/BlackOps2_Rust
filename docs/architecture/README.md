@@ -2,8 +2,9 @@
 
 ## Current implementation
 
-The local Cargo dependency edge is `bo2-boot -> bo2-core`; both also depend on the
-same workspace-pinned Bevy 0.19.1 release. Both local crates forbid unsafe code.
+Local Cargo dependency edges are `bo2-boot -> bo2-core` and
+`bo2-asset-inspector -> bo2-assets`. Core and boot depend on the same
+workspace-pinned Bevy 0.19.1 release. All four local crates forbid unsafe code.
 Core exposes the project name and `headless_app(ScheduleRunnerPlugin)`, a small
 composition function returning a Bevy `App` with `MinimalPlugins`. Bevy owns
 the ECS world, entity identity, schedules, task pools, frame counter, time and
@@ -15,6 +16,25 @@ updates and an `AppExit` message from the final schedule. The smoke check's thre
 updates and 1 ms runner pause have no original-game or fixed-step meaning. No
 gameplay components, simulation rate or BO2 entity schema is approved by this task.
 
+Assets contains one std-only reusable fastfile format adapter supported by
+[findings 0002](../reverse_engineering/0002-fastfile-envelope.md). Its
+`inspect_pc_signed_envelope` API accepts a reader at offset zero and a length from
+the same opened file. It stages 12 then 312 bytes in one fixed buffer and retains
+only metadata, including at most 31 allocated name bytes. Unsupported variants,
+truncation, malformed authentication markers, observed length inconsistency and
+I/O failures are distinct typed errors containing no paths or raw invalid fields.
+The name never becomes a file reference. Signature bytes are discarded; the
+remainder is not read. Larger length claims and concurrent source mutation remain
+unverified outside the envelope. Metadata success never establishes authentication,
+payload validity or loadability.
+
+The thin inspector opens one explicit regular file read-only and obtains metadata
+from that same handle. Disk-stem comparison is diagnostic and emits no source
+path or disk stem. No TOML discovery, recursive inventory, Bevy asset loader,
+asset server, engine or entity abstraction is introduced. The format/tooling
+boundary has no Bevy dependency because it uses no engine facilities; Bevy keeps
+all existing engine ownership.
+
 Bevy is the selected engine, ECS, rendering, and application foundation. The
 [decision record](../adr/0001-bevy-foundation.md) records version evidence and the
 minimal feature choice. No renderer/window/asset plugin is assembled. Some
@@ -24,8 +44,9 @@ findings yet. No custom ECS or renderer is approved.
 
 ## Planned responsibilities
 
-Directories other than core and boot are reserved locations, not Cargo members
-or finalized APIs. Add a crate/module only when a bounded task supplies evidence
+Directories other than core, assets, boot and asset_inspector are reserved
+locations, not Cargo members or finalized APIs. Add a crate/module only when a
+bounded task supplies evidence
 and justifies its dependency boundary; merge or refine these directories when
 that avoids duplication of Bevy functionality.
 
