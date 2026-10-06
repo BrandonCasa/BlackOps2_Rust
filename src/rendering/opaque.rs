@@ -23,7 +23,7 @@ use bevy::{
     shader::{Shader, ShaderImport, ShaderRef},
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const SHADER: Handle<Shader> = uuid_handle!("d61788a5-711f-4eb1-a7f7-bd1b9558da81");
 const VERTEX_SHADER: Handle<Shader> = uuid_handle!("e6ed1727-30d7-4c74-b53d-59cb68d0fa84");
@@ -290,6 +290,8 @@ pub(super) struct SurfaceLibrary {
     probes: Vec<ProbeDefinition>,
     static_colors: HashMap<u64, Handle<Image>>,
     lighting_vertices: HashMap<usize, Vec<f32>>,
+    // Providers outlive scene instances and their released CPU vertex copies.
+    pub(super) prepared_meshes: HashSet<AssetId<Mesh>>,
     lightmaps: HashMap<String, Handle<Image>>,
     black_cube: Handle<Image>,
     // Identity + source node lighting metadata preserves assignment-specific materials.
@@ -566,6 +568,7 @@ pub(super) fn initialize(
             static_colors,
             lighting_vertices,
             lightmaps: HashMap::new(),
+            prepared_meshes: HashSet::new(),
             black_cube: images.add(cube),
             materials: HashMap::new(),
             animation_clock: buffers.add(ShaderBuffer::from(Vec4::ZERO)),
@@ -759,6 +762,7 @@ pub(super) fn convert(
     status.pending = 0;
     for (entity, original, name, mesh) in &query {
         let Some(base) = standard.get(&original.0) else {
+            status.pending += 1;
             continue;
         };
         let Some(definition) = library.definitions.get(&name.0) else {
@@ -798,6 +802,14 @@ pub(super) fn convert(
             let sh = probe
                 .map(|i| library.probes[i].sh)
                 .unwrap_or([Vec4::ZERO; 3]);
+            // Integrate the reconstructed SH polynomial over the sphere once
+            // per shared material. Spare RGB uniform lanes avoid fragment work.
+            let probe_fill = if lightmap_path.is_none() && colors.is_none() && !tile {
+                (sh[0].truncate() * (sh[1].w + sh[0].w / 3.)).max(Vec3::ZERO)
+                    * profile.prop_probe_fill
+            } else {
+                Vec3::ZERO
+            };
             let parameters = SurfaceParameters {
                 // Raw normals use the retained opaque slope convention. Gloss is mapped
                 // continuously; F0 approximates the researched squared source specular RGB.
@@ -848,7 +860,7 @@ pub(super) fn convert(
                         0
                     },
                 ),
-                lighting: Vec3::ZERO.extend(probe.is_some() as u32 as f32),
+                lighting: probe_fill.extend(probe.is_some() as u32 as f32),
                 sh0: sh[0],
                 sh1: sh[1],
                 sh2: sh[2],
@@ -920,7 +932,8 @@ pub(super) fn convert(
         };
         // Baked-light exclusion is a material pipeline key, without allocating a
         // dummy Bevy lightmap slot (and mesh bind group) for every placement.
-        {
+        let mesh_id = mesh.0.id();
+        if !library.prepared_meshes.contains(&mesh_id) {
             let lighting_vertices = server
                 .get_path(mesh.0.id())
                 .and_then(|path| {
@@ -935,6 +948,7 @@ pub(super) fn convert(
                 })
                 .and_then(|index| library.lighting_vertices.get(&index));
             let Some(mut mesh) = meshes.get_mut(&mesh.0) else {
+                status.pending += 1;
                 continue;
             };
             if mesh.attribute(Mesh::ATTRIBUTE_UV_1).is_none() {
@@ -970,6 +984,7 @@ pub(super) fn convert(
                 mesh.insert_attribute(ROTATION1, vec![[1., 0., 0., 1.]; count]);
                 mesh.insert_attribute(ROTATION2, vec![[1., 0., 0., 1.]; count]);
             }
+            library.prepared_meshes.insert(mesh_id);
         }
         commands
             .entity(entity)

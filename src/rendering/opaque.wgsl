@@ -157,7 +157,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
             + directional.rgb/max(directional.a, 1.0/255.0)*clamp(dot(world_direction,pbr.N),0.0,1.0))*surface.radiance.x;
 #endif
     } else if surface.modes.w == 2u {
-        pbr.lightmap_light = probe_diffuse(pbr.N, surface)*surface.radiance.x;
+        // Probe-only props have no retained local bake. A bounded share of the
+        // probe's spherical mean reconstructs indirect bounce in dark SH lobes.
+        // Atlas/vertex lighting and tile calibration retain their authored path.
+        pbr.lightmap_light = max(probe_diffuse(pbr.N, surface), surface.lighting.rgb)*surface.radiance.x;
     } else if surface.modes.w == 3u {
         // Interpolated retained instance irradiance; alpha is not surface opacity.
         pbr.lightmap_light = (baked_color + probe_diffuse(pbr.N, surface)*surface.radiance.w)*surface.radiance.x;

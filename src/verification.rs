@@ -755,7 +755,7 @@ fn check(
             .observe(save_to_disk(verification.output.join("round-two.png")));
     }
     if verification.stage == 1 && verification.playing > 1. {
-        let view = visual_view(verification.survey, &definition);
+        let view = visual_view(verification.survey, &definition, verification.only_view);
         if let Some((position, yaw, pitch)) = view {
             if let Ok((_, mut projection)) = cameras.single_mut()
                 && let Projection::Perspective(perspective) = &mut *projection
@@ -975,7 +975,11 @@ fn check(
 
 // Additional actual-map views target the supplied spawn-room references and a
 // retained puddle. The repeated water view checks animation at a stationary camera.
-fn visual_view(index: usize, definition: &GameDefinition) -> Option<(Vec3, f32, f32)> {
+fn visual_view(
+    index: usize,
+    definition: &GameDefinition,
+    only_view: bool,
+) -> Option<(Vec3, f32, f32)> {
     if let Some(position) = definition.survey_views.get(index) {
         return Some((
             Vec3::from_array(*position) + Vec3::Y * 1.8,
@@ -993,6 +997,10 @@ fn visual_view(index: usize, definition: &GameDefinition) -> Option<(Vec3, f32, 
         )),
         4 => Some((spawn, definition.yaw, 0.7)),
         5..=6 => Some((Vec3::new(-38.7, 4.5, -13.), 0., -0.6)),
+        // Opt-in close views of probe-only radios beside authored lanterns.
+        // The ordinary survey still ends at local view 6.
+        7 if only_view => Some((Vec3::new(72.0, -9.0, -130.0), 3.75, 0.1)),
+        8 if only_view => Some((Vec3::new(-7.5, 1.8, -4.0), 1.92, -0.28)),
         _ => None,
     }
 }

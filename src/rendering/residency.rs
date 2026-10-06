@@ -83,7 +83,9 @@ fn release(
     let mut mesh_bytes = 0;
     let mut mesh_count = 0;
     for (id, mesh) in meshes.iter_mut() {
-        if server.get_path(id).is_none() {
+        // Late scene/weapon meshes may already be loaded without having had
+        // their surface attributes adapted. Release only completed providers.
+        if server.get_path(id).is_none() || !library.prepared_meshes.contains(&id) {
             continue;
         }
         mesh_bytes += mesh.try_attributes().map_or(0, |attributes| {
