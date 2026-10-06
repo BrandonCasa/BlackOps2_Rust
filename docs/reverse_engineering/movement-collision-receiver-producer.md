@@ -106,6 +106,12 @@ all possible licensed sources or unrelated inspection output.
 
 ## Integration consequence and next boundary
 
+Later bounded [native17 initialization](receiver-polynomial-initialization.md)
+qualifies the startup prelude's direct write of reconstructed `edb88320` to
+`33dae20`. This resolves the polynomial initializer conditional on normal source
+ordering and no intervening mutation. The effective callback at image base,
+allocation/vtable/shape and candidate world bindings described above remain open.
+
 Keep alternate receiver access explicitly unresolved in the scene/movement
 contract. Do not label static models, terrain, transformed models or dynents
 nonparticipating because this binding is missing. Their provider/pose/activation
