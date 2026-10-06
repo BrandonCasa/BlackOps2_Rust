@@ -328,6 +328,10 @@ pub struct PerkDefinition {
     pub cherry: Option<crate::perk_effects::CherryDefinition>,
     #[serde(default)]
     pub explosive_protection: bool,
+    #[serde(default)]
+    pub fall_protection: bool,
+    #[serde(default)]
+    pub dive: Option<crate::perk_effects::DiveDefinition>,
 }
 impl PerkDefinition {
     pub fn has_supported_effect(&self) -> bool {
@@ -338,6 +342,8 @@ impl PerkDefinition {
             || self.firing.is_some()
             || self.cherry.is_some()
             || self.explosive_protection
+            || self.fall_protection
+            || self.dive.is_some()
     }
 }
 #[derive(Clone, Copy, Deserialize)]
@@ -898,6 +904,10 @@ impl ContentCatalog {
             }
         }
         for v in &self.perks {
+            valid(
+                v.dive.as_ref().is_none_or(|d| d.valid()),
+                "Invalid dive modifiers",
+            )?;
             valid(
                 v.cherry.as_ref().is_none_or(|c| c.valid()),
                 "Invalid Electric Cherry modifiers",

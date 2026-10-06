@@ -16267,7 +16267,16 @@
           "lower_seconds": 0.9,
           "activation_delay": 0.5
         },
-        "explosive_protection": true
+        "explosive_protection": true,
+        "fall_protection": true,
+        "dive": {
+          "radius": 7.62,
+          "damage": [
+            1000,
+            5000
+          ],
+          "minimum_drop": 0.5
+        }
       }
     ],
     "powerups": [],

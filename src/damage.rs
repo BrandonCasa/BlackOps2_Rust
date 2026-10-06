@@ -16,6 +16,7 @@ pub enum ImpactSource {
     Weapon(WeaponId),
     Projectile(WeaponId),
     Enemy(ContentId),
+    Fall,
     Perk(crate::origins::PerkId),
 }
 impl ImpactSource {
@@ -23,6 +24,7 @@ impl ImpactSource {
         match self {
             Self::Weapon(id) | Self::Projectile(id) => &id.0,
             Self::Enemy(id) => &id.0,
+            Self::Fall => "hazard.fall",
             Self::Perk(id) => &id.0,
         }
     }
@@ -112,9 +114,10 @@ fn resolve(
             )
         });
         let valid_source = match &impact.source {
-            ImpactSource::Weapon(_) | ImpactSource::Projectile(_) | ImpactSource::Perk(_) => {
-                players.contains(impact.attacker)
-            }
+            ImpactSource::Weapon(_)
+            | ImpactSource::Projectile(_)
+            | ImpactSource::Perk(_)
+            | ImpactSource::Fall => players.contains(impact.attacker),
             ImpactSource::Enemy(id) => enemies
                 .get(impact.attacker)
                 .is_ok_and(|z| z.definition == *id),
@@ -129,6 +132,20 @@ fn resolve(
         let player = players.contains(impact.target);
         if player && health.state() != crate::life::LifeState::Standing {
             evidence.terminal_rejections += 1;
+            continue;
+        }
+        if player
+            && matches!(impact.source, ImpactSource::Fall)
+            && perks.get(impact.target).is_ok_and(|owned| {
+                definition
+                    .content
+                    .perks
+                    .iter()
+                    .any(|p| p.fall_protection && owned.owned.contains(&p.id))
+            })
+        {
+            perk_evidence
+                .record(serde_json::json!({"event":"fall_protected","amount":impact.amount}));
             continue;
         }
         if player && recovery.as_ref().is_some_and(|r| r.immunity > 0.) {

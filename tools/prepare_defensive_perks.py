@@ -18,9 +18,13 @@ def prepare(config):
             damage=[int(x) for x in re.search(r'perk_dmg = linear_map\( n_fraction, 1.0, 0.0, (\d+), (\d+) \)',text).groups()]
             cooldown=float(re.search(r'n_cooldown_time = n_reload_time \+ (\d+);',text)[1])
             row["cherry"]={"radius":radius,"damage":damage,"cooldown_extra":cooldown,"stun_seconds":3.0}
-        else: row["explosive_protection"]=True
+        else:
+            row["explosive_protection"]=True
+            row["fall_protection"]=True
+            value=lambda suffix: int(re.search(r'"zombie_perk_divetonuke_'+suffix+r'", (\d+)',text)[1])
+            row["dive"]={"radius":value("radius")*0.0254,"damage":[value("min_damage"),value("max_damage")],"minimum_drop":0.5}
         game["content"]["perks"][:]=[p for p in game["content"]["perks"] if p["id"]!=row["id"]];game["content"]["perks"].append(row);rows.append(row)
         provenance.append({"name":name,"script_sha256":hashlib.sha256(script.read_bytes()).hexdigest(),"bottle_sha256":weapon["sha256"]})
     (pack/"game.json").write_text(json.dumps(game,indent=2)+"\n")
-    (inspection/"solo-content/defensive-perks-preparation.json").write_text(json.dumps({"perks":rows,"provenance":provenance,"approximations":["Cherry ammunition fraction uses intended floating division; damage rounds to integer.","Native two stun-animation cycles reconstruct as three seconds idle with attacks/movement suppressed.","Bounded blue discharge markers reconstruct missing shock FX; original audio pending.","Cherry native nearest-target limits and 0.1-second sequential impacts are retained; source-specific 40-point deaths enter once-only rewards.","PhD explosive protection is reconstructed as rejected explosive impacts before health/immunity changes; fall protection/dive explosions remain unfinished.","All nine perk catalog entries now exist; Wunderfizz, challenge acquisition, icons/audio and power remain unfinished."]},indent=2))
+    (inspection/"solo-content/defensive-perks-preparation.json").write_text(json.dumps({"perks":rows,"provenance":provenance,"approximations":["Cherry ammunition fraction uses intended floating division; damage rounds to integer.","Native two stun-animation cycles reconstruct as three seconds idle with attacks/movement suppressed.","Bounded blue discharge markers reconstruct missing shock FX; original audio pending.","Cherry native nearest-target limits and 0.1-second sequential impacts are retained; source-specific 40-point deaths enter once-only rewards.","PhD explosive protection is reconstructed as rejected explosive impacts before health/immunity changes; fall protection rejects attributed falls; dive activation uses reconstructed 0.5-meter peak-to-ground drop and shared cover-aware blast delivery.","All nine perk catalog entries now exist; Wunderfizz, challenge acquisition, icons/audio and power remain unfinished."]},indent=2))
     print(json.dumps(rows))

@@ -139,7 +139,16 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
 }
 
 fn camera_follow(
-    players: Query<(&Player, &Transform, &crate::weapons::WeaponInventory), Without<GameCamera>>,
+    players: Query<
+        (
+            &Player,
+            &Transform,
+            &crate::weapons::WeaponInventory,
+            &crate::movement::Mobility,
+        ),
+        Without<GameCamera>,
+    >,
+    time: Res<Time<Fixed>>,
     mut camera: Query<(&mut Transform, &mut Projection), With<GameCamera>>,
     definition: Option<Res<GameDefinition>>,
     state: Res<State<GameState>>,
@@ -150,15 +159,20 @@ fn camera_follow(
     ) {
         return;
     }
-    let (Ok((player, body, inventory)), Some(definition), Ok((mut camera, mut projection))) =
-        (players.single(), definition, camera.single_mut())
+    let (
+        Ok((player, body, inventory, mobility)),
+        Some(definition),
+        Ok((mut camera, mut projection)),
+    ) = (players.single(), definition, camera.single_mut())
     else {
         return;
     };
-    let eye = if player.crouched {
-        definition.tuning.crouch_height * 0.9
+    let eye = if **state == GameState::Playing {
+        mobility
+            .previous_eye
+            .lerp(player.eye_height, time.overstep_fraction())
     } else {
-        definition.tuning.eye_height
+        player.eye_height
     };
     let target = Transform {
         translation: body.translation + Vec3::Y * (eye - player.height * 0.5),

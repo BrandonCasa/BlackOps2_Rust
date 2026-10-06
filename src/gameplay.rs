@@ -366,11 +366,7 @@ pub(crate) fn combat(
         },
         &definition.content.weapons,
     );
-    let eye = if player.crouched {
-        player.height * 0.8
-    } else {
-        definition.tuning.eye_height
-    };
+    let eye = player.eye_height;
     let origin = transform.translation + Vec3::Y * (eye - player.height * 0.5);
     let rotation = Quat::from_rotation_y(player.yaw + inventory.recoil.x)
         * Quat::from_rotation_x((player.pitch + inventory.recoil.y).clamp(-1.5, 1.5));

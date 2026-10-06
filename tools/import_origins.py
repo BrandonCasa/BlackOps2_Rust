@@ -436,7 +436,13 @@ def validate_pack(root, receipt=None, exact=False):
     require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "sprint_seconds", "sprint_minimum", "sprint_recovery_rate", "sprint_recovery_delay", "crouch_speed", "gravity",
         "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
         "mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
-        "reload_seconds", "zombie_damage", "zombie_speed", "combat_points"}, "unknown gameplay tuning")
+        "reload_seconds", "zombie_damage", "zombie_speed", "combat_points", "mobility"}, "unknown gameplay tuning")
+    mobility = game.get("tuning", {}).get("mobility", {})
+    require(isinstance(mobility, dict) and set(mobility) <= {"prone_height","prone_eye","prone_speed","prone_step","acceleration","deceleration","air_acceleration","air_deceleration","stance_seconds","jump_recovery","dive_speed","dive_lift","dive_recovery","fall_minimum","fall_fatal","landing_dip","landing_seconds"}, "unknown mobility tuning")
+    require(all(type(v) in (int,float) and math.isfinite(v) and v > 0 for v in mobility.values()),"invalid mobility tuning")
+    require(game.get("tuning", {}).get("radius",.35)*2 < mobility.get("prone_height",.75) < game.get("tuning", {}).get("crouch_height",1.15),"invalid prone capsule")
+    require(mobility.get("prone_eye",.3048) < mobility.get("prone_height",.75),"invalid prone eye")
+    require(mobility.get("fall_minimum",3.2512)<mobility.get("fall_fatal",7.62),"unordered fall thresholds")
     sprint_tuning = game.get("tuning", {})
     for key, default in (("sprint_seconds", 4), ("sprint_minimum", 0.25), ("sprint_recovery_rate", 1), ("sprint_recovery_delay", 0)):
         value = sprint_tuning.get(key, default)

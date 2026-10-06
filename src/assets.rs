@@ -27,6 +27,7 @@ pub struct LaunchOptions {
     pub verify_mule_kick: bool,
     pub verify_firing_perks: bool,
     pub verify_defensive_perks: bool,
+    pub verify_mobility: bool,
     pub verify_hit_regions: bool,
     pub verify_grenades: bool,
     pub verify_semtex: bool,
@@ -56,6 +57,7 @@ impl LaunchOptions {
                 || argument == "--verify-mule-kick"
                 || argument == "--verify-firing-perks"
                 || argument == "--verify-defensive-perks"
+                || argument == "--verify-mobility"
                 || argument == "--verify-health"
                 || argument == "--verify-hit-regions"
                 || argument == "--verify-grenades"
@@ -78,6 +80,7 @@ impl LaunchOptions {
                     || argument == "--verify-mule-kick"
                     || argument == "--verify-firing-perks"
                     || argument == "--verify-defensive-perks"
+                    || argument == "--verify-mobility"
                     || argument == "--verify-health"
                     || argument == "--verify-hit-regions"
                     || argument == "--verify-grenades"
@@ -97,6 +100,7 @@ impl LaunchOptions {
                 result.verify_mule_kick = argument == "--verify-mule-kick";
                 result.verify_firing_perks = argument == "--verify-firing-perks";
                 result.verify_defensive_perks = argument == "--verify-defensive-perks";
+                result.verify_mobility = argument == "--verify-mobility";
                 result.verify_hit_regions = argument == "--verify-hit-regions";
                 result.verify_grenades = argument == "--verify-grenades";
                 result.verify_semtex = argument == "--verify-semtex";

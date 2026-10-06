@@ -18,6 +18,7 @@ mod equipment_presentation;
 mod equipment_refills;
 mod firing_perks;
 mod health_recovery;
+mod mobility;
 mod monkeys;
 mod mule_kick;
 mod performance;
@@ -58,6 +59,7 @@ pub(crate) struct Verification {
     mule_kick: bool,
     firing_perks: bool,
     defensive_perks: bool,
+    mobility: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -105,6 +107,9 @@ impl Plugin for VerificationPlugin {
             }
             if app.world().resource::<LaunchOptions>().verify_perk_health {
                 perk_health::install(app);
+            }
+            if app.world().resource::<LaunchOptions>().verify_mobility {
+                mobility::install(app);
             }
             equipment_presentation::install(app);
             if app.world().resource::<LaunchOptions>().verify_solo_revive {
@@ -191,6 +196,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             mule_kick: options.verify_mule_kick,
             firing_perks: options.verify_firing_perks,
             defensive_perks: options.verify_defensive_perks,
+            mobility: options.verify_mobility,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -241,6 +247,7 @@ pub(crate) fn drive(
         || verification.mule_kick
         || verification.firing_perks
         || verification.defensive_perks
+        || verification.mobility
     {
         return;
     }
@@ -527,6 +534,7 @@ fn check(
         || verification.mule_kick
         || verification.firing_perks
         || verification.defensive_perks
+        || verification.mobility
     {
         return;
     }

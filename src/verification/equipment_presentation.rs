@@ -37,6 +37,7 @@ fn capture(
             || verification.mule_kick
             || verification.firing_perks
             || verification.defensive_perks
+            || verification.mobility
             || verification.grenades
             || verification.semtex
             || verification.monkeys

@@ -133,7 +133,7 @@
 - [x] Add held ADS input.
 - [x] Bind right mouse to aiming.
 - [x] Keep melee on a dedicated action.
-- [ ] Add prone input.
+- [x] Add prone input.
 - [x] Add interact input.
 - [x] Add weapon cycle input.
 - [x] Add numbered weapon selection input.
@@ -149,26 +149,26 @@
 - [ ] Add keyboard-driven menu focus.
 - [ ] Restore cursor capture when gameplay resumes.
 - [ ] Release cursor capture when menus open.
-- [ ] Add player movement acceleration.
-- [ ] Add player movement deceleration.
+- [x] Add player movement acceleration.
+- [x] Add player movement deceleration.
 - [x] Add sprint stamina.
 - [x] Add sprint stamina recovery.
 - [x] Prevent sprinting during incompatible weapon actions.
 - [x] Apply weapon-specific movement speed modifiers.
-- [ ] Add prone capsule dimensions.
-- [ ] Add prone eye height.
-- [ ] Implement standing-to-prone transitions.
-- [ ] Implement crouched-to-prone transitions.
-- [ ] Implement prone-to-crouched transitions.
+- [x] Add prone capsule dimensions.
+- [x] Add prone eye height.
+- [x] Implement standing-to-prone transitions.
+- [x] Implement crouched-to-prone transitions.
+- [x] Implement prone-to-crouched transitions.
 - [ ] Prevent blocked stance expansion.
-- [ ] Interpolate stance camera height.
-- [ ] Implement sprinting dolphin dives.
-- [ ] Implement dive landing recovery.
-- [ ] Prevent jumping from prone.
-- [ ] Add source-defined airborne movement control.
-- [ ] Add source-defined jump recovery.
-- [ ] Add source-defined fall damage.
-- [ ] Add player landing camera feedback.
+- [x] Interpolate stance camera height.
+- [x] Implement sprinting dolphin dives.
+- [x] Implement dive landing recovery.
+- [x] Prevent jumping from prone.
+- [x] Add source-defined airborne movement control.
+- [x] Add source-defined jump recovery.
+- [x] Add source-defined fall damage.
+- [x] Add player landing camera feedback.
 - [ ] Add player walking camera bob.
 - [ ] Add player sprinting camera bob.
 - [x] Add ADS camera interpolation.
@@ -658,8 +658,8 @@
 - [x] Add Deadshot hip-fire spread modifiers.
 - [x] Add Deadshot source-defined mouse behavior.
 - [x] Add PhD Flopper explosive protection.
-- [ ] Add PhD Flopper fall protection.
-- [ ] Add PhD Flopper dive explosions.
+- [x] Add PhD Flopper fall protection.
+- [x] Add PhD Flopper dive explosions.
 - [x] Add Electric Cherry reload discharges.
 - [x] Scale Electric Cherry discharges using remaining ammunition.
 - [x] Add source-defined Electric Cherry discharge cooldown.

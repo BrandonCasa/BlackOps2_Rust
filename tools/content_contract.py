@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection"} if table == "perks" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -241,6 +241,14 @@ def validate_content(content, require):
                     require(abs(sum(x*x for x in m["ads_rotation"]) - 1) < 0.002, "unnormalized ADS rotation")
                     number(m["burst_delay"])
             elif table == "perks":
+                if "fall_protection" in row: require(type(row["fall_protection"]) is bool, "invalid fall protection flag")
+                if row.get("dive") is not None:
+                    d = row["dive"]
+                    require(isinstance(d,dict) and set(d)=={"radius","damage","minimum_drop"},"invalid dive fields")
+                    number(d["radius"],positive=True);number(d["minimum_drop"],positive=True)
+                    require(isinstance(d["damage"],list) and len(d["damage"])==2,"invalid dive damage")
+                    for amount in d["damage"]: natural(amount,positive=True)
+                    require(d["damage"][0]<=d["damage"][1]<=2147483647,"unordered dive damage")
                 if "explosive_protection" in row: require(type(row["explosive_protection"]) is bool, "invalid explosive protection flag")
                 if row.get("cherry") is not None:
                     c = row["cherry"]

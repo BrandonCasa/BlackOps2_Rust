@@ -14,6 +14,7 @@ pub struct GameInput {
     pub movement: Vec2,
     pub sprint: bool,
     pub crouch: bool,
+    pub prone: bool,
     pub jump: bool,
     pub fire: bool,
     pub fire_held: bool,
@@ -102,6 +103,7 @@ pub(crate) fn collect(
     {
         match event.key_code {
             KeyCode::Space => input.jump = true,
+            KeyCode::KeyZ => input.prone = true,
             KeyCode::KeyR => input.reload = true,
             KeyCode::KeyV => input.melee = true,
             KeyCode::KeyQ => input.cycle_weapon = true,

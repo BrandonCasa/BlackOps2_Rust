@@ -17,6 +17,8 @@ pub struct Player {
     pub height: f32,
     pub grounded: bool,
     pub crouched: bool,
+    pub prone: bool,
+    pub eye_height: f32,
 }
 
 #[derive(Resource, Default)]
@@ -34,6 +36,8 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TickActions>()
+            .init_resource::<crate::movement::MovementEvidence>()
+            .add_message::<crate::movement::Landing>()
             .add_systems(OnEnter(GameState::Playing), spawn_player)
             .add_systems(PreUpdate, look.after(crate::verification::drive))
             .add_systems(
@@ -79,9 +83,12 @@ fn spawn_player(
             height,
             grounded: false,
             crouched: false,
+            prone: false,
+            eye_height: definition.tuning.eye_height,
         },
         capsule(definition.tuning.radius, height),
         crate::movement::SprintState::new(definition.tuning.sprint_seconds),
+        crate::movement::Mobility::new(definition.tuning.eye_height),
         vitality,
         crate::player_health::Recovery::default(),
         crate::solo_revive::PerkInventory::default(),
@@ -145,11 +152,18 @@ pub fn move_player(
         Option<&crate::perks::PerkDrinking>,
         &crate::solo_revive::PerkInventory,
         &mut crate::movement::SprintState,
+        &mut crate::movement::Mobility,
+        &crate::equipment::GrenadeInventory,
+        &crate::equipment::TacticalInventory,
+        &crate::mines::MineInventory,
     )>,
     mut commands: Commands,
     slide: MoveAndSlide,
     query: SpatialQuery,
+    mut landings: MessageWriter<crate::movement::Landing>,
+    mut evidence: ResMut<crate::movement::MovementEvidence>,
 ) {
+    let prone_edge = std::mem::take(&mut input.prone);
     let (jump, fire, melee, reload) = input.take_edges();
     *actions = TickActions {
         fire,
@@ -170,6 +184,10 @@ pub fn move_player(
         drinking,
         perks,
         mut sprint,
+        mut mobility,
+        lethal,
+        tactical,
+        mines,
     )) = players.single_mut()
     else {
         return;
@@ -195,14 +213,51 @@ pub fn move_player(
     let tuning = &definition.tuning;
     let dt = time.delta_secs();
     let filter = SpatialQueryFilter::from_excluded_entities([entity]);
+    let m = &tuning.mobility;
+    mobility.recovery = (mobility.recovery - dt).max(0.);
+    mobility.jump_recovery = (mobility.jump_recovery - dt).max(0.);
+    mobility.landing_dip = (mobility.landing_dip - m.landing_dip / m.landing_seconds * dt).max(0.);
+    mobility.previous_eye = player.eye_height;
+    let mut requested = mobility.stance;
+    let mut launch_dive = false;
+    if downed {
+        mobility.dive = None;
+        mobility.recovery = 0.;
+        mobility.airborne = false;
+        requested = crate::movement::Stance::Crouched;
+    } else if drinking.is_none() && !mobility.busy() {
+        if prone_edge {
+            requested = if mobility.stance == crate::movement::Stance::Prone {
+                crate::movement::Stance::Standing
+            } else {
+                crate::movement::Stance::Prone
+            };
+            launch_dive = sprint.sprinting
+                && player.grounded
+                && mobility.stance == crate::movement::Stance::Standing
+                && inventory.action == crate::weapons::WeaponAction::Ready
+                && !lethal.busy()
+                && !tactical.busy()
+                && !mines.busy()
+                && !input.grenade_held
+                && !input.tactical_held
+                && !input.mine_held;
+        } else if input.crouch {
+            requested = crate::movement::Stance::Crouched;
+        } else if mobility.stance == crate::movement::Stance::Crouched {
+            requested = crate::movement::Stance::Standing;
+        }
+    }
     let desired_height = if drinking.is_some() {
         player.height
     } else if downed {
         definition.solo_revive.downed_height
-    } else if input.crouch {
-        tuning.crouch_height
     } else {
-        tuning.standing_height
+        match requested {
+            crate::movement::Stance::Standing => tuning.standing_height,
+            crate::movement::Stance::Crouched => tuning.crouch_height,
+            crate::movement::Stance::Prone => m.prone_height,
+        }
     };
     if desired_height != player.height {
         let shape = capsule(tuning.radius, desired_height);
@@ -224,9 +279,19 @@ pub fn move_player(
             collider = shape;
             commands.entity(entity).insert(collider.clone());
             player.height = desired_height;
-            player.crouched = downed || input.crouch;
+            mobility.stance = requested;
+            evidence.record(serde_json::json!({"event":"stance_changed","stance":format!("{requested:?}"),"height":desired_height,"feet":(center.y-desired_height*0.5)}));
+        } else if prone_edge || input.crouch {
+            evidence.record(
+                serde_json::json!({"event":"stance_blocked","requested":format!("{requested:?}")}),
+            );
         }
     }
+    if desired_height == player.height && downed {
+        mobility.stance = requested;
+    }
+    player.crouched = mobility.stance != crate::movement::Stance::Standing || downed;
+    player.prone = mobility.stance == crate::movement::Stance::Prone && !downed;
     let ground = query.cast_shape(
         &collider,
         transform.translation,
@@ -245,6 +310,53 @@ pub fn move_player(
     player.grounded = (ground.is_some_and(|hit| hit.normal1.y > 0.65)
         || support.is_some_and(|hit| hit.normal.y > 0.65))
         && player.velocity.y <= 0.;
+    let feet = transform.translation - Vec3::Y * player.height * 0.5;
+    if mobility.airborne && player.grounded && !launch_dive {
+        let height = (mobility.peak - feet.y).max(0.);
+        let diving = mobility.dive.take().is_some();
+        landings.write(crate::movement::Landing {
+            owner: entity,
+            position: feet,
+            height,
+            speed: mobility.fall_speed,
+            diving,
+        });
+        mobility.airborne = false;
+        mobility.jump_recovery = m.jump_recovery;
+        if diving {
+            mobility.recovery = m.dive_recovery;
+        }
+        mobility.landing_dip = (mobility.fall_speed / 20.).clamp(0., 1.) * m.landing_dip;
+        evidence.record(serde_json::json!({"event":"landed","height":height,"diving":diving,"position":feet.to_array(),"recovery":mobility.recovery}));
+    }
+    if launch_dive {
+        mobility.dive = Some(crate::movement::Dive {
+            direction: Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z,
+        });
+        mobility.airborne = true;
+        mobility.peak = feet.y;
+        mobility.fall_speed = 0.;
+        evidence.record(serde_json::json!({"event":"dive_started","feet":feet.to_array()}));
+    }
+    if mobility.busy() {
+        *actions = TickActions::default();
+        input.use_held = false;
+        input.grenade_held = false;
+        input.mine_held = false;
+        input.tactical_held = false;
+    }
+    let target_eye = if downed {
+        player.height * 0.8
+    } else if player.prone {
+        m.prone_eye
+    } else if player.crouched {
+        tuning.crouch_height * 0.9
+    } else {
+        tuning.eye_height
+    };
+    let target_eye = target_eye - mobility.landing_dip;
+    let step = (tuning.eye_height - m.prone_eye) / m.stance_seconds * dt;
+    player.eye_height += (target_eye - player.eye_height).clamp(-step, step);
     let (duration_scale, speed_scale) = definition
         .content
         .perks
@@ -256,6 +368,7 @@ pub fn move_player(
         });
     let eligible = !downed
         && !player.crouched
+        && !mobility.busy()
         && drinking.is_none()
         && !input.ads
         && inventory.ads < 0.05
@@ -280,6 +393,8 @@ pub fn move_player(
     );
     let speed = if downed {
         definition.solo_revive.downed_speed
+    } else if player.prone {
+        m.prone_speed
     } else if player.crouched {
         tuning.crouch_speed
     } else if sprint.sprinting {
@@ -295,10 +410,41 @@ pub fn move_player(
     let desired = Quat::from_rotation_y(player.yaw)
         * Vec3::new(input.movement.x, 0., -input.movement.y).clamp_length_max(1.)
         * speed;
-    player.velocity.x = desired.x;
-    player.velocity.z = desired.z;
-    if player.grounded {
-        player.velocity.y = if jump && !downed && drinking.is_none() {
+    if let Some(dive) = mobility.dive {
+        player.velocity.x = dive.direction.x * m.dive_speed;
+        player.velocity.z = dive.direction.z * m.dive_speed;
+    } else {
+        let desired = if mobility.recovery > 0. {
+            Vec2::ZERO
+        } else {
+            desired.xz()
+        };
+        let rate = if player.grounded {
+            if desired.length_squared() > 0. {
+                m.acceleration
+            } else {
+                m.deceleration
+            }
+        } else if desired.length_squared() > 0. {
+            m.air_acceleration
+        } else {
+            m.air_deceleration
+        };
+        let velocity =
+            player.velocity.xz() + (desired - player.velocity.xz()).clamp_length_max(rate * dt);
+        player.velocity.x = velocity.x;
+        player.velocity.z = velocity.y;
+    }
+    if launch_dive {
+        player.velocity.y = m.dive_lift;
+    } else if player.grounded {
+        player.velocity.y = if jump
+            && !downed
+            && !player.prone
+            && !mobility.busy()
+            && mobility.jump_recovery == 0.
+            && drinking.is_none()
+        {
             tuning.jump_speed
         } else {
             -0.5
@@ -306,13 +452,26 @@ pub fn move_player(
     } else {
         player.velocity.y = (player.velocity.y - tuning.gravity * dt).max(-50.);
     }
+    if !player.grounded || player.velocity.y > 0. {
+        if !mobility.airborne {
+            mobility.airborne = true;
+            mobility.peak = feet.y;
+            mobility.fall_speed = 0.;
+        }
+        mobility.peak = mobility.peak.max(feet.y);
+        mobility.fall_speed = mobility.fall_speed.max(-player.velocity.y);
+    }
     let result = slide_character(
         &slide,
         &query,
         MotionShape {
             collider: &collider,
             radius: tuning.radius,
-            step_height: tuning.step_height,
+            step_height: if player.prone || mobility.dive.is_some() {
+                m.prone_step
+            } else {
+                tuning.step_height
+            },
             grounded: player.grounded,
         },
         transform.translation,
@@ -321,13 +480,13 @@ pub fn move_player(
         &filter,
     );
     transform.translation = result.position;
-    if result.projected_velocity.y < player.velocity.y {
-        player.velocity.y = result.projected_velocity.y;
-    }
+    player.velocity.y = result.projected_velocity.y;
     if transform.translation.y < -100. {
         transform.translation =
             Vec3::from_array(definition.spawn) + Vec3::Y * (player.height * 0.5);
         player.velocity = Vec3::ZERO;
+        mobility.airborne = false;
+        mobility.dive = None;
     }
 }
 

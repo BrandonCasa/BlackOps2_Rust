@@ -73,17 +73,23 @@ struct FlashAssets {
 pub struct PerkEffectsPlugin;
 impl Plugin for PerkEffectsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<ReloadEvent>()
-            .init_resource::<EffectEvidence>()
-            .init_resource::<FlashAssets>()
-            .add_systems(
-                FixedUpdate,
-                (maintain, discharge, deliver, fade)
-                    .chain()
-                    .in_set(GameStep::Combat)
-                    .after(crate::gameplay::combat)
-                    .run_if(in_state(GameState::Playing)),
-            );
+        app.add_systems(
+            FixedUpdate,
+            land.in_set(GameStep::Combat)
+                .before(crate::equipment::resolve_blasts)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_message::<ReloadEvent>()
+        .init_resource::<EffectEvidence>()
+        .init_resource::<FlashAssets>()
+        .add_systems(
+            FixedUpdate,
+            (maintain, discharge, deliver, fade)
+                .chain()
+                .in_set(GameStep::Combat)
+                .after(crate::gameplay::combat)
+                .run_if(in_state(GameState::Playing)),
+        );
     }
 }
 fn maintain(
@@ -294,6 +300,84 @@ fn fade(
         pose.scale = Vec3::splat(flash.0.max(0.));
         if flash.0 <= 0. {
             commands.entity(e).despawn();
+        }
+    }
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiveDefinition {
+    pub radius: f32,
+    pub damage: [u32; 2],
+    pub minimum_drop: f32,
+}
+impl DiveDefinition {
+    pub fn valid(&self) -> bool {
+        self.radius.is_finite()
+            && self.radius > 0.
+            && self.minimum_drop.is_finite()
+            && self.minimum_drop > 0.
+            && self.damage[0] > 0
+            && self.damage[0] <= self.damage[1]
+            && self.damage[1] <= i32::MAX as u32
+    }
+}
+fn land(
+    mut landings: MessageReader<crate::movement::Landing>,
+    players: Query<(&Vitality, &PerkInventory), With<Player>>,
+    game: Res<GameDefinition>,
+    mut damage: ResMut<crate::damage::DamageQueue>,
+    mut blasts: ResMut<crate::equipment::BlastQueue>,
+    mut evidence: ResMut<EffectEvidence>,
+) {
+    for landing in landings.read() {
+        let Ok((health, owned)) = players.get(landing.owner) else {
+            continue;
+        };
+        if health.state() != LifeState::Standing {
+            continue;
+        }
+        let tuning = &game.tuning.mobility;
+        if landing.height > tuning.fall_minimum {
+            let fraction = ((landing.height - tuning.fall_minimum)
+                / (tuning.fall_fatal - tuning.fall_minimum))
+                .clamp(0., 1.);
+            let amount = (fraction * health.maximum() as f32).ceil() as u32;
+            damage.0.push(crate::damage::Impact {
+                attacker: landing.owner,
+                target: landing.owner,
+                source: crate::damage::ImpactSource::Fall,
+                category: crate::origins::DamageCategory::Environmental,
+                region: crate::weapons::HitRegion::Torso,
+                amount,
+            });
+            evidence.record(serde_json::json!({"event":"fall_impact","height":landing.height,"speed":landing.speed,"amount":amount}));
+        }
+        if !landing.diving {
+            continue;
+        }
+        for perk in game
+            .content
+            .perks
+            .iter()
+            .filter(|p| owned.owned.contains(&p.id))
+        {
+            if let (Some(dive), Some(drink)) = (&perk.dive, &perk.drink) {
+                if landing.height < dive.minimum_drop {
+                    continue;
+                }
+                blasts.0.push(crate::equipment::BlastRequest {
+                    owner: landing.owner,
+                    definition: drink.bottle.clone(),
+                    center: landing.position + Vec3::Y * 0.15,
+                    radius: dive.radius,
+                    inner_radius: 0.,
+                    inner_damage: dive.damage[1],
+                    outer_damage: dive.damage[0],
+                    direction: None,
+                });
+                evidence.record(serde_json::json!({"event":"dive_explosion","height":landing.height,"radius":dive.radius,"damage":dive.damage}));
+            }
         }
     }
 }

@@ -405,8 +405,8 @@ pub(crate) fn throw_input(
                 let rotation =
                     Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch);
                 let forward = rotation * Vec3::NEG_Z;
-                let eye = transform.translation
-                    + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5);
+                let eye =
+                    transform.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
                 let position = eye + forward * if cooked { 0. } else { 0.25 };
                 let velocity = if cooked {
                     Vec3::ZERO
