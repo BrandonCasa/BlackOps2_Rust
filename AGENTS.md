@@ -25,16 +25,20 @@ Origins-specific mechanics. This is the overall goal, never one delegated task.
 Prioritize correctness, memory safety, reusable architecture, fidelity,
 deterministic gameplay, performance, and maintainability, in that order.
 
-## Sequential delegation
+## Parallel movement phase delegation
 
-> Each delegated task belongs to one subagent. Only one subagent may be active at any time. The outer agent remains responsible for sequencing, review, validation, architecture coherence, and the overall goal.
+> For the full-map Origins movement phase, use three concurrent subagents plus the primary integration agent. This user instruction replaces the earlier sequential policy. Each bounded task belongs to one worker with exclusive file ownership. The primary remains responsible for shared contracts, sequencing dependencies, review, validation, architecture coherence, and integration.
 
 The outer agent owns the goal. Inspect repository state before planning, decompose
-work into small bounded tasks, assign exactly one task to exactly one subagent,
-wait for completion, review and validate its result, integrate it, update project
-state, then choose the next highest-value task. Never run subagents in parallel or
-give one subagent multiple unrelated objectives. A delegated subagent must not
-spawn another subagent while it is active.
+work into small bounded tasks, assign each task to one worker, and release ready
+tasks as prerequisites land. Review each handoff and validate its result before
+integration or its dependent assignment. Keep the available lanes on ready work;
+blocked investigations identify precise missing evidence and release their slot.
+Workers must not spawn subagents or combine unrelated objectives. The primary
+owns manifests, lockfile, exports, boot dispatch, integration tests, project state,
+shared contract changes and reviewed local commits. One numerical motor owner
+implements all locomotion modes; collision families own separate modules and
+reuse established consumers. No original-game play or capture during this phase.
 
 The outer agent may perform lightweight coordination, inspection, validation,
 documentation, and integration. Substantial investigation or implementation should

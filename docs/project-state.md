@@ -28,8 +28,10 @@ damage/death and one round before expanding remaining Origins systems.
 The full goal is not complete when the first vertical slice works.
 
 Read this brief, the relevant source/tests, and only the evidence needed for the
-next code change. Keep one delegated worker active per worktree (user clarification
-on 2026-10-05); independent worktrees may run concurrently. Keep documentation
+next code change. The full-map movement phase uses three concurrent workers plus
+the primary integration agent, replacing the previous sequential policy by the
+user's instruction on 2026-10-05. Keep exclusive module ownership and route shared
+contracts, manifests, exports and boot dispatch through the primary. Keep documentation
 to a short handoff and an updated current brief; avoid repeating historical audits.
 Investigations should resolve a named implementation question. Do not make a
 complete capture framework or perfect understanding of every subsystem a
@@ -74,6 +76,15 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
   Overall/gameplay/visual fidelity is UNKNOWN; data access is INVESTIGATING.
 
 ## Immediate implementation direction
+
+The full-map movement phase is active on `codex/origins-full-map-movement`.
+Three concurrent lanes qualify native movement, world collision coverage, and
+the reusable Bevy map/input host. Investigation uses licensed files and retained
+evidence only; no original-game play, capture or process reads. The primary owns
+shared interfaces and integration. Appearance and damage remain paused. Completion
+requires all five locomotion modes and every participating full-map collision
+reference resolved or reproducibly excluded; the existing brush collection alone
+does not meet that condition. Native timing and baseline profile remain pending.
 
 The reviewed first texture increment and selected opaque material contract are
 integrated. All five selected image dependencies resolve; shader equations are
@@ -140,8 +151,7 @@ documents propose future gameplay work; they add no production Rust or fidelity
 comparison. Research fidelity is INVESTIGATING, gameplay remains UNKNOWN.
 The other chats own collision/movement, appearance and damage/downing/revival.
 Shared original-game input requires runtime-owner coordination.
-This research uses the user's specific four-worker exception; ordinary
-implementation keeps the repository's sequential-delegation policy.
+The current full-map movement phase also uses the user's four-agent instruction.
 
 - Previous Goal chat is paused; its worker finished and reports no owned operation
   running. Its hourly auto-resume monitor is also paused.
