@@ -16197,6 +16197,40 @@
           "lower_seconds": 0.9,
           "activation_delay": 0.5
         }
+      },
+      {
+        "id": "perk.double_tap",
+        "name": "Double Tap II",
+        "price": 2000,
+        "icon": null,
+        "firing": {
+          "interval_scale": 0.75,
+          "bullet_copies": 2,
+          "hip_spread_scale": 1.0
+        },
+        "drink": {
+          "bottle": "weapon.zombie_perk_bottle_doubletap",
+          "seconds": 2.8,
+          "lower_seconds": 0.9,
+          "activation_delay": 0.5
+        }
+      },
+      {
+        "id": "perk.deadshot",
+        "name": "Deadshot Daiquiri",
+        "price": 1500,
+        "icon": null,
+        "firing": {
+          "interval_scale": 1.0,
+          "bullet_copies": 1,
+          "hip_spread_scale": 0.65
+        },
+        "drink": {
+          "bottle": "weapon.zombie_perk_bottle_deadshot",
+          "seconds": 2.8,
+          "lower_seconds": 0.9,
+          "activation_delay": 0.5
+        }
       }
     ],
     "powerups": [],

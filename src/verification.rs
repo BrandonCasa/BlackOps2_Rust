@@ -15,6 +15,7 @@ mod arsenal;
 mod claymores;
 mod equipment_presentation;
 mod equipment_refills;
+mod firing_perks;
 mod health_recovery;
 mod monkeys;
 mod mule_kick;
@@ -54,6 +55,7 @@ pub(crate) struct Verification {
     speed_cola: bool,
     stamin_up: bool,
     mule_kick: bool,
+    firing_perks: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -80,6 +82,9 @@ impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
+            if app.world().resource::<LaunchOptions>().verify_firing_perks {
+                firing_perks::install(app);
+            }
             if app.world().resource::<LaunchOptions>().verify_mule_kick {
                 mule_kick::install(app);
             }
@@ -175,6 +180,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             speed_cola: options.verify_speed_cola,
             stamin_up: options.verify_stamin_up,
             mule_kick: options.verify_mule_kick,
+            firing_perks: options.verify_firing_perks,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -223,6 +229,7 @@ pub(crate) fn drive(
         || verification.speed_cola
         || verification.stamin_up
         || verification.mule_kick
+        || verification.firing_perks
     {
         return;
     }
@@ -507,6 +514,7 @@ fn check(
         || verification.speed_cola
         || verification.stamin_up
         || verification.mule_kick
+        || verification.firing_perks
     {
         return;
     }

@@ -58,6 +58,7 @@ pub struct WeaponInventory {
     pub recoil: Vec2,
     pending: WeaponIntent,
     reload_duration_scale: f32,
+    pub firing: crate::origins::content::PerkFiringDefinition,
 }
 impl Default for WeaponInventory {
     fn default() -> Self {
@@ -75,6 +76,7 @@ impl Default for WeaponInventory {
             recoil: Vec2::ZERO,
             pending: WeaponIntent::default(),
             reload_duration_scale: 1.,
+            firing: default(),
         }
     }
 }
@@ -461,6 +463,11 @@ impl WeaponInventory {
             self.pending = WeaponIntent::default();
         }
         let was_cooling = self.cooldown > 0.;
+        let fire_overrun = if was_cooling {
+            (dt - self.cooldown).max(0.)
+        } else {
+            0.
+        };
         self.cooldown = (self.cooldown - dt).max(0.);
         if was_cooling
             && self.cooldown == 0.
@@ -712,6 +719,9 @@ impl WeaponInventory {
                     } else {
                         0.
                     };
+                // Preserve the portion of this fixed tick after the preceding
+                // cooldown expired; sustained cadence does not round every shot up.
+                self.cooldown = (self.cooldown * self.firing.interval_scale - fire_overrun).max(0.);
                 self.emit(WeaponSignal::Fire);
                 emissions.push(WeaponEmission::Shot(definition.id.clone()));
             }

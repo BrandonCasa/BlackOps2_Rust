@@ -653,10 +653,10 @@
 - [x] Add Stamin-Up sprint modifiers.
 - [x] Add Mule Kick inventory expansion.
 - [x] Remove Mule Kick's assigned weapon after perk loss.
-- [ ] Add Double Tap firing-rate modifiers.
-- [ ] Add Double Tap eligible projectile duplication.
-- [ ] Add Deadshot hip-fire spread modifiers.
-- [ ] Add Deadshot source-defined mouse behavior.
+- [x] Add Double Tap firing-rate modifiers.
+- [x] Add Double Tap eligible projectile duplication.
+- [x] Add Deadshot hip-fire spread modifiers.
+- [x] Add Deadshot source-defined mouse behavior.
 - [ ] Add PhD Flopper explosive protection.
 - [ ] Add PhD Flopper fall protection.
 - [ ] Add PhD Flopper dive explosions.

@@ -35,6 +35,7 @@ fn capture(
             || verification.speed_cola
             || verification.stamin_up
             || verification.mule_kick
+            || verification.firing_perks
             || verification.grenades
             || verification.semtex
             || verification.monkeys

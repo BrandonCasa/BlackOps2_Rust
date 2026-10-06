@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon"} if table == "perks" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing"} if table == "perks" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -241,6 +241,14 @@ def validate_content(content, require):
                     require(abs(sum(x*x for x in m["ads_rotation"]) - 1) < 0.002, "unnormalized ADS rotation")
                     number(m["burst_delay"])
             elif table == "perks":
+                if row.get("firing") is not None:
+                    firing = row["firing"]
+                    require(isinstance(firing, dict) and set(firing) == {"interval_scale", "bullet_copies", "hip_spread_scale"}, "invalid perk firing fields")
+                    for key in ("interval_scale", "hip_spread_scale"):
+                        number(firing[key], positive=True)
+                        require(firing[key] <= 1, "invalid perk firing scale")
+                    natural(firing["bullet_copies"], positive=True)
+                    require(firing["bullet_copies"] <= 2, "invalid perk bullet copies")
                 if "third_weapon" in row: require(type(row["third_weapon"]) is bool, "invalid perk third-weapon flag")
                 if row.get("sprint") is not None:
                     sprint = row["sprint"]

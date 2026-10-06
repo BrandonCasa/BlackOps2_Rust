@@ -322,6 +322,8 @@ pub struct PerkDefinition {
     pub sprint: Option<PerkSprintDefinition>,
     #[serde(default)]
     pub third_weapon: bool,
+    #[serde(default)]
+    pub firing: Option<PerkFiringDefinition>,
 }
 impl PerkDefinition {
     pub fn has_supported_effect(&self) -> bool {
@@ -329,6 +331,34 @@ impl PerkDefinition {
             || self.reload_duration_scale.is_some()
             || self.sprint.is_some()
             || self.third_weapon
+            || self.firing.is_some()
+    }
+}
+#[derive(Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PerkFiringDefinition {
+    pub interval_scale: f32,
+    pub bullet_copies: u32,
+    pub hip_spread_scale: f32,
+}
+impl Default for PerkFiringDefinition {
+    fn default() -> Self {
+        Self {
+            interval_scale: 1.,
+            bullet_copies: 1,
+            hip_spread_scale: 1.,
+        }
+    }
+}
+impl PerkFiringDefinition {
+    pub fn copies(&self, weapon: &WeaponDefinition) -> u32 {
+        if matches!(weapon.category, DamageCategory::Bullet)
+            && weapon.mechanics.delivery == WeaponDelivery::Hitscan
+        {
+            self.bullet_copies
+        } else {
+            1
+        }
     }
 }
 #[derive(Clone, Deserialize)]
@@ -862,6 +892,15 @@ impl ContentCatalog {
             }
         }
         for v in &self.perks {
+            valid(
+                v.firing.as_ref().is_none_or(|p| {
+                    [p.interval_scale, p.hip_spread_scale]
+                        .into_iter()
+                        .all(|v| v.is_finite() && v > 0. && v <= 1.)
+                        && (1..=2).contains(&p.bullet_copies)
+                }),
+                "Invalid perk firing modifiers",
+            )?;
             valid(
                 v.sprint.as_ref().is_none_or(|p| {
                     [p.duration_scale, p.speed_scale]

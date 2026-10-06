@@ -99,6 +99,7 @@ pub struct PerkPlugin;
 impl Plugin for PerkPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PerkEvidence>()
+            .init_resource::<FiringEvidence>()
             .add_systems(
                 FixedUpdate,
                 tick.in_set(GameStep::Interactions)
@@ -258,4 +259,28 @@ fn cancel(
             commands.entity(owner).remove::<PerkDrinking>();
         }
     }
+}
+
+/// Derive modifiers from current ownership each tick; loss cannot leave stale weapon state.
+pub fn firing_modifiers(
+    perks: &PerkInventory,
+    game: &GameDefinition,
+) -> crate::origins::content::PerkFiringDefinition {
+    let mut result = crate::origins::content::PerkFiringDefinition::default();
+    for p in game
+        .content
+        .perks
+        .iter()
+        .filter(|p| perks.owned.contains(&p.id))
+        .filter_map(|p| p.firing)
+    {
+        result.interval_scale = result.interval_scale.min(p.interval_scale);
+        result.bullet_copies = result.bullet_copies.max(p.bullet_copies);
+        result.hip_spread_scale = result.hip_spread_scale.min(p.hip_spread_scale);
+    }
+    result
+}
+#[derive(Resource, Default)]
+pub struct FiringEvidence {
+    pub shots: Vec<serde_json::Value>,
 }

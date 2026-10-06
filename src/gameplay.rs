@@ -331,6 +331,7 @@ pub(crate) fn combat(
     mut impacts: ResMut<crate::damage::DamageQueue>,
     query: SpatialQuery,
     mut hit_evidence: ResMut<crate::hit_regions::HitEvidence>,
+    mut firing_evidence: ResMut<crate::perks::FiringEvidence>,
 ) {
     let dt = time.delta_secs();
     let Ok((entity, player, transform, mut inventory, grenades, mines, tactical, drinking, perks)) =
@@ -346,6 +347,7 @@ pub(crate) fn combat(
         .filter_map(|p| p.reload_duration_scale)
         .fold(1., f32::min);
     inventory.set_reload_duration_scale(reload_scale);
+    inventory.firing = crate::perks::firing_modifiers(perks, &definition);
     let emissions = inventory.tick(
         dt,
         if grenades.busy() || mines.busy() || tactical.busy() || drinking.is_some() {
@@ -400,13 +402,25 @@ pub(crate) fn combat(
         };
         let spread = weapon.map_or(0., |w| {
             let hip = w.mechanics.spread[if player.crouched { 1 } else { 0 }]
+                * inventory.firing.hip_spread_scale
                 * (1. + player.velocity.xz().length().min(6.) / 6.);
             hip + (w.mechanics.spread[3] - hip) * inventory.ads
         });
         if !melee && let Some(weapon) = weapon {
             inventory.recoil_impulse(weapon, session.shots.wrapping_mul(31) as u64);
         }
-        for pellet in 0..pellets {
+        let copies = if melee {
+            1
+        } else {
+            weapon.map_or(1, |w| inventory.firing.copies(w))
+        };
+        if !melee && firing_evidence.shots.len() < 128 {
+            firing_evidence.shots.push(serde_json::json!({"weapon":weapon_id.0,"seconds":time.elapsed_secs_f64(),"pellets":pellets,"copies":copies,"rays":pellets*copies,"spread":spread,"ads":inventory.ads,"interval_scale":inventory.firing.interval_scale,"hip_spread_scale":inventory.firing.hip_spread_scale}));
+        }
+        for ray in 0..pellets * copies {
+            // Paired bullets share their originating pellet direction. They resolve
+            // independently through damage/life, with one ammunition/recoil debit.
+            let pellet = ray / copies;
             let direction = if melee {
                 direction
             } else {
