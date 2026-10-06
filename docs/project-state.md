@@ -32,7 +32,8 @@ Work locally; no remote push is authorized.
   exchanges. It is not a full BO2 decoder.
 - Physics implements diagnostic segment queries plus source-qualified moving and
   stationary single-brush adapters, moving/stationary brush-leaf traversal and raw
-  per-instance static-point and terrain point/triangle queries. World/family aggregation and the player
+  per-instance static-point queries, ordered terrain point aggregation and a
+  supplied-transform model adapter. Full world aggregation and the player
   receiver/contact solver remain unimplemented.
 - Rendering preserves the accepted mesh arrays and metadata. Canonical runtime
   mapping is source `(x,y,z)` -> Bevy `(x,z,-y)`; gray display is reusable.
@@ -52,14 +53,14 @@ input across zero/multiple fixed updates, and resolution or reproducible source
 exclusion of every participating full-map collision reference. Unsupported families
 cannot be silently skipped. Bevy's fixed rate does not establish native timing.
 
-Reviewed integration currently passes 269 workspace tests (9 external opt-ins
+Reviewed integration currently passes 305 workspace tests (10 external opt-ins
 ignored), locked metadata, formatting and warning-denying all-target Clippy.
 Hierarchy/static payload opt-ins and all 4,791 stationary brush-only leaf probes
 pass separately. Client host tests pass (8), with warning-denying client Clippy.
 Earlier brush/terrain opt-ins, input/pacing checks and a synthetic
 reconstructed-window GPU smoke pass; sustained physical input/full movement and
 original comparisons remain unverified. See [integration01](handoffs/movement-integration-01.md)
-and [terrain numerical integration04](handoffs/movement-integration-04.md).
+and [movement/collision integration05](handoffs/movement-integration-05.md).
 
 Current contracts and limits:
 
@@ -75,6 +76,8 @@ Current contracts and limits:
   [stance](reverse_engineering/movement-stance-contract.md) contracts distinguish
   qualified transitions from missing providers. Effective posture uses target
   height; blocked clearance can retain native events and transition side effects.
+  Ordered jump eligibility/button mutation and integer posture timing kernels are
+  executable; launch, full stance transitions and clearance assembly remain pending.
 - [Baseline parameters](reverse_engineering/movement-baseline-parameters.md): script
   movement scale1, C96 ordinary movement/sprint modifiers1, sprint4000ms/cooldown0.
   Stop speed, base speed, gravity and other parameter registrations/defaults are
@@ -87,13 +90,21 @@ Current contracts and limits:
   binding, model poses and activation remain unresolved.
 - [Terrain admission](reverse_engineering/terrain-payload-admission.md): complete
   arrays/refs and all map/model leaves, including214 root-zero terrain leaves.
-  Numerical capsule/edge/vertex queries, stamp lifecycle and packed-edge semantics
-  remain to implement/qualify. The raw point/triangle consumer is implemented.
+  Ordered point aggregation reuses map/model leaves and a fresh exclusive stamp
+  workspace. Generation wrap errors explicitly. Stationary/capsule/edge/vertex
+  queries, reset scheduling and packed-edge semantics remain to implement/qualify.
 - [Static XModel contract](reverse_engineering/static-xmodel-collision-contract.md):
   all 10,837 instances resolve 420 shared providers. Complete bounded payload
   admission and raw per-instance classic point queries are implemented. Sector
   setup and player-hull binding remain pending. Contents-zero exclusions apply
   only to the proven route.
+- [Transformed models](reverse_engineering/transformed-submodel-trace-contract.md)
+  reuse supplied consumers with source-ordered centering/rotation and atomic errors.
+  Runtime poses, activation and special selectors remain pending.
+- [Dynent dispatch](reverse_engineering/dynent-collision-contract.md) distinguishes
+  native class-zero/one sector traversal from decoder counts `[275,0,19,0]` and
+  original count19. Definition poses are query inputs; activation/index bounds
+  remain unresolved. The zero-content suffix is not a runtime exclusion.
 - [Collision access](reverse_engineering/movement-collision-access.md) and
   [effective producer gap](reverse_engineering/movement-collision-receiver-producer.md):
   motor uses receiver shapes/candidate contacts beyond classic traces. Effective
@@ -103,11 +114,15 @@ Current contracts and limits:
   rounding/MXCSR binding remains unknown. [Camera](reverse_engineering/first-person-camera-contract.md)
   qualifies angles/basis and eye-effect ownership; runtime parameters and final
   view/projection publication remain unresolved.
+- [Encoded prelude record](reverse_engineering/encoded-prelude-record-qualification.md)
+  reproduces one static checksum/range/digest association. Returned scalar storage
+  and later consumers remain distinct from verified bytes; no FP/default/provider
+  semantics follow from digest equality.
 - [Coverage ledger](reverse_engineering/player-world-contract.md) tracks hierarchy,
   terrain, static XModels, transformed models, dynents and separate box scope.
 
-Ready lanes: terrain point numerical queries, movement-thread floating-point
-binding and baseline startup overrides proceed in parallel. Keep one
+Ready lanes: stationary terrain sphere consumer, encoded prelude storage binding
+and dynent initialization/index ownership proceed in parallel. Keep one
 numerical motor owner across all locomotion modes. Shared
 PlayerCollisionWorld/scene and MovementState/Command/Profile/Step/Error contracts
 must reflect qualified source needs; do not substitute a generic trace-only motor.
