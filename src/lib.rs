@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod access;
 pub mod assets;
 pub mod damage;
 pub mod economy;
@@ -99,6 +100,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
             perks::PerkPlugin,
             perk_effects::PerkEffectsPlugin,
             environment::EnvironmentPlugin,
+            access::AccessPlugin,
         ),
         player_health::PlayerHealthPlugin,
         enemies::EnemyPlugin,

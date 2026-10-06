@@ -92,7 +92,7 @@
 - [ ] Add a central session teardown handler.
 - [ ] Reset player inventory when starting fresh sessions.
 - [ ] Reset player vitality when starting fresh sessions.
-- [ ] Reset purchased doors when starting fresh sessions.
+- [x] Reset purchased doors when starting fresh sessions.
 - [ ] Reset generators when starting fresh sessions.
 - [x] Reset perks when starting fresh sessions.
 - [ ] Reset active powerups when starting fresh sessions.
@@ -591,12 +591,12 @@
 - [ ] Add generator attacker route selection.
 - [ ] Add generator attacker shutdown behavior.
 - [ ] Add generator attacker progression between generators.
-- [ ] Add purchasable door entities.
-- [ ] Bind door prices to original placements.
-- [ ] Add door opening animations.
-- [ ] Remove purchased door blocking colliders.
-- [ ] Unlock connected zones after door purchases.
-- [ ] Add door-specific opening sounds.
+- [x] Add purchasable door entities.
+- [x] Bind door prices to original placements.
+- [x] Add door opening animations.
+- [x] Remove purchased door blocking colliders.
+- [x] Unlock connected zones after door purchases.
+- [x] Add door-specific opening sounds.
 - [ ] Add repairable barrier entities.
 - [ ] Add individual barrier plank states.
 - [ ] Add barrier plank destruction.

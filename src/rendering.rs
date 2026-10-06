@@ -133,6 +133,7 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
             ..default()
         },
     ));
+    camera.insert(bevy::audio::SpatialListener::new(0.2));
     if matches!(profile.antialiasing, profile::Antialiasing::Smaa) {
         camera.insert(bevy::anti_alias::smaa::Smaa::default());
     }

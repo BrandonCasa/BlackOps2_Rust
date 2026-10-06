@@ -432,7 +432,7 @@ def validate_pack(root, receipt=None, exact=False):
     game = read_json(safe_path(root, "game.json", {".json"}))
     require(set(game) <= {"version", "scene", "collision_scene", "spawn", "yaw", "spawn_points",
                           "waypoints", "survey_views", "source_surfaces", "render_meshes",
-                          "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health", "solo_revive", "environment"}, "unknown gameplay configuration")
+                          "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health", "solo_revive", "environment", "access"}, "unknown gameplay configuration")
     require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "sprint_seconds", "sprint_minimum", "sprint_recovery_rate", "sprint_recovery_delay", "crouch_speed", "gravity",
         "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
         "mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
@@ -452,6 +452,31 @@ def validate_pack(root, receipt=None, exact=False):
             points=volume["vertices"];require(isinstance(points,list) and 4<=len(points)<=128,"invalid convex volume")
             require(all(isinstance(v,list) and len(v)==3 and all(type(x) in (int,float) and math.isfinite(x) for x in v) for v in [volume["position"]]+points),"invalid volume vectors")
             require(np.linalg.matrix_rank(np.array(points)-points[0])==3,"flat volume vertices")
+    access=game.get("access",{})
+    require(isinstance(access,dict) and set(access)<={"doors"},"unknown access fields")
+    doors=access.get("doors",[]);require(isinstance(doors,list) and len(doors)<=256,"invalid door count")
+    content=game.get("content",{});connections={c["id"] for c in content.get("zone_connections",[])}
+    sounds={s["id"] for s in content.get("sounds",[]) if not s["looping"]}
+    presentations={p["id"] for p in content.get("presentations",[]) if p["scene"] is not None}
+    groups=set();volume_ids=set()
+    for d in doors:
+        require(isinstance(d,dict) and set(d)=={"connection","connections","debris","seconds","props","blocks","sound"},"invalid door fields")
+        require(d["connection"] not in groups and d["connection"] in connections,"invalid door identity");groups.add(d["connection"])
+        require(isinstance(d["connections"],list) and d["connection"] in d["connections"] and all(c in connections for c in d["connections"]),"invalid door edges")
+        require(type(d["debris"]) is bool and type(d["seconds"]) in (int,float) and math.isfinite(d["seconds"]) and 0<d["seconds"]<=10,"invalid door timing")
+        require(d["sound"] in sounds,"missing door sound")
+        require(isinstance(d["props"],list) and 0<len(d["props"])<=64,"invalid door props")
+        for p in d["props"]:
+            require(isinstance(p,dict) and set(p)=={"presentation","position","yaw","offset"} and p["presentation"] in presentations,"invalid door visual")
+            require(type(p["yaw"]) in (int,float) and math.isfinite(p["yaw"]),"invalid door yaw")
+            require(all(isinstance(v,list) and len(v)==3 and all(type(x) in (int,float) and math.isfinite(x) for x in v) for v in [p["position"],p["offset"]]),"invalid door vectors")
+        require(isinstance(d["blocks"],list) and 0<len(d["blocks"])<=256,"invalid door blocks")
+        for v in d["blocks"]:
+            require(isinstance(v,dict) and set(v)=={"id","position","vertices"},"invalid door volume")
+            require(isinstance(v["id"],str) and re.fullmatch(r"[A-Za-z0-9_.-]+",v["id"]) and v["id"] not in volume_ids,"invalid blocker ID");volume_ids.add(v["id"])
+            require(isinstance(v["vertices"],list) and 4<=len(v["vertices"])<=128,"invalid blocker vertices")
+            require(all(isinstance(p,list) and len(p)==3 and all(type(x) in (int,float) and math.isfinite(x) for x in p) for p in [v["position"]]+v["vertices"]),"invalid blocker geometry")
+            require(np.linalg.matrix_rank(np.array(v["vertices"])-v["vertices"][0])==3,"flat blocker")
     mobility = game.get("tuning", {}).get("mobility", {})
     require(isinstance(mobility, dict) and set(mobility) <= {"prone_height","prone_eye","prone_speed","prone_step","acceleration","deceleration","air_acceleration","air_deceleration","stance_seconds","jump_recovery","dive_speed","dive_lift","dive_recovery","fall_minimum","fall_fatal","landing_dip","landing_seconds","walk_bob","sprint_bob","stride","sway_limit","sway_response"}, "unknown mobility tuning")
     require(all(type(v) in (int,float) and math.isfinite(v) and v > 0 for k,v in mobility.items() if k not in ("walk_bob","sprint_bob","stride")),"invalid mobility tuning")

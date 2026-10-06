@@ -26,6 +26,8 @@ pub struct GameDefinition {
     #[serde(default)]
     pub environment: crate::environment::EnvironmentDefinition,
     #[serde(default)]
+    pub access: crate::access::AccessDefinition,
+    #[serde(default)]
     pub tuning: Tuning,
 }
 
@@ -204,6 +206,7 @@ impl GameDefinition {
                 .all(|v| v.is_finite())
             || !values.iter().all(|v| v.is_finite() && *v > 0.)
             || !self.environment.valid()
+            || !self.access.valid(&self.content)
             || !self
                 .tuning
                 .mobility

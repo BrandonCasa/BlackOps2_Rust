@@ -5,6 +5,19 @@ import numpy as np
 from prepare_gameplay_content import external
 from prepare_origins import entities
 
+def brush_vertices(brush):
+    planes=[(np.array(p["normal"]),p["distance"]) for p in brush["planes"]]
+    for axis in range(3):
+        n=np.zeros(3);n[axis]=1;planes.extend([(n,brush["max"][axis]),(-n,-brush["min"][axis])])
+    normals=np.array([n for n,d in planes]);distances=np.array([d for n,d in planes]);vertices=[]
+    for ids in itertools.combinations(range(len(planes)),3):
+        selected=normals[list(ids)]
+        if abs(np.linalg.det(selected))<1e-8:continue
+        point=np.linalg.solve(selected,distances[list(ids)])
+        if np.all(normals@point<=distances+0.01) and not any(np.linalg.norm(point-v)<0.01 for v in vertices):vertices.append(point)
+    if len(vertices)<4:raise ValueError("empty native slow-area convex brush")
+    return vertices
+
 def prepare(config):
     inspection=external(config["assets"]["inspection_output"]);pack=external(config["game"]["asset_pack"])
     table=inspection/"solo-content/mud-triggers-recovery/map-triggers.json"
@@ -16,16 +29,7 @@ def prepare(config):
         if e.get("targetname")!="player_slow_area":continue
         origin=np.array([float(x) for x in e["origin"].split()]);model=models[e["model"].lstrip("*")]
         for brush in model["hulls"]:
-            planes=[(np.array(p["normal"]),p["distance"]) for p in brush["planes"]]
-            for axis in range(3):
-                n=np.zeros(3);n[axis]=1;planes.extend([(n,brush["max"][axis]),(-n,-brush["min"][axis])])
-            normals=np.array([n for n,d in planes]);distances=np.array([d for n,d in planes]);vertices=[]
-            for ids in itertools.combinations(range(len(planes)),3):
-                selected=normals[list(ids)]
-                if abs(np.linalg.det(selected))<1e-8:continue
-                point=np.linalg.solve(selected,distances[list(ids)])
-                if np.all(normals@point<=distances+0.01) and not any(np.linalg.norm(point-v)<0.01 for v in vertices):vertices.append(point)
-            if len(vertices)<4:raise ValueError("empty native slow-area convex brush")
+            vertices=brush_vertices(brush)
             points=np.array([matrix@(p+origin)*0.0254 for p in vertices]);center=points.mean(axis=0)
             hulls.append({"id":"mud."+e["guid"].lower()+"."+str(brush["brush"]),"position":center.tolist(),"vertices":(points-center).tolist()})
     if not hulls:raise ValueError("missing native slow area")

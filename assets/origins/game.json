@@ -16282,8 +16282,396 @@
     "powerups": [],
     "zones": [
       {
+        "id": "zone.air_stairs",
+        "initially_open": false
+      },
+      {
+        "id": "zone.air_stairs_1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bolt_stairs",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bolt_stairs_1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_1a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_2",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_2a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_3a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_3b",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_4a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_4b",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_4c",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_4d",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_4e",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_4f",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_5a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_5b",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_6",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_a1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_a2",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_b",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_c",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_c1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_d",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_d1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_e",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_e1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_e2",
+        "initially_open": false
+      },
+      {
+        "id": "zone.bunker_tank_f",
+        "initially_open": false
+      },
+      {
+        "id": "zone.chamber_0",
+        "initially_open": false
+      },
+      {
+        "id": "zone.chamber_1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.chamber_2",
+        "initially_open": false
+      },
+      {
+        "id": "zone.chamber_3",
+        "initially_open": false
+      },
+      {
+        "id": "zone.chamber_4",
+        "initially_open": false
+      },
+      {
+        "id": "zone.chamber_5",
+        "initially_open": false
+      },
+      {
+        "id": "zone.chamber_6",
+        "initially_open": false
+      },
+      {
+        "id": "zone.chamber_7",
+        "initially_open": false
+      },
+      {
+        "id": "zone.chamber_8",
+        "initially_open": false
+      },
+      {
+        "id": "zone.fire_stairs",
+        "initially_open": false
+      },
+      {
+        "id": "zone.fire_stairs_1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.ice_stairs",
+        "initially_open": false
+      },
+      {
+        "id": "zone.ice_stairs_1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_0",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_10",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_10a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_11",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_11a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_12",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_12a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_13",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_14",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_15",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_15a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_16",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_16a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_17",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_17a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_18",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_19",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_2",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_20",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_2a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_2b",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_3",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_4",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_5",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_6",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_7",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_7a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_8",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_9",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_9a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_celllar",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_farm",
+        "initially_open": false
+      },
+      {
+        "id": "zone.nml_farm_1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.robot_head",
+        "initially_open": false
+      },
+      {
         "id": "zone.start",
         "initially_open": true
+      },
+      {
+        "id": "zone.start_a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.start_b",
+        "initially_open": false
+      },
+      {
+        "id": "zone.ug_bottom_zone",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_0",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_1",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_1a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_2",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_3",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_3a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_3b",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_4",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_4a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_4b",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_5",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_5a",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_5b",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_6",
+        "initially_open": false
+      },
+      {
+        "id": "zone.village_6a",
+        "initially_open": false
       }
     ],
     "placements": [
@@ -16594,6 +16982,149 @@
         ],
         "yaw": 3.141592653589793,
         "zone": "zone.start"
+      },
+      {
+        "id": "placement.door.f04de464",
+        "definition": "connection.activate_zone_farm.0",
+        "position": [
+          -52.832,
+          6.5024,
+          10.5664
+        ],
+        "yaw": 0.0,
+        "zone": "zone.nml_0"
+      },
+      {
+        "id": "placement.door.99a8674e",
+        "definition": "connection.activate_zone_farm.0",
+        "position": [
+          -55.270399999999995,
+          4.876799999999999,
+          -15.4432
+        ],
+        "yaw": 0.0,
+        "zone": "zone.nml_0"
+      },
+      {
+        "id": "placement.door.deb9028a",
+        "definition": "connection.activate_zone_ruins.0",
+        "position": [
+          -9.753599999999999,
+          9.753599999999999,
+          3.2512
+        ],
+        "yaw": 0.0,
+        "zone": "zone.nml_16"
+      },
+      {
+        "id": "placement.door.10a92717",
+        "definition": "connection.activate_zone_ruins.0",
+        "position": [
+          5.6895999999999995,
+          9.753599999999999,
+          -8.9408
+        ],
+        "yaw": 0.0,
+        "zone": "zone.nml_16"
+      },
+      {
+        "id": "placement.door.7765ad86",
+        "definition": "connection.activate_zone_village_1.0",
+        "position": [
+          15.4432,
+          2.4383999999999997,
+          60.1472
+        ],
+        "yaw": 0.0,
+        "zone": "zone.village_1"
+      },
+      {
+        "id": "placement.door.05ef70d8",
+        "definition": "connection.activate_zone_village_0.0",
+        "position": [
+          2.032,
+          3.2512,
+          27.635199999999998
+        ],
+        "yaw": 0.0,
+        "zone": "zone.village_0"
+      },
+      {
+        "id": "placement.door.0f9bf467",
+        "definition": "connection.activate_zone_bunker_1.0",
+        "position": [
+          61.3664,
+          -6.7056,
+          -110.1344
+        ],
+        "yaw": 0.0,
+        "zone": "zone.start_a"
+      },
+      {
+        "id": "placement.door.f86c025d",
+        "definition": "connection.activate_zone_bunker_3a.0",
+        "position": [
+          30.8864,
+          -4.2672,
+          -73.152
+        ],
+        "yaw": 0.0,
+        "zone": "zone.bunker_1a"
+      },
+      {
+        "id": "placement.door.983f7239",
+        "definition": "connection.activate_zone_bunker_4b.0",
+        "position": [
+          -21.9456,
+          -5.2832,
+          -80.46719999999999
+        ],
+        "yaw": 0.0,
+        "zone": "zone.bunker_4a"
+      },
+      {
+        "id": "placement.door.1e64cda9",
+        "definition": "connection.activate_zone_bunker_3b.0",
+        "position": [
+          -5.6895999999999995,
+          -5.08,
+          -70.9168
+        ],
+        "yaw": 0.0,
+        "zone": "zone.bunker_3a"
+      },
+      {
+        "id": "placement.door.d579edb5",
+        "definition": "connection.activate_zone_bunker_2.0",
+        "position": [
+          47.5488,
+          -6.096,
+          -117.0432
+        ],
+        "yaw": 0.0,
+        "zone": "zone.start_b"
+      },
+      {
+        "id": "placement.door.1d2af910",
+        "definition": "connection.activate_zone_bunker_4a.0",
+        "position": [
+          9.753599999999999,
+          -6.2992,
+          -88.1888
+        ],
+        "yaw": 0.0,
+        "zone": "zone.bunker_2a"
+      },
+      {
+        "id": "placement.door.900f6c49",
+        "definition": "connection.activate_zone_nml.0",
+        "position": [
+          -18.5928,
+          -1.6256,
+          -56.896
+        ],
+        "yaw": 0.0,
+        "zone": "zone.bunker_tank_a"
       }
     ],
     "interactions": [
@@ -16950,9 +17481,1126 @@
         "reach": 2.0,
         "hold_seconds": 0.0,
         "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.f04de464",
+        "placement": "placement.door.f04de464",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_farm.0",
+          "price": 1000
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.99a8674e",
+        "placement": "placement.door.99a8674e",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_farm.0",
+          "price": 1000
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.deb9028a",
+        "placement": "placement.door.deb9028a",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_ruins.0",
+          "price": 2250
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.10a92717",
+        "placement": "placement.door.10a92717",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_ruins.0",
+          "price": 2250
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.7765ad86",
+        "placement": "placement.door.7765ad86",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_village_1.0",
+          "price": 1250
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.05ef70d8",
+        "placement": "placement.door.05ef70d8",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_village_0.0",
+          "price": 1250
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.0f9bf467",
+        "placement": "placement.door.0f9bf467",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_bunker_1.0",
+          "price": 500
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.f86c025d",
+        "placement": "placement.door.f86c025d",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_bunker_3a.0",
+          "price": 750
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.983f7239",
+        "placement": "placement.door.983f7239",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_bunker_4b.0",
+          "price": 1000
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.1e64cda9",
+        "placement": "placement.door.1e64cda9",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_bunker_3b.0",
+          "price": 1000
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.d579edb5",
+        "placement": "placement.door.d579edb5",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_bunker_2.0",
+          "price": 500
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.1d2af910",
+        "placement": "placement.door.1d2af910",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_bunker_4a.0",
+          "price": 750
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.door.900f6c49",
+        "placement": "placement.door.900f6c49",
+        "action": {
+          "kind": "door",
+          "connection": "connection.activate_zone_nml.0",
+          "price": 1250
+        },
+        "reach": 2.3,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
       }
     ],
-    "zone_connections": [],
+    "zone_connections": [
+      {
+        "id": "connection.always_on.0",
+        "from": "zone.robot_head",
+        "to": "zone.robot_head",
+        "initially_open": true
+      },
+      {
+        "id": "connection.always_on.1",
+        "from": "zone.start",
+        "to": "zone.start_a",
+        "initially_open": true
+      },
+      {
+        "id": "connection.always_on.2",
+        "from": "zone.start",
+        "to": "zone.start_b",
+        "initially_open": true
+      },
+      {
+        "id": "connection.always_on.3",
+        "from": "zone.start_a",
+        "to": "zone.start_b",
+        "initially_open": true
+      },
+      {
+        "id": "connection.activate_zone_bunker_1.0",
+        "from": "zone.start_a",
+        "to": "zone.bunker_1a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_1.1",
+        "from": "zone.bunker_1a",
+        "to": "zone.bunker_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_3a.0",
+        "from": "zone.bunker_1a",
+        "to": "zone.bunker_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_3a.1",
+        "from": "zone.bunker_1",
+        "to": "zone.bunker_3a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_3a.2",
+        "from": "zone.bunker_3a",
+        "to": "zone.bunker_3b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_3b.0",
+        "from": "zone.bunker_3a",
+        "to": "zone.bunker_3b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_3b.1",
+        "from": "zone.bunker_3b",
+        "to": "zone.bunker_5a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_3b.2",
+        "from": "zone.bunker_5a",
+        "to": "zone.bunker_5b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_2.0",
+        "from": "zone.start_b",
+        "to": "zone.bunker_2a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_2.1",
+        "from": "zone.bunker_2a",
+        "to": "zone.bunker_2",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.0",
+        "from": "zone.bunker_2a",
+        "to": "zone.bunker_2",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.1",
+        "from": "zone.bunker_2",
+        "to": "zone.bunker_4a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.2",
+        "from": "zone.bunker_4a",
+        "to": "zone.bunker_4b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.3",
+        "from": "zone.bunker_4a",
+        "to": "zone.bunker_4c",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.4",
+        "from": "zone.bunker_4b",
+        "to": "zone.bunker_4f",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.5",
+        "from": "zone.bunker_4c",
+        "to": "zone.bunker_4d",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.6",
+        "from": "zone.bunker_4c",
+        "to": "zone.bunker_4e",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.7",
+        "from": "zone.bunker_4e",
+        "to": "zone.bunker_tank_c1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.8",
+        "from": "zone.bunker_4e",
+        "to": "zone.bunker_tank_d",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.9",
+        "from": "zone.bunker_tank_c",
+        "to": "zone.bunker_tank_c1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4a.10",
+        "from": "zone.bunker_tank_d",
+        "to": "zone.bunker_tank_d1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.0",
+        "from": "zone.bunker_4a",
+        "to": "zone.bunker_4b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.1",
+        "from": "zone.bunker_4a",
+        "to": "zone.bunker_4c",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.2",
+        "from": "zone.bunker_4b",
+        "to": "zone.bunker_4f",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.3",
+        "from": "zone.bunker_4c",
+        "to": "zone.bunker_4d",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.4",
+        "from": "zone.bunker_4c",
+        "to": "zone.bunker_4e",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.5",
+        "from": "zone.bunker_4b",
+        "to": "zone.bunker_5a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.6",
+        "from": "zone.bunker_5a",
+        "to": "zone.bunker_5b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.7",
+        "from": "zone.bunker_4e",
+        "to": "zone.bunker_tank_c1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.8",
+        "from": "zone.bunker_4e",
+        "to": "zone.bunker_tank_d",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.9",
+        "from": "zone.bunker_tank_c",
+        "to": "zone.bunker_tank_c1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4b.10",
+        "from": "zone.bunker_tank_d",
+        "to": "zone.bunker_tank_d1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.0",
+        "from": "zone.bunker_tank_a",
+        "to": "zone.nml_7",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.1",
+        "from": "zone.bunker_tank_a",
+        "to": "zone.nml_7a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.2",
+        "from": "zone.bunker_tank_a",
+        "to": "zone.bunker_tank_a1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.3",
+        "from": "zone.bunker_tank_a1",
+        "to": "zone.bunker_tank_a2",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.4",
+        "from": "zone.bunker_tank_a1",
+        "to": "zone.bunker_tank_b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.5",
+        "from": "zone.bunker_tank_b",
+        "to": "zone.bunker_tank_c",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.6",
+        "from": "zone.bunker_tank_c",
+        "to": "zone.bunker_tank_c1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.7",
+        "from": "zone.bunker_tank_d",
+        "to": "zone.bunker_tank_d1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.8",
+        "from": "zone.bunker_tank_d1",
+        "to": "zone.bunker_tank_e",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.9",
+        "from": "zone.bunker_tank_e",
+        "to": "zone.bunker_tank_e1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.10",
+        "from": "zone.bunker_tank_e1",
+        "to": "zone.bunker_tank_e2",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.11",
+        "from": "zone.bunker_tank_e1",
+        "to": "zone.bunker_tank_f",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.12",
+        "from": "zone.bunker_tank_f",
+        "to": "zone.nml_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.13",
+        "from": "zone.bunker_5b",
+        "to": "zone.nml_2a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.14",
+        "from": "zone.nml_0",
+        "to": "zone.nml_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_farm.0",
+        "from": "zone.nml_0",
+        "to": "zone.nml_farm",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.15",
+        "from": "zone.nml_1",
+        "to": "zone.nml_2",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.16",
+        "from": "zone.nml_1",
+        "to": "zone.nml_4",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.17",
+        "from": "zone.nml_1",
+        "to": "zone.nml_20",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.18",
+        "from": "zone.nml_2",
+        "to": "zone.nml_2a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.19",
+        "from": "zone.nml_2",
+        "to": "zone.nml_2b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.20",
+        "from": "zone.nml_2",
+        "to": "zone.nml_3",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.21",
+        "from": "zone.nml_3",
+        "to": "zone.nml_4",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.22",
+        "from": "zone.nml_3",
+        "to": "zone.nml_13",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.23",
+        "from": "zone.nml_4",
+        "to": "zone.nml_5",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.24",
+        "from": "zone.nml_4",
+        "to": "zone.nml_13",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_farm.1",
+        "from": "zone.nml_5",
+        "to": "zone.nml_farm",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.25",
+        "from": "zone.nml_6",
+        "to": "zone.nml_2b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.26",
+        "from": "zone.nml_6",
+        "to": "zone.nml_7",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.27",
+        "from": "zone.nml_6",
+        "to": "zone.nml_7a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.28",
+        "from": "zone.nml_6",
+        "to": "zone.nml_8",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.29",
+        "from": "zone.nml_7",
+        "to": "zone.nml_7a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.30",
+        "from": "zone.nml_7",
+        "to": "zone.nml_9",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.31",
+        "from": "zone.nml_7",
+        "to": "zone.nml_10",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.32",
+        "from": "zone.nml_8",
+        "to": "zone.nml_10a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.33",
+        "from": "zone.nml_8",
+        "to": "zone.nml_14",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.34",
+        "from": "zone.nml_8",
+        "to": "zone.nml_16",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.35",
+        "from": "zone.nml_9",
+        "to": "zone.nml_7a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.36",
+        "from": "zone.nml_9",
+        "to": "zone.nml_9a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.37",
+        "from": "zone.nml_9",
+        "to": "zone.nml_11",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.38",
+        "from": "zone.nml_10",
+        "to": "zone.nml_10a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.39",
+        "from": "zone.nml_10",
+        "to": "zone.nml_11",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.40",
+        "from": "zone.nml_10a",
+        "to": "zone.nml_12",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.41",
+        "from": "zone.nml_10a",
+        "to": "zone.village_4",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.42",
+        "from": "zone.nml_11",
+        "to": "zone.nml_9a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.43",
+        "from": "zone.nml_11",
+        "to": "zone.nml_11a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.44",
+        "from": "zone.nml_11",
+        "to": "zone.nml_12",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.45",
+        "from": "zone.nml_12",
+        "to": "zone.nml_11a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.46",
+        "from": "zone.nml_12",
+        "to": "zone.nml_12a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.47",
+        "from": "zone.nml_13",
+        "to": "zone.nml_15",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.48",
+        "from": "zone.nml_14",
+        "to": "zone.nml_15",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.49",
+        "from": "zone.nml_15",
+        "to": "zone.nml_17",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.50",
+        "from": "zone.nml_15a",
+        "to": "zone.nml_14",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.51",
+        "from": "zone.nml_15a",
+        "to": "zone.nml_15",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.52",
+        "from": "zone.nml_16",
+        "to": "zone.nml_2b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.53",
+        "from": "zone.nml_16",
+        "to": "zone.nml_16a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_ruins.0",
+        "from": "zone.nml_16",
+        "to": "zone.nml_18",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.54",
+        "from": "zone.nml_17",
+        "to": "zone.nml_17a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_ruins.1",
+        "from": "zone.nml_17",
+        "to": "zone.nml_18",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.55",
+        "from": "zone.nml_18",
+        "to": "zone.nml_19",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_farm.2",
+        "from": "zone.nml_farm",
+        "to": "zone.nml_celllar",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_farm.3",
+        "from": "zone.nml_farm",
+        "to": "zone.nml_farm_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_crypt.0",
+        "from": "zone.nml_19",
+        "to": "zone.ug_bottom_zone",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.0",
+        "from": "zone.village_0",
+        "to": "zone.nml_15",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.1",
+        "from": "zone.village_0",
+        "to": "zone.village_4b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.2",
+        "from": "zone.village_1",
+        "to": "zone.village_1a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_1.0",
+        "from": "zone.village_1",
+        "to": "zone.village_2",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.3",
+        "from": "zone.village_1",
+        "to": "zone.village_4b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.4",
+        "from": "zone.village_1",
+        "to": "zone.village_5b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_1.1",
+        "from": "zone.village_2",
+        "to": "zone.village_3",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_1.2",
+        "from": "zone.village_3",
+        "to": "zone.village_3a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_1.3",
+        "from": "zone.village_3",
+        "to": "zone.ice_stairs",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_1.4",
+        "from": "zone.ice_stairs",
+        "to": "zone.ice_stairs_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_1.5",
+        "from": "zone.village_3a",
+        "to": "zone.village_3b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.5",
+        "from": "zone.village_4",
+        "to": "zone.nml_14",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.6",
+        "from": "zone.village_4",
+        "to": "zone.village_4a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.7",
+        "from": "zone.village_4",
+        "to": "zone.village_4b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.8",
+        "from": "zone.village_5",
+        "to": "zone.nml_4",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.9",
+        "from": "zone.village_5",
+        "to": "zone.village_5a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.10",
+        "from": "zone.village_5a",
+        "to": "zone.village_5b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.11",
+        "from": "zone.village_6",
+        "to": "zone.village_5b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_village_0.12",
+        "from": "zone.village_6",
+        "to": "zone.village_6a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.0",
+        "from": "zone.chamber_0",
+        "to": "zone.chamber_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.1",
+        "from": "zone.chamber_0",
+        "to": "zone.chamber_3",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.2",
+        "from": "zone.chamber_0",
+        "to": "zone.chamber_4",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.3",
+        "from": "zone.chamber_1",
+        "to": "zone.chamber_2",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.4",
+        "from": "zone.chamber_1",
+        "to": "zone.chamber_3",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.5",
+        "from": "zone.chamber_1",
+        "to": "zone.chamber_4",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.6",
+        "from": "zone.chamber_1",
+        "to": "zone.chamber_5",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.7",
+        "from": "zone.chamber_2",
+        "to": "zone.chamber_4",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.8",
+        "from": "zone.chamber_2",
+        "to": "zone.chamber_5",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.9",
+        "from": "zone.chamber_3",
+        "to": "zone.chamber_4",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.10",
+        "from": "zone.chamber_3",
+        "to": "zone.chamber_6",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.11",
+        "from": "zone.chamber_3",
+        "to": "zone.chamber_7",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.12",
+        "from": "zone.chamber_4",
+        "to": "zone.chamber_5",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.13",
+        "from": "zone.chamber_4",
+        "to": "zone.chamber_6",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.14",
+        "from": "zone.chamber_4",
+        "to": "zone.chamber_7",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.15",
+        "from": "zone.chamber_4",
+        "to": "zone.chamber_8",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.16",
+        "from": "zone.chamber_5",
+        "to": "zone.chamber_7",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.17",
+        "from": "zone.chamber_5",
+        "to": "zone.chamber_8",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.18",
+        "from": "zone.chamber_6",
+        "to": "zone.chamber_7",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_chamber.19",
+        "from": "zone.chamber_7",
+        "to": "zone.chamber_8",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_1_tank.0",
+        "from": "zone.bunker_1",
+        "to": "zone.bunker_1a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_1_tank.1",
+        "from": "zone.bunker_1a",
+        "to": "zone.fire_stairs",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_1_tank.2",
+        "from": "zone.fire_stairs",
+        "to": "zone.fire_stairs_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_2_tank.0",
+        "from": "zone.bunker_2",
+        "to": "zone.bunker_2a",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4_tank.0",
+        "from": "zone.bunker_4a",
+        "to": "zone.bunker_4b",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4_tank.1",
+        "from": "zone.bunker_4a",
+        "to": "zone.bunker_4c",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4_tank.2",
+        "from": "zone.bunker_4c",
+        "to": "zone.bunker_4d",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4_tank.3",
+        "from": "zone.bunker_4c",
+        "to": "zone.bunker_4e",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4_tank.4",
+        "from": "zone.bunker_4e",
+        "to": "zone.bunker_tank_c1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4_tank.5",
+        "from": "zone.bunker_4e",
+        "to": "zone.bunker_tank_d",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4_tank.6",
+        "from": "zone.bunker_tank_c",
+        "to": "zone.bunker_tank_c1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_4_tank.7",
+        "from": "zone.bunker_tank_d",
+        "to": "zone.bunker_tank_d1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_6_tank.0",
+        "from": "zone.bunker_tank_b",
+        "to": "zone.bunker_6",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_6_tank.1",
+        "from": "zone.bunker_1",
+        "to": "zone.bunker_6",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_1.2",
+        "from": "zone.bunker_1a",
+        "to": "zone.fire_stairs",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_1.3",
+        "from": "zone.fire_stairs",
+        "to": "zone.fire_stairs_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_3a.3",
+        "from": "zone.bunker_1a",
+        "to": "zone.fire_stairs",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_bunker_3a.4",
+        "from": "zone.fire_stairs",
+        "to": "zone.fire_stairs_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.56",
+        "from": "zone.nml_9",
+        "to": "zone.air_stairs",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_nml.57",
+        "from": "zone.air_stairs",
+        "to": "zone.air_stairs_1",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_farm.4",
+        "from": "zone.nml_celllar",
+        "to": "zone.bolt_stairs",
+        "initially_open": false
+      },
+      {
+        "id": "connection.activate_zone_farm.5",
+        "from": "zone.bolt_stairs",
+        "to": "zone.bolt_stairs_1",
+        "initially_open": false
+      }
+    ],
     "navigation_nodes": [],
     "navigation_links": [],
     "generators": [],
@@ -20947,9 +22595,44 @@
         "scene": "props/p6_zm_tm_vending_three_gun_lod0.gltf#Scene0",
         "animations": [],
         "sounds": []
+      },
+      {
+        "id": "presentation.door.p6_zm_tm_bunker_door",
+        "scene": "props/p6_zm_tm_bunker_door_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "presentation.door.p6_zm_tm_rock_blockade",
+        "scene": "props/p6_zm_tm_rock_blockade_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
       }
     ],
-    "sounds": [],
+    "sounds": [
+      {
+        "id": "sound.door.bunker",
+        "path": "audio/door-bunker.ogg",
+        "volume": 0.7,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 16.0,
+        "looping": false
+      },
+      {
+        "id": "sound.door.debris",
+        "path": "audio/door-debris.ogg",
+        "volume": 0.7,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 16.0,
+        "looping": false
+      }
+    ],
     "animations": [
       {
         "id": "animation.c_zom_dempsey_viewhands.viewmodel_870mcs_ads_down",
@@ -138786,5 +140469,1192 @@
         }
       ]
     }
+  },
+  "access": {
+    "doors": [
+      {
+        "connection": "connection.activate_zone_farm.0",
+        "connections": [
+          "connection.activate_zone_farm.0",
+          "connection.activate_zone_farm.1",
+          "connection.activate_zone_farm.2",
+          "connection.activate_zone_farm.3",
+          "connection.activate_zone_farm.4",
+          "connection.activate_zone_farm.5"
+        ],
+        "debris": true,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_rock_blockade",
+            "position": [
+              -52.832,
+              4.6735999999999995,
+              10.16
+            ],
+            "yaw": 4.371142205034759e-08,
+            "offset": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "presentation": "presentation.door.p6_zm_tm_rock_blockade",
+            "position": [
+              -55.39028799999999,
+              4.181348,
+              -16.256
+            ],
+            "yaw": 1.234553410410433e-08,
+            "offset": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.fbeaa396.8078",
+            "position": [
+              -52.93359999999999,
+              6.5024,
+              10.159999999999998
+            ],
+            "vertices": [
+              [
+                0.711199999999991,
+                1.6256000000000004,
+                -1.8287999999999993
+              ],
+              [
+                0.711199999999991,
+                -1.6256000000000004,
+                -1.8287999999999993
+              ],
+              [
+                0.711199999999991,
+                1.6256000000000004,
+                1.828800000000001
+              ],
+              [
+                0.711199999999991,
+                -1.6256000000000004,
+                1.828800000000001
+              ],
+              [
+                -0.7112000000000052,
+                1.6256000000000004,
+                -1.8287999999999993
+              ],
+              [
+                -0.7112000000000052,
+                -1.6256000000000004,
+                -1.8287999999999993
+              ],
+              [
+                -0.7112000000000052,
+                1.6256000000000004,
+                1.828800000000001
+              ],
+              [
+                -0.7112000000000052,
+                -1.6256000000000004,
+                1.828800000000001
+              ]
+            ]
+          },
+          {
+            "id": "volume.fbeaa396.8079",
+            "position": [
+              -55.168800000000005,
+              5.6896,
+              -16.052799999999998
+            ],
+            "vertices": [
+              [
+                0.5080000000000098,
+                1.6255999999999995,
+                -1.6256000000000022
+              ],
+              [
+                0.5080000000000098,
+                -1.6256000000000004,
+                -1.6256000000000022
+              ],
+              [
+                0.5080000000000098,
+                1.6255999999999995,
+                1.6255999999999986
+              ],
+              [
+                0.5080000000000098,
+                -1.6256000000000004,
+                1.6255999999999986
+              ],
+              [
+                -0.5079999999999956,
+                1.6255999999999995,
+                -1.6256000000000022
+              ],
+              [
+                -0.5079999999999956,
+                -1.6256000000000004,
+                -1.6256000000000022
+              ],
+              [
+                -0.5079999999999956,
+                1.6255999999999995,
+                1.6255999999999986
+              ],
+              [
+                -0.5079999999999956,
+                -1.6256000000000004,
+                1.6255999999999986
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.debris"
+      },
+      {
+        "connection": "connection.activate_zone_ruins.0",
+        "connections": [
+          "connection.activate_zone_ruins.0",
+          "connection.activate_zone_ruins.1"
+        ],
+        "debris": true,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_rock_blockade",
+            "position": [
+              -9.753599999999999,
+              8.128,
+              2.8447999999999998
+            ],
+            "yaw": 3.141592653589793,
+            "offset": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "presentation": "presentation.door.p6_zm_tm_rock_blockade",
+            "position": [
+              5.6895999999999995,
+              8.128,
+              -8.5344
+            ],
+            "yaw": 0.7853981633974483,
+            "offset": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.9f8b962a.8082",
+            "position": [
+              -9.652,
+              9.753599999999999,
+              2.8448
+            ],
+            "vertices": [
+              [
+                0.5079999999999991,
+                1.6256000000000004,
+                -1.2192000000000003
+              ],
+              [
+                0.5079999999999991,
+                -1.6255999999999986,
+                -1.2192000000000003
+              ],
+              [
+                0.5079999999999991,
+                1.6256000000000004,
+                1.2191999999999998
+              ],
+              [
+                0.5079999999999991,
+                -1.6255999999999986,
+                1.2191999999999998
+              ],
+              [
+                -0.5080000000000009,
+                1.6256000000000004,
+                -1.2192000000000003
+              ],
+              [
+                -0.5080000000000009,
+                -1.6255999999999986,
+                -1.2192000000000003
+              ],
+              [
+                -0.5080000000000009,
+                1.6256000000000004,
+                1.2191999999999998
+              ],
+              [
+                -0.5080000000000009,
+                -1.6255999999999986,
+                1.2191999999999998
+              ]
+            ]
+          },
+          {
+            "id": "volume.9f8b962a.8083",
+            "position": [
+              5.689593876255498,
+              9.753599999999999,
+              -8.636005273206488
+            ],
+            "vertices": [
+              [
+                -0.6095938253194904,
+                1.6256000000000004,
+                -1.5239942447333963
+              ],
+              [
+                -0.6095938253194904,
+                -1.6255999999999986,
+                -1.5239942447333963
+              ],
+              [
+                1.5239942059386715,
+                1.6256000000000004,
+                0.6095937865247656
+              ],
+              [
+                1.5239942059386715,
+                -1.6255999999999986,
+                0.6095937865247656
+              ],
+              [
+                -1.5239942447333963,
+                1.6256000000000004,
+                -0.6095938253194877
+              ],
+              [
+                -1.5239942447333963,
+                -1.6255999999999986,
+                -0.6095938253194877
+              ],
+              [
+                0.6095938641142151,
+                1.6256000000000004,
+                1.5239942835281228
+              ],
+              [
+                0.6095938641142151,
+                -1.6255999999999986,
+                1.5239942835281228
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.debris"
+      },
+      {
+        "connection": "connection.activate_zone_village_1.0",
+        "connections": [
+          "connection.activate_zone_village_1.0",
+          "connection.activate_zone_village_1.1",
+          "connection.activate_zone_village_1.2",
+          "connection.activate_zone_village_1.3",
+          "connection.activate_zone_village_1.4",
+          "connection.activate_zone_village_1.5"
+        ],
+        "debris": true,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_rock_blockade",
+            "position": [
+              15.414752,
+              1.89103,
+              60.1472
+            ],
+            "yaw": 2.0189445188294806e-07,
+            "offset": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.4124d43c.8170",
+            "position": [
+              15.44230258276927,
+              3.8608000000000002,
+              59.94365561133762
+            ],
+            "vertices": [
+              [
+                0.3102771543188787,
+                2.6415999999999995,
+                -1.9792213329475388
+              ],
+              [
+                0.3102771543188787,
+                -2.6416000000000004,
+                -1.9792213329475388
+              ],
+              [
+                1.259486351562769,
+                2.6415999999999995,
+                1.5574409542725434
+              ],
+              [
+                1.259486351562769,
+                -2.6416000000000004,
+                1.5574409542725434
+              ],
+              [
+                -1.2584791644547373,
+                2.6415999999999995,
+                -1.55368827185913
+              ],
+              [
+                -1.2584791644547373,
+                -2.6416000000000004,
+                -1.55368827185913
+              ],
+              [
+                -0.3112843414269104,
+                2.6415999999999995,
+                1.9754686505341184
+              ],
+              [
+                -0.3112843414269104,
+                -2.6416000000000004,
+                1.9754686505341184
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.debris"
+      },
+      {
+        "connection": "connection.activate_zone_village_0.0",
+        "connections": [
+          "connection.activate_zone_village_0.0",
+          "connection.activate_zone_village_0.1",
+          "connection.activate_zone_village_0.2",
+          "connection.activate_zone_village_0.3",
+          "connection.activate_zone_village_0.4",
+          "connection.activate_zone_village_0.5",
+          "connection.activate_zone_village_0.6",
+          "connection.activate_zone_village_0.7",
+          "connection.activate_zone_village_0.8",
+          "connection.activate_zone_village_0.9",
+          "connection.activate_zone_village_0.10",
+          "connection.activate_zone_village_0.11",
+          "connection.activate_zone_village_0.12"
+        ],
+        "debris": true,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_rock_blockade",
+            "position": [
+              2.032,
+              2.2352,
+              27.8384
+            ],
+            "yaw": 1.5707963267948966,
+            "offset": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.1146e890.8176",
+            "position": [
+              1.9304000000000001,
+              4.064,
+              28.0416
+            ],
+            "vertices": [
+              [
+                1.3207999999999998,
+                2.4383999999999997,
+                -0.8127999999999993
+              ],
+              [
+                1.3207999999999998,
+                -2.4384,
+                -0.8127999999999993
+              ],
+              [
+                1.3207999999999998,
+                2.4383999999999997,
+                0.8127999999999993
+              ],
+              [
+                1.3207999999999998,
+                -2.4384,
+                0.8127999999999993
+              ],
+              [
+                -1.3208000000000002,
+                2.4383999999999997,
+                -0.8127999999999993
+              ],
+              [
+                -1.3208000000000002,
+                -2.4384,
+                -0.8127999999999993
+              ],
+              [
+                -1.3208000000000002,
+                2.4383999999999997,
+                0.8127999999999993
+              ],
+              [
+                -1.3208000000000002,
+                -2.4384,
+                0.8127999999999993
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.debris"
+      },
+      {
+        "connection": "connection.activate_zone_bunker_1.0",
+        "connections": [
+          "connection.activate_zone_bunker_1.0",
+          "connection.activate_zone_bunker_1.1",
+          "connection.activate_zone_bunker_1.2",
+          "connection.activate_zone_bunker_1.3"
+        ],
+        "debris": false,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              61.467999999999996,
+              -8.331199999999999,
+              -110.1344
+            ],
+            "yaw": 1.1924874847788657e-08,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          },
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              61.467999999999996,
+              -8.331199999999999,
+              -110.1344
+            ],
+            "yaw": 3.141592653589793,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.91a09539.8232",
+            "position": [
+              61.46799999999999,
+              -7.010399999999999,
+              -110.13440000000001
+            ],
+            "vertices": [
+              [
+                0.5080000000000098,
+                1.3207999999999993,
+                -1.2191999999999865
+              ],
+              [
+                0.5080000000000098,
+                -1.3208000000000002,
+                -1.2191999999999865
+              ],
+              [
+                0.5080000000000098,
+                1.3207999999999993,
+                1.219200000000015
+              ],
+              [
+                0.5080000000000098,
+                -1.3208000000000002,
+                1.219200000000015
+              ],
+              [
+                -0.5079999999999885,
+                1.3207999999999993,
+                -1.2191999999999865
+              ],
+              [
+                -0.5079999999999885,
+                -1.3208000000000002,
+                -1.2191999999999865
+              ],
+              [
+                -0.5079999999999885,
+                1.3207999999999993,
+                1.219200000000015
+              ],
+              [
+                -0.5079999999999885,
+                -1.3208000000000002,
+                1.219200000000015
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.bunker"
+      },
+      {
+        "connection": "connection.activate_zone_bunker_3a.0",
+        "connections": [
+          "connection.activate_zone_bunker_3a.0",
+          "connection.activate_zone_bunker_3a.1",
+          "connection.activate_zone_bunker_3a.2",
+          "connection.activate_zone_bunker_3a.3",
+          "connection.activate_zone_bunker_3a.4"
+        ],
+        "debris": false,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              30.8864,
+              -5.6388,
+              -73.152
+            ],
+            "yaw": 4.371142205034759e-08,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          },
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              30.8864,
+              -5.6388,
+              -73.152
+            ],
+            "yaw": 3.141592653589793,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.788c1100.8234",
+            "position": [
+              30.8864,
+              -4.2672,
+              -73.152
+            ],
+            "vertices": [
+              [
+                0.5079999999999991,
+                1.4224,
+                -1.2192000000000007
+              ],
+              [
+                0.5079999999999991,
+                -1.4223999999999997,
+                -1.2192000000000007
+              ],
+              [
+                0.5079999999999991,
+                1.4224,
+                1.2192000000000007
+              ],
+              [
+                0.5079999999999991,
+                -1.4223999999999997,
+                1.2192000000000007
+              ],
+              [
+                -0.5079999999999991,
+                1.4224,
+                -1.2192000000000007
+              ],
+              [
+                -0.5079999999999991,
+                -1.4223999999999997,
+                -1.2192000000000007
+              ],
+              [
+                -0.5079999999999991,
+                1.4224,
+                1.2192000000000007
+              ],
+              [
+                -0.5079999999999991,
+                -1.4223999999999997,
+                1.2192000000000007
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.bunker"
+      },
+      {
+        "connection": "connection.activate_zone_bunker_4b.0",
+        "connections": [
+          "connection.activate_zone_bunker_4b.0",
+          "connection.activate_zone_bunker_4b.1",
+          "connection.activate_zone_bunker_4b.2",
+          "connection.activate_zone_bunker_4b.3",
+          "connection.activate_zone_bunker_4b.4",
+          "connection.activate_zone_bunker_4b.5",
+          "connection.activate_zone_bunker_4b.6",
+          "connection.activate_zone_bunker_4b.7",
+          "connection.activate_zone_bunker_4b.8",
+          "connection.activate_zone_bunker_4b.9",
+          "connection.activate_zone_bunker_4b.10"
+        ],
+        "debris": false,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              -21.9456,
+              -6.5024,
+              -80.3656
+            ],
+            "yaw": 4.71238898038469,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          },
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              -21.9456,
+              -6.5024,
+              -80.3656
+            ],
+            "yaw": 1.5707963267948966,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.fcfc7f1c.8236",
+            "position": [
+              -21.9456,
+              -5.2832,
+              -80.3656
+            ],
+            "vertices": [
+              [
+                1.2192000000000007,
+                1.4224,
+                -0.5079999999999956
+              ],
+              [
+                1.2192000000000007,
+                -1.4223999999999997,
+                -0.5079999999999956
+              ],
+              [
+                1.2192000000000007,
+                1.4224,
+                0.5080000000000098
+              ],
+              [
+                1.2192000000000007,
+                -1.4223999999999997,
+                0.5080000000000098
+              ],
+              [
+                -1.2192000000000007,
+                1.4224,
+                -0.5079999999999956
+              ],
+              [
+                -1.2192000000000007,
+                -1.4223999999999997,
+                -0.5079999999999956
+              ],
+              [
+                -1.2192000000000007,
+                1.4224,
+                0.5080000000000098
+              ],
+              [
+                -1.2192000000000007,
+                -1.4223999999999997,
+                0.5080000000000098
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.bunker"
+      },
+      {
+        "connection": "connection.activate_zone_bunker_3b.0",
+        "connections": [
+          "connection.activate_zone_bunker_3b.0",
+          "connection.activate_zone_bunker_3b.1",
+          "connection.activate_zone_bunker_3b.2"
+        ],
+        "debris": false,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              -5.7912,
+              -6.5024,
+              -70.9168
+            ],
+            "yaw": 3.141592653589793,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          },
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              -5.7912,
+              -6.5024,
+              -70.9168
+            ],
+            "yaw": 1.1924874847788657e-08,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.1b872052.8238",
+            "position": [
+              -5.7912,
+              -5.079999999999999,
+              -70.91679999999998
+            ],
+            "vertices": [
+              [
+                0.508,
+                1.6255999999999995,
+                -1.219200000000015
+              ],
+              [
+                0.508,
+                -1.6256000000000004,
+                -1.219200000000015
+              ],
+              [
+                0.508,
+                1.6255999999999995,
+                1.2191999999999865
+              ],
+              [
+                0.508,
+                -1.6256000000000004,
+                1.2191999999999865
+              ],
+              [
+                -0.508,
+                1.6255999999999995,
+                -1.219200000000015
+              ],
+              [
+                -0.508,
+                -1.6256000000000004,
+                -1.219200000000015
+              ],
+              [
+                -0.508,
+                1.6255999999999995,
+                1.2191999999999865
+              ],
+              [
+                -0.508,
+                -1.6256000000000004,
+                1.2191999999999865
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.bunker"
+      },
+      {
+        "connection": "connection.activate_zone_bunker_2.0",
+        "connections": [
+          "connection.activate_zone_bunker_2.0",
+          "connection.activate_zone_bunker_2.1"
+        ],
+        "debris": false,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              47.6504,
+              -7.7216,
+              -117.0432
+            ],
+            "yaw": 3.141592653589793,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          },
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              47.6504,
+              -7.7216,
+              -117.0432
+            ],
+            "yaw": 1.7484533913553992e-07,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.75104d50.8240",
+            "position": [
+              47.650400000000005,
+              -6.096,
+              -117.04319999999998
+            ],
+            "vertices": [
+              [
+                0.5079999999999956,
+                1.6256000000000004,
+                -1.219200000000015
+              ],
+              [
+                0.5079999999999956,
+                -1.6255999999999995,
+                -1.219200000000015
+              ],
+              [
+                0.5079999999999956,
+                1.6256000000000004,
+                1.2191999999999865
+              ],
+              [
+                0.5079999999999956,
+                -1.6255999999999995,
+                1.2191999999999865
+              ],
+              [
+                -0.5080000000000098,
+                1.6256000000000004,
+                -1.219200000000015
+              ],
+              [
+                -0.5080000000000098,
+                -1.6255999999999995,
+                -1.219200000000015
+              ],
+              [
+                -0.5080000000000098,
+                1.6256000000000004,
+                1.2191999999999865
+              ],
+              [
+                -0.5080000000000098,
+                -1.6255999999999995,
+                1.2191999999999865
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.bunker"
+      },
+      {
+        "connection": "connection.activate_zone_bunker_4a.0",
+        "connections": [
+          "connection.activate_zone_bunker_4a.0",
+          "connection.activate_zone_bunker_4a.1",
+          "connection.activate_zone_bunker_4a.2",
+          "connection.activate_zone_bunker_4a.3",
+          "connection.activate_zone_bunker_4a.4",
+          "connection.activate_zone_bunker_4a.5",
+          "connection.activate_zone_bunker_4a.6",
+          "connection.activate_zone_bunker_4a.7",
+          "connection.activate_zone_bunker_4a.8",
+          "connection.activate_zone_bunker_4a.9",
+          "connection.activate_zone_bunker_4a.10"
+        ],
+        "debris": false,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              10.2616,
+              -7.5057,
+              -87.98559999999999
+            ],
+            "yaw": 3.141592653589793,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          },
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              10.2616,
+              -7.5057,
+              -87.98559999999999
+            ],
+            "yaw": 4.371142205034759e-08,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.b89bcb56.8242",
+            "position": [
+              10.261599999999998,
+              -6.096,
+              -87.98559999999999
+            ],
+            "vertices": [
+              [
+                0.5080000000000009,
+                1.4224000000000006,
+                -1.2192000000000007
+              ],
+              [
+                0.5080000000000009,
+                -1.4223999999999997,
+                -1.2192000000000007
+              ],
+              [
+                0.5080000000000009,
+                1.4224000000000006,
+                1.2192000000000007
+              ],
+              [
+                0.5080000000000009,
+                -1.4223999999999997,
+                1.2192000000000007
+              ],
+              [
+                -0.5079999999999991,
+                1.4224000000000006,
+                -1.2192000000000007
+              ],
+              [
+                -0.5079999999999991,
+                -1.4223999999999997,
+                -1.2192000000000007
+              ],
+              [
+                -0.5079999999999991,
+                1.4224000000000006,
+                1.2192000000000007
+              ],
+              [
+                -0.5079999999999991,
+                -1.4223999999999997,
+                1.2192000000000007
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.bunker"
+      },
+      {
+        "connection": "connection.activate_zone_nml.0",
+        "connections": [
+          "connection.activate_zone_nml.0",
+          "connection.activate_zone_nml.1",
+          "connection.activate_zone_nml.2",
+          "connection.activate_zone_nml.3",
+          "connection.activate_zone_nml.4",
+          "connection.activate_zone_nml.5",
+          "connection.activate_zone_nml.6",
+          "connection.activate_zone_nml.7",
+          "connection.activate_zone_nml.8",
+          "connection.activate_zone_nml.9",
+          "connection.activate_zone_nml.10",
+          "connection.activate_zone_nml.11",
+          "connection.activate_zone_nml.12",
+          "connection.activate_zone_nml.13",
+          "connection.activate_zone_nml.14",
+          "connection.activate_zone_nml.15",
+          "connection.activate_zone_nml.16",
+          "connection.activate_zone_nml.17",
+          "connection.activate_zone_nml.18",
+          "connection.activate_zone_nml.19",
+          "connection.activate_zone_nml.20",
+          "connection.activate_zone_nml.21",
+          "connection.activate_zone_nml.22",
+          "connection.activate_zone_nml.23",
+          "connection.activate_zone_nml.24",
+          "connection.activate_zone_nml.25",
+          "connection.activate_zone_nml.26",
+          "connection.activate_zone_nml.27",
+          "connection.activate_zone_nml.28",
+          "connection.activate_zone_nml.29",
+          "connection.activate_zone_nml.30",
+          "connection.activate_zone_nml.31",
+          "connection.activate_zone_nml.32",
+          "connection.activate_zone_nml.33",
+          "connection.activate_zone_nml.34",
+          "connection.activate_zone_nml.35",
+          "connection.activate_zone_nml.36",
+          "connection.activate_zone_nml.37",
+          "connection.activate_zone_nml.38",
+          "connection.activate_zone_nml.39",
+          "connection.activate_zone_nml.40",
+          "connection.activate_zone_nml.41",
+          "connection.activate_zone_nml.42",
+          "connection.activate_zone_nml.43",
+          "connection.activate_zone_nml.44",
+          "connection.activate_zone_nml.45",
+          "connection.activate_zone_nml.46",
+          "connection.activate_zone_nml.47",
+          "connection.activate_zone_nml.48",
+          "connection.activate_zone_nml.49",
+          "connection.activate_zone_nml.50",
+          "connection.activate_zone_nml.51",
+          "connection.activate_zone_nml.52",
+          "connection.activate_zone_nml.53",
+          "connection.activate_zone_nml.54",
+          "connection.activate_zone_nml.55",
+          "connection.activate_zone_nml.56",
+          "connection.activate_zone_nml.57"
+        ],
+        "debris": false,
+        "seconds": 1.0,
+        "props": [
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              -18.5928,
+              -2.8447999999999998,
+              -56.9976
+            ],
+            "yaw": 1.5707963267948966,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          },
+          {
+            "presentation": "presentation.door.p6_zm_tm_bunker_door",
+            "position": [
+              -18.5928,
+              -2.8447999999999998,
+              -56.9976
+            ],
+            "yaw": 4.71238898038469,
+            "offset": [
+              0.0,
+              -3.048,
+              0.0
+            ]
+          }
+        ],
+        "blocks": [
+          {
+            "id": "volume.540da401.8254",
+            "position": [
+              -18.5928,
+              -1.6256,
+              -56.9976
+            ],
+            "vertices": [
+              [
+                1.320800000000002,
+                1.6256,
+                -0.5080000000000027
+              ],
+              [
+                1.320800000000002,
+                -1.6256,
+                -0.5080000000000027
+              ],
+              [
+                1.320800000000002,
+                1.6256,
+                0.5080000000000027
+              ],
+              [
+                1.320800000000002,
+                -1.6256,
+                0.5080000000000027
+              ],
+              [
+                -1.3207999999999984,
+                1.6256,
+                -0.5080000000000027
+              ],
+              [
+                -1.3207999999999984,
+                -1.6256,
+                -0.5080000000000027
+              ],
+              [
+                -1.3207999999999984,
+                1.6256,
+                0.5080000000000027
+              ],
+              [
+                -1.3207999999999984,
+                -1.6256,
+                0.5080000000000027
+              ]
+            ]
+          }
+        ],
+        "sound": "sound.door.bunker"
+      }
+    ]
   }
 }

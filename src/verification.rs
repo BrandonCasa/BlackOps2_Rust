@@ -14,6 +14,7 @@ use std::{path::PathBuf, time::Instant};
 mod arsenal;
 mod claymores;
 mod defensive_perks;
+mod doors;
 mod equipment_presentation;
 mod equipment_refills;
 mod firing_perks;
@@ -62,6 +63,7 @@ pub(crate) struct Verification {
     defensive_perks: bool,
     mobility: bool,
     mud: bool,
+    doors: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -115,6 +117,9 @@ impl Plugin for VerificationPlugin {
             }
             if app.world().resource::<LaunchOptions>().verify_mud {
                 mud::install(app);
+            }
+            if app.world().resource::<LaunchOptions>().verify_doors {
+                doors::install(app);
             }
             equipment_presentation::install(app);
             if app.world().resource::<LaunchOptions>().verify_solo_revive {
@@ -203,6 +208,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             defensive_perks: options.verify_defensive_perks,
             mobility: options.verify_mobility,
             mud: options.verify_mud,
+            doors: options.verify_doors,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -255,6 +261,7 @@ pub(crate) fn drive(
         || verification.defensive_perks
         || verification.mobility
         || verification.mud
+        || verification.doors
     {
         return;
     }
@@ -541,6 +548,7 @@ fn check(
         || verification.defensive_perks
         || verification.mobility
         || verification.mud
+        || verification.doors
     {
         return;
     }

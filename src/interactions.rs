@@ -137,7 +137,7 @@ fn assemble(
 fn wall_ready(
     event: On<WorldInstanceReady>,
     mut commands: Commands,
-    walls: Query<(), With<Usable>>,
+    walls: Query<(), Or<(With<Usable>, With<crate::access::DoorProp>)>>,
     children: Query<&Children>,
     meshes: Query<&MeshMaterial3d<StandardMaterial>, With<Mesh3d>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -185,6 +185,8 @@ pub(crate) fn interact(
     mut focus: ResMut<InteractionFocus>,
     mut ledger: ResMut<PointLedger>,
     mut session: ResMut<Session>,
+    mut access: ResMut<crate::access::ZoneAccess>,
+    blockers: Query<(Entity, &crate::access::DoorBlocker)>,
 ) {
     let Ok((
         player_entity,
@@ -221,9 +223,13 @@ pub(crate) fn interact(
     let candidate = targets
         .iter()
         .filter_map(|(entity, usable, transform)| {
+            if matches!(&usable.source.action, InteractionAction::Door { connection, .. } if access.opened(connection)) { return None; }
             if matches!(&usable.source.action, InteractionAction::Perk { perk } if *perk == definition.solo_revive.perk)
                 && (perks.solo_charges > 0 || perks.solo_purchases >= definition.solo_revive.maximum_purchases) { return None; }
             let endpoint = if matches!(usable.source.action, InteractionAction::Perk { .. }) { transform.translation + Vec3::Y + transform.rotation * Vec3::new(0., 0., 0.8) } else { transform.translation };
+            let filter = if let InteractionAction::Door { connection, .. } = &usable.source.action {
+                crate::environment::solids(std::iter::once(player_entity).chain(blockers.iter().filter(|(_,b)|b.0==*connection).map(|(e,_)|e)))
+            } else {filter.clone()};
             let delta = endpoint - origin;
             let distance = delta.length();
             if distance > usable.source.reach || distance < 0.01 {
@@ -252,6 +258,52 @@ pub(crate) fn interact(
         focus.rejection = None;
     }
     focus.target = Some(entity);
+    if let InteractionAction::Door { connection, price } = &usable.source.action {
+        let debris = definition
+            .access
+            .doors
+            .iter()
+            .find(|d| d.connection == *connection)
+            .is_some_and(|d| d.debris);
+        focus.prompt = if usable.source.hidden_prompt {
+            String::new()
+        } else {
+            format!(
+                "Press F to {} [Cost: {}]",
+                if debris { "clear debris" } else { "open door" },
+                price
+            )
+        };
+        if !input.use_held || focus.latched {
+            return;
+        }
+        focus.progress += time.delta_secs();
+        if focus.progress < usable.source.hold_seconds {
+            return;
+        }
+        focus.latched = true;
+        focus.progress = 0.;
+        let purchase = ledger.command(*price);
+        match ledger.accept(&mut session.points, purchase, || {
+            access
+                .unlock(&definition, connection)
+                .map_err(|()| InteractionRejection::Unavailable)
+        }) {
+            Ok(()) => {
+                focus.accepted += 1;
+                focus.rejection = None;
+                focus.prompt.clear();
+            }
+            Err(PurchaseError::InsufficientPoints) => {
+                focus.rejection = Some(InteractionRejection::InsufficientPoints)
+            }
+            Err(PurchaseError::Duplicate) => {
+                focus.rejection = Some(InteractionRejection::Duplicate)
+            }
+            Err(PurchaseError::Rejected(reason)) => focus.rejection = Some(reason),
+        }
+        return;
+    }
     if let InteractionAction::Perk { perk } = &usable.source.action {
         let Some(perk) = definition.content.perks.iter().find(|p| p.id == *perk) else {
             return;
