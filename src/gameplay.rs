@@ -1,7 +1,7 @@
 use crate::{
     GameState,
     assets::GameDefinition,
-    life::{LifeState, ResolvedDamage, Vitality},
+    life::{LifeState, Vitality},
     player::{Player, TickActions, capsule},
     weapons::{WeaponEmission, WeaponIntent, WeaponInventory},
 };
@@ -20,24 +20,7 @@ pub enum GameStep {
 }
 #[derive(Component)]
 pub struct SessionEntity;
-#[derive(Component)]
-#[require(RigidBody::Kinematic, CustomPositionIntegration)]
-pub struct Zombie {
-    velocity: Vec3,
-    attack: f32,
-    navigation: f32,
-    destination: Vec3,
-}
-impl Zombie {
-    pub fn new(position: Vec3) -> Self {
-        Self {
-            velocity: Vec3::ZERO,
-            attack: 0.,
-            navigation: 0.,
-            destination: position,
-        }
-    }
-}
+pub use crate::enemies::Zombie;
 
 #[derive(Resource, Clone)]
 pub struct Session {
@@ -101,14 +84,14 @@ pub fn round_budget(round: u32) -> u32 {
 }
 
 #[derive(Resource, Default)]
-struct Navigation {
+pub(crate) struct Navigation {
     points: Vec<Vec3>,
     edges: Vec<Vec<usize>>,
     admissions: Vec<Vec3>,
 }
 
 impl Navigation {
-    fn destination(&self, position: Vec3, target: Vec3) -> Vec3 {
+    pub(crate) fn destination(&self, position: Vec3, target: Vec3) -> Vec3 {
         if self.points.is_empty() {
             return target;
         }
@@ -164,31 +147,9 @@ impl Navigation {
 }
 
 pub struct GameplayPlugin;
-#[derive(Resource)]
-struct ZombieVisuals {
-    mesh: Handle<Mesh>,
-    material: Handle<StandardMaterial>,
-}
-
-fn zombie_visuals(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.insert_resource(ZombieVisuals {
-        mesh: meshes.add(Capsule3d::new(0.3, 1.1)),
-        material: materials.add(StandardMaterial {
-            base_color: Color::srgb(0.32, 0.4, 0.28),
-            perceptual_roughness: 0.9,
-            ..default()
-        }),
-    });
-}
-
 impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Session>()
-            .add_systems(Startup, zombie_visuals)
             .init_resource::<Navigation>()
             .configure_sets(
                 FixedUpdate,
@@ -208,8 +169,7 @@ impl Plugin for GameplayPlugin {
                 FixedUpdate,
                 (
                     combat.in_set(GameStep::Combat),
-                    move_zombies.in_set(GameStep::Zombies),
-                    (cleanup_dead, rounds).chain().in_set(GameStep::Rounds),
+                    rounds.in_set(GameStep::Rounds),
                 )
                     .run_if(in_state(GameState::Playing)),
             );
@@ -479,90 +439,6 @@ fn combat(
     }
 }
 
-fn move_zombies(
-    time: Res<Time<Fixed>>,
-    definition: Res<GameDefinition>,
-    navigation: Res<Navigation>,
-    mut players: Query<(Entity, &Transform, &mut Vitality), (With<Player>, Without<Zombie>)>,
-    mut enemies: Query<
-        (Entity, &mut Zombie, &mut Transform, &Collider, &Vitality),
-        Without<Player>,
-    >,
-    slide: MoveAndSlide,
-    query: SpatialQuery,
-    mut next: ResMut<NextState<GameState>>,
-) {
-    let Ok((player_entity, player_transform, mut health)) = players.single_mut() else {
-        return;
-    };
-    for (entity, mut zombie, mut transform, shape, vitality) in &mut enemies {
-        if vitality.state() != LifeState::ActorAlive {
-            continue;
-        }
-        let dt = time.delta_secs();
-        zombie.attack = (zombie.attack - dt).max(0.);
-        zombie.navigation -= dt;
-        let target = player_transform.translation;
-        let feet = transform.translation - Vec3::Y * 0.85;
-        if zombie.navigation <= 0. {
-            zombie.navigation = 0.5;
-            let delta = target - transform.translation;
-            let filter = SpatialQueryFilter::from_excluded_entities([entity, player_entity]);
-            let direct = Dir3::new(delta).ok().is_some_and(|dir| {
-                query
-                    .cast_ray(transform.translation, dir, delta.length(), false, &filter)
-                    .is_none()
-            });
-            zombie.destination = if direct {
-                target
-            } else {
-                navigation.destination(feet, target - Vec3::Y * 0.9) + Vec3::Y * 0.85
-            };
-        }
-        let delta = zombie.destination - transform.translation;
-        let direction = Vec3::new(delta.x, 0., delta.z).normalize_or_zero();
-        zombie.velocity.x = direction.x * definition.tuning.zombie_speed;
-        zombie.velocity.z = direction.z * definition.tuning.zombie_speed;
-        zombie.velocity.y = (zombie.velocity.y - definition.tuning.gravity * dt).max(-30.);
-        let filter = SpatialQueryFilter::from_excluded_entities([entity]);
-        let support = query.cast_ray(feet + Vec3::Y * 0.1, Dir3::NEG_Y, 0.25, false, &filter);
-        let grounded = support.is_some_and(|hit| hit.normal.y > 0.65) && zombie.velocity.y <= 0.;
-        let result = crate::player::slide_character(
-            &slide,
-            &query,
-            crate::player::MotionShape {
-                collider: shape,
-                radius: 0.3,
-                step_height: definition.tuning.step_height,
-                grounded,
-            },
-            transform.translation,
-            zombie.velocity,
-            time.delta(),
-            &filter,
-        );
-        transform.translation = result.position;
-        zombie.velocity.y = result.projected_velocity.y;
-        if transform.translation.distance(target) < 1.35 && zombie.attack == 0. {
-            zombie.attack = 1.2;
-            if let Ok(damage) = ResolvedDamage::new(definition.tuning.zombie_damage) {
-                let _ = health.apply(damage);
-            }
-            if health.state() == LifeState::HumanTerminal {
-                next.set(GameState::GameOver);
-            }
-        }
-    }
-}
-
-fn cleanup_dead(mut commands: Commands, enemies: Query<(Entity, &Vitality), With<Zombie>>) {
-    for (entity, health) in &enemies {
-        if health.state() == LifeState::ActorDead {
-            commands.entity(entity).despawn();
-        }
-    }
-}
-
 fn rounds(
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
@@ -570,7 +446,6 @@ fn rounds(
     enemies: Query<&Vitality, With<Zombie>>,
     mut commands: Commands,
     query: SpatialQuery,
-    visuals: Res<ZombieVisuals>,
     navigation: Res<Navigation>,
 ) {
     let living = enemies
@@ -639,14 +514,22 @@ fn rounds(
     if !session.admitted_spawn() {
         return;
     }
+    let variants: Vec<_> = definition
+        .content
+        .enemies
+        .iter()
+        .filter(|e| e.family == "german")
+        .collect();
+    let Some(enemy) = variants.get(session.spawn_cursor % variants.len().max(1)) else {
+        return;
+    };
     commands.spawn((
-        Zombie::new(position),
+        Zombie::new(position, enemy.id.clone()),
         shape,
         health,
         SessionEntity,
-        Mesh3d(visuals.mesh.clone()),
-        MeshMaterial3d(visuals.material.clone()),
+        Visibility::Inherited,
         Transform::from_translation(position),
-        Name::new("Temporary zombie"),
+        Name::new("Original zombie"),
     ));
 }

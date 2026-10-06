@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions"} if table == "weapons" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions"} if table == "weapons" else {"parts", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -125,6 +125,26 @@ def validate_content(content, require):
                 vector(row["position"])
             if "zone" in row:
                 resolve(owner, row["zone"], "zone")
+            if table == "enemies":
+                for key in ("attack_seconds", "death_seconds", "corpse_seconds", "bounds_margin"):
+                    if key in row: number(row[key], True)
+                hits = row.get("attack_hits", [])
+                require(isinstance(hits,list), "invalid enemy attack notifications")
+                for value in hits:
+                    number(value)
+                    require(value <= row.get("attack_seconds",1.8), "enemy attack notification outside duration")
+                require(all(a < b for a,b in zip(hits,hits[1:])), "unordered enemy attack notifications")
+                require(isinstance(row.get("family", ""),str), "invalid enemy family")
+                parts = row.get("parts", [])
+                require(isinstance(parts,list), "invalid actor parts")
+                for part in parts:
+                    require(isinstance(part,dict) and set(part)=={"presentation","socket","root_joint"}, "invalid actor attachment")
+                    resolve(owner,part["presentation"],"presentation")
+                    require(isinstance(part["socket"],str) and part["socket"], "invalid actor socket")
+                    require(part["root_joint"] is None or isinstance(part["root_joint"],str), "invalid partial rig root")
+                actions = row.get("animation_actions", {})
+                require(isinstance(actions,dict) and set(actions)<={"idle","walk","run","attack","death"},"invalid enemy animation actions")
+                for identity in actions.values(): resolve(owner,identity,"animation")
             if table == "weapons":
                 resolve(owner, row["upgraded"], "weapon", True)
                 require(row["category"] in ("bullet", "melee", "explosive", "fire", "ice", "lightning", "wind", "environmental", "crush"), "invalid damage category")

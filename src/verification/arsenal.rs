@@ -66,7 +66,7 @@ fn drive(
     targets: Query<(&Usable, &Transform), Without<Player>>,
     query: SpatialQuery,
     mut next: ResMut<NextState<GameState>>,
-    enemies: Query<Entity, With<crate::gameplay::Zombie>>,
+    enemies: Query<(Entity, &crate::life::Vitality), With<crate::gameplay::Zombie>>,
 ) {
     let (Some(mut verification), Some(definition)) = (verification, definition) else {
         return;
@@ -77,8 +77,10 @@ fn drive(
     if !coverage.isolated {
         // Normal combat already advanced the round. Isolate the subsequent
         // input-driven weapon segment from unrelated enemy attacks.
-        for entity in &enemies {
-            commands.entity(entity).despawn();
+        for (entity, health) in &enemies {
+            if health.state() == crate::life::LifeState::ActorAlive {
+                commands.entity(entity).despawn();
+            }
         }
         session.pending = 0;
         session.intermission = Some(Timer::from_seconds(300., TimerMode::Once));

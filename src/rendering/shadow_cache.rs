@@ -134,6 +134,7 @@ impl Plugin for ShadowCachePlugin {
             .add_systems(
                 PostUpdate,
                 changes
+                    .after(crate::enemies::EnemyBounds)
                     .after(SimulationLightSystems::UpdateLightFrusta)
                     .after(bevy::transform::TransformSystems::Propagate)
                     .after(VisibilitySystems::VisibilityPropagate)

@@ -3,6 +3,7 @@
 pub mod assets;
 pub mod damage;
 pub mod economy;
+pub mod enemies;
 pub mod gameplay;
 pub mod hud;
 pub mod input;
@@ -81,6 +82,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         player::PlayerPlugin,
         gameplay::GameplayPlugin,
         damage::DamagePlugin,
+        enemies::EnemyPlugin,
         interactions::InteractionPlugin,
         presentation::PresentationPlugin,
         hud::HudPlugin,

@@ -79,7 +79,7 @@
 - [x] Add LFS attributes for committed raw binaries.
 - [ ] Replace pistol-specific Session fields with player inventory.
 - [x] Move weapon behavior into a reusable weapon module.
-- [ ] Move enemy behavior into a reusable enemy module.
+- [x] Move enemy behavior into a reusable enemy module.
 - [x] Move purchase behavior into a reusable economy module.
 - [x] Move interaction behavior into a reusable interaction module.
 - [ ] Move effect behavior into a reusable presentation module.
@@ -213,20 +213,20 @@
 - [ ] Add barrier repair point limits.
 - [ ] Add source-defined purchase discounts.
 - [x] Replace the temporary pistol cuboid with an animated viewmodel.
-- [ ] Replace temporary zombie capsules with animated character meshes.
+- [x] Replace temporary zombie capsules with animated character meshes.
 - [x] Bind Dempsey's first-person arms.
 - [ ] Bind Nikolai's first-person arms.
 - [ ] Bind Richtofen's first-person arms.
 - [ ] Bind Takeo's first-person arms.
-- [ ] Bind original German zombie model variants.
+- [x] Bind original German zombie model variants.
 - [ ] Bind original crusader zombie model variants.
 - [ ] Bind original generator defender models.
 - [ ] Bind original Panzersoldat models.
-- [ ] Add shared animation graphs for zombie locomotion.
-- [ ] Add zombie attack animation transitions.
+- [x] Add shared animation graphs for zombie locomotion.
+- [x] Add zombie attack animation transitions.
 - [ ] Add zombie climb animation transitions.
 - [ ] Add zombie rising animation transitions.
-- [ ] Add zombie death animation transitions.
+- [x] Add zombie death animation transitions.
 - [x] Add first-person weapon idle animations.
 - [x] Add first-person weapon firing animations.
 - [x] Add first-person weapon reload animations.
@@ -239,17 +239,17 @@
 - [x] Attach weapons to authored hand sockets.
 - [ ] Attach combat effects to authored weapon sockets.
 - [ ] Add animated hit-region transforms.
-- [ ] Add animated actor bounds.
-- [ ] Invalidate affected shadows when skeletal poses change.
-- [ ] Remove global shadow invalidation caused by skinned actors.
+- [x] Add animated actor bounds.
+- [x] Invalidate affected shadows when skeletal poses change.
+- [x] Remove global shadow invalidation caused by skinned actors.
 - [x] Exclude first-person rigs from world shadow casting.
 - [x] Preserve lantern shadow allocation during actor animation.
 - [x] Retain skeleton data required for animation playback.
 - [ ] Release unused prepared actor CPU resources.
-- [ ] Share actor meshes across enemy instances.
-- [ ] Share actor materials across enemy instances.
+- [x] Share actor meshes across enemy instances.
+- [x] Share actor materials across enemy instances.
 - [ ] Add actor presentation distance culling.
-- [ ] Bound corpse presentation lifetimes.
+- [x] Bound corpse presentation lifetimes.
 - [ ] Bound transient combat effect lifetimes.
 - [x] Add Mauser C96 weapon definitions.
 - [x] Add Mauser C96 Pack-a-Punch variant definitions.
@@ -510,15 +510,15 @@
 - [ ] Add enemy landing recovery.
 - [ ] Add enemy rising link execution.
 - [ ] Keep animated traversal synchronized with collider movement.
-- [ ] Add zombie idle states.
-- [ ] Add zombie walking states.
+- [x] Add zombie idle states.
+- [x] Add zombie walking states.
 - [ ] Add zombie running states.
 - [ ] Add zombie pursuit states.
-- [ ] Add zombie attack windup states.
-- [ ] Add zombie attack impact timing.
+- [x] Add zombie attack windup states.
+- [x] Add zombie attack impact timing.
 - [ ] Add zombie attack recovery states.
 - [ ] Cancel attacks after target loss.
-- [ ] Cancel attacks after attacker death.
+- [x] Cancel attacks after attacker death.
 - [ ] Add barrier-seeking zombie behavior.
 - [ ] Add barrier damage animation timing.
 - [ ] Add zombie entry through broken barriers.
@@ -532,9 +532,9 @@
 - [ ] Add zombie electrical stun status.
 - [ ] Add zombie distraction targeting.
 - [ ] Add source-defined Zombie Blood target suppression.
-- [ ] Add enemy corpse entities.
-- [ ] Remove corpses from living population counts.
-- [ ] Add corpse cleanup scheduling.
+- [x] Add enemy corpse entities.
+- [x] Remove corpses from living population counts.
+- [x] Add corpse cleanup scheduling.
 - [ ] Add enemy gore effects.
 - [ ] Add source-defined enemy model selection.
 - [ ] Replace placeholder round health scaling with BO2 profile values.

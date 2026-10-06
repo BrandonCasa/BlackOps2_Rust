@@ -18,7 +18,7 @@ except ImportError:
     from xanim import decode
 
 
-def convert(source_path, output, additional_images, clips):
+def convert(source_path, output, additional_images, clips, in_place=False):
     source = json.loads(source_path.read_text(encoding="utf-8-sig"))
     document = copy.deepcopy(source)
     output = external(output)
@@ -130,15 +130,23 @@ def convert(source_path, output, additional_images, clips):
         clip = decode(clip_path.read_bytes())
         samplers, channels = [], []
         for bone, tracks in clip["tracks"].items():
+            if in_place and bone == "tag_sync":
+                continue  # Authoring synchronization marker is not an actor pose joint.
             if bone not in by_name or by_name[bone] not in skeleton_joints:
                 continue
             node = by_name[bone]
             for target, (times, source_values) in tracks.items():
                 values = source_values.copy()
-                if target == "translation":
+                if in_place and not clip["channel_presence"][bone][target]:
+                    bind = document["nodes"][node].get(target, [0,0,0] if target=="translation" else [0,0,0,1])
+                    values = np.repeat(np.asarray(bind).reshape(1,-1),len(values),axis=0)
+                elif target == "translation":
                     if node in roots:
                         values = values[:, [0, 2, 1]] * [1, 1, -1]
                     values *= 0.0254
+                    if in_place:
+                        # Retain bind offsets; native actor channels carry motion about that pose.
+                        values += np.asarray(document["nodes"][node].get("translation", [0,0,0])) - values[0]
                 elif node in roots:
                     # OAT premultiplies root orientations by a -90-degree X basis.
                     # Parent-relative rotations retain their native local basis.

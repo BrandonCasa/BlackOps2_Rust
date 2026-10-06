@@ -36,6 +36,8 @@ pub(crate) struct Verification {
     recoil_seen: bool,
     wall_weapons: bool,
     melee_frame: bool,
+    enemy_attack_frame: bool,
+    enemy_death_frame: bool,
     combat_receipt: serde_json::Value,
 }
 pub struct VerificationPlugin;
@@ -90,6 +92,8 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             recoil_seen: false,
             wall_weapons: options.verify_wall_weapons,
             melee_frame: false,
+            enemy_attack_frame: false,
+            enemy_death_frame: false,
             combat_receipt: serde_json::Value::Null,
         });
     }
@@ -98,9 +102,10 @@ pub(crate) fn drive(
     verification: Option<Res<Verification>>,
     mut input: ResMut<GameInput>,
     players: Query<(Entity, &Player, &Transform)>,
-    enemies: Query<&Transform, (With<Zombie>, Without<Player>)>,
+    enemies: Query<(&Transform, &crate::life::Vitality), (With<Zombie>, Without<Player>)>,
     inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
     history: Res<crate::damage::CombatHistory>,
+    enemy_evidence: Res<crate::enemies::EnemyEvidence>,
     definition: Option<Res<GameDefinition>>,
     query: avian3d::prelude::SpatialQuery,
 ) {
@@ -120,17 +125,21 @@ pub(crate) fn drive(
     } else {
         Vec2::ZERO
     };
-    if let Some(target) = enemies.iter().min_by(|a, b| {
-        a.translation
-            .distance_squared(transform.translation)
-            .total_cmp(&b.translation.distance_squared(transform.translation))
-    }) {
+    if let Some((target, _)) = enemies
+        .iter()
+        .filter(|(_, health)| health.state() == crate::life::LifeState::ActorAlive)
+        .min_by(|(a, _), (b, _)| {
+            a.translation
+                .distance_squared(transform.translation)
+                .total_cmp(&b.translation.distance_squared(transform.translation))
+        })
+    {
         let delta = target.translation + Vec3::Y * 0.65
             - (transform.translation
                 + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5));
         let yaw = (-delta.x).atan2(-delta.z);
         if history.melee_kills == 0 && verification.playing >= 1. {
-            input.movement = Vec2::new(0., if delta.length() > 1.65 { 0.4 } else { 0. });
+            input.movement = Vec2::new(0., if delta.length() > 1.25 { 0.4 } else { 0. });
         } else if verification.playing >= 1. && delta.length() < 3. {
             input.movement = Vec2::new(0., -0.7);
         }
@@ -163,7 +172,9 @@ pub(crate) fn drive(
             .is_some_and(|hit| enemies.contains(hit.entity));
         input.fire &= history.melee_kills > 0;
         input.ads &= history.melee_kills > 0;
-        input.melee |= delta.length() < 1.9;
+        let struck = history.melee_kills > 0
+            || players.get(entity).is_ok() && enemy_evidence.attack_hits > 0;
+        input.melee |= delta.length() < 1.9 && struck;
         input.reload = inventories
             .single()
             .ok()
@@ -183,6 +194,7 @@ fn check(
         Res<Session>,
         Res<crate::damage::CombatHistory>,
         Res<crate::damage::DamageQueue>,
+        Res<crate::enemies::EnemyEvidence>,
     ),
     mut players: Query<
         (
@@ -194,7 +206,7 @@ fn check(
         Without<Zombie>,
     >,
     mut next: ResMut<NextState<GameState>>,
-    enemies: Query<&Transform, (With<Zombie>, Without<Player>)>,
+    enemies: Query<(&Transform, &Zombie), Without<Player>>,
     query: avian3d::prelude::SpatialQuery,
     surfaces: Res<crate::rendering::OpaqueSurfaceStatus>,
     profile: Res<crate::rendering::profile::VisualProfile>,
@@ -211,7 +223,7 @@ fn check(
         With<crate::hud::PlayerOverlay>,
     >,
 ) {
-    let (session, history, impacts) = combat;
+    let (session, history, impacts, enemy_evidence) = combat;
     let Some(mut verification) = verification else {
         return;
     };
@@ -221,6 +233,31 @@ fn check(
         .and_then(|(_, _, _, i)| i.active())
         .map_or(0, |w| w.magazine);
     if verification.stage == 0 {
+        if !verification.enemy_attack_frame
+            && enemies.iter().any(|(_, z)| {
+                z.action == crate::origins::content::EnemyAnimation::Attack
+                    && z.elapsed > 0.2
+                    && z.elapsed < 0.75
+            })
+        {
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk(verification.output.join("zombie-attack.png")));
+            verification.enemy_attack_frame = true;
+        }
+        if !verification.enemy_death_frame
+            && session.kills == 6
+            && enemies.iter().any(|(_, z)| {
+                z.action == crate::origins::content::EnemyAnimation::Death
+                    && z.elapsed > 0.25
+                    && z.elapsed < 0.7
+            })
+        {
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk(verification.output.join("zombie-death.png")));
+            verification.enemy_death_frame = true;
+        }
         for (_, _, _, inventory) in &players {
             if !verification.melee_frame
                 && matches!(inventory.action,
@@ -477,6 +514,11 @@ fn check(
             "scope": if verification.benchmark && !verification.combat { "paused render survey and restart" } else { "combat movement round advance render survey and restart" },
             "continuous_camera_motion": verification.moving_view,
             "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round,
+            "enemy_attack_frame":verification.enemy_attack_frame,"enemy_death_frame":verification.enemy_death_frame,
+            "enemy_presentation": {"variants":enemy_evidence.variants,"animations":enemy_evidence.animations,
+                "attached_heads":enemy_evidence.attached_heads,"attacks_started":enemy_evidence.attacks_started,
+                "attack_hits":enemy_evidence.attack_hits,"deaths":enemy_evidence.deaths,
+                "corpses_removed":enemy_evidence.corpses_removed,"bounds_updates":enemy_evidence.bounds_updates},
             "combat_rewards":verification.combat_receipt,"melee_frame_captured":verification.melee_frame,
             "restart_damage_clear":restart_damage_clear,
             "ads_reached": verification.ads_seen, "recoil_observed": verification.recoil_seen,

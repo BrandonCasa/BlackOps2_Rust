@@ -236,6 +236,50 @@ pub struct EnemyDefinition {
     pub speed: f32,
     pub damage: u32,
     pub presentation: Option<ContentId>,
+    #[serde(default)]
+    pub parts: Vec<ActorPart>,
+    #[serde(default)]
+    pub animation_actions: BTreeMap<EnemyAnimation, ContentId>,
+    #[serde(default = "default_attack_seconds")]
+    pub attack_seconds: f32,
+    #[serde(default)]
+    pub attack_hits: Vec<f32>,
+    #[serde(default = "default_death_seconds")]
+    pub death_seconds: f32,
+    #[serde(default = "default_corpse_seconds")]
+    pub corpse_seconds: f32,
+    #[serde(default = "default_bounds_margin")]
+    pub bounds_margin: f32,
+    #[serde(default)]
+    pub family: String,
+}
+fn default_attack_seconds() -> f32 {
+    1.8
+}
+fn default_death_seconds() -> f32 {
+    3.
+}
+fn default_corpse_seconds() -> f32 {
+    8.
+}
+fn default_bounds_margin() -> f32 {
+    2.5
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActorPart {
+    pub presentation: ContentId,
+    pub socket: String,
+    pub root_joint: Option<String>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnemyAnimation {
+    Idle,
+    Walk,
+    Run,
+    Attack,
+    Death,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -670,10 +714,31 @@ impl ContentCatalog {
         }
         for v in &self.enemies {
             valid(
-                v.health > 0 && v.damage > 0 && positive(v.speed),
+                v.health > 0
+                    && v.damage > 0
+                    && positive(v.speed)
+                    && positive(v.attack_seconds)
+                    && positive(v.death_seconds)
+                    && positive(v.corpse_seconds)
+                    && positive(v.bounds_margin)
+                    && v.attack_hits
+                        .iter()
+                        .all(|t| nonnegative(*t) && *t <= v.attack_seconds)
+                    && v.attack_hits.windows(2).all(|w| w[0] < w[1]),
                 "Invalid enemy tuning",
             )?;
             optional(&v.id.0, &v.presentation, "presentation")?;
+            for part in &v.parts {
+                r(&v.id.0, &part.presentation.0, "presentation")?;
+                valid(
+                    !part.socket.is_empty()
+                        && part.root_joint.as_ref().is_none_or(|n| !n.is_empty()),
+                    "Empty actor attachment joint",
+                )?;
+            }
+            for clip in v.animation_actions.values() {
+                r(&v.id.0, &clip.0, "animation")?;
+            }
         }
         for v in &self.perks {
             optional(&v.id.0, &v.icon, "ui")?;

@@ -95,10 +95,13 @@ def decode(raw):
     names = [reader.string() for _ in range(bone_count)]
     if len(set(names)) != len(names):
         raise ValueError("duplicate native animation bone names")
-    tracks = {}
+    tracks, channel_presence = {}, {}
     for i, name in enumerate(names):
-        tracks[name] = {"rotation": rotations(bool(half[i // 8] & (1 << (i % 8))), bool(flip[i // 8] & (1 << (i % 8)))),
-                        "translation": translations()}
+        has_rotation = struct.unpack_from("<H", reader.raw, reader.offset)[0] > 0
+        rotation = rotations(bool(half[i // 8] & (1 << (i % 8))), bool(flip[i // 8] & (1 << (i % 8))))
+        has_translation = struct.unpack_from("<H", reader.raw, reader.offset)[0] > 0
+        tracks[name] = {"rotation": rotation, "translation": translations()}
+        channel_presence[name] = {"rotation":has_rotation,"translation":has_translation}
     notes = []
     count, = reader.unpack("B")
     for _ in range(count):
@@ -115,4 +118,4 @@ def decode(raw):
             if not np.isfinite(values).all() or not np.isfinite(times).all() or not (np.diff(times) > 0).all():
                 raise ValueError("invalid native animation samples")
     return {"tracks": tracks, "duration": duration, "looped": looped,
-            "asset_type": asset_type, "notifications": sorted(notes, key=lambda n: n["seconds"]), "delta": delta}
+            "asset_type": asset_type, "channel_presence": channel_presence, "notifications": sorted(notes, key=lambda n: n["seconds"]), "delta": delta}

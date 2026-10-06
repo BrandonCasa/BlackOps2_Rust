@@ -495,6 +495,19 @@ def validate_pack(root, receipt=None, exact=False):
             else:
                 from PIL import ImageFont
                 ImageFont.truetype(str(dependency), 16)
+    presentations = {p["id"]:p for p in game["content"]["presentations"]}
+    for enemy in game["content"]["enemies"]:
+        if not enemy.get("parts"): continue
+        scene = presentations[enemy["presentation"]]["scene"]
+        require(scene is not None,"multipart enemy has no body scene")
+        body = documents[scene.split("#",1)[0]][0]
+        body_names = {body["nodes"][i].get("name") for skin in body.get("skins",[]) for i in skin["joints"]}
+        for part in enemy["parts"]:
+            require(part["socket"] in body_names,"enemy attachment socket is absent from body skeleton")
+            part_scene = presentations[part["presentation"]]["scene"]
+            require(part_scene is not None,"enemy attachment has no scene")
+            doc = documents[part_scene.split("#",1)[0]][0]
+            require(part["root_joint"] is None or any(n.get("name")==part["root_joint"] for n in doc["nodes"]),"enemy partial rig root is absent")
     triangles = sum(doc["accessors"][p["indices"]]["count"] // 3
                     for doc, _ in map_documents.values() for mesh in doc["meshes"]
                     if mesh.get("name", "").startswith("world_") for p in mesh["primitives"])
