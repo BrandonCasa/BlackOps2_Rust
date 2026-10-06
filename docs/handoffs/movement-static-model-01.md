@@ -9,6 +9,8 @@ FINDINGS:
   initial 2d5a60 and 0ba160 leads instead consume runtime entities and dynents.
 - Qualified point transforms, ordered surface/triangle masks, edge tolerance,
   hit writes/ties, sorted instance insertion and sector relocation.
+- Corrected result-write interpretation: a point hit clears both allsolid and
+  startsolid through the authoritative result's u16 +2a write; miss preserves.
 - All 10,837 instances resolve to 420 decoded providers; 510 surfaces / 78,296
   finite triangles. No missing or reference-only provider. 210 contents-zero
   instances have source-backed classic-constructor exclusion only.
@@ -28,7 +30,8 @@ VALIDATION:
 - Owned adapter MSVC /W3 /WX compile and link passed.
 - Supervised decoder probe passed all instance/provider metadata predicates;
   exact metadata identity 3,209,708 bytes / d322619cd3b97284006f0673e1b3fc817cfaf6a41528b34a1e5752213ee8271b.
-- Sixteen independent synthetic f32 point/transform cases passed.
+- Twenty independent synthetic f32 point/transform/result cases passed,
+  including seeded inside flags clearing/preservation and zero-fraction hit.
 - Documentation link/whitespace checks recorded after writing.
 - Workspace Rust gates not run for this documentation-only task; primary owns integration gates.
 

@@ -108,15 +108,25 @@ exact f32 words `ba83126f` and `3f8020c5`. Plane offset 0.125 is `3e000000`.
 Equal-fraction ties retain the first ordered hit.
 
 The consumer writes fraction `+10`, flags `+14`, contents `+18`, local normal
-`+0..+8`, and u16 `+2a = 0`, returning the hit surface's bone index. Negative
-return denotes no hit. `29acc0` promotes a successful nonnegative return:
+`+0..+8`, and u16 `+2a = 0`, returning the hit surface's bone index. The latter
+clears both allsolid byte `+2a` and startsolid byte `+2b`, consistent with the
+existing [brush result mapping](0024-original-brush-trace-consumer.md).
+`00dfd0` loads its result base into ESI from argument 2 (`[ebp+c]`); `29acc0`
+passes the caller's same result pointer as argument 2. Thus this is a write to
+the authoritative result, not a temporary unrelated structure. The consumer
+initializes its return to -1 for no hit, then retains the final accepted bone
+index. A negative return prevents `29acc0` promotion even if an artificial
+negative-bone surface already caused local result writes. `29acc0` promotes
+a successful nonnegative return:
 static owner pointer `+30`, owner-kind `+1c = 1`, owner ordinal `+20 = 0x3fe`;
 normal is transformed by the inverse-scaled matrix rows and renormalized with
 f32 sqrt/divide (zero length denominator replaced by 1). It does not populate
 a per-instance ordinal in this classic result.
 
-Neither admitted static triangle consumer writes inside/allsolid flags, nor
-does it provide capsule, swept AABB, or stationary overlap behavior. The boolean
+An admitted static moving-point hit actively clears incoming inside flags,
+even when its offset fraction clamps to zero. A rejected/masked triangle leaves
+them unchanged. This does not provide inside detection, capsule, swept AABB,
+or stationary overlap behavior. The boolean
 variant `486e50 -> 2db8a0` uses the same point triangles and returns early on a
 hit with a temporary fraction initialized to 1. Calling it with equal endpoints
 does not establish stationary hull clearance. Source proofs for the motor's
@@ -180,10 +190,44 @@ separate scene contract; serialized next zero is not a missing-geometry error
 or blanket exclusion. Resolve motor backend association and hull/overlap
 semantics before exposing this point consumer as `PlayerCollisionWorld`.
 
-External `synthetic.py` passed 16 independent f32 point/transform cases: front/
+External `synthetic.py` passed 20 independent f32 point/transform/result cases: front/
 back crossing, stationary/on-plane endpoints, surface masks, incoming-fraction
 ties, ordered ties, barycentric miss/tolerance edges, zero clamping, scaled
-rotation, normal renormalization, and shared provider with distinct origins.
+rotation, normal renormalization, and shared provider with distinct origins;
+seeded allsolid/startsolid clearing on hit/zero-fraction hit and preservation on
+miss/equal-fraction rejection, with opaque byte `+2c` preserved.
 These exercise a separately written mathematical flow and expected synthetic
 results; they do not run native code or prove original trace equivalence.
-No Rust family implementation or original comparison was performed.
+No original comparison was performed. The later bounded Rust adapter is below.
+
+## Per-instance Rust point adapter (static03)
+
+`bo2_physics::static_point_trace::StaticPointRequest` now implements the raw
+`29acc0/00dfd0` boundary against the admitted shared payload. It uses the existing
+TraceResult, returns original instance/provider/surface/local-triangle ordinals
+and signed bone contact, and does not substitute a native opaque owner pointer.
+Instance contents/absolute bounds/sector gates remain outside this raw consumer.
+No runtime sector traversal, collmap, hull/overlap or motor backend is implied.
+
+All arithmetic is checked scalar f32, retaining source multiplication/addition
+order, column endpoint transforms, row normal transforms, squared-length
+accumulation Y/X/Z, zero-length denominator substitution, and strict incoming
+fraction ties. Results are staged privately: errors, masks, negative LOD,
+bounds/triangle rejection and ties preserve incoming state. Accepted promoted
+hits clear both inside bytes and retain opaque byte +2c.
+
+Negative final bone contacts produce explicit `NegativeBoneContact` with atomic
+state preservation, instead of exposing native partial local-normal writes in
+a world-normal result. This is a documented safe adapter restriction, not a
+claim that native rejects before writing. All 510 retained licensed surfaces
+have nonnegative bones: 492 bone0, five bone1, five bone21, two bone7, and one
+each bone69/70/73/74/76/77. No participating licensed surface is skipped by this
+restriction; the reader continues preserving negative metadata.
+
+Ten focused tests cover the qualified point behaviors and failures. Two
+independent external Python fixtures with explicit f32 stores and non-axis
+coefficients distinguish arithmetic reassociation at the bit level: one changes
+normal Z by one ULP; another changes fraction and normal Y by one ULP. A separate
+scaled case exercises squared-length underflow to zero and the native divisor-1
+guard. These are source-equation synthetic checks, not native execution or
+original comparison evidence. [Handoff](../handoffs/movement-static-model-03.md).

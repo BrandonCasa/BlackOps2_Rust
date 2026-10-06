@@ -96,6 +96,18 @@ impl MovingBrushRequest {
         [Vec3::from_array(self.start), Vec3::from_array(self.end)]
     }
 
+    pub(crate) fn axial_support(&self) -> [f32; 3] {
+        self.support
+    }
+
+    pub(crate) fn reciprocal(&self) -> [f32; 3] {
+        self.reciprocal
+    }
+
+    pub(crate) fn mask(&self) -> u32 {
+        self.mask
+    }
+
     /// Transactional: arithmetic failure and rejected/filtered brushes leave
     /// incoming fields unchanged. Callers own aggregation order and initial flags.
     pub fn trace(

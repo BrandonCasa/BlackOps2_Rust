@@ -129,3 +129,38 @@ f32 tests pass 15 stationary cases (six axial tangencies, side equality/outside,
 capsule support, asymmetric centering and zero-side cases), two mask cases, one
 ordered contact-write case and four node ordering cases. These test reconstructions,
 not native execution. No Rust changed; workspace gates are not rerun.
+## Stationary leaf brush-only implementation (movement collision 08)
+
+`bo2_physics::stationary_leaf_trace::StationaryBrushOnly` now composes the admitted
+hierarchy, schema34 and stationary single-brush consumer for `483980` / `483890`.
+It is a brush-only subset, not PlayerCollisionWorld or complete stationary world.
+Terrain, BSP x87 leaf enumeration, filtered `004050`, transforms, dynamic families,
+special-box provider and alternate movement receiver remain assembler prerequisites.
+
+`trace_leaf` first validates incoming normal/fraction, then applies the native outer
+leaf brush-contents mask. Participating public TerrainLeaf fields receive safe finite,
+ordered-bound checks. Native strict leaf rejection precedes root dereference; a root
+is validated only when that path reaches it. Masked/rejected paths preserve result.
+The request's exact capsule bounds feed split comparisons: lower>distance selects
+child0; upper<distance selects child1; equality includes child0 then child1. Negative
+count processes adjacent node first, then its split. Stored terminal order and both
+node/brush masks remain authoritative. Range words are retained but unused by these
+stationary consumers. Incoming allsolid is checked only at the observed continuation
+points, including after an actual rejected brush call; there is no added entry gate.
+
+Construction verifies shared declarations/provider/plane references and builds a
+keyed lookup without assuming record sort order. Caller-specified node-visit and
+pending-frame limits are safety policies, not native timing/recursion defaults.
+They are capped at 4,000,000 visits and 1,000,000 frames; allocations use fallible
+reservation. Query workspace persists and resets on success/error. Iterative
+continuations preserve recursion order; hierarchy admission rejects participating
+cycles. Missing providers, bad public leaf references/bounds, capacity/visit errors
+and arithmetic failure are explicit and commit no incoming fields. `first_overlap`
+identifies the first source brush contact, not a recovered native entity-owner field.
+
+Eight focused synthetic tests and locked physics tests/all-target Clippy pass.
+The retained Rust-only opt-in repeats 4,791 explicit zero-radius source-leaf-center
+probes, producing 1,844 contacts with identical repeated results. Hierarchy, terrain
+and schema34 file identities were independently checked before/after. These probes
+are not player hull defaults, original execution, comparison or full-world evidence.
+See [handoff08](../handoffs/movement-collision-08.md).

@@ -49,6 +49,15 @@ impl StationaryBrushRequest {
         Vec3::from_array(self.center)
     }
 
+    /// Preserves the constructor's separately rounded native capsule bounds.
+    pub(crate) fn bounds(&self) -> [Vec3; 2] {
+        [Vec3::from_array(self.mins), Vec3::from_array(self.maxs)]
+    }
+
+    pub(crate) fn mask(&self) -> u32 {
+        self.mask
+    }
+
     /// Transactional: invalid input/arithmetic, masks and geometric rejection
     /// leave every incoming field unchanged. Callers own first-overlap order.
     pub fn trace(
