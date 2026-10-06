@@ -139,7 +139,10 @@ def validate_content(content, require):
                 if "mechanics" in row:
                     m = row["mechanics"]
                     required_fields = "delivery fire starting_reserve minimum_damage damage_range hit_multipliers pellets penetration recoil_pitch recoil_yaw recoil_recovery spread ads_fov ads_seconds ads_enabled ads_translation ads_rotation burst_delay movement empty_reload shell_reload shell_seconds equip_seconds unequip_seconds dual_wield projectile_speed projectile_lifetime explosion_radius explosion_damage melee_seconds fuse_seconds".split()
+                    required_fields += ["reload_start_seconds", "reload_start_insert", "reload_end_seconds"]
                     require(isinstance(m, dict) and set(m) == set(required_fields), "invalid weapon mechanics fields")
+                    for key in ("reload_start_seconds", "reload_start_insert", "reload_end_seconds"):
+                        number(m[key])
                     require(m["delivery"] in ("hitscan", "projectile", "melee", "equipment"), "invalid weapon delivery")
                     fire = m["fire"]
                     require(isinstance(fire, dict) and fire.get("mode") in ("semi", "automatic", "burst", "charge"), "invalid fire pattern")

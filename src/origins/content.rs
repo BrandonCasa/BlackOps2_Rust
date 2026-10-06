@@ -175,6 +175,9 @@ pub struct WeaponMechanics {
     pub empty_reload: f32,
     pub shell_reload: bool,
     pub shell_seconds: f32,
+    pub reload_start_seconds: f32,
+    pub reload_start_insert: f32,
+    pub reload_end_seconds: f32,
     pub equip_seconds: f32,
     pub unequip_seconds: f32,
     pub dual_wield: bool,
@@ -210,6 +213,9 @@ impl Default for WeaponMechanics {
             empty_reload: 1.8,
             shell_reload: false,
             shell_seconds: 0.5,
+            reload_start_seconds: 0.,
+            reload_start_insert: 0.,
+            reload_end_seconds: 0.,
             equip_seconds: 0.5,
             unequip_seconds: 0.3,
             dual_wield: false,
@@ -636,9 +642,16 @@ impl ContentCatalog {
                     ]
                     .into_iter()
                     .all(positive)
-                    && [m.projectile_speed, m.explosion_radius, m.fuse_seconds]
-                        .into_iter()
-                        .all(nonnegative)
+                    && [
+                        m.projectile_speed,
+                        m.explosion_radius,
+                        m.fuse_seconds,
+                        m.reload_start_seconds,
+                        m.reload_start_insert,
+                        m.reload_end_seconds,
+                    ]
+                    .into_iter()
+                    .all(nonnegative)
                     && m.melee_seconds.iter().all(|v| nonnegative(*v)),
                 "Invalid weapon tuning",
             )?;

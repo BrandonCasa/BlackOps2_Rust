@@ -131,6 +131,8 @@ def prepare(config):
                 "movement": [positive("moveSpeedScale", 1.), min(1., positive("adsMoveSpeedScale", 0.5))],
                 "empty_reload": positive("reloadEmptyTime", 1.), "shell_reload": f.get("segmentedReload") == "1",
                 "shell_seconds": positive("reloadAddTime", 0.5), "equip_seconds": positive("raiseTime", 0.5),
+                "reload_start_seconds": number("reloadStartTime"), "reload_start_insert": number("reloadStartAddTime"),
+                "reload_end_seconds": number("reloadEndTime"),
                 "unequip_seconds": positive("dropTime", 0.3), "dual_wield": f.get("dualWield") == "1",
                 "projectile_speed": number("projectileSpeed") * 0.0254,
                 "projectile_lifetime": positive("projectileLifetime", 10.),

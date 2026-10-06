@@ -391,7 +391,7 @@
 - [x] Add semiautomatic firing.
 - [x] Add automatic firing.
 - [x] Add burst firing.
-- [ ] Add burst interruption rules.
+- [x] Add burst interruption rules.
 - [ ] Add empty weapon firing feedback.
 - [x] Add hitscan shot queries.
 - [ ] Add projectile weapon spawning.
@@ -410,9 +410,9 @@
 - [ ] Add penetration damage attenuation.
 - [ ] Prevent repeated hits on one penetrated actor.
 - [x] Add magazine reload timing.
-- [ ] Add ammunition transfer at reload completion.
-- [ ] Add shell-by-shell reload timing.
-- [ ] Add shell reload interruption.
+- [x] Add ammunition transfer at reload completion.
+- [x] Add shell-by-shell reload timing.
+- [x] Add shell reload interruption.
 - [x] Add empty reload timing.
 - [ ] Add reload cancellation during weapon replacement.
 - [ ] Add dual-wield firing alternation.
@@ -427,7 +427,7 @@
 - [ ] Add weapon firing audio events.
 - [ ] Add weapon reload audio events.
 - [x] Add melee reach queries.
-- [ ] Add melee attack timing.
+- [x] Add melee attack timing.
 - [x] Add melee recovery timing.
 - [ ] Add melee damage attribution.
 - [x] Remove automatic reserve replenishment at round transitions.

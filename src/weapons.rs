@@ -20,15 +20,23 @@ pub enum WeaponAction {
     },
     Reloading {
         remaining: f32,
-        inserted: bool,
         empty: bool,
     },
     ShellReload {
         remaining: f32,
+        phase: ShellPhase,
+        inserted: bool,
     },
     Melee {
         remaining: f32,
+        hit: bool,
     },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShellPhase {
+    Start,
+    Loop,
+    End,
 }
 #[derive(Clone, Default)]
 struct AmmoPool {
@@ -48,6 +56,7 @@ pub struct WeaponInventory {
     pub signal: WeaponSignal,
     pub ads: f32,
     pub recoil: Vec2,
+    pending: WeaponIntent,
 }
 impl Default for WeaponInventory {
     fn default() -> Self {
@@ -63,6 +72,7 @@ impl Default for WeaponInventory {
             signal: WeaponSignal::Idle,
             ads: 0.,
             recoil: Vec2::ZERO,
+            pending: WeaponIntent::default(),
         }
     }
 }
@@ -77,9 +87,11 @@ pub enum WeaponSignal {
     Reload,
     ReloadEmpty,
     ShellInsert,
+    ReloadStart,
+    ReloadEnd,
     Melee,
 }
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct WeaponIntent {
     pub pressed: bool,
     pub held: bool,
@@ -203,14 +215,20 @@ impl WeaponInventory {
         if slot >= self.capacity {
             return Err(InventoryError::InvalidSlot);
         }
-        if self.action != WeaponAction::Ready {
-            return Err(InventoryError::Busy);
-        }
         if self
             .owned()
             .any(|(i, w)| i != slot && w.definition == definition.id)
         {
             return Err(InventoryError::AlreadyOwned);
+        }
+        if matches!(
+            self.action,
+            WeaponAction::Reloading { .. } | WeaponAction::ShellReload { .. }
+        ) {
+            self.cancel_action();
+        }
+        if self.action != WeaponAction::Ready {
+            return Err(InventoryError::Busy);
         }
         self.slots[slot] = Some(OwnedWeapon {
             definition: definition.id.clone(),
@@ -287,6 +305,7 @@ impl WeaponInventory {
     pub fn cancel_action(&mut self) {
         self.action = WeaponAction::Ready;
         self.burst = 0;
+        self.pending = WeaponIntent::default();
         self.emit(WeaponSignal::Idle);
     }
     pub fn recoil_impulse(&mut self, definition: &WeaponDefinition, seed: u64) {
@@ -346,10 +365,17 @@ impl WeaponInventory {
     pub fn tick(
         &mut self,
         dt: f32,
-        intent: WeaponIntent,
+        mut intent: WeaponIntent,
         definitions: &[WeaponDefinition],
     ) -> Vec<WeaponEmission> {
         let mut emissions = Vec::new();
+        if self.action == WeaponAction::Ready {
+            intent.pressed |= self.pending.pressed;
+            intent.melee |= self.pending.melee;
+            intent.cycle |= self.pending.cycle;
+            intent.slot = intent.slot.or(self.pending.slot);
+            self.pending = WeaponIntent::default();
+        }
         let was_cooling = self.cooldown > 0.;
         self.cooldown = (self.cooldown - dt).max(0.);
         if was_cooling
@@ -378,15 +404,28 @@ impl WeaponInventory {
             .map(|value| value.signum() * (value.abs() - recovery).max(0.));
         match self.action {
             WeaponAction::Ready => {}
-            WeaponAction::Equipping { remaining } | WeaponAction::Melee { remaining } => {
+            WeaponAction::Melee { remaining, mut hit } => {
+                let remaining = (remaining - dt).max(0.);
+                if !hit
+                    && definition.mechanics.melee_seconds[1]
+                        .max(definition.mechanics.melee_seconds[0])
+                        - remaining
+                        >= definition.mechanics.melee_seconds[0]
+                {
+                    emissions.push(WeaponEmission::Melee);
+                    hit = true;
+                }
+                if remaining > 0. {
+                    self.action = WeaponAction::Melee { remaining, hit };
+                    return emissions;
+                }
+                self.action = WeaponAction::Ready;
+                self.emit(WeaponSignal::Idle);
+            }
+            WeaponAction::Equipping { remaining } => {
                 if remaining > dt {
-                    self.action = match self.action {
-                        WeaponAction::Melee { .. } => WeaponAction::Melee {
-                            remaining: remaining - dt,
-                        },
-                        _ => WeaponAction::Equipping {
-                            remaining: remaining - dt,
-                        },
+                    self.action = WeaponAction::Equipping {
+                        remaining: remaining - dt,
                     };
                     return emissions;
                 }
@@ -414,61 +453,86 @@ impl WeaponInventory {
                 }
                 return emissions;
             }
-            WeaponAction::Reloading {
-                remaining,
-                mut inserted,
-                empty,
-            } => {
-                let duration = if empty {
-                    definition.mechanics.empty_reload
-                } else {
-                    definition.reload_seconds
-                };
+            WeaponAction::Reloading { remaining, empty } => {
                 let remaining = (remaining - dt).max(0.);
-                if !inserted
-                    && duration - remaining >= definition.mechanics.shell_seconds.min(duration)
-                {
-                    self.insert(definition, u32::MAX);
-                    inserted = true;
-                }
                 if remaining > 0. {
-                    self.action = WeaponAction::Reloading {
-                        remaining,
-                        inserted,
-                        empty,
-                    };
+                    self.action = WeaponAction::Reloading { remaining, empty };
                     return emissions;
                 }
+                self.insert(definition, u32::MAX);
                 self.action = WeaponAction::Ready;
                 self.emit(WeaponSignal::Idle);
             }
-            WeaponAction::ShellReload { remaining } => {
-                if (intent.pressed || intent.melee || intent.cycle || intent.slot.is_some())
-                    && self.active().is_some_and(|w| w.magazine > 0)
-                {
-                    self.action = WeaponAction::Ready;
-                    self.emit(WeaponSignal::Idle);
-                } else if remaining > dt {
+            WeaponAction::ShellReload {
+                remaining,
+                phase,
+                mut inserted,
+            } => {
+                let interrupt = intent.cycle
+                    || intent.slot.is_some()
+                    || intent.melee
+                    || ((intent.pressed || intent.held)
+                        && self.active().is_some_and(|w| w.magazine > 0));
+                if phase != ShellPhase::End && interrupt {
+                    self.pending = intent;
+                    self.pending.pressed |= intent.held;
                     self.action = WeaponAction::ShellReload {
-                        remaining: remaining - dt,
+                        remaining: definition.mechanics.reload_end_seconds,
+                        phase: ShellPhase::End,
+                        inserted: true,
+                    };
+                    self.emit(WeaponSignal::ReloadEnd);
+                    return emissions;
+                }
+                let remaining = (remaining - dt).max(0.);
+                let duration = if phase == ShellPhase::Start {
+                    definition.mechanics.reload_start_seconds
+                } else {
+                    definition.reload_seconds
+                };
+                let at = if phase == ShellPhase::Start {
+                    definition.mechanics.reload_start_insert
+                } else {
+                    definition.mechanics.shell_seconds
+                };
+                if phase != ShellPhase::End && !inserted && duration - remaining >= at.min(duration)
+                {
+                    self.insert(definition, 1);
+                    inserted = true;
+                }
+                if remaining > 0. {
+                    self.action = WeaponAction::ShellReload {
+                        remaining,
+                        phase,
+                        inserted,
                     };
                     return emissions;
-                } else {
-                    self.insert(definition, 1);
-                    self.emit(WeaponSignal::ShellInsert);
-                    if self.reserve(definition) > 0
-                        && self
-                            .active()
-                            .is_some_and(|w| w.magazine < definition.magazine)
-                    {
-                        self.action = WeaponAction::ShellReload {
-                            remaining: definition.reload_seconds,
-                        };
-                        return emissions;
-                    }
+                }
+                if phase == ShellPhase::End {
                     self.action = WeaponAction::Ready;
                     self.emit(WeaponSignal::Idle);
+                    return emissions;
                 }
+                if self.reserve(definition) > 0
+                    && self
+                        .active()
+                        .is_some_and(|w| w.magazine < definition.magazine)
+                {
+                    self.action = WeaponAction::ShellReload {
+                        remaining: definition.reload_seconds,
+                        phase: ShellPhase::Loop,
+                        inserted: false,
+                    };
+                    self.emit(WeaponSignal::ShellInsert);
+                } else {
+                    self.action = WeaponAction::ShellReload {
+                        remaining: definition.mechanics.reload_end_seconds,
+                        phase: ShellPhase::End,
+                        inserted: true,
+                    };
+                    self.emit(WeaponSignal::ReloadEnd);
+                }
+                return emissions;
             }
         }
         if intent.cycle {
@@ -484,13 +548,14 @@ impl WeaponInventory {
         if self.action != WeaponAction::Ready {
             return emissions;
         }
-        if intent.melee && self.cooldown == 0. {
+        if intent.melee {
             self.burst = 0;
             self.action = WeaponAction::Melee {
-                remaining: definition.mechanics.melee_seconds[1].max(0.5),
+                remaining: definition.mechanics.melee_seconds[1]
+                    .max(definition.mechanics.melee_seconds[0]),
+                hit: false,
             };
             self.emit(WeaponSignal::Melee);
-            emissions.push(WeaponEmission::Melee);
             return emissions;
         }
         if intent.reload
@@ -503,7 +568,10 @@ impl WeaponInventory {
             let empty = self.active().is_some_and(|w| w.magazine == 0);
             self.action = if definition.mechanics.shell_reload {
                 WeaponAction::ShellReload {
-                    remaining: definition.reload_seconds,
+                    remaining: definition.mechanics.reload_start_seconds,
+                    phase: ShellPhase::Start,
+                    inserted: definition.mechanics.reload_start_insert
+                        > definition.mechanics.reload_start_seconds,
                 }
             } else {
                 WeaponAction::Reloading {
@@ -512,11 +580,12 @@ impl WeaponInventory {
                     } else {
                         definition.reload_seconds
                     },
-                    inserted: false,
                     empty,
                 }
             };
-            self.emit(if empty {
+            self.emit(if definition.mechanics.shell_reload {
+                WeaponSignal::ReloadStart
+            } else if empty {
                 WeaponSignal::ReloadEmpty
             } else {
                 WeaponSignal::Reload

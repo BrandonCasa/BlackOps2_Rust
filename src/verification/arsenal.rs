@@ -37,6 +37,15 @@ struct Coverage {
     ammo_price: u32,
     attempted_busy_switch: bool,
     approach_cursor: usize,
+    second_shot: bool,
+    reload_pending_ammo: Option<u32>,
+    shell_start: bool,
+    shell_loop: bool,
+    shell_end: bool,
+    shell_abort_sent: bool,
+    shell_restarted: bool,
+    shell_interrupted: bool,
+    burst_started: bool,
 }
 pub fn install(app: &mut App) {
     app.init_resource::<Coverage>().add_systems(
@@ -78,7 +87,15 @@ fn drive(
     let Ok((entity, mut player, mut body, inventory)) = players.single_mut() else {
         return;
     };
-    input.clear();
+    input.movement = Vec2::ZERO;
+    input.look = Vec2::ZERO;
+    input.fire_held = false;
+    input.use_held = false;
+    input.ads = false;
+    input.sprint = false;
+    input.crouch = false;
+    input.jump = false;
+    input.melee = false;
     coverage.elapsed += time.delta_secs();
     if coverage.elapsed > 12. {
         let result = serde_json::json!({"passed": false, "family": FAMILIES[coverage.family], "phase": coverage.phase, "focus": focus.prompt, "rejection": format!("{:?}",focus.rejection), "action": format!("{:?}", inventory.action), "position": body.translation.to_array()});
@@ -213,9 +230,22 @@ fn drive(
         }
         3 => {
             input.fire_held = true;
-            input.fire = !coverage.pressed;
+            input.fire |= !coverage.pressed;
             coverage.pressed = true;
-            if coverage.elapsed > 0.7 {
+            if weapon.mechanics.shell_reload
+                && coverage.elapsed > weapon.fire_interval + 0.15
+                && !coverage.second_shot
+            {
+                input.fire = true;
+                coverage.second_shot = true;
+            }
+            if coverage.elapsed
+                > if weapon.mechanics.shell_reload {
+                    weapon.fire_interval + 0.4
+                } else {
+                    0.7
+                }
+            {
                 input.fire_held = false;
                 let magazine = inventory.active().map_or(0, |w| w.magazine);
                 if magazine >= coverage.magazine {
@@ -224,13 +254,56 @@ fn drive(
                 let step = serde_json::json!({"weapon":family,"magazine_before":coverage.magazine,"magazine_after_held_fire":magazine,"pattern":format!("{:?}",weapon.mechanics.fire),"pellets_per_shot":weapon.mechanics.pellets});
                 coverage.steps.push(step);
                 coverage.phase = 4;
+                coverage.reload_pending_ammo = Some(magazine);
                 coverage.elapsed = 0.;
                 coverage.pressed = false;
             }
         }
         4 => {
-            input.reload = !coverage.pressed;
+            input.reload |= !coverage.pressed;
             coverage.pressed = true;
+            if weapon.mechanics.shell_reload
+                && !coverage.shell_abort_sent
+                && coverage.elapsed > 0.3
+                && matches!(
+                    inventory.action,
+                    WeaponAction::ShellReload {
+                        phase: crate::weapons::ShellPhase::Start,
+                        ..
+                    }
+                )
+            {
+                input.fire = true;
+                coverage.shell_abort_sent = true;
+            }
+            if coverage.shell_abort_sent
+                && !coverage.shell_restarted
+                && coverage.elapsed > 1.3
+                && inventory.action == WeaponAction::Ready
+            {
+                if inventory.active().map(|w| w.magazine)
+                    != coverage.reload_pending_ammo.map(|m| m.saturating_sub(1))
+                {
+                    coverage.elapsed = 13.;
+                    return;
+                }
+                coverage.shell_interrupted = true;
+                coverage.shell_restarted = true;
+                coverage.pressed = false;
+            }
+            if let WeaponAction::ShellReload { phase, .. } = inventory.action {
+                match phase {
+                    crate::weapons::ShellPhase::Start => coverage.shell_start = true,
+                    crate::weapons::ShellPhase::Loop => coverage.shell_loop = true,
+                    crate::weapons::ShellPhase::End => coverage.shell_end = true,
+                }
+            }
+            if matches!(inventory.action, WeaponAction::Reloading { .. })
+                && inventory.active().map(|w| w.magazine) != coverage.reload_pending_ammo
+            {
+                coverage.elapsed = 13.;
+                return;
+            }
             if coverage.elapsed > 0.3
                 && matches!(inventory.action, WeaponAction::Reloading { .. })
                 && !coverage.attempted_busy_switch
@@ -252,6 +325,8 @@ fn drive(
                 coverage.pressed = false;
                 coverage.accepted = focus.accepted;
                 coverage.balance = session.points;
+                let step = serde_json::json!({"weapon":family,"magazine_transfer_at_completion":!weapon.mechanics.shell_reload,"shell_start":coverage.shell_start,"shell_loop":coverage.shell_loop,"shell_end":coverage.shell_end,"shell_interrupted_and_resumed":coverage.shell_interrupted});
+                coverage.steps.push(step);
             }
         }
         7 => {
@@ -270,23 +345,50 @@ fn drive(
             }
         }
         5 => {
-            input.weapon_slot = if !coverage.pressed {
-                Some(1 - coverage.slot)
-            } else {
-                None
-            };
+            if matches!(
+                weapon.mechanics.fire,
+                crate::origins::FirePattern::Burst { .. }
+            ) {
+                if !coverage.burst_started {
+                    input.fire = true;
+                    coverage.burst_started = true;
+                    return;
+                }
+                if inventory
+                    .active()
+                    .is_some_and(|w| w.magazine == weapon.magazine)
+                {
+                    return;
+                }
+            }
+            if !coverage.pressed {
+                input.weapon_slot = Some(1 - coverage.slot);
+            }
             coverage.pressed = true;
             if coverage.elapsed > 0.2
                 && inventory.active_slot() != coverage.slot
                 && inventory.action == WeaponAction::Ready
             {
+                if coverage.burst_started {
+                    let rounds = inventory
+                        .owned()
+                        .find(|(slot, _)| *slot == coverage.slot)
+                        .map(|(_, w)| w.magazine);
+                    if rounds != Some(weapon.magazine - 1) {
+                        coverage.elapsed = 13.;
+                        return;
+                    }
+                    coverage.steps.push(
+                        serde_json::json!({"weapon":family,"burst_interrupted_on_switch":true}),
+                    );
+                }
                 coverage.phase = 6;
                 coverage.elapsed = 0.;
                 coverage.pressed = false;
             }
         }
         6 => {
-            input.cycle_weapon = !coverage.pressed;
+            input.cycle_weapon |= !coverage.pressed;
             coverage.pressed = true;
             if coverage.elapsed > 0.2
                 && inventory.active_slot() == coverage.slot
@@ -297,6 +399,14 @@ fn drive(
                 coverage.elapsed = 0.;
                 coverage.attempted_busy_switch = false;
                 coverage.approach_cursor = 0;
+                coverage.second_shot = false;
+                coverage.shell_start = false;
+                coverage.shell_loop = false;
+                coverage.shell_end = false;
+                coverage.shell_abort_sent = false;
+                coverage.shell_restarted = false;
+                coverage.shell_interrupted = false;
+                coverage.burst_started = false;
             }
         }
         _ => {}

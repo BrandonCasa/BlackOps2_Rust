@@ -360,6 +360,8 @@ fn animate(
             WeaponSignal::Reload => WeaponAnimation::Reload,
             WeaponSignal::ReloadEmpty => WeaponAnimation::ReloadEmpty,
             WeaponSignal::ShellInsert => WeaponAnimation::Reload,
+            WeaponSignal::ReloadStart => WeaponAnimation::ReloadStart,
+            WeaponSignal::ReloadEnd => WeaponAnimation::ReloadEnd,
             WeaponSignal::Melee => WeaponAnimation::Melee,
             _ => WeaponAnimation::Idle,
         };

@@ -105,7 +105,9 @@ pub(crate) fn drive(
         return;
     };
     if verification.stage != 0 {
-        input.clear();
+        if verification.stage != 4 {
+            input.clear();
+        }
         return;
     }
     input.movement = if verification.playing < 1. {
