@@ -291,13 +291,23 @@ pub(crate) fn throw_input(
         &mut WeaponInventory,
         &crate::mines::MineInventory,
         &mut TacticalInventory,
+        Option<&crate::perks::PerkDrinking>,
     )>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
-    for (owner, player, transform, health, mut lethal, mut weapons, mines, mut tactical) in
-        &mut players
+    for (
+        owner,
+        player,
+        transform,
+        health,
+        mut lethal,
+        mut weapons,
+        mines,
+        mut tactical,
+        drinking,
+    ) in &mut players
     {
-        if health.state() != LifeState::Standing {
+        if health.state() != LifeState::Standing || drinking.is_some() {
             continue;
         }
         // Lethal input wins simultaneous requests; active equipment always finishes its state.

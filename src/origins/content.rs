@@ -312,6 +312,16 @@ pub struct PerkDefinition {
     pub icon: Option<ContentId>,
     #[serde(default)]
     pub presentation: Option<ContentId>,
+    #[serde(default)]
+    pub drink: Option<PerkDrinkDefinition>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PerkDrinkDefinition {
+    pub bottle: WeaponId,
+    pub seconds: f32,
+    pub lower_seconds: f32,
+    pub activation_delay: f32,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -832,6 +842,16 @@ impl ContentCatalog {
         for v in &self.perks {
             optional(&v.id.0, &v.icon, "ui")?;
             optional(&v.id.0, &v.presentation, "presentation")?;
+            if let Some(drink) = &v.drink {
+                r(&v.id.0, &drink.bottle.0, "weapon")?;
+                valid(
+                    positive(drink.seconds)
+                        && positive(drink.lower_seconds)
+                        && nonnegative(drink.activation_delay)
+                        && drink.activation_delay <= drink.lower_seconds,
+                    "Invalid perk drinking timing",
+                )?;
+            }
         }
         for v in &self.powerups {
             valid(nonnegative(v.duration), "Invalid powerup duration")?;

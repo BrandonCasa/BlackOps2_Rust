@@ -165,10 +165,11 @@ fn place(
         &mut crate::weapons::WeaponInventory,
         &crate::equipment::GrenadeInventory,
         &crate::equipment::TacticalInventory,
+        Option<&crate::perks::PerkDrinking>,
     )>,
     mut evidence: ResMut<MineEvidence>,
 ) {
-    for (owner, player, pose, vitality, mut inventory, mut weapon, grenades, tactical) in
+    for (owner, player, pose, vitality, mut inventory, mut weapon, grenades, tactical, drinking) in
         &mut players
     {
         let pressed = input.mine_held && !inventory.held;
@@ -185,7 +186,7 @@ fn place(
         else {
             continue;
         };
-        if vitality.state() != LifeState::Standing {
+        if vitality.state() != LifeState::Standing || drinking.is_some() {
             inventory.placing = false;
             inventory.remaining = 0.;
             continue;

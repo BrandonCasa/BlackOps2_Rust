@@ -12,6 +12,7 @@ pub(super) type Owners<'w, 's> = Query<
         &'static GrenadeInventory,
         &'static TacticalInventory,
         &'static MineInventory,
+        Option<&'static crate::perks::PerkDrinking>,
     ),
     With<Player>,
 >;
@@ -23,6 +24,7 @@ pub(super) type Inventories<'w, 's> = Query<
         &'static GrenadeInventory,
         &'static TacticalInventory,
         &'static MineInventory,
+        Option<&'static crate::perks::PerkDrinking>,
     ),
 >;
 #[derive(Resource, Default)]
@@ -132,8 +134,10 @@ pub(super) fn select_visible(
     let Some(definition) = definition else {
         return;
     };
-    for (owner, primary, lethal, tactical, mines) in &owners {
-        let selected = selection(lethal, tactical, mines, &definition);
+    for (owner, primary, lethal, tactical, mines, drinking) in &owners {
+        let selected = drinking
+            .map(|d| d.selection())
+            .or_else(|| selection(lethal, tactical, mines, &definition));
         let visible = selected
             .as_ref()
             .map(|s| &s.weapon)

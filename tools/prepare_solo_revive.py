@@ -33,7 +33,12 @@ def prepare(config):
     presentation = "prop." + model
     perk = "perk.quick_revive"
     content["perks"][:] = [p for p in content["perks"] if p["id"] != perk]
-    content["perks"].append({"id":perk,"name":"Quick Revive","price":price,"icon":None,"presentation":presentation})
+    bottle = next(w for w in source["weapons"] if w["source"] == "zombie_perk_bottle_revive")
+    bottle_fields = bottle["fields"]
+    activation_delay = float(re.search(r'waittill_notify_or_timeout\( "burp", ([\d.]+) \)', texts["perks"])[1])
+    drink = {"bottle":"weapon." + bottle["source"], "seconds":float(bottle_fields["firstRaiseTime"]),
+        "lower_seconds":float(bottle_fields["dropTime"]), "activation_delay":activation_delay}
+    content["perks"].append({"id":perk,"name":"Quick Revive","price":price,"icon":None,"presentation":presentation,"drink":drink})
     content["presentations"][:] = [p for p in content["presentations"] if p["id"] != presentation]
     content["presentations"].append({"id":presentation,"scene":"props/"+relative+"#Scene0","animations":[],"sounds":[]})
     placement = "placement.quick_revive"
@@ -48,7 +53,7 @@ def prepare(config):
         "maximum_purchases":maximum,"downed_weapon":"weapon."+pistol,"reserve_clips":2,
         "downed_height":0.75,"downed_speed":1.0}
     (pack / "game.json").write_text(json.dumps(game,indent=2)+"\n",encoding="utf-8")
-    report = {"profile":game["solo_revive"],"price":price,"machine":machine,
+    report = {"profile":game["solo_revive"],"drink":drink,"bottle_sha256":bottle["sha256"],"price":price,"machine":machine,
         "script_sha256":{key:hashlib.sha256(path.read_bytes()).hexdigest() for key,path in scripts.items()},
         "approximations":["60 Hz fixed-step clocks replace native waits and network-frame cleanup.",
             "75 cm downed capsule and 1 m/s crawl reconstruct last-stand movement.",

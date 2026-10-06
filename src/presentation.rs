@@ -21,7 +21,7 @@ use bevy::{
 };
 use std::collections::BTreeMap;
 
-mod offhand;
+pub(crate) mod offhand;
 pub use offhand::EquipmentPresentationEvidence;
 pub(crate) use offhand::selection as equipment_selection;
 pub struct PresentationPlugin;
@@ -158,8 +158,11 @@ fn spawn_viewmodels(
     let (Some(definition), Ok(camera)) = (definition, cameras.single()) else {
         return;
     };
-    for (owner, inventory, lethal, tactical, mines) in &owners {
-        let wanted = offhand::owned(inventory, lethal, tactical, mines);
+    for (owner, inventory, lethal, tactical, mines, drinking) in &owners {
+        let mut wanted = offhand::owned(inventory, lethal, tactical, mines);
+        if let Some(drink) = drinking {
+            wanted.push(drink.bottle.clone());
+        }
         let parent = groups
             .iter()
             .find(|(_, group)| group.owner == owner)
@@ -378,7 +381,8 @@ fn aim_pose(
         return;
     };
     for (mut joint, mut pose) in &mut joints {
-        let Ok((inventory, lethal, tactical, mines)) = inventories.get(joint.owner) else {
+        let Ok((inventory, lethal, tactical, mines, drinking)) = inventories.get(joint.owner)
+        else {
             continue;
         };
         let Some(weapon) = definition
@@ -389,7 +393,9 @@ fn aim_pose(
         else {
             continue;
         };
-        let equipment = offhand::selection(lethal, tactical, mines, &definition);
+        let equipment = drinking
+            .map(|d| d.selection())
+            .or_else(|| offhand::selection(lethal, tactical, mines, &definition));
         let ads = if equipment.is_none()
             && inventory
                 .active()
@@ -470,10 +476,12 @@ fn animate(
         return;
     };
     for (mut rig, mut visibility) in &mut rigs {
-        let Ok((inventory, lethal, tactical, mines)) = inventories.get(rig.owner) else {
+        let Ok((inventory, lethal, tactical, mines, drinking)) = inventories.get(rig.owner) else {
             continue;
         };
-        let selected = offhand::selection(lethal, tactical, mines, &definition);
+        let selected = drinking
+            .map(|d| d.selection())
+            .or_else(|| offhand::selection(lethal, tactical, mines, &definition));
         let visible = selected
             .as_ref()
             .map(|s| &s.weapon)

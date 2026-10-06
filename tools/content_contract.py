@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation"} if table == "perks" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink"} if table == "perks" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -243,6 +243,13 @@ def validate_content(content, require):
             elif table == "perks":
                 resolve(owner, row["icon"], "ui", True)
                 resolve(owner, row.get("presentation"), "presentation", True)
+                drink = row.get("drink")
+                if drink is not None:
+                    require(isinstance(drink, dict) and set(drink) == {"bottle", "seconds", "lower_seconds", "activation_delay"}, "invalid perk drinking fields")
+                    resolve(owner, drink["bottle"], "weapon")
+                    for key in ("seconds", "lower_seconds"): number(drink[key], positive=True)
+                    number(drink["activation_delay"])
+                    require(drink["activation_delay"] <= drink["lower_seconds"], "perk activation exceeds bottle action")
             elif table == "powerups":
                 number(row["duration"])
             elif table == "placements":

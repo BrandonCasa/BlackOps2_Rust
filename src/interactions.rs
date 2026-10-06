@@ -180,6 +180,7 @@ pub(crate) fn interact(
         &mut crate::mines::MineInventory,
         &mut crate::equipment::TacticalInventory,
         &mut crate::solo_revive::PerkInventory,
+        Option<&crate::perks::PerkDrinking>,
     )>,
     mut focus: ResMut<InteractionFocus>,
     mut ledger: ResMut<PointLedger>,
@@ -194,7 +195,8 @@ pub(crate) fn interact(
         mut grenades,
         mut mines,
         mut tactical,
-        mut perks,
+        perks,
+        drinking,
     )) = players.single_mut()
     else {
         return;
@@ -277,17 +279,19 @@ pub(crate) fn interact(
                 || grenades.busy()
                 || mines.busy()
                 || tactical.busy()
+                || drinking.is_some()
             {
                 return Err(InteractionRejection::Busy);
             }
-            perks.buy_solo(&definition.solo_revive)
+            perks.can_buy_solo(&definition.solo_revive)?;
+            let drink = crate::perks::PerkDrinking::new(perk, &inventory, &definition)?;
+            inventory.cancel_action();
+            commands.entity(player_entity).insert(drink);
+            Ok(())
         });
         focus.rejection = match result {
             Ok(()) => {
                 focus.accepted += 1;
-                if perks.solo_purchases >= definition.solo_revive.maximum_purchases {
-                    commands.entity(entity).despawn();
-                }
                 None
             }
             Err(PurchaseError::InsufficientPoints) => {
@@ -351,6 +355,7 @@ pub(crate) fn interact(
             || grenades.busy()
             || mines.busy()
             || tactical.busy()
+            || drinking.is_some()
         {
             return Err(InteractionRejection::Busy);
         }

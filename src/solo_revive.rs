@@ -61,8 +61,8 @@ pub struct PerkInventory {
     pub solo_purchases: u32,
 }
 impl PerkInventory {
-    pub fn buy_solo(
-        &mut self,
+    pub fn can_buy_solo(
+        &self,
         profile: &SoloReviveProfile,
     ) -> Result<(), crate::interactions::InteractionRejection> {
         use crate::interactions::InteractionRejection;
@@ -72,6 +72,13 @@ impl PerkInventory {
         if self.solo_purchases >= profile.maximum_purchases {
             return Err(InteractionRejection::Unavailable);
         }
+        Ok(())
+    }
+    pub fn buy_solo(
+        &mut self,
+        profile: &SoloReviveProfile,
+    ) -> Result<(), crate::interactions::InteractionRejection> {
+        self.can_buy_solo(profile)?;
         self.owned.insert(profile.perk.clone());
         self.solo_charges = 1;
         self.solo_purchases += 1;

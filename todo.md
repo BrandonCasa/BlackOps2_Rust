@@ -234,7 +234,7 @@
 - [x] Add first-person melee animations.
 - [ ] Add first-person grenade animations.
 - [ ] Add first-person equipment animations.
-- [ ] Add first-person perk drinking animations.
+- [x] Add first-person perk drinking animations.
 - [ ] Add first-person downed animations.
 - [x] Attach weapons to authored hand sockets.
 - [ ] Attach combat effects to authored weapon sockets.
@@ -644,8 +644,8 @@
 - [ ] Preserve source-defined earned slot persistence.
 - [ ] Add perk purchase interactions.
 - [x] Reject duplicate perk ownership.
-- [ ] Add perk drinking action timing.
-- [ ] Activate purchased perks after drinking.
+- [x] Add perk drinking action timing.
+- [x] Activate purchased perks after drinking.
 - [ ] Add Juggernog health modifiers.
 - [x] Add Quick Revive solo purchase pricing.
 - [x] Add Quick Revive solo revival effects.

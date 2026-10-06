@@ -140,6 +140,7 @@ pub fn move_player(
         &Collider,
         &crate::weapons::WeaponInventory,
         &Vitality,
+        Option<&crate::perks::PerkDrinking>,
     )>,
     mut commands: Commands,
     slide: MoveAndSlide,
@@ -155,11 +156,14 @@ pub fn move_player(
         cycle_weapon: std::mem::take(&mut input.cycle_weapon),
         weapon_slot: input.weapon_slot.take(),
     };
-    let Ok((entity, mut player, mut transform, collider, inventory, vitality)) =
+    let Ok((entity, mut player, mut transform, collider, inventory, vitality, drinking)) =
         players.single_mut()
     else {
         return;
     };
+    if drinking.is_some() {
+        *actions = TickActions::default();
+    }
     let downed = vitality.state() == crate::life::LifeState::Downed;
     if downed {
         actions.melee = false;
@@ -178,7 +182,9 @@ pub fn move_player(
     let tuning = &definition.tuning;
     let dt = time.delta_secs();
     let filter = SpatialQueryFilter::from_excluded_entities([entity]);
-    let desired_height = if downed {
+    let desired_height = if drinking.is_some() {
+        player.height
+    } else if downed {
         definition.solo_revive.downed_height
     } else if input.crouch {
         tuning.crouch_height
@@ -231,6 +237,7 @@ pub fn move_player(
     } else if player.crouched {
         tuning.crouch_speed
     } else if input.sprint
+        && drinking.is_none()
         && !input.ads
         && inventory.ads < 0.05
         && inventory.action == crate::weapons::WeaponAction::Ready
@@ -250,7 +257,7 @@ pub fn move_player(
     player.velocity.x = desired.x;
     player.velocity.z = desired.z;
     if player.grounded {
-        player.velocity.y = if jump && !downed {
+        player.velocity.y = if jump && !downed && drinking.is_none() {
             tuning.jump_speed
         } else {
             -0.5

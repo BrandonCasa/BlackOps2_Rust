@@ -15,25 +15,35 @@ fn capture(
     state: Res<State<GameState>>,
     definition: Option<Res<GameDefinition>>,
     equipment: Res<crate::presentation::EquipmentPresentationEvidence>,
-    inventories: Query<(&GrenadeInventory, &TacticalInventory, &MineInventory), With<Player>>,
+    inventories: Query<
+        (
+            &GrenadeInventory,
+            &TacticalInventory,
+            &MineInventory,
+            Option<&crate::perks::PerkDrinking>,
+        ),
+        With<Player>,
+    >,
     mut captured: ResMut<Captured>,
 ) {
     let (Some(verification), Some(definition)) = (verification, definition) else {
         return;
     };
     if **state != GameState::Playing
-        || !(verification.grenades
+        || !(verification.solo_revive
+            || verification.grenades
             || verification.semtex
             || verification.monkeys
             || verification.claymores)
     {
         return;
     }
-    let Ok((lethal, tactical, mines)) = inventories.single() else {
+    let Ok((lethal, tactical, mines, drinking)) = inventories.single() else {
         return;
     };
-    let Some(selection) =
-        crate::presentation::equipment_selection(lethal, tactical, mines, &definition)
+    let Some(selection) = drinking
+        .map(|d| d.selection())
+        .or_else(|| crate::presentation::equipment_selection(lethal, tactical, mines, &definition))
     else {
         return;
     };

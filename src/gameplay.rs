@@ -324,6 +324,7 @@ pub(crate) fn combat(
         &crate::equipment::GrenadeInventory,
         &crate::mines::MineInventory,
         &crate::equipment::TacticalInventory,
+        Option<&crate::perks::PerkDrinking>,
     )>,
     enemies: crate::hit_regions::RayTargets,
     mut impacts: ResMut<crate::damage::DamageQueue>,
@@ -331,14 +332,14 @@ pub(crate) fn combat(
     mut hit_evidence: ResMut<crate::hit_regions::HitEvidence>,
 ) {
     let dt = time.delta_secs();
-    let Ok((entity, player, transform, mut inventory, grenades, mines, tactical)) =
+    let Ok((entity, player, transform, mut inventory, grenades, mines, tactical, drinking)) =
         players.single_mut()
     else {
         return;
     };
     let emissions = inventory.tick(
         dt,
-        if grenades.busy() || mines.busy() || tactical.busy() {
+        if grenades.busy() || mines.busy() || tactical.busy() || drinking.is_some() {
             WeaponIntent::default()
         } else {
             WeaponIntent {

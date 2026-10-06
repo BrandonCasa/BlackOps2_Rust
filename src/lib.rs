@@ -14,6 +14,7 @@ pub mod life;
 pub mod lures;
 pub mod mines;
 pub mod origins;
+pub mod perks;
 pub mod player;
 pub mod player_health;
 pub mod presentation;
@@ -89,7 +90,11 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         player::PlayerPlugin,
         gameplay::GameplayPlugin,
         damage::DamagePlugin,
-        (life::LifeStatePlugin, solo_revive::SoloRevivePlugin),
+        (
+            life::LifeStatePlugin,
+            solo_revive::SoloRevivePlugin,
+            perks::PerkPlugin,
+        ),
         player_health::PlayerHealthPlugin,
         enemies::EnemyPlugin,
         hit_regions::HitRegionsPlugin,

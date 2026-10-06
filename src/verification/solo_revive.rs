@@ -65,11 +65,14 @@ fn drive(
         &PerkInventory,
         &WeaponInventory,
         Option<&mut SoloEpisode>,
+        Option<&crate::perks::PerkDrinking>,
     )>,
     focus: Res<crate::interactions::InteractionFocus>,
     evidence: Res<SoloReviveEvidence>,
     health_evidence: Res<crate::player_health::HealthEvidence>,
     machines: Query<&crate::interactions::Usable>,
+    perk_evidence: Res<crate::perks::PerkEvidence>,
+    mut impacts: ResMut<crate::damage::DamageQueue>,
 ) {
     let Some(verification) = verification else {
         return;
@@ -84,7 +87,7 @@ fn drive(
     }
     let (
         Some(definition),
-        Ok((owner, mut player, mut transform, health, perks, inventory, mut episode)),
+        Ok((owner, mut player, mut transform, health, perks, inventory, mut episode, drinking)),
     ) = (definition, players.single_mut())
     else {
         return;
@@ -110,7 +113,9 @@ fn drive(
         player.pitch = (delta.y / delta.length()).asin();
     };
     let _ = std::fs::write(verification.output.join("progress.json"), serde_json::json!({"phase":coverage.phase,"seconds":coverage.elapsed,"cycle":coverage.cycle,"health":health.current(),"life":format!("{:?}",health.state()),"purchases":perks.solo_purchases,"charges":perks.solo_charges,"position":transform.translation.to_array(),"prompt":focus.prompt,"rejection":format!("{:?}",focus.rejection),"events":evidence.events}).to_string());
-    if matches!(coverage.phase, 1 | 2 | 3 | 6 | 10 | 11) && health.state() == LifeState::Standing {
+    if matches!(coverage.phase, 1 | 2 | 3 | 6 | 10 | 11 | 15 | 16)
+        && health.state() == LifeState::Standing
+    {
         travel_to_machine(&mut player, &mut transform);
         commands
             .entity(owner)
@@ -150,7 +155,21 @@ fn drive(
         }
         3 => {
             input.use_held = true;
-            if perks.solo_charges == 1 && coverage.elapsed > 0.3 {
+            if let Some(drink) = drinking {
+                if drink.elapsed < 3.2 {
+                    input.fire = true;
+                    input.fire_held = true;
+                    input.reload = true;
+                    input.melee = true;
+                    input.ads = true;
+                    input.cycle_weapon = true;
+                    input.weapon_slot = Some(1);
+                    input.grenade_held = true;
+                    input.tactical_held = true;
+                    input.mine_held = true;
+                }
+            }
+            if perks.solo_charges == 1 && drinking.is_none() && coverage.elapsed > 0.3 {
                 if coverage.cycle == 2 {
                     coverage.machine_removed = !machines
                         .iter()
@@ -309,14 +328,29 @@ fn drive(
                 && perks.solo_charges == 0
                 && perks.owned.is_empty()
                 && episode.is_none()
-                && health_evidence.death_events == 1;
+                && health_evidence.death_events == 1
+                && perk_evidence
+                    .events
+                    .iter()
+                    .filter(|e| e["event"] == "perk_activated")
+                    .count()
+                    == 3
+                && perk_evidence
+                    .events
+                    .iter()
+                    .filter(|e| e["event"] == "perk_activated")
+                    .all(|e| {
+                        e["seconds"]
+                            .as_f64()
+                            .is_some_and(|v| (v - 3.3).abs() < 0.04)
+                    });
             picture(&mut commands, &verification.output, "restart-clear.png");
-            let receipt = serde_json::json!({"passed":passed,"scope":"controlled travel and 499/500-point budgets; real held-F purchases, natural enemy attacks, three automatic revivals, fourth lethal episode and restart; downed firing does not qualify native projectile delivery", "events":evidence.events,"snapshots":coverage.snapshots,"crawl_meters":coverage.crawl,"downed_shot":coverage.downed_shot,"restored":coverage.restored,"timings":timings,"machine_removed":coverage.machine_removed,"restrictions":coverage.restrictions,"restart_owner":owner.to_bits()});
+            let receipt = serde_json::json!({"passed":passed,"scope":"controlled travel and 499/500-point budgets; real held-F purchases, natural enemy attacks, three automatic revivals, fourth lethal episode and restart; downed firing does not qualify native projectile delivery", "events":evidence.events,"snapshots":coverage.snapshots,"crawl_meters":coverage.crawl,"downed_shot":coverage.downed_shot,"restored":coverage.restored,"timings":timings,"perk_events":perk_evidence.events,"machine_removed":coverage.machine_removed,"restrictions":coverage.restrictions,"restart_owner":owner.to_bits()});
             let _ = std::fs::write(
                 verification.output.join("solo-revive.json"),
                 receipt.to_string(),
             );
-            coverage.phase = if passed { 9 } else { 99 };
+            coverage.phase = if passed { 15 } else { 99 };
             coverage.elapsed = 0.;
         }
         10 if coverage.elapsed > 0.15 => {
@@ -326,7 +360,7 @@ fn drive(
         }
         11 => {
             input.use_held = true;
-            if perks.solo_charges == 1 {
+            if perks.solo_charges == 1 && drinking.is_none() {
                 transform.translation =
                     Vec3::from_array(definition.spawn) + Vec3::Y * player.height * 0.5;
                 commands
@@ -390,6 +424,80 @@ fn drive(
                 && episode.is_none();
             let _ = std::fs::write(
                 verification.output.join("bleedout-restart.json"),
+                serde_json::json!({"passed":passed}).to_string(),
+            );
+            coverage.phase = if passed { 9 } else { 99 };
+            coverage.elapsed = 0.;
+        }
+        15 => {
+            travel_to_machine(&mut player, &mut transform);
+            commands
+                .entity(owner)
+                .insert(avian3d::prelude::Position(transform.translation));
+            session.points = 500;
+            session.pending = 0;
+            session.intermission = Some(Timer::from_seconds(300., TimerMode::Once));
+            if coverage.elapsed > 0.2 {
+                coverage.phase = 16;
+                coverage.elapsed = 0.;
+            }
+        }
+        16 => {
+            input.use_held = true;
+            if drinking.is_some_and(|d| d.elapsed > 1. && !d.activated) {
+                if !perks.owned.is_empty() || perks.solo_charges != 0 || perks.solo_purchases != 0 {
+                    coverage.phase = 99;
+                    return;
+                }
+                impacts.0.push(crate::damage::Impact {
+                    attacker: owner,
+                    target: owner,
+                    source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(
+                        "weapon.frag_grenade_zm".into(),
+                    )),
+                    category: crate::origins::DamageCategory::Explosive,
+                    region: crate::weapons::HitRegion::Torso,
+                    amount: 300,
+                });
+                coverage.phase = 17;
+                coverage.elapsed = 0.;
+            }
+        }
+        17 if **state == GameState::GameOver => {
+            let cancellation = perk_evidence
+                .events
+                .iter()
+                .rev()
+                .find(|e| e["event"] == "drink_cancelled");
+            let passed = cancellation.is_some_and(|e| e["activated"] == false)
+                && perks.owned.is_empty()
+                && perks.solo_charges == 0
+                && perks.solo_purchases == 0
+                && drinking.is_none()
+                && session.points == 0
+                && health_evidence.death_events == 2;
+            let receipt = serde_json::json!({"passed":passed,"scope":"real paid bottle purchase, then controlled resolved lethal self-projectile impact before activation; qualifies drinking cancellation and lost purchase, not projectile delivery", "perk_events":perk_evidence.events,"points":session.points,"purchases":perks.solo_purchases,"charges":perks.solo_charges,"deaths":health_evidence.death_events});
+            let _ = std::fs::write(
+                verification.output.join("perk-drinking-abort.json"),
+                receipt.to_string(),
+            );
+            if passed {
+                commands.write_message(crate::input::RestartGame);
+                coverage.phase = 18;
+                coverage.elapsed = 0.;
+            } else {
+                coverage.phase = 99;
+            }
+        }
+        18 if **state == GameState::Playing && coverage.elapsed > 0.5 => {
+            let passed = health.state() == LifeState::Standing
+                && health.current() == Some(100)
+                && perks.owned.is_empty()
+                && perks.solo_charges == 0
+                && perks.solo_purchases == 0
+                && drinking.is_none();
+            let _ = std::fs::write(
+                verification.output.join("perk-drinking-restart.json"),
                 serde_json::json!({"passed":passed}).to_string(),
             );
             coverage.phase = if passed { 9 } else { 99 };
