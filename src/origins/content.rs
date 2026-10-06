@@ -102,6 +102,8 @@ pub struct WeaponDefinition {
     #[serde(default)]
     pub animation_actions: BTreeMap<WeaponAnimation, ContentId>,
     #[serde(default)]
+    pub view_offset: [f32; 3],
+    #[serde(default)]
     pub mechanics: WeaponMechanics,
     #[serde(default)]
     pub throwable: Option<crate::equipment::ThrowableDefinition>,
@@ -115,6 +117,7 @@ pub struct WeaponDefinition {
 #[serde(rename_all = "snake_case")]
 pub enum WeaponAnimation {
     Idle,
+    Prime,
     Fire,
     Reload,
     ReloadEmpty,
@@ -668,6 +671,22 @@ impl ContentCatalog {
             }
             if let Some(throwable) = &v.throwable {
                 valid(throwable.valid(), "Invalid throwable tuning")?;
+            }
+            valid(
+                v.view_offset.iter().all(|v| v.is_finite() && v.abs() < 2.),
+                "Invalid weapon view offset",
+            )?;
+            if v.throwable.is_some() || v.mine.is_some() {
+                valid(
+                    [
+                        WeaponAnimation::Prime,
+                        WeaponAnimation::Idle,
+                        WeaponAnimation::Fire,
+                    ]
+                    .iter()
+                    .all(|action| v.animation_actions.contains_key(action)),
+                    "Missing equipment deployment animation",
+                )?;
             }
             if let Some(mine) = &v.mine {
                 valid(mine.valid(), "Invalid mine tuning")?;

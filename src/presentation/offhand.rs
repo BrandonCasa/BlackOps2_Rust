@@ -1,0 +1,241 @@
+//! Read-only presentation of authoritative equipment state; no inventory switching.
+use super::*;
+use crate::equipment::{GrenadeInventory, TacticalInventory, ThrowState};
+use crate::mines::MineInventory;
+
+pub(super) type Owners<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static WeaponInventory,
+        &'static GrenadeInventory,
+        &'static TacticalInventory,
+        &'static MineInventory,
+    ),
+    With<Player>,
+>;
+pub(super) type Inventories<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static WeaponInventory,
+        &'static GrenadeInventory,
+        &'static TacticalInventory,
+        &'static MineInventory,
+    ),
+>;
+#[derive(Resource, Default)]
+pub(super) struct GraphCache(
+    pub BTreeMap<AssetId<Gltf>, (Handle<AnimationGraph>, BTreeMap<String, AnimationNodeIndex>)>,
+);
+#[derive(Resource, Default)]
+pub struct EquipmentPresentationEvidence {
+    pub phases: std::collections::BTreeSet<String>,
+    pub motion: BTreeMap<String, f32>,
+    pub frames: u32,
+    pub phase_frames: BTreeMap<String, u32>,
+    pub views: BTreeMap<String, serde_json::Value>,
+}
+pub(crate) struct Selection {
+    pub(crate) weapon: WeaponId,
+    pub(crate) action: WeaponAnimation,
+    pub(crate) timing: Option<(f32, f32)>,
+}
+pub(super) fn owned(
+    inventory: &WeaponInventory,
+    lethal: &GrenadeInventory,
+    tactical: &TacticalInventory,
+    mines: &MineInventory,
+) -> Vec<WeaponId> {
+    let mut ids: Vec<_> = inventory
+        .owned()
+        .map(|(_, w)| w.definition.clone())
+        .collect();
+    ids.push(lethal.definition.clone());
+    if let Some(t) = &tactical.0 {
+        ids.push(t.definition.clone());
+    }
+    if let Some(id) = &mines.definition {
+        ids.push(id.clone());
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+pub(crate) fn selection(
+    lethal: &GrenadeInventory,
+    tactical: &TacticalInventory,
+    mines: &MineInventory,
+    definition: &GameDefinition,
+) -> Option<Selection> {
+    for inventory in std::iter::once(lethal).chain(tactical.0.iter()) {
+        if !inventory.busy() {
+            continue;
+        }
+        let profile = definition
+            .content
+            .weapons
+            .iter()
+            .find(|w| w.id == inventory.definition)?
+            .throwable
+            .as_ref()?;
+        let (action, timing) = match inventory.state {
+            ThrowState::Priming { remaining } => (
+                WeaponAnimation::Prime,
+                Some((profile.prime_seconds, remaining)),
+            ),
+            ThrowState::Cooking { .. } => (WeaponAnimation::Idle, None),
+            ThrowState::Recovery { remaining } => (
+                WeaponAnimation::Fire,
+                Some((profile.throw_seconds, remaining)),
+            ),
+            ThrowState::Ready => continue,
+        };
+        return Some(Selection {
+            weapon: inventory.definition.clone(),
+            action,
+            timing,
+        });
+    }
+    let (placing, remaining) = mines.presentation_phase()?;
+    let id = mines.definition.as_ref()?;
+    let profile = definition
+        .content
+        .weapons
+        .iter()
+        .find(|w| w.id == *id)?
+        .mine
+        .as_ref()?;
+    Some(Selection {
+        weapon: id.clone(),
+        action: if placing {
+            WeaponAnimation::Prime
+        } else {
+            WeaponAnimation::Fire
+        },
+        timing: Some((
+            if placing {
+                profile.place_seconds
+            } else {
+                profile.recovery_seconds
+            },
+            remaining,
+        )),
+    })
+}
+pub(super) fn select_visible(
+    definition: Option<Res<GameDefinition>>,
+    owners: Owners,
+    mut views: Query<(&FirstPerson, &mut Visibility)>,
+) {
+    let Some(definition) = definition else {
+        return;
+    };
+    for (owner, primary, lethal, tactical, mines) in &owners {
+        let selected = selection(lethal, tactical, mines, &definition);
+        let visible = selected
+            .as_ref()
+            .map(|s| &s.weapon)
+            .or_else(|| primary.active().map(|w| &w.definition));
+        for (view, mut visibility) in &mut views {
+            if view.owner == owner {
+                *visibility = if visible == Some(&view.weapon) {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+            }
+        }
+    }
+}
+pub(super) fn record_motion(
+    state: Res<State<GameState>>,
+    mut rigs: Query<&mut Rig>,
+    poses: Query<&Transform>,
+    mut evidence: ResMut<EquipmentPresentationEvidence>,
+) {
+    if **state != GameState::Playing {
+        return;
+    }
+    for mut rig in &mut rigs {
+        let Some(phase) = rig.phase else {
+            continue;
+        };
+        let key = format!(
+            "{}:{phase:?}:{}",
+            rig.weapon.0,
+            if rig.arms { "arms" } else { "model" }
+        );
+        *evidence.phase_frames.entry(key.clone()).or_default() += 1;
+        if rig.sampled_phase != Some(phase) {
+            for (_, sample) in &mut rig.tracked {
+                *sample = None;
+            }
+            rig.sampled_phase = Some(phase);
+        }
+        for (entity, sample) in &mut rig.tracked {
+            let Ok(pose) = poses.get(*entity) else {
+                continue;
+            };
+            if let Some((translation, rotation)) = *sample {
+                let motion =
+                    translation.distance(pose.translation) + rotation.angle_between(pose.rotation);
+                let maximum = evidence.motion.entry(key.clone()).or_default();
+                *maximum = maximum.max(motion);
+            }
+            *sample = Some((pose.translation, pose.rotation));
+        }
+        evidence.frames += 1;
+    }
+}
+pub(super) fn record_visibility(
+    verification: Option<Res<crate::verification::Verification>>,
+    rigs: Query<(Entity, &Rig, &GlobalTransform, &InheritedVisibility)>,
+    cameras: Query<&GlobalTransform, With<ViewModelCamera>>,
+    children: Query<&Children>,
+    meshes: Query<
+        (
+            &GlobalTransform,
+            &InheritedVisibility,
+            Option<&RenderLayers>,
+        ),
+        With<Mesh3d>,
+    >,
+    mut evidence: ResMut<EquipmentPresentationEvidence>,
+) {
+    if verification.is_none() {
+        return;
+    }
+    let Ok(camera) = cameras.single() else {
+        return;
+    };
+    let inverse = camera.affine().inverse();
+    for (entity, rig, pose, visibility) in &rigs {
+        let Some(phase) = rig.phase else {
+            continue;
+        };
+        if rig.arms || rig.knife {
+            continue;
+        }
+        let records: Vec<_> = children
+            .iter_descendants(entity)
+            .filter_map(|child| meshes.get(child).ok())
+            .map(|(pose, visibility, layers)| {
+                serde_json::json!({
+                    "visible": visibility.get(),
+                    "layer_one": layers.is_some_and(|l| l.intersects(&RenderLayers::layer(1))),
+                    "position": inverse.transform_point3(pose.translation()).to_array()
+                })
+            })
+            .collect();
+        evidence.views.insert(
+            format!("{}:{phase:?}", rig.weapon.0),
+            serde_json::json!({
+                "attached": rig.attached, "ready": rig.ready, "visible": visibility.get(),
+                "position": inverse.transform_point3(pose.translation()).to_array(),
+                "meshes": records
+            }),
+        );
+    }
+}

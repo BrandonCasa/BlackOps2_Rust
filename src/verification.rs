@@ -13,6 +13,7 @@ use bevy::{
 use std::{path::PathBuf, time::Instant};
 mod arsenal;
 mod claymores;
+mod equipment_presentation;
 mod equipment_refills;
 mod monkeys;
 mod performance;
@@ -66,6 +67,7 @@ impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
+            equipment_presentation::install(app);
             if app
                 .world()
                 .resource::<LaunchOptions>()
@@ -192,6 +194,10 @@ pub(crate) fn drive(
         Vec2::ZERO
     };
     if verification.grenades && (equipment.detonations == 0 || verification.stage == 2) {
+        if verification.stage == 0 && equipment.primed == 0 && verification.playing < 2. {
+            input.clear();
+            return;
+        }
         input.fire = false;
         input.fire_held = false;
         input.ads = false;
@@ -405,6 +411,7 @@ fn check(
         Res<crate::player_health::HealthEvidence>,
         Res<crate::hit_regions::HitEvidence>,
         Res<crate::equipment::EquipmentEvidence>,
+        Res<crate::presentation::EquipmentPresentationEvidence>,
     ),
     mut players: Query<
         (
@@ -444,6 +451,7 @@ fn check(
         health_evidence,
         hit_evidence,
         equipment,
+        equipment_presentation,
     ) = combat;
     let Some(mut verification) = verification else {
         return;
@@ -873,6 +881,8 @@ fn check(
             "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
         receipt["monkeys_exercised"] = verification.monkeys_exercised.into();
         receipt["equipment_refills_exercised"] = verification.equipment_refills_exercised.into();
+        receipt["equipment_presentation"] = serde_json::json!({"phases":equipment_presentation.phases,
+            "motion":equipment_presentation.motion,"frames":equipment_presentation.frames,"phase_frames":equipment_presentation.phase_frames,"views":equipment_presentation.views});
         let _ = std::fs::write(
             verification.output.join("verification.json"),
             receipt.to_string(),

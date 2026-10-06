@@ -59,6 +59,9 @@ pub struct MineInventory {
     placing: bool,
 }
 impl MineInventory {
+    pub(crate) fn presentation_phase(&self) -> Option<(bool, f32)> {
+        self.busy().then_some((self.placing, self.remaining))
+    }
     pub fn busy(&self) -> bool {
         self.remaining > 0.
     }

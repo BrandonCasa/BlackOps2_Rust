@@ -60,18 +60,33 @@ fn approach(
         let Some(center) = standing(query, owner, target + dir * distance, height, radius) else {
             continue;
         };
+        if distance <= 6. && (center.y - target.y).abs() > 0.20 {
+            continue;
+        }
         let delta = target - center;
         let Ok(direction) = Dir3::new(delta) else {
             continue;
         };
+        // A clear eye-height route can still put a downward throw behind low cover.
+        // Choose open ground for the intended lethal-blast branch as well.
+        let ground = center - Vec3::Y * (height * 0.5 - 0.10);
+        let blast_line = target - ground;
+        let filter = SpatialQueryFilter::from_excluded_entities([owner, actor]);
+        if distance <= 6.
+            && query
+                .cast_ray(
+                    ground,
+                    Dir3::new(blast_line).ok()?,
+                    blast_line.length(),
+                    false,
+                    &filter,
+                )
+                .is_some()
+        {
+            continue;
+        }
         if query
-            .cast_ray(
-                center,
-                direction,
-                delta.length(),
-                false,
-                &SpatialQueryFilter::from_excluded_entities([owner, actor]),
-            )
+            .cast_ray(center, direction, delta.length(), false, &filter)
             .is_none()
         {
             return Some(center);
@@ -221,7 +236,7 @@ fn drive(
         2 | 7 => {
             body.translation = coverage.anchor;
             player.pitch = -1.5;
-            input.tactical_held = coverage.elapsed < 0.15;
+            input.tactical_held = coverage.elapsed < 3.;
             if let Some((_, _, bomb)) = grenades
                 .iter()
                 .find(|(_, g, _)| g.definition.0 == "weapon.cymbal_monkey_zm")

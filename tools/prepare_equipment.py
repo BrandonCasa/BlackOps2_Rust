@@ -5,12 +5,48 @@ import math
 import hashlib
 from prepare_gameplay_content import external
 
+def prepare_prime_clips(content, rows, inspection, pack):
+    from prepare_actors import convert
+    equipment=[w for w in content["weapons"] if w["id"] in (
+        "weapon.frag_grenade_zm","weapon.sticky_grenade_zm","weapon.cymbal_monkey_zm","weapon.claymore_zm")]
+    primes={rows[w["id"]]["fields"]["holdFireAnim"] for w in equipment}
+    # Reconstructed camera framing; native joint tracks and attachment sockets stay intact.
+    for w in equipment: w["view_offset"]=[0.,.14,-.15]
+    models={rows[w["id"]]["fields"]["gunModel"]:{rows[w["id"]]["fields"]["holdFireAnim"]} for w in equipment}
+    models.update({"c_zom_"+name+"_viewhands":primes for name in ("dempsey","nikolai","richtofen","takeo")})
+    for model,extra in models.items():
+        identity="actor."+model
+        existing=sorted((a for a in content["animations"] if a["skeleton"]==identity),
+            key=lambda a:int(a["path"].rsplit("Animation",1)[1]))
+        names=[a["id"].rsplit(".",1)[1] for a in existing]
+        names+=sorted(extra-set(names))
+        relative,notes=convert(inspection / "game-prepare/models/model_export" / (model+"_lod0.gltf"),
+            pack / "actors",inspection / "solo-content/actor-images",
+            [inspection / "solo-content/source/xanim" / name for name in names])
+        generated={}
+        references=[]
+        for index,(name,notifications) in enumerate(notes):
+            clip="animation."+model+"."+name
+            references.append(clip)
+            generated[clip]={"id":clip,"path":"actors/"+relative+f"#Animation{index}",
+                "skeleton":identity,"notifications":notifications}
+        content["animations"][:]=[generated.pop(a["id"],a) for a in content["animations"]]
+        content["animations"].extend(generated.values())
+        presentation=next(p for p in content["presentations"] if p["id"]==identity)
+        presentation["animations"]=references
+        for w in equipment:
+            if rows[w["id"]]["fields"]["gunModel"]==model:
+                clip="animation."+model+"."+rows[w["id"]]["fields"]["holdFireAnim"]
+                if clip not in references: raise ValueError("missing equipment prime animation: "+clip)
+                w["animation_actions"]["prime"]=clip
+
 def prepare(config):
     inspection = external(config["assets"]["inspection_output"])
     pack = external(config["game"]["asset_pack"])
     source = json.loads((inspection / "solo-content/recovered-gameplay.json").read_text())
     game = json.loads((pack / "game.json").read_text(encoding="utf-8-sig"))
     rows = {r["id"].replace("weapons.","weapon."):r for r in source["weapons"]}
+    prepare_prime_clips(game["content"],rows,inspection,pack)
     receipts = []
     round_script=inspection / "damage-life-state-06/decompiled/t6/_zm.gsc"
     round_text=round_script.read_text().split("award_grenades_for_survivors()\n{",1)[1].split("\nai_calculate_health",1)[0]

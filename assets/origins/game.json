@@ -1782,7 +1782,8 @@
           "sprint_leave": "animation.t6_wpn_claymore_view.viewmodel_claymore_sprint_out",
           "dive_enter": "animation.t6_wpn_claymore_view.viewmodel_claymore_d2p_in",
           "dive_loop": "animation.t6_wpn_claymore_view.viewmodel_claymore_d2p_loop",
-          "dive_leave": "animation.t6_wpn_claymore_view.viewmodel_claymore_d2p_out"
+          "dive_leave": "animation.t6_wpn_claymore_view.viewmodel_claymore_d2p_out",
+          "prime": "animation.t6_wpn_claymore_view.viewmodel_claymore_hold_fire"
         },
         "mechanics": {
           "delivery": "equipment",
@@ -1878,7 +1879,12 @@
           "outer_damage": 50,
           "blast_cos": 0.5000000000000001,
           "presentation": "actor.t6_wpn_claymore_world"
-        }
+        },
+        "view_offset": [
+          0.0,
+          0.14,
+          -0.15
+        ]
       },
       {
         "id": "weapon.cymbal_monkey_zm",
@@ -1898,7 +1904,8 @@
           "idle": "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_idle",
           "fire": "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_throw",
           "equip": "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_idle",
-          "unequip": "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_idle"
+          "unequip": "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_idle",
+          "prime": "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_pullpin"
         },
         "mechanics": {
           "delivery": "equipment",
@@ -2004,7 +2011,12 @@
           "capacity": 96,
           "spacing": 1.143,
           "animation": "animation.t6_wpn_zmb_monkey_bomb_world.o_monkey_bomb"
-        }
+        },
+        "view_offset": [
+          0.0,
+          0.14,
+          -0.15
+        ]
       },
       {
         "id": "weapon.death_self_zm",
@@ -3839,7 +3851,8 @@
           "idle": "animation.t6_wpn_grenade_frag_view.viewmodel_m67_idle",
           "fire": "animation.t6_wpn_grenade_frag_view.viewmodel_m67_throw",
           "equip": "animation.t6_wpn_grenade_frag_view.viewmodel_m67_idle",
-          "unequip": "animation.t6_wpn_grenade_frag_view.viewmodel_m67_idle"
+          "unequip": "animation.t6_wpn_grenade_frag_view.viewmodel_m67_idle",
+          "prime": "animation.t6_wpn_grenade_frag_view.viewmodel_m67_pullpin"
         },
         "mechanics": {
           "delivery": "equipment",
@@ -3939,7 +3952,12 @@
           "collision_radius": 0.045,
           "cook_in_hand": true,
           "sticky": false
-        }
+        },
+        "view_offset": [
+          0.0,
+          0.14,
+          -0.15
+        ]
       },
       {
         "id": "weapon.galil_upgraded_zm",
@@ -11410,7 +11428,8 @@
           "idle": "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_idle",
           "fire": "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_throw",
           "equip": "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_idle",
-          "unequip": "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_idle"
+          "unequip": "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_idle",
+          "prime": "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_pullpin"
         },
         "mechanics": {
           "delivery": "equipment",
@@ -11510,7 +11529,12 @@
           "collision_radius": 0.045,
           "cook_in_hand": false,
           "sticky": true
-        }
+        },
+        "view_offset": [
+          0.0,
+          0.14,
+          -0.15
+        ]
       },
       {
         "id": "weapon.syrette_zm",
@@ -17303,7 +17327,10 @@
           "animation.c_zom_dempsey_viewhands.viewmodel_zombie_packopunch",
           "animation.c_zom_dempsey_viewhands.viewmodel_zombie_perksacola_drink",
           "animation.c_zom_dempsey_viewhands.viewmodel_zombie_perksacola_idle",
-          "animation.c_zom_dempsey_viewhands.viewmodel_zombie_perksacola_lower"
+          "animation.c_zom_dempsey_viewhands.viewmodel_zombie_perksacola_lower",
+          "animation.c_zom_dempsey_viewhands.viewmodel_claymore_hold_fire",
+          "animation.c_zom_dempsey_viewhands.viewmodel_m67_pullpin",
+          "animation.c_zom_dempsey_viewhands.viewmodel_zombie_monkeybomb_pullpin"
         ],
         "sounds": []
       },
@@ -17932,7 +17959,10 @@
           "animation.c_zom_nikolai_viewhands.viewmodel_zombie_packopunch",
           "animation.c_zom_nikolai_viewhands.viewmodel_zombie_perksacola_drink",
           "animation.c_zom_nikolai_viewhands.viewmodel_zombie_perksacola_idle",
-          "animation.c_zom_nikolai_viewhands.viewmodel_zombie_perksacola_lower"
+          "animation.c_zom_nikolai_viewhands.viewmodel_zombie_perksacola_lower",
+          "animation.c_zom_nikolai_viewhands.viewmodel_claymore_hold_fire",
+          "animation.c_zom_nikolai_viewhands.viewmodel_m67_pullpin",
+          "animation.c_zom_nikolai_viewhands.viewmodel_zombie_monkeybomb_pullpin"
         ],
         "sounds": []
       },
@@ -18561,7 +18591,10 @@
           "animation.c_zom_richtofen_viewhands.viewmodel_zombie_packopunch",
           "animation.c_zom_richtofen_viewhands.viewmodel_zombie_perksacola_drink",
           "animation.c_zom_richtofen_viewhands.viewmodel_zombie_perksacola_idle",
-          "animation.c_zom_richtofen_viewhands.viewmodel_zombie_perksacola_lower"
+          "animation.c_zom_richtofen_viewhands.viewmodel_zombie_perksacola_lower",
+          "animation.c_zom_richtofen_viewhands.viewmodel_claymore_hold_fire",
+          "animation.c_zom_richtofen_viewhands.viewmodel_m67_pullpin",
+          "animation.c_zom_richtofen_viewhands.viewmodel_zombie_monkeybomb_pullpin"
         ],
         "sounds": []
       },
@@ -19190,7 +19223,10 @@
           "animation.c_zom_takeo_viewhands.viewmodel_zombie_packopunch",
           "animation.c_zom_takeo_viewhands.viewmodel_zombie_perksacola_drink",
           "animation.c_zom_takeo_viewhands.viewmodel_zombie_perksacola_idle",
-          "animation.c_zom_takeo_viewhands.viewmodel_zombie_perksacola_lower"
+          "animation.c_zom_takeo_viewhands.viewmodel_zombie_perksacola_lower",
+          "animation.c_zom_takeo_viewhands.viewmodel_claymore_hold_fire",
+          "animation.c_zom_takeo_viewhands.viewmodel_m67_pullpin",
+          "animation.c_zom_takeo_viewhands.viewmodel_zombie_monkeybomb_pullpin"
         ],
         "sounds": []
       },
@@ -19412,7 +19448,8 @@
           "animation.t6_wpn_claymore_view.viewmodel_claymore_putaway",
           "animation.t6_wpn_claymore_view.viewmodel_claymore_sprint_in",
           "animation.t6_wpn_claymore_view.viewmodel_claymore_sprint_loop",
-          "animation.t6_wpn_claymore_view.viewmodel_claymore_sprint_out"
+          "animation.t6_wpn_claymore_view.viewmodel_claymore_sprint_out",
+          "animation.t6_wpn_claymore_view.viewmodel_claymore_hold_fire"
         ],
         "sounds": []
       },
@@ -19425,7 +19462,8 @@
           "animation.t6_wpn_grenade_frag_view.viewmodel_default_pullout",
           "animation.t6_wpn_grenade_frag_view.viewmodel_default_putaway",
           "animation.t6_wpn_grenade_frag_view.viewmodel_m67_idle",
-          "animation.t6_wpn_grenade_frag_view.viewmodel_m67_throw"
+          "animation.t6_wpn_grenade_frag_view.viewmodel_m67_throw",
+          "animation.t6_wpn_grenade_frag_view.viewmodel_m67_pullpin"
         ],
         "sounds": []
       },
@@ -19440,7 +19478,8 @@
         "scene": "actors/t6_wpn_grenade_semtex_view_lod0.gltf#Scene0",
         "animations": [
           "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_idle",
-          "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_throw"
+          "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_throw",
+          "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_pullpin"
         ],
         "sounds": []
       },
@@ -20037,7 +20076,8 @@
         "scene": "actors/t6_wpn_zmb_monkey_bomb_view_lod0.gltf#Scene0",
         "animations": [
           "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_idle",
-          "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_throw"
+          "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_throw",
+          "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_pullpin"
         ],
         "sounds": []
       },
@@ -71829,6 +71869,370 @@
           {
             "seconds": 2.9,
             "event": "start_ragdoll"
+          },
+          {
+            "seconds": 3.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.t6_wpn_claymore_view.viewmodel_claymore_hold_fire",
+        "path": "actors/t6_wpn_claymore_view_lod0.gltf#Animation10",
+        "skeleton": "actor.t6_wpn_claymore_view",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.t6_wpn_zmb_monkey_bomb_view.viewmodel_zombie_monkeybomb_pullpin",
+        "path": "actors/t6_wpn_zmb_monkey_bomb_view_lod0.gltf#Animation2",
+        "skeleton": "actor.t6_wpn_zmb_monkey_bomb_view",
+        "notifications": [
+          {
+            "seconds": 0.23333333333333334,
+            "event": "sndnt#zmb_vox_monkey_raise"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "sndnt#zmb_monkey_anim_key"
+          },
+          {
+            "seconds": 1.8333333333333333,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.1,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.3666666666666667,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.6333333333333333,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.9,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 3.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.t6_wpn_grenade_frag_view.viewmodel_m67_pullpin",
+        "path": "actors/t6_wpn_grenade_frag_view_lod0.gltf#Animation6",
+        "skeleton": "actor.t6_wpn_grenade_frag_view",
+        "notifications": [
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#wpn_grenade_pull_pin"
+          },
+          {
+            "seconds": 0.5,
+            "event": "rmbnt#reload_small"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.t6_wpn_grenade_semtex_view.viewmodel_m67_pullpin",
+        "path": "actors/t6_wpn_grenade_semtex_view_lod0.gltf#Animation2",
+        "skeleton": "actor.t6_wpn_grenade_semtex_view",
+        "notifications": [
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#wpn_grenade_pull_pin"
+          },
+          {
+            "seconds": 0.5,
+            "event": "rmbnt#reload_small"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_dempsey_viewhands.viewmodel_claymore_hold_fire",
+        "path": "actors/c_zom_dempsey_viewhands_lod0.gltf#Animation622",
+        "skeleton": "actor.c_zom_dempsey_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_dempsey_viewhands.viewmodel_m67_pullpin",
+        "path": "actors/c_zom_dempsey_viewhands_lod0.gltf#Animation623",
+        "skeleton": "actor.c_zom_dempsey_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#wpn_grenade_pull_pin"
+          },
+          {
+            "seconds": 0.5,
+            "event": "rmbnt#reload_small"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_dempsey_viewhands.viewmodel_zombie_monkeybomb_pullpin",
+        "path": "actors/c_zom_dempsey_viewhands_lod0.gltf#Animation624",
+        "skeleton": "actor.c_zom_dempsey_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.23333333333333334,
+            "event": "sndnt#zmb_vox_monkey_raise"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "sndnt#zmb_monkey_anim_key"
+          },
+          {
+            "seconds": 1.8333333333333333,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.1,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.3666666666666667,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.6333333333333333,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.9,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 3.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_nikolai_viewhands.viewmodel_claymore_hold_fire",
+        "path": "actors/c_zom_nikolai_viewhands_lod0.gltf#Animation622",
+        "skeleton": "actor.c_zom_nikolai_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_nikolai_viewhands.viewmodel_m67_pullpin",
+        "path": "actors/c_zom_nikolai_viewhands_lod0.gltf#Animation623",
+        "skeleton": "actor.c_zom_nikolai_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#wpn_grenade_pull_pin"
+          },
+          {
+            "seconds": 0.5,
+            "event": "rmbnt#reload_small"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_nikolai_viewhands.viewmodel_zombie_monkeybomb_pullpin",
+        "path": "actors/c_zom_nikolai_viewhands_lod0.gltf#Animation624",
+        "skeleton": "actor.c_zom_nikolai_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.23333333333333334,
+            "event": "sndnt#zmb_vox_monkey_raise"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "sndnt#zmb_monkey_anim_key"
+          },
+          {
+            "seconds": 1.8333333333333333,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.1,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.3666666666666667,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.6333333333333333,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.9,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 3.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_richtofen_viewhands.viewmodel_claymore_hold_fire",
+        "path": "actors/c_zom_richtofen_viewhands_lod0.gltf#Animation622",
+        "skeleton": "actor.c_zom_richtofen_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_richtofen_viewhands.viewmodel_m67_pullpin",
+        "path": "actors/c_zom_richtofen_viewhands_lod0.gltf#Animation623",
+        "skeleton": "actor.c_zom_richtofen_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#wpn_grenade_pull_pin"
+          },
+          {
+            "seconds": 0.5,
+            "event": "rmbnt#reload_small"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_richtofen_viewhands.viewmodel_zombie_monkeybomb_pullpin",
+        "path": "actors/c_zom_richtofen_viewhands_lod0.gltf#Animation624",
+        "skeleton": "actor.c_zom_richtofen_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.23333333333333334,
+            "event": "sndnt#zmb_vox_monkey_raise"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "sndnt#zmb_monkey_anim_key"
+          },
+          {
+            "seconds": 1.8333333333333333,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.1,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.3666666666666667,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.6333333333333333,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.9,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 3.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_takeo_viewhands.viewmodel_claymore_hold_fire",
+        "path": "actors/c_zom_takeo_viewhands_lod0.gltf#Animation622",
+        "skeleton": "actor.c_zom_takeo_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_takeo_viewhands.viewmodel_m67_pullpin",
+        "path": "actors/c_zom_takeo_viewhands_lod0.gltf#Animation623",
+        "skeleton": "actor.c_zom_takeo_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#wpn_grenade_pull_pin"
+          },
+          {
+            "seconds": 0.5,
+            "event": "rmbnt#reload_small"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_takeo_viewhands.viewmodel_zombie_monkeybomb_pullpin",
+        "path": "actors/c_zom_takeo_viewhands_lod0.gltf#Animation624",
+        "skeleton": "actor.c_zom_takeo_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.23333333333333334,
+            "event": "sndnt#zmb_vox_monkey_raise"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "sndnt#zmb_monkey_anim_key"
+          },
+          {
+            "seconds": 1.8333333333333333,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.1,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.3666666666666667,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.6333333333333333,
+            "event": "sndnt#zmb_monkey_anim_cymb"
+          },
+          {
+            "seconds": 2.9,
+            "event": "sndnt#zmb_monkey_anim_cymb"
           },
           {
             "seconds": 3.0,

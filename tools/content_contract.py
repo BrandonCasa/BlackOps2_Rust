@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -123,6 +123,9 @@ def validate_content(content, require):
                 resolve(owner, row["presentation"], "presentation", True)
             if "position" in row:
                 vector(row["position"])
+            if "view_offset" in row:
+                vector(row["view_offset"])
+                require(all(abs(v)<2 for v in row["view_offset"]),"invalid weapon view offset")
             if "zone" in row:
                 resolve(owner, row["zone"], "zone")
             if table == "enemies":
@@ -143,6 +146,8 @@ def validate_content(content, require):
                     require(isinstance(part["socket"],str) and part["socket"], "invalid actor socket")
                     require(part["root_joint"] is None or isinstance(part["root_joint"],str), "invalid partial rig root")
                 actions = row.get("animation_actions", {})
+                if row.get("throwable") is not None or row.get("mine") is not None:
+                    require({"prime", "idle", "fire"} <= set(actions), "missing equipment deployment animation")
                 region_ids = set()
                 regions = row.get("hit_regions", [])
                 require(isinstance(regions,list), "invalid hit regions")
@@ -192,7 +197,7 @@ def validate_content(content, require):
                 resolve(owner, row.get("pickup"), "presentation", True)
                 resolve(owner, row.get("ammo_group"), "definition", True)
                 actions = row.get("animation_actions", {})
-                require(isinstance(actions, dict) and set(actions) <= {"idle", "fire", "reload", "reload_empty", "reload_start", "reload_end", "equip", "unequip", "melee", "ads_enter", "ads_leave", "sprint_enter", "sprint_loop", "sprint_leave", "prone_enter", "prone_loop", "prone_leave", "dive_enter", "dive_loop", "dive_leave"}, "invalid weapon animation actions")
+                require(isinstance(actions, dict) and set(actions) <= {"idle", "prime", "fire", "reload", "reload_empty", "reload_start", "reload_end", "equip", "unequip", "melee", "ads_enter", "ads_leave", "sprint_enter", "sprint_loop", "sprint_leave", "prone_enter", "prone_loop", "prone_leave", "dive_enter", "dive_loop", "dive_leave"}, "invalid weapon animation actions")
                 for identity in actions.values():
                     resolve(owner, identity, "animation")
                 if "localization_key" in row:

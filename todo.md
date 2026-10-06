@@ -456,7 +456,7 @@
 - [ ] Add tactical equipment replacement.
 - [x] Add source-defined equipment round replenishment.
 - [x] Add grenade explosion effects.
-- [ ] Add equipment deployment animations.
+- [x] Add equipment deployment animations.
 - [x] Add typed damage impact events.
 - [x] Add head hit regions.
 - [x] Add torso hit regions.
