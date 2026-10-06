@@ -180,7 +180,7 @@ that avoids duplication of Bevy functionality.
 | `docs/reverse_engineering` | Observations, abstract schemas, methods, and open questions. |
 | `docs/fidelity` | Measurements, comparisons, discrepancies, and system status. |
 | `docs/adr` | Important reviewed architecture decisions. |
-| `docs/handoffs` | Sequential delegated-task records. |
+| `docs/handoffs` | Bounded delegated-task records; current movement phase uses exclusive parallel ownership. |
 | `.agents/skills` | Bounded investigation/implementation/validation skills. |
 
 ## Dependency direction

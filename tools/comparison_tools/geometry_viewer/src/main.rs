@@ -8,7 +8,7 @@ use bevy::{
     camera::RenderTarget,
     core_pipeline::tonemapping::{DebandDither, Tonemapping},
     mesh::{Indices, VertexAttributeValues},
-    pbr::wireframe::{Wireframe, WireframeColor, WireframePlugin},
+    pbr::wireframe::WireframePlugin,
     prelude::*,
     render::{
         RenderApp, RenderPlugin,
@@ -500,8 +500,8 @@ fn render_app(overlay: bool, started: Instant) -> Result<App, DiagnosticError> {
 }
 
 fn spawn_mesh(world: &mut World, mesh: Mesh) -> Handle<Mesh> {
-    let handle = world.resource_mut::<Assets<Mesh>>().add(mesh);
     if let Some(preview) = world.remove_resource::<ColorPreview>() {
+        let handle = world.resource_mut::<Assets<Mesh>>().add(mesh);
         let mips = preview.0.texture_descriptor.mip_level_count;
         let size = preview.0.texture_descriptor.size;
         let format = preview.0.texture_descriptor.format;
@@ -529,24 +529,7 @@ fn spawn_mesh(world: &mut World, mesh: Mesh) -> Handle<Mesh> {
         ));
         return handle;
     }
-    let material = world
-        .resource_mut::<Assets<StandardMaterial>>()
-        .add(StandardMaterial {
-            base_color: Color::srgb(0.72, 0.72, 0.72),
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        });
-    world.spawn((
-        Mesh3d(handle.clone()),
-        MeshMaterial3d(material),
-        Transform::IDENTITY,
-        Wireframe,
-        WireframeColor {
-            color: Color::srgb(0.12, 0.12, 0.12),
-        },
-    ));
-    handle
+    bo2_rendering::gray_map::spawn_gray_map(world, mesh, true).mesh
 }
 
 fn check_gpu() -> Result<(), DiagnosticError> {
