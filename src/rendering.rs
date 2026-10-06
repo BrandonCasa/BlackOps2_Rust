@@ -1,4 +1,8 @@
-use crate::{GameState, assets::GameDefinition, player::Player};
+use crate::{
+    GameState,
+    assets::{GameDefinition, WorldCollider},
+    player::Player,
+};
 use bevy::{
     asset::RenderAssetUsages,
     camera::{Exposure, Hdr, primitives::Aabb},
@@ -11,6 +15,8 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use std::collections::HashMap;
+mod opaque;
+pub(crate) use opaque::OpaqueSurfaceStatus;
 
 #[derive(Component)]
 pub struct GameCamera;
@@ -25,17 +31,19 @@ struct LanternLight;
 pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup).add_systems(
-            Update,
-            (
-                camera_follow,
-                lightmaps,
-                decode_lightmaps,
-                surfaces,
-                lantern_shadows,
-                exposure.after(camera_follow),
-            ),
-        );
+        app.add_plugins(MaterialPlugin::<opaque::OpaqueMaterial>::default())
+            .init_resource::<OpaqueSurfaceStatus>()
+            .add_systems(Startup, (setup, opaque::initialize))
+            .add_systems(
+                Update,
+                (
+                    camera_follow,
+                    opaque::probes,
+                    (lightmaps, surfaces, opaque::convert, decode_lightmaps).chain(),
+                    lantern_shadows,
+                    exposure.after(camera_follow),
+                ),
+            );
     }
 }
 
@@ -44,7 +52,7 @@ pub(crate) fn setup(mut commands: Commands) {
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.48, 0.61, 0.68),
         brightness: 180.,
-        affects_lightmapped_meshes: true,
+        affects_lightmapped_meshes: false,
         ..default()
     });
     commands.spawn((
@@ -108,7 +116,7 @@ fn lightmaps(
     mut commands: Commands,
     extras: Query<(Entity, &GltfExtras), Added<GltfExtras>>,
     children: Query<&Children>,
-    meshes: Query<(), With<Mesh3d>>,
+    meshes: Query<(), (With<Mesh3d>, Without<WorldCollider>)>,
     server: Res<AssetServer>,
 ) {
     for (entity, extras) in &extras {
@@ -201,47 +209,14 @@ fn surfaces(
             &GltfMaterialName,
             &Aabb,
         ),
-        Without<SurfaceReady>,
+        (Without<SurfaceReady>, Without<WorldCollider>),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
-    mut normals: Local<HashMap<AssetId<Image>, Handle<Image>>>,
 ) {
     for (entity, handle, name, bounds) in &surfaces {
         let Some(mut material) = materials.get_mut(&handle.0) else {
             continue;
         };
-        if let Some(normal) = material.normal_map_texture.as_ref() {
-            if let Some(softened) = normals.get(&normal.id()) {
-                material.normal_map_texture = Some(softened.clone());
-            } else {
-                let Some(source) = images.get(normal) else {
-                    continue;
-                };
-                let mut image = source.clone();
-                if let Some(raw) = image.data.as_mut() {
-                    for pixel in raw.chunks_exact_mut(4) {
-                        let x = (pixel[0] as f32 / 127.5 - 1.) * 0.35;
-                        let y = (pixel[1] as f32 / 127.5 - 1.) * 0.35;
-                        pixel[0] = (x * 127.5 + 127.5) as u8;
-                        pixel[1] = (y * 127.5 + 127.5) as u8;
-                        pixel[2] = ((1. - x * x - y * y).max(0.).sqrt() * 127.5 + 127.5) as u8;
-                    }
-                }
-                let id = normal.id();
-                let softened = images.add(image);
-                normals.insert(id, softened.clone());
-                // Shared materials must not soften an already converted image again.
-                normals.insert(softened.id(), softened.clone());
-                material.normal_map_texture = Some(softened);
-            }
-        }
-        material.lightmap_exposure = 4.;
-        material.reflectance = 0.18;
-        if name.0.contains("concrete") {
-            material.perceptual_roughness = 0.9;
-            material.metallic_roughness_texture = None;
-        }
         if name.0.contains("glass_on") {
             material.emissive = LinearRgba::rgb(4., 1.9, 0.6);
             commands.entity(entity).insert(NotShadowCaster);

@@ -129,6 +129,7 @@ fn check(
     mut next: ResMut<NextState<GameState>>,
     enemies: Query<&Transform, (With<Zombie>, Without<Player>)>,
     query: avian3d::prelude::SpatialQuery,
+    surfaces: Res<crate::rendering::OpaqueSurfaceStatus>,
 ) {
     let Some(mut verification) = verification else {
         return;
@@ -208,10 +209,12 @@ fn check(
     }
     if verification.stage == 1 && verification.playing > 1. {
         if verification.survey < definition.survey_views.len() {
-            transform.translation =
-                Vec3::from_array(definition.survey_views[verification.survey]) + Vec3::Y * 1.8;
+            let sweep = (verification.playing - 1.).clamp(0., 1.);
+            transform.translation = Vec3::from_array(definition.survey_views[verification.survey])
+                + Vec3::Y * 1.8
+                + Vec3::new(sweep * 0.3, 0., 0.);
             player.velocity = Vec3::ZERO;
-            player.yaw = verification.survey as f32;
+            player.yaw = verification.survey as f32 + sweep * 0.2;
             if verification.playing > 2. {
                 commands
                     .spawn(Screenshot::primary_window())
@@ -230,8 +233,11 @@ fn check(
         }
     }
     if verification.stage == 3 && verification.playing > 0.2 {
-        let passed = verification.round_two && verification.moved && session.round == 1;
-        let receipt = serde_json::json!({"passed":passed, "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round, "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances, "survey_views":verification.survey});
+        let passed = verification.round_two
+            && verification.moved
+            && session.round == 1
+            && surfaces.pending == 0;
+        let receipt = serde_json::json!({"passed":passed, "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round, "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances, "survey_views":verification.survey, "opaque_materials": &*surfaces});
         let _ = std::fs::write(
             verification.output.join("verification.json"),
             receipt.to_string(),

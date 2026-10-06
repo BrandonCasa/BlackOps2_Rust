@@ -143,11 +143,10 @@ fn begin_load(
                 commands.spawn((
                     WorldAssetRoot(handle.clone()),
                     MapRoot { collision },
-                    if collision {
-                        Visibility::Hidden
-                    } else {
-                        Visibility::Inherited
-                    },
+                    // Reveal render geometry only after material/lightmap assembly.
+                    // Switching lightmap layouts on already queued scene instances can
+                    // otherwise leave a transient stale Bevy pipeline specialization.
+                    Visibility::Hidden,
                 ));
                 handles.push(handle);
             }
@@ -208,6 +207,9 @@ fn scene_ready(
 }
 
 fn finish_load(
+    mut commands: Commands,
+    roots: Query<(Entity, &MapRoot)>,
+    surfaces: Res<crate::rendering::OpaqueSurfaceStatus>,
     loading: Option<ResMut<Loading>>,
     definition: Option<Res<GameDefinition>>,
     config: Res<LoadConfiguration>,
@@ -242,6 +244,14 @@ fn finish_load(
         }
     }
     if loading.ready == 2 && loading.colliders == definition.collision_meshes {
+        if loading.started.elapsed().as_secs() > 120 {
+            failure.0 = "Opaque material assembly timed out.".into();
+            next.set(GameState::LoadError);
+            return;
+        }
+        if !surfaces.ready() {
+            return;
+        }
         if loading
             .ready_at
             .get_or_insert_with(Instant::now)
@@ -255,6 +265,11 @@ fn finish_load(
             "Origins scene ready: {} source surfaces, {} colliders, {} static instances",
             definition.source_surfaces, loading.colliders, definition.static_model_instances
         );
+        for (entity, root) in &roots {
+            if !root.collision {
+                commands.entity(entity).insert(Visibility::Inherited);
+            }
+        }
         next.set(GameState::Playing);
     } else if loading.started.elapsed().as_secs() > 120 {
         failure.0 = "Scene loading timed out or collision coverage is incomplete.".into();

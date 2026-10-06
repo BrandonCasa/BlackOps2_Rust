@@ -1,36 +1,35 @@
 TASK:
-Correct reference-room appearance and the shared material conversion responsible for stretched, fuzzy pillar textures.
+Implement a source-informed Origins-inspired opaque Bevy material for ordinary world and static-model surfaces.
 
 STATUS:
-PARTIAL - shared tile/macro preparation and Bevy lighting implemented; original appearance and other world layer families remain approximate.
+COMPLETE - opaque material milestone implemented; original arithmetic and complete scene appearance remain approximate.
 
 FINDINGS:
-- Pillar source materials use two repeating diffuse surfaces plus a macro control map. Selecting only the first diffuse bound the coarse 256-square core texture across the complete model. This is a shared family conversion defect, also affecting rubble, rocks and statues.
-- Source smooth concrete is 512-square; the macro map is 512-square. A larger output alone cannot create source detail. Proper layer choice, tiled detail and macro weights address the stretched appearance.
-- The source lightmap PNG is a three-band packed radiance/direction atlas, not ordinary displayable color. Runtime now decodes its radiance bands before Bevy samples it.
+- The retained pack already supplies material identity/family/channels/preparation, tangents/signs, colors/UVs, raw specular/gloss, packed directional lightmaps, probe faces/SH and static lighting assignments. No extraction or runtime pack regeneration was required.
+- The selected opaque research establishes normal slopes, RGB/alpha light radiance and normal-dependent directional irradiance. Native intermediate color transfer and reflection modulation do not map directly to Bevy PBR; explicit calibration is appropriate.
+- Startup material/lightmap layout changes on visible glTF instances exposed a Bevy render validation failure. Assembly now occurs while the render root is hidden; Bevy reveals it once opaque assignments are ready. Collision copies remain hidden and excluded.
 
 EVIDENCE:
-- Retained external model-surfaces.json, standard OAT model exports and decoded raw PNGs establish texture bindings/UVs. Original input files are untouched. User screenshots guide appearance, never select geometry/camera.
-- Git history supplied packed-stream/channel research; retired renderers were not restored.
-- External tile-material-import.json and tile-material-window contain final import and actual-window evidence.
+- Current runtime metadata/preparation/import source and retained opaque contract from Git commit dbf869c informed the implementation. Original shader binaries were not loaded or restored.
+- External opaque-material-import.json records unchanged runtime pack reconciliation. External opaque-material-window-reveal holds the final actual-window logs, screenshots and verification.json. Earlier failed/visual calibration runs remain external.
 
 CHANGES:
-- Generic tile_blend family handling bakes both diffuse layers with macro red/green weights in linear space at 2048 square, retaining all raw layers. Thirty-one material records share fourteen new outputs; no pillar-name or placement overrides. Compact metadata records the four-repeat tiling approximation; importer requires a derived diffuse binding distinct from all three raw layers.
-- Regenerated runtime assets stay under assets/origins, preserving standard relative references, shared providers and placements.
-- Shared decoded linear lightmaps, restrained cool fill/sunlight/fog, warm emissive lanterns and point lights at glass bounds, nearby lantern shadows, indoor/outdoor exposure and smaller HUD. Concrete remains matte; runtime normal XY strength is reduced. Added albedo smoothing was removed.
-- Updated existing project, asset and rendering references; no added Markdown files, shaders, dependencies, viewers or tests.
+- Added project-owned embedded opaque.wgsl and an ExtendedMaterial implementation within the existing application. Raw source slopes, spatial gloss/F0, directional/HDR lightmaps and exact assigned Bevy-filtered reflection cubes replace blanket normal softening, fixed reflectance and concrete-name roughness overrides.
+- Tile/macro normal/specular layers use retained control weights and preparation tiling; the existing diffuse bake is sampled once. Missing channels have explicit physical defaults. Raw channels remain intact.
+- Static lighting uses retained instance-color means or assigned source-basis SH. Baked opaque surfaces exclude duplicate ambient/sunlight diffuse, with explicit radiance-unit calibration. Lantern lighting, cover-based exposure, fog, AgX and bloom remain Bevy-owned.
+- Scene reveal waits for material assembly. The existing real-window driver sweeps position/yaw at eight viewpoints and records opaque coverage/pending counts. Updated existing state/asset/rendering references; the tracked Markdown working set remains 20 files.
 
 VALIDATION:
-- Locked metadata, release build and formatting passed. Cargo was absent from shell PATH; gates used the existing user Cargo binary. Earlier compile failures for mutable asset access and NotShadowCaster import were corrected.
-- An import overlapped an attempted regeneration and rejected differing copied hashes. Regeneration was stopped; the pack was regenerated completely before the final import. Final import/source reconciliation passed: 1,252 runtime files, 1,249 PNGs, 690,620,957 bytes. Staged closure passed: 1,251 LFS pointers and ordinary Git game.json. A direct index check initially selected an older Python without tomllib; rerunning with Python >=3.11 passed.
-- Earlier actual-window runs passed movement, Round 2, eight map views and restart. Final release-window driver exited 0: movement=true, round_two=true, restart_round=1, survey_views=8. Spawn screenshot inspected: pillars now show smooth coated surfaces and localized aggregate damage; warm lantern light is visible. Purple surfaces and ceiling/helper geometry remain visibly incorrect.
-- Skipped: unit tests, fixtures, suites and Clippy (banned), sustained/manual play, native shader equivalence and push.
+- Locked metadata, release build and formatting passed using the existing Cargo executable. Asset import --check/source reconciliation passed: 1,252 files, 1,249 PNGs, 690,620,957 bytes; runtime pack bytes are unchanged.
+- Initial Rust compile issues (mutable mesh borrow/private system parameter) and a WGSL import dependency were corrected. The first source-radiance pass was too dark; explicit Bevy-unit calibration restored visibility without duplicate baked light. A later startup bind-group mismatch was corrected by hidden scene assembly.
+- Final actual-window run passed movement, six kills/Round 2, eight position/yaw surveys and restart to Round 1, with no render/shader errors. Coverage: 2,132 rendered world groups and 15,536 static primitives; 15,945 normal bindings, 3,689 specular/gloss bindings, 17,668 assigned reflections, 2,132 directional atlases, 1,464 instance-color means, 14,072 SH fallbacks and 232 tile/macro primitives across 3,808 shared material variants; pending=0. Counts are runtime primitives/groups, not original source surfaces or placements. Inspected final spawn/gameplay and indoor/outdoor survey images show source normal detail, differentiated surface response, readable geometry and warm lanterns; outdoor vegetation/helper defects remain.
+- Skipped: unit tests/suites/fixtures and Clippy (banned), packaging, sustained/manual play, exact native equivalence, original mip recovery and push.
 
 UNRESOLVED:
-Fourfold tile scale and macro channel interpretation are practical reconstructions, not recovered native arithmetic. Normal/specular detail layers are retained but not fully combined. Other world layered materials still select the first layer; secondary UV/control evaluation, remaining purple/helper surfaces, probe/SH shading, exact directional lightmap response and original visual effects remain unfinished. Runtime lightmap radiance clips above four. Original compressed mip chains are not retained. The source textures impose a real resolution limit.
+Gloss exponent, F0/radiance calibration, tile-family normal strength and fourfold tiling are reconstruction parameters. Static color means lose within-model gradients. Probe SH interpretation, source direction/UV decoding, sRGB versus native intermediate transfer, reflection normalization and native lobe arithmetic remain approximate. Source mip chains are absent. Existing vegetation alpha, layered/control-map and helper/debug-color defects remain outside this milestone.
 
 RECOMMENDED NEXT WORK:
-Implement qualified world layer/secondary-UV handling and remaining control-map dispositions, then refine tiled normal/specular response and probe lighting in the same Bevy application.
+Address general layered terrain/control disposition and cutout/transparency conversion independently, then preserve per-vertex static lighting without duplicating providers. Refine calibration against licensed moving-view references within the same Bevy application.
 
 SCOPE NOT IMPLEMENTED:
-Complete pixel equivalence, general native layer shader reconstruction, native registers/buffers/pipelines, original shader import, higher model LODs, gameplay expansion, test suites, delegated work or remote push.
+General terrain layering, cutout/transparency, water or atmosphere redesign; exact native arithmetic/pixel matching; another pipeline/viewer, original shader import, retired renderers, gameplay expansion, tests, delegated work or remote push.
