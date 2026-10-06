@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <unordered_set>
+#include <unordered_map>
 #include <iostream>
 #include <cmath>
 #include <fstream>
@@ -27,6 +28,10 @@ void ContentPrinter::PrintContent() const {
         throw std::runtime_error("missing or invalid world static instances");
     std::ofstream out("static-instances.json");
     out << std::setprecision(9) << "[";
+    std::ofstream surfaces("model-surfaces.json");
+    surfaces << std::setprecision(9) << '{';
+    std::unordered_set<const XModel*> providers;
+    bool first_provider = true;
     for (unsigned i = 0; i < world->dpvs.smodelCount; ++i) {
         const auto& instance = world->dpvs.smodelDrawInsts[i];
         if (!instance.model || !instance.model->name)
@@ -44,11 +49,68 @@ void ContentPrinter::PrintContent() const {
             if (!std::isfinite(value)) throw std::runtime_error("non-finite placement");
             out << value;
         }
-        out << "],\"scale\":" << instance.placement.scale << '}';
+        out << "],\"scale\":" << instance.placement.scale
+            << ",\"probe\":" << unsigned(static_cast<unsigned char>(instance.reflectionProbeIndex))
+            << ",\"lighting_id\":" << instance.lightingHandle << ",\"lightmap_colors\":[";
+        for (unsigned lod = 0; lod < 4; ++lod) {
+            if (lod) out << ',';
+            const auto& colors = instance.lmapVertexInfo[lod];
+            if (colors.numLmapVertexColors && !colors.lmapVertexColors)
+                throw std::runtime_error("missing instance lightmap colors");
+            out << '[';
+            for (unsigned v = 0; v < colors.numLmapVertexColors; ++v) {
+                if (v) out << ',';
+                out << colors.lmapVertexColors[v];
+            }
+            out << ']';
+        }
+        out << "]}";
+        const auto* model = instance.model;
+        if (providers.insert(model).second) {
+            if (!first_provider) surfaces << ',';
+            first_provider = false;
+            surfaces << std::quoted(model->name) << ":[";
+            const auto& lod = model->lodInfo[0];
+            for (unsigned j = 0; j < lod.numsurfs; ++j) {
+                if (j) surfaces << ',';
+                const unsigned index = lod.surfIndex + j;
+                const auto& mesh = model->surfs[index];
+                const auto* material = model->materialHandles[index];
+                if (!mesh.verts0 || !mesh.triIndices || !material)
+                    throw std::runtime_error("missing model surface data");
+                surfaces << "{\"material\":" << std::quoted(material->info.name)
+                         << ",\"family\":" << std::quoted(material->techniqueSet->name)
+                         << ",\"textures\":[";
+                for (unsigned k = 0; k < material->textureCount; ++k) {
+                    if (k) surfaces << ',';
+                    const auto& binding = material->textureTable[k];
+                    if (!binding.image) throw std::runtime_error("missing material image");
+                    surfaces << "{\"semantic\":" << unsigned(binding.semantic)
+                             << ",\"image\":" << std::quoted(binding.image->name) << '}';
+                }
+                surfaces << "],\"vertices\":[";
+                for (unsigned v = 0; v < mesh.vertCount; ++v) {
+                    if (v) surfaces << ',';
+                    const auto& vertex = mesh.verts0[v];
+                    surfaces << '[' << vertex.tangent.packed << ',' << vertex.binormalSign
+                             << ',' << vertex.color.packed << ']';
+                }
+                surfaces << "],\"indices\":[";
+                for (unsigned t = 0; t < mesh.triCount; ++t)
+                    for (unsigned k = 0; k < 3; ++k) {
+                        if (t || k) surfaces << ',';
+                        surfaces << mesh.triIndices[t].i[k];
+                    }
+                surfaces << "]}";
+            }
+            surfaces << ']';
+        }
     }
     out << ']';
     if (!out.good()) throw std::runtime_error("instance metadata write failed");
     out.close();
+    surfaces << '}';
+    if (!surfaces.good()) throw std::runtime_error("model surface metadata write failed");
     const char* data_root = std::getenv("ORIGINS_DATA_ROOT");
     const char* output_root = std::getenv("ORIGINS_IMAGE_OUTPUT");
     if (!data_root || !output_root) return;
@@ -59,7 +121,7 @@ void ContentPrinter::PrintContent() const {
         for (unsigned j = 0; j < model->numsurfs; ++j) {
             const auto* material = model->materialHandles[j];
             for (unsigned k = 0; k < material->textureCount; ++k)
-                if (material->textureTable[k].semantic == 2 || material->textureTable[k].semantic == 5)
+                if (material->textureTable[k].image)
                     required.insert(material->textureTable[k].image);
         }
     }

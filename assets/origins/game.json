@@ -695,7 +695,7 @@
     ]
   ],
   "source_surfaces": 6469,
-  "render_meshes": 17759,
-  "collision_meshes": 15613,
+  "render_meshes": 18189,
+  "collision_meshes": 16041,
   "static_model_instances": 14480
 }

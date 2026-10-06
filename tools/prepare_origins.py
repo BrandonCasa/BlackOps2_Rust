@@ -11,6 +11,7 @@ Run: uv run tools/prepare_origins.py --config config/local_assets.toml
 import argparse
 import base64
 import hashlib
+import io
 import json
 import math
 from pathlib import Path
@@ -24,6 +25,77 @@ from PIL import Image
 
 SCALE = 0.0254
 WORKSPACE = Path(__file__).resolve().parents[1]
+
+
+def material_family(technique, layered=False):
+    technique = technique.lower()
+    for token, family in (("shadowcaster", "shadow_helper"), ("water", "water"), ("unlit", "unlit"),
+                          ("alpha", "masked"), ("blend", "blended"), ("effect", "effect"), ("burn", "effect")):
+        if token in technique:
+            return family
+    return "default" if technique == "wpc_default" else "layered_lit" if layered else "lit"
+
+
+def unit_vectors(words):
+    """T6 signed ten-bit direction, normalized for standard glTF."""
+    values = np.stack([(words >> shift & 1023).astype(np.int32) for shift in (0, 10, 20)], axis=1)
+    values = values - 2 * (values & 512)
+    values = values[:, [0, 2, 1]].astype(np.float32) * [1, 1, -1]
+    lengths = np.linalg.norm(values, axis=1, keepdims=True)
+    if not np.isfinite(values).all() or (lengths < 1e-8).any():
+        raise ValueError("invalid source direction")
+    return values / lengths
+
+
+def tangents(words, signs):
+    if not np.isfinite(signs).all() or (signs == 0).any():
+        raise ValueError("invalid source tangent handedness")
+    # Original B=-sign(h)*cross(N,T); converted normal maps also flip Y.
+    return np.column_stack((unit_vectors(words), np.sign(signs))).astype(np.float32)
+
+
+def converted_pixels(pixels, mode):
+    pixels = pixels.copy()
+    if mode == "normal":
+        xy = pixels[..., :2].astype(np.float32) / 127.5 - 1
+        pixels[..., 1] = 255 - pixels[..., 1]
+        pixels[..., 2] = (np.sqrt(np.maximum(0, 1 - (xy * xy).sum(axis=2))) * 127.5 + 127.5).astype(np.uint8)
+        pixels[..., 3] = 255
+    elif mode == "roughness":
+        pixels[..., 1] = 255 - pixels[..., 3]
+        pixels[..., 2] = 0
+        pixels[..., 3] = 255
+    return pixels
+
+
+def cube_faces(raw):
+    """Decode the six top-level DDS cube faces; keep native mip data external."""
+    if raw[:4] != b"DDS " or not struct.unpack_from("<I", raw, 112)[0] & 0x200:
+        raise ValueError("expected DDS cubemap")
+    height, width = struct.unpack_from("<II", raw, 12)
+    mips = max(1, struct.unpack_from("<I", raw, 28)[0])
+    fourcc = raw[84:88]
+    header_size = 148 if fourcc == b"DX10" else 128
+    if fourcc == b"DX10":
+        format_id = struct.unpack_from("<I", raw, 128)[0]
+        block = 8 if format_id in (71, 72) else 16 if format_id in (74, 75, 77, 78, 83, 84) else None
+        if block is None and format_id not in (28, 29):
+            raise ValueError("unsupported cube format")
+    else:
+        block = 8 if fourcc == b"DXT1" else 16 if fourcc in (b"DXT3", b"DXT5", b"ATI2", b"BC5U") else None
+        if block is None and struct.unpack_from("<I", raw, 88)[0] != 32:
+            raise ValueError("unsupported cube pixel format")
+    size = lambda w, h: max(1, (w + 3)//4) * max(1, (h + 3)//4) * block if block else w*h*4
+    face_size = sum(size(max(1, width >> mip), max(1, height >> mip)) for mip in range(mips))
+    if len(raw) != header_size + face_size * 6:
+        raise ValueError("cube face payload mismatch")
+    header = bytearray(raw[:header_size])
+    struct.pack_into("<I", header, 28, 1)
+    struct.pack_into("<I", header, 112, 0)
+    if fourcc == b"DX10":
+        struct.pack_into("<I", header, 136, 0)
+        struct.pack_into("<I", header, 140, 1)
+    return [np.array(Image.open(io.BytesIO(bytes(header) + raw[header_size+i*face_size:header_size+i*face_size+size(width, height)])).convert("RGBA")) for i in range(6)]
 
 
 def external(path):
@@ -137,7 +209,7 @@ class Gltf:
         self.document["textures"].append({"source": image, "sampler": 0})
         return {"index": len(self.document["textures"]) - 1}
 
-    def mesh(self, arrays, material, name, collider=True, lightmap=None, visible=True):
+    def mesh(self, arrays, material, name, collider=True, lightmap=None, visible=True, lighting=None):
         attributes = {key: self.accessor(data, kind) for key, data, kind in arrays}
         mesh = len(self.document["meshes"])
         points = next(data for key, data, _ in arrays if key == "POSITION").reshape(-1, 3, 3)
@@ -145,8 +217,13 @@ class Gltf:
         indexes = self.accessor(np.arange(len(points) * 3).reshape(-1, 1), "SCALAR", indices=True)
         self.document["meshes"].append({"name": name, "primitives": [
             {"attributes": attributes, "indices": indexes, "mode": 4, "material": material}]})
+        if lighting:
+            self.document["meshes"][-1]["extras"] = {"lighting": lighting}
         if visible:
-            self.node(mesh, name, 0, extras={"lightmap": lightmap} if lightmap else {})
+            extras = {"lighting": lighting} if lighting else {}
+            if lightmap:
+                extras["lightmap"] = lightmap
+            self.node(mesh, name, 0, extras=extras)
         if collider and self.collidable[mesh]:
             self.node(mesh, "collision_" + name, 1)
         return mesh
@@ -172,16 +249,22 @@ def model_accessor(document, index):
     if view["buffer"] not in buffers:
         buffers[view["buffer"]] = base64.b64decode(uri.split(",", 1)[1], validate=True)
     raw = buffers[view["buffer"]]
-    dtype = {5126: "<f4", 5123: "<u2", 5125: "<u4"}[accessor["componentType"]]
+    dtype = {5120: "i1", 5121: "u1", 5122: "<i2", 5123: "<u2", 5125: "<u4", 5126: "<f4"}[accessor["componentType"]]
     width = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}[accessor["type"]]
     offset = view.get("byteOffset", 0) + accessor.get("byteOffset", 0)
     stride = view.get("byteStride", np.dtype(dtype).itemsize * width)
-    return np.ndarray((accessor["count"], width), dtype, raw, offset,
-                      (stride, np.dtype(dtype).itemsize)).copy()
+    values = np.ndarray((accessor["count"], width), dtype, raw, offset,
+                        (stride, np.dtype(dtype).itemsize)).copy()
+    if accessor.get("normalized"):
+        values = np.maximum(values.astype(np.float32) / np.iinfo(dtype).max, -1)
+    if not np.isfinite(values).all():
+        raise ValueError("non-finite model attribute")
+    return values
 
 
-def static_models(gltf, instances_path, model_root, output):
+def static_models(gltf, instances_path, model_root, output, world_root):
     instances = json.loads(external(instances_path).read_text())
+    surface_data = json.loads(external(instances_path.parent / "model-surfaces.json").read_text())
     providers = {}
     textures = {}
     missing = set()
@@ -191,60 +274,112 @@ def static_models(gltf, instances_path, model_root, output):
         if name not in providers:
             path = external(model_root / "model_export" / (name + "_lod0.gltf"))
             source = json.loads(path.read_text())
-            materials = []
-            for mat in source.get("materials", []):
-                material = {"doubleSided": True, "pbrMetallicRoughness": {
+            materials = {}
+            for source_index, mat in enumerate(source.get("materials", [])):
+                original = next((s for s in surface_data[name] if s["material"] == mat["name"]), None)
+                if original is None:
+                    continue  # OAT includes unused material slots from other LODs.
+                material = {"name": mat["name"], "extras": {"surface": {"identity": mat["name"],
+                    "family": material_family(original["family"], sum(t["semantic"] == 2 for t in original["textures"]) > 1), "channels": []}}, "doubleSided": True, "pbrMetallicRoughness": {
                     "metallicFactor": 0, "roughnessFactor": 0.85}}
-                for binding, normal in (("baseColorTexture", False), ("normalTexture", True)):
-                    original = mat.get(binding) if normal else mat.get("pbrMetallicRoughness", {}).get(binding)
-                    if original is None:
-                        continue
-                    image = source["images"][source["textures"][original["index"]]["source"]]["uri"]
-                    # OAT uses URI escapes such as %26 in image names.
-                    from urllib.parse import unquote
-                    image_path = external(model_root / "images" / unquote(image).removeprefix("../images/"))
-                    if image_path.name == "$identitynormalmap.dds":
-                        continue  # StandardMaterial's default is the identity normal.
-                    if not image_path.is_file():
+                layers = {}
+                for binding in original["textures"]:
+                    role = {2: "color", 5: "normal", 8: "specular_gloss"}.get(binding["semantic"], "auxiliary")
+                    layer = layers.get(role, 0)
+                    layers[role] = layer + 1
+                    image_path = external(model_root / "images" / (binding["image"] + ".dds"))
+                    if not (model_root / "images").resolve() in image_path.parents:
+                        raise ValueError("escaped model image")
+                    approximation = None
+                    if image_path.name in ("$identitynormalmap.dds", ",$identitynormalmap.dds") and not image_path.is_file():
+                        pixels = np.array(Image.open(world_root / "builtin-identity-normal.dds").convert("RGBA"))
+                    elif image_path.name == ",sw_radiant_default.dds" and not image_path.is_file():
+                        pixels = np.array([[[128, 128, 128, 255]]], dtype=np.uint8)
+                        approximation = "neutral placeholder for unresolved editor-default image"
+                    elif not image_path.is_file():
                         missing.add(image_path.name)
                         continue
-                    key = (image_path, normal)
-                    if key not in textures:
-                        pixels = np.array(Image.open(image_path).convert("RGBA"))
-                        if normal:
-                            xy = pixels[..., :2].astype(np.float32) / 127.5 - 1
-                            pixels[..., 1] = 255 - pixels[..., 1]
-                            pixels[..., 2] = (np.sqrt(np.maximum(0, 1 - (xy * xy).sum(axis=2))) * 127.5 + 127.5).astype(np.uint8)
-                            pixels[..., 3] = 255
-                        filename = f"model-{len(textures)}.png"
-                        Image.fromarray(pixels).save(output / "textures" / filename)
-                        textures[key] = gltf.texture("textures/" + filename)
-                    if normal:
-                        material[binding] = textures[key]
                     else:
-                        material["pbrMetallicRoughness"][binding] = textures[key]
-                materials.append(len(gltf.document["materials"]))
+                        pixels = np.array(Image.open(image_path).convert("RGBA"))
+                    modes = ["raw"] + (["normal"] if role == "normal" else ["roughness"] if role == "specular_gloss" else [])
+                    for mode in modes:
+                        key = (image_path, mode)
+                        if key not in textures:
+                            converted = converted_pixels(pixels, mode)
+                            filename = f"model-{len(textures)}.png"
+                            Image.fromarray(converted).save(output / "textures" / filename)
+                            textures[key] = gltf.texture("textures/" + filename)
+                    raw_texture = textures[(image_path, "raw")]
+                    material["extras"]["surface"]["channels"].append({"role": role, "layer": layer,
+                        "texture": raw_texture["index"], "channels": "rgb:specular,a:gloss" if role == "specular_gloss" else "rgba"})
+                    if approximation:
+                        material["extras"]["surface"]["channels"][-1]["approximation"] = approximation
+                    if layer == 0:
+                        if role == "normal":
+                            material["normalTexture"] = textures[(image_path, "normal")]
+                        elif role == "color":
+                            material["pbrMetallicRoughness"]["baseColorTexture"] = raw_texture
+                        elif role == "specular_gloss":
+                            material["pbrMetallicRoughness"]["metallicRoughnessTexture"] = textures[(image_path, "roughness")]
+                            material["pbrMetallicRoughness"]["roughnessFactor"] = 1
+                materials[source_index] = len(gltf.document["materials"])
                 gltf.document["materials"].append(material)
             provider = []
+            surface_index = 0
+            vertex_base = 0
             for mesh in source["meshes"]:
                 for primitive in mesh["primitives"]:
                     indexes = model_accessor(source, primitive["indices"]).flatten()
+                    retained = surface_data[name][surface_index]
+                    vertices = np.asarray(retained["vertices"], dtype=np.float64)
+                    if retained["material"] != source["materials"][primitive["material"]]["name"]:
+                        raise ValueError("model surface/material correspondence mismatch")
+                    local = indexes.astype(np.int64) - vertex_base
+                    if sorted(local.tolist()) != sorted(retained["indices"]):
+                        raise ValueError("model surface corner correspondence mismatch")
                     arrays = []
-                    for attribute, kind in (("POSITION", "VEC3"), ("NORMAL", "VEC3"), ("TEXCOORD_0", "VEC2")):
+                    for attribute, accessor in primitive["attributes"].items():
+                        if attribute.startswith(("JOINTS_", "WEIGHTS_")):
+                            continue  # Static providers retain the exported rest pose.
+                        kind = source["accessors"][accessor]["type"]
                         values = model_accessor(source, primitive["attributes"][attribute])[indexes]
                         if attribute == "POSITION":
                             values *= SCALE  # OAT already converted to Y-up, in source units.
                         arrays.append((attribute, values, kind))
+                    if not any(key == "COLOR_0" for key, _, _ in arrays):
+                        words = vertices[:, 2].astype(np.uint32)[local]
+                        colors = np.stack([(words >> shift & 255) / 255 for shift in (0, 8, 16, 24)], axis=1)
+                        arrays.append(("COLOR_0", colors, "VEC4"))
+                    arrays.append(("TANGENT", tangents(vertices[:, 0].astype(np.uint32), vertices[:, 1])[local], "VEC4"))
                     provider.append(gltf.mesh(arrays, materials[primitive["material"]],
                                               "static_provider", collider=False, visible=False))
+                    # Expanded glTF corners still need their original LOD vertex identity
+                    # to address each instance's separately retained baked color stream.
+                    gltf.document["meshes"][provider[-1]]["extras"] = {
+                        "lighting_vertices": gltf.accessor(indexes.reshape(-1, 1), "SCALAR", indices=True)}
+                    surface_index += 1
+                    vertex_base += len(vertices)
+            if surface_index != len(surface_data[name]):
+                raise ValueError("model surface count mismatch")
             providers[name] = provider
         matrix = np.eye(4)
         matrix[:3, :3] = basis @ np.asarray(item["axis"]).reshape(3, 3).T @ basis.T * item["scale"]
         matrix[:3, 3] = coordinates(item["origin"])
         if not np.isfinite(matrix).all() or item["scale"] <= 0:
             raise ValueError("invalid static model placement")
+        lighting = {"probe": None if item["probe"] == 255 else item["probe"], "lighting_id": item["lighting_id"]}
+        color_lods = []
+        for source_colors in item["lightmap_colors"]:
+            if source_colors:
+                words = np.asarray(source_colors, dtype=np.uint32)
+                colors = np.stack([(words >> shift & 255) / 255 for shift in (0, 8, 16, 24)], axis=1)
+                color_lods.append(gltf.accessor(colors, "VEC4"))
+            else:
+                color_lods.append(None)
+        if any(value is not None for value in color_lods):
+            lighting["color_lods"] = color_lods
         for mesh in providers[name]:
-            gltf.node(mesh, "static_instance", 0, matrix=matrix.T.flatten().tolist())
+            gltf.node(mesh, "static_instance", 0, matrix=matrix.T.flatten().tolist(), extras={"lighting": lighting})
             # Foliage and hanging cloth are visible decorations, not solid walls.
             if gltf.collidable[mesh] and not any(token in name.lower() for token in ("grass", "foliage", "vine", "cloth", "flag")):
                 gltf.node(mesh, "collision_static", 1, matrix=matrix.T.flatten().tolist())
@@ -257,6 +392,34 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
     root = external(scene_path).parent
     output = external(output)
     manifest = json.loads(scene_path.read_text())
+    inventory = json.loads((root / "inventory.private.json").read_text())
+    builtins = json.loads((root / "builtin-definitions.private.json").read_text())
+    if len(inventory["materials"]) != len(manifest["materials"]):
+        raise ValueError("material inventory mismatch")
+    for source, retained in zip(manifest["materials"], inventory["materials"], strict=True):
+        if source["source_technique_set"] != retained["techset"]:
+            raise ValueError("material identity correspondence mismatch")
+        bindings = {(b["semantic"], b["name_hash"]): b for b in source["bindings"]}
+        ordered = []
+        for binding in retained["textures"]:
+            if binding["image"] is None:
+                raise ValueError("material texture has no source identity")
+            image = inventory["images"][binding["image"]]
+            candidate = bindings.pop((binding["semantic"], binding["hash"]), None)
+            if candidate is None:
+                raise ValueError("missing retained material texture")
+            record = manifest["images"][candidate["image"]]
+            if "file" in image:
+                matched = record["file"] == image["file"]
+            else:
+                definition = next((v for v in builtins.values() if v["source_sha256"] == hashlib.sha256(image["name"].encode()).hexdigest()), None)
+                matched = definition is not None and definition["image_index"] == candidate["image"] and definition["dds_sha256"] == record["sha256"]
+            if not matched:
+                raise ValueError("material texture correspondence mismatch")
+            ordered.append(candidate)
+        if bindings:
+            raise ValueError("unexpected retained material binding")
+        source["bindings"] = ordered
     positions, surfaces = geometry(dependency(root, {"file": manifest["geometry"],
                                                      "sha256": manifest["geometry_sha256"]}))
     uv_data = dependency(root, {"file": manifest["corner_uv"], "sha256": manifest["corner_uv_sha256"]})
@@ -268,12 +431,9 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
                        "formats": [("<f4", 4), ("u1", 4), ("<f2", 2), "<u4", "<u4", ("<u2", 2)],
                        "offsets": [0, 16, 20, 24, 28, 32], "itemsize": 36})
     corners = np.frombuffer(packed, layout)
-    normals = np.stack([(corners["normal"] >> shift & 1023) / 1023 for shift in (0, 10, 20)], axis=1)
-    normals = np.where(normals < 0.5, normals * 2, normals * 2 - 2)
-    normals = normals[:, [0, 2, 1]] * [1, 1, -1]
-    normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-8)
+    normals = unit_vectors(corners["normal"])
+    tangent = tangents(corners["tangent"], corners["p"][:, 3])
     color = corners["color"].astype(np.float32) / 255
-    color[:, 3] = 1
     lm_uv = corners["lm"].astype(np.float32) / 65535
     definition = gameplay_definition(entities(external(entity_path)))
     output.mkdir(parents=True, exist_ok=True)
@@ -287,18 +447,8 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
         key = (image_index, normal, roughness)
         if key not in cached:
             record = manifest["images"][image_index]
-            import io
             image = Image.open(io.BytesIO(dependency(root, record))).convert("RGBA")
-            pixels = np.asarray(image).copy()
-            if normal:
-                xy = pixels[..., :2].astype(np.float32) / 127.5 - 1
-                pixels[..., 1] = 255 - pixels[..., 1]
-                pixels[..., 2] = (np.sqrt(np.maximum(0, 1 - (xy * xy).sum(axis=2))) * 127.5 + 127.5).astype(np.uint8)
-                pixels[..., 3] = 255
-            if roughness:
-                pixels[..., 1] = np.clip(255 - pixels[..., 3], 65, 230)
-                pixels[..., 2] = 0  # Most map surfaces are dielectric.
-                pixels[..., 3] = 255
+            pixels = converted_pixels(np.asarray(image), "normal" if normal else "roughness" if roughness else "raw")
             filename = f"image-{image_index}{'-normal' if normal else '-roughness' if roughness else ''}.png"
             Image.fromarray(pixels).save(texture_dir / filename)
             cached[key] = gltf.texture("textures/" + filename)
@@ -313,7 +463,17 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
         colors = [b for b in bindings if b["semantic"] == 2]
         normals_bindings = [b for b in bindings if b["semantic"] == 5]
         gloss = [b for b in bindings if b["semantic"] == 8]
-        material = {"name": f"material_{index}", "doubleSided": True, "pbrMetallicRoughness": pbr}
+        identity = inventory["materials"][index]["name"]
+        channels = []
+        layers = {}
+        for binding in bindings:
+            role = {2: "color", 5: "normal", 8: "specular_gloss"}.get(binding["semantic"], "auxiliary")
+            layer = layers.get(role, 0)
+            layers[role] = layer + 1
+            channels.append({"role": role, "layer": layer, "texture": texture(binding)["index"],
+                             "channels": "rgb:specular,a:gloss" if role == "specular_gloss" else "rgba"})
+        material = {"name": identity, "extras": {"surface": {"identity": identity, "family": material_family(family, len(colors) > 1), "channels": channels}},
+                    "doubleSided": True, "pbrMetallicRoughness": pbr}
         if colors:
             pbr["baseColorTexture"] = texture(colors[0])
         if normals_bindings:
@@ -331,8 +491,22 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
         if "water" in family:
             pbr.update(baseColorFactor=[0.12, 0.2, 0.23, 0.65], roughnessFactor=0.15)
         if family == "wpc_default":
-            material = {"doubleSided": True, "pbrMetallicRoughness": {"baseColorFactor": [0.3,0.3,0.3,1], "metallicFactor":0, "roughnessFactor":1}}
+            pbr.update(baseColorFactor=[0.3,0.3,0.3,1], metallicFactor=0, roughnessFactor=1)
         gltf.document["materials"].append(material)
+    lighting = {"lightmaps": [], "probes": []}
+    for slot in manifest["lightmaps"]:
+        lighting["lightmaps"].append({key: gltf.document["images"][gltf.document["textures"][texture({"image": image})["index"]]["source"]]["uri"]
+                                      for key, image in slot.items() if image is not None})
+    for index, probe in enumerate(manifest["probes"]):
+        faces = []
+        for face, pixels in zip(("px", "nx", "py", "ny", "pz", "nz"), cube_faces(dependency(root, manifest["images"][probe["image"]])), strict=True):
+            uri = f"textures/probe-{index}-{face}.png"
+            Image.fromarray(pixels).save(output / uri)
+            gltf.texture(uri)
+            faces.append(uri)
+        lighting["probes"].append({"faces": faces, "position": coordinates(probe["origin"]).tolist(),
+                                   "mip_bias": probe["mip_bias"], "sh": probe["sh"], "sh_basis": "source_z_up"})
+    gltf.document["extras"] = {"lighting": lighting}
     groups = {}
     shadow_only = 0
     for record, source in zip(surfaces, manifest["surfaces"], strict=True):
@@ -343,35 +517,42 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
             shadow_only += 1
         center = positions[first:first+count].mean(axis=0)
         cell = tuple(np.floor(center / 16).astype(int))
-        key = (material, source.get("lightmap"), cell)
+        lightmap = source.get("lightmap")
+        probe = source.get("probe")
+        if lightmap in (31, 255):
+            lightmap = None
+        if probe == 255:
+            probe = None
+        key = (material, lightmap, probe, cell)
         groups.setdefault(key, []).extend(range(first, first+count))
-    for (material, lightmap, cell), indexes in groups.items():
+    for (material, lightmap, probe, cell), indexes in groups.items():
         selection = np.asarray(indexes)
         family = families[material]
-        if family == "wpc_default":
-            color[selection] = 1
         lightmap_uri = None
         if lightmap is not None and lightmap < len(manifest["lightmaps"]):
             slot = manifest["lightmaps"][lightmap]
-            image = slot.get("primary") or slot.get("secondary")
+            image = slot.get("primary") if slot.get("primary") is not None else slot.get("secondary")
             if image is not None:
                 texture({"image": image})
                 lightmap_uri = f"textures/image-{image}.png"
         gltf.mesh([("POSITION", positions[selection], "VEC3"), ("NORMAL", normals[selection], "VEC3"),
+                   ("TANGENT", tangent[selection], "VEC4"),
                    ("TEXCOORD_0", uv[selection], "VEC2"), ("TEXCOORD_1", lm_uv[selection], "VEC2"),
                    ("COLOR_0", color[selection], "VEC4")], material,
                   f"world_{material}_{cell}", collider="water" not in family and "unlit" not in family,
-                  lightmap=lightmap_uri, visible="shadowcaster" not in family)
-    instance_count, model_count, model_textures = static_models(gltf, instances_path, external(model_root), output)
+                  lightmap=lightmap_uri, lighting={"lightmap": lightmap, "probe": probe}, visible="shadowcaster" not in family)
+    instance_count, model_count, model_textures = static_models(gltf, instances_path, external(model_root), output, root)
     gltf.save(output)
     definition.update(source_surfaces=len(surfaces), render_meshes=len(gltf.document["scenes"][0]["nodes"]),
                       collision_meshes=len(gltf.document["scenes"][1]["nodes"]), static_model_instances=instance_count)
     (output / "game.json").write_text(json.dumps(definition, indent=2), encoding="utf-8")
     receipt = {"source_surfaces": len(surfaces), "triangles": len(positions)//3,
-               "render_meshes": definition["render_meshes"], "textures": len(cached),
+               "render_meshes": definition["render_meshes"], "textures": len(cached) + len(lighting["probes"]) * 6,
                "shadow_helper_surfaces": shadow_only,
                "approximations": ["Standard PBR instead of native shaders", "first color/normal layer",
-                                  "direct source lightmap", "nearest path-node zombie admission"],
+                                  "direct packed source lightmap", "source-basis SH/probes retained but not rendered",
+                                  "decoded top mip only", "neutral unresolved editor-default model image",
+                                  "nearest path-node zombie admission"],
                "static_instances": instance_count, "model_providers": model_count, "model_textures": model_textures}
     (output / "preparation.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     print(json.dumps(receipt))
@@ -395,11 +576,11 @@ def main():
                         "--model-format", "GLTF", "-o", str(model_root), str(zone)], check=True,
                        stdout=subprocess.DEVNULL)
         entities_path = model_root / "maps/mp/zm_tomb.d3dbsp.ents"
-    if not instances_path.exists() or not (model_root / ".streamed-images-ready").exists():
+    if not instances_path.exists() or not (instances_path.parent / "model-surfaces.json").exists() or not (model_root / ".surface-data-ready").exists():
         from export_instances import export
         source = external(Path(settings.get("oat_source", root / "tooling/OAT/surface-7d027e8/source")))
         instances_path = export(source, zone, external(instances_path.parent), external(model_root / "images"))
-        (model_root / ".streamed-images-ready").touch()
+        (model_root / ".surface-data-ready").touch()
     prepare(Path(settings.get("scene", root / "full-scene-assets/texture-preview.json")),
             entities_path, Path(config["game"]["asset_pack"]), instances_path, model_root)
 

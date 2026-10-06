@@ -10,4 +10,6 @@ The release game passed automated real-window movement, six Round 1 kills, Round
 
 Current validation and limitations are recorded in the [current handoff](handoffs/current.md). Follow the [architecture](architecture/README.md), [asset reference](reverse_engineering/assets.md), [rendering reference](reverse_engineering/rendering.md), [gameplay reference](reverse_engineering/gameplay.md) and [complete systems roadmap](roadmap.md).
 
+The prepared runtime pack now retains source tangent handedness, RGBA vertex colors, UV seams, material identities, raw texture layers/specular-gloss channels, both lightmap channels, all probe faces/coefficients and world/static lighting assignments. Standard PBR still approximates the original response; retained data enables later material refinements without another source extraction.
+
 Documentation working set: at most 20 Markdown files, including ten skills. Replace stale state instead of appending audits. Historical documentation and superseded code are recovered from Git.

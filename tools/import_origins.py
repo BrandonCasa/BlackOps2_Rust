@@ -97,7 +97,7 @@ def validate_gltf(root, relative, files):
     require(document.get("asset", {}).get("version") == "2.0", "unsupported glTF version")
     require(set(document) <= {"asset", "scene", "scenes", "nodes", "meshes", "materials",
                               "textures", "images", "samplers", "accessors", "bufferViews",
-                              "buffers", "extensionsUsed", "extensionsRequired"},
+                              "buffers", "extensionsUsed", "extensionsRequired", "extras"},
             "unsupported glTF feature")
     require(set(document.get("extensionsUsed", []) + document.get("extensionsRequired", []))
             <= {"KHR_materials_unlit"}, "unsupported glTF extension")
@@ -171,6 +171,25 @@ def validate_gltf(root, relative, files):
         ref(document.get("images", []), texture["source"], "image")
         if "sampler" in texture:
             ref(document.get("samplers", []), texture["sampler"], "sampler")
+    extras = document.get("extras", {})
+    require(set(extras) <= {"lighting"}, "unsupported document extras")
+    lighting = extras.get("lighting", {"lightmaps": [], "probes": []})
+    require(set(lighting) == {"lightmaps", "probes"}, "invalid lighting metadata")
+    for slot in lighting["lightmaps"]:
+        require(set(slot) <= {"primary", "secondary"}, "invalid lightmap metadata")
+        for uri in slot.values():
+            decode_png(dependency(uri, ".png"))
+    for probe in lighting["probes"]:
+        require(set(probe) == {"faces", "position", "mip_bias", "sh", "sh_basis"}, "invalid probe metadata")
+        require(len(probe["faces"]) == 6 and len(set(probe["faces"])) == 6, "missing cube faces")
+        require(len(probe["position"]) == 3 and len(probe["sh"]) == 12 and probe["sh_basis"] == "source_z_up", "invalid probe coefficients")
+        dimensions = set()
+        for uri in probe["faces"]:
+            image_path = dependency(uri, ".png")
+            decode_png(image_path)
+            with Image.open(image_path) as pixels:
+                dimensions.add(pixels.size)
+        require(len(dimensions) == 1 and next(iter(dimensions))[0] == next(iter(dimensions))[1], "invalid cube face dimensions")
 
     def material_refs(value):
         for key, item in value.items():
@@ -182,21 +201,61 @@ def validate_gltf(root, relative, files):
     for material in document.get("materials", []):
         require(set(material) <= {"name", "pbrMetallicRoughness", "normalTexture", "occlusionTexture",
                                   "emissiveTexture", "emissiveFactor", "alphaMode", "alphaCutoff",
-                                  "doubleSided", "extensions"}, "unsupported material feature")
+                                  "doubleSided", "extensions", "extras"}, "unsupported material feature")
         require(set(material.get("extensions", {})) <= {"KHR_materials_unlit"}, "unsupported material extension")
         require(set(material.get("pbrMetallicRoughness", {})) <= {"baseColorFactor", "baseColorTexture",
                                                                  "metallicFactor", "roughnessFactor",
                                                                  "metallicRoughnessTexture"}, "unsupported PBR feature")
         material_refs(material)
+        metadata = material.get("extras", {})
+        require(set(metadata) <= {"surface"}, "unsupported material extras")
+        if "surface" in metadata:
+            surface = metadata["surface"]
+            require(set(surface) == {"identity", "family", "channels"}, "invalid surface metadata")
+            require(surface["identity"] == material.get("name") and isinstance(surface["family"], str), "invalid material identity")
+            layers = {}
+            for channel in surface["channels"]:
+                require({"role", "layer", "texture", "channels"} <= set(channel)
+                        <= {"role", "layer", "texture", "channels", "approximation"}, "invalid raw channel metadata")
+                if "approximation" in channel:
+                    require(channel["approximation"] == "neutral placeholder for unresolved editor-default image", "unknown texture approximation")
+                role = channel["role"]
+                require(role in ("color", "normal", "specular_gloss", "auxiliary"), "invalid channel role")
+                require(channel["layer"] == layers.get(role, 0), "unordered material layers")
+                layers[role] = channel["layer"] + 1
+                ref(document.get("textures", []), channel["texture"], "raw texture")
+                require(channel["channels"] == ("rgb:specular,a:gloss" if role == "specular_gloss" else "rgba"), "invalid channel interpretation")
     for mesh in document.get("meshes", []):
-        require(set(mesh) <= {"name", "primitives"} and mesh["primitives"], "unsupported or empty mesh")
+        require(set(mesh) <= {"name", "primitives", "extras"} and mesh["primitives"], "unsupported or empty mesh")
+        metadata = mesh.get("extras", {})
+        require(set(metadata) <= {"lighting", "lighting_vertices"}, "unsupported mesh extras")
+        if "lighting" in metadata:
+            assignment = metadata["lighting"]
+            require(set(assignment) == {"lightmap", "probe"}, "invalid mesh lighting assignment")
+            for key, table in (("lightmap", "lightmaps"), ("probe", "probes")):
+                if assignment[key] is not None:
+                    ref(lighting[table], assignment[key], key)
         for primitive in mesh["primitives"]:
             require(set(primitive) <= {"attributes", "indices", "mode", "material"}, "unsupported primitive")
             require(primitive.get("mode", 4) == 4, "non-triangle primitive")
             position = ref(arrays, primitive["attributes"]["POSITION"], "position accessor")
             require(position.shape[1] == 3, "invalid position accessor")
+            if "lighting_vertices" in metadata:
+                mapping = ref(arrays, metadata["lighting_vertices"], "instance lighting vertex mapping")
+                require(mapping.shape[1] == 1 and mapping.dtype.kind == "u" and len(mapping) == len(position), "invalid instance lighting vertex mapping")
             for index in primitive["attributes"].values():
                 require(len(ref(arrays, index, "attribute accessor")) == len(position), "attribute count mismatch")
+            for semantic, index in primitive["attributes"].items():
+                values = arrays[index]
+                require(semantic in ("POSITION", "NORMAL", "TANGENT", "COLOR_0", "TEXCOORD_0", "TEXCOORD_1"), "unsupported mesh attribute")
+                require(values.shape[1] == (2 if semantic.startswith("TEXCOORD") else 4 if semantic in ("TANGENT", "COLOR_0") else 3), "attribute width mismatch")
+                if semantic == "TANGENT":
+                    require(np.allclose(np.linalg.norm(values[:, :3], axis=1), 1, atol=1e-5)
+                            and np.isin(values[:, 3], [-1, 1]).all(), "invalid tangent or handedness")
+                if semantic == "COLOR_0":
+                    require(((values >= 0) & (values <= 1)).all(), "invalid vertex color")
+            if extras:
+                require("TANGENT" in primitive["attributes"] and "COLOR_0" in primitive["attributes"], "missing retained surface attributes")
             indices = ref(arrays, primitive["indices"], "index accessor")
             require(indices.dtype.kind == "u" and indices.shape[1] == 1 and len(indices) % 3 == 0,
                     "invalid triangle indices")
@@ -214,9 +273,23 @@ def validate_gltf(root, relative, files):
             if key in node:
                 require(len(node[key]) == width and all(type(x) in (int, float) for x in node[key]), "invalid transform")
         extras = node.get("extras", {})
-        require(set(extras) <= {"lightmap"}, "unsupported node extras")
+        require(set(extras) <= {"lightmap", "lighting"}, "unsupported node extras")
         if extras.get("lightmap"):
             decode_png(dependency(extras["lightmap"], ".png"))
+        if "lighting" in extras:
+            assignment = extras["lighting"]
+            require(set(assignment) <= {"lightmap", "probe", "lighting_id", "color_lods"}, "invalid lighting assignment")
+            for key, table in (("lightmap", "lightmaps"), ("probe", "probes")):
+                if assignment.get(key) is not None:
+                    ref(lighting[table], assignment[key], key)
+            if "lighting_id" in assignment:
+                natural(assignment["lighting_id"], "lighting id")
+            if "color_lods" in assignment:
+                require(len(assignment["color_lods"]) == 4, "invalid instance lighting LODs")
+                for index in assignment["color_lods"]:
+                    if index is not None:
+                        values = ref(arrays, index, "instance lightmap colors")
+                        require(values.shape[1] == 4 and ((values >= 0) & (values <= 1)).all(), "invalid instance lighting colors")
         for child in node.get("children", []):
             ref(nodes, child, "child node")
     scenes = document.get("scenes", [])
@@ -319,6 +392,27 @@ def reconcile_sources(config, receipt, documents):
     require(len({item["model"] for item in instances}) == receipt["model_providers"], "source provider receipt mismatch")
     model_root = external(settings.get("models", root / "game-prepare/models"))
     render_doc = documents[next(iter(documents))][0]
+    if render_doc.get("extras", {}).get("lighting"):
+        inventory = json.loads((scene.parent / "inventory.private.json").read_text(encoding="utf-8-sig"))
+        require([m["name"] for m in render_doc["materials"][:len(manifest["materials"])]]
+                == [m["name"] for m in inventory["materials"]], "world material identity differs from source")
+        expected = {}
+        for surface_index, source in enumerate(manifest["surfaces"]):
+            _, count = struct.unpack_from("<QQ", raw, 64 + vertices * 12 + indices * 4 + surface_index * 48)
+            key = (source["material"], None if source.get("lightmap") in (31, 255) else source.get("lightmap"),
+                   None if source.get("probe") == 255 else source.get("probe"))
+            expected[key] = expected.get(key, 0) + count // 3
+        actual = {}
+        for index, mesh in enumerate(render_doc["meshes"]):
+            if not mesh.get("name", "").startswith("world_"):
+                continue
+            primitive = mesh["primitives"][0]
+            material = primitive["material"]
+            require("lighting" in mesh.get("extras", {}), "world mesh lost its lighting assignment")
+            assignment = mesh["extras"]["lighting"]
+            key = (material, assignment.get("lightmap"), assignment.get("probe"))
+            actual[key] = actual.get(key, 0) + render_doc["accessors"][primitive["indices"]]["count"] // 3
+        require(actual == expected, "world material/lightmap/probe partition differs from source")
     nodes = [n for n in render_doc["nodes"] if n.get("name") == "static_instance"]
     providers = {}
     cursor = 0
@@ -339,6 +433,13 @@ def reconcile_sources(config, receipt, documents):
         matrix[:3, 3] = np.asarray(item["origin"])[[0, 2, 1]] * [0.0254, 0.0254, -0.0254]
         require(all(np.allclose(n["matrix"], matrix.T.flatten(), rtol=1e-7, atol=1e-7) for n in placed),
                 "model placement transform differs from source")
+        if "probe" in item:
+            for node in placed:
+                assignment = node.get("extras", {}).get("lighting", {})
+                require(assignment.get("probe") == (None if item["probe"] == 255 else item["probe"])
+                        and assignment.get("lighting_id") == item["lighting_id"], "model lighting assignment differs from source")
+                require([index is not None for index in assignment.get("color_lods", [None] * 4)]
+                        == [bool(colors) for colors in item["lightmap_colors"]], "model lightmap-color assignment differs from source")
         cursor += len(shared)
     require(cursor == len(nodes), "extra model placements")
     all_meshes = [mesh for group in providers.values() for mesh in group]
