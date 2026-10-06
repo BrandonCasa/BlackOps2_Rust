@@ -137,7 +137,14 @@ fn assemble(
 fn wall_ready(
     event: On<WorldInstanceReady>,
     mut commands: Commands,
-    walls: Query<(), Or<(With<Usable>, With<crate::access::DoorProp>)>>,
+    walls: Query<
+        (),
+        Or<(
+            With<Usable>,
+            With<crate::access::DoorProp>,
+            With<crate::barriers::BoardVisual>,
+        )>,
+    >,
     children: Query<&Children>,
     meshes: Query<&MeshMaterial3d<StandardMaterial>, With<Mesh3d>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -187,6 +194,8 @@ pub(crate) fn interact(
     mut session: ResMut<Session>,
     mut access: ResMut<crate::access::ZoneAccess>,
     blockers: Query<(Entity, &crate::access::DoorBlocker)>,
+    mut barriers: ResMut<crate::barriers::Barriers>,
+    windows: Query<(Entity, &crate::barriers::BarrierBlocker)>,
 ) {
     let Ok((
         player_entity,
@@ -223,12 +232,15 @@ pub(crate) fn interact(
     let candidate = targets
         .iter()
         .filter_map(|(entity, usable, transform)| {
+            if matches!(&usable.source.action, InteractionAction::Barrier { barrier } if !barriers.repairable(barrier)) {return None;}
             if matches!(&usable.source.action, InteractionAction::Door { connection, .. } if access.opened(connection)) { return None; }
             if matches!(&usable.source.action, InteractionAction::Perk { perk } if *perk == definition.solo_revive.perk)
                 && (perks.solo_charges > 0 || perks.solo_purchases >= definition.solo_revive.maximum_purchases) { return None; }
-            let endpoint = if matches!(usable.source.action, InteractionAction::Perk { .. }) { transform.translation + Vec3::Y + transform.rotation * Vec3::new(0., 0., 0.8) } else { transform.translation };
+            let endpoint = if matches!(usable.source.action, InteractionAction::Barrier { .. }) {transform.translation + Vec3::Y * 0.7} else if matches!(usable.source.action, InteractionAction::Perk { .. }) { transform.translation + Vec3::Y + transform.rotation * Vec3::new(0., 0., 0.8) } else { transform.translation };
             let filter = if let InteractionAction::Door { connection, .. } = &usable.source.action {
                 crate::environment::solids(std::iter::once(player_entity).chain(blockers.iter().filter(|(_,b)|b.0==*connection).map(|(e,_)|e)))
+            } else if let InteractionAction::Barrier { barrier }=&usable.source.action {
+                crate::environment::solids(std::iter::once(player_entity).chain(windows.iter().filter(|(_,b)|b.0==*barrier).map(|(e,_)|e)))
             } else {filter.clone()};
             let delta = endpoint - origin;
             let distance = delta.length();
@@ -258,6 +270,32 @@ pub(crate) fn interact(
         focus.rejection = None;
     }
     focus.target = Some(entity);
+    if let InteractionAction::Barrier { barrier } = &usable.source.action {
+        focus.prompt = "Hold F to rebuild barrier".into();
+        if !input.use_held {
+            return;
+        }
+        if inventory.action != WeaponAction::Ready
+            || grenades.busy()
+            || mines.busy()
+            || tactical.busy()
+            || drinking.is_some()
+            || input.fire_held
+        {
+            focus.progress = 0.;
+            focus.rejection = Some(InteractionRejection::Busy);
+            return;
+        }
+        focus.progress += time.delta_secs();
+        if focus.progress >= usable.source.hold_seconds {
+            focus.progress = 0.;
+            if barriers.repair(barrier) {
+                focus.accepted += 1;
+                focus.rejection = None;
+            }
+        }
+        return;
+    }
     if let InteractionAction::Door { connection, price } = &usable.source.action {
         let debris = definition
             .access

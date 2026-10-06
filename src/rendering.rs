@@ -36,6 +36,8 @@ struct PendingLightmap(Handle<Image>);
 #[derive(Component)]
 struct SurfaceReady;
 #[derive(Component)]
+pub(crate) struct DynamicSurface;
+#[derive(Component)]
 struct LanternLight;
 
 pub struct GameRenderingPlugin;
@@ -295,14 +297,33 @@ fn surfaces(
             &GltfMaterialName,
             &Aabb,
         ),
-        (Without<SurfaceReady>, Without<WorldCollider>),
+        (
+            Without<SurfaceReady>,
+            Without<WorldCollider>,
+            Without<DynamicSurface>,
+        ),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
     library: Option<Res<opaque::SurfaceLibrary>>,
     profile: Res<profile::VisualProfile>,
+    parents: Query<&ChildOf>,
+    boards: Query<(), With<crate::barriers::BoardVisual>>,
 ) {
     let Some(library) = library else { return };
     for (entity, handle, name, bounds) in &surfaces {
+        let mut ancestor = Some(entity);
+        let mut dynamic = false;
+        while let Some(e) = ancestor {
+            if boards.contains(e) {
+                dynamic = true;
+                break;
+            }
+            ancestor = parents.get(e).ok().map(ChildOf::parent);
+        }
+        if dynamic {
+            commands.entity(entity).insert(DynamicSurface);
+            continue;
+        }
         let Some(mut material) = materials.get_mut(&handle.0) else {
             continue;
         };

@@ -6,6 +6,7 @@ import math
 import re
 
 TABLES = {
+    "barriers": ("barrier", "id placement entry exit boards repair_sound break_sound"),
     "weapons": ("weapon", "id name damage category magazine reserve fire_interval reload_seconds upgraded presentation"),
     "enemies": ("enemy", "id health speed damage presentation"),
     "perks": ("perk", "id name price icon"),
@@ -307,7 +308,8 @@ def validate_content(content, require):
                 resolve(owner, row["placement"], "placement")
                 action = row["action"]
                 require(isinstance(action, dict), "invalid interaction action")
-                schemas = {"door": ("connection", "connection", {"kind", "connection", "price"}),
+                schemas = {"barrier": ("barrier", "barrier", {"kind", "barrier"}),
+                           "door": ("connection", "connection", {"kind", "connection", "price"}),
                            "weapon": ("weapon", "weapon", {"kind", "weapon", "price"}),
                            "perk": ("perk", "perk", {"kind", "perk"}),
                            "generator": ("generator", "generator", {"kind", "generator"}),
@@ -327,6 +329,18 @@ def validate_content(content, require):
             elif table == "zone_connections":
                 resolve(owner, row["from"], "zone")
                 resolve(owner, row["to"], "zone")
+            elif table == "barriers":
+                resolve(owner,row['placement'],'placement')
+                for key in ('entry','exit'): resolve(owner,row[key],'node')
+                for key in ('repair_sound','break_sound'): resolve(owner,row[key],'sound')
+                require(len(row['boards']) == 6, 'invalid barrier board count')
+                for board in row['boards']:
+                    resolve(owner,board['presentation'],'presentation')
+                    for key in ('repair','pull'): resolve(owner,board[key],'animation')
+                    for key in ('repair_seconds','pull_seconds','grab_seconds','tear_seconds'): number(board[key],positive=True)
+                    number(board['destroy_seconds'])
+                    require(board['destroy_seconds'] < board['tear_seconds'], 'invalid board destruction notetrack')
+                    for key in ('grab_clip','tear_clip'): require(isinstance(board[key],str) and board[key], 'invalid board tear alias')
             elif table == "navigation_links":
                 resolve(owner, row["from"], "node")
                 resolve(owner, row["to"], "node")

@@ -31,7 +31,8 @@ def prepare(config):
         profiles[alias]={"seconds":clip["duration"],"motion":[[float(t),*map(float,p)] for t,p in zip(times,values)]}
     models={e["presentation"].removeprefix("actor.") for e in content["enemies"]}
     models.update(p["presentation"].removeprefix("actor.") for e in content["enemies"] for p in e["parts"])
-    clips=list(dict.fromkeys([*CLIPS.values(),*names.values()]));margins={}
+    from prepare_barriers import TEARS
+    clips=list(dict.fromkeys([*CLIPS.values(),*names.values(),*TEARS]));margins={}
     for model in sorted(models):
         identity="actor."+model
         relative,notes=convert(base/"game-prepare/models/model_export"/(model+"_lod0.gltf"),pack/"actors",base/"solo-content/actor-images",[source/n for n in clips],in_place=True,end_aligned_clips={names["rise"]})

@@ -12,6 +12,7 @@ use bevy::{
 };
 use std::{path::PathBuf, time::Instant};
 mod arsenal;
+mod barriers;
 mod claymores;
 mod defensive_perks;
 mod doors;
@@ -66,6 +67,8 @@ pub(crate) struct Verification {
     doors: bool,
     navigation: bool,
     traversal: bool,
+    barriers: bool,
+    admission_snapshot: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -92,6 +95,9 @@ impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
+            if app.world().resource::<LaunchOptions>().verify_barriers {
+                barriers::install(app);
+            }
             if app
                 .world()
                 .resource::<LaunchOptions>()
@@ -213,6 +219,8 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             doors: options.verify_doors,
             navigation: options.verify_navigation,
             traversal: options.verify_traversal,
+            barriers: options.verify_barriers,
+            admission_snapshot: false,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -266,6 +274,7 @@ pub(crate) fn drive(
         || verification.mobility
         || verification.mud
         || verification.doors
+        || verification.barriers
     {
         return;
     }
@@ -500,6 +509,8 @@ fn check(
         Res<crate::equipment::EquipmentEvidence>,
         Res<crate::presentation::EquipmentPresentationEvidence>,
         Res<crate::navigation::Navigation>,
+        Res<crate::access::ZoneAccess>,
+        Res<crate::barriers::Barriers>,
     ),
     mut players: Query<
         (
@@ -541,6 +552,8 @@ fn check(
         equipment,
         equipment_presentation,
         navigation,
+        access,
+        barriers,
     ) = combat;
     let Some(mut verification) = verification else {
         return;
@@ -555,8 +568,20 @@ fn check(
         || verification.mobility
         || verification.mud
         || verification.doors
+        || verification.barriers
     {
         return;
+    }
+    if !verification.benchmark
+        && !verification.admission_snapshot
+        && verification.started.elapsed().as_secs() > 30
+    {
+        verification.admission_snapshot = true;
+        let _=std::fs::write(verification.output.join("spawn-admission.json"),serde_json::json!({
+            "pending":session.pending,"attempts":round_evidence.attempts,"failed":round_evidence.failed_admissions,"nodes":navigation.node_count(),"links":navigation.link_count(),
+            "reachable":access.reachable,"purchases":access.purchases,"admissions":navigation.admissions.iter().map(|a|serde_json::json!({"position":a.position.to_array(),"source":a.source,"zone":a.zone})).collect::<Vec<_>>(),
+            "barriers":{"windows":barriers.windows.len(),"destroyed":barriers.destroyed,"entries":barriers.entries},"actors":enemies.iter().map(|(t,z)|serde_json::json!({"position":t.translation.to_array(),"action":format!("{:?}",z.action)})).collect::<Vec<_>>()
+        }).to_string());
     }
     for receipt in &history.recent {
         if matches!(
@@ -654,7 +679,7 @@ fn check(
             "shots": session.shots, "ammo": ammo, "load_failure": failure.0,
             "equipment_events":equipment.events,"player_hits":health_evidence.hits,
             "player_position":players.iter().next().map(|p|p.2.translation.to_array()),
-            "elapsed_seconds": verification.started.elapsed().as_secs()});
+            "elapsed_seconds": verification.started.elapsed().as_secs(),"navigation":{"nodes":navigation.node_count(),"links":navigation.link_count(),"admissions":navigation.admissions.len()},"failed_admissions":round_evidence.failed_admissions});
         let _ = std::fs::write(
             verification.output.join("failure.json"),
             evidence.to_string(),
@@ -761,6 +786,7 @@ fn check(
             "melee_hits":history.melee_hits,"melee_kills":history.melee_kills,
             "headshot_kills":history.headshot_kills,"rejected_terminal":history.rejected_terminal,
             "awarded_points":history.awarded_points,"balance":session.points,"kills":session.kills,
+            "barriers":{"destroyed":barriers.destroyed,"entries":barriers.entries,"sounds":barriers.playing_sounds},
             "impacts":history.recent.iter().map(|r| serde_json::json!({
                 "attacker":r.impact.attacker.to_bits(),"target":r.impact.target.to_bits(),
                 "weapon":r.impact.source.id(),"category":format!("{:?}",r.impact.category),

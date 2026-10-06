@@ -210,7 +210,7 @@
 - [ ] Add source-defined explosive point awards.
 - [ ] Apply Double Points to eligible awards.
 - [ ] Prevent points from repeated terminal damage.
-- [ ] Add barrier repair point limits.
+- [x] Add barrier repair point limits.
 - [ ] Add source-defined purchase discounts.
 - [x] Replace the temporary pistol cuboid with an animated viewmodel.
 - [x] Replace temporary zombie capsules with animated character meshes.
@@ -519,9 +519,9 @@
 - [x] Add zombie attack recovery states.
 - [ ] Cancel attacks after target loss.
 - [x] Cancel attacks after attacker death.
-- [ ] Add barrier-seeking zombie behavior.
-- [ ] Add barrier damage animation timing.
-- [ ] Add zombie entry through broken barriers.
+- [x] Add barrier-seeking zombie behavior.
+- [x] Add barrier damage animation timing.
+- [x] Add zombie entry through broken barriers.
 - [ ] Add crawling zombie movement.
 - [ ] Add limb damage thresholds.
 - [ ] Convert eligible damaged zombies into crawlers.
@@ -597,14 +597,14 @@
 - [x] Remove purchased door blocking colliders.
 - [x] Unlock connected zones after door purchases.
 - [x] Add door-specific opening sounds.
-- [ ] Add repairable barrier entities.
-- [ ] Add individual barrier plank states.
-- [ ] Add barrier plank destruction.
-- [ ] Add barrier plank replacement.
-- [ ] Add timed barrier repair interactions.
-- [ ] Cancel barrier repair after player interruption.
-- [ ] Stop barrier repair when all planks exist.
-- [ ] Add barrier-specific repair sounds.
+- [x] Add repairable barrier entities.
+- [x] Add individual barrier plank states.
+- [x] Add barrier plank destruction.
+- [x] Add barrier plank replacement.
+- [x] Add timed barrier repair interactions.
+- [x] Cancel barrier repair after player interruption.
+- [x] Stop barrier repair when all planks exist.
+- [x] Add barrier-specific repair sounds.
 - [ ] Add unopened-zone player access restrictions.
 - [ ] Replace static duplicates of dynamic gameplay objects.
 - [ ] Add generator inactive states.

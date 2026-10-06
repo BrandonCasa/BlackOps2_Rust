@@ -95697,6 +95697,138 @@
         ],
         "yaw": 0.0,
         "zone": "zone.bunker_tank_a"
+      },
+      {
+        "id": "placement.barrier.pf2228_auto1",
+        "definition": "barrier.pf2228_auto1",
+        "position": [
+          -63.1952,
+          3.1242,
+          2.1082
+        ],
+        "yaw": 1.5707963267948966,
+        "zone": "zone.nml_celllar"
+      },
+      {
+        "id": "placement.barrier.pf2230_auto1",
+        "definition": "barrier.pf2230_auto1",
+        "position": [
+          28.553664,
+          2.0574,
+          72.47636
+        ],
+        "yaw": 1.8325957145940461,
+        "zone": "zone.village_1"
+      },
+      {
+        "id": "placement.barrier.pf2231_auto1",
+        "definition": "barrier.pf2231_auto1",
+        "position": [
+          15.548965599999999,
+          2.0574,
+          75.93075999999999
+        ],
+        "yaw": 1.8325957145940461,
+        "zone": "zone.village_1"
+      },
+      {
+        "id": "placement.barrier.pf2232_auto1",
+        "definition": "barrier.pf2232_auto1",
+        "position": [
+          28.68676,
+          8.4582,
+          62.073536000000004
+        ],
+        "yaw": 3.4033920413889427,
+        "zone": "zone.village_2"
+      },
+      {
+        "id": "placement.barrier.pf2237_auto1",
+        "definition": "barrier.pf2237_auto1",
+        "position": [
+          77.1906,
+          -8.763,
+          -130.048
+        ],
+        "yaw": 3.141592653589793,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.barrier.pf2238_auto1",
+        "definition": "barrier.pf2238_auto1",
+        "position": [
+          71.0946,
+          -7.5438,
+          -110.0328
+        ],
+        "yaw": 3.141592653589793,
+        "zone": "zone.start_a"
+      },
+      {
+        "id": "placement.barrier.pf2239_auto1",
+        "definition": "barrier.pf2239_auto1",
+        "position": [
+          69.088,
+          -8.5598,
+          -142.01139999999998
+        ],
+        "yaw": 4.71238898038469,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.barrier.pf2240_auto1",
+        "definition": "barrier.pf2240_auto1",
+        "position": [
+          17.6784,
+          -2.4638,
+          -50.419
+        ],
+        "yaw": 1.5707963267948966,
+        "zone": "zone.bunker_3a"
+      },
+      {
+        "id": "placement.barrier.pf2241_auto1",
+        "definition": "barrier.pf2241_auto1",
+        "position": [
+          -26.3906,
+          -2.0574,
+          -69.088
+        ],
+        "yaw": 5.563620963167364e-08,
+        "zone": "zone.bunker_5b"
+      },
+      {
+        "id": "placement.barrier.pf2242_auto1",
+        "definition": "barrier.pf2242_auto1",
+        "position": [
+          -26.3906,
+          -5.715,
+          -69.088
+        ],
+        "yaw": 5.563620963167364e-08,
+        "zone": "zone.bunker_5a"
+      },
+      {
+        "id": "placement.barrier.pf2243_auto1",
+        "definition": "barrier.pf2243_auto1",
+        "position": [
+          -13.6144,
+          -2.0574,
+          -77.597
+        ],
+        "yaw": 4.71238898038469,
+        "zone": "zone.bunker_5b"
+      },
+      {
+        "id": "placement.barrier.pf2244_auto1",
+        "definition": "barrier.pf2244_auto1",
+        "position": [
+          46.761399999999995,
+          -6.9342,
+          -125.57759999999999
+        ],
+        "yaw": 5.563620963167364e-08,
+        "zone": "zone.start_b"
       }
     ],
     "interactions": [
@@ -96208,6 +96340,138 @@
         },
         "reach": 2.3,
         "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2228_auto1",
+        "placement": "placement.barrier.pf2228_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2228_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2230_auto1",
+        "placement": "placement.barrier.pf2230_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2230_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2231_auto1",
+        "placement": "placement.barrier.pf2231_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2231_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2232_auto1",
+        "placement": "placement.barrier.pf2232_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2232_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2237_auto1",
+        "placement": "placement.barrier.pf2237_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2237_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2238_auto1",
+        "placement": "placement.barrier.pf2238_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2238_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2239_auto1",
+        "placement": "placement.barrier.pf2239_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2239_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2240_auto1",
+        "placement": "placement.barrier.pf2240_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2240_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2241_auto1",
+        "placement": "placement.barrier.pf2241_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2241_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2242_auto1",
+        "placement": "placement.barrier.pf2242_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2242_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2243_auto1",
+        "placement": "placement.barrier.pf2243_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2243_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.barrier.pf2244_auto1",
+        "placement": "placement.barrier.pf2244_auto1",
+        "action": {
+          "kind": "barrier",
+          "barrier": "barrier.pf2244_auto1"
+        },
+        "reach": 2.392934,
+        "hold_seconds": 1.0,
         "hidden_prompt": false
       }
     ],
@@ -108593,7 +108857,7 @@
           2.0574,
           72.47635745999999
         ],
-        "zone": "zone.ice_stairs"
+        "zone": "zone.village_1"
       },
       {
         "id": "node.native.1269",
@@ -108845,7 +109109,7 @@
           8.4582,
           62.073538286
         ],
-        "zone": "zone.unassigned"
+        "zone": "zone.village_2"
       },
       {
         "id": "node.native.1297",
@@ -118358,7 +118622,7 @@
           -2.0574,
           -77.597
         ],
-        "zone": "zone.bunker_5a"
+        "zone": "zone.bunker_5b"
       },
       {
         "id": "node.native.2354",
@@ -335398,7 +335662,19 @@
           "animation.c_zom_tomb_german_body_1a.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_german_body_1a.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_german_body_1a.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_german_body_1a.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335434,7 +335710,19 @@
           "animation.c_zom_tomb_german_body_1b.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_german_body_1b.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_german_body_1b.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_german_body_1b.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335470,7 +335758,19 @@
           "animation.c_zom_tomb_german_head1.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_german_head1.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_german_head1.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_german_head1.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_german_head1.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335506,7 +335806,19 @@
           "animation.c_zom_tomb_german_head2.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_german_head2.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_german_head2.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_german_head2.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_german_head2.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335542,7 +335854,19 @@
           "animation.c_zom_tomb_german_head3.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_german_head3.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_german_head3.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_german_head3.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_german_head3.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335578,7 +335902,19 @@
           "animation.c_zom_tomb_crusader_body_1a.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_crusader_body_1a.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_crusader_body_1a.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335614,7 +335950,19 @@
           "animation.c_zom_tomb_crusader_body_1c.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_crusader_body_1c.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_crusader_body_1c.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335650,7 +335998,19 @@
           "animation.c_zom_tomb_crusader_body_2b.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_crusader_body_2b.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_crusader_body_2b.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335686,7 +336046,19 @@
           "animation.c_zom_tomb_crusader_body_2c.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_crusader_body_2c.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_crusader_body_2c.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335722,7 +336094,19 @@
           "animation.c_zom_tomb_crusader_head1.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_crusader_head1.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_crusader_head1.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_crusader_head1.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335758,7 +336142,19 @@
           "animation.c_zom_tomb_crusader_head2.ai_zombie_traverse_scaffold_84",
           "animation.c_zom_tomb_crusader_head2.ai_zombie_vaultover_barbedwire_24",
           "animation.c_zom_tomb_crusader_head2.ai_zombie_vaultover_barbedwire",
-          "animation.c_zom_tomb_crusader_head2.ai_zombie_traverse_ground_dugup"
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_traverse_ground_dugup",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_1_grab",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_1_pull",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_2_grab",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_2_pull",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_3_grab",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_3_pull",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_4_grab",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_4_pull",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_5_grab",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_5_pull",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_6_grab",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_6_pull"
         ],
         "sounds": []
       },
@@ -335817,6 +336213,60 @@
         "scene": "props/p6_zm_tm_rock_blockade_lod0.gltf#Scene0",
         "animations": [],
         "sounds": []
+      },
+      {
+        "id": "presentation.barrier.p6_anim_zm_barricade_board_01",
+        "scene": "props/p6_anim_zm_barricade_board_01_lod0.gltf#Scene0",
+        "animations": [
+          "animation.barrier.o_zombie_board_1_repair",
+          "animation.barrier.o_zombie_board_1_pull"
+        ],
+        "sounds": []
+      },
+      {
+        "id": "presentation.barrier.p6_anim_zm_barricade_board_02",
+        "scene": "props/p6_anim_zm_barricade_board_02_lod0.gltf#Scene0",
+        "animations": [
+          "animation.barrier.o_zombie_board_2_repair",
+          "animation.barrier.o_zombie_board_2_pull"
+        ],
+        "sounds": []
+      },
+      {
+        "id": "presentation.barrier.p6_anim_zm_barricade_board_03",
+        "scene": "props/p6_anim_zm_barricade_board_03_lod0.gltf#Scene0",
+        "animations": [
+          "animation.barrier.o_zombie_board_3_repair",
+          "animation.barrier.o_zombie_board_3_pull"
+        ],
+        "sounds": []
+      },
+      {
+        "id": "presentation.barrier.p6_anim_zm_barricade_board_04",
+        "scene": "props/p6_anim_zm_barricade_board_04_lod0.gltf#Scene0",
+        "animations": [
+          "animation.barrier.o_zombie_board_4_repair",
+          "animation.barrier.o_zombie_board_4_pull"
+        ],
+        "sounds": []
+      },
+      {
+        "id": "presentation.barrier.p6_anim_zm_barricade_board_05",
+        "scene": "props/p6_anim_zm_barricade_board_05_lod0.gltf#Scene0",
+        "animations": [
+          "animation.barrier.o_zombie_board_5_repair",
+          "animation.barrier.o_zombie_board_5_pull"
+        ],
+        "sounds": []
+      },
+      {
+        "id": "presentation.barrier.p6_anim_zm_barricade_board_06",
+        "scene": "props/p6_anim_zm_barricade_board_06_lod0.gltf#Scene0",
+        "animations": [
+          "animation.barrier.o_zombie_board_6_repair",
+          "animation.barrier.o_zombie_board_6_pull"
+        ],
+        "sounds": []
       }
     ],
     "sounds": [
@@ -335840,6 +336290,28 @@
           1.0
         ],
         "distance": 16.0,
+        "looping": false
+      },
+      {
+        "id": "sound.barrier.repair",
+        "path": "audio/barrier-repair.ogg",
+        "volume": 0.8,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 12.0,
+        "looping": false
+      },
+      {
+        "id": "sound.barrier.break",
+        "path": "audio/barrier-break.ogg",
+        "volume": 0.8,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 12.0,
         "looping": false
       }
     ],
@@ -384604,6 +385076,138 @@
         ]
       },
       {
+        "id": "animation.barrier.o_zombie_board_1_repair",
+        "path": "props/p6_anim_zm_barricade_board_01_lod0.gltf#Animation0",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_01",
+        "notifications": [
+          {
+            "seconds": 1.1,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_1_pull",
+        "path": "props/p6_anim_zm_barricade_board_01_lod0.gltf#Animation1",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_01",
+        "notifications": [
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_2_repair",
+        "path": "props/p6_anim_zm_barricade_board_02_lod0.gltf#Animation0",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_02",
+        "notifications": [
+          {
+            "seconds": 1.1,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_2_pull",
+        "path": "props/p6_anim_zm_barricade_board_02_lod0.gltf#Animation1",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_02",
+        "notifications": [
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_3_repair",
+        "path": "props/p6_anim_zm_barricade_board_03_lod0.gltf#Animation0",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_03",
+        "notifications": [
+          {
+            "seconds": 1.1,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_3_pull",
+        "path": "props/p6_anim_zm_barricade_board_03_lod0.gltf#Animation1",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_03",
+        "notifications": [
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_4_repair",
+        "path": "props/p6_anim_zm_barricade_board_04_lod0.gltf#Animation0",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_04",
+        "notifications": [
+          {
+            "seconds": 1.1,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_4_pull",
+        "path": "props/p6_anim_zm_barricade_board_04_lod0.gltf#Animation1",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_04",
+        "notifications": [
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_5_repair",
+        "path": "props/p6_anim_zm_barricade_board_05_lod0.gltf#Animation0",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_05",
+        "notifications": [
+          {
+            "seconds": 1.1,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_5_pull",
+        "path": "props/p6_anim_zm_barricade_board_05_lod0.gltf#Animation1",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_05",
+        "notifications": [
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_6_repair",
+        "path": "props/p6_anim_zm_barricade_board_06_lod0.gltf#Animation0",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_06",
+        "notifications": [
+          {
+            "seconds": 1.1,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.barrier.o_zombie_board_6_pull",
+        "path": "props/p6_anim_zm_barricade_board_06_lod0.gltf#Animation1",
+        "skeleton": "presentation.barrier.p6_anim_zm_barricade_board_06",
+        "notifications": [
+          {
+            "seconds": 1.4666666666666666,
+            "event": "end"
+          }
+        ]
+      },
+      {
         "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_idle_v1_delta",
         "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation0",
         "skeleton": "actor.c_zom_tomb_crusader_body_1a",
@@ -385238,6 +385842,162 @@
           },
           {
             "seconds": 1.3333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
             "event": "end"
           }
         ]
@@ -385882,6 +386642,162 @@
         ]
       },
       {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "end"
+          }
+        ]
+      },
+      {
         "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_idle_v1_delta",
         "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation0",
         "skeleton": "actor.c_zom_tomb_crusader_body_2b",
@@ -386516,6 +387432,162 @@
           },
           {
             "seconds": 1.3333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
             "event": "end"
           }
         ]
@@ -387160,6 +388232,162 @@
         ]
       },
       {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "end"
+          }
+        ]
+      },
+      {
         "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_idle_v1_delta",
         "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation0",
         "skeleton": "actor.c_zom_tomb_crusader_head1",
@@ -387794,6 +389022,162 @@
           },
           {
             "seconds": 1.3333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
             "event": "end"
           }
         ]
@@ -388438,6 +389822,162 @@
         ]
       },
       {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "end"
+          }
+        ]
+      },
+      {
         "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_idle_v1_delta",
         "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation0",
         "skeleton": "actor.c_zom_tomb_german_body_1a",
@@ -389072,6 +390612,162 @@
           },
           {
             "seconds": 1.3333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
             "event": "end"
           }
         ]
@@ -389716,6 +391412,162 @@
         ]
       },
       {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "end"
+          }
+        ]
+      },
+      {
         "id": "animation.c_zom_tomb_german_head1.ai_zombie_idle_v1_delta",
         "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation0",
         "skeleton": "actor.c_zom_tomb_german_head1",
@@ -390350,6 +392202,162 @@
           },
           {
             "seconds": 1.3333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
             "event": "end"
           }
         ]
@@ -390994,6 +393002,162 @@
         ]
       },
       {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "end"
+          }
+        ]
+      },
+      {
         "id": "animation.c_zom_tomb_german_head3.ai_zombie_idle_v1_delta",
         "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation0",
         "skeleton": "actor.c_zom_tomb_german_head3",
@@ -391628,6 +393792,162 @@
           },
           {
             "seconds": 1.3333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_1_grab",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation29",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_1_pull",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation30",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_2_grab",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation31",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_2_pull",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation32",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_3_grab",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation33",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_3_pull",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation34",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.1,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.7,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_4_grab",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation35",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_4_pull",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation36",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.06666666666666667,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_5_grab",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation37",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 1.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_5_pull",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation38",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.13333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_6_grab",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation39",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_boardtear_aligned_m_6_pull",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation40",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "destroy_piece"
+          },
+          {
+            "seconds": 1.4666666666666666,
             "event": "end"
           }
         ]
@@ -446356,6 +448676,992 @@
         "id": "string.ZOMBIE_ZIPLINE_USE",
         "key": "ZOMBIE_ZIPLINE_USE",
         "text": "Hold ^3[{+activate}]^7 to activate the Zipline [Cost: 1500]"
+      }
+    ],
+    "barriers": [
+      {
+        "id": "barrier.pf2228_auto1",
+        "placement": "placement.barrier.pf2228_auto1",
+        "entry": "node.native.666",
+        "exit": "node.native.665",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2230_auto1",
+        "placement": "placement.barrier.pf2230_auto1",
+        "entry": "node.native.1268",
+        "exit": "node.native.1267",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2231_auto1",
+        "placement": "placement.barrier.pf2231_auto1",
+        "entry": "node.native.1270",
+        "exit": "node.native.1269",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2232_auto1",
+        "placement": "placement.barrier.pf2232_auto1",
+        "entry": "node.native.1296",
+        "exit": "node.native.1295",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2237_auto1",
+        "placement": "placement.barrier.pf2237_auto1",
+        "entry": "node.native.1923",
+        "exit": "node.native.1922",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2238_auto1",
+        "placement": "placement.barrier.pf2238_auto1",
+        "entry": "node.native.1937",
+        "exit": "node.native.1936",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2239_auto1",
+        "placement": "placement.barrier.pf2239_auto1",
+        "entry": "node.native.1941",
+        "exit": "node.native.1940",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2240_auto1",
+        "placement": "placement.barrier.pf2240_auto1",
+        "entry": "node.native.1991",
+        "exit": "node.native.1990",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2241_auto1",
+        "placement": "placement.barrier.pf2241_auto1",
+        "entry": "node.native.2314",
+        "exit": "node.native.2313",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2242_auto1",
+        "placement": "placement.barrier.pf2242_auto1",
+        "entry": "node.native.2341",
+        "exit": "node.native.2340",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2243_auto1",
+        "placement": "placement.barrier.pf2243_auto1",
+        "entry": "node.native.2353",
+        "exit": "node.native.2352",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
+      },
+      {
+        "id": "barrier.pf2244_auto1",
+        "placement": "placement.barrier.pf2244_auto1",
+        "entry": "node.native.2470",
+        "exit": "node.native.2469",
+        "boards": [
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_01",
+            "repair": "animation.barrier.o_zombie_board_1_repair",
+            "pull": "animation.barrier.o_zombie_board_1_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.1666666666666667,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.1666666666666667,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_1_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_1_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_02",
+            "repair": "animation.barrier.o_zombie_board_2_repair",
+            "pull": "animation.barrier.o_zombie_board_2_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_2_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_2_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_03",
+            "repair": "animation.barrier.o_zombie_board_3_repair",
+            "pull": "animation.barrier.o_zombie_board_3_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.7,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.7,
+            "destroy_seconds": 0.1,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_3_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_3_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_04",
+            "repair": "animation.barrier.o_zombie_board_4_repair",
+            "pull": "animation.barrier.o_zombie_board_4_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6333333333333333,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.6333333333333333,
+            "destroy_seconds": 0.06666666666666667,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_4_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_4_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_05",
+            "repair": "animation.barrier.o_zombie_board_5_repair",
+            "pull": "animation.barrier.o_zombie_board_5_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.6666666666666667,
+            "grab_seconds": 1.0,
+            "tear_seconds": 1.6666666666666667,
+            "destroy_seconds": 0.13333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_5_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_5_pull"
+          },
+          {
+            "presentation": "presentation.barrier.p6_anim_zm_barricade_board_06",
+            "repair": "animation.barrier.o_zombie_board_6_repair",
+            "pull": "animation.barrier.o_zombie_board_6_pull",
+            "repair_seconds": 1.1,
+            "pull_seconds": 1.4666666666666666,
+            "grab_seconds": 0.8333333333333334,
+            "tear_seconds": 1.4666666666666666,
+            "destroy_seconds": 0.03333333333333333,
+            "grab_clip": "ai_zombie_boardtear_aligned_m_6_grab",
+            "tear_clip": "ai_zombie_boardtear_aligned_m_6_pull"
+          }
+        ],
+        "repair_sound": "sound.barrier.repair",
+        "break_sound": "sound.barrier.break"
       }
     ]
   },

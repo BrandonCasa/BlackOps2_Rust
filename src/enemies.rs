@@ -41,6 +41,7 @@ pub struct Zombie {
     traversal: Option<TraversalMotion>,
     traversal_clip: Option<String>,
     landing: f32,
+    tear: Option<BoardTear>,
 }
 impl Zombie {
     pub fn new(
@@ -67,6 +68,7 @@ impl Zombie {
             traversal: None,
             traversal_clip: None,
             landing: 0.,
+            tear: None,
         }
     }
     pub fn reserves(&self, position: Vec3) -> bool {
@@ -93,6 +95,12 @@ impl Zombie {
             self.next_hit = 0;
         }
     }
+}
+struct BoardTear {
+    barrier: ContentId,
+    board: usize,
+    pulling: bool,
+    destroyed: bool,
 }
 struct TraversalMotion {
     start: Vec3,
@@ -245,6 +253,8 @@ pub(crate) fn lifecycle(
     query: SpatialQuery,
     mut impacts: ResMut<crate::damage::DamageQueue>,
     mut evidence: ResMut<EnemyEvidence>,
+    mut barriers: ResMut<crate::barriers::Barriers>,
+    server: Res<AssetServer>,
 ) {
     let Ok((player_entity, player_transform, health)) = players.single() else {
         return;
@@ -265,6 +275,7 @@ pub(crate) fn lifecycle(
             continue;
         };
         if vitality.state() == LifeState::ActorDead {
+            barriers.release(entity);
             continue;
         }
         if ready.is_none() {
@@ -272,7 +283,7 @@ pub(crate) fn lifecycle(
         }
         if zombie.stunned > 0. {
             zombie.stunned = (zombie.stunned - dt).max(0.);
-            if zombie.traversal.is_none() {
+            if zombie.traversal.is_none() && zombie.tear.is_none() {
                 zombie.transition(EnemyAnimation::Idle);
             }
             zombie.velocity = Vec3::ZERO;
@@ -282,6 +293,45 @@ pub(crate) fn lifecycle(
             evidence.traversals_started += 1;
         }
         zombie.elapsed += dt;
+        if let Some(tear) = zombie.tear.as_ref() {
+            let Some(window) = definition
+                .content
+                .barriers
+                .iter()
+                .find(|b| b.id == tear.barrier)
+            else {
+                continue;
+            };
+            let board = &window.boards[tear.board];
+            if !tear.pulling && zombie.elapsed >= board.grab_seconds {
+                zombie.tear.as_mut().unwrap().pulling = true;
+                zombie.elapsed = 0.;
+                zombie.traversal_clip = Some(board.tear_clip.clone());
+            } else if tear.pulling {
+                if !tear.destroyed && zombie.elapsed >= board.destroy_seconds {
+                    if barriers.destroy(&tear.barrier, tear.board, entity) {
+                        crate::barriers::sound(
+                            &mut commands,
+                            &server,
+                            &definition,
+                            &window.break_sound,
+                            transform.translation,
+                        );
+                        barriers.sounds += 1;
+                    }
+                    zombie.tear.as_mut().unwrap().destroyed = true;
+                }
+                if zombie.elapsed >= board.tear_seconds {
+                    barriers.release(entity);
+                    zombie.tear = None;
+                    zombie.traversal_clip = None;
+                    zombie.transition(EnemyAnimation::Idle);
+                    zombie.navigation = 0.;
+                }
+            }
+            zombie.velocity = Vec3::ZERO;
+            continue;
+        }
         if let Some(motion) = zombie.traversal.as_ref() {
             let Some(profile) = enemy.traversals.get(&motion.alias) else {
                 continue;
@@ -434,6 +484,37 @@ pub(crate) fn lifecycle(
         if let Some((start, end, alias)) =
             navigation.traversal(feet, zombie.destination - Vec3::Y * 0.85, &access)
         {
+            if let Some(window) = definition.content.barriers.iter().find(|b| {
+                definition
+                    .content
+                    .navigation_nodes
+                    .iter()
+                    .find(|n| n.id == b.entry)
+                    .is_some_and(|n| {
+                        let d = Vec3::from_array(n.position) - start;
+                        d.xz().length_squared() < 0.25 && d.y.abs() < 0.8
+                    })
+            }) {
+                if barriers.obstructed(&window.id) {
+                    zombie.velocity = Vec3::ZERO;
+                    if let Some(board) = barriers.claim(&window.id, entity) {
+                        zombie.tear = Some(BoardTear {
+                            barrier: window.id.clone(),
+                            board,
+                            pulling: false,
+                            destroyed: false,
+                        });
+                        zombie.traversal_clip = Some(window.boards[board].grab_clip.clone());
+                        zombie.transition(EnemyAnimation::Tear);
+                        let delta = end - start;
+                        transform.rotation = Quat::from_rotation_y((-delta.z).atan2(delta.x));
+                    } else {
+                        zombie.transition(EnemyAnimation::Idle);
+                    }
+                    continue;
+                }
+                barriers.entries += 1;
+            }
             if let Some(profile) = enemy.traversals.get(&alias) {
                 let delta = end - start;
                 // Source root forward is +X; authored endpoints set world heading.
@@ -911,7 +992,10 @@ fn animate(
         let Some((graph, nodes)) = cache.0.get(&rig.source.id()) else {
             continue;
         };
-        let name = if zombie.action == EnemyAnimation::Traverse {
+        let name = if matches!(
+            zombie.action,
+            EnemyAnimation::Traverse | EnemyAnimation::Tear
+        ) {
             zombie.traversal_clip.as_deref()
         } else {
             enemy

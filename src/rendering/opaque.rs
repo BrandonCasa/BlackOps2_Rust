@@ -746,6 +746,7 @@ pub(super) fn convert(
             With<SurfaceReady>,
             Without<OpaqueReady>,
             Without<WorldCollider>,
+            Without<super::DynamicSurface>,
         ),
     >,
     extras: Query<&GltfExtras>,

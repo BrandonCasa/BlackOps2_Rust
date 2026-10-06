@@ -43,6 +43,7 @@ pub struct Navigation {
     edges: Vec<Vec<Edge>>,
     incoming: Vec<Vec<(usize, usize)>>,
     spawns: Vec<Admission>,
+    ingress: HashMap<usize, Vec3>,
     pub admissions: Vec<Admission>,
     cache: HashMap<(usize, usize), (Vec3, bool)>,
     order: VecDeque<(usize, usize)>,
@@ -380,7 +381,7 @@ fn refresh(
     access: Res<ZoneAccess>,
     query: SpatialQuery,
     players: Query<(Entity, &Transform), With<Player>>,
-    blockers: Query<Entity, With<DoorBlocker>>,
+    blockers: Query<Entity, Or<(With<DoorBlocker>, With<crate::barriers::BarrierBlocker>)>>,
     actors: Query<Entity, With<crate::enemies::Zombie>>,
     zone: Res<crate::access::CurrentZone>,
     slide: MoveAndSlide,
@@ -467,6 +468,14 @@ fn refresh(
             }
         }
         nav.incoming = incoming;
+        for barrier in &definition.content.barriers {
+            let (Some(&entry), Some(&exit)) = (ids.get(&barrier.entry), ids.get(&barrier.exit))
+            else {
+                continue;
+            };
+            let delta = (nav.nodes[exit].point - nav.nodes[entry].point).with_y(0.);
+            nav.ingress.insert(entry, -delta.normalize_or_zero());
+        }
         for spawn in &definition.access.spawns {
             nav.spawns.push(Admission {
                 position: Vec3::from_array(spawn.position),
@@ -525,6 +534,8 @@ fn refresh(
             }
         }
     }
+    let admission_filter = crate::environment::solids(std::iter::once(owner).chain(actors.iter()));
+    let admission_shape = capsule(0.3, 1.7);
     nav.admissions = nav
         .spawns
         .iter()
@@ -548,7 +559,39 @@ fn refresh(
             let mut admission = s.clone();
             admission.node = node;
             admission.zone = n.zone.clone();
-            admission.position = n.point;
+            admission.position = if let Some(outward) = nav.ingress.get(&node) {
+                // A path node sits in the opening. Native exterior spawning must
+                // clear its intact boards before the enemy approaches that node.
+                [0.6, 0.75, 1.0].into_iter().find_map(|distance| {
+                    let candidate = n.point + *outward * distance;
+                    let floor = query.cast_ray(
+                        candidate + Vec3::Y * 0.5,
+                        Dir3::NEG_Y,
+                        2.,
+                        false,
+                        &admission_filter,
+                    )?;
+                    if floor.normal.y < 0.65 {
+                        return None;
+                    }
+                    let base = candidate + Vec3::Y * (0.5 - floor.distance + 0.03);
+                    (0..=6)
+                        .map(|i| base + Vec3::Y * (i as f32 * 0.05))
+                        .find(|feet| {
+                            feet.distance_squared(s.position) <= 100.
+                                && query
+                                    .shape_intersections(
+                                        &admission_shape,
+                                        *feet + Vec3::Y * 0.85,
+                                        Quat::IDENTITY,
+                                        &admission_filter,
+                                    )
+                                    .is_empty()
+                        })
+                })?
+            } else {
+                n.point
+            };
             Some(admission)
         })
         .collect();

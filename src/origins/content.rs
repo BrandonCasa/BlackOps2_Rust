@@ -329,6 +329,7 @@ pub enum EnemyAnimation {
     Death,
     Traverse,
     Landing,
+    Tear,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -449,6 +450,9 @@ pub struct InteractionPlacement {
 #[derive(Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InteractionAction {
+    Barrier {
+        barrier: ContentId,
+    },
     Door {
         connection: ContentId,
         price: u32,
@@ -635,6 +639,8 @@ pub struct CinematicSequence {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContentCatalog {
+    #[serde(default)]
+    pub barriers: Vec<crate::barriers::BarrierDefinition>,
     pub weapons: Vec<WeaponDefinition>,
     pub enemies: Vec<EnemyDefinition>,
     pub perks: Vec<PerkDefinition>,
@@ -731,6 +737,7 @@ impl ContentCatalog {
             index.insert(&id.0, "definition")?;
         }
         add!(weapons, "weapon");
+        add!(barriers, "barrier");
         add!(enemies, "enemy");
         add!(perks, "perk");
         add!(powerups, "powerup");
@@ -1009,6 +1016,7 @@ impl ContentCatalog {
                 "Invalid interaction timing/reach",
             )?;
             match &v.action {
+                InteractionAction::Barrier { barrier } => r(&v.id.0, &barrier.0, "barrier")?,
                 InteractionAction::Door { connection, .. } => {
                     r(&v.id.0, &connection.0, "connection")?
                 }
@@ -1024,6 +1032,34 @@ impl ContentCatalog {
         for v in &self.zone_connections {
             r(&v.id.0, &v.from.0, "zone")?;
             r(&v.id.0, &v.to.0, "zone")?;
+        }
+        for v in &self.barriers {
+            r(&v.id.0, &v.placement.0, "placement")?;
+            r(&v.id.0, &v.entry.0, "node")?;
+            r(&v.id.0, &v.exit.0, "node")?;
+            r(&v.id.0, &v.repair_sound.0, "sound")?;
+            r(&v.id.0, &v.break_sound.0, "sound")?;
+            valid(v.boards.len() == 6, "Invalid barrier board count")?;
+            for b in &v.boards {
+                r(&v.id.0, &b.presentation.0, "presentation")?;
+                r(&v.id.0, &b.repair.0, "animation")?;
+                r(&v.id.0, &b.pull.0, "animation")?;
+                valid(
+                    [
+                        b.repair_seconds,
+                        b.pull_seconds,
+                        b.grab_seconds,
+                        b.tear_seconds,
+                    ]
+                    .into_iter()
+                    .all(positive)
+                        && nonnegative(b.destroy_seconds)
+                        && b.destroy_seconds < b.tear_seconds
+                        && !b.grab_clip.is_empty()
+                        && !b.tear_clip.is_empty(),
+                    "Invalid barrier animation timing",
+                )?;
+            }
         }
         for v in &self.navigation_nodes {
             r(&v.id.0, &v.zone.0, "zone")?;
