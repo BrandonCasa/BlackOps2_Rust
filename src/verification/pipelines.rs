@@ -23,10 +23,20 @@ pub(super) fn install(app: &mut App) {
     }
 }
 
-fn fail(mut commands: Commands, failures: Res<PipelineFailures>) {
+fn fail(
+    mut commands: Commands,
+    failures: Res<PipelineFailures>,
+    options: Res<crate::assets::LaunchOptions>,
+) {
     if let Ok(failure) = failures.0.lock()
         && let Some(failure) = failure.as_ref()
     {
+        if let Some(output) = &options.verify {
+            let _ = std::fs::write(
+                output.join("pipeline-failure.json"),
+                serde_json::json!({"passed": false, "error": failure}).to_string(),
+            );
+        }
         error!("Game verification failed: permanent rendering pipeline error: {failure}");
         commands.write_message(AppExit::error());
     }

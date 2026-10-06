@@ -7,8 +7,10 @@ pub mod input;
 pub mod life;
 pub mod origins;
 pub mod player;
+pub mod presentation;
 pub mod rendering;
 pub mod verification;
+pub mod weapons;
 
 use bevy::prelude::*;
 
@@ -75,6 +77,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         rendering::GameRenderingPlugin,
         player::PlayerPlugin,
         gameplay::GameplayPlugin,
+        presentation::PresentationPlugin,
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));

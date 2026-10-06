@@ -3,6 +3,7 @@ use crate::{
     assets::GameDefinition,
     life::{LifeState, ResolvedDamage, Vitality},
     player::{Player, TickActions, capsule},
+    weapons::{WeaponEmission, WeaponIntent, WeaponInventory},
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -40,10 +41,6 @@ pub struct Session {
     pub round: u32,
     pub pending: u32,
     pub points: u32,
-    pub ammo: u32,
-    pub reserve: u32,
-    pub reloading: f32,
-    pub fire_cooldown: f32,
     pub spawn_timer: Timer,
     pub intermission: Option<Timer>,
     pub spawn_cursor: usize,
@@ -57,10 +54,6 @@ impl Default for Session {
             round: 1,
             pending: 6,
             points: 500,
-            ammo: 8,
-            reserve: 32,
-            reloading: 0.,
-            fire_cooldown: 0.,
             spawn_timer: Timer::from_seconds(1., TimerMode::Once),
             intermission: None,
             spawn_cursor: 0,
@@ -72,11 +65,6 @@ impl Default for Session {
 }
 
 impl Session {
-    pub fn reload(&mut self, magazine: u32) {
-        let transfer = (magazine - self.ammo.min(magazine)).min(self.reserve);
-        self.ammo += transfer;
-        self.reserve -= transfer;
-    }
     pub fn admitted_spawn(&mut self) -> bool {
         if self.pending == 0 {
             return false;
@@ -232,11 +220,7 @@ fn begin_session(
     if !players.is_empty() {
         return;
     }
-    *session = Session {
-        ammo: definition.tuning.magazine,
-        reserve: definition.tuning.reserve,
-        ..default()
-    };
+    *session = Session::default();
     if !navigation.points.is_empty() {
         return;
     }
@@ -360,43 +344,26 @@ fn combat(
     actions: Res<TickActions>,
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
-    players: Query<(Entity, &Player, &Transform)>,
-    mut enemies: Query<&mut Vitality, With<Zombie>>,
+    mut players: Query<(Entity, &Player, &Transform, &mut WeaponInventory)>,
+    mut enemies: Query<(&mut Vitality, &Transform), With<Zombie>>,
     query: SpatialQuery,
 ) {
     let dt = time.delta_secs();
-    session.fire_cooldown = (session.fire_cooldown - dt).max(0.);
-    if session.reloading > 0. {
-        session.reloading = (session.reloading - dt).max(0.);
-        if session.reloading == 0. {
-            session.reload(definition.tuning.magazine);
-        }
-    }
-    if actions.reload
-        && session.reloading == 0.
-        && session.ammo < definition.tuning.magazine
-        && session.reserve > 0
-    {
-        session.reloading = definition.tuning.reload_seconds;
-    }
-    let Ok((entity, player, transform)) = players.single() else {
+    let Ok((entity, player, transform, mut inventory)) = players.single_mut() else {
         return;
     };
-    let firing =
-        actions.fire && session.ammo > 0 && session.reloading == 0. && session.fire_cooldown == 0.;
-    let melee = actions.melee && session.fire_cooldown == 0.;
-    if !firing && !melee {
-        return;
-    }
-    if firing {
-        session.ammo -= 1;
-        session.shots += 1;
-    }
-    session.fire_cooldown = if melee {
-        0.5
-    } else {
-        definition.tuning.fire_interval
-    };
+    let emissions = inventory.tick(
+        dt,
+        WeaponIntent {
+            pressed: actions.fire,
+            held: actions.fire_held,
+            reload: actions.reload,
+            melee: actions.melee,
+            cycle: actions.cycle_weapon,
+            slot: actions.weapon_slot,
+        },
+        &definition.content.weapons,
+    );
     let eye = if player.crouched {
         definition.tuning.crouch_height * 0.9
     } else {
@@ -406,25 +373,64 @@ fn combat(
     let rotation = Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch);
     let direction = Dir3::new(rotation * Vec3::NEG_Z).unwrap_or(Dir3::NEG_Z);
     let filter = SpatialQueryFilter::from_excluded_entities([entity]);
-    if let Some(hit) = query.cast_ray(
-        origin,
-        direction,
-        if melee { 2.2 } else { 100. },
-        true,
-        &filter,
-    ) && let Ok(mut vitality) = enemies.get_mut(hit.entity)
-        && vitality.state() == LifeState::ActorAlive
-        && let Ok(damage) = ResolvedDamage::new(if melee {
-            definition.tuning.melee_damage
-        } else {
-            definition.tuning.pistol_damage
-        })
-    {
-        if vitality.apply(damage).is_ok() {
-            session.points = session.points.saturating_add(10);
-        }
-        if vitality.state() == LifeState::ActorDead {
-            session.points = session.points.saturating_add(if melee { 130 } else { 60 });
+    for emission in emissions {
+        let (melee, damage) = match emission {
+            WeaponEmission::Shot(id) => {
+                session.shots += 1;
+                let Some(weapon) = definition.content.weapons.iter().find(|w| w.id == id) else {
+                    continue;
+                };
+                (false, weapon.damage)
+            }
+            WeaponEmission::Melee => (
+                true,
+                definition
+                    .content
+                    .weapons
+                    .iter()
+                    .find(|w| w.id.0 == "weapon.knife_zm")
+                    .map_or(definition.tuning.melee_damage, |w| w.damage),
+            ),
+        };
+        if let Some(hit) = query.cast_ray(
+            origin,
+            direction,
+            if melee { 2.2 } else { 100. },
+            true,
+            &filter,
+        ) && let Ok((mut vitality, target)) = enemies.get_mut(hit.entity)
+            && vitality.state() == LifeState::ActorAlive
+        {
+            // Capsule regions are an explicit approximation until animated hit volumes are bound.
+            let local_height =
+                (origin + direction.as_vec3() * hit.distance).y - target.translation.y;
+            let region = if local_height > 0.55 {
+                crate::weapons::HitRegion::Head
+            } else if local_height > 0.1 {
+                crate::weapons::HitRegion::UpperTorso
+            } else if local_height < -0.35 {
+                crate::weapons::HitRegion::Leg
+            } else {
+                crate::weapons::HitRegion::Torso
+            };
+            let damage = if melee {
+                damage
+            } else {
+                inventory
+                    .definition(&definition.content.weapons)
+                    .map_or(damage, |weapon| {
+                        crate::weapons::damage_at(weapon, hit.distance, region)
+                    })
+            };
+            let Ok(damage) = ResolvedDamage::new(damage) else {
+                continue;
+            };
+            if vitality.apply(damage).is_ok() {
+                session.points = session.points.saturating_add(10);
+            }
+            if vitality.state() == LifeState::ActorDead {
+                session.points = session.points.saturating_add(if melee { 130 } else { 60 });
+            }
         }
     }
 }
@@ -540,7 +546,6 @@ fn rounds(
         if timer.is_finished() {
             session.round = (session.round + 1).min(255);
             session.pending = round_budget(session.round);
-            session.reserve = session.reserve.max(definition.tuning.reserve);
             session.intermission = None;
             session.spawn_timer = Timer::from_seconds(1., TimerMode::Once);
             info!("Round {} begins, budget {}", session.round, session.pending);

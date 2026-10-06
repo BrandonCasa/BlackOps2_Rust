@@ -3,7 +3,7 @@ use bevy::{
     input::{
         InputSystems,
         keyboard::KeyboardInput,
-        mouse::{MouseButtonInput, MouseMotion},
+        mouse::{MouseButtonInput, MouseMotion, MouseWheel},
     },
     prelude::*,
     window::{CursorGrabMode, CursorOptions},
@@ -16,6 +16,10 @@ pub struct GameInput {
     pub crouch: bool,
     pub jump: bool,
     pub fire: bool,
+    pub fire_held: bool,
+    pub ads: bool,
+    pub cycle_weapon: bool,
+    pub weapon_slot: Option<usize>,
     pub melee: bool,
     pub reload: bool,
     pub look: Vec2,
@@ -52,6 +56,8 @@ pub(crate) fn collect(
     mut key_events: MessageReader<KeyboardInput>,
     mut mouse_events: MessageReader<MouseButtonInput>,
     mut motion: MessageReader<MouseMotion>,
+    mut wheel: MessageReader<MouseWheel>,
+    mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<(&Window, &CursorOptions)>,
     state: Res<State<GameState>>,
     options: Res<crate::assets::LaunchOptions>,
@@ -67,6 +73,7 @@ pub(crate) fn collect(
         key_events.clear();
         mouse_events.clear();
         motion.clear();
+        wheel.clear();
         return;
     }
     input.movement = Vec2::new(
@@ -76,6 +83,11 @@ pub(crate) fn collect(
     .clamp_length_max(1.);
     input.sprint = keys.pressed(KeyCode::ShiftLeft);
     input.crouch = keys.pressed(KeyCode::ControlLeft);
+    input.fire_held = mouse.pressed(MouseButton::Left);
+    input.ads = mouse.pressed(MouseButton::Right);
+    for event in wheel.read() {
+        input.cycle_weapon |= event.y != 0.;
+    }
     for event in key_events
         .read()
         .filter(|e| e.state.is_pressed() && !e.repeat)
@@ -84,13 +96,16 @@ pub(crate) fn collect(
             KeyCode::Space => input.jump = true,
             KeyCode::KeyR => input.reload = true,
             KeyCode::KeyV => input.melee = true,
+            KeyCode::KeyQ => input.cycle_weapon = true,
+            KeyCode::Digit1 => input.weapon_slot = Some(0),
+            KeyCode::Digit2 => input.weapon_slot = Some(1),
+            KeyCode::Digit3 => input.weapon_slot = Some(2),
             _ => {}
         }
     }
     for event in mouse_events.read().filter(|e| e.state.is_pressed()) {
         match event.button {
             MouseButton::Left => input.fire = true,
-            MouseButton::Right => input.melee = true,
             _ => {}
         }
     }

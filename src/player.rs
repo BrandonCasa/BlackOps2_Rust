@@ -24,6 +24,10 @@ pub struct TickActions {
     pub fire: bool,
     pub melee: bool,
     pub reload: bool,
+    pub fire_held: bool,
+    pub ads: bool,
+    pub cycle_weapon: bool,
+    pub weapon_slot: Option<usize>,
 }
 
 pub struct PlayerPlugin;
@@ -50,6 +54,15 @@ fn spawn_player(
         return;
     }
     let height = definition.tuning.standing_height;
+    let mut inventory = crate::weapons::WeaponInventory::default();
+    if let Some(weapon) = definition
+        .content
+        .weapons
+        .iter()
+        .find(|w| w.id.0 == "weapon.c96_zm")
+    {
+        let _ = inventory.grant(weapon);
+    }
     let Ok(vitality) = Vitality::human(100, 100, 1, PlayerLethalPolicy::SoloOrLastEligiblePlayer)
     else {
         return;
@@ -65,6 +78,7 @@ fn spawn_player(
         },
         capsule(definition.tuning.radius, height),
         vitality,
+        inventory,
         SessionEntity,
         Transform::from_translation(Vec3::from_array(definition.spawn) + Vec3::Y * (height * 0.5)),
         Name::new("Player"),
@@ -109,6 +123,10 @@ pub fn move_player(
         fire,
         melee,
         reload,
+        fire_held: input.fire_held,
+        ads: input.ads,
+        cycle_weapon: std::mem::take(&mut input.cycle_weapon),
+        weapon_slot: input.weapon_slot.take(),
     };
     let Ok((entity, mut player, mut transform, collider)) = players.single_mut() else {
         return;

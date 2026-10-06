@@ -135,8 +135,8 @@
 - [ ] Keep melee on a dedicated action.
 - [ ] Add prone input.
 - [ ] Add interact input.
-- [ ] Add weapon cycle input.
-- [ ] Add numbered weapon selection input.
+- [x] Add weapon cycle input.
+- [x] Add numbered weapon selection input.
 - [ ] Add lethal equipment input.
 - [ ] Add tactical equipment input.
 - [ ] Add buildable equipment input.
@@ -212,9 +212,9 @@
 - [ ] Prevent points from repeated terminal damage.
 - [ ] Add barrier repair point limits.
 - [ ] Add source-defined purchase discounts.
-- [ ] Replace the temporary pistol cuboid with an animated viewmodel.
+- [x] Replace the temporary pistol cuboid with an animated viewmodel.
 - [ ] Replace temporary zombie capsules with animated character meshes.
-- [ ] Bind Dempsey's first-person arms.
+- [x] Bind Dempsey's first-person arms.
 - [ ] Bind Nikolai's first-person arms.
 - [ ] Bind Richtofen's first-person arms.
 - [ ] Bind Takeo's first-person arms.
@@ -227,24 +227,24 @@
 - [ ] Add zombie climb animation transitions.
 - [ ] Add zombie rising animation transitions.
 - [ ] Add zombie death animation transitions.
-- [ ] Add first-person weapon idle animations.
-- [ ] Add first-person weapon firing animations.
-- [ ] Add first-person weapon reload animations.
+- [x] Add first-person weapon idle animations.
+- [x] Add first-person weapon firing animations.
+- [x] Add first-person weapon reload animations.
 - [ ] Add first-person weapon switching animations.
 - [ ] Add first-person melee animations.
 - [ ] Add first-person grenade animations.
 - [ ] Add first-person equipment animations.
 - [ ] Add first-person perk drinking animations.
 - [ ] Add first-person downed animations.
-- [ ] Attach weapons to authored hand sockets.
+- [x] Attach weapons to authored hand sockets.
 - [ ] Attach combat effects to authored weapon sockets.
 - [ ] Add animated hit-region transforms.
 - [ ] Add animated actor bounds.
 - [ ] Invalidate affected shadows when skeletal poses change.
 - [ ] Remove global shadow invalidation caused by skinned actors.
-- [ ] Exclude first-person rigs from world shadow casting.
-- [ ] Preserve lantern shadow allocation during actor animation.
-- [ ] Retain skeleton data required for animation playback.
+- [x] Exclude first-person rigs from world shadow casting.
+- [x] Preserve lantern shadow allocation during actor animation.
+- [x] Retain skeleton data required for animation playback.
 - [ ] Release unused prepared actor CPU resources.
 - [ ] Share actor meshes across enemy instances.
 - [ ] Share actor materials across enemy instances.
@@ -253,7 +253,7 @@
 - [ ] Bound transient combat effect lifetimes.
 - [x] Add Mauser C96 weapon definitions.
 - [x] Add Mauser C96 Pack-a-Punch variant definitions.
-- [ ] Bind Mauser C96 animated viewmodel assets.
+- [x] Bind Mauser C96 animated viewmodel assets.
 - [ ] Bind Mauser C96 upgraded presentation assets.
 - [x] Add M14 weapon definitions.
 - [x] Add M14 Pack-a-Punch variant definitions.
@@ -374,31 +374,31 @@
 - [ ] Add Bowie Knife weapon definitions.
 - [ ] Bind weapon pickup models to weapon definitions.
 - [ ] Bind weapon upgrade names to localized strings.
-- [ ] Add owned weapon instances.
-- [ ] Add per-weapon magazine ammunition.
-- [ ] Add per-weapon reserve ammunition.
+- [x] Add owned weapon instances.
+- [x] Add per-weapon magazine ammunition.
+- [x] Add per-weapon reserve ammunition.
 - [ ] Add shared ammunition groups.
-- [ ] Add two default primary weapon slots.
+- [x] Add two default primary weapon slots.
 - [ ] Add Mule Kick's third weapon slot.
 - [ ] Track the weapon occupying Mule Kick's slot.
-- [ ] Add active weapon selection.
+- [x] Add active weapon selection.
 - [ ] Add weapon equip timing.
 - [ ] Add weapon unequip timing.
 - [ ] Implement cyclic weapon switching.
 - [ ] Implement direct weapon slot selection.
 - [ ] Prevent switching during incompatible actions.
-- [ ] Add weapon action states.
-- [ ] Add semiautomatic firing.
+- [x] Add weapon action states.
+- [x] Add semiautomatic firing.
 - [ ] Add automatic firing.
 - [ ] Add burst firing.
 - [ ] Add burst interruption rules.
 - [ ] Add empty weapon firing feedback.
-- [ ] Add hitscan shot queries.
+- [x] Add hitscan shot queries.
 - [ ] Add projectile weapon spawning.
 - [ ] Add projectile swept collision.
 - [ ] Add projectile impact resolution.
-- [ ] Add weapon damage falloff.
-- [ ] Add weapon-specific hit multipliers.
+- [x] Add weapon damage falloff.
+- [x] Add weapon-specific hit multipliers.
 - [ ] Add weapon-specific recoil impulses.
 - [ ] Add recoil recovery.
 - [ ] Add hip-fire spread.
@@ -409,11 +409,11 @@
 - [ ] Add material penetration resistance.
 - [ ] Add penetration damage attenuation.
 - [ ] Prevent repeated hits on one penetrated actor.
-- [ ] Add magazine reload timing.
+- [x] Add magazine reload timing.
 - [ ] Add ammunition transfer at reload completion.
 - [ ] Add shell-by-shell reload timing.
 - [ ] Add shell reload interruption.
-- [ ] Add empty reload timing.
+- [x] Add empty reload timing.
 - [ ] Add reload cancellation during weapon replacement.
 - [ ] Add dual-wield firing alternation.
 - [ ] Add dual-wield reload behavior.
@@ -426,11 +426,11 @@
 - [ ] Add blood impact effects.
 - [ ] Add weapon firing audio events.
 - [ ] Add weapon reload audio events.
-- [ ] Add melee reach queries.
+- [x] Add melee reach queries.
 - [ ] Add melee attack timing.
-- [ ] Add melee recovery timing.
+- [x] Add melee recovery timing.
 - [ ] Add melee damage attribution.
-- [ ] Remove automatic reserve replenishment at round transitions.
+- [x] Remove automatic reserve replenishment at round transitions.
 - [ ] Add grenade inventory counts.
 - [ ] Add grenade priming states.
 - [ ] Add grenade cooking timers.
@@ -1144,7 +1144,7 @@
 - [ ] Add original weapon name indicator.
 - [ ] Add original crosshair behavior.
 - [ ] Add ADS crosshair suppression.
-- [ ] Add reload state feedback.
+- [x] Add reload state feedback.
 - [ ] Add interaction prompt presentation.
 - [ ] Add generator capture progress presentation.
 - [ ] Add generator attack indicator presentation.

@@ -197,7 +197,13 @@ fn changes(
         (Without<NotShadowCaster>, Without<WorldCollider>),
     >,
     lights: Query<(Entity, &GlobalTransform, &PointLight, &CubemapFrusta)>,
-    skinned: Query<(), With<bevy::mesh::skinning::SkinnedMesh>>,
+    skinned: Query<
+        (),
+        (
+            With<bevy::mesh::skinning::SkinnedMesh>,
+            Without<NotShadowCaster>,
+        ),
+    >,
     mut removed_meshes: RemovedComponents<Mesh3d>,
     mut removed_standard: RemovedComponents<MeshMaterial3d<StandardMaterial>>,
     mut removed_surface: RemovedComponents<MeshMaterial3d<OpaqueMaterial>>,
@@ -507,7 +513,7 @@ fn select(
     views: Query<(Entity, &LightEntity, &ShadowView, Option<&ExtractedView>)>,
     lights: Query<(&MainEntity, &ExtractedPointLight, &RenderLayers)>,
     sun: Query<(&MainEntity, &ExtractedDirectionalLight, &RenderLayers)>,
-    bindings: Query<&ViewShadowBindings>,
+    bindings: Query<(&ViewShadowBindings, Option<&RenderLayers>)>,
     revisions: Res<ShadowRevisions>,
     mut cache: ResMut<CachedShadows>,
     enabled: Res<CacheEnabled>,
@@ -515,8 +521,12 @@ fn select(
     mut phases: ResMut<ViewBinnedRenderPhases<Shadow>>,
 ) {
     cache.pending.clear();
-    // This application has one camera. On allocation change every slot is dirty.
-    let Ok(bindings) = bindings.single() else {
+    // First-person overlays have a separate camera and no world shadow casters.
+    // Select the world view's allocation; an overlay must not disable caching.
+    let Some((bindings, _)) = bindings
+        .iter()
+        .find(|(_, layers)| layers.is_none_or(|layers| layers.intersects(&RenderLayers::layer(0))))
+    else {
         return;
     };
     let texture = (

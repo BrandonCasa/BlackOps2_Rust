@@ -1,7 +1,4 @@
-use crate::{
-    GameState, assets::LoadFailure, gameplay::Session, life::Vitality, player::Player,
-    rendering::GameCamera,
-};
+use crate::{GameState, assets::LoadFailure, gameplay::Session, life::Vitality, player::Player};
 use bevy::prelude::*;
 
 #[derive(Component)]
@@ -11,16 +8,20 @@ pub(crate) struct PlayerOverlay;
 pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup.after(crate::rendering::setup))
-            .add_systems(Update, update);
+        app.add_systems(
+            Startup,
+            setup.after(crate::presentation::first_person_light),
+        )
+        .add_systems(Update, update);
     }
 }
 fn setup(
     mut commands: Commands,
-    cameras: Query<Entity, With<GameCamera>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
 ) {
+    let Ok(camera) = cameras.single() else {
+        return;
+    };
     commands.spawn((
         Text::new("Loading Origins…"),
         TextFont {
@@ -37,10 +38,12 @@ fn setup(
         },
         HudText,
         PlayerOverlay,
+        UiTargetCamera(camera),
     ));
     commands.spawn((
         Text::new("+"),
         PlayerOverlay,
+        UiTargetCamera(camera),
         TextFont {
             font_size: FontSize::Px(24.),
             ..default()
@@ -53,22 +56,13 @@ fn setup(
             ..default()
         },
     ));
-    for entity in &cameras {
-        commands.entity(entity).with_children(|parent| {
-            parent.spawn((
-                Mesh3d(meshes.add(Cuboid::new(0.08, 0.1, 0.3))),
-                MeshMaterial3d(materials.add(Color::srgb(0.12, 0.13, 0.15))),
-                Transform::from_xyz(0.25, -0.22, -0.5),
-                Name::new("Temporary pistol"),
-                PlayerOverlay,
-            ));
-        });
-    }
 }
 fn update(
     state: Res<State<GameState>>,
     failure: Res<LoadFailure>,
     session: Res<Session>,
+    definition: Option<Res<crate::assets::GameDefinition>>,
+    inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
     players: Query<&Vitality, With<Player>>,
     mut text: Query<&mut Text, With<HudText>>,
 ) {
@@ -79,19 +73,28 @@ fn update(
         .single()
         .map(|v| v.current().unwrap_or(0))
         .unwrap_or(0);
+    let inventory = inventories.single().ok();
+    let weapon = inventory.and_then(|i| {
+        definition
+            .as_ref()
+            .and_then(|d| i.definition(&d.content.weapons))
+    });
+    let ammo = inventory.and_then(|i| i.active()).map_or(0, |w| w.magazine);
+    let reserve = inventory.zip(weapon).map_or(0, |(i, w)| i.reserve(w));
     let value = match **state {
         GameState::Loading => "Loading Origins…".into(),
         GameState::LoadError => format!("Unable to load Origins\n{}", failure.0),
-        GameState::Paused => "Paused — Escape or click to resume\nWASD move | mouse look | Shift sprint | Space jump | Ctrl crouch\nLeft click fire | right click/V melee | R reload".into(),
+        GameState::Paused => "Paused — Escape or click to resume\nWASD move | mouse look | Shift sprint | Space jump | Ctrl crouch\nLeft click fire | right click aim | V melee | R reload | Q/wheel cycle | 1–3 weapon slots".into(),
         GameState::GameOver => format!("Game over — Round {}\nPress R to restart", session.round),
         GameState::Playing => format!(
-            "Round {}    Health {}    Points {}\nAmmo {}/{}{}",
+            "Round {}    Health {}    Points {}\n{}    Ammo {}/{}{}",
             session.round,
             health,
             session.points,
-            session.ammo,
-            session.reserve,
-            if session.reloading > 0. {
+            weapon.map_or("", |w| w.name.as_str()),
+            ammo,
+            reserve,
+            if inventory.is_some_and(|i| matches!(i.action, crate::weapons::WeaponAction::Reloading { .. } | crate::weapons::WeaponAction::ShellReload { .. })) {
                 "  Reloading"
             } else {
                 ""

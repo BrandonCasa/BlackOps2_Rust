@@ -85,7 +85,7 @@ pub(crate) fn drive(
     mut input: ResMut<GameInput>,
     players: Query<(Entity, &Player, &Transform)>,
     enemies: Query<&Transform, (With<Zombie>, Without<Player>)>,
-    session: Res<Session>,
+    inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
     definition: Option<Res<GameDefinition>>,
     query: avian3d::prelude::SpatialQuery,
 ) {
@@ -108,7 +108,7 @@ pub(crate) fn drive(
             .distance_squared(transform.translation)
             .total_cmp(&b.translation.distance_squared(transform.translation))
     }) {
-        let delta = target.translation
+        let delta = target.translation + Vec3::Y * 0.65
             - (transform.translation
                 + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5));
         let yaw = (-delta.x).atan2(-delta.z);
@@ -135,7 +135,11 @@ pub(crate) fn drive(
             })
             .is_some_and(|hit| enemies.contains(hit.entity));
         input.melee = delta.length() < 2.;
-        input.reload = session.ammo == 0;
+        input.reload = inventories
+            .single()
+            .ok()
+            .and_then(|i| i.active())
+            .is_some_and(|w| w.magazine == 0);
     }
 }
 fn check(
@@ -147,7 +151,15 @@ fn check(
     failure: Res<LoadFailure>,
     definition: Option<Res<GameDefinition>>,
     session: Res<Session>,
-    mut players: Query<(Entity, &mut Player, &mut Transform), Without<Zombie>>,
+    mut players: Query<
+        (
+            Entity,
+            &mut Player,
+            &mut Transform,
+            &crate::weapons::WeaponInventory,
+        ),
+        Without<Zombie>,
+    >,
     mut next: ResMut<NextState<GameState>>,
     enemies: Query<&Transform, (With<Zombie>, Without<Player>)>,
     query: avian3d::prelude::SpatialQuery,
@@ -166,6 +178,11 @@ fn check(
     let Some(mut verification) = verification else {
         return;
     };
+    let ammo = players
+        .iter()
+        .next()
+        .and_then(|(_, _, _, i)| i.active())
+        .map_or(0, |w| w.magazine);
     if verification.benchmark
         && !verification.combat
         && verification.stage == 0
@@ -188,15 +205,17 @@ fn check(
         || **state == GameState::LoadError
         || (**state == GameState::GameOver && verification.stage == 0)
     {
+        let evidence = serde_json::json!({"passed": false, "state": format!("{:?}", **state),
+            "round": session.round, "pending": session.pending, "kills": session.kills,
+            "shots": session.shots, "ammo": ammo, "load_failure": failure.0,
+            "elapsed_seconds": verification.started.elapsed().as_secs()});
+        let _ = std::fs::write(
+            verification.output.join("failure.json"),
+            evidence.to_string(),
+        );
         error!(
             "Game verification failed: {:?}, round {}, pending {}, kills {}, shots {}, ammo {}, {}",
-            **state,
-            session.round,
-            session.pending,
-            session.kills,
-            session.shots,
-            session.ammo,
-            failure.0
+            **state, session.round, session.pending, session.kills, session.shots, ammo, failure.0
         );
         commands.write_message(AppExit::error());
         return;
@@ -210,7 +229,8 @@ fn check(
         return;
     }
     verification.playing += time.delta_secs();
-    let (Some(definition), Ok((_, mut player, mut transform))) = (definition, players.single_mut())
+    let (Some(definition), Ok((_, mut player, mut transform, _))) =
+        (definition, players.single_mut())
     else {
         return;
     };
@@ -233,7 +253,7 @@ fn check(
             enemies.iter().count(),
             session.kills,
             session.shots,
-            session.ammo
+            ammo
         );
         for point in definition.spawn_points.iter().take(3) {
             let position = Vec3::from_array(*point);
