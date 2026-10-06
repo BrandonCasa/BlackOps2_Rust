@@ -2,6 +2,7 @@
 
 //! Diagnostic geometry integration with Bevy; original rendering is unestablished.
 pub mod captured_world;
+pub mod native_camera;
 
 use bevy::{
     asset::RenderAssetUsages,
