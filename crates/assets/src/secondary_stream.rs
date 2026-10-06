@@ -1,4 +1,5 @@
 //! Exact secondary world inputs. Source corner order and input semantics are retained.
+use crate::appearance::decode_ieee_half as half;
 use crate::{
     appearance::AppearanceError,
     full_scene::{SceneImage, identified},
@@ -46,22 +47,6 @@ pub fn secondary_stride(format: u32) -> Result<usize, AppearanceError> {
         4 => Ok(12),
         5 | 7 => Ok(16),
         _ => Err(AppearanceError::Unsupported),
-    }
-}
-fn half(bits: u16) -> f32 {
-    let sign = if bits & 0x8000 == 0 { 1. } else { -1. };
-    let exponent = (bits >> 10) & 31;
-    let mantissa = bits & 1023;
-    if exponent == 0 {
-        sign * (mantissa as f32) * 2f32.powi(-24)
-    } else if exponent == 31 {
-        if mantissa == 0 {
-            sign * f32::INFINITY
-        } else {
-            f32::NAN
-        }
-    } else {
-        sign * (1. + mantissa as f32 / 1024.) * 2f32.powi(exponent as i32 - 15)
     }
 }
 /// Decode a qualified single source record without shader-specific interpretation.

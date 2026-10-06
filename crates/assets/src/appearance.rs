@@ -205,3 +205,20 @@ pub fn validate_dds(bytes: &[u8]) -> Result<(), AppearanceError> {
     }
     Ok(())
 }
+
+pub(crate) fn decode_ieee_half(bits: u16) -> f32 {
+    let sign = if bits & 0x8000 == 0 { 1. } else { -1. };
+    let exponent = (bits >> 10) & 31;
+    let mantissa = bits & 1023;
+    if exponent == 0 {
+        sign * (mantissa as f32) * 2f32.powi(-24)
+    } else if exponent == 31 {
+        if mantissa == 0 {
+            sign * f32::INFINITY
+        } else {
+            f32::NAN
+        }
+    } else {
+        sign * (1. + mantissa as f32 / 1024.) * 2f32.powi(exponent as i32 - 15)
+    }
+}

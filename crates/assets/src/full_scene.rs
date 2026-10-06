@@ -147,6 +147,28 @@ pub fn decode_world_corner_attributes(
     }
     Ok(attributes)
 }
+/// Cross-check independently exported UVs against the captured hardware half input.
+pub fn validate_world_corner_uv(bytes: &[u8], uv: &[[f32; 2]]) -> Result<(), AppearanceError> {
+    if uv.len().checked_mul(36) != Some(bytes.len()) {
+        return Err(AppearanceError::Attributes);
+    }
+    for (record, uv) in bytes.as_chunks::<36>().0.iter().zip(uv) {
+        let actual = [20, 22].map(|offset| {
+            crate::appearance::decode_ieee_half(u16::from_le_bytes([
+                record[offset],
+                record[offset + 1],
+            ]))
+        });
+        if actual
+            .into_iter()
+            .zip(uv)
+            .any(|(a, b)| a.to_bits() != b.to_bits())
+        {
+            return Err(AppearanceError::Attributes);
+        }
+    }
+    Ok(())
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DdsFormat {
     Bc1,
@@ -382,10 +404,9 @@ pub fn load_full_scene(path: &Path) -> Result<FullSceneInput, AppearanceError> {
         count,
     )?;
     let corner_attributes = if let Some(vertices) = &m.corner_vertices {
-        Some(decode_world_corner_attributes(
-            &identified(root, &vertices.file, &vertices.sha256, 36 * 1_000_000)?,
-            &geometry,
-        )?)
+        let bytes = identified(root, &vertices.file, &vertices.sha256, 36 * 1_000_000)?;
+        validate_world_corner_uv(&bytes, &corner_uv)?;
+        Some(decode_world_corner_attributes(&bytes, &geometry)?)
     } else {
         None
     };

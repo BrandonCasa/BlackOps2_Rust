@@ -208,3 +208,19 @@ fn source_input_channels_preserve_unorm_and_reject_geometry_mismatch() {
         Err(AppearanceError::Attributes)
     );
 }
+
+#[test]
+fn world_uv_uses_ieee_signed_zero_and_subnormals() {
+    let mut raw = vec![0u8; 36];
+    raw[20..22].copy_from_slice(&0x8000u16.to_le_bytes());
+    raw[22..24].copy_from_slice(&0x8001u16.to_le_bytes());
+    assert!(validate_world_corner_uv(&raw, &[[-0.0, -2f32.powi(-24)]]).is_ok());
+    assert_eq!(
+        validate_world_corner_uv(&raw, &[[0.0, -2f32.powi(-24)]]),
+        Err(AppearanceError::Attributes)
+    );
+    assert_eq!(
+        validate_world_corner_uv(&raw, &[[-2f32.powi(-15), -2f32.powi(-24)]]),
+        Err(AppearanceError::Attributes)
+    );
+}
