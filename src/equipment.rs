@@ -18,6 +18,7 @@ pub struct ThrowableDefinition {
     pub slot: ThrowableSlot,
     pub initial: u32,
     pub capacity: u32,
+    pub round_award: u32,
     pub prime_seconds: f32,
     pub throw_seconds: f32,
     pub fuse_seconds: f32,
@@ -42,6 +43,7 @@ pub enum ThrowableSlot {
 impl ThrowableDefinition {
     pub fn valid(&self) -> bool {
         self.capacity > 0
+            && self.round_award <= self.capacity
             && self.initial <= self.capacity
             && self.inner_damage >= self.outer_damage
             && self.outer_damage > 0
@@ -193,6 +195,7 @@ pub struct BlastRequest {
 pub struct BlastQueue(pub Vec<BlastRequest>);
 #[derive(Resource, Default)]
 pub struct EquipmentEvidence {
+    pub round_awards: u32,
     pub primed: u32,
     pub thrown: u32,
     pub cooked_off: u32,
@@ -227,7 +230,50 @@ impl Plugin for EquipmentPlugin {
                     .in_set(GameStep::Combat)
                     .before(crate::gameplay::combat)
                     .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                replenish
+                    .in_set(GameStep::Rounds)
+                    .after(crate::gameplay::rounds)
+                    .run_if(in_state(GameState::Playing)),
             );
+    }
+}
+fn replenish(
+    mut started: MessageReader<crate::rounds::RoundStarted>,
+    definition: Res<GameDefinition>,
+    mut players: Query<(&mut GrenadeInventory, &Vitality), With<Player>>,
+    mut evidence: ResMut<EquipmentEvidence>,
+) {
+    for event in started.read() {
+        for (mut inventory, vitality) in &mut players {
+            if vitality.state() != LifeState::Standing {
+                continue;
+            }
+            let Some(profile) = definition
+                .content
+                .weapons
+                .iter()
+                .find(|w| w.id == inventory.definition)
+                .and_then(|w| w.throwable.as_ref())
+            else {
+                continue;
+            };
+            if profile.round_award == 0 {
+                continue;
+            }
+            let before = inventory.count;
+            inventory.count = inventory
+                .count
+                .saturating_add(profile.round_award)
+                .min(profile.capacity);
+            evidence.round_awards += 1;
+            evidence.record(
+                serde_json::json!({"event":"round_award","round":event.round,
+                "weapon":inventory.definition.0,"before":before,"after":inventory.count}),
+            );
+        }
     }
 }
 pub(crate) fn throw_input(

@@ -159,7 +159,8 @@ def validate_content(content, require):
                 for identity in actions.values(): resolve(owner,identity,"animation")
             if table == "weapons" and row.get("throwable") is not None:
                 t=row["throwable"]
-                require(isinstance(t,dict) and set(t)==set("initial capacity prime_seconds throw_seconds fuse_seconds speed up_speed radius inner_radius inner_damage outer_damage tangent_bounce normal_bounce collision_radius cook_in_hand sticky slot".split()),"invalid throwable fields")
+                require(isinstance(t,dict) and set(t)==set("initial capacity round_award prime_seconds throw_seconds fuse_seconds speed up_speed radius inner_radius inner_damage outer_damage tangent_bounce normal_bounce collision_radius cook_in_hand sticky slot".split()),"invalid throwable fields")
+                require(type(t["round_award"]) is int and 0<=t["round_award"]<=t["capacity"],"invalid round equipment award")
                 require(t["slot"] in ("lethal","tactical"),"invalid throwable slot")
                 for k in ("cook_in_hand","sticky"): require(type(t[k]) is bool,"invalid throwable behavior")
                 for k in ("initial","capacity","inner_damage","outer_damage"): require(type(t[k]) is int and t[k]>=0,"invalid throwable count/damage")

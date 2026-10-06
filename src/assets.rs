@@ -24,6 +24,7 @@ pub struct LaunchOptions {
     pub verify_semtex: bool,
     pub verify_claymores: bool,
     pub verify_monkeys: bool,
+    pub verify_equipment_refills: bool,
     pub uncached_shadows: bool,
     pub error: Option<String>,
 }
@@ -43,6 +44,7 @@ impl LaunchOptions {
                 || argument == "--verify-hit-regions"
                 || argument == "--verify-grenades"
                 || argument == "--verify-monkeys"
+                || argument == "--verify-equipment-refills"
                 || argument == "--verify-claymores"
                 || argument == "--verify-semtex"
             {
@@ -56,6 +58,7 @@ impl LaunchOptions {
                     || argument == "--verify-hit-regions"
                     || argument == "--verify-grenades"
                     || argument == "--verify-monkeys"
+                    || argument == "--verify-equipment-refills"
                     || argument == "--verify-claymores"
                     || argument == "--verify-semtex";
                 result.verify_wall_weapons = argument == "--verify-wall-weapons";
@@ -66,6 +69,7 @@ impl LaunchOptions {
                 result.verify_semtex = argument == "--verify-semtex";
                 result.verify_claymores = argument == "--verify-claymores";
                 result.verify_monkeys = argument == "--verify-monkeys";
+                result.verify_equipment_refills = argument == "--verify-equipment-refills";
                 if result.benchmark_combat {
                     result.benchmark_view = Some(8);
                 }

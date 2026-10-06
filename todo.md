@@ -454,7 +454,7 @@
 - [x] Add Monkey Bomb zombie attraction.
 - [x] Add Monkey Bomb detonation.
 - [ ] Add tactical equipment replacement.
-- [ ] Add source-defined equipment round replenishment.
+- [x] Add source-defined equipment round replenishment.
 - [x] Add grenade explosion effects.
 - [ ] Add equipment deployment animations.
 - [x] Add typed damage impact events.

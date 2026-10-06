@@ -1,7 +1,7 @@
 //! Owned placeable equipment; Bevy lifecycle and Avian ground/detection queries.
 use crate::{
     assets::GameDefinition,
-    gameplay::{GameStep, Session, SessionEntity},
+    gameplay::{GameStep, SessionEntity},
     input::GameInput,
     life::{LifeState, Vitality},
     origins::content::{ContentId, WeaponId},
@@ -57,7 +57,6 @@ pub struct MineInventory {
     pub remaining: f32,
     held: bool,
     placing: bool,
-    round: u32,
 }
 impl MineInventory {
     pub fn busy(&self) -> bool {
@@ -126,29 +125,23 @@ pub fn install(app: &mut App) {
         );
 }
 fn replenish(
-    session: Res<Session>,
+    mut started: MessageReader<crate::rounds::RoundStarted>,
     definition: Res<GameDefinition>,
     mut players: Query<&mut MineInventory>,
     mut evidence: ResMut<MineEvidence>,
 ) {
-    for mut inventory in &mut players {
-        if inventory.round == session.round {
-            continue;
-        }
-        let previous = inventory.round;
-        inventory.round = session.round;
-        if previous == 0 {
-            continue;
-        }
-        if let Some(profile) = inventory
-            .definition
-            .as_ref()
-            .and_then(|id| definition.content.weapons.iter().find(|w| w.id == *id))
-            .and_then(|w| w.mine.as_ref())
-        {
-            inventory.count = profile.stock;
-            evidence.replenished += 1;
-            evidence.record(serde_json::json!({"event":"replenish","round":session.round,"stock":inventory.count}));
+    for event in started.read() {
+        for mut inventory in &mut players {
+            if let Some(profile) = inventory
+                .definition
+                .as_ref()
+                .and_then(|id| definition.content.weapons.iter().find(|w| w.id == *id))
+                .and_then(|w| w.mine.as_ref())
+            {
+                inventory.count = profile.stock;
+                evidence.replenished += 1;
+                evidence.record(serde_json::json!({"event":"replenish","round":event.round,"stock":inventory.count}));
+            }
         }
     }
 }

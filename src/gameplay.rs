@@ -144,6 +144,7 @@ pub struct GameplayPlugin;
 impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Session>()
+            .add_message::<crate::rounds::RoundStarted>()
             .init_resource::<Navigation>()
             .init_resource::<crate::rounds::Population>()
             .init_resource::<crate::rounds::RoundEvidence>()
@@ -456,6 +457,7 @@ pub(crate) fn rounds(
     navigation: Res<Navigation>,
     mut population: ResMut<crate::rounds::Population>,
     mut evidence: ResMut<crate::rounds::RoundEvidence>,
+    mut started: MessageWriter<crate::rounds::RoundStarted>,
 ) {
     use crate::rounds::PopulationKind;
     *population = default();
@@ -484,6 +486,9 @@ pub(crate) fn rounds(
             session.pending = profile.population(session.round);
             session.intermission = None;
             session.spawn_timer = Timer::from_seconds(profile.first_spawn_seconds, TimerMode::Once);
+            started.write(crate::rounds::RoundStarted {
+                round: session.round,
+            });
             info!("Round {} begins, budget {}", session.round, session.pending);
         }
         return;

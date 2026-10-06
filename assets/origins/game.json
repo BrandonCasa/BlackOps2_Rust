@@ -1981,6 +1981,7 @@
         },
         "throwable": {
           "slot": "tactical",
+          "round_award": 0,
           "initial": 3,
           "capacity": 3,
           "prime_seconds": 1.9,
@@ -3921,6 +3922,7 @@
         },
         "throwable": {
           "slot": "lethal",
+          "round_award": 2,
           "initial": 4,
           "capacity": 4,
           "prime_seconds": 0.55,
@@ -11491,6 +11493,7 @@
         },
         "throwable": {
           "slot": "lethal",
+          "round_award": 2,
           "initial": 4,
           "capacity": 4,
           "prime_seconds": 0.6,

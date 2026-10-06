@@ -13,6 +13,7 @@ use bevy::{
 use std::{path::PathBuf, time::Instant};
 mod arsenal;
 mod claymores;
+mod equipment_refills;
 mod monkeys;
 mod performance;
 mod pipelines;
@@ -48,6 +49,8 @@ pub(crate) struct Verification {
     claymores_exercised: bool,
     monkeys: bool,
     monkeys_exercised: bool,
+    equipment_refills: bool,
+    equipment_refills_exercised: bool,
     grenade_flash_frame: bool,
     accepted_regions: std::collections::BTreeSet<String>,
     damage_frame: bool,
@@ -63,6 +66,13 @@ impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
+            if app
+                .world()
+                .resource::<LaunchOptions>()
+                .verify_equipment_refills
+            {
+                equipment_refills::install(app);
+            }
             if app.world().resource::<LaunchOptions>().verify_wall_weapons {
                 arsenal::install(app);
             }
@@ -120,7 +130,10 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             wall_weapons: options.verify_wall_weapons
                 || options.verify_semtex
                 || options.verify_claymores
-                || options.verify_monkeys,
+                || options.verify_monkeys
+                || options.verify_equipment_refills,
+            equipment_refills: options.verify_equipment_refills,
+            equipment_refills_exercised: false,
             rounds: options.verify_rounds,
             health: options.verify_health,
             hit_regions: options.verify_hit_regions,
@@ -796,6 +809,7 @@ fn check(
             && (!verification.semtex || verification.semtex_exercised)
             && (!verification.claymores || verification.claymores_exercised)
             && (!verification.monkeys || verification.monkeys_exercised)
+            && (!verification.equipment_refills || verification.equipment_refills_exercised)
             && (!verification.grenades
                 || (equipment.thrown >= 1
                     && equipment.cooked_off >= 1
@@ -858,6 +872,7 @@ fn check(
             "survey_views":verification.camera_views.len(), "water_animation_seconds":verification.water_times,
             "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
         receipt["monkeys_exercised"] = verification.monkeys_exercised.into();
+        receipt["equipment_refills_exercised"] = verification.equipment_refills_exercised.into();
         let _ = std::fs::write(
             verification.output.join("verification.json"),
             receipt.to_string(),

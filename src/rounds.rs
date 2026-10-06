@@ -2,6 +2,12 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 
+/// Emitted only when an intermission finishes, including repeated capped rounds.
+#[derive(Message, Clone, Copy)]
+pub struct RoundStarted {
+    pub round: u32,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoundProfile {

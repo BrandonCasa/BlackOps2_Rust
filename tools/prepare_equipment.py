@@ -12,11 +12,20 @@ def prepare(config):
     game = json.loads((pack / "game.json").read_text(encoding="utf-8-sig"))
     rows = {r["id"].replace("weapons.","weapon."):r for r in source["weapons"]}
     receipts = []
+    round_script=inspection / "damage-life-state-06/decompiled/t6/_zm.gsc"
+    round_text=round_script.read_text().split("award_grenades_for_survivors()\n{",1)[1].split("\nai_calculate_health",1)[0]
+    awards=[int(v) for v in re.findall(r'setweaponammoclip\( lethal_grenade, (\d+) \)',round_text)]
+    if awards != [0,2,3,4]: raise ValueError("native survivor equipment award changed")
+    receipts.append({"round_script_sha256":hashlib.sha256(round_script.read_bytes()).hexdigest(),
+        "round_award":"two lethal charges up to four at round start; tactical stock unchanged"})
     for weapon in game["content"]["weapons"]:
         if weapon["id"] not in ("weapon.frag_grenade_zm","weapon.sticky_grenade_zm","weapon.cymbal_monkey_zm"): continue
         row = rows[weapon["id"]]; f = row["fields"]
+        if f["offhandSlot"]!="Tactical grenade" and int(f["maxAmmo"])!=4:
+            raise ValueError("survivor lethal award requires native four-charge capacity")
         weapon["throwable"] = {
             "slot":"tactical" if f["offhandSlot"]=="Tactical grenade" else "lethal",
+            "round_award":0 if f["offhandSlot"]=="Tactical grenade" else 2,
             "initial":int(f["startAmmo"]), "capacity":int(f["maxAmmo"]),
             "prime_seconds":float(f["holdFireTime"]), "throw_seconds":float(f["fireTime"]),
             "fuse_seconds":float(f["fuseTime"]), "speed":float(f["projectileSpeed"])*.0254,
