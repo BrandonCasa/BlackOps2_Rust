@@ -27,6 +27,6 @@ WASD moves; mouse looks; Shift sprints; Space jumps; Control crouches. Left clic
 
 Rendering uses Bevy glTF/PBR with layered terrain, explicit surface states, animated water, wetness, baked light/probes, HDR, AgX, bloom, storm sky and fog. `config/origins-visual.json` holds the embedded adjustable visual profile; edit and rebuild to tune it. Avian supplies collision queries and move-and-slide. Weapons and zombies currently use temporary visuals. Practical differences are documented in [gameplay](docs/reverse_engineering/gameplay.md) and [rendering](docs/reverse_engineering/rendering.md).
 
-Read [project state](docs/project-state.md), [architecture](docs/architecture/README.md), [asset preparation](docs/reverse_engineering/assets.md) and the [complete systems roadmap](docs/roadmap.md). Historical research is recoverable from Git.
+Read [project state](docs/project-state.md), [architecture](docs/architecture/README.md), [asset preparation](docs/reverse_engineering/assets.md) and the [atomic gameplay checklist](todo.md). Every checklist item remains outstanding until its individual implementation is complete. Historical research is recoverable from Git.
 
 Validate a completed milestone with metadata, a release workspace build and formatting. Unit tests and Clippy are banned. The real-asset check is opt-in: `release/origins.exe --verify <external-output-directory>`. It drives this same game application, captures the map, and checks combat, movement, round progression and restart.

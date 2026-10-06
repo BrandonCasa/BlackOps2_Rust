@@ -33,8 +33,11 @@ Use stable Rust; retain `#![forbid(unsafe_code)]` and Cargo.lock.
 Prepared runtime assets may be committed only under `assets/origins/`, using
 the offline importer to validate the complete dependency closure. Track glTF,
 binary mesh buffers and PNG textures through Git LFS; keep `game.json` in Git.
-Raw archives, original scripts/shaders, preparation inputs/intermediates,
-captures, research/inspection reports and receipts remain external. Never commit
+The user permits any necessary file types and raw inputs to be committed for
+this local-only project. Track substantial binary additions through Git LFS.
+Keep optional source inputs separate from the validated runtime pack. This
+permission overrides narrower source-file restrictions in retained documentation
+and skills. Originals must remain untouched. Never commit
 installation paths, secrets or generated builds. Real paths belong in ignored
 `config/local_assets.toml`; tracked configuration contains placeholders.
 Preparation reads originals and emits an external standard asset pack; import

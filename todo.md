@@ -1,0 +1,1219 @@
+- [ ] Add stable IDs for content definitions.
+- [ ] Add stable IDs for map placements.
+- [ ] Add typed zone identifiers.
+- [ ] Add typed weapon identifiers.
+- [ ] Add typed perk identifiers.
+- [ ] Add typed quest identifiers.
+- [ ] Add typed interaction identifiers.
+- [ ] Add typed damage categories.
+- [ ] Add typed content loading errors.
+- [ ] Upgrade GameDefinition to version two.
+- [ ] Add weapon catalogs to GameDefinition.
+- [ ] Add enemy catalogs to GameDefinition.
+- [ ] Add perk catalogs to GameDefinition.
+- [ ] Add powerup catalogs to GameDefinition.
+- [ ] Add interaction placements to GameDefinition.
+- [ ] Add zone connections to GameDefinition.
+- [ ] Add navigation links to GameDefinition.
+- [ ] Add generator definitions to GameDefinition.
+- [ ] Add robot routes to GameDefinition.
+- [ ] Add tank routes to GameDefinition.
+- [ ] Add weather definitions to GameDefinition.
+- [ ] Add digging definitions to GameDefinition.
+- [ ] Add crafting recipes to GameDefinition.
+- [ ] Add staff puzzle definitions to GameDefinition.
+- [ ] Add quest transitions to GameDefinition.
+- [ ] Add sound references to GameDefinition.
+- [ ] Add animation references to GameDefinition.
+- [ ] Add UI asset references to GameDefinition.
+- [ ] Add cinematic sequences to GameDefinition.
+- [ ] Reject unsupported content versions during loading.
+- [ ] Resolve content references through stable IDs.
+- [ ] Regenerate the existing pack using version two.
+- [ ] Enable Bevy animation support.
+- [ ] Enable Bevy audio support.
+- [ ] Enable Bevy Vorbis decoding.
+- [ ] Enable Bevy JPEG decoding.
+- [ ] Extend asset preparation with weapon definition extraction.
+- [ ] Extend asset preparation with attachment definition extraction.
+- [ ] Extend asset preparation with patch override resolution.
+- [ ] Extend asset preparation with gameplay entity extraction.
+- [ ] Extend asset preparation with trigger volume conversion.
+- [ ] Extend asset preparation with brush entity conversion.
+- [ ] Extend asset preparation with navigation node extraction.
+- [ ] Extend asset preparation with traversal link extraction.
+- [ ] Extend asset preparation with skeletal model export.
+- [ ] Extend asset preparation with animation track export.
+- [ ] Convert animation translations into runtime coordinates.
+- [ ] Convert animation rotations into runtime coordinates.
+- [ ] Preserve skeleton joint names during conversion.
+- [ ] Preserve inverse bind matrices during conversion.
+- [ ] Normalize exported skin weights.
+- [ ] Convert original animation tracks into glTF clips.
+- [ ] Retarget recovered clips onto compatible skeletons.
+- [ ] Generate missing locomotion clips for recovered rigs.
+- [ ] Generate missing combat clips for recovered rigs.
+- [ ] Generate missing interaction clips for recovered rigs.
+- [ ] Export animation notification timings into content definitions.
+- [ ] Extend asset preparation with sound bank extraction.
+- [ ] Convert extracted sounds into prepared OGG assets.
+- [ ] Convert sound aliases into runtime sound definitions.
+- [ ] Convert original effect definitions into runtime effect definitions.
+- [ ] Export original HUD graphics into runtime textures.
+- [ ] Export original localized strings into runtime definitions.
+- [ ] Convert loading footage into timed image frames.
+- [ ] Convert ending footage into timed image frames.
+- [ ] Bind cinematic audio aliases to frame sequences.
+- [ ] Extend importer support for glTF skins.
+- [ ] Extend importer support for glTF animations.
+- [ ] Extend importer support for joint attributes.
+- [ ] Extend importer support for weight attributes.
+- [ ] Extend importer support for audio dependencies.
+- [ ] Extend importer support for JPEG dependencies.
+- [ ] Extend importer support for font dependencies.
+- [ ] Extend importer support for cinematic frame dependencies.
+- [ ] Extend importer support for gameplay content references.
+- [ ] Separate optional raw inputs from runtime dependency enumeration.
+- [ ] Add LFS attributes for prepared audio.
+- [ ] Add LFS attributes for cinematic images.
+- [ ] Add LFS attributes for committed raw binaries.
+- [ ] Replace pistol-specific Session fields with player inventory.
+- [ ] Move weapon behavior into a reusable weapon module.
+- [ ] Move enemy behavior into a reusable enemy module.
+- [ ] Move purchase behavior into a reusable economy module.
+- [ ] Move interaction behavior into a reusable interaction module.
+- [ ] Move effect behavior into a reusable presentation module.
+- [ ] Move round behavior into a focused round module.
+- [ ] Register explicit fixed-step gameplay ordering.
+- [ ] Add deferred boundaries before changed colliders enter queries.
+- [ ] Add session IDs to delayed gameplay events.
+- [ ] Discard delayed events from retired sessions.
+- [ ] Add a central fresh-session initializer.
+- [ ] Add a central session teardown handler.
+- [ ] Reset player inventory when starting fresh sessions.
+- [ ] Reset player vitality when starting fresh sessions.
+- [ ] Reset purchased doors when starting fresh sessions.
+- [ ] Reset generators when starting fresh sessions.
+- [ ] Reset perks when starting fresh sessions.
+- [ ] Reset active powerups when starting fresh sessions.
+- [ ] Reset quest progress when starting fresh sessions.
+- [ ] Reset weather when starting fresh sessions.
+- [ ] Reset digging state when starting fresh sessions.
+- [ ] Reset robot schedules when starting fresh sessions.
+- [ ] Reset tank state when starting fresh sessions.
+- [ ] Reset box placement when starting fresh sessions.
+- [ ] Reset navigation access when starting fresh sessions.
+- [ ] Remove session effects during teardown.
+- [ ] Stop session audio during teardown.
+- [ ] Clear pending life commands during teardown.
+- [ ] Clear pending interaction commands during teardown.
+- [ ] Preserve session state when resuming pause.
+- [ ] Pause gameplay timers with session simulation.
+- [ ] Pause animation playback during session pause.
+- [ ] Pause gameplay audio during session pause.
+- [ ] Assign an original character when starting solo sessions.
+- [ ] Randomize ordinary session seeds.
+- [ ] Preserve deterministic seeds for existing verification launches.
+- [ ] Replace physical-key checks with named gameplay actions.
+- [ ] Add remappable keyboard bindings.
+- [ ] Add remappable mouse button bindings.
+- [ ] Persist keyboard bindings in local settings.
+- [ ] Persist mouse bindings in local settings.
+- [ ] Aggregate raw mouse deltas once per rendered frame.
+- [ ] Apply mouse sensitivity once to aggregated deltas.
+- [ ] Update camera look independently of fixed gameplay ticks.
+- [ ] Remove per-event gameplay work from mouse handling.
+- [ ] Add separate ADS mouse sensitivity.
+- [ ] Add mouse inversion settings.
+- [ ] Clear accumulated mouse motion after focus loss.
+- [ ] Clear held actions after focus loss.
+- [ ] Preserve pressed action edges between fixed ticks.
+- [ ] Preserve released action edges between fixed ticks.
+- [ ] Add held fire input.
+- [ ] Add held ADS input.
+- [ ] Bind right mouse to aiming.
+- [ ] Keep melee on a dedicated action.
+- [ ] Add prone input.
+- [ ] Add interact input.
+- [ ] Add weapon cycle input.
+- [ ] Add numbered weapon selection input.
+- [ ] Add lethal equipment input.
+- [ ] Add tactical equipment input.
+- [ ] Add buildable equipment input.
+- [ ] Add staff secondary mode input.
+- [ ] Add scoreboard input.
+- [ ] Add hold-or-toggle ADS settings.
+- [ ] Add hold-or-toggle crouch settings.
+- [ ] Add hold-or-toggle sprint settings.
+- [ ] Add mouse-driven menu focus.
+- [ ] Add keyboard-driven menu focus.
+- [ ] Restore cursor capture when gameplay resumes.
+- [ ] Release cursor capture when menus open.
+- [ ] Add player movement acceleration.
+- [ ] Add player movement deceleration.
+- [ ] Add sprint stamina.
+- [ ] Add sprint stamina recovery.
+- [ ] Prevent sprinting during incompatible weapon actions.
+- [ ] Apply weapon-specific movement speed modifiers.
+- [ ] Add prone capsule dimensions.
+- [ ] Add prone eye height.
+- [ ] Implement standing-to-prone transitions.
+- [ ] Implement crouched-to-prone transitions.
+- [ ] Implement prone-to-crouched transitions.
+- [ ] Prevent blocked stance expansion.
+- [ ] Interpolate stance camera height.
+- [ ] Implement sprinting dolphin dives.
+- [ ] Implement dive landing recovery.
+- [ ] Prevent jumping from prone.
+- [ ] Add source-defined airborne movement control.
+- [ ] Add source-defined jump recovery.
+- [ ] Add source-defined fall damage.
+- [ ] Add player landing camera feedback.
+- [ ] Add player walking camera bob.
+- [ ] Add player sprinting camera bob.
+- [ ] Add ADS camera interpolation.
+- [ ] Add ADS field-of-view interpolation.
+- [ ] Add weapon sway from camera motion.
+- [ ] Add moving-platform support tracking.
+- [ ] Move boarded players with platform displacement.
+- [ ] Clear platform support when players jump.
+- [ ] Add source-defined mud trigger volumes.
+- [ ] Apply gradual mud movement slowdown.
+- [ ] Restore movement speed after leaving mud.
+- [ ] Apply Stamin-Up mud modifiers.
+- [ ] Add mud footstep surface selection.
+- [ ] Add environmental damage volumes.
+- [ ] Apply environmental damage at fixed intervals.
+- [ ] Add out-of-bounds lethal volumes.
+- [ ] Exclude first-person meshes from movement collisions.
+- [ ] Add interaction candidate queries.
+- [ ] Filter interaction candidates by player reach.
+- [ ] Filter interaction candidates by line of sight.
+- [ ] Choose interaction targets using viewing direction.
+- [ ] Add interaction hold progress.
+- [ ] Cancel interactions when targets leave reach.
+- [ ] Cancel interactions when players become downed.
+- [ ] Prevent duplicate interaction execution.
+- [ ] Resolve prompts from interaction state.
+- [ ] Resolve prompt keys from current bindings.
+- [ ] Suppress prompts for original hidden interactions.
+- [ ] Add typed interaction rejection reasons.
+- [ ] Add point transaction commands.
+- [ ] Reject purchases exceeding available points.
+- [ ] Deduct points only after purchase acceptance.
+- [ ] Add purchase refund handling.
+- [ ] Prevent repeated purchase charging within one interaction.
+- [ ] Add source-defined hit point awards.
+- [ ] Add source-defined kill point awards.
+- [ ] Add source-defined headshot point awards.
+- [ ] Add source-defined melee point awards.
+- [ ] Add source-defined explosive point awards.
+- [ ] Apply Double Points to eligible awards.
+- [ ] Prevent points from repeated terminal damage.
+- [ ] Add barrier repair point limits.
+- [ ] Add source-defined purchase discounts.
+- [ ] Replace the temporary pistol cuboid with an animated viewmodel.
+- [ ] Replace temporary zombie capsules with animated character meshes.
+- [ ] Bind Dempsey's first-person arms.
+- [ ] Bind Nikolai's first-person arms.
+- [ ] Bind Richtofen's first-person arms.
+- [ ] Bind Takeo's first-person arms.
+- [ ] Bind original German zombie model variants.
+- [ ] Bind original crusader zombie model variants.
+- [ ] Bind original generator defender models.
+- [ ] Bind original Panzersoldat models.
+- [ ] Add shared animation graphs for zombie locomotion.
+- [ ] Add zombie attack animation transitions.
+- [ ] Add zombie climb animation transitions.
+- [ ] Add zombie rising animation transitions.
+- [ ] Add zombie death animation transitions.
+- [ ] Add first-person weapon idle animations.
+- [ ] Add first-person weapon firing animations.
+- [ ] Add first-person weapon reload animations.
+- [ ] Add first-person weapon switching animations.
+- [ ] Add first-person melee animations.
+- [ ] Add first-person grenade animations.
+- [ ] Add first-person equipment animations.
+- [ ] Add first-person perk drinking animations.
+- [ ] Add first-person downed animations.
+- [ ] Attach weapons to authored hand sockets.
+- [ ] Attach combat effects to authored weapon sockets.
+- [ ] Add animated hit-region transforms.
+- [ ] Add animated actor bounds.
+- [ ] Invalidate affected shadows when skeletal poses change.
+- [ ] Remove global shadow invalidation caused by skinned actors.
+- [ ] Exclude first-person rigs from world shadow casting.
+- [ ] Preserve lantern shadow allocation during actor animation.
+- [ ] Retain skeleton data required for animation playback.
+- [ ] Release unused prepared actor CPU resources.
+- [ ] Share actor meshes across enemy instances.
+- [ ] Share actor materials across enemy instances.
+- [ ] Add actor presentation distance culling.
+- [ ] Bound corpse presentation lifetimes.
+- [ ] Bound transient combat effect lifetimes.
+- [ ] Add Mauser C96 weapon definitions.
+- [ ] Add Mauser C96 Pack-a-Punch variant definitions.
+- [ ] Bind Mauser C96 animated viewmodel assets.
+- [ ] Bind Mauser C96 upgraded presentation assets.
+- [ ] Add M14 weapon definitions.
+- [ ] Add M14 Pack-a-Punch variant definitions.
+- [ ] Bind M14 animated viewmodel assets.
+- [ ] Bind M14 upgraded presentation assets.
+- [ ] Add Ballista weapon definitions.
+- [ ] Add Ballista Pack-a-Punch variant definitions.
+- [ ] Bind Ballista animated viewmodel assets.
+- [ ] Bind Ballista upgraded presentation assets.
+- [ ] Add MP40 weapon definitions.
+- [ ] Add MP40 Pack-a-Punch variant definitions.
+- [ ] Bind MP40 animated viewmodel assets.
+- [ ] Bind MP40 upgraded presentation assets.
+- [ ] Add STG-44 weapon definitions.
+- [ ] Add STG-44 Pack-a-Punch variant definitions.
+- [ ] Bind STG-44 animated viewmodel assets.
+- [ ] Bind STG-44 upgraded presentation assets.
+- [ ] Add AK74u weapon definitions.
+- [ ] Add AK74u Pack-a-Punch variant definitions.
+- [ ] Bind AK74u animated viewmodel assets.
+- [ ] Bind AK74u upgraded presentation assets.
+- [ ] Add B23R weapon definitions.
+- [ ] Add B23R Pack-a-Punch variant definitions.
+- [ ] Bind B23R animated viewmodel assets.
+- [ ] Bind B23R upgraded presentation assets.
+- [ ] Add Remington 870 MCS weapon definitions.
+- [ ] Add Remington 870 MCS Pack-a-Punch variant definitions.
+- [ ] Bind Remington 870 MCS animated viewmodel assets.
+- [ ] Bind Remington 870 MCS upgraded presentation assets.
+- [ ] Add HAMR weapon definitions.
+- [ ] Add HAMR Pack-a-Punch variant definitions.
+- [ ] Bind HAMR animated viewmodel assets.
+- [ ] Bind HAMR upgraded presentation assets.
+- [ ] Add MG08/15 weapon definitions.
+- [ ] Add MG08/15 Pack-a-Punch variant definitions.
+- [ ] Bind MG08/15 animated viewmodel assets.
+- [ ] Bind MG08/15 upgraded presentation assets.
+- [ ] Add M8A1 weapon definitions.
+- [ ] Add M8A1 Pack-a-Punch variant definitions.
+- [ ] Bind M8A1 animated viewmodel assets.
+- [ ] Bind M8A1 upgraded presentation assets.
+- [ ] Add Galil weapon definitions.
+- [ ] Add Galil Pack-a-Punch variant definitions.
+- [ ] Bind Galil animated viewmodel assets.
+- [ ] Bind Galil upgraded presentation assets.
+- [ ] Add FAL weapon definitions.
+- [ ] Add FAL Pack-a-Punch variant definitions.
+- [ ] Bind FAL animated viewmodel assets.
+- [ ] Bind FAL upgraded presentation assets.
+- [ ] Add SCAR-H weapon definitions.
+- [ ] Add SCAR-H Pack-a-Punch variant definitions.
+- [ ] Bind SCAR-H animated viewmodel assets.
+- [ ] Bind SCAR-H upgraded presentation assets.
+- [ ] Add M1216 weapon definitions.
+- [ ] Add M1216 Pack-a-Punch variant definitions.
+- [ ] Bind M1216 animated viewmodel assets.
+- [ ] Bind M1216 upgraded presentation assets.
+- [ ] Add KSG weapon definitions.
+- [ ] Add KSG Pack-a-Punch variant definitions.
+- [ ] Bind KSG animated viewmodel assets.
+- [ ] Bind KSG upgraded presentation assets.
+- [ ] Add PDW-57 weapon definitions.
+- [ ] Add PDW-57 Pack-a-Punch variant definitions.
+- [ ] Bind PDW-57 animated viewmodel assets.
+- [ ] Bind PDW-57 upgraded presentation assets.
+- [ ] Add Thompson weapon definitions.
+- [ ] Add Thompson Pack-a-Punch variant definitions.
+- [ ] Bind Thompson animated viewmodel assets.
+- [ ] Bind Thompson upgraded presentation assets.
+- [ ] Add Chicom CQB weapon definitions.
+- [ ] Add Chicom CQB Pack-a-Punch variant definitions.
+- [ ] Bind Chicom CQB animated viewmodel assets.
+- [ ] Bind Chicom CQB upgraded presentation assets.
+- [ ] Add Skorpion EVO weapon definitions.
+- [ ] Add Skorpion EVO Pack-a-Punch variant definitions.
+- [ ] Bind Skorpion EVO animated viewmodel assets.
+- [ ] Bind Skorpion EVO upgraded presentation assets.
+- [ ] Add DSR 50 weapon definitions.
+- [ ] Add DSR 50 Pack-a-Punch variant definitions.
+- [ ] Bind DSR 50 animated viewmodel assets.
+- [ ] Bind DSR 50 upgraded presentation assets.
+- [ ] Add KAP-40 weapon definitions.
+- [ ] Add KAP-40 Pack-a-Punch variant definitions.
+- [ ] Bind KAP-40 animated viewmodel assets.
+- [ ] Bind KAP-40 upgraded presentation assets.
+- [ ] Add Five-Seven weapon definitions.
+- [ ] Add Five-Seven Pack-a-Punch variant definitions.
+- [ ] Bind Five-Seven animated viewmodel assets.
+- [ ] Bind Five-Seven upgraded presentation assets.
+- [ ] Add Python weapon definitions.
+- [ ] Add Python Pack-a-Punch variant definitions.
+- [ ] Bind Python animated viewmodel assets.
+- [ ] Bind Python upgraded presentation assets.
+- [ ] Add Dual Five-Sevens weapon definitions.
+- [ ] Add Dual Five-Sevens Pack-a-Punch variant definitions.
+- [ ] Bind Dual Five-Sevens animated viewmodel assets.
+- [ ] Bind Dual Five-Sevens upgraded presentation assets.
+- [ ] Add War Machine weapon definitions.
+- [ ] Add War Machine Pack-a-Punch variant definitions.
+- [ ] Bind War Machine animated viewmodel assets.
+- [ ] Bind War Machine upgraded presentation assets.
+- [ ] Add Ray Gun weapon definitions.
+- [ ] Add Ray Gun Pack-a-Punch variant definitions.
+- [ ] Bind Ray Gun animated viewmodel assets.
+- [ ] Bind Ray Gun upgraded presentation assets.
+- [ ] Add Ray Gun Mark II weapon definitions.
+- [ ] Add Ray Gun Mark II Pack-a-Punch variant definitions.
+- [ ] Bind Ray Gun Mark II animated viewmodel assets.
+- [ ] Bind Ray Gun Mark II upgraded presentation assets.
+- [ ] Add AK74u extended-magazine variant definitions.
+- [ ] Add upgraded AK74u extended-magazine variant definitions.
+- [ ] Add MP40 stock variant definitions.
+- [ ] Add upgraded MP40 stock variant definitions.
+- [ ] Add B23R extended-magazine variant definitions.
+- [ ] Add upgraded B23R extended-magazine variant definitions.
+- [ ] Connect weapon variants to shared ammunition groups.
+- [ ] Add original knife weapon definitions.
+- [ ] Add Bowie Knife weapon definitions.
+- [ ] Bind weapon pickup models to weapon definitions.
+- [ ] Bind weapon upgrade names to localized strings.
+- [ ] Add owned weapon instances.
+- [ ] Add per-weapon magazine ammunition.
+- [ ] Add per-weapon reserve ammunition.
+- [ ] Add shared ammunition groups.
+- [ ] Add two default primary weapon slots.
+- [ ] Add Mule Kick's third weapon slot.
+- [ ] Track the weapon occupying Mule Kick's slot.
+- [ ] Add active weapon selection.
+- [ ] Add weapon equip timing.
+- [ ] Add weapon unequip timing.
+- [ ] Implement cyclic weapon switching.
+- [ ] Implement direct weapon slot selection.
+- [ ] Prevent switching during incompatible actions.
+- [ ] Add weapon action states.
+- [ ] Add semiautomatic firing.
+- [ ] Add automatic firing.
+- [ ] Add burst firing.
+- [ ] Add burst interruption rules.
+- [ ] Add empty weapon firing feedback.
+- [ ] Add hitscan shot queries.
+- [ ] Add projectile weapon spawning.
+- [ ] Add projectile swept collision.
+- [ ] Add projectile impact resolution.
+- [ ] Add weapon damage falloff.
+- [ ] Add weapon-specific hit multipliers.
+- [ ] Add weapon-specific recoil impulses.
+- [ ] Add recoil recovery.
+- [ ] Add hip-fire spread.
+- [ ] Add ADS spread.
+- [ ] Add movement spread modifiers.
+- [ ] Add stance spread modifiers.
+- [ ] Add shotgun pellet generation.
+- [ ] Add material penetration resistance.
+- [ ] Add penetration damage attenuation.
+- [ ] Prevent repeated hits on one penetrated actor.
+- [ ] Add magazine reload timing.
+- [ ] Add ammunition transfer at reload completion.
+- [ ] Add shell-by-shell reload timing.
+- [ ] Add shell reload interruption.
+- [ ] Add empty reload timing.
+- [ ] Add reload cancellation during weapon replacement.
+- [ ] Add dual-wield firing alternation.
+- [ ] Add dual-wield reload behavior.
+- [ ] Add attachment-specific weapon modifiers.
+- [ ] Add upgraded weapon attachment rotation.
+- [ ] Add weapon muzzle flashes.
+- [ ] Add weapon tracer effects.
+- [ ] Add shell ejection effects.
+- [ ] Add surface impact effects.
+- [ ] Add blood impact effects.
+- [ ] Add weapon firing audio events.
+- [ ] Add weapon reload audio events.
+- [ ] Add melee reach queries.
+- [ ] Add melee attack timing.
+- [ ] Add melee recovery timing.
+- [ ] Add melee damage attribution.
+- [ ] Remove automatic reserve replenishment at round transitions.
+- [ ] Add grenade inventory counts.
+- [ ] Add grenade priming states.
+- [ ] Add grenade cooking timers.
+- [ ] Add grenade throwing trajectories.
+- [ ] Add grenade fuse expiration.
+- [ ] Add grenade bounce responses.
+- [ ] Add explosion damage radius queries.
+- [ ] Add explosion obstruction checks.
+- [ ] Add explosion distance falloff.
+- [ ] Add explosive self damage.
+- [ ] Add fragmentation grenade definitions.
+- [ ] Add Semtex grenade definitions.
+- [ ] Add Semtex attachment on collision.
+- [ ] Add Claymore equipment definitions.
+- [ ] Add Claymore placement queries.
+- [ ] Add Claymore trigger volumes.
+- [ ] Add Claymore detonation behavior.
+- [ ] Add Claymore placement limits.
+- [ ] Add Monkey Bomb equipment definitions.
+- [ ] Add Monkey Bomb activation delays.
+- [ ] Add Monkey Bomb zombie attraction.
+- [ ] Add Monkey Bomb detonation.
+- [ ] Add tactical equipment replacement.
+- [ ] Add source-defined equipment round replenishment.
+- [ ] Add grenade explosion effects.
+- [ ] Add equipment deployment animations.
+- [ ] Add typed damage impact events.
+- [ ] Add head hit regions.
+- [ ] Add torso hit regions.
+- [ ] Add arm hit regions.
+- [ ] Add leg hit regions.
+- [ ] Add armored hit regions.
+- [ ] Resolve the nearest valid hit region.
+- [ ] Apply armor absorption before vitality damage.
+- [ ] Add damage immunity intervals.
+- [ ] Add player damage feedback events.
+- [ ] Add health regeneration delay.
+- [ ] Add health regeneration rates.
+- [ ] Restart regeneration delay after damage.
+- [ ] Update maximum health from perk effects.
+- [ ] Add explicit solo self-revive eligibility.
+- [ ] Route lethal damage through current revive eligibility.
+- [ ] Add solo downed movement restrictions.
+- [ ] Equip Boomhilda during solo Quick Revive downing.
+- [ ] Restore the previous loadout after self-revival.
+- [ ] Add solo self-revive countdown.
+- [ ] Add explicit self-revive life commands.
+- [ ] Retire self-revive commands after episode changes.
+- [ ] Integrate bleedout clocks with the session.
+- [ ] Resolve bleedout into terminal death.
+- [ ] Stop regeneration while downed.
+- [ ] Remove owned perks when downing occurs.
+- [ ] Consume solo Quick Revive after revival.
+- [ ] Track solo Quick Revive purchase exhaustion.
+- [ ] Remove exhausted solo Quick Revive machines.
+- [ ] Prevent repeated death transition events.
+- [ ] Add player death camera behavior.
+- [ ] Route terminal death into game-over state.
+- [ ] Emit one attributed enemy death event.
+- [ ] Feed kill rewards from attributed death events.
+- [ ] Feed soul collection from attributed death events.
+- [ ] Feed drop generation from attributed death events.
+- [ ] Build navigation graphs from prepared map nodes.
+- [ ] Add typed navigation traversal links.
+- [ ] Add zone requirements to navigation links.
+- [ ] Add door requirements to navigation links.
+- [ ] Enable navigation links after zone unlocks.
+- [ ] Disable navigation links behind closed blockers.
+- [ ] Add cached enemy path requests.
+- [ ] Add path replanning after target movement.
+- [ ] Add path replanning after blocker changes.
+- [ ] Add stuck enemy detection.
+- [ ] Add reachable fallback destinations.
+- [ ] Add local enemy separation.
+- [ ] Add nearby direct-pursuit queries.
+- [ ] Add enemy climb link execution.
+- [ ] Add enemy landing recovery.
+- [ ] Add enemy rising link execution.
+- [ ] Keep animated traversal synchronized with collider movement.
+- [ ] Add zombie idle states.
+- [ ] Add zombie walking states.
+- [ ] Add zombie running states.
+- [ ] Add zombie pursuit states.
+- [ ] Add zombie attack windup states.
+- [ ] Add zombie attack impact timing.
+- [ ] Add zombie attack recovery states.
+- [ ] Cancel attacks after target loss.
+- [ ] Cancel attacks after attacker death.
+- [ ] Add barrier-seeking zombie behavior.
+- [ ] Add barrier damage animation timing.
+- [ ] Add zombie entry through broken barriers.
+- [ ] Add crawling zombie movement.
+- [ ] Add limb damage thresholds.
+- [ ] Convert eligible damaged zombies into crawlers.
+- [ ] Add headless zombie behavior.
+- [ ] Add zombie stagger reactions.
+- [ ] Add zombie burn status.
+- [ ] Add zombie freeze status.
+- [ ] Add zombie electrical stun status.
+- [ ] Add zombie distraction targeting.
+- [ ] Add source-defined Zombie Blood target suppression.
+- [ ] Add enemy corpse entities.
+- [ ] Remove corpses from living population counts.
+- [ ] Add corpse cleanup scheduling.
+- [ ] Add enemy gore effects.
+- [ ] Add source-defined enemy model selection.
+- [ ] Replace placeholder round health scaling with BO2 profile values.
+- [ ] Replace placeholder round population scaling with BO2 profile values.
+- [ ] Add round-dependent zombie speed selection.
+- [ ] Add round-dependent spawn pacing.
+- [ ] Add accessible-zone spawn weighting.
+- [ ] Add spawn admission collision checks.
+- [ ] Add offscreen spawn preference.
+- [ ] Preserve pending budget after failed admission.
+- [ ] Track ordinary living population separately.
+- [ ] Track special living population separately.
+- [ ] Track generator defender population separately.
+- [ ] Add population admission caps.
+- [ ] Add source-defined zombie replacement rules.
+- [ ] Preserve replacement enemy health.
+- [ ] Add round transition announcements.
+- [ ] Add round intermission state.
+- [ ] Add quest-controlled round holds.
+- [ ] Release round holds after quest progression.
+- [ ] Add first Panzersoldat round scheduling.
+- [ ] Add recurring Panzersoldat round scheduling.
+- [ ] Add generator attack wave scheduling.
+- [ ] Separate generator attack waves from normal round budgets.
+- [ ] Add Original difficulty profiles.
+- [ ] Add Easy difficulty profiles.
+- [ ] Disable original unsupported quests on Easy difficulty.
+- [ ] Add Panzersoldat locomotion behavior.
+- [ ] Add Panzersoldat landing behavior.
+- [ ] Add Panzersoldat pursuit behavior.
+- [ ] Add Panzersoldat armored body regions.
+- [ ] Add Panzersoldat faceplate hit regions.
+- [ ] Add Panzersoldat exposed head damage.
+- [ ] Add Panzersoldat armor break transitions.
+- [ ] Add Panzersoldat flamethrower windup.
+- [ ] Add Panzersoldat flame damage volumes.
+- [ ] Add Panzersoldat flame cooldown.
+- [ ] Add Panzersoldat claw targeting.
+- [ ] Add Panzersoldat claw projectile movement.
+- [ ] Add Panzersoldat player capture.
+- [ ] Add Panzersoldat captured-player pulling.
+- [ ] Add Panzersoldat claw release from damage.
+- [ ] Release captured players after Panzersoldat death.
+- [ ] Add Panzersoldat melee attacks.
+- [ ] Add Panzersoldat death rewards.
+- [ ] Add Panzersoldat staff-part drops.
+- [ ] Add Panzersoldat jetpack effects.
+- [ ] Add Panzersoldat flame effects.
+- [ ] Add Panzersoldat claw effects.
+- [ ] Add generator defender spawning.
+- [ ] Add generator defender capture-zone targeting.
+- [ ] Add generator defender attack behavior.
+- [ ] Add generator defender death cleanup.
+- [ ] Add generator attacker route selection.
+- [ ] Add generator attacker shutdown behavior.
+- [ ] Add generator attacker progression between generators.
+- [ ] Add purchasable door entities.
+- [ ] Bind door prices to original placements.
+- [ ] Add door opening animations.
+- [ ] Remove purchased door blocking colliders.
+- [ ] Unlock connected zones after door purchases.
+- [ ] Add door-specific opening sounds.
+- [ ] Add repairable barrier entities.
+- [ ] Add individual barrier plank states.
+- [ ] Add barrier plank destruction.
+- [ ] Add barrier plank replacement.
+- [ ] Add timed barrier repair interactions.
+- [ ] Cancel barrier repair after player interruption.
+- [ ] Stop barrier repair when all planks exist.
+- [ ] Add barrier-specific repair sounds.
+- [ ] Add unopened-zone player access restrictions.
+- [ ] Replace static duplicates of dynamic gameplay objects.
+- [ ] Add generator inactive states.
+- [ ] Add generator activation purchases.
+- [ ] Add generator capture progress.
+- [ ] Add generator capture defender admission.
+- [ ] Pause capture when players leave capture volumes.
+- [ ] Add generator contestation state.
+- [ ] Resume uncontested generator capture.
+- [ ] Add generator capture completion rewards.
+- [ ] Add generator active states.
+- [ ] Add generator shutdown progress.
+- [ ] Add generator disabled states.
+- [ ] Add generator recapture interactions.
+- [ ] Add local power availability.
+- [ ] Connect perk machines to local generator power.
+- [ ] Connect wall interactions to source-defined power requirements.
+- [ ] Require all six generators for Pack-a-Punch availability.
+- [ ] Disable Pack-a-Punch after generator shutdown.
+- [ ] Add generator attack notifications.
+- [ ] Add generator attack wave completion rewards.
+- [ ] Add generator one initial reward behavior.
+- [ ] Add generator six Fire Staff part reward.
+- [ ] Bind generator one to its original placement.
+- [ ] Bind generator two to its original placement.
+- [ ] Bind generator three to its original placement.
+- [ ] Bind generator four to its original placement.
+- [ ] Bind generator five to its original placement.
+- [ ] Bind generator six to its original placement.
+- [ ] Add generator startup animations.
+- [ ] Add generator running animations.
+- [ ] Add generator shutdown animations.
+- [ ] Add generator capture sound loops.
+- [ ] Add owned perk state.
+- [ ] Add default perk purchase limits.
+- [ ] Add earned perk purchase slots.
+- [ ] Preserve source-defined earned slot persistence.
+- [ ] Add perk purchase interactions.
+- [ ] Reject duplicate perk ownership.
+- [ ] Add perk drinking action timing.
+- [ ] Activate purchased perks after drinking.
+- [ ] Add Juggernog health modifiers.
+- [ ] Add Quick Revive solo purchase pricing.
+- [ ] Add Quick Revive solo revival effects.
+- [ ] Add Speed Cola reload modifiers.
+- [ ] Add Stamin-Up sprint modifiers.
+- [ ] Add Mule Kick inventory expansion.
+- [ ] Remove Mule Kick's assigned weapon after perk loss.
+- [ ] Add Double Tap firing-rate modifiers.
+- [ ] Add Double Tap eligible projectile duplication.
+- [ ] Add Deadshot hip-fire spread modifiers.
+- [ ] Add Deadshot source-defined mouse behavior.
+- [ ] Add PhD Flopper explosive protection.
+- [ ] Add PhD Flopper fall protection.
+- [ ] Add PhD Flopper dive explosions.
+- [ ] Add Electric Cherry reload discharges.
+- [ ] Scale Electric Cherry discharges using remaining ammunition.
+- [ ] Add source-defined Electric Cherry discharge cooldown.
+- [ ] Add Wunderfizz active machine selection.
+- [ ] Add Wunderfizz generator power requirements.
+- [ ] Add Wunderfizz perk purchase rolls.
+- [ ] Add Wunderfizz source-defined perk weights.
+- [ ] Add Wunderfizz bottle presentation.
+- [ ] Add Wunderfizz bottle collection.
+- [ ] Add Wunderfizz bottle expiration.
+- [ ] Add Wunderfizz relocation.
+- [ ] Add Wunderfizz drinking animations.
+- [ ] Add perk machine powered presentation.
+- [ ] Add perk machine unpowered presentation.
+- [ ] Add source-defined powerup drop eligibility.
+- [ ] Add source-defined powerup drop probabilities.
+- [ ] Add powerup drop limits.
+- [ ] Add powerup spawn presentation.
+- [ ] Add powerup expiration timers.
+- [ ] Add powerup pickup collision.
+- [ ] Prevent duplicate powerup collection.
+- [ ] Add timed powerup effect state.
+- [ ] Add source-defined repeated pickup duration rules.
+- [ ] Add Nuke detonation behavior.
+- [ ] Add Nuke point rewards.
+- [ ] Add Insta-Kill damage behavior.
+- [ ] Add Double Points duration behavior.
+- [ ] Add Max Ammo reserve replenishment.
+- [ ] Add Max Ammo equipment replenishment.
+- [ ] Preserve BO2 magazine behavior during Max Ammo.
+- [ ] Add Fire Sale temporary box activation.
+- [ ] Add Fire Sale box pricing.
+- [ ] Restore normal box state after Fire Sale.
+- [ ] Add random perk bottle collection.
+- [ ] Add empty perk bottle slot rewards.
+- [ ] Add personal Blood Money rewards.
+- [ ] Add team Blood Money solo rewards.
+- [ ] Add Zombie Blood effect duration.
+- [ ] Add Zombie Blood visual treatment.
+- [ ] Add Zombie Blood player disguise presentation.
+- [ ] Reveal Zombie Blood hidden entities.
+- [ ] Hide restricted entities after Zombie Blood expires.
+- [ ] Restore enemy targeting after Zombie Blood expires.
+- [ ] Add powerup pickup announcements.
+- [ ] Add powerup expiration presentation.
+- [ ] Add wall weapon purchase placements.
+- [ ] Add wall weapon display models.
+- [ ] Add wall weapon ammunition purchases.
+- [ ] Add upgraded wall ammunition purchases.
+- [ ] Add source-defined wall ammunition prices.
+- [ ] Add wall weapon replacement selection.
+- [ ] Add wall weapon shared-ammunition handling.
+- [ ] Add Mystery Box initial placement selection.
+- [ ] Add Mystery Box purchase interaction.
+- [ ] Add Mystery Box weapon roll weights.
+- [ ] Exclude unavailable weapons from box rolls.
+- [ ] Exclude source-defined limited weapons from box rolls.
+- [ ] Add Mystery Box opening animation.
+- [ ] Add Mystery Box weapon cycling presentation.
+- [ ] Add Mystery Box take interaction.
+- [ ] Replace the selected inventory weapon after taking box rewards.
+- [ ] Add Mystery Box reward expiration.
+- [ ] Add Mystery Box teddy bear outcome.
+- [ ] Add Mystery Box relocation refunds.
+- [ ] Add Mystery Box relocation destination selection.
+- [ ] Add Mystery Box moving presentation.
+- [ ] Add Mystery Box location beam.
+- [ ] Add Pack-a-Punch purchase interaction.
+- [ ] Remove deposited weapons from active inventory.
+- [ ] Add Pack-a-Punch processing state.
+- [ ] Add Pack-a-Punch return presentation.
+- [ ] Add Pack-a-Punch weapon collection.
+- [ ] Add Pack-a-Punch return timeout.
+- [ ] Add Pack-a-Punch upgraded ammunition grants.
+- [ ] Add Pack-a-Punch repeated upgrade purchases.
+- [ ] Add Pack-a-Punch source-defined attachment rerolls.
+- [ ] Add Pack-a-Punch weapon replacement recovery.
+- [ ] Add Pack-a-Punch powered animations.
+- [ ] Add Thor's route definition.
+- [ ] Add Odin's route definition.
+- [ ] Add Freya's route definition.
+- [ ] Add independent robot pass schedules.
+- [ ] Add source-defined simultaneous robot passes.
+- [ ] Add robot route movement.
+- [ ] Add robot walking animation playback.
+- [ ] Add robot footprint damage volumes.
+- [ ] Synchronize robot stomp damage with foot contact.
+- [ ] Add robot stomp enemy damage.
+- [ ] Add robot stomp player damage.
+- [ ] Add Golden Helmet stomp protection.
+- [ ] Add source-defined robot foot eligibility.
+- [ ] Add shootable robot foot hatches.
+- [ ] Open eligible robot foot hatches after damage.
+- [ ] Add robot foot entry volumes.
+- [ ] Teleport eligible players into robot interiors.
+- [ ] Bind Thor's interior scene.
+- [ ] Bind Odin's interior scene.
+- [ ] Bind Freya's interior scene.
+- [ ] Add robot interior occupancy state.
+- [ ] Add robot evacuation timers.
+- [ ] Add robot evacuation interactions.
+- [ ] Teleport evacuated players to corresponding exit positions.
+- [ ] Clear robot occupancy after player death.
+- [ ] Add robot interior announcements.
+- [ ] Add robot interior quest buttons.
+- [ ] Add robot staff placement interactions.
+- [ ] Add robot Wind Staff part pickups.
+- [ ] Add robot pass audio.
+- [ ] Add robot stomp effects.
+- [ ] Add robot foot opening effects.
+- [ ] Add robot evacuation effects.
+- [ ] Add tank initial placement.
+- [ ] Add tank church-to-bunker route.
+- [ ] Add tank bunker-to-church route.
+- [ ] Add tank boarding collision.
+- [ ] Add tank route purchase interactions.
+- [ ] Add tank departure delay.
+- [ ] Add tank route movement.
+- [ ] Add tank rider support.
+- [ ] Add tank passenger exit behavior.
+- [ ] Add tank path crushing damage.
+- [ ] Add tank arrival states.
+- [ ] Add tank cooling-down states.
+- [ ] Add tank cooldown expiration.
+- [ ] Add tank return purchase interactions.
+- [ ] Add tank boarding prompts.
+- [ ] Add tank route sounds.
+- [ ] Add tank tread animation.
+- [ ] Add tank lightning-part jump access.
+- [ ] Add tank lightning-part pickup platforms.
+- [ ] Add weather cycle scheduling.
+- [ ] Add snow weather state.
+- [ ] Add rain weather state.
+- [ ] Add clear weather state.
+- [ ] Add weather transition presentation.
+- [ ] Add snowfall particles.
+- [ ] Add rainfall particles.
+- [ ] Add weather-specific ambient audio.
+- [ ] Connect weather state to digging loot selection.
+- [ ] Add shovel pickup placements.
+- [ ] Add shovel ownership state.
+- [ ] Add dig mound placements.
+- [ ] Add dig mound interaction availability.
+- [ ] Add dig mound depletion.
+- [ ] Add round-dependent dig mound respawning.
+- [ ] Add weather-dependent dig loot rolls.
+- [ ] Add dig weapon pickup presentation.
+- [ ] Add dig ammunition rewards.
+- [ ] Add dig point rewards.
+- [ ] Add dig grenade hazards.
+- [ ] Add dig zombie spawns.
+- [ ] Add dig powerup rewards.
+- [ ] Add zone-dependent Ice Staff dig eligibility.
+- [ ] Add source-defined Ice Staff dig selection.
+- [ ] Add Golden Shovel progression counters.
+- [ ] Add Golden Shovel acquisition.
+- [ ] Add Golden Shovel loot modifiers.
+- [ ] Add Golden Helmet dig rolls.
+- [ ] Add Golden Helmet ownership.
+- [ ] Add hidden perk dig placement selection.
+- [ ] Require Golden Shovel for hidden perk digs.
+- [ ] Require Zombie Blood for hidden perk dig visibility.
+- [ ] Add hidden perk dig collection.
+- [ ] Increment perk purchase limits from hidden digs.
+- [ ] Add digging animations.
+- [ ] Add digging sounds.
+- [ ] Add collectible part definitions.
+- [ ] Add collectible part placements.
+- [ ] Add source-defined randomized part locations.
+- [ ] Add part pickup interactions.
+- [ ] Add owned part inventory.
+- [ ] Add part pickup presentation.
+- [ ] Add crafting bench placements.
+- [ ] Add crafting recipe prerequisites.
+- [ ] Add crafting interaction progress.
+- [ ] Cancel interrupted crafting.
+- [ ] Consume recipe parts after crafting completes.
+- [ ] Add crafted equipment ownership.
+- [ ] Add crafted equipment pickup interactions.
+- [ ] Add crafted equipment replacement interactions.
+- [ ] Bind original bench-specific recipe availability.
+- [ ] Add crafting progress sounds.
+- [ ] Add crafting completion effects.
+- [ ] Add Zombie Shield part sets.
+- [ ] Add Zombie Shield recipe.
+- [ ] Add Zombie Shield held state.
+- [ ] Add Zombie Shield carried-back state.
+- [ ] Add Zombie Shield durability.
+- [ ] Block eligible rear attacks with carried shields.
+- [ ] Block eligible frontal attacks with held shields.
+- [ ] Add Zombie Shield melee attacks.
+- [ ] Add Zombie Shield deployment.
+- [ ] Add deployed shield collision.
+- [ ] Add deployed shield enemy targeting.
+- [ ] Add shield damaged model stages.
+- [ ] Break depleted shields.
+- [ ] Add shield replacement pickup.
+- [ ] Add Maxis Drone part sets.
+- [ ] Add Maxis Drone recipe.
+- [ ] Add Maxis Drone deployment.
+- [ ] Add Maxis Drone player following.
+- [ ] Add Maxis Drone target selection.
+- [ ] Add Maxis Drone firing.
+- [ ] Add Maxis Drone source-defined damage immunity.
+- [ ] Add Maxis Drone deployment duration.
+- [ ] Add Maxis Drone return behavior.
+- [ ] Add Maxis Drone bench recharge.
+- [ ] Add Maxis Drone pickup after recharge.
+- [ ] Add Maxis Drone upgraded state.
+- [ ] Add Maxis Drone collection of reward seals.
+- [ ] Add Maxis Drone quest destination overrides.
+- [ ] Add Maxis Drone flight animation.
+- [ ] Add Maxis Drone spatial audio.
+- [ ] Add gramophone pickup.
+- [ ] Add master record randomized placements.
+- [ ] Add elemental record randomized placements.
+- [ ] Add record inventory.
+- [ ] Add excavation gramophone placement.
+- [ ] Open excavation stairs after master record playback.
+- [ ] Add excavation stairs animation.
+- [ ] Add gramophone retrieval interactions.
+- [ ] Add Fire tunnel gramophone placement.
+- [ ] Add Ice tunnel gramophone placement.
+- [ ] Add Wind tunnel gramophone placement.
+- [ ] Add Lightning tunnel gramophone placement.
+- [ ] Add elemental record portal eligibility.
+- [ ] Add portal opening state.
+- [ ] Add portal opening animations.
+- [ ] Add portal entry interactions.
+- [ ] Add elemental destination mapping.
+- [ ] Add Crazy Place arrival positions.
+- [ ] Add Crazy Place return portals.
+- [ ] Add portal closing after gramophone retrieval.
+- [ ] Add Crazy Place barrier definitions.
+- [ ] Add Crazy Place barrier movement scheduling.
+- [ ] Add Crazy Place barrier collision updates.
+- [ ] Add Crazy Place barrier navigation updates.
+- [ ] Add Crazy Place barrier movement sounds.
+- [ ] Add Fire crystal pickup.
+- [ ] Add Ice crystal pickup.
+- [ ] Add Wind crystal pickup.
+- [ ] Add Lightning crystal pickup.
+- [ ] Add Fire Staff plane-part spawning.
+- [ ] Add Fire Staff plane damage handling.
+- [ ] Add Fire Staff plane crash presentation.
+- [ ] Add Fire Staff generator-part pickup.
+- [ ] Add Fire Staff Panzer-part pickup.
+- [ ] Add Fire Staff recipe.
+- [ ] Add Fire Staff crafting pedestal.
+- [ ] Add Fire Staff inventory ownership.
+- [ ] Add Ice Staff northern dig-part pickup.
+- [ ] Add Ice Staff central dig-part pickup.
+- [ ] Add Ice Staff southern dig-part pickup.
+- [ ] Add Ice Staff recipe.
+- [ ] Add Ice Staff crafting pedestal.
+- [ ] Add Ice Staff inventory ownership.
+- [ ] Add Wind Staff Thor-part pickup.
+- [ ] Add Wind Staff Odin-part pickup.
+- [ ] Add Wind Staff Freya-part pickup.
+- [ ] Add Wind Staff recipe.
+- [ ] Add Wind Staff crafting pedestal.
+- [ ] Add Wind Staff inventory ownership.
+- [ ] Add Lightning Staff outbound tank-part pickup.
+- [ ] Add Lightning Staff first return tank-part pickup.
+- [ ] Add Lightning Staff second return tank-part pickup.
+- [ ] Add Lightning Staff recipe.
+- [ ] Add Lightning Staff crafting pedestal.
+- [ ] Add Lightning Staff inventory ownership.
+- [ ] Enforce source-defined single-staff carrying restrictions.
+- [ ] Add staff pedestal storage.
+- [ ] Add staff pedestal retrieval.
+- [ ] Add source-defined staff exchange behavior.
+- [ ] Add Fire Staff cauldron soul charging.
+- [ ] Add Fire Staff cauldron completion state.
+- [ ] Add Fire Staff church symbol selection.
+- [ ] Add Fire Staff torch sequence inputs.
+- [ ] Add Fire Staff torch sequence rejection.
+- [ ] Add Fire Staff torch puzzle completion.
+- [ ] Add Ice Staff symbol sequence generation.
+- [ ] Add Ice Staff symbol shooting inputs.
+- [ ] Add Ice Staff symbol sequence rejection.
+- [ ] Add Ice Staff symbol puzzle completion.
+- [ ] Add Ice Staff gravestone freezing.
+- [ ] Add Ice Staff frozen gravestone destruction.
+- [ ] Add Ice Staff gravestone puzzle completion.
+- [ ] Add Wind Staff ring orientations.
+- [ ] Add Wind Staff ring shooting rotation.
+- [ ] Add Wind Staff ring puzzle completion.
+- [ ] Add Wind Staff smoke sphere redirection.
+- [ ] Add Wind Staff smoke puzzle completion.
+- [ ] Add Lightning Staff piano sequence inputs.
+- [ ] Add Lightning Staff piano sequence rejection.
+- [ ] Add Lightning Staff piano puzzle completion.
+- [ ] Add Lightning Staff electrical panel orientations.
+- [ ] Add Lightning Staff electrical panel interactions.
+- [ ] Add Lightning Staff panel puzzle completion.
+- [ ] Add excavation ring orientations.
+- [ ] Add excavation ring lever interactions.
+- [ ] Add elemental excavation alignment requirements.
+- [ ] Add Fire excavation orb shooting.
+- [ ] Add Ice excavation orb shooting.
+- [ ] Add Wind excavation orb shooting.
+- [ ] Add Lightning excavation orb shooting.
+- [ ] Add elemental orb travel presentation.
+- [ ] Add staff upgrade pedestal insertion.
+- [ ] Add staff upgrade soul collection.
+- [ ] Add staff upgrade charging completion.
+- [ ] Add upgraded staff retrieval.
+- [ ] Add staff upgrade completion announcements.
+- [ ] Add Fire Staff ammunition definitions.
+- [ ] Add Fire Staff projectile attacks.
+- [ ] Add Fire Staff impact burning.
+- [ ] Add Fire Staff charge levels.
+- [ ] Add Fire Staff charged area attacks.
+- [ ] Add Kagutsuchi's Blood weapon definition.
+- [ ] Add Ice Staff ammunition definitions.
+- [ ] Add Ice Staff projectile attacks.
+- [ ] Add Ice Staff freezing duration.
+- [ ] Add Ice Staff frozen enemy shattering.
+- [ ] Add Ice Staff charge levels.
+- [ ] Add Ice Staff charged blizzards.
+- [ ] Add Ull's Arrow weapon definition.
+- [ ] Add Wind Staff ammunition definitions.
+- [ ] Add Wind Staff projectile attacks.
+- [ ] Add Wind Staff enemy knockback.
+- [ ] Add Wind Staff charge levels.
+- [ ] Add Wind Staff charged tornadoes.
+- [ ] Add Boreas' Fury weapon definition.
+- [ ] Add Lightning Staff ammunition definitions.
+- [ ] Add Lightning Staff projectile bursts.
+- [ ] Add Lightning Staff chain damage.
+- [ ] Add Lightning Staff charge levels.
+- [ ] Add Lightning Staff charged electrical fields.
+- [ ] Add Kimat's Bite weapon definition.
+- [ ] Add staff charge accumulation.
+- [ ] Add staff charge ammunition costs.
+- [ ] Cancel staff charging during weapon switches.
+- [ ] Add staff alternate-mode switching.
+- [ ] Add Sekhmet's Vigor projectile attacks.
+- [ ] Add Sekhmet's Vigor ammunition state.
+- [ ] Add source-defined staff melee damage.
+- [ ] Add elemental staff muzzle effects.
+- [ ] Add elemental staff impact effects.
+- [ ] Add elemental staff charged effects.
+- [ ] Add elemental staff firing audio.
+- [ ] Add Rituals challenge state.
+- [ ] Add Rituals challenge chest placements.
+- [ ] Add generator activation challenge progress.
+- [ ] Add headshot challenge progress.
+- [ ] Add spending challenge progress.
+- [ ] Add soul chest challenge progress.
+- [ ] Add challenge reward eligibility.
+- [ ] Add challenge reward claiming.
+- [ ] Prevent duplicate challenge reward claims.
+- [ ] Add source-defined headshot challenge weapon rewards.
+- [ ] Add source-defined generator challenge Max Ammo rewards.
+- [ ] Add source-defined spending challenge Double Tap rewards.
+- [ ] Allow source-defined reward perks beyond purchase limits.
+- [ ] Add four soul chest placements.
+- [ ] Add soul chest collection volumes.
+- [ ] Add soul chest enemy death eligibility.
+- [ ] Add soul chest charge counters.
+- [ ] Add soul chest closure after completion.
+- [ ] Reset unfinished soul chests after robot stomps.
+- [ ] Add One Inch Punch reward pickup.
+- [ ] Add One Inch Punch melee behavior.
+- [ ] Add tablet pickup placements.
+- [ ] Add tablet ownership state.
+- [ ] Add tablet church basin placement.
+- [ ] Add tablet cleansing melee soul collection.
+- [ ] Add cleansed tablet pickup.
+- [ ] Contaminate carried tablets after touching mud.
+- [ ] Add tablet return placement.
+- [ ] Add returned tablet melee soul collection.
+- [ ] Add G-Strike reward claiming.
+- [ ] Add G-Strike equipment replacement.
+- [ ] Add G-Strike beacon throwing.
+- [ ] Add G-Strike zombie attraction.
+- [ ] Add G-Strike robot bombardment.
+- [ ] Add G-Strike equipment replenishment.
+- [ ] Add Iron Fists melee weapon definition.
+- [ ] Add elemental Iron Fists variants.
+- [ ] Add main quest stage state.
+- [ ] Unlock main quest progression after all staff upgrades.
+- [ ] Unlock source-defined staff placement pedestals.
+- [ ] Add Ice Staff placement inside Freya.
+- [ ] Add Wind Staff placement inside Odin.
+- [ ] Add Lightning Staff placement inside Thor.
+- [ ] Add Fire Staff placement inside excavation.
+- [ ] Complete Ascend From Darkness after correct placements.
+- [ ] Return deposited staffs to excavation pedestals.
+- [ ] Enable source-defined quest robot passes.
+- [ ] Add robot button strike authorization.
+- [ ] Add strike authorization timeout.
+- [ ] Add seal-targeted G-Strike detection.
+- [ ] Break the seal after an authorized strike.
+- [ ] Add broken seal presentation.
+- [ ] Add Maxis Drone deployment into the broken seal.
+- [ ] Spawn the solo quest Panzersoldat encounter.
+- [ ] Complete the encounter after required Panzersoldat deaths.
+- [ ] Remove the drone during its quest disappearance.
+- [ ] Spawn the quest plane after encounter completion.
+- [ ] Restrict quest plane visibility to Zombie Blood.
+- [ ] Add quest plane destruction.
+- [ ] Spawn the quest zombie after plane destruction.
+- [ ] Restrict quest zombie visibility to Zombie Blood.
+- [ ] Add quest zombie circular movement.
+- [ ] Add quest zombie drone drop.
+- [ ] Add quest drone recovery.
+- [ ] Spawn glowing-hand excavation zombies.
+- [ ] Require eligible melee kills for the fist challenge.
+- [ ] Add fist challenge soul accumulation.
+- [ ] Add upgraded fist reward pickup.
+- [ ] Enable final Crazy Place staff placements.
+- [ ] Collect finale souls from eligible Crazy Place deaths.
+- [ ] Open the final portal after required souls.
+- [ ] Stop Crazy Place barriers after finale completion.
+- [ ] Add final Maxis Drone portal deployment.
+- [ ] Add final portal entry interaction.
+- [ ] Transition final portal entry into the ending.
+- [ ] Prevent main quest progression from invalid interactions.
+- [ ] Retire active quest timers after stage transitions.
+- [ ] Add source-defined stage completion announcements.
+- [ ] Add Archangel rock interaction placements.
+- [ ] Track activated Archangel rocks.
+- [ ] Play Archangel after all required rock interactions.
+- [ ] Add Shepherd of Fire audio-log interaction placements.
+- [ ] Track activated Shepherd of Fire audio logs.
+- [ ] Play Shepherd of Fire after required log interactions.
+- [ ] Add Aether generator-floor interaction sequence.
+- [ ] Play Aether after the correct floor sequence.
+- [ ] Add Samantha doll activation prerequisites.
+- [ ] Add Samantha doll timed shooting sequence.
+- [ ] Add Samantha doll reward spawning.
+- [ ] Play Samantha's song after completing its sequence.
+- [ ] Add free Zombie Blood fire-extinguishing interactions.
+- [ ] Spawn free Zombie Blood after required fires disappear.
+- [ ] Add free Zombie Blood reward cooldown.
+- [ ] Add free Magna Collider drone-seal progress.
+- [ ] Spawn free Magna Collider after collecting required seals.
+- [ ] Add free Magna Collider pickup interaction.
+- [ ] Add spatial audio listener to the game camera.
+- [ ] Add reusable positional sound emitters.
+- [ ] Add sound distance attenuation.
+- [ ] Add source-defined sound pitch variation.
+- [ ] Add surface-specific player footsteps.
+- [ ] Add zombie footstep sounds.
+- [ ] Add zombie vocalizations.
+- [ ] Add Panzersoldat vocalizations.
+- [ ] Add generator defender vocalizations.
+- [ ] Add weapon-specific shot sound bindings.
+- [ ] Add weapon-specific reload sound bindings.
+- [ ] Add equipment-specific sound bindings.
+- [ ] Add perk machine music loops.
+- [ ] Add box music playback.
+- [ ] Add portal spatial sounds.
+- [ ] Add tank engine sound following.
+- [ ] Add robot interior sound ambience.
+- [ ] Add character-specific dialogue banks.
+- [ ] Add character dialogue event selection.
+- [ ] Add dialogue repetition cooldowns.
+- [ ] Add dialogue playback priorities.
+- [ ] Add Samantha round announcements.
+- [ ] Add Samantha powerup announcements.
+- [ ] Add Samantha quest announcements.
+- [ ] Add source-defined ambient emitters.
+- [ ] Add combat music triggers.
+- [ ] Add music channel transitions.
+- [ ] Bound concurrent sound playback.
+- [ ] Stop looping emitters after their owners disappear.
+- [ ] Add subtitle event presentation.
+- [ ] Add subtitle visibility settings.
+- [ ] Replace temporary HUD text with original-style UI.
+- [ ] Remove the visible numeric health display.
+- [ ] Add player damage vignette.
+- [ ] Add low-health audio feedback.
+- [ ] Add original round indicator.
+- [ ] Add original points indicator.
+- [ ] Add animated point award feedback.
+- [ ] Add original magazine ammunition indicator.
+- [ ] Add original reserve ammunition indicator.
+- [ ] Add original weapon name indicator.
+- [ ] Add original crosshair behavior.
+- [ ] Add ADS crosshair suppression.
+- [ ] Add reload state feedback.
+- [ ] Add interaction prompt presentation.
+- [ ] Add generator capture progress presentation.
+- [ ] Add generator attack indicator presentation.
+- [ ] Add original active perk icons.
+- [ ] Add original timed powerup presentation.
+- [ ] Add original lethal equipment indicator.
+- [ ] Add original tactical equipment indicator.
+- [ ] Add original buildable equipment indicator.
+- [ ] Add original staff charge indicator.
+- [ ] Add original shovel indicator.
+- [ ] Add original Golden Helmet indicator.
+- [ ] Add original parts inventory display.
+- [ ] Add original record inventory display.
+- [ ] Add original generator status display.
+- [ ] Add original staff upgrade indicators.
+- [ ] Add original challenge progress display.
+- [ ] Add original quest progress indicators.
+- [ ] Add scoreboard round statistics.
+- [ ] Add scoreboard kill statistics.
+- [ ] Add scoreboard headshot statistics.
+- [ ] Add scoreboard down statistics.
+- [ ] Add scoreboard score statistics.
+- [ ] Add scoreboard input presentation.
+- [ ] Scale HUD layouts for supported resolutions.
+- [ ] Add solo main menu state.
+- [ ] Add solo session start action.
+- [ ] Add Original difficulty menu selection.
+- [ ] Add Easy difficulty menu selection.
+- [ ] Add loading presentation state.
+- [ ] Add loading cinematic playback.
+- [ ] Add loading cinematic skip input.
+- [ ] Add pause menu buttons.
+- [ ] Add resume menu action.
+- [ ] Add restart menu action.
+- [ ] Add quit-to-menu action.
+- [ ] Add exit-application action.
+- [ ] Add game-over scoreboard presentation.
+- [ ] Add game-over restart action.
+- [ ] Add ending presentation state.
+- [ ] Add ending image-sequence playback.
+- [ ] Add ending audio synchronization.
+- [ ] Add ending skip input.
+- [ ] Add bounded cinematic frame preloading.
+- [ ] Release cinematic frames after playback.
+- [ ] Route ending completion into the final scoreboard.
+- [ ] Add settings menu navigation.
+- [ ] Add mouse sensitivity controls.
+- [ ] Add ADS sensitivity controls.
+- [ ] Add field-of-view controls.
+- [ ] Add key remapping controls.
+- [ ] Add mouse remapping controls.
+- [ ] Add fullscreen controls.
+- [ ] Add resolution controls.
+- [ ] Add VSync controls.
+- [ ] Add frame limit controls.
+- [ ] Add anti-aliasing controls.
+- [ ] Add supported graphics quality controls.
+- [ ] Add master volume controls.
+- [ ] Add effects volume controls.
+- [ ] Add dialogue volume controls.
+- [ ] Add music volume controls.
+- [ ] Persist settings outside the runtime pack.
+- [ ] Load persisted settings at application startup.
+- [ ] Restore defaults from settings menus.
+- [ ] Apply graphics settings through Bevy resources.
+- [ ] Apply audio settings to active playback.
+- [ ] Add visible content loading error recovery.
+- [ ] Package newly referenced runtime asset types.
+- [ ] Copy prepared cinematic dependencies during packaging.
+- [ ] Copy prepared audio dependencies during packaging.
+- [ ] Preserve executable-relative discovery for expanded runtime packs.
+- [ ] Adapt the existing window driver to the new gameplay interfaces.
