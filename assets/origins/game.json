@@ -16166,6 +16166,23 @@
           "lower_seconds": 0.9,
           "activation_delay": 0.5
         }
+      },
+      {
+        "id": "perk.stamin_up",
+        "name": "Stamin-Up",
+        "price": 2000,
+        "icon": null,
+        "presentation": "prop.zombie_vending_marathon_on",
+        "sprint": {
+          "duration_scale": 2.0,
+          "speed_scale": 1.07
+        },
+        "drink": {
+          "bottle": "weapon.zombie_perk_bottle_marathon",
+          "seconds": 2.8,
+          "lower_seconds": 0.9,
+          "activation_delay": 0.5
+        }
       }
     ],
     "powerups": [],
@@ -16460,6 +16477,17 @@
           -83.5152
         ],
         "yaw": 1.1924874847788657e-08,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.stamin_up",
+        "definition": "perk.stamin_up",
+        "position": [
+          -59.817762,
+          6.096,
+          0.9230360000000001
+        ],
+        "yaw": 3.9269908169872414,
         "zone": "zone.start"
       }
     ],
@@ -16791,6 +16819,17 @@
         "action": {
           "kind": "perk",
           "perk": "perk.speed_cola"
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.stamin_up",
+        "placement": "placement.stamin_up",
+        "action": {
+          "kind": "perk",
+          "perk": "perk.stamin_up"
         },
         "reach": 2.0,
         "hold_seconds": 0.0,
@@ -20778,6 +20817,12 @@
       {
         "id": "prop.zombie_vending_sleight_on",
         "scene": "props/zombie_vending_sleight_on_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "prop.zombie_vending_marathon_on",
+        "scene": "props/zombie_vending_marathon_on_lod0.gltf#Scene0",
         "animations": [],
         "sounds": []
       }
@@ -127857,7 +127902,11 @@
       50,
       10,
       80
-    ]
+    ],
+    "sprint_seconds": 4.0,
+    "sprint_minimum": 0.25,
+    "sprint_recovery_rate": 1.0,
+    "sprint_recovery_delay": 0.0
   },
   "rounds": {
     "health_start": 150,

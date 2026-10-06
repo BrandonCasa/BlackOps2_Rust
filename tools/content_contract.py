@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale"} if table == "perks" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint"} if table == "perks" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -241,6 +241,12 @@ def validate_content(content, require):
                     require(abs(sum(x*x for x in m["ads_rotation"]) - 1) < 0.002, "unnormalized ADS rotation")
                     number(m["burst_delay"])
             elif table == "perks":
+                if row.get("sprint") is not None:
+                    sprint = row["sprint"]
+                    require(isinstance(sprint, dict) and set(sprint) == {"duration_scale", "speed_scale"}, "invalid perk sprint fields")
+                    for value in sprint.values():
+                        number(value, positive=True)
+                        require(1 <= value <= 4, "invalid perk sprint scale")
                 if row.get("reload_duration_scale") is not None:
                     number(row["reload_duration_scale"], positive=True)
                     require(row["reload_duration_scale"] <= 1, "perk reload scale exceeds one")

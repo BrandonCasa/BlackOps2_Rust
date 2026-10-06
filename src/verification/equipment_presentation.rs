@@ -33,6 +33,7 @@ fn capture(
         || !(verification.solo_revive
             || verification.perk_health
             || verification.speed_cola
+            || verification.stamin_up
             || verification.grenades
             || verification.semtex
             || verification.monkeys

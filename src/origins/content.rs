@@ -318,11 +318,21 @@ pub struct PerkDefinition {
     pub maximum_health: Option<u32>,
     #[serde(default)]
     pub reload_duration_scale: Option<f32>,
+    #[serde(default)]
+    pub sprint: Option<PerkSprintDefinition>,
 }
 impl PerkDefinition {
     pub fn has_supported_effect(&self) -> bool {
-        self.maximum_health.is_some() || self.reload_duration_scale.is_some()
+        self.maximum_health.is_some()
+            || self.reload_duration_scale.is_some()
+            || self.sprint.is_some()
     }
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PerkSprintDefinition {
+    pub duration_scale: f32,
+    pub speed_scale: f32,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -849,6 +859,14 @@ impl ContentCatalog {
             }
         }
         for v in &self.perks {
+            valid(
+                v.sprint.as_ref().is_none_or(|p| {
+                    [p.duration_scale, p.speed_scale]
+                        .into_iter()
+                        .all(|v| v.is_finite() && (1. ..=4.).contains(&v))
+                }),
+                "Invalid perk sprint modifiers",
+            )?;
             valid(
                 v.reload_duration_scale
                     .is_none_or(|v| v.is_finite() && v > 0. && v <= 1.),

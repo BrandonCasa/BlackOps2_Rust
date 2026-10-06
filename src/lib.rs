@@ -13,6 +13,7 @@ pub mod interactions;
 pub mod life;
 pub mod lures;
 pub mod mines;
+pub mod movement;
 pub mod origins;
 pub mod perks;
 pub mod player;

@@ -32,6 +32,10 @@ pub struct GameDefinition {
 pub struct Tuning {
     pub walk_speed: f32,
     pub sprint_speed: f32,
+    pub sprint_seconds: f32,
+    pub sprint_minimum: f32,
+    pub sprint_recovery_rate: f32,
+    pub sprint_recovery_delay: f32,
     pub crouch_speed: f32,
     pub gravity: f32,
     pub jump_speed: f32,
@@ -58,6 +62,10 @@ impl Default for Tuning {
         Self {
             walk_speed: 4.8,
             sprint_speed: 7.2,
+            sprint_seconds: 4.,
+            sprint_minimum: 0.25,
+            sprint_recovery_rate: 1.,
+            sprint_recovery_delay: 0.,
             crouch_speed: 2.4,
             gravity: 20.,
             jump_speed: 6.,
@@ -162,6 +170,9 @@ impl GameDefinition {
         let values = [
             self.tuning.walk_speed,
             self.tuning.sprint_speed,
+            self.tuning.sprint_seconds,
+            self.tuning.sprint_minimum,
+            self.tuning.sprint_recovery_rate,
             self.tuning.crouch_speed,
             self.tuning.gravity,
             self.tuning.jump_speed,
@@ -188,6 +199,9 @@ impl GameDefinition {
                 .chain(self.survey_views.iter().flatten())
                 .all(|v| v.is_finite())
             || !values.iter().all(|v| v.is_finite() && *v > 0.)
+            || !self.tuning.sprint_recovery_delay.is_finite()
+            || self.tuning.sprint_recovery_delay < 0.
+            || self.tuning.sprint_minimum > self.tuning.sprint_seconds
             || self.tuning.standing_height <= 2. * self.tuning.radius
             || self.tuning.crouch_height <= 2. * self.tuning.radius
             || self.tuning.crouch_height > self.tuning.standing_height

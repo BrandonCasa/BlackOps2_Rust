@@ -151,8 +151,8 @@
 - [ ] Release cursor capture when menus open.
 - [ ] Add player movement acceleration.
 - [ ] Add player movement deceleration.
-- [ ] Add sprint stamina.
-- [ ] Add sprint stamina recovery.
+- [x] Add sprint stamina.
+- [x] Add sprint stamina recovery.
 - [x] Prevent sprinting during incompatible weapon actions.
 - [x] Apply weapon-specific movement speed modifiers.
 - [ ] Add prone capsule dimensions.
@@ -650,7 +650,7 @@
 - [x] Add Quick Revive solo purchase pricing.
 - [x] Add Quick Revive solo revival effects.
 - [x] Add Speed Cola reload modifiers.
-- [ ] Add Stamin-Up sprint modifiers.
+- [x] Add Stamin-Up sprint modifiers.
 - [ ] Add Mule Kick inventory expansion.
 - [ ] Remove Mule Kick's assigned weapon after perk loss.
 - [ ] Add Double Tap firing-rate modifiers.

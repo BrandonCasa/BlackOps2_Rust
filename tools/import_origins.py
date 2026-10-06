@@ -433,10 +433,15 @@ def validate_pack(root, receipt=None, exact=False):
     require(set(game) <= {"version", "scene", "collision_scene", "spawn", "yaw", "spawn_points",
                           "waypoints", "survey_views", "source_surfaces", "render_meshes",
                           "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health", "solo_revive"}, "unknown gameplay configuration")
-    require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "crouch_speed", "gravity",
+    require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "sprint_seconds", "sprint_minimum", "sprint_recovery_rate", "sprint_recovery_delay", "crouch_speed", "gravity",
         "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
         "mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
         "reload_seconds", "zombie_damage", "zombie_speed", "combat_points"}, "unknown gameplay tuning")
+    sprint_tuning = game.get("tuning", {})
+    for key, default in (("sprint_seconds", 4), ("sprint_minimum", 0.25), ("sprint_recovery_rate", 1), ("sprint_recovery_delay", 0)):
+        value = sprint_tuning.get(key, default)
+        require(type(value) in (int, float) and math.isfinite(value) and (value >= 0 if key == "sprint_recovery_delay" else value > 0), "invalid sprint tuning")
+    require(sprint_tuning.get("sprint_minimum", 0.25) <= sprint_tuning.get("sprint_seconds", 4), "sprint minimum exceeds capacity")
     points = game.get("tuning", {}).get("combat_points", [10, 50, 50, 10, 80])
     require(isinstance(points, list) and len(points) == 5 and all(type(v) is int and 0 <= v <= 2147483647 for v in points), "invalid combat point tuning")
     require(game.get("version") == 2, "unsupported gameplay version; expected 2, regenerate/import the pack")

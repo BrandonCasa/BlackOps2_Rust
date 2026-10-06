@@ -81,6 +81,7 @@ fn spawn_player(
             crouched: false,
         },
         capsule(definition.tuning.radius, height),
+        crate::movement::SprintState::new(definition.tuning.sprint_seconds),
         vitality,
         crate::player_health::Recovery::default(),
         crate::solo_revive::PerkInventory::default(),
@@ -141,6 +142,8 @@ pub fn move_player(
         &crate::weapons::WeaponInventory,
         &Vitality,
         Option<&crate::perks::PerkDrinking>,
+        &crate::solo_revive::PerkInventory,
+        &mut crate::movement::SprintState,
     )>,
     mut commands: Commands,
     slide: MoveAndSlide,
@@ -156,8 +159,17 @@ pub fn move_player(
         cycle_weapon: std::mem::take(&mut input.cycle_weapon),
         weapon_slot: input.weapon_slot.take(),
     };
-    let Ok((entity, mut player, mut transform, collider, inventory, vitality, drinking)) =
-        players.single_mut()
+    let Ok((
+        entity,
+        mut player,
+        mut transform,
+        collider,
+        inventory,
+        vitality,
+        drinking,
+        perks,
+        mut sprint,
+    )) = players.single_mut()
     else {
         return;
     };
@@ -232,19 +244,47 @@ pub fn move_player(
     player.grounded = (ground.is_some_and(|hit| hit.normal1.y > 0.65)
         || support.is_some_and(|hit| hit.normal.y > 0.65))
         && player.velocity.y <= 0.;
-    let speed = if downed {
-        definition.solo_revive.downed_speed
-    } else if player.crouched {
-        tuning.crouch_speed
-    } else if input.sprint
+    let (duration_scale, speed_scale) = definition
+        .content
+        .perks
+        .iter()
+        .filter(|p| perks.owned.contains(&p.id))
+        .filter_map(|p| p.sprint.as_ref())
+        .fold((1_f32, 1_f32), |(duration, speed), p| {
+            (duration.max(p.duration_scale), speed.max(p.speed_scale))
+        });
+    let eligible = !downed
+        && !player.crouched
         && drinking.is_none()
         && !input.ads
         && inventory.ads < 0.05
         && inventory.action == crate::weapons::WeaponAction::Ready
-    {
-        tuning.sprint_speed
+        && !matches!(
+            inventory.signal,
+            crate::weapons::WeaponSignal::Fire | crate::weapons::WeaponSignal::DryFire
+        )
+        && !actions.fire
+        && !actions.fire_held
+        && !actions.melee
+        && !actions.reload
+        && input.movement.y > 0.1;
+    sprint.update(
+        dt,
+        input.sprint,
+        eligible,
+        tuning.sprint_seconds * duration_scale,
+        tuning.sprint_minimum,
+        tuning.sprint_recovery_rate,
+        tuning.sprint_recovery_delay,
+    );
+    let speed = if downed {
+        definition.solo_revive.downed_speed
+    } else if player.crouched {
+        tuning.crouch_speed
+    } else if sprint.sprinting {
+        tuning.sprint_speed * speed_scale
     } else {
-        tuning.walk_speed
+        tuning.walk_speed * speed_scale
     } * inventory
         .definition(&definition.content.weapons)
         .map_or(1., |weapon| {
@@ -252,7 +292,7 @@ pub fn move_player(
                 + (weapon.mechanics.movement[1] - weapon.mechanics.movement[0]) * inventory.ads
         });
     let desired = Quat::from_rotation_y(player.yaw)
-        * Vec3::new(input.movement.x, 0., -input.movement.y)
+        * Vec3::new(input.movement.x, 0., -input.movement.y).clamp_length_max(1.)
         * speed;
     player.velocity.x = desired.x;
     player.velocity.z = desired.z;

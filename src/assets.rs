@@ -23,6 +23,7 @@ pub struct LaunchOptions {
     pub verify_solo_bleedout: bool,
     pub verify_perk_health: bool,
     pub verify_speed_cola: bool,
+    pub verify_stamin_up: bool,
     pub verify_hit_regions: bool,
     pub verify_grenades: bool,
     pub verify_semtex: bool,
@@ -48,6 +49,7 @@ impl LaunchOptions {
                 || argument == "--verify-solo-revive"
                 || argument == "--verify-perk-health"
                 || argument == "--verify-speed-cola"
+                || argument == "--verify-stamin-up"
                 || argument == "--verify-health"
                 || argument == "--verify-hit-regions"
                 || argument == "--verify-grenades"
@@ -66,6 +68,7 @@ impl LaunchOptions {
                     || argument == "--verify-solo-revive"
                     || argument == "--verify-perk-health"
                     || argument == "--verify-speed-cola"
+                    || argument == "--verify-stamin-up"
                     || argument == "--verify-health"
                     || argument == "--verify-hit-regions"
                     || argument == "--verify-grenades"
@@ -81,6 +84,7 @@ impl LaunchOptions {
                 result.verify_solo_bleedout = argument == "--verify-solo-bleedout";
                 result.verify_perk_health = argument == "--verify-perk-health";
                 result.verify_speed_cola = argument == "--verify-speed-cola";
+                result.verify_stamin_up = argument == "--verify-stamin-up";
                 result.verify_hit_regions = argument == "--verify-hit-regions";
                 result.verify_grenades = argument == "--verify-grenades";
                 result.verify_semtex = argument == "--verify-semtex";

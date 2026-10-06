@@ -23,6 +23,7 @@ mod pipelines;
 mod semtex;
 mod solo_revive;
 mod speed_cola;
+mod stamin_up;
 
 #[derive(Resource)]
 pub(crate) struct Verification {
@@ -50,6 +51,7 @@ pub(crate) struct Verification {
     solo_bleedout: bool,
     perk_health: bool,
     speed_cola: bool,
+    stamin_up: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -76,6 +78,9 @@ impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
+            if app.world().resource::<LaunchOptions>().verify_stamin_up {
+                stamin_up::install(app);
+            }
             if app.world().resource::<LaunchOptions>().verify_speed_cola {
                 speed_cola::install(app);
             }
@@ -163,6 +168,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             solo_bleedout: options.verify_solo_bleedout,
             perk_health: options.verify_perk_health,
             speed_cola: options.verify_speed_cola,
+            stamin_up: options.verify_stamin_up,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -206,7 +212,11 @@ pub(crate) fn drive(
     else {
         return;
     };
-    if verification.solo_revive || verification.perk_health || verification.speed_cola {
+    if verification.solo_revive
+        || verification.perk_health
+        || verification.speed_cola
+        || verification.stamin_up
+    {
         return;
     }
     if verification.stage != 0
@@ -485,7 +495,11 @@ fn check(
     let Some(mut verification) = verification else {
         return;
     };
-    if verification.solo_revive || verification.perk_health || verification.speed_cola {
+    if verification.solo_revive
+        || verification.perk_health
+        || verification.speed_cola
+        || verification.stamin_up
+    {
         return;
     }
     for receipt in &history.recent {
