@@ -39,7 +39,9 @@ use std::{
 };
 
 mod captured_material;
+mod captured_world;
 mod depth_atlas;
+mod frame_initialization;
 mod gpu_probe;
 mod interactive;
 mod material_probe;
@@ -71,6 +73,7 @@ Usage: bo2-geometry-viewer --synthetic --output <new-external-directory>
        bo2-geometry-viewer --captured-material <external-v2-scene.json> <external-fixture4462-directory> --output <new-external-directory>
        bo2-geometry-viewer --captured-translated <external-v2-scene.json> <external-fixture4462-directory> <external-shader-bank.json> --output <new-external-directory>
        bo2-geometry-viewer --captured-shadow <external-v2-scene.json> <external-fixture4633-directory> <external-shader-bank.json> --output <new-external-directory>
+       bo2-geometry-viewer --captured-world <scene.json> <frame.json> <shader-bank.json> <secondary.json> --output <new-external-directory>
 
 Finite offscreen GPU diagnostic of project-owned geometry snapshot v1.
 Source Z-up positions adapt to canonical Bevy Y-up: (x,y,z) -> (x,z,-y). Reads one
@@ -112,6 +115,13 @@ enum Action {
     Help,
     CheckGpu,
     MaterialSmoke,
+    CapturedWorld {
+        scene: OsString,
+        frame: OsString,
+        bank: OsString,
+        secondary: OsString,
+        output: OsString,
+    },
     CapturedMaterial {
         scene: OsString,
         fixture: OsString,
@@ -143,6 +153,26 @@ fn arguments(mut args: impl Iterator<Item = OsString>) -> Result<Action, ()> {
     }
     if first == "--material-smoke" && args.next().is_none() {
         return Ok(Action::MaterialSmoke);
+    }
+    if first == "--captured-world" {
+        let scene = args.next().ok_or(())?;
+        let frame = args.next().ok_or(())?;
+        let bank = args.next().ok_or(())?;
+        let secondary = args.next().ok_or(())?;
+        if args.next().ok_or(())? != "--output" {
+            return Err(());
+        }
+        let output = args.next().ok_or(())?;
+        if args.next().is_some() {
+            return Err(());
+        }
+        return Ok(Action::CapturedWorld {
+            scene,
+            frame,
+            bank,
+            secondary,
+            output,
+        });
     }
     if first == "--captured-material"
         || first == "--captured-translated"
@@ -236,6 +266,19 @@ fn main() -> ExitCode {
         Action::Help => writeln!(io::stdout().lock(), "{HELP}").map_err(|e| io_error("stdout", e)),
         Action::CheckGpu => check_gpu(),
         Action::MaterialSmoke => material_probe::run(),
+        Action::CapturedWorld {
+            scene,
+            frame,
+            bank,
+            secondary,
+            output,
+        } => captured_world::run(
+            Path::new(&scene),
+            Path::new(&frame),
+            Path::new(&bank),
+            Path::new(&secondary),
+            Path::new(&output),
+        ),
         Action::CapturedMaterial {
             scene,
             fixture,

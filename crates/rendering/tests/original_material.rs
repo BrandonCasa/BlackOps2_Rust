@@ -5,6 +5,7 @@ fn descriptor() -> OriginalMaterialDescriptor {
     let mut shaders = Assets::<Shader>::default();
     let shader = shaders.add(Shader::from_wgsl("", "synthetic"));
     OriginalMaterialDescriptor {
+        replay: None,
         vertex_shader: shader.clone(),
         fragment_shader: shader,
         vertex_entry: "main".into(),
@@ -26,6 +27,49 @@ fn descriptor() -> OriginalMaterialDescriptor {
             blend: None,
             color_writes: ColorWrites::ALL,
         },
+    }
+}
+
+#[test]
+fn native_float32_filtering_requires_enabled_device_feature() {
+    let mut images = Assets::<Image>::default();
+    let mut image = Image::default();
+    image.texture_descriptor.format = TextureFormat::R32Float;
+    image.data = Some(0.25f32.to_le_bytes().to_vec());
+    let image = images.add(image);
+    for required in [true, false] {
+        let mut d = descriptor();
+        d.bindings = vec![BindingSpec {
+            binding: 32,
+            visibility: ShaderStages::FRAGMENT,
+            kind: BindingKind::Texture {
+                dimension: TextureViewDimension::D2,
+                sample_type: TextureSampleType::Float {
+                    filterable: required,
+                },
+            },
+        }];
+        let material = OriginalMaterial::new(
+            d,
+            vec![OriginalResource::Image {
+                binding: 32,
+                image: image.clone(),
+            }],
+            &WgpuLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            material.validate_images(&images),
+            if required {
+                Err(OriginalMaterialError::WrongResource)
+            } else {
+                Ok(())
+            }
+        );
+        assert_eq!(
+            material.validate_images_with_features(&images, WgpuFeatures::FLOAT32_FILTERABLE),
+            Ok(())
+        );
     }
 }
 fn uniform(bytes: usize) -> OriginalResource {

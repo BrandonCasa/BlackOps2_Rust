@@ -178,6 +178,7 @@ mod tests {
             let fragment = world.resource_mut::<Assets<Shader>>().add(Shader::from_wgsl(
                 "@group(3) @binding(32) var source: texture_depth_2d; @fragment fn fragment(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> { let v=textureLoad(source, vec2<i32>(p.xy), 0); return vec4(v,v,v,1.0); }", "synthetic depth probe fragment"));
             let descriptor = OriginalMaterialDescriptor {
+                replay: None,
                 vertex_shader: vertex, fragment_shader: fragment,
                 vertex_entry: "vertex".into(), fragment_entry: "fragment".into(),
                 bindings: vec![BindingSpec { binding: 32, visibility: ShaderStages::FRAGMENT,

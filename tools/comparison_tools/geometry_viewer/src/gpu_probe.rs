@@ -92,7 +92,9 @@ pub fn render(
             output.format,
             None,
         ));
-    app.world_mut().spawn((
+    let native_frame =
+        app.is_plugin_added::<super::frame_initialization::FrameInitializationPlugin>();
+    let mut camera = app.world_mut().spawn((
         Camera3d::default(),
         Camera {
             clear_color: Color::BLACK.into(),
@@ -104,7 +106,11 @@ pub fn render(
         Tonemapping::None,
         DebandDither::Disabled,
         output.msaa,
+        bevy::render::view::NoIndirectDrawing,
     ));
+    if native_frame {
+        camera.insert(bevy::camera::CompositingSpace::Srgb);
+    }
     app.init_resource::<ProbeCapture>();
     let mut requested = false;
     for updates in 1..=600 {

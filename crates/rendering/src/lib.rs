@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 //! Diagnostic geometry integration with Bevy; original rendering is unestablished.
+pub mod captured_world;
 
 use bevy::{
     asset::RenderAssetUsages,

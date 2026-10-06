@@ -12,6 +12,7 @@ fn descriptor(bindings: Vec<BindingSpec>) -> OriginalMaterialDescriptor {
     let mut shaders = Assets::<Shader>::default();
     let shader = shaders.add(Shader::from_wgsl("", "synthetic"));
     OriginalMaterialDescriptor {
+        replay: None,
         vertex_shader: shader.clone(),
         fragment_shader: shader,
         vertex_entry: "main".into(),

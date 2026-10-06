@@ -75,8 +75,8 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
 
 ## Immediate implementation direction
 
-Appearance work is active on `codex/full-scene-materials`. The user authorized
-three concurrent asset, capture and rendering workers for this implementation.
+Appearance work is active on `codex/full-scene-materials`, with one delegated
+worker active at a time under the current sequential policy.
 All 6,469 surfaces, 280 materials and 56 technique sets are inventoried. All 262
 shared images and 1,080 material texture bindings resolve. All seven vertex formats
 and 449,721 corners are admitted; native semantic routing covers 177,318 enabled
@@ -105,9 +105,26 @@ The user requested committing and merging the current work on 2026-10-05.
 This integration records tested progress, not full-scene completion. Native GPU
 pipeline census passes all 1,404 references / 1,065 pairs with zero failures.
 Original captured draws cover 43 of 56 families; runtime globals, final post-processing,
-shadow fixture readiness and placement of 100 potential submodel surfaces remain
+runtime shadow generation and placement of 100 potential submodel surfaces remain
 unresolved. Full original scene traversal is unverified. Assets and captures remain
 external. See handoffs/main-materials-integration.md for integration checks.
+
+The user requested scene-wide original shader dispatch after reviewing the preview.
+The versioned captured-world loader admits 694 main-color draws / 1,248 source
+surfaces / 37 families from 4,031 explicit receipts; synthetic tests and actual
+external admission pass. Native resources and four initial color/depth samples
+remain external. The UV exporter correction preserves IEEE negative zero and
+subnormals in 1,630 corners. See [frame contract](handoffs/captured-world-frame.md).
+Bevy ordered world dispatch and per-sample attachment initialization pass a
+synthetic GPU ordering/occlusion check and the admitted 694-draw scene readback
+at 23 updates (1,212,338 pixels changed). All 1,113 shader handles are retained.
+See [integration](handoffs/captured-world-integration.md). Excluded interleaved
+draws leave black silhouettes; initial pixels include retained original content.
+Other families and runtime resource producers still prevent complete scene equivalence.
+Captured shadow response passes on 785 fully covered pixels with maximum error
+1/255 after a Bevy GPU float-to-depth upload; synthetic texel orientation also passes.
+See [depth upload](handoffs/depth-atlas-upload.md). This fixes captured atlas sampling,
+not runtime shadow generation or complete frame rendering.
 
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the

@@ -582,6 +582,7 @@ fn translated(
         return Err(DiagnosticError::Preservation);
     }
     let descriptor = OriginalMaterialDescriptor {
+        replay: None,
         vertex_shader,
         fragment_shader,
         vertex_entry: vs.declaration.entry_point.clone(),

@@ -226,6 +226,7 @@ pub fn translated_descriptor(
     }
     bindings.sort_by_key(|s| s.binding);
     let descriptor = OriginalMaterialDescriptor {
+        replay: None,
         vertex_shader,
         fragment_shader,
         vertex_entry: vertex.entry_point.clone(),
@@ -254,6 +255,7 @@ pub struct OriginalRasterState {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OriginalMaterialDescriptor {
+    pub replay: Option<OriginalReplayState>,
     pub vertex_shader: Handle<Shader>,
     pub fragment_shader: Handle<Shader>,
     pub vertex_entry: String,
@@ -262,9 +264,21 @@ pub struct OriginalMaterialDescriptor {
     pub attributes: Vec<VertexInput>,
     pub raster: OriginalRasterState,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OriginalReplayState {
+    pub depth_bias: i32,
+    pub slope_bias_bits: u32,
+    pub clamp_bits: u32,
+}
 impl OriginalMaterialDescriptor {
     pub fn validate(&self) -> Result<(), OriginalMaterialError> {
         use OriginalMaterialError as E;
+        if self.replay.as_ref().is_some_and(|r| {
+            !f32::from_bits(r.slope_bias_bits).is_finite()
+                || !f32::from_bits(r.clamp_bits).is_finite()
+        }) {
+            return Err(E::InvalidDescriptor);
+        }
         if !self.vertex_shader.is_strong()
             || !self.fragment_shader.is_strong()
             || self.bindings.len() > 64
@@ -450,6 +464,15 @@ impl OriginalMaterial {
     /// Call before insertion to reject incompatible images without a GPU
     /// validation panic. Missing images are errors; no engine fallback is used.
     pub fn validate_images(&self, images: &Assets<Image>) -> Result<(), OriginalMaterialError> {
+        self.validate_images_with_features(images, WgpuFeatures::empty())
+    }
+    /// Validation must use enabled device features, not adapter capabilities.
+    /// FLOAT32_FILTERABLE permits native linear R32_FLOAT sampled views.
+    pub fn validate_images_with_features(
+        &self,
+        images: &Assets<Image>,
+        features: WgpuFeatures,
+    ) -> Result<(), OriginalMaterialError> {
         for resource in &self.resources {
             if let OriginalResource::Image { binding, image } = resource {
                 let image = images
@@ -482,8 +505,28 @@ impl OriginalMaterial {
                         TextureDimension::D2 => TextureViewDimension::D2,
                         TextureDimension::D3 => TextureViewDimension::D3,
                     });
-                let actual_sample = image.texture_descriptor.format.sample_type(None, None);
-                if dimension != actual_dimension || actual_sample != Some(sample_type) {
+                let view_format = image
+                    .texture_view_descriptor
+                    .as_ref()
+                    .and_then(|d| d.format)
+                    .unwrap_or(image.texture_descriptor.format);
+                let actual_sample = view_format.sample_type(None, Some(features));
+                let compatible = match (actual_sample, sample_type) {
+                    (
+                        Some(TextureSampleType::Float {
+                            filterable: available,
+                        }),
+                        TextureSampleType::Float {
+                            filterable: required,
+                        },
+                    ) => !required || available,
+                    (Some(actual), required) => actual == required,
+                    _ => false,
+                };
+                if dimension != actual_dimension
+                    || !compatible
+                    || image.texture_descriptor.sample_count != 1
+                {
                     return Err(OriginalMaterialError::WrongResource);
                 }
             }
@@ -612,7 +655,7 @@ impl Material for OriginalMaterial {
         false
     }
     fn alpha_mode(&self) -> AlphaMode {
-        if self.descriptor.raster.blend.is_some() {
+        if self.descriptor.replay.is_some() || self.descriptor.raster.blend.is_some() {
             AlphaMode::Blend
         } else {
             AlphaMode::Opaque
@@ -640,6 +683,9 @@ impl Material for OriginalMaterial {
             fragment.entry_point = Some(spec.fragment_entry.clone().into());
             fragment.shader_defs.clear();
             for target in fragment.targets.iter_mut().flatten() {
+                if spec.replay.is_some() {
+                    target.format = TextureFormat::Rgba8Unorm;
+                }
                 target.blend = spec.raster.blend;
                 target.write_mask = spec.raster.color_writes;
             }
@@ -649,6 +695,17 @@ impl Material for OriginalMaterial {
         if let Some(depth) = &mut descriptor.depth_stencil {
             depth.depth_write_enabled = Some(spec.raster.depth_write);
             depth.depth_compare = Some(spec.raster.depth_compare);
+            if let Some(replay) = &spec.replay {
+                depth.format = TextureFormat::Depth32Float;
+                depth.bias = DepthBiasState {
+                    constant: replay.depth_bias,
+                    slope_scale: f32::from_bits(replay.slope_bias_bits),
+                    clamp: f32::from_bits(replay.clamp_bits),
+                };
+            }
+        }
+        if spec.replay.is_some() {
+            descriptor.multisample.count = 4;
         }
         Ok(())
     }
