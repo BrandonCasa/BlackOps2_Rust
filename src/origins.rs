@@ -41,6 +41,7 @@ pub struct Tuning {
     pub ads_mouse_sensitivity: f32,
     pub pistol_damage: u32,
     pub melee_damage: u32,
+    pub combat_points: [u32; 5],
     pub magazine: u32,
     pub reserve: u32,
     pub fire_interval: f32,
@@ -66,6 +67,7 @@ impl Default for Tuning {
             ads_mouse_sensitivity: 0.0012,
             pistol_damage: 50,
             melee_damage: 150,
+            combat_points: [10, 50, 50, 10, 80],
             magazine: 8,
             reserve: 32,
             fire_interval: 0.2,
@@ -171,6 +173,11 @@ impl GameDefinition {
             || self.tuning.standing_height <= 2. * self.tuning.radius
             || self.tuning.crouch_height <= 2. * self.tuning.radius
             || self.tuning.crouch_height > self.tuning.standing_height
+            || self
+                .tuning
+                .combat_points
+                .iter()
+                .any(|v| *v > i32::MAX as u32)
             || self.tuning.magazine == 0
             || [
                 self.tuning.pistol_damage,

@@ -35,6 +35,8 @@ pub(crate) struct Verification {
     ads_seen: bool,
     recoil_seen: bool,
     wall_weapons: bool,
+    melee_frame: bool,
+    combat_receipt: serde_json::Value,
 }
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
@@ -87,6 +89,8 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             ads_seen: false,
             recoil_seen: false,
             wall_weapons: options.verify_wall_weapons,
+            melee_frame: false,
+            combat_receipt: serde_json::Value::Null,
         });
     }
 }
@@ -96,6 +100,7 @@ pub(crate) fn drive(
     players: Query<(Entity, &Player, &Transform)>,
     enemies: Query<&Transform, (With<Zombie>, Without<Player>)>,
     inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
+    history: Res<crate::damage::CombatHistory>,
     definition: Option<Res<GameDefinition>>,
     query: avian3d::prelude::SpatialQuery,
 ) {
@@ -124,7 +129,9 @@ pub(crate) fn drive(
             - (transform.translation
                 + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5));
         let yaw = (-delta.x).atan2(-delta.z);
-        if verification.playing >= 1. && delta.length() < 3. {
+        if history.melee_kills == 0 && verification.playing >= 1. {
+            input.movement = Vec2::new(0., if delta.length() > 1.65 { 0.4 } else { 0. });
+        } else if verification.playing >= 1. && delta.length() < 3. {
             input.movement = Vec2::new(0., -0.7);
         }
         let pitch = delta.y.atan2(Vec2::new(delta.x, delta.z).length());
@@ -154,7 +161,9 @@ pub(crate) fn drive(
                 )
             })
             .is_some_and(|hit| enemies.contains(hit.entity));
-        input.melee = delta.length() < 2.;
+        input.fire &= history.melee_kills > 0;
+        input.ads &= history.melee_kills > 0;
+        input.melee |= delta.length() < 1.9;
         input.reload = inventories
             .single()
             .ok()
@@ -170,7 +179,11 @@ fn check(
     state: Res<State<GameState>>,
     failure: Res<LoadFailure>,
     definition: Option<Res<GameDefinition>>,
-    session: Res<Session>,
+    combat: (
+        Res<Session>,
+        Res<crate::damage::CombatHistory>,
+        Res<crate::damage::DamageQueue>,
+    ),
     mut players: Query<
         (
             Entity,
@@ -198,6 +211,7 @@ fn check(
         With<crate::hud::PlayerOverlay>,
     >,
 ) {
+    let (session, history, impacts) = combat;
     let Some(mut verification) = verification else {
         return;
     };
@@ -208,6 +222,15 @@ fn check(
         .map_or(0, |w| w.magazine);
     if verification.stage == 0 {
         for (_, _, _, inventory) in &players {
+            if !verification.melee_frame
+                && matches!(inventory.action,
+                crate::weapons::WeaponAction::Melee { remaining, .. } if remaining < 0.42 && remaining > 0.30)
+            {
+                commands
+                    .spawn(Screenshot::primary_window())
+                    .observe(save_to_disk(verification.output.join("knife-melee.png")));
+                verification.melee_frame = true;
+            }
             verification.recoil_seen |= inventory.recoil.length_squared() > 0.000001;
             if inventory.ads >= 0.99 && !verification.ads_seen {
                 verification.ads_seen = true;
@@ -312,6 +335,17 @@ fn check(
             .observe(save_to_disk(verification.output.join("playing.png")));
     }
     if verification.stage == 0 && session.round >= 2 {
+        verification.combat_receipt = serde_json::json!({
+            "melee_hits":history.melee_hits,"melee_kills":history.melee_kills,
+            "headshot_kills":history.headshot_kills,"rejected_terminal":history.rejected_terminal,
+            "awarded_points":history.awarded_points,"balance":session.points,"kills":session.kills,
+            "impacts":history.recent.iter().map(|r| serde_json::json!({
+                "attacker":r.impact.attacker.to_bits(),"target":r.impact.target.to_bits(),
+                "weapon":r.impact.weapon.0,"category":format!("{:?}",r.impact.category),
+                "region":format!("{:?}",r.impact.region),"damage":r.impact.amount,
+                "lethal":r.lethal,"points":r.points,
+            })).collect::<Vec<_>>()
+        });
         verification.round_two = true;
         verification.stage = 1;
         if verification.wall_weapons {
@@ -423,7 +457,10 @@ fn check(
         }
     }
     if verification.stage == 3 && verification.playing > 0.2 {
+        let restart_damage_clear =
+            history.recent.is_empty() && history.awarded_points == 0 && impacts.0.is_empty();
         let passed = session.round == 1
+            && restart_damage_clear
             && surfaces.pending == 0
             && if verification.benchmark {
                 (!verification.combat || verification.round_two)
@@ -440,6 +477,8 @@ fn check(
             "scope": if verification.benchmark && !verification.combat { "paused render survey and restart" } else { "combat movement round advance render survey and restart" },
             "continuous_camera_motion": verification.moving_view,
             "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round,
+            "combat_rewards":verification.combat_receipt,"melee_frame_captured":verification.melee_frame,
+            "restart_damage_clear":restart_damage_clear,
             "ads_reached": verification.ads_seen, "recoil_observed": verification.recoil_seen,
             "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances,
             "survey_views":verification.camera_views.len(), "water_animation_seconds":verification.water_times,

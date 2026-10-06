@@ -13,6 +13,8 @@ pub enum GameStep {
     Movement,
     Interactions,
     Combat,
+    Damage,
+    Rewards,
     Zombies,
     Rounds,
 }
@@ -194,6 +196,8 @@ impl Plugin for GameplayPlugin {
                     GameStep::Movement,
                     GameStep::Interactions,
                     GameStep::Combat,
+                    GameStep::Damage,
+                    GameStep::Rewards,
                     GameStep::Zombies,
                     GameStep::Rounds,
                 )
@@ -214,6 +218,8 @@ impl Plugin for GameplayPlugin {
 
 fn begin_session(
     mut session: ResMut<Session>,
+    mut impacts: ResMut<crate::damage::DamageQueue>,
+    mut history: ResMut<crate::damage::CombatHistory>,
     definition: Res<GameDefinition>,
     players: Query<(), With<Player>>,
     mut navigation: ResMut<Navigation>,
@@ -223,6 +229,8 @@ fn begin_session(
         return;
     }
     *session = Session::default();
+    impacts.0.clear();
+    *history = default();
     if !navigation.points.is_empty() {
         return;
     }
@@ -347,7 +355,8 @@ fn combat(
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
     mut players: Query<(Entity, &Player, &Transform, &mut WeaponInventory)>,
-    mut enemies: Query<(&mut Vitality, &Transform), With<Zombie>>,
+    enemies: Query<(&Vitality, &Transform), With<Zombie>>,
+    mut impacts: ResMut<crate::damage::DamageQueue>,
     query: SpatialQuery,
 ) {
     let dt = time.delta_secs();
@@ -384,13 +393,13 @@ fn combat(
         } else {
             weapon.map_or(1, |w| w.mechanics.pellets)
         };
-        let (melee, damage) = match emission {
+        let (melee, damage, weapon_id) = match emission {
             WeaponEmission::Shot(id) => {
                 session.shots += 1;
                 let Some(weapon) = definition.content.weapons.iter().find(|w| w.id == id) else {
                     continue;
                 };
-                (false, weapon.damage)
+                (false, weapon.damage, id)
             }
             WeaponEmission::Melee => (
                 true,
@@ -400,6 +409,7 @@ fn combat(
                     .iter()
                     .find(|w| w.id.0 == "weapon.knife_zm")
                     .map_or(definition.tuning.melee_damage, |w| w.damage),
+                crate::origins::content::WeaponId("weapon.knife_zm".into()),
             ),
         };
         let spread = weapon.map_or(0., |w| {
@@ -426,7 +436,7 @@ fn combat(
                 if melee { 2.2 } else { 100. },
                 true,
                 &filter,
-            ) && let Ok((mut vitality, target)) = enemies.get_mut(hit.entity)
+            ) && let Ok((vitality, target)) = enemies.get(hit.entity)
                 && vitality.state() == LifeState::ActorAlive
             {
                 // Capsule regions are an explicit approximation until animated hit volumes are bound.
@@ -450,15 +460,20 @@ fn combat(
                             crate::weapons::damage_at(weapon, hit.distance, region)
                         })
                 };
-                let Ok(damage) = ResolvedDamage::new(damage) else {
-                    continue;
-                };
-                if vitality.apply(damage).is_ok() {
-                    session.points = session.points.saturating_add(10);
-                }
-                if vitality.state() == LifeState::ActorDead {
-                    session.points = session.points.saturating_add(if melee { 130 } else { 60 });
-                }
+                impacts.0.push(crate::damage::Impact {
+                    attacker: entity,
+                    target: hit.entity,
+                    weapon: weapon_id.clone(),
+                    category: if melee {
+                        crate::origins::content::DamageCategory::Melee
+                    } else {
+                        weapon.map_or(crate::origins::content::DamageCategory::Bullet, |w| {
+                            w.category
+                        })
+                    },
+                    region,
+                    amount: damage,
+                });
             }
         }
     }
@@ -540,15 +555,10 @@ fn move_zombies(
     }
 }
 
-fn cleanup_dead(
-    mut commands: Commands,
-    enemies: Query<(Entity, &Vitality), With<Zombie>>,
-    mut session: ResMut<Session>,
-) {
+fn cleanup_dead(mut commands: Commands, enemies: Query<(Entity, &Vitality), With<Zombie>>) {
     for (entity, health) in &enemies {
         if health.state() == LifeState::ActorDead {
             commands.entity(entity).despawn();
-            session.kills += 1;
         }
     }
 }

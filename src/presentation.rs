@@ -45,6 +45,8 @@ struct Rig {
     sequence: Option<u64>,
     arms: bool,
     attached: bool,
+    ready: bool,
+    knife: bool,
 }
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
@@ -171,7 +173,28 @@ fn spawn_viewmodels(
             ))
             .id();
         commands.entity(camera).add_child(root);
-        for (is_arms, scene) in [(true, arms), (false, scene.as_str())] {
+        let knife = definition
+            .content
+            .weapons
+            .iter()
+            .find(|w| w.id.0 == "weapon.knife_zm")
+            .and_then(|w| w.presentation.as_ref())
+            .and_then(|id| {
+                definition
+                    .content
+                    .presentations
+                    .iter()
+                    .find(|p| p.id == *id)
+            })
+            .and_then(|p| p.scene.as_deref());
+        for (is_arms, is_knife, scene) in [
+            (true, false, Some(arms)),
+            (false, false, Some(scene.as_str())),
+            (false, true, knife),
+        ] {
+            let Some(scene) = scene else {
+                continue;
+            };
             let source = server.load(scene.split('#').next().unwrap_or(scene).to_owned());
             let rig = commands
                 .spawn((
@@ -185,6 +208,8 @@ fn spawn_viewmodels(
                         sequence: None,
                         arms: is_arms,
                         attached: is_arms,
+                        ready: false,
+                        knife: is_knife,
                     },
                     Transform::default(),
                     if is_arms {
@@ -206,29 +231,34 @@ fn attach_weapons(
 ) {
     let sockets: Vec<_> = rigs
         .iter()
-        .filter(|(_, rig)| rig.arms && !rig.players.is_empty())
+        .filter(|(_, rig)| rig.arms && rig.ready)
         .filter_map(|(entity, rig)| {
-            children
-                .iter_descendants(entity)
-                .find(|&child| {
-                    names
-                        .get(child)
-                        .is_ok_and(|name| name.as_str() == "tag_weapon")
-                })
-                .map(|socket| (rig.owner, socket))
+            let find = |tag: &str| {
+                children
+                    .iter_descendants(entity)
+                    .find(|&child| names.get(child).is_ok_and(|name| name.as_str() == tag))
+            };
+            find("tag_weapon")
+                .zip(find("tag_knife_attach"))
+                .map(|(weapon, knife)| (rig.owner, weapon, knife))
         })
         .collect();
     for (entity, mut rig) in &mut rigs {
-        if rig.attached || rig.players.is_empty() {
+        if rig.attached || !rig.ready {
             continue;
         }
-        if let Some((_, socket)) = sockets.iter().find(|(owner, _)| *owner == rig.owner) {
+        if let Some((_, weapon, knife)) = sockets.iter().find(|(owner, _, _)| *owner == rig.owner) {
+            let socket = if rig.knife { knife } else { weapon };
             // The hand socket is already in OAT's Y-up basis. Undo that basis on
             // the gun scene root before inheriting the authored socket pose.
             commands.entity(*socket).add_child(entity);
             commands.entity(entity).insert((
                 Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
-                Visibility::Inherited,
+                if rig.knife {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                },
             ));
             rig.attached = true;
         }
@@ -246,6 +276,7 @@ fn rig_ready(
     let Ok(mut rig) = rigs.get_mut(event.entity) else {
         return;
     };
+    rig.ready = true;
     for child in children.iter_descendants(event.entity) {
         if rig.arms
             && names
@@ -337,19 +368,29 @@ fn animate(
     state: Res<State<GameState>>,
     definition: Option<Res<GameDefinition>>,
     inventories: Query<&WeaponInventory>,
-    mut rigs: Query<&mut Rig>,
+    mut rigs: Query<(&mut Rig, &mut Visibility)>,
+    clips: Res<Assets<AnimationClip>>,
+    gltfs: Res<Assets<Gltf>>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
     let Some(definition) = definition else {
         return;
     };
-    for mut rig in &mut rigs {
+    for (mut rig, mut visibility) in &mut rigs {
         let Ok(inventory) = inventories.get(rig.owner) else {
             continue;
         };
         let Some(weapon) = inventory.definition(&definition.content.weapons) else {
             continue;
         };
+        if rig.knife {
+            *visibility = if inventory.signal == WeaponSignal::Melee && rig.attached {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            continue;
+        }
         let Some(graph) = rig.graph.clone() else {
             continue;
         };
@@ -365,7 +406,17 @@ fn animate(
             WeaponSignal::Melee => WeaponAnimation::Melee,
             _ => WeaponAnimation::Idle,
         };
-        let clip = weapon
+        let animation_weapon = if action == WeaponAnimation::Melee && rig.arms {
+            definition
+                .content
+                .weapons
+                .iter()
+                .find(|w| w.id.0 == "weapon.knife_zm")
+                .unwrap_or(weapon)
+        } else {
+            weapon
+        };
+        let clip = animation_weapon
             .animation_actions
             .get(&action)
             .or_else(|| weapon.animation_actions.get(&WeaponAnimation::Idle));
@@ -388,6 +439,16 @@ fn animate(
                 let active = player.play(node);
                 if action == WeaponAnimation::Idle {
                     active.repeat();
+                } else if action == WeaponAnimation::Melee && rig.arms {
+                    let duration = animation_weapon.mechanics.melee_seconds[1]
+                        .max(animation_weapon.mechanics.melee_seconds[0]);
+                    if let Some(clip) = name
+                        .and_then(|name| gltfs.get(&rig.source)?.named_animations.get(name))
+                        .and_then(|handle| clips.get(handle))
+                        && duration > 0.
+                    {
+                        active.set_speed(clip.duration() / duration);
+                    }
                 }
                 // Action timers remain authoritative; pause preserves the current pose.
             }

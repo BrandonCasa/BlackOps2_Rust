@@ -82,6 +82,11 @@ def prepare(config):
             clip_id = "animation." + model + "." + f.get(field, "")
             if clip_id in clips:
                 actions[action] = clip_id
+        if delivery == "melee":
+            # Knife tracks animate the hands, not the rigid knife mesh.
+            clip_id = "animation.c_zom_dempsey_viewhands." + f.get("meleeAnim", "")
+            if clip_id in clips:
+                actions["melee"] = clip_id
         candidate = name.removesuffix("_zm") + "_upgraded_zm"
         upgrade = "weapon." + candidate if "upgraded" not in name and candidate in identities else None
         recoil_pitch = sorted([number("hipViewKickPitchMin") * 0.01, number("hipViewKickPitchMax") * 0.01])
@@ -154,7 +159,11 @@ def prepare(config):
     for name, price, ammo in re.findall(r'add_zombie_weapon\(\s*"([^"]+)"\s*,[^,]*,[^,]*,\s*(\d+)\s*,[^,]*,[^,]*,\s*(undefined|\d+)', script.read_text()):
         prices[name] = [int(price), None if ammo == "undefined" else int(ammo)]
     table = external(config.get("preparation", {}).get("weapon_prices", inspection / "mechanics-rounds-02/table-dump/mp/zombiemode.csv"))
-    for row in csv.reader(table.read_text().splitlines()):
+    rows = list(csv.reader(table.read_text().splitlines()))
+    native_points = {row[0]: int(row[1]) for row in rows if row[0].startswith("zombie_score_") and row[1]}
+    game.setdefault("tuning", {})["combat_points"] = [native_points["zombie_score_" + key] for key in
+        ("damage_normal", "kill_1player", "bonus_head", "bonus_torso", "bonus_melee")]
+    for row in rows:
         if row[0] in prices:
             for column in (1, 2):
                 if row[column]:

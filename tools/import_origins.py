@@ -436,7 +436,9 @@ def validate_pack(root, receipt=None, exact=False):
     require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "crouch_speed", "gravity",
         "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
         "mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
-        "reload_seconds", "zombie_damage", "zombie_speed"}, "unknown gameplay tuning")
+        "reload_seconds", "zombie_damage", "zombie_speed", "combat_points"}, "unknown gameplay tuning")
+    points = game.get("tuning", {}).get("combat_points", [10, 50, 50, 10, 80])
+    require(isinstance(points, list) and len(points) == 5 and all(type(v) is int and 0 <= v <= 2147483647 for v in points), "invalid combat point tuning")
     require(game.get("version") == 2, "unsupported gameplay version; expected 2, regenerate/import the pack")
     dependencies = validate_content(game.get("content"), require)
     documents = {}

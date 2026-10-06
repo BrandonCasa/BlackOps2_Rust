@@ -4671,7 +4671,9 @@
         "presentation": "actor.viewmodel_knife",
         "pickup": "actor.weapon_parabolic_knife",
         "ammo_group": "ammo.95a46ee1de7017848ee0",
-        "animation_actions": {},
+        "animation_actions": {
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_M4m203_knife_melee_1"
+        },
         "mechanics": {
           "delivery": "melee",
           "fire": {
@@ -6326,7 +6328,7 @@
         "ammo_group": "ammo.e183953fca915048e114",
         "animation_actions": {
           "idle": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_idle",
-          "melee": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_melee"
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_zomb_1inchpunch_melee"
         },
         "mechanics": {
           "delivery": "melee",
@@ -6424,7 +6426,7 @@
         "ammo_group": "ammo.f4486afef14c83410809",
         "animation_actions": {
           "idle": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_idle",
-          "melee": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_melee"
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_zomb_1inchpunch_melee"
         },
         "mechanics": {
           "delivery": "melee",
@@ -6522,7 +6524,7 @@
         "ammo_group": "ammo.1f6f86d581d0b58950c8",
         "animation_actions": {
           "idle": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_idle",
-          "melee": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_melee"
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_zomb_1inchpunch_melee"
         },
         "mechanics": {
           "delivery": "melee",
@@ -6620,7 +6622,7 @@
         "ammo_group": "ammo.4a5532f95eca057a3110",
         "animation_actions": {
           "idle": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_idle",
-          "melee": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_melee"
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_zomb_1inchpunch_melee"
         },
         "mechanics": {
           "delivery": "melee",
@@ -6718,7 +6720,7 @@
         "ammo_group": "ammo.e1be236c92e682d33c97",
         "animation_actions": {
           "idle": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_idle",
-          "melee": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_melee"
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_zomb_1inchpunch_melee"
         },
         "mechanics": {
           "delivery": "melee",
@@ -6816,7 +6818,7 @@
         "ammo_group": "ammo.82f83c724923ab4fdcfc",
         "animation_actions": {
           "idle": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_idle",
-          "melee": "animation.t6_wpn_none_view.viewmodel_zomb_1inchpunch_melee"
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_zomb_1inchpunch_melee"
         },
         "mechanics": {
           "delivery": "melee",
@@ -8770,7 +8772,7 @@
         "ammo_group": "ammo.9ba042ef377379f42e0a",
         "animation_actions": {
           "idle": "animation.t6_wpn_zmb_staff_view.viewmodel_vorkuta_empty_hands",
-          "melee": "animation.t6_wpn_zmb_staff_view.viewmodel_zomb_staff_melee_slash"
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_zomb_staff_melee_slash"
         },
         "mechanics": {
           "delivery": "melee",
@@ -9311,7 +9313,7 @@
         "ammo_group": "ammo.1c1ec5f63e8406358a02",
         "animation_actions": {
           "idle": "animation.t6_wpn_zmb_staff_view.viewmodel_vorkuta_empty_hands",
-          "melee": "animation.t6_wpn_zmb_staff_view.viewmodel_zomb_staff_melee_slash"
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_zomb_staff_melee_slash"
         },
         "mechanics": {
           "delivery": "melee",
@@ -9852,7 +9854,7 @@
         "ammo_group": "ammo.c72e3f51e76035fc066c",
         "animation_actions": {
           "idle": "animation.t6_wpn_zmb_staff_view.viewmodel_vorkuta_empty_hands",
-          "melee": "animation.t6_wpn_zmb_staff_view.viewmodel_zomb_staff_melee_slash"
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_zomb_staff_melee_slash"
         },
         "mechanics": {
           "delivery": "melee",
@@ -10693,7 +10695,7 @@
         "ammo_group": "ammo.02c898d29ff1686aa5ed",
         "animation_actions": {
           "idle": "animation.t6_wpn_zmb_staff_view.viewmodel_vorkuta_empty_hands",
-          "melee": "animation.t6_wpn_zmb_staff_view.viewmodel_zomb_staff_melee_slash"
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_zomb_staff_melee_slash"
         },
         "mechanics": {
           "delivery": "melee",
@@ -12192,7 +12194,9 @@
         "presentation": null,
         "pickup": null,
         "ammo_group": "ammo.6c054bdc747398d56432",
-        "animation_actions": {},
+        "animation_actions": {
+          "melee": "animation.c_zom_dempsey_viewhands.viewmodel_tazor_knuckles_swipe"
+        },
         "mechanics": {
           "delivery": "melee",
           "fire": {
@@ -122276,5 +122280,14 @@
   "source_surfaces": 6469,
   "render_meshes": 18189,
   "collision_meshes": 15231,
-  "static_model_instances": 14480
+  "static_model_instances": 14480,
+  "tuning": {
+    "combat_points": [
+      10,
+      50,
+      50,
+      10,
+      80
+    ]
+  }
 }

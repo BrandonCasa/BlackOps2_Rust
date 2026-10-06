@@ -203,10 +203,10 @@
 - [x] Deduct points only after purchase acceptance.
 - [ ] Add purchase refund handling.
 - [x] Prevent repeated purchase charging within one interaction.
-- [ ] Add source-defined hit point awards.
-- [ ] Add source-defined kill point awards.
-- [ ] Add source-defined headshot point awards.
-- [ ] Add source-defined melee point awards.
+- [x] Add source-defined hit point awards.
+- [x] Add source-defined kill point awards.
+- [x] Add source-defined headshot point awards.
+- [x] Add source-defined melee point awards.
 - [ ] Add source-defined explosive point awards.
 - [ ] Apply Double Points to eligible awards.
 - [ ] Prevent points from repeated terminal damage.
@@ -231,7 +231,7 @@
 - [x] Add first-person weapon firing animations.
 - [x] Add first-person weapon reload animations.
 - [x] Add first-person weapon switching animations.
-- [ ] Add first-person melee animations.
+- [x] Add first-person melee animations.
 - [ ] Add first-person grenade animations.
 - [ ] Add first-person equipment animations.
 - [ ] Add first-person perk drinking animations.
@@ -429,7 +429,7 @@
 - [x] Add melee reach queries.
 - [x] Add melee attack timing.
 - [x] Add melee recovery timing.
-- [ ] Add melee damage attribution.
+- [x] Add melee damage attribution.
 - [x] Remove automatic reserve replenishment at round transitions.
 - [ ] Add grenade inventory counts.
 - [ ] Add grenade priming states.
@@ -457,7 +457,7 @@
 - [ ] Add source-defined equipment round replenishment.
 - [ ] Add grenade explosion effects.
 - [ ] Add equipment deployment animations.
-- [ ] Add typed damage impact events.
+- [x] Add typed damage impact events.
 - [ ] Add head hit regions.
 - [ ] Add torso hit regions.
 - [ ] Add arm hit regions.
@@ -489,8 +489,8 @@
 - [ ] Prevent repeated death transition events.
 - [ ] Add player death camera behavior.
 - [ ] Route terminal death into game-over state.
-- [ ] Emit one attributed enemy death event.
-- [ ] Feed kill rewards from attributed death events.
+- [x] Emit one attributed enemy death event.
+- [x] Feed kill rewards from attributed death events.
 - [ ] Feed soul collection from attributed death events.
 - [ ] Feed drop generation from attributed death events.
 - [ ] Build navigation graphs from prepared map nodes.

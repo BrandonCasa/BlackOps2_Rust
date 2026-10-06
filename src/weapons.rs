@@ -115,7 +115,7 @@ pub enum WeaponEmission {
     Melee,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum HitRegion {
     Head,
     UpperTorso,
@@ -402,15 +402,19 @@ impl WeaponInventory {
         self.recoil = self
             .recoil
             .map(|value| value.signum() * (value.abs() - recovery).max(0.));
+        let melee_definition = definitions
+            .iter()
+            .find(|w| w.id.0 == "weapon.knife_zm")
+            .unwrap_or(definition);
         match self.action {
             WeaponAction::Ready => {}
             WeaponAction::Melee { remaining, mut hit } => {
                 let remaining = (remaining - dt).max(0.);
                 if !hit
-                    && definition.mechanics.melee_seconds[1]
-                        .max(definition.mechanics.melee_seconds[0])
+                    && melee_definition.mechanics.melee_seconds[1]
+                        .max(melee_definition.mechanics.melee_seconds[0])
                         - remaining
-                        >= definition.mechanics.melee_seconds[0]
+                        >= melee_definition.mechanics.melee_seconds[0]
                 {
                     emissions.push(WeaponEmission::Melee);
                     hit = true;
@@ -551,8 +555,8 @@ impl WeaponInventory {
         if intent.melee {
             self.burst = 0;
             self.action = WeaponAction::Melee {
-                remaining: definition.mechanics.melee_seconds[1]
-                    .max(definition.mechanics.melee_seconds[0]),
+                remaining: melee_definition.mechanics.melee_seconds[1]
+                    .max(melee_definition.mechanics.melee_seconds[0]),
                 hit: false,
             };
             self.emit(WeaponSignal::Melee);
