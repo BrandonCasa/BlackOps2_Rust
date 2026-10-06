@@ -44,17 +44,17 @@
 - [ ] Extend asset preparation with traversal link extraction.
 - [x] Extend asset preparation with skeletal model export.
 - [x] Extend asset preparation with animation track export.
-- [ ] Convert animation translations into runtime coordinates.
-- [ ] Convert animation rotations into runtime coordinates.
+- [x] Convert animation translations into runtime coordinates.
+- [x] Convert animation rotations into runtime coordinates.
 - [x] Preserve skeleton joint names during conversion.
 - [x] Preserve inverse bind matrices during conversion.
 - [x] Normalize exported skin weights.
-- [ ] Convert original animation tracks into glTF clips.
-- [ ] Retarget recovered clips onto compatible skeletons.
+- [x] Convert original animation tracks into glTF clips.
+- [x] Retarget recovered clips onto compatible skeletons.
 - [ ] Generate missing locomotion clips for recovered rigs.
 - [ ] Generate missing combat clips for recovered rigs.
 - [ ] Generate missing interaction clips for recovered rigs.
-- [ ] Export animation notification timings into content definitions.
+- [x] Export animation notification timings into content definitions.
 - [ ] Extend asset preparation with sound bank extraction.
 - [ ] Convert extracted sounds into prepared OGG assets.
 - [ ] Convert sound aliases into runtime sound definitions.

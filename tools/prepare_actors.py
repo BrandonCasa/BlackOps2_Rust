@@ -11,12 +11,14 @@ from PIL import Image
 try:
     from .prepare_origins import converted_pixels
     from .prepare_gameplay_content import external
+    from .xanim import decode
 except ImportError:
     from prepare_origins import converted_pixels
     from prepare_gameplay_content import external
+    from xanim import decode
 
 
-def convert(source_path, output, additional_images):
+def convert(source_path, output, additional_images, clips):
     source = json.loads(source_path.read_text(encoding="utf-8-sig"))
     document = copy.deepcopy(source)
     output = external(output)
@@ -101,11 +103,59 @@ def convert(source_path, output, additional_images):
         image["uri"] = relative
     name = source_path.stem
     document["accessors"], document["bufferViews"] = accessors, views
+    skeleton_joints = {j for skin in document.get("skins", []) for j in skin["joints"]}
+    children = {child for j in skeleton_joints for child in document["nodes"][j].get("children", [])}
+    roots = skeleton_joints - children
+    by_name = {node["name"]: i for i, node in enumerate(document["nodes"]) if "name" in node}
+    animations, notifications = [], []
+
+    def animation_accessor(values, kind):
+        values = np.asarray(values, dtype="<f4")
+        while len(binary) % 4:
+            binary.append(0)
+        raw = values.tobytes()
+        view = len(views)
+        views.append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(raw)})
+        binary.extend(raw)
+        index = len(accessors)
+        accessors.append({"bufferView": view, "componentType": 5126, "count": len(values), "type": kind,
+                          "min": values.min(axis=0).reshape(-1).tolist(), "max": values.max(axis=0).reshape(-1).tolist()})
+        return index
+
+    for clip_path in clips:
+        clip = decode(clip_path.read_bytes())
+        samplers, channels = [], []
+        for bone, tracks in clip["tracks"].items():
+            if bone not in by_name or by_name[bone] not in skeleton_joints:
+                continue
+            node = by_name[bone]
+            for target, (times, source_values) in tracks.items():
+                values = source_values.copy()
+                if target == "translation":
+                    if node in roots:
+                        values = values[:, [0, 2, 1]] * [1, 1, -1]
+                    values *= 0.0254
+                elif node in roots:
+                    # OAT premultiplies root orientations by a -90-degree X basis.
+                    # Parent-relative rotations retain their native local basis.
+                    x, y, z, w = values.T.copy()
+                    c = np.sqrt(0.5)
+                    values = np.stack((c * (x - w), c * (y + z), c * (z - y), c * (w + x)), axis=1)
+                input_index = animation_accessor(times.reshape(-1, 1), "SCALAR")
+                output_index = animation_accessor(values, "VEC3" if target == "translation" else "VEC4")
+                channels.append({"sampler": len(samplers), "target": {"node": node, "path": target}})
+                samplers.append({"input": input_index, "output": output_index, "interpolation": "LINEAR"})
+        if not channels:
+            continue  # Camera/socket-only clips have no channels for this mesh's rig.
+        animations.append({"name": clip_path.name, "channels": channels, "samplers": samplers})
+        notifications.append((clip_path.name, clip["notifications"]))
+    if animations:
+        document["animations"] = animations
     document["buffers"] = [{"byteLength": len(binary), "uri": name + ".bin"}]
     document["asset"]["generator"] = "Origins recovered skeletal preparation"
     (output / (name + ".bin")).write_bytes(binary)
     (output / (name + ".gltf")).write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
-    return name + ".gltf"
+    return name + ".gltf", notifications
 
 
 def prepare(config):
@@ -125,10 +175,27 @@ def prepare(config):
     names += ["t6_wpn_zmb_mc96_view", "c_zom_tomb_german_body_1a", "c_zom_tomb_german_head1"]
     definition = json.loads((pack / "game.json").read_text(encoding="utf-8-sig"))
     presentations = definition["content"]["presentations"]
+    animation_definitions = definition["content"]["animations"]
+    animation_source = inspection / "solo-content/source/xanim"
+    prepared_clips = 0
     for name in names:
-        relative = convert(models / "model_export" / (name + "_lod0.gltf"), pack / "actors", image_root)
+        prefix = "ai_zombie_" if "german" in name else "viewmodel_zomb_mauser_"
+        if prefix == "ai_zombie_":
+            clip_names = ["ai_zombie_idle_v1_delta", "ai_zombie_walk_v1", "ai_zombie_run_v2", "ai_zombie_attack_v1", "ai_zombie_crawl"]
+        else:
+            clip_names = [p.name for p in sorted(animation_source.glob(prefix + "*"))]
+        clips = [animation_source / clip for clip in clip_names]
+        relative, notifications = convert(models / "model_export" / (name + "_lod0.gltf"), pack / "actors", image_root, clips)
         identity = "actor." + name
         presentations[:] = [p for p in presentations if p["id"] != identity]
-        presentations.append({"id": identity, "scene": "actors/" + relative + "#Scene0", "animations": [], "sounds": []})
+        animation_definitions[:] = [a for a in animation_definitions if a["skeleton"] != identity]
+        references = []
+        for index, (clip_name, notes) in enumerate(notifications):
+            clip_id = "animation." + name + "." + clip_name
+            animation_definitions.append({"id": clip_id, "path": "actors/" + relative + f"#Animation{index}",
+                "skeleton": identity, "notifications": notes})
+            references.append(clip_id)
+        prepared_clips += len(notifications)
+        presentations.append({"id": identity, "scene": "actors/" + relative + "#Scene0", "animations": references, "sounds": []})
     (pack / "game.json").write_text(json.dumps(definition, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"prepared_actors": len(names), "animation_clips": 0}))
+    print(json.dumps({"prepared_actors": len(names), "animation_clips": prepared_clips}))
