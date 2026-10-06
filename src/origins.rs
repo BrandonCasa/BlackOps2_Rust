@@ -82,18 +82,18 @@ impl GameDefinition {
                 source,
             })?
             .len();
-        if size > 4 * 1024 * 1024 {
+        if size > 32 * 1024 * 1024 {
             return Err(ContentError::InvalidDefinition(
-                "Gameplay definition exceeds 4 MiB.".into(),
+                "Gameplay definition exceeds 32 MiB.".into(),
             ));
         }
         let bytes = std::fs::read(path).map_err(|source| ContentError::Io {
             path: path.into(),
             source,
         })?;
-        if bytes.len() > 4 * 1024 * 1024 {
+        if bytes.len() > 32 * 1024 * 1024 {
             return Err(ContentError::InvalidDefinition(
-                "Gameplay definition exceeds 4 MiB.".into(),
+                "Gameplay definition exceeds 32 MiB.".into(),
             ));
         }
         // Version is checked before parsing a newer/older schema's required fields.

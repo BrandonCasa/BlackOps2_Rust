@@ -715,8 +715,13 @@ def main():
     parser.add_argument("--content-only", action="store_true", help="regenerate game.json from map entities, preserving prepared geometry coverage")
     parser.add_argument("--recover-gameplay-content", action="store_true", help="recover patch-resolved weapon/attachment definitions and map entities externally")
     parser.add_argument("--prepare-actors", action="store_true", help="convert recovered starter skeletal actors into the external runtime pack")
+    parser.add_argument("--prepare-arsenal", action="store_true", help="convert native weapon tuning/localization into the external runtime pack")
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
+    if args.prepare_arsenal:
+        from prepare_arsenal import prepare as prepare_arsenal
+        prepare_arsenal(config)
+        return
     if args.prepare_actors:
         from prepare_actors import prepare as prepare_actors
         prepare_actors(config)

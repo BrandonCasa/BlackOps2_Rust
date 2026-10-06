@@ -24,15 +24,17 @@ void ContentPrinter::PrintContent() const {
     for (auto* asset : m_zone.m_pools)
         if (asset->m_type == ASSET_TYPE_GFXWORLD && !asset->IsReference())
             world = static_cast<const GfxWorld*>(asset->m_ptr);
-    if (!world || world->dpvs.smodelCount > 100000 || !world->dpvs.smodelDrawInsts)
+    if ((!world && !std::getenv("ORIGINS_INCLUDE_ACTOR_IMAGES")) ||
+        (world && (world->dpvs.smodelCount > 100000 || !world->dpvs.smodelDrawInsts)))
         throw std::runtime_error("missing or invalid world static instances");
+    const unsigned instance_count = world ? world->dpvs.smodelCount : 0;
     std::ofstream out("static-instances.json");
     out << std::setprecision(9) << "[";
     std::ofstream surfaces("model-surfaces.json");
     surfaces << std::setprecision(9) << '{';
     std::unordered_set<const XModel*> providers;
     bool first_provider = true;
-    for (unsigned i = 0; i < world->dpvs.smodelCount; ++i) {
+    for (unsigned i = 0; i < instance_count; ++i) {
         const auto& instance = world->dpvs.smodelDrawInsts[i];
         if (!instance.model || !instance.model->name)
             throw std::runtime_error("missing static model provider");
@@ -141,7 +143,7 @@ void ContentPrinter::PrintContent() const {
     const char* output_root = std::getenv("ORIGINS_IMAGE_OUTPUT");
     if (!data_root || !output_root) return;
     SearchPathFilesystem search(data_root);
-    for (unsigned i = 0; i < world->dpvs.smodelCount; ++i) {
+    for (unsigned i = 0; i < instance_count; ++i) {
         const auto* model = world->dpvs.smodelDrawInsts[i].model;
         for (unsigned j = 0; j < model->numsurfs; ++j) {
             const auto* material = model->materialHandles[j];

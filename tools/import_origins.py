@@ -69,18 +69,22 @@ def read_bytes(path):
     return raw
 
 
-def clean_strings(value):
+def clean_strings(value, localized_text=False):
     if isinstance(value, dict):
         for key, item in value.items():
             clean_strings(key)
-            clean_strings(item)
+            is_localized = key == "text" and set(value) == {"id", "key", "text"} and str(value["id"]).startswith("string.")
+            clean_strings(item, is_localized)
     elif isinstance(value, list):
         for item in value:
             clean_strings(item)
     elif isinstance(value, str):
-        require(not re.search(r"[A-Za-z]:[\\/]|\\|(?:^|\s)/(?:Users|home|mnt|tmp)/|file://", value),
+        pattern = r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/]|(?:^|\s)/(?:Users|home|mnt|tmp)/|file://"
+        if not localized_text:
+            pattern += r"|\\"
+        require(not re.search(pattern, value),
                 "absolute or machine-specific path in JSON")
-        require(not value.startswith("/"), "absolute path in JSON")
+        require(localized_text or not value.startswith("/"), "absolute path in JSON")
     elif isinstance(value, float):
         require(np.isfinite(value), "non-finite JSON number")
 

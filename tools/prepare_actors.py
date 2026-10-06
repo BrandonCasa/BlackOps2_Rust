@@ -92,13 +92,17 @@ def convert(source_path, output, additional_images, clips):
             raise ValueError("actor texture escaped recovered model tree")
         if not path.is_file():
             path = additional_images / path.name
-        raw = path.read_bytes()
         mode = "normal" if index in normal_images else "raw"
+        builtin_normal = not path.is_file() and path.name in ("$identitynormalmap.dds", ",$identitynormalmap.dds")
+        raw = b"origins-native-identity-normal" if builtin_normal else path.read_bytes()
         digest = hashlib.sha256(raw + mode.encode()).hexdigest()[:24]
         relative = f"textures/actor-{digest}.png"
         if not (output / relative).exists():
-            with Image.open(path) as pixels:
-                converted = converted_pixels(np.array(pixels.convert("RGBA")), mode)
+            if builtin_normal:
+                converted = np.array([[[128, 128, 255, 255]]], dtype=np.uint8)
+            else:
+                with Image.open(path) as pixels:
+                    converted = converted_pixels(np.array(pixels.convert("RGBA")), mode)
             Image.fromarray(converted).save(output / relative)
         image["uri"] = relative
     name = source_path.stem
@@ -169,23 +173,55 @@ def prepare(config):
         oat_source = external(settings.get("oat_source", inspection / "tooling/OAT/surface-7d027e8/source"))
         zone = Path(config["assets"]["installation_root"]) / "zone/all/zm_tomb.ff"
         export(oat_source, zone, inspection / "solo-content/actor-image-export", image_root, include_actor_images=True)
-    # First complete actor assembly: all four original arms, Mauser, and a German
-    # zombie body/head. Remaining catalog assets are assembled in subsequent batches.
+    shared_image = image_root / "~-gmtl_t6_wpn_zmb_raygun2_col1.dds"
+    # A separate callback reads shared patch images even though that zone has no world.
+    if not shared_image.is_file():
+        from export_instances import export
+        oat_source = external(settings.get("oat_source", inspection / "tooling/OAT/surface-7d027e8/source"))
+        zone = Path(config["assets"]["installation_root"]) / "zone/all/patch_zm.ff"
+        export(oat_source, zone, inspection / "solo-content/shared-image-export", image_root, include_actor_images=True)
+    from prepare_arsenal import ACTIONS
+    recovered = json.loads((inspection / "solo-content/recovered-gameplay.json").read_text())
+    model_clips = {}
+    shared_models = inspection / "solo-content/shared/model_export"
+    source_models = {}
+    arm_clips = set()
+    missing_models = []
+    for weapon in recovered["weapons"]:
+        fields = weapon["fields"]
+        clips = {fields.get(field) for field in ACTIONS.values()} - {None, ""}
+        arm_clips.update(clips)
+        for field in ("gunModel", "worldModel"):
+            model = fields.get(field)
+            if model:
+                model_clips.setdefault(model, set()).update(clips if field == "gunModel" else ())
     names = [f"c_zom_{character}_viewhands" for character in ("dempsey", "nikolai", "richtofen", "takeo")]
-    names += ["t6_wpn_zmb_mc96_view", "c_zom_tomb_german_body_1a", "c_zom_tomb_german_head1"]
+    names += ["c_zom_tomb_german_body_1a", "c_zom_tomb_german_head1"]
+    for model in sorted(model_clips):
+        candidates = [root / (model + "_lod0.gltf") for root in (models / "model_export", shared_models)]
+        found = next((path for path in candidates if path.is_file()), None)
+        if found:
+            source_models[model] = found
+            names.append(model)
+        else:
+            missing_models.append(model)
     definition = json.loads((pack / "game.json").read_text(encoding="utf-8-sig"))
     presentations = definition["content"]["presentations"]
     animation_definitions = definition["content"]["animations"]
     animation_source = inspection / "solo-content/source/xanim"
     prepared_clips = 0
     for name in names:
-        prefix = "ai_zombie_" if "german" in name else "viewmodel_zomb_mauser_"
-        if prefix == "ai_zombie_":
+        if "german" in name:
             clip_names = ["ai_zombie_idle_v1_delta", "ai_zombie_walk_v1", "ai_zombie_run_v2", "ai_zombie_attack_v1", "ai_zombie_crawl"]
+        elif name.endswith("_viewhands"):
+            clip_names = sorted(arm_clips)
         else:
-            clip_names = [p.name for p in sorted(animation_source.glob(prefix + "*"))]
+            clip_names = sorted(model_clips[name])
+        missing_clips = [clip for clip in clip_names if not (animation_source / clip).is_file()]
+        if missing_clips:
+            raise ValueError(f"Missing recovered animations for {name}: {missing_clips}")
         clips = [animation_source / clip for clip in clip_names]
-        relative, notifications = convert(models / "model_export" / (name + "_lod0.gltf"), pack / "actors", image_root, clips)
+        relative, notifications = convert(source_models.get(name, models / "model_export" / (name + "_lod0.gltf")), pack / "actors", image_root, clips)
         identity = "actor." + name
         presentations[:] = [p for p in presentations if p["id"] != identity]
         animation_definitions[:] = [a for a in animation_definitions if a["skeleton"] != identity]
@@ -198,4 +234,6 @@ def prepare(config):
         prepared_clips += len(notifications)
         presentations.append({"id": identity, "scene": "actors/" + relative + "#Scene0", "animations": references, "sounds": []})
     (pack / "game.json").write_text(json.dumps(definition, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"prepared_actors": len(names), "animation_clips": prepared_clips}))
+    report = {"prepared_actors": len(names), "animation_clips": prepared_clips, "missing_models": missing_models}
+    (inspection / "solo-content/actor-preparation.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(json.dumps(report))

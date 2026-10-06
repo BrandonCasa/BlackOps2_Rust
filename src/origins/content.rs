@@ -93,6 +93,126 @@ pub struct WeaponDefinition {
     pub reload_seconds: f32,
     pub upgraded: Option<WeaponId>,
     pub presentation: Option<ContentId>,
+    #[serde(default)]
+    pub pickup: Option<ContentId>,
+    #[serde(default)]
+    pub ammo_group: Option<ContentId>,
+    #[serde(default)]
+    pub localization_key: Option<String>,
+    #[serde(default)]
+    pub animation_actions: BTreeMap<WeaponAnimation, ContentId>,
+    #[serde(default)]
+    pub mechanics: WeaponMechanics,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WeaponAnimation {
+    Idle,
+    Fire,
+    Reload,
+    ReloadEmpty,
+    ReloadStart,
+    ReloadEnd,
+    Equip,
+    Unequip,
+    Melee,
+    AdsEnter,
+    AdsLeave,
+    SprintEnter,
+    SprintLoop,
+    SprintLeave,
+    ProneEnter,
+    ProneLoop,
+    ProneLeave,
+    DiveEnter,
+    DiveLoop,
+    DiveLeave,
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WeaponDelivery {
+    #[default]
+    Hitscan,
+    Projectile,
+    Melee,
+    Equipment,
+}
+#[derive(Clone, Copy, Deserialize, Default)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FirePattern {
+    #[default]
+    Semi,
+    Automatic,
+    Burst {
+        shots: u32,
+    },
+    Charge,
+}
+#[derive(Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WeaponMechanics {
+    pub delivery: WeaponDelivery,
+    pub fire: FirePattern,
+    pub starting_reserve: u32,
+    pub minimum_damage: u32,
+    pub damage_range: [f32; 2],
+    pub hit_multipliers: [f32; 5],
+    pub pellets: u32,
+    pub penetration: f32,
+    pub recoil_pitch: [f32; 2],
+    pub recoil_yaw: [f32; 2],
+    pub recoil_recovery: f32,
+    pub spread: [f32; 4],
+    pub ads_fov: f32,
+    pub ads_seconds: [f32; 2],
+    pub movement: [f32; 2],
+    pub empty_reload: f32,
+    pub shell_reload: bool,
+    pub shell_seconds: f32,
+    pub equip_seconds: f32,
+    pub unequip_seconds: f32,
+    pub dual_wield: bool,
+    pub projectile_speed: f32,
+    pub projectile_lifetime: f32,
+    pub explosion_radius: f32,
+    pub explosion_damage: [u32; 2],
+    pub melee_seconds: [f32; 2],
+    pub fuse_seconds: f32,
+}
+impl Default for WeaponMechanics {
+    fn default() -> Self {
+        Self {
+            delivery: WeaponDelivery::Hitscan,
+            fire: FirePattern::Semi,
+            starting_reserve: 32,
+            minimum_damage: 20,
+            damage_range: [20., 60.],
+            hit_multipliers: [3.5, 1.25, 1., 0.85, 0.6],
+            pellets: 1,
+            penetration: 0.2,
+            recoil_pitch: [0.2, 0.4],
+            recoil_yaw: [-0.1, 0.1],
+            recoil_recovery: 8.,
+            spread: [3., 2., 1., 0.],
+            ads_fov: 50.,
+            ads_seconds: [0.2, 0.2],
+            movement: [1., 0.5],
+            empty_reload: 1.8,
+            shell_reload: false,
+            shell_seconds: 0.5,
+            equip_seconds: 0.5,
+            unequip_seconds: 0.3,
+            dual_wield: false,
+            projectile_speed: 30.,
+            projectile_lifetime: 10.,
+            explosion_radius: 0.,
+            explosion_damage: [0, 0],
+            melee_seconds: [0.25, 0.7],
+            fuse_seconds: 4.,
+        }
+    }
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -294,6 +414,13 @@ pub struct UiAsset {
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct LocalizedString {
+    pub id: ContentId,
+    pub key: String,
+    pub text: String,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CinematicSequence {
     pub id: ContentId,
     pub frames: Vec<String>,
@@ -329,6 +456,8 @@ pub struct ContentCatalog {
     pub animations: Vec<AnimationDefinition>,
     pub ui_assets: Vec<UiAsset>,
     pub cinematics: Vec<CinematicSequence>,
+    #[serde(default)]
+    pub localized_strings: Vec<LocalizedString>,
 }
 
 /// A validated index rejects a reference to an existing ID of the wrong kind.
@@ -421,6 +550,7 @@ impl ContentCatalog {
         add!(animations, "animation");
         add!(ui_assets, "ui");
         add!(cinematics, "cinematic");
+        add!(localized_strings, "string");
         Ok(index)
     }
     pub fn validate(&self) -> Result<(), ContentError> {
@@ -434,17 +564,62 @@ impl ContentCatalog {
                 Ok(())
             };
         for v in &self.weapons {
+            let m = &v.mechanics;
+            let uses_ammo = matches!(
+                m.delivery,
+                WeaponDelivery::Hitscan | WeaponDelivery::Projectile
+            );
             valid(
-                v.damage > 0
-                    && v.magazine > 0
+                (!uses_ammo || (v.damage > 0 && v.magazine > 0))
                     && positive(v.fire_interval)
-                    && positive(v.reload_seconds),
+                    && positive(v.reload_seconds)
+                    && m.starting_reserve <= v.reserve
+                    && m.pellets > 0
+                    && m.pellets <= 64
+                    && m.hit_multipliers.iter().all(|v| nonnegative(*v))
+                    && m.spread.iter().all(|v| nonnegative(*v))
+                    && nonnegative(m.penetration)
+                    && m.damage_range.iter().all(|v| nonnegative(*v))
+                    && m.damage_range[0] <= m.damage_range[1]
+                    && m.recoil_pitch
+                        .iter()
+                        .chain(m.recoil_yaw.iter())
+                        .all(|v| v.is_finite())
+                    && m.recoil_pitch[0] <= m.recoil_pitch[1]
+                    && m.recoil_yaw[0] <= m.recoil_yaw[1]
+                    && positive(m.recoil_recovery)
+                    && (1. ..=179.).contains(&m.ads_fov)
+                    && m.ads_seconds
+                        .iter()
+                        .chain(m.movement.iter())
+                        .all(|v| positive(*v))
+                    && [
+                        m.empty_reload,
+                        m.shell_seconds,
+                        m.equip_seconds,
+                        m.unequip_seconds,
+                        m.projectile_lifetime,
+                    ]
+                    .into_iter()
+                    .all(positive)
+                    && [m.projectile_speed, m.explosion_radius, m.fuse_seconds]
+                        .into_iter()
+                        .all(nonnegative)
+                    && m.melee_seconds.iter().all(|v| nonnegative(*v)),
                 "Invalid weapon tuning",
             )?;
+            if let FirePattern::Burst { shots } = m.fire {
+                valid((1..=8).contains(&shots), "Invalid burst count")?;
+            }
             if let Some(id) = &v.upgraded {
                 r(&v.id.0, &id.0, "weapon")?;
             }
             optional(&v.id.0, &v.presentation, "presentation")?;
+            optional(&v.id.0, &v.pickup, "presentation")?;
+            optional(&v.id.0, &v.ammo_group, "definition")?;
+            for id in v.animation_actions.values() {
+                r(&v.id.0, &id.0, "animation")?;
+            }
         }
         for v in &self.enemies {
             valid(
@@ -604,6 +779,9 @@ impl ContentCatalog {
         }
         for v in &self.ui_assets {
             validate_asset_path(&v.path)?;
+        }
+        for v in &self.localized_strings {
+            valid(!v.key.is_empty(), "Empty localization key")?;
         }
         for v in &self.cinematics {
             valid(

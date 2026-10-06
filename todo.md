@@ -60,7 +60,7 @@
 - [ ] Convert sound aliases into runtime sound definitions.
 - [ ] Convert original effect definitions into runtime effect definitions.
 - [ ] Export original HUD graphics into runtime textures.
-- [ ] Export original localized strings into runtime definitions.
+- [x] Export original localized strings into runtime definitions.
 - [ ] Convert loading footage into timed image frames.
 - [ ] Convert ending footage into timed image frames.
 - [ ] Bind cinematic audio aliases to frame sequences.
@@ -251,126 +251,126 @@
 - [ ] Add actor presentation distance culling.
 - [ ] Bound corpse presentation lifetimes.
 - [ ] Bound transient combat effect lifetimes.
-- [ ] Add Mauser C96 weapon definitions.
-- [ ] Add Mauser C96 Pack-a-Punch variant definitions.
+- [x] Add Mauser C96 weapon definitions.
+- [x] Add Mauser C96 Pack-a-Punch variant definitions.
 - [ ] Bind Mauser C96 animated viewmodel assets.
 - [ ] Bind Mauser C96 upgraded presentation assets.
-- [ ] Add M14 weapon definitions.
-- [ ] Add M14 Pack-a-Punch variant definitions.
+- [x] Add M14 weapon definitions.
+- [x] Add M14 Pack-a-Punch variant definitions.
 - [ ] Bind M14 animated viewmodel assets.
 - [ ] Bind M14 upgraded presentation assets.
-- [ ] Add Ballista weapon definitions.
-- [ ] Add Ballista Pack-a-Punch variant definitions.
+- [x] Add Ballista weapon definitions.
+- [x] Add Ballista Pack-a-Punch variant definitions.
 - [ ] Bind Ballista animated viewmodel assets.
 - [ ] Bind Ballista upgraded presentation assets.
-- [ ] Add MP40 weapon definitions.
-- [ ] Add MP40 Pack-a-Punch variant definitions.
+- [x] Add MP40 weapon definitions.
+- [x] Add MP40 Pack-a-Punch variant definitions.
 - [ ] Bind MP40 animated viewmodel assets.
 - [ ] Bind MP40 upgraded presentation assets.
-- [ ] Add STG-44 weapon definitions.
-- [ ] Add STG-44 Pack-a-Punch variant definitions.
+- [x] Add STG-44 weapon definitions.
+- [x] Add STG-44 Pack-a-Punch variant definitions.
 - [ ] Bind STG-44 animated viewmodel assets.
 - [ ] Bind STG-44 upgraded presentation assets.
-- [ ] Add AK74u weapon definitions.
-- [ ] Add AK74u Pack-a-Punch variant definitions.
+- [x] Add AK74u weapon definitions.
+- [x] Add AK74u Pack-a-Punch variant definitions.
 - [ ] Bind AK74u animated viewmodel assets.
 - [ ] Bind AK74u upgraded presentation assets.
-- [ ] Add B23R weapon definitions.
-- [ ] Add B23R Pack-a-Punch variant definitions.
+- [x] Add B23R weapon definitions.
+- [x] Add B23R Pack-a-Punch variant definitions.
 - [ ] Bind B23R animated viewmodel assets.
 - [ ] Bind B23R upgraded presentation assets.
-- [ ] Add Remington 870 MCS weapon definitions.
-- [ ] Add Remington 870 MCS Pack-a-Punch variant definitions.
+- [x] Add Remington 870 MCS weapon definitions.
+- [x] Add Remington 870 MCS Pack-a-Punch variant definitions.
 - [ ] Bind Remington 870 MCS animated viewmodel assets.
 - [ ] Bind Remington 870 MCS upgraded presentation assets.
-- [ ] Add HAMR weapon definitions.
-- [ ] Add HAMR Pack-a-Punch variant definitions.
+- [x] Add HAMR weapon definitions.
+- [x] Add HAMR Pack-a-Punch variant definitions.
 - [ ] Bind HAMR animated viewmodel assets.
 - [ ] Bind HAMR upgraded presentation assets.
-- [ ] Add MG08/15 weapon definitions.
-- [ ] Add MG08/15 Pack-a-Punch variant definitions.
+- [x] Add MG08/15 weapon definitions.
+- [x] Add MG08/15 Pack-a-Punch variant definitions.
 - [ ] Bind MG08/15 animated viewmodel assets.
 - [ ] Bind MG08/15 upgraded presentation assets.
 - [ ] Add M8A1 weapon definitions.
 - [ ] Add M8A1 Pack-a-Punch variant definitions.
 - [ ] Bind M8A1 animated viewmodel assets.
 - [ ] Bind M8A1 upgraded presentation assets.
-- [ ] Add Galil weapon definitions.
-- [ ] Add Galil Pack-a-Punch variant definitions.
+- [x] Add Galil weapon definitions.
+- [x] Add Galil Pack-a-Punch variant definitions.
 - [ ] Bind Galil animated viewmodel assets.
 - [ ] Bind Galil upgraded presentation assets.
-- [ ] Add FAL weapon definitions.
-- [ ] Add FAL Pack-a-Punch variant definitions.
+- [x] Add FAL weapon definitions.
+- [x] Add FAL Pack-a-Punch variant definitions.
 - [ ] Bind FAL animated viewmodel assets.
 - [ ] Bind FAL upgraded presentation assets.
-- [ ] Add SCAR-H weapon definitions.
-- [ ] Add SCAR-H Pack-a-Punch variant definitions.
+- [x] Add SCAR-H weapon definitions.
+- [x] Add SCAR-H Pack-a-Punch variant definitions.
 - [ ] Bind SCAR-H animated viewmodel assets.
 - [ ] Bind SCAR-H upgraded presentation assets.
-- [ ] Add M1216 weapon definitions.
-- [ ] Add M1216 Pack-a-Punch variant definitions.
+- [x] Add M1216 weapon definitions.
+- [x] Add M1216 Pack-a-Punch variant definitions.
 - [ ] Bind M1216 animated viewmodel assets.
 - [ ] Bind M1216 upgraded presentation assets.
-- [ ] Add KSG weapon definitions.
-- [ ] Add KSG Pack-a-Punch variant definitions.
+- [x] Add KSG weapon definitions.
+- [x] Add KSG Pack-a-Punch variant definitions.
 - [ ] Bind KSG animated viewmodel assets.
 - [ ] Bind KSG upgraded presentation assets.
-- [ ] Add PDW-57 weapon definitions.
-- [ ] Add PDW-57 Pack-a-Punch variant definitions.
+- [x] Add PDW-57 weapon definitions.
+- [x] Add PDW-57 Pack-a-Punch variant definitions.
 - [ ] Bind PDW-57 animated viewmodel assets.
 - [ ] Bind PDW-57 upgraded presentation assets.
-- [ ] Add Thompson weapon definitions.
-- [ ] Add Thompson Pack-a-Punch variant definitions.
+- [x] Add Thompson weapon definitions.
+- [x] Add Thompson Pack-a-Punch variant definitions.
 - [ ] Bind Thompson animated viewmodel assets.
 - [ ] Bind Thompson upgraded presentation assets.
-- [ ] Add Chicom CQB weapon definitions.
-- [ ] Add Chicom CQB Pack-a-Punch variant definitions.
+- [x] Add Chicom CQB weapon definitions.
+- [x] Add Chicom CQB Pack-a-Punch variant definitions.
 - [ ] Bind Chicom CQB animated viewmodel assets.
 - [ ] Bind Chicom CQB upgraded presentation assets.
-- [ ] Add Skorpion EVO weapon definitions.
-- [ ] Add Skorpion EVO Pack-a-Punch variant definitions.
+- [x] Add Skorpion EVO weapon definitions.
+- [x] Add Skorpion EVO Pack-a-Punch variant definitions.
 - [ ] Bind Skorpion EVO animated viewmodel assets.
 - [ ] Bind Skorpion EVO upgraded presentation assets.
-- [ ] Add DSR 50 weapon definitions.
-- [ ] Add DSR 50 Pack-a-Punch variant definitions.
+- [x] Add DSR 50 weapon definitions.
+- [x] Add DSR 50 Pack-a-Punch variant definitions.
 - [ ] Bind DSR 50 animated viewmodel assets.
 - [ ] Bind DSR 50 upgraded presentation assets.
-- [ ] Add KAP-40 weapon definitions.
-- [ ] Add KAP-40 Pack-a-Punch variant definitions.
+- [x] Add KAP-40 weapon definitions.
+- [x] Add KAP-40 Pack-a-Punch variant definitions.
 - [ ] Bind KAP-40 animated viewmodel assets.
 - [ ] Bind KAP-40 upgraded presentation assets.
-- [ ] Add Five-Seven weapon definitions.
-- [ ] Add Five-Seven Pack-a-Punch variant definitions.
+- [x] Add Five-Seven weapon definitions.
+- [x] Add Five-Seven Pack-a-Punch variant definitions.
 - [ ] Bind Five-Seven animated viewmodel assets.
 - [ ] Bind Five-Seven upgraded presentation assets.
-- [ ] Add Python weapon definitions.
-- [ ] Add Python Pack-a-Punch variant definitions.
+- [x] Add Python weapon definitions.
+- [x] Add Python Pack-a-Punch variant definitions.
 - [ ] Bind Python animated viewmodel assets.
 - [ ] Bind Python upgraded presentation assets.
-- [ ] Add Dual Five-Sevens weapon definitions.
-- [ ] Add Dual Five-Sevens Pack-a-Punch variant definitions.
+- [x] Add Dual Five-Sevens weapon definitions.
+- [x] Add Dual Five-Sevens Pack-a-Punch variant definitions.
 - [ ] Bind Dual Five-Sevens animated viewmodel assets.
 - [ ] Bind Dual Five-Sevens upgraded presentation assets.
-- [ ] Add War Machine weapon definitions.
-- [ ] Add War Machine Pack-a-Punch variant definitions.
+- [x] Add War Machine weapon definitions.
+- [x] Add War Machine Pack-a-Punch variant definitions.
 - [ ] Bind War Machine animated viewmodel assets.
 - [ ] Bind War Machine upgraded presentation assets.
-- [ ] Add Ray Gun weapon definitions.
-- [ ] Add Ray Gun Pack-a-Punch variant definitions.
+- [x] Add Ray Gun weapon definitions.
+- [x] Add Ray Gun Pack-a-Punch variant definitions.
 - [ ] Bind Ray Gun animated viewmodel assets.
 - [ ] Bind Ray Gun upgraded presentation assets.
-- [ ] Add Ray Gun Mark II weapon definitions.
-- [ ] Add Ray Gun Mark II Pack-a-Punch variant definitions.
+- [x] Add Ray Gun Mark II weapon definitions.
+- [x] Add Ray Gun Mark II Pack-a-Punch variant definitions.
 - [ ] Bind Ray Gun Mark II animated viewmodel assets.
 - [ ] Bind Ray Gun Mark II upgraded presentation assets.
-- [ ] Add AK74u extended-magazine variant definitions.
-- [ ] Add upgraded AK74u extended-magazine variant definitions.
-- [ ] Add MP40 stock variant definitions.
-- [ ] Add upgraded MP40 stock variant definitions.
-- [ ] Add B23R extended-magazine variant definitions.
-- [ ] Add upgraded B23R extended-magazine variant definitions.
-- [ ] Connect weapon variants to shared ammunition groups.
-- [ ] Add original knife weapon definitions.
+- [x] Add AK74u extended-magazine variant definitions.
+- [x] Add upgraded AK74u extended-magazine variant definitions.
+- [x] Add MP40 stock variant definitions.
+- [x] Add upgraded MP40 stock variant definitions.
+- [x] Add B23R extended-magazine variant definitions.
+- [x] Add upgraded B23R extended-magazine variant definitions.
+- [x] Connect weapon variants to shared ammunition groups.
+- [x] Add original knife weapon definitions.
 - [ ] Add Bowie Knife weapon definitions.
 - [ ] Bind weapon pickup models to weapon definitions.
 - [ ] Bind weapon upgrade names to localized strings.

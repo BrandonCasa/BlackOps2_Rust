@@ -30,6 +30,7 @@ TABLES = {
     "animations": ("animation", "id path skeleton notifications"),
     "ui_assets": ("ui", "id path"),
     "cinematics": ("cinematic", "id frames frames_per_second audio"),
+    "localized_strings": ("string", "id key text"),
 }
 
 
@@ -62,7 +63,8 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            require(isinstance(row, dict) and set(row) == set(fields.split()), f"invalid {table} fields")
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions"} if table == "weapons" else set()
+            require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
     def resolve(owner, identity, kind="any", optional=False):
@@ -100,7 +102,8 @@ def validate_content(content, require):
             owner = row["id"]
             for key in ("damage", "magazine", "health", "souls"):
                 if key in row:
-                    natural(row[key], key != "souls")
+                    uses_ammo = row.get("mechanics", {}).get("delivery", "hitscan") in ("hitscan", "projectile")
+                    natural(row[key], key != "souls" and (table != "weapons" or uses_ammo))
             for key in ("reserve", "price"):
                 if key in row:
                     natural(row[key])
@@ -125,6 +128,44 @@ def validate_content(content, require):
             if table == "weapons":
                 resolve(owner, row["upgraded"], "weapon", True)
                 require(row["category"] in ("bullet", "melee", "explosive", "fire", "ice", "lightning", "wind", "environmental", "crush"), "invalid damage category")
+                resolve(owner, row.get("pickup"), "presentation", True)
+                resolve(owner, row.get("ammo_group"), "definition", True)
+                actions = row.get("animation_actions", {})
+                require(isinstance(actions, dict) and set(actions) <= {"idle", "fire", "reload", "reload_empty", "reload_start", "reload_end", "equip", "unequip", "melee", "ads_enter", "ads_leave", "sprint_enter", "sprint_loop", "sprint_leave", "prone_enter", "prone_loop", "prone_leave", "dive_enter", "dive_loop", "dive_leave"}, "invalid weapon animation actions")
+                for identity in actions.values():
+                    resolve(owner, identity, "animation")
+                if "localization_key" in row:
+                    require(row["localization_key"] is None or isinstance(row["localization_key"], str), "invalid localization key")
+                if "mechanics" in row:
+                    m = row["mechanics"]
+                    required_fields = "delivery fire starting_reserve minimum_damage damage_range hit_multipliers pellets penetration recoil_pitch recoil_yaw recoil_recovery spread ads_fov ads_seconds movement empty_reload shell_reload shell_seconds equip_seconds unequip_seconds dual_wield projectile_speed projectile_lifetime explosion_radius explosion_damage melee_seconds fuse_seconds".split()
+                    require(isinstance(m, dict) and set(m) == set(required_fields), "invalid weapon mechanics fields")
+                    require(m["delivery"] in ("hitscan", "projectile", "melee", "equipment"), "invalid weapon delivery")
+                    fire = m["fire"]
+                    require(isinstance(fire, dict) and fire.get("mode") in ("semi", "automatic", "burst", "charge"), "invalid fire pattern")
+                    require(set(fire) == ({"mode", "shots"} if fire["mode"] == "burst" else {"mode"}), "invalid fire payload")
+                    if fire["mode"] == "burst":
+                        natural(fire["shots"], True)
+                        require(fire["shots"] <= 8, "invalid burst count")
+                    for key in ("starting_reserve", "minimum_damage", "pellets"):
+                        natural(m[key], key == "pellets")
+                    require(m["starting_reserve"] <= row["reserve"] and m["pellets"] <= 64, "invalid weapon ammunition/pellets")
+                    for key, width in (("damage_range", 2), ("hit_multipliers", 5), ("recoil_pitch", 2), ("recoil_yaw", 2), ("spread", 4), ("ads_seconds", 2), ("movement", 2), ("explosion_damage", 2), ("melee_seconds", 2)):
+                        require(isinstance(m[key], list) and len(m[key]) == width, "invalid weapon vector")
+                        for value in m[key]:
+                            if key in ("recoil_pitch", "recoil_yaw"):
+                                require(type(value) in (int, float) and math.isfinite(value), "invalid recoil")
+                            elif key == "explosion_damage":
+                                natural(value)
+                            else:
+                                number(value, key in ("ads_seconds", "movement"))
+                    require(all(m[key][0] <= m[key][1] for key in ("damage_range", "recoil_pitch", "recoil_yaw")), "reversed weapon range")
+                    for key in ("penetration", "projectile_speed", "explosion_radius", "fuse_seconds"):
+                        number(m[key])
+                    for key in ("recoil_recovery", "empty_reload", "shell_seconds", "equip_seconds", "unequip_seconds", "projectile_lifetime", "ads_fov"):
+                        number(m[key], True)
+                    require(1 <= m["ads_fov"] <= 179, "invalid ADS FOV")
+                    require(type(m["shell_reload"]) is bool and type(m["dual_wield"]) is bool, "invalid weapon flags")
             elif table == "perks":
                 resolve(owner, row["icon"], "ui", True)
             elif table == "powerups":
@@ -207,6 +248,8 @@ def validate_content(content, require):
                     number(event["seconds"])
                     require(event["seconds"] >= previous and isinstance(event["event"], str) and event["event"], "invalid notification order/event")
                     previous = event["seconds"]
+            elif table == "localized_strings":
+                require(isinstance(row["key"], str) and row["key"] and isinstance(row["text"], str), "invalid localized string")
             elif table == "ui_assets":
                 path(row["path"])
             elif table == "cinematics":
