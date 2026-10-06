@@ -1,39 +1,36 @@
 TASK:
-Preserve useful original surface data through preparation and the committed Origins runtime pack.
+Correct reference-room appearance and the shared material conversion responsible for stretched, fuzzy pillar textures.
 
 STATUS:
-COMPLETE - prepared surface data regenerated, validated, imported and exercised in the actual game window; local integration complete.
+PARTIAL - shared tile/macro preparation and Bevy lighting implemented; original appearance and other world layer families remain approximate.
 
 FINDINGS:
-- All runtime dependencies belong under assets/origins; originals, OAT exports, raw DDS files and inspection receipts remain external. The game uses Bevy shaders and needs no original shader files or machine-local configuration.
-- The retained world inventory carries material names and complete texture identities; preview image indexes differ and recovered builtin bindings are appended. Correspondence is checked by semantic/binding identity and image file or recovered definition.
-- OAT model glTF omits tangents/specular textures and has unused material slots. A read-only callback now exports those source attributes, material bindings and static-instance lighting.
-- Source coverage: 6,469 world surfaces, 149,907 world triangles, 14,480 placements, 494 providers; 31 probes with six faces each. All 2,922 prepared meshes carry source tangents and RGBA colors. The pack has 912 material records, 359 specular-gloss bindings, 505 world/probe PNGs and 730 model PNGs.
+- Pillar source materials use two repeating diffuse surfaces plus a macro control map. Selecting only the first diffuse bound the coarse 256-square core texture across the complete model. This is a shared family conversion defect, also affecting rubble, rocks and statues.
+- Source smooth concrete is 512-square; the macro map is 512-square. A larger output alone cannot create source detail. Proper layer choice, tiled detail and macro weights address the stretched appearance.
+- The source lightmap PNG is a three-band packed radiance/direction atlas, not ordinary displayable color. Runtime now decodes its radiance bands before Bevy samples it.
 
 EVIDENCE:
-- Retained world packed-corner/inventory/lighting exchanges and OAT T6 vector/vertex definitions; Git selected opaque shader response dbf869c establishes original bitangent/channel meanings. No retired implementation restored.
-- External preparation/export files and surface-data-import.json under the configured inspection directory. surface-data-window contains the actual game log, screenshots and verification.json.
+- Retained external model-surfaces.json, standard OAT model exports and decoded raw PNGs establish texture bindings/UVs. Original input files are untouched. User screenshots guide appearance, never select geometry/camera.
+- Git history supplied packed-stream/channel research; retired renderers were not restored.
+- External tile-material-import.json and tile-material-window contain final import and actual-window evidence.
 
 CHANGES:
-- Standard glTF tangents/handedness, untouched RGBA colors and corner UV seams; original world/model material names and readable families. All decoded texture layers remain accessible through compact material.extras.surface channel records alongside normal/roughness conversions.
-- Roughness is 1-gloss alpha without the old clamp; raw normal and specular/gloss channels survive independently. One unresolved editor-default texture has an explicitly marked neutral placeholder; identity normal uses its recovered definition.
-- Document lighting tables carry both lightmap channels, probe cube faces/positions/SH and source coefficient basis. World meshes and nodes retain assignments, including hidden helpers. Slot 31 means no lightmap.
-- Static model meshes remain shared across placements. Instance lighting IDs/probe assignments/per-LOD color accessors and expanded-corner-to-source-vertex mappings survive separately from geometry.
-- Importer validates metadata/PNG closure, tangent handedness, vertex colors, cube dimensions, world material/lightmap/probe partitions and static sharing/transforms/lighting correspondence. Existing asset/rendering references and project state updated; no added Markdown files.
+- Generic tile_blend family handling bakes both diffuse layers with macro red/green weights in linear space at 2048 square, retaining all raw layers. Thirty-one material records share fourteen new outputs; no pillar-name or placement overrides. Compact metadata records the four-repeat tiling approximation; importer requires a derived diffuse binding distinct from all three raw layers.
+- Regenerated runtime assets stay under assets/origins, preserving standard relative references, shared providers and placements.
+- Shared decoded linear lightmaps, restrained cool fill/sunlight/fog, warm emissive lanterns and point lights at glass bounds, nearby lantern shadows, indoor/outdoor exposure and smaller HUD. Concrete remains matte; runtime normal XY strength is reduced. Added albedo smoothing was removed.
+- Updated existing project, asset and rendering references; no added Markdown files, shaders, dependencies, viewers or tests.
 
 VALIDATION:
-- External OAT callback compiled and ran successfully; affected external runtime pack regenerated successfully.
-- Actual failures/fixes: preview builtin bindings and unused model material slots required identity-based correspondence; missing model identity-normal/editor-default references required recovered normal/marked placeholder handling; lightmap slot 31 required explicit unassigned normalization. A validation begun during assembly observed the previous slot-31 data; final import started after regeneration completed.
-- Asset integrity: import/source reconciliation and exact copied hashes passed for 1,238 runtime files (1,235 PNGs), 596,228,344 bytes. Staged closure passed: 1,237 LFS pointers, ordinary Git game.json and local payload hashes; git lfs fsck passed.
-- Compiled: locked metadata, release workspace build and formatting gates passed once. Rendered/played: actual release-window driver exited 0; movement=true, round_two=true, restart_round=1, survey_views=8. Spawn screenshot inspected; material appearance remains approximate.
-- Bevy emitted unused glTF texture dependency warnings; render/collision scene loading and gameplay completed successfully. Documentation remains at 20 tracked Markdown files. No Rust/dependency/toolchain changes.
-- Skipped: unit tests/test suites/fixtures and Clippy (banned), sustained/manual play, native shader equivalence, push.
+- Locked metadata, release build and formatting passed. Cargo was absent from shell PATH; gates used the existing user Cargo binary. Earlier compile failures for mutable asset access and NotShadowCaster import were corrected.
+- An import overlapped an attempted regeneration and rejected differing copied hashes. Regeneration was stopped; the pack was regenerated completely before the final import. Final import/source reconciliation passed: 1,252 runtime files, 1,249 PNGs, 690,620,957 bytes. Staged closure passed: 1,251 LFS pointers and ordinary Git game.json. A direct index check initially selected an older Python without tomllib; rerunning with Python >=3.11 passed.
+- Earlier actual-window runs passed movement, Round 2, eight map views and restart. Final release-window driver exited 0: movement=true, round_two=true, restart_round=1, survey_views=8. Spawn screenshot inspected: pillars now show smooth coated surfaces and localized aggregate damage; warm lantern light is visible. Purple surfaces and ceiling/helper geometry remain visibly incorrect.
+- Skipped: unit tests, fixtures, suites and Clippy (banned), sustained/manual play, native shader equivalence and push.
 
 UNRESOLVED:
-PNG outputs retain decoded top-level channels rather than original compressed mip chains. Packed directions/secondary UVs and PBR normal/gloss response are practical reconstructions. Native lightmap decoding, layered shading, probe/SH evaluation and instance baked-color application remain rendering work. The editor-default model texture has one explicit placeholder. Unused glTF raw-texture dependency warnings remain in the game log; they did not prevent scene loading or play.
+Fourfold tile scale and macro channel interpretation are practical reconstructions, not recovered native arithmetic. Normal/specular detail layers are retained but not fully combined. Other world layered materials still select the first layer; secondary UV/control evaluation, remaining purple/helper surfaces, probe/SH shading, exact directional lightmap response and original visual effects remain unfinished. Runtime lightmap radiance clips above four. Original compressed mip chains are not retained. The source textures impose a real resolution limit.
 
 RECOMMENDED NEXT WORK:
-Use the retained material channels and lighting assignments to refine materials inside the same Bevy game, starting with packed lightmap decoding and specular response.
+Implement qualified world layer/secondary-UV handling and remaining control-map dispositions, then refine tiled normal/specular response and probe lighting in the same Bevy application.
 
 SCOPE NOT IMPLEMENTED:
-Native shader/register/constant-buffer/pipeline reproduction, source shader import, additional viewers/executables, retired-code restoration, higher model LOD geometry, exact original appearance, remote push.
+Complete pixel equivalence, general native layer shader reconstruction, native registers/buffers/pipelines, original shader import, higher model LODs, gameplay expansion, test suites, delegated work or remote push.

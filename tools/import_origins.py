@@ -211,7 +211,9 @@ def validate_gltf(root, relative, files):
         require(set(metadata) <= {"surface"}, "unsupported material extras")
         if "surface" in metadata:
             surface = metadata["surface"]
-            require(set(surface) == {"identity", "family", "channels"}, "invalid surface metadata")
+            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation"}, "invalid surface metadata")
+            if "preparation" in surface:
+                require(surface["family"] == "tile_blend" and surface["preparation"] == {"kind": "tile_macro_bake", "tiles": 4}, "invalid material preparation")
             require(surface["identity"] == material.get("name") and isinstance(surface["family"], str), "invalid material identity")
             layers = {}
             for channel in surface["channels"]:
@@ -225,6 +227,10 @@ def validate_gltf(root, relative, files):
                 layers[role] = channel["layer"] + 1
                 ref(document.get("textures", []), channel["texture"], "raw texture")
                 require(channel["channels"] == ("rgb:specular,a:gloss" if role == "specular_gloss" else "rgba"), "invalid channel interpretation")
+            if "preparation" in surface:
+                colors = [c["texture"] for c in surface["channels"] if c["role"] == "color"]
+                require(len(colors) == 3 and material["pbrMetallicRoughness"]["baseColorTexture"]["index"] not in colors,
+                        "tile/macro material must use a derived diffuse texture, retaining all source layers")
     for mesh in document.get("meshes", []):
         require(set(mesh) <= {"name", "primitives", "extras"} and mesh["primitives"], "unsupported or empty mesh")
         metadata = mesh.get("extras", {})

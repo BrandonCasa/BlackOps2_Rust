@@ -22,14 +22,14 @@ fn setup(
     commands.spawn((
         Text::new("Loading Origins…"),
         TextFont {
-            font_size: FontSize::Px(24.),
+            font_size: FontSize::Px(19.),
             ..default()
         },
         TextColor(Color::WHITE),
         Node {
             position_type: PositionType::Absolute,
             left: px(22.),
-            top: px(20.),
+            bottom: px(20.),
             right: px(22.),
             ..default()
         },
@@ -77,10 +77,10 @@ fn update(
     **text = match **state {
         GameState::Loading => "Loading Origins…".into(),
         GameState::LoadError => format!("Unable to load Origins\n{}", failure.0),
-        GameState::Paused => "Paused\nEscape or click to resume".into(),
+        GameState::Paused => "Paused — Escape or click to resume\nWASD move | mouse look | Shift sprint | Space jump | Ctrl crouch\nLeft click fire | right click/V melee | R reload".into(),
         GameState::GameOver => format!("Game over — Round {}\nPress R to restart", session.round),
         GameState::Playing => format!(
-            "Round {}    Health {}    Points {}\nAmmo {}/{}{}\nWASD | mouse look | Shift sprint | Space jump | Ctrl crouch\nLeft click fire | right click/V melee | R reload | Escape pause",
+            "Round {}    Health {}    Points {}\nAmmo {}/{}{}",
             session.round,
             health,
             session.points,

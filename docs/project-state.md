@@ -12,4 +12,6 @@ Current validation and limitations are recorded in the [current handoff](handoff
 
 The prepared runtime pack now retains source tangent handedness, RGBA vertex colors, UV seams, material identities, raw texture layers/specular-gloss channels, both lightmap channels, all probe faces/coefficients and world/static lighting assignments. Standard PBR still approximates the original response; retained data enables later material refinements without another source extraction.
 
+The reference-room rendering pass decodes packed lightmap radiance for Bevy, adds warm lights to placed lit lanterns, softens converted normal maps and makes concrete matte. Indoor/outdoor exposure, cool fill/fog and a compact HUD improve readability. Preparation now bakes the shared model tile/macro family using both surface layers and its control map, addressing stretched aggregate textures on pillars, rubble, rocks and statues. Native directional lightmap evaluation, authored tiling constants and other world-layer mixing remain approximations.
+
 Documentation working set: at most 20 Markdown files, including ten skills. Replace stale state instead of appending audits. Historical documentation and superseded code are recovered from Git.

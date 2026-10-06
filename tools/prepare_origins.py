@@ -29,11 +29,31 @@ WORKSPACE = Path(__file__).resolve().parents[1]
 
 def material_family(technique, layered=False):
     technique = technique.lower()
+    if "tile_blend" in technique:
+        return "tile_blend"
     for token, family in (("shadowcaster", "shadow_helper"), ("water", "water"), ("unlit", "unlit"),
                           ("alpha", "masked"), ("blend", "blended"), ("effect", "effect"), ("burn", "effect")):
         if token in technique:
             return family
     return "default" if technique == "wpc_default" else "layered_lit" if layered else "lit"
+
+
+def tile_blend_color(core, surface, control, tiles=4):
+    """Bake the shared model tile/macro family to ordinary PBR, retaining raw inputs.
+
+    Red weights the coated surface; green weights exposed core. Their magnitude
+    retains macro occlusion. Tiling is a tunable
+    reconstruction, not an attempt to reproduce the native shader constants.
+    """
+    size = 2048
+    def tiled(pixels):
+        tile = np.asarray(Image.fromarray(pixels).resize((size // tiles, size // tiles), Image.Resampling.LANCZOS))
+        return np.tile(tile, (tiles, tiles, 1))[..., :3].astype(np.float32) / 255
+    mask = np.asarray(Image.fromarray(control).resize((size, size), Image.Resampling.BILINEAR)).astype(np.float32) / 255
+    # Blend diffuse reflectance in linear space, rather than blending sRGB bytes.
+    linear = tiled(surface) ** 2.2 * mask[..., 0:1] + tiled(core) ** 2.2 * mask[..., 1:2]
+    rgb = (np.maximum(linear, 0) ** (1 / 2.2) * 255).clip(0, 255).astype(np.uint8)
+    return np.concatenate((rgb, np.full((size, size, 1), 255, np.uint8)), axis=2)
 
 
 def unit_vectors(words):
@@ -283,6 +303,7 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                     "family": material_family(original["family"], sum(t["semantic"] == 2 for t in original["textures"]) > 1), "channels": []}}, "doubleSided": True, "pbrMetallicRoughness": {
                     "metallicFactor": 0, "roughnessFactor": 0.85}}
                 layers = {}
+                color_pixels = []
                 for binding in original["textures"]:
                     role = {2: "color", 5: "normal", 8: "specular_gloss"}.get(binding["semantic"], "auxiliary")
                     layer = layers.get(role, 0)
@@ -301,6 +322,8 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                         continue
                     else:
                         pixels = np.array(Image.open(image_path).convert("RGBA"))
+                    if role == "color":
+                        color_pixels.append(pixels)
                     modes = ["raw"] + (["normal"] if role == "normal" else ["roughness"] if role == "specular_gloss" else [])
                     for mode in modes:
                         key = (image_path, mode)
@@ -322,6 +345,16 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                         elif role == "specular_gloss":
                             material["pbrMetallicRoughness"]["metallicRoughnessTexture"] = textures[(image_path, "roughness")]
                             material["pbrMetallicRoughness"]["roughnessFactor"] = 1
+                if "tile_blend" in original["family"]:
+                    if len(color_pixels) != 3:
+                        raise ValueError("unsupported tile/macro material layout")
+                    key = (tuple(t["image"] for t in original["textures"] if t["semantic"] == 2), "tile_blend")
+                    if key not in textures:
+                        filename = f"model-{len(textures)}.png"
+                        Image.fromarray(tile_blend_color(*color_pixels)).save(output / "textures" / filename)
+                        textures[key] = gltf.texture("textures/" + filename)
+                    material["pbrMetallicRoughness"]["baseColorTexture"] = textures[key]
+                    material["extras"]["surface"]["preparation"] = {"kind": "tile_macro_bake", "tiles": 4}
                 materials[source_index] = len(gltf.document["materials"])
                 gltf.document["materials"].append(material)
             provider = []
@@ -549,8 +582,8 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
     receipt = {"source_surfaces": len(surfaces), "triangles": len(positions)//3,
                "render_meshes": definition["render_meshes"], "textures": len(cached) + len(lighting["probes"]) * 6,
                "shadow_helper_surfaces": shadow_only,
-               "approximations": ["Standard PBR instead of native shaders", "first color/normal layer",
-                                  "direct packed source lightmap", "source-basis SH/probes retained but not rendered",
+               "approximations": ["Standard PBR instead of native shaders", "first color/normal layer outside tile/macro models",
+                                  "tile/macro diffuse bake with reconstructed fourfold tiling", "source-basis SH/probes retained but not rendered",
                                   "decoded top mip only", "neutral unresolved editor-default model image",
                                   "nearest path-node zombie admission"],
                "static_instances": instance_count, "model_providers": model_count, "model_textures": model_textures}
