@@ -16,12 +16,14 @@ pub enum ImpactSource {
     Weapon(WeaponId),
     Projectile(WeaponId),
     Enemy(ContentId),
+    Perk(crate::origins::PerkId),
 }
 impl ImpactSource {
     pub fn id(&self) -> &str {
         match self {
             Self::Weapon(id) | Self::Projectile(id) => &id.0,
             Self::Enemy(id) => &id.0,
+            Self::Perk(id) => &id.0,
         }
     }
 }
@@ -93,6 +95,8 @@ fn resolve(
     mut player_damage: MessageWriter<crate::player_health::PlayerDamage>,
     mut player_deaths: MessageWriter<crate::player_health::PlayerDeath>,
     mut downed: MessageWriter<crate::solo_revive::PlayerDowned>,
+    perks: Query<&crate::solo_revive::PerkInventory>,
+    mut perk_evidence: ResMut<crate::perk_effects::EffectEvidence>,
 ) {
     // Resolve weapon combat first: a lethal shot cancels that enemy's queued impact.
     queue
@@ -108,7 +112,7 @@ fn resolve(
             )
         });
         let valid_source = match &impact.source {
-            ImpactSource::Weapon(_) | ImpactSource::Projectile(_) => {
+            ImpactSource::Weapon(_) | ImpactSource::Projectile(_) | ImpactSource::Perk(_) => {
                 players.contains(impact.attacker)
             }
             ImpactSource::Enemy(id) => enemies
@@ -129,6 +133,19 @@ fn resolve(
         }
         if player && recovery.as_ref().is_some_and(|r| r.immunity > 0.) {
             evidence.immunity_rejections += 1;
+            continue;
+        }
+        if player
+            && matches!(impact.category, DamageCategory::Explosive)
+            && perks.get(impact.target).is_ok_and(|owned| {
+                definition
+                    .content
+                    .perks
+                    .iter()
+                    .any(|p| p.explosive_protection && owned.owned.contains(&p.id))
+            })
+        {
+            perk_evidence.record(serde_json::json!({"event":"explosive_protected","target":impact.target.to_bits(),"amount":impact.amount,"source":impact.source.id()}));
             continue;
         }
         let Ok(amount) = ResolvedDamage::new(impact.amount) else {
@@ -209,7 +226,10 @@ fn rewards(
             0
         };
         // Original death replaces a damage award; it does not add a second hit award.
-        let points = if lethal {
+        let points = if matches!(&impact.source,ImpactSource::Perk(id) if definition.content.perks.iter().any(|p|p.id==*id && p.cherry.is_some()))
+        {
+            if lethal { 40 } else { 0 }
+        } else if lethal {
             kill.saturating_add(bonus)
         } else {
             hit

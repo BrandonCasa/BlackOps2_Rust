@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing"} if table == "perks" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection"} if table == "perks" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -241,6 +241,17 @@ def validate_content(content, require):
                     require(abs(sum(x*x for x in m["ads_rotation"]) - 1) < 0.002, "unnormalized ADS rotation")
                     number(m["burst_delay"])
             elif table == "perks":
+                if "explosive_protection" in row: require(type(row["explosive_protection"]) is bool, "invalid explosive protection flag")
+                if row.get("cherry") is not None:
+                    c = row["cherry"]
+                    require(isinstance(c, dict) and set(c) == {"radius", "damage", "cooldown_extra", "stun_seconds"}, "invalid cherry fields")
+                    require(isinstance(c["radius"],list) and len(c["radius"])==2, "invalid cherry radii")
+                    for r in c["radius"]: number(r, positive=True)
+                    require(c["radius"][0] < c["radius"][1], "unordered cherry radii")
+                    require(isinstance(c["damage"],list) and len(c["damage"])==2, "invalid cherry damage")
+                    for d in c["damage"]: natural(d, positive=True)
+                    require(c["damage"][0]<=c["damage"][1]<=2147483647, "unordered cherry damage")
+                    number(c["cooldown_extra"],positive=True);number(c["stun_seconds"],positive=True)
                 if row.get("firing") is not None:
                     firing = row["firing"]
                     require(isinstance(firing, dict) and set(firing) == {"interval_scale", "bullet_copies", "hip_spread_scale"}, "invalid perk firing fields")

@@ -117,6 +117,13 @@ pub enum InventoryError {
 pub enum WeaponEmission {
     Shot(WeaponId),
     Melee,
+    ReloadStarted {
+        weapon: WeaponId,
+        magazine: u32,
+        capacity: u32,
+        seconds: f32,
+    },
+    ReloadCompleted(WeaponId),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -555,6 +562,7 @@ impl WeaponInventory {
                     return emissions;
                 }
                 self.insert(definition, u32::MAX);
+                emissions.push(WeaponEmission::ReloadCompleted(definition.id.clone()));
                 self.action = WeaponAction::Ready;
                 self.emit(WeaponSignal::Idle);
             }
@@ -593,6 +601,7 @@ impl WeaponInventory {
                 if phase != ShellPhase::End && !inserted && duration - remaining >= at.min(duration)
                 {
                     self.insert(definition, 1);
+                    emissions.push(WeaponEmission::ReloadCompleted(definition.id.clone()));
                     inserted = true;
                 }
                 if remaining > 0. {
@@ -660,6 +669,12 @@ impl WeaponInventory {
                 .is_some_and(|w| w.magazine < definition.magazine)
         {
             self.burst = 0;
+            emissions.push(WeaponEmission::ReloadStarted {
+                weapon: definition.id.clone(),
+                magazine: self.active().map_or(0, |w| w.magazine),
+                capacity: definition.magazine,
+                seconds: definition.reload_seconds * self.reload_duration_scale,
+            });
             let empty = self.active().is_some_and(|w| w.magazine == 0);
             self.action = if definition.mechanics.shell_reload {
                 WeaponAction::ShellReload {

@@ -657,12 +657,12 @@
 - [x] Add Double Tap eligible projectile duplication.
 - [x] Add Deadshot hip-fire spread modifiers.
 - [x] Add Deadshot source-defined mouse behavior.
-- [ ] Add PhD Flopper explosive protection.
+- [x] Add PhD Flopper explosive protection.
 - [ ] Add PhD Flopper fall protection.
 - [ ] Add PhD Flopper dive explosions.
-- [ ] Add Electric Cherry reload discharges.
-- [ ] Scale Electric Cherry discharges using remaining ammunition.
-- [ ] Add source-defined Electric Cherry discharge cooldown.
+- [x] Add Electric Cherry reload discharges.
+- [x] Scale Electric Cherry discharges using remaining ammunition.
+- [x] Add source-defined Electric Cherry discharge cooldown.
 - [ ] Add Wunderfizz active machine selection.
 - [ ] Add Wunderfizz generator power requirements.
 - [ ] Add Wunderfizz perk purchase rolls.

@@ -13,6 +13,7 @@ use bevy::{
 use std::{path::PathBuf, time::Instant};
 mod arsenal;
 mod claymores;
+mod defensive_perks;
 mod equipment_presentation;
 mod equipment_refills;
 mod firing_perks;
@@ -56,6 +57,7 @@ pub(crate) struct Verification {
     stamin_up: bool,
     mule_kick: bool,
     firing_perks: bool,
+    defensive_perks: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -82,6 +84,13 @@ impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
+            if app
+                .world()
+                .resource::<LaunchOptions>()
+                .verify_defensive_perks
+            {
+                defensive_perks::install(app);
+            }
             if app.world().resource::<LaunchOptions>().verify_firing_perks {
                 firing_perks::install(app);
             }
@@ -181,6 +190,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             stamin_up: options.verify_stamin_up,
             mule_kick: options.verify_mule_kick,
             firing_perks: options.verify_firing_perks,
+            defensive_perks: options.verify_defensive_perks,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -230,6 +240,7 @@ pub(crate) fn drive(
         || verification.stamin_up
         || verification.mule_kick
         || verification.firing_perks
+        || verification.defensive_perks
     {
         return;
     }
@@ -515,6 +526,7 @@ fn check(
         || verification.stamin_up
         || verification.mule_kick
         || verification.firing_perks
+        || verification.defensive_perks
     {
         return;
     }

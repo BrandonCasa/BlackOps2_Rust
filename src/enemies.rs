@@ -32,6 +32,7 @@ pub struct Zombie {
     destination: Vec3,
     pub action: EnemyAnimation,
     pub elapsed: f32,
+    pub stunned: f32,
     next_hit: usize,
     lure: Option<Entity>,
 }
@@ -51,6 +52,7 @@ impl Zombie {
             destination: position,
             action: EnemyAnimation::Idle,
             elapsed: 0.,
+            stunned: 0.,
             next_hit: 0,
             lure: None,
         }
@@ -191,6 +193,12 @@ pub(crate) fn lifecycle(
             continue;
         }
         if ready.is_none() {
+            continue;
+        }
+        if zombie.stunned > 0. {
+            zombie.stunned = (zombie.stunned - dt).max(0.);
+            zombie.transition(EnemyAnimation::Idle);
+            zombie.velocity = Vec3::ZERO;
             continue;
         }
         zombie.elapsed += dt;

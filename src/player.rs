@@ -85,6 +85,7 @@ fn spawn_player(
         vitality,
         crate::player_health::Recovery::default(),
         crate::solo_revive::PerkInventory::default(),
+        crate::perk_effects::CherryState::default(),
         inventory,
         crate::mines::MineInventory::default(),
         crate::equipment::TacticalInventory::default(),

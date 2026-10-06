@@ -332,6 +332,7 @@ pub(crate) fn combat(
     query: SpatialQuery,
     mut hit_evidence: ResMut<crate::hit_regions::HitEvidence>,
     mut firing_evidence: ResMut<crate::perks::FiringEvidence>,
+    mut reloads: MessageWriter<crate::perk_effects::ReloadEvent>,
 ) {
     let dt = time.delta_secs();
     let Ok((entity, player, transform, mut inventory, grenades, mines, tactical, drinking, perks)) =
@@ -382,6 +383,27 @@ pub(crate) fn combat(
             weapon.map_or(1, |w| w.mechanics.pellets)
         };
         let (melee, damage, weapon_id) = match emission {
+            WeaponEmission::ReloadStarted {
+                weapon,
+                magazine,
+                capacity,
+                seconds,
+            } => {
+                reloads.write(crate::perk_effects::ReloadEvent {
+                    owner: entity,
+                    weapon,
+                    start: Some((magazine, capacity, seconds)),
+                });
+                continue;
+            }
+            WeaponEmission::ReloadCompleted(weapon) => {
+                reloads.write(crate::perk_effects::ReloadEvent {
+                    owner: entity,
+                    weapon,
+                    start: None,
+                });
+                continue;
+            }
             WeaponEmission::Shot(id) => {
                 session.shots += 1;
                 let Some(weapon) = definition.content.weapons.iter().find(|w| w.id == id) else {

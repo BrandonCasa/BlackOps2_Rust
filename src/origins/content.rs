@@ -324,6 +324,10 @@ pub struct PerkDefinition {
     pub third_weapon: bool,
     #[serde(default)]
     pub firing: Option<PerkFiringDefinition>,
+    #[serde(default)]
+    pub cherry: Option<crate::perk_effects::CherryDefinition>,
+    #[serde(default)]
+    pub explosive_protection: bool,
 }
 impl PerkDefinition {
     pub fn has_supported_effect(&self) -> bool {
@@ -332,6 +336,8 @@ impl PerkDefinition {
             || self.sprint.is_some()
             || self.third_weapon
             || self.firing.is_some()
+            || self.cherry.is_some()
+            || self.explosive_protection
     }
 }
 #[derive(Clone, Copy, Deserialize)]
@@ -892,6 +898,10 @@ impl ContentCatalog {
             }
         }
         for v in &self.perks {
+            valid(
+                v.cherry.as_ref().is_none_or(|c| c.valid()),
+                "Invalid Electric Cherry modifiers",
+            )?;
             valid(
                 v.firing.as_ref().is_none_or(|p| {
                     [p.interval_scale, p.hip_spread_scale]
