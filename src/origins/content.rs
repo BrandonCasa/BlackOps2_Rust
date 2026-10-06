@@ -139,7 +139,7 @@ pub enum WeaponDelivery {
     Melee,
     Equipment,
 }
-#[derive(Clone, Copy, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, Deserialize, Default)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FirePattern {
     #[default]
@@ -274,12 +274,29 @@ pub struct InteractionPlacement {
 #[derive(Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InteractionAction {
-    Door { connection: ContentId, price: u32 },
-    Weapon { weapon: WeaponId, price: u32 },
-    Perk { perk: PerkId },
-    Generator { generator: ContentId },
-    Quest { quest: QuestId, event: String },
-    Pickup { item: ContentId },
+    Door {
+        connection: ContentId,
+        price: u32,
+    },
+    Weapon {
+        weapon: WeaponId,
+        price: u32,
+        #[serde(default)]
+        ammo_price: Option<u32>,
+    },
+    Perk {
+        perk: PerkId,
+    },
+    Generator {
+        generator: ContentId,
+    },
+    Quest {
+        quest: QuestId,
+        event: String,
+    },
+    Pickup {
+        item: ContentId,
+    },
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

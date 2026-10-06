@@ -253,6 +253,37 @@ impl WeaponInventory {
             }
         }
     }
+    pub fn refill_weapon(&mut self, definition: &WeaponDefinition) -> bool {
+        let Some(pool) = self.ammunition.get_mut(&Self::group(definition)) else {
+            return false;
+        };
+        if pool.rounds >= pool.capacity {
+            return false;
+        }
+        pool.rounds = pool.capacity;
+        true
+    }
+    pub fn receive(&mut self, definition: &WeaponDefinition) -> Result<usize, InventoryError> {
+        if self.action != WeaponAction::Ready {
+            return Err(InventoryError::Busy);
+        }
+        let slot = match self.grant(definition) {
+            Ok(slot) => slot,
+            Err(InventoryError::Full) => {
+                self.replace(self.active, definition)?;
+                self.active
+            }
+            Err(error) => return Err(error),
+        };
+        self.active = slot;
+        self.cooldown = 0.;
+        self.burst = 0;
+        self.action = WeaponAction::Equipping {
+            remaining: definition.mechanics.equip_seconds,
+        };
+        self.emit(WeaponSignal::Equip);
+        Ok(slot)
+    }
     pub fn cancel_action(&mut self) {
         self.action = WeaponAction::Ready;
         self.burst = 0;

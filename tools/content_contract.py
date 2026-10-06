@@ -190,7 +190,10 @@ def validate_content(content, require):
                            "pickup": ("item", "any", {"kind", "item"})}
                 require(action.get("kind") in schemas, "unknown interaction kind")
                 key, kind, fields = schemas[action["kind"]]
-                require(set(action) == fields, "invalid interaction payload")
+                extras = {"ammo_price"} if action["kind"] == "weapon" else set()
+                require(fields <= set(action) <= fields | extras, "invalid interaction payload")
+                if action.get("ammo_price") is not None:
+                    natural(action["ammo_price"])
                 resolve(owner, action[key], kind)
                 if "price" in action:
                     natural(action["price"])

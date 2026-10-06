@@ -84,7 +84,11 @@ struct Bounds {
 }
 
 #[derive(Resource, Default)]
-struct Casters(HashMap<Entity, Bounds>);
+struct Casters(
+    HashMap<Entity, Bounds>,
+    HashMap<Entity, (Mat4, Option<(Vec3, Vec3)>)>,
+    HashMap<Entity, Vec<Mat4>>,
+);
 
 #[derive(Clone, PartialEq)]
 struct Stamp {
@@ -198,12 +202,13 @@ fn changes(
     >,
     lights: Query<(Entity, &GlobalTransform, &PointLight, &CubemapFrusta)>,
     skinned: Query<
-        (),
+        (Entity, &bevy::mesh::skinning::SkinnedMesh),
         (
             With<bevy::mesh::skinning::SkinnedMesh>,
             Without<NotShadowCaster>,
         ),
     >,
+    joints: Query<&GlobalTransform>,
     mut removed_meshes: RemovedComponents<Mesh3d>,
     mut removed_standard: RemovedComponents<MeshMaterial3d<StandardMaterial>>,
     mut removed_surface: RemovedComponents<MeshMaterial3d<OpaqueMaterial>>,
@@ -217,10 +222,19 @@ fn changes(
     stats: Res<ShadowCacheStats>,
 ) {
     let mut dirty = Vec::new();
-    // Bone animation can change a silhouette without changing its entity pose.
-    // Current actors use rigid meshes; future skinned actors redraw conservatively.
-    if !skinned.is_empty() {
-        revisions.epoch = revisions.epoch.wrapping_add(1);
+    // A static skin must not invalidate every lantern merely by existing.
+    // Changed joint poses invalidate the affected caster's nearby shadow maps.
+    for (entity, skin) in &skinned {
+        let poses: Vec<_> = skin
+            .joints
+            .iter()
+            .filter_map(|joint| joints.get(*joint).ok().map(GlobalTransform::to_matrix))
+            .collect();
+        let changed = casters.2.get(&entity) != Some(&poses);
+        casters.2.insert(entity, poses);
+        if changed && let Some(bounds) = casters.0.get(&entity) {
+            dirty.push(*bounds);
+        }
     }
     for entity in removed_meshes
         .read()
@@ -230,6 +244,8 @@ fn changes(
         if let Some(bounds) = casters.0.remove(&entity) {
             dirty.push(bounds);
         }
+        casters.1.remove(&entity);
+        casters.2.remove(&entity);
     }
     // An exclusion removal adds a caster back even when its transform is static.
     let removed_exclusions: Vec<_> = removed_exclusions.read().collect();
@@ -244,10 +260,16 @@ fn changes(
         .chain(layer_removals)
         .collect();
     for (entity, transform, mesh, aabb, visibility, standard, surface, layers) in &meshes {
-        if !transform.is_changed()
+        let pose = (
+            transform.to_matrix(),
+            aabb.as_ref()
+                .map(|aabb| (aabb.center.into(), aabb.half_extents.into())),
+        );
+        let changed_pose = casters.1.get(&entity) != Some(&pose);
+        casters.1.insert(entity, pose);
+        if !changed_pose
             && !mesh.is_changed()
             && !visibility.is_changed()
-            && !aabb.as_ref().is_some_and(|a| a.is_changed())
             && !standard
                 .as_ref()
                 .is_some_and(|material| material.is_changed())

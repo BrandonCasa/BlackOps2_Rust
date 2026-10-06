@@ -11,6 +11,7 @@ use bevy::{
     render::view::screenshot::{Screenshot, save_to_disk},
 };
 use std::{path::PathBuf, time::Instant};
+mod arsenal;
 mod performance;
 mod pipelines;
 
@@ -33,12 +34,16 @@ pub(crate) struct Verification {
     reported: u32,
     ads_seen: bool,
     recoil_seen: bool,
+    wall_weapons: bool,
 }
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
+            if app.world().resource::<LaunchOptions>().verify_wall_weapons {
+                arsenal::install(app);
+            }
         }
         app.add_systems(Startup, setup)
             .add_systems(
@@ -81,6 +86,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             reported: 0,
             ads_seen: false,
             recoil_seen: false,
+            wall_weapons: options.verify_wall_weapons,
         });
     }
 }
@@ -306,6 +312,10 @@ fn check(
     if verification.stage == 0 && session.round >= 2 {
         verification.round_two = true;
         verification.stage = 1;
+        if verification.wall_weapons {
+            verification.stage = 4;
+            return;
+        }
         verification.playing = 0.;
         next.set(GameState::Paused);
         commands

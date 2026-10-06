@@ -78,10 +78,10 @@
 - [x] Add LFS attributes for cinematic images.
 - [x] Add LFS attributes for committed raw binaries.
 - [ ] Replace pistol-specific Session fields with player inventory.
-- [ ] Move weapon behavior into a reusable weapon module.
+- [x] Move weapon behavior into a reusable weapon module.
 - [ ] Move enemy behavior into a reusable enemy module.
-- [ ] Move purchase behavior into a reusable economy module.
-- [ ] Move interaction behavior into a reusable interaction module.
+- [x] Move purchase behavior into a reusable economy module.
+- [x] Move interaction behavior into a reusable interaction module.
 - [ ] Move effect behavior into a reusable presentation module.
 - [ ] Move round behavior into a focused round module.
 - [ ] Register explicit fixed-step gameplay ordering.
@@ -119,22 +119,22 @@
 - [ ] Add remappable mouse button bindings.
 - [ ] Persist keyboard bindings in local settings.
 - [ ] Persist mouse bindings in local settings.
-- [ ] Aggregate raw mouse deltas once per rendered frame.
-- [ ] Apply mouse sensitivity once to aggregated deltas.
-- [ ] Update camera look independently of fixed gameplay ticks.
-- [ ] Remove per-event gameplay work from mouse handling.
+- [x] Aggregate raw mouse deltas once per rendered frame.
+- [x] Apply mouse sensitivity once to aggregated deltas.
+- [x] Update camera look independently of fixed gameplay ticks.
+- [x] Remove per-event gameplay work from mouse handling.
 - [x] Add separate ADS mouse sensitivity.
 - [ ] Add mouse inversion settings.
-- [ ] Clear accumulated mouse motion after focus loss.
-- [ ] Clear held actions after focus loss.
+- [x] Clear accumulated mouse motion after focus loss.
+- [x] Clear held actions after focus loss.
 - [ ] Preserve pressed action edges between fixed ticks.
 - [ ] Preserve released action edges between fixed ticks.
-- [ ] Add held fire input.
+- [x] Add held fire input.
 - [x] Add held ADS input.
-- [ ] Bind right mouse to aiming.
-- [ ] Keep melee on a dedicated action.
+- [x] Bind right mouse to aiming.
+- [x] Keep melee on a dedicated action.
 - [ ] Add prone input.
-- [ ] Add interact input.
+- [x] Add interact input.
 - [x] Add weapon cycle input.
 - [x] Add numbered weapon selection input.
 - [ ] Add lethal equipment input.
@@ -186,23 +186,23 @@
 - [ ] Apply environmental damage at fixed intervals.
 - [ ] Add out-of-bounds lethal volumes.
 - [ ] Exclude first-person meshes from movement collisions.
-- [ ] Add interaction candidate queries.
-- [ ] Filter interaction candidates by player reach.
-- [ ] Filter interaction candidates by line of sight.
-- [ ] Choose interaction targets using viewing direction.
+- [x] Add interaction candidate queries.
+- [x] Filter interaction candidates by player reach.
+- [x] Filter interaction candidates by line of sight.
+- [x] Choose interaction targets using viewing direction.
 - [ ] Add interaction hold progress.
-- [ ] Cancel interactions when targets leave reach.
+- [x] Cancel interactions when targets leave reach.
 - [ ] Cancel interactions when players become downed.
-- [ ] Prevent duplicate interaction execution.
-- [ ] Resolve prompts from interaction state.
+- [x] Prevent duplicate interaction execution.
+- [x] Resolve prompts from interaction state.
 - [ ] Resolve prompt keys from current bindings.
 - [ ] Suppress prompts for original hidden interactions.
-- [ ] Add typed interaction rejection reasons.
-- [ ] Add point transaction commands.
-- [ ] Reject purchases exceeding available points.
-- [ ] Deduct points only after purchase acceptance.
+- [x] Add typed interaction rejection reasons.
+- [x] Add point transaction commands.
+- [x] Reject purchases exceeding available points.
+- [x] Deduct points only after purchase acceptance.
 - [ ] Add purchase refund handling.
-- [ ] Prevent repeated purchase charging within one interaction.
+- [x] Prevent repeated purchase charging within one interaction.
 - [ ] Add source-defined hit point awards.
 - [ ] Add source-defined kill point awards.
 - [ ] Add source-defined headshot point awards.
@@ -230,7 +230,7 @@
 - [x] Add first-person weapon idle animations.
 - [x] Add first-person weapon firing animations.
 - [x] Add first-person weapon reload animations.
-- [ ] Add first-person weapon switching animations.
+- [x] Add first-person weapon switching animations.
 - [ ] Add first-person melee animations.
 - [ ] Add first-person grenade animations.
 - [ ] Add first-person equipment animations.
@@ -257,7 +257,7 @@
 - [ ] Bind Mauser C96 upgraded presentation assets.
 - [x] Add M14 weapon definitions.
 - [x] Add M14 Pack-a-Punch variant definitions.
-- [ ] Bind M14 animated viewmodel assets.
+- [x] Bind M14 animated viewmodel assets.
 - [ ] Bind M14 upgraded presentation assets.
 - [x] Add Ballista weapon definitions.
 - [x] Add Ballista Pack-a-Punch variant definitions.
@@ -265,7 +265,7 @@
 - [ ] Bind Ballista upgraded presentation assets.
 - [x] Add MP40 weapon definitions.
 - [x] Add MP40 Pack-a-Punch variant definitions.
-- [ ] Bind MP40 animated viewmodel assets.
+- [x] Bind MP40 animated viewmodel assets.
 - [ ] Bind MP40 upgraded presentation assets.
 - [x] Add STG-44 weapon definitions.
 - [x] Add STG-44 Pack-a-Punch variant definitions.
@@ -277,11 +277,11 @@
 - [ ] Bind AK74u upgraded presentation assets.
 - [x] Add B23R weapon definitions.
 - [x] Add B23R Pack-a-Punch variant definitions.
-- [ ] Bind B23R animated viewmodel assets.
+- [x] Bind B23R animated viewmodel assets.
 - [ ] Bind B23R upgraded presentation assets.
 - [x] Add Remington 870 MCS weapon definitions.
 - [x] Add Remington 870 MCS Pack-a-Punch variant definitions.
-- [ ] Bind Remington 870 MCS animated viewmodel assets.
+- [x] Bind Remington 870 MCS animated viewmodel assets.
 - [ ] Bind Remington 870 MCS upgraded presentation assets.
 - [x] Add HAMR weapon definitions.
 - [x] Add HAMR Pack-a-Punch variant definitions.
@@ -382,15 +382,15 @@
 - [ ] Add Mule Kick's third weapon slot.
 - [ ] Track the weapon occupying Mule Kick's slot.
 - [x] Add active weapon selection.
-- [ ] Add weapon equip timing.
-- [ ] Add weapon unequip timing.
-- [ ] Implement cyclic weapon switching.
-- [ ] Implement direct weapon slot selection.
-- [ ] Prevent switching during incompatible actions.
+- [x] Add weapon equip timing.
+- [x] Add weapon unequip timing.
+- [x] Implement cyclic weapon switching.
+- [x] Implement direct weapon slot selection.
+- [x] Prevent switching during incompatible actions.
 - [x] Add weapon action states.
 - [x] Add semiautomatic firing.
-- [ ] Add automatic firing.
-- [ ] Add burst firing.
+- [x] Add automatic firing.
+- [x] Add burst firing.
 - [ ] Add burst interruption rules.
 - [ ] Add empty weapon firing feedback.
 - [x] Add hitscan shot queries.
@@ -405,7 +405,7 @@
 - [x] Add ADS spread.
 - [x] Add movement spread modifiers.
 - [ ] Add stance spread modifiers.
-- [ ] Add shotgun pellet generation.
+- [x] Add shotgun pellet generation.
 - [ ] Add material penetration resistance.
 - [ ] Add penetration damage attenuation.
 - [ ] Prevent repeated hits on one penetrated actor.
@@ -710,7 +710,7 @@
 - [ ] Add wall weapon ammunition purchases.
 - [ ] Add upgraded wall ammunition purchases.
 - [ ] Add source-defined wall ammunition prices.
-- [ ] Add wall weapon replacement selection.
+- [x] Add wall weapon replacement selection.
 - [ ] Add wall weapon shared-ammunition handling.
 - [ ] Add Mystery Box initial placement selection.
 - [ ] Add Mystery Box purchase interaction.

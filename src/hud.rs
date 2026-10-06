@@ -81,6 +81,7 @@ fn update(
     definition: Option<Res<crate::assets::GameDefinition>>,
     inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
     players: Query<&Vitality, With<Player>>,
+    focus: Res<crate::interactions::InteractionFocus>,
     mut text: Query<&mut Text, With<HudText>>,
 ) {
     let Ok(mut text) = text.single_mut() else {
@@ -98,7 +99,7 @@ fn update(
     });
     let ammo = inventory.and_then(|i| i.active()).map_or(0, |w| w.magazine);
     let reserve = inventory.zip(weapon).map_or(0, |(i, w)| i.reserve(w));
-    let value = match **state {
+    let mut value = match **state {
         GameState::Loading => "Loading Origins…".into(),
         GameState::LoadError => format!("Unable to load Origins\n{}", failure.0),
         GameState::Paused => "Paused — Escape or click to resume\nWASD move | mouse look | Shift sprint | Space jump | Ctrl crouch\nLeft click fire | right click aim | V melee | R reload | Q/wheel cycle | 1–3 weapon slots".into(),
@@ -118,6 +119,20 @@ fn update(
             }
         ),
     };
+    if **state == GameState::Playing && !focus.prompt.is_empty() {
+        value.push_str(&format!("\n{}", focus.prompt));
+        if let Some(reason) = focus.rejection {
+            let reason = match reason {
+                crate::interactions::InteractionRejection::InsufficientPoints => {
+                    "Not enough points"
+                }
+                crate::interactions::InteractionRejection::FullAmmo => "Ammo full",
+                crate::interactions::InteractionRejection::Busy => "Weapon busy",
+                _ => "Unavailable",
+            };
+            value.push_str(&format!(" — {reason}"));
+        }
+    }
     if text.0 != value {
         text.0 = value;
     }

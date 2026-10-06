@@ -2,6 +2,7 @@
 import hashlib
 import json
 import math
+import csv
 import re
 from pathlib import Path
 
@@ -145,9 +146,47 @@ def prepare(config):
             unresolved.append({"weapon": name, "missing_model": model})
         weapons.append(weapon)
     content["weapons"] = weapons
+    # Retained decompilation is an offline research input, never a runtime script.
+    script = external(config.get("preparation", {}).get("weapon_script", inspection / "damage-life-state-03/decompiled/t6/zm_tomb.gsc"))
+    prices = {}
+    for name, price, ammo in re.findall(r'add_zombie_weapon\(\s*"([^"]+)"\s*,[^,]*,[^,]*,\s*(\d+)\s*,[^,]*,[^,]*,\s*(undefined|\d+)', script.read_text()):
+        prices[name] = [int(price), None if ammo == "undefined" else int(ammo)]
+    table = external(config.get("preparation", {}).get("weapon_prices", inspection / "mechanics-rounds-02/table-dump/mp/zombiemode.csv"))
+    for row in csv.reader(table.read_text().splitlines()):
+        if row[0] in prices:
+            for column in (1, 2):
+                if row[column]:
+                    prices[row[0]][column-1] = math.ceil(int(row[column]) / 10) * 10
+    # Map initialization applies these overrides after the common CSV lookup.
+    for name, price in re.findall(r'change_weapon_cost\(\s*"([^"]+)"\s*,\s*(\d+)\s*\)', script.read_text()):
+        prices[name] = [int(price), math.ceil(int(int(price) * 0.5) / 10) * 10]
+    catalog = {w["id"]: w for w in weapons}
+    wall_placements, wall_interactions = [], []
+    for entity in source["entities"]:
+        fields = entity["fields"]
+        name = fields.get("zombie_weapon_upgrade")
+        if fields.get("targetname") != "weapon_upgrade" or "weapon." + str(name) not in catalog:
+            continue
+        weapon = catalog["weapon." + name]
+        if weapon["mechanics"]["delivery"] != "hitscan":
+            continue # Offhand equipment gets its dedicated inventory/action path.
+        if name not in prices:
+            raise ValueError("Missing native wall price: " + name)
+        price, ammo = prices[name]
+        placement = "placement.wall." + entity["id"].removeprefix("entity.")
+        wall_placements.append({"id": placement, "definition": weapon["id"], "position": entity["position"],
+                                "yaw": math.radians(float(fields.get("angles", "0 0 0").split()[1])), "zone": "zone.start"})
+        wall_interactions.append({"id": "interaction.wall." + entity["id"].removeprefix("entity."),
+                                  "placement": placement, "action": {"kind": "weapon", "weapon": weapon["id"], "price": price,
+                                  "ammo_price": ammo if ammo is not None else math.ceil(int(price * 0.5) / 10) * 10},
+                                  "reach": 2., "hold_seconds": 0., "hidden_prompt": False})
+    content["placements"] = [p for p in content["placements"] if not p["id"].startswith("placement.wall.")] + wall_placements
+    content["interactions"] = [p for p in content["interactions"] if not p["id"].startswith("interaction.wall.")] + wall_interactions
     content["definitions"] = sorted(set(content["definitions"]) | ammunition)
     (pack / "game.json").write_text(json.dumps(game, indent=2) + "\n", encoding="utf-8")
     report = {"weapons": len(weapons), "strings": len(strings), "ammunition_groups": len(ammunition),
+        "wall_buys": len(wall_interactions), "weapon_script_sha256": hashlib.sha256(script.read_bytes()).hexdigest(),
+        "weapon_price_table_sha256": hashlib.sha256(table.read_bytes()).hexdigest(),
         "missing_presentations": unresolved,
         "approximations": ["Native view-kick values use a 0.01 reconstruction scale.",
                            "ADS horizontal FOV uses the 4:3 reference aspect; movement scales are capped at one.",

@@ -89,7 +89,7 @@ pub fn capsule(radius: f32, height: f32) -> Collider {
     Collider::capsule(radius, height - 2. * radius)
 }
 
-fn look(
+pub(crate) fn look(
     mut input: ResMut<GameInput>,
     definition: Option<Res<GameDefinition>>,
     mut players: Query<(&mut Player, &crate::weapons::WeaponInventory)>,

@@ -89,7 +89,7 @@ pub(super) fn record(
                 .push(measurement.value);
         }
     }
-    if verification.stage >= 2 && !samples.written {
+    if matches!(verification.stage, 2 | 3) && !samples.written {
         let views: BTreeMap<_, _> = samples
             .frames
             .iter()

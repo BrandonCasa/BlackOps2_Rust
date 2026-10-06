@@ -11,6 +11,7 @@ use bevy::prelude::*;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub enum GameStep {
     Movement,
+    Interactions,
     Combat,
     Zombies,
     Rounds,
@@ -191,6 +192,7 @@ impl Plugin for GameplayPlugin {
                 FixedUpdate,
                 (
                     GameStep::Movement,
+                    GameStep::Interactions,
                     GameStep::Combat,
                     GameStep::Zombies,
                     GameStep::Rounds,

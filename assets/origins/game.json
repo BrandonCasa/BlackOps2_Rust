@@ -13389,8 +13389,442 @@
         "initially_open": true
       }
     ],
-    "placements": [],
-    "interactions": [],
+    "placements": [
+      {
+        "id": "placement.wall.f0390db3.157b073119f1306effac62d0.0",
+        "definition": "weapon.mp40_zm",
+        "position": [
+          82.21979999999999,
+          4.952999999999999,
+          10.8966
+        ],
+        "yaw": 1.7484533913553992e-07,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.f0390db3.2c060257ae610ee3dacd3808.0",
+        "definition": "weapon.mp40_zm",
+        "position": [
+          -13.1318,
+          -7.239,
+          -114.39524999999999
+        ],
+        "yaw": 3.141592653589793,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.834d841b.95e8cc7cee3a66e7580a884f.0",
+        "definition": "weapon.870mcs_zm",
+        "position": [
+          39.0652,
+          -6.756399999999999,
+          -93.90379999999999
+        ],
+        "yaw": 1.7484533913553992e-07,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.c15ad568.7171d5a055a1149f469175b9.0",
+        "definition": "weapon.m14_zm",
+        "position": [
+          61.950599999999994,
+          -7.8232,
+          -136.0424
+        ],
+        "yaw": 4.71238898038469,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.5018227c.66af425d4325f387d9fa31a0.0",
+        "definition": "weapon.mp44_zm",
+        "position": [
+          -0.1143,
+          -5.08,
+          -12.56665
+        ],
+        "yaw": 3.141592653589793,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.1a88f438.beda47a77028fd3c1e931903.0",
+        "definition": "weapon.ballista_zm",
+        "position": [
+          51.7906,
+          -6.2484,
+          -114.81434999999999
+        ],
+        "yaw": 1.7484533913553992e-07,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.5018227c.c5123e29b34b06ba09411050.0",
+        "definition": "weapon.ak74u_zm",
+        "position": [
+          17.9959,
+          -4.3434,
+          -66.77025
+        ],
+        "yaw": 1.7484533913553992e-07,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.5018227c.6d9968afb3087e1a49859d32.0",
+        "definition": "weapon.mp44_zm",
+        "position": [
+          240.03635,
+          -8.382,
+          185.0263
+        ],
+        "yaw": 4.71238898038469,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.834d841b.77f5314c885e746146b4f327.0",
+        "definition": "weapon.870mcs_zm",
+        "position": [
+          24.4348,
+          9.017,
+          102.91445
+        ],
+        "yaw": 1.7484533913553992e-07,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.5018227c.039d14220cb133c2cd22485c.0",
+        "definition": "weapon.ak74u_zm",
+        "position": [
+          284.17012,
+          -9.0932,
+          212.83929999999998
+        ],
+        "yaw": 1.5707963267948966,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.5018227c.6cd8578b5145204caaff6101.0",
+        "definition": "weapon.ak74u_zm",
+        "position": [
+          -8.509,
+          9.6012,
+          -3.3401
+        ],
+        "yaw": 4.71238898038469,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.5018227c.8a49b51d409f998f8c4a72ff.0",
+        "definition": "weapon.mp44_zm",
+        "position": [
+          14.5199862,
+          10.5156,
+          63.973963999999995
+        ],
+        "yaw": 3.4033920413889427,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.ed8e28b4.690d8e40f7bbe7f5a822da77.0",
+        "definition": "weapon.beretta93r_zm",
+        "position": [
+          56.870599999999996,
+          -6.5024,
+          -89.82074999999999
+        ],
+        "yaw": 1.7484533913553992e-07,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.ed8e28b4.eb6a4a645616fc0a15aa12bd.0",
+        "definition": "weapon.beretta93r_zm",
+        "position": [
+          -1.57502352,
+          2.794,
+          69.749162
+        ],
+        "yaw": 4.974188368183839,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.1a88f438.ea7c4cbb578c31bd4cd1c4fa.0",
+        "definition": "weapon.fiveseven_zm",
+        "position": [
+          32.274256,
+          3.7211,
+          65.86956599999999
+        ],
+        "yaw": 3.4033920413889427,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.1a88f438.433d1a9841ee58be375c1e36.0",
+        "definition": "weapon.fiveseven_zm",
+        "position": [
+          -23.56485,
+          -1.3208,
+          -77.1144
+        ],
+        "yaw": 4.71238898038469,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.834d841b.566eeed84610f15e2e10a204.0",
+        "definition": "weapon.870mcs_zm",
+        "position": [
+          -84.52485,
+          -0.43179999999999996,
+          -1.9811999999999999
+        ],
+        "yaw": 4.71238898038469,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.wall.f0390db3.4bde04344ba164d72893e392.0",
+        "definition": "weapon.mp40_zm",
+        "position": [
+          -16.253002799999997,
+          5.0546,
+          -17.598288399999998
+        ],
+        "yaw": 0.9599310885968813,
+        "zone": "zone.start"
+      }
+    ],
+    "interactions": [
+      {
+        "id": "interaction.wall.f0390db3.157b073119f1306effac62d0.0",
+        "placement": "placement.wall.f0390db3.157b073119f1306effac62d0.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.mp40_zm",
+          "price": 1300,
+          "ammo_price": 650
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.f0390db3.2c060257ae610ee3dacd3808.0",
+        "placement": "placement.wall.f0390db3.2c060257ae610ee3dacd3808.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.mp40_zm",
+          "price": 1300,
+          "ammo_price": 650
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.834d841b.95e8cc7cee3a66e7580a884f.0",
+        "placement": "placement.wall.834d841b.95e8cc7cee3a66e7580a884f.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.870mcs_zm",
+          "price": 900,
+          "ammo_price": 450
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.c15ad568.7171d5a055a1149f469175b9.0",
+        "placement": "placement.wall.c15ad568.7171d5a055a1149f469175b9.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.m14_zm",
+          "price": 500,
+          "ammo_price": 250
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.5018227c.66af425d4325f387d9fa31a0.0",
+        "placement": "placement.wall.5018227c.66af425d4325f387d9fa31a0.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.mp44_zm",
+          "price": 1400,
+          "ammo_price": 700
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.1a88f438.beda47a77028fd3c1e931903.0",
+        "placement": "placement.wall.1a88f438.beda47a77028fd3c1e931903.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.ballista_zm",
+          "price": 500,
+          "ammo_price": 250
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.5018227c.c5123e29b34b06ba09411050.0",
+        "placement": "placement.wall.5018227c.c5123e29b34b06ba09411050.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.ak74u_zm",
+          "price": 1200,
+          "ammo_price": 600
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.5018227c.6d9968afb3087e1a49859d32.0",
+        "placement": "placement.wall.5018227c.6d9968afb3087e1a49859d32.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.mp44_zm",
+          "price": 1400,
+          "ammo_price": 700
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.834d841b.77f5314c885e746146b4f327.0",
+        "placement": "placement.wall.834d841b.77f5314c885e746146b4f327.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.870mcs_zm",
+          "price": 900,
+          "ammo_price": 450
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.5018227c.039d14220cb133c2cd22485c.0",
+        "placement": "placement.wall.5018227c.039d14220cb133c2cd22485c.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.ak74u_zm",
+          "price": 1200,
+          "ammo_price": 600
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.5018227c.6cd8578b5145204caaff6101.0",
+        "placement": "placement.wall.5018227c.6cd8578b5145204caaff6101.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.ak74u_zm",
+          "price": 1200,
+          "ammo_price": 600
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.5018227c.8a49b51d409f998f8c4a72ff.0",
+        "placement": "placement.wall.5018227c.8a49b51d409f998f8c4a72ff.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.mp44_zm",
+          "price": 1400,
+          "ammo_price": 700
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.ed8e28b4.690d8e40f7bbe7f5a822da77.0",
+        "placement": "placement.wall.ed8e28b4.690d8e40f7bbe7f5a822da77.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.beretta93r_zm",
+          "price": 1000,
+          "ammo_price": 500
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.ed8e28b4.eb6a4a645616fc0a15aa12bd.0",
+        "placement": "placement.wall.ed8e28b4.eb6a4a645616fc0a15aa12bd.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.beretta93r_zm",
+          "price": 1000,
+          "ammo_price": 500
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.1a88f438.ea7c4cbb578c31bd4cd1c4fa.0",
+        "placement": "placement.wall.1a88f438.ea7c4cbb578c31bd4cd1c4fa.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.fiveseven_zm",
+          "price": 1100,
+          "ammo_price": 550
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.1a88f438.433d1a9841ee58be375c1e36.0",
+        "placement": "placement.wall.1a88f438.433d1a9841ee58be375c1e36.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.fiveseven_zm",
+          "price": 1100,
+          "ammo_price": 550
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.834d841b.566eeed84610f15e2e10a204.0",
+        "placement": "placement.wall.834d841b.566eeed84610f15e2e10a204.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.870mcs_zm",
+          "price": 900,
+          "ammo_price": 450
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.wall.f0390db3.4bde04344ba164d72893e392.0",
+        "placement": "placement.wall.f0390db3.4bde04344ba164d72893e392.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.mp40_zm",
+          "price": 1300,
+          "ammo_price": 650
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      }
+    ],
     "zone_connections": [],
     "navigation_nodes": [],
     "navigation_links": [],

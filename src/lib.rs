@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
 pub mod assets;
+pub mod economy;
 pub mod gameplay;
 pub mod hud;
 pub mod input;
+pub mod interactions;
 pub mod life;
 pub mod origins;
 pub mod player;
@@ -77,6 +79,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         rendering::GameRenderingPlugin,
         player::PlayerPlugin,
         gameplay::GameplayPlugin,
+        interactions::InteractionPlugin,
         presentation::PresentationPlugin,
         hud::HudPlugin,
         verification::VerificationPlugin,
