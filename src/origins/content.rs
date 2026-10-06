@@ -316,6 +316,13 @@ pub struct PerkDefinition {
     pub drink: Option<PerkDrinkDefinition>,
     #[serde(default)]
     pub maximum_health: Option<u32>,
+    #[serde(default)]
+    pub reload_duration_scale: Option<f32>,
+}
+impl PerkDefinition {
+    pub fn has_supported_effect(&self) -> bool {
+        self.maximum_health.is_some() || self.reload_duration_scale.is_some()
+    }
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -842,6 +849,11 @@ impl ContentCatalog {
             }
         }
         for v in &self.perks {
+            valid(
+                v.reload_duration_scale
+                    .is_none_or(|v| v.is_finite() && v > 0. && v <= 1.),
+                "Invalid perk reload scale",
+            )?;
             valid(
                 v.maximum_health
                     .is_none_or(|h| h > 0 && h <= i32::MAX as u32),

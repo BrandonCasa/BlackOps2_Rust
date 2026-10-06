@@ -260,7 +260,7 @@ pub(crate) fn interact(
         let Some(perk) = definition.content.perks.iter().find(|p| p.id == *perk) else {
             return;
         };
-        if perk.id != definition.solo_revive.perk && perk.maximum_health.is_none() {
+        if perk.id != definition.solo_revive.perk && !perk.has_supported_effect() {
             focus.prompt.clear();
             return;
         }

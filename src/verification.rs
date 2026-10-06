@@ -22,6 +22,7 @@ mod perk_health;
 mod pipelines;
 mod semtex;
 mod solo_revive;
+mod speed_cola;
 
 #[derive(Resource)]
 pub(crate) struct Verification {
@@ -48,6 +49,7 @@ pub(crate) struct Verification {
     solo_revive: bool,
     solo_bleedout: bool,
     perk_health: bool,
+    speed_cola: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -74,6 +76,9 @@ impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
+            if app.world().resource::<LaunchOptions>().verify_speed_cola {
+                speed_cola::install(app);
+            }
             if app.world().resource::<LaunchOptions>().verify_perk_health {
                 perk_health::install(app);
             }
@@ -157,6 +162,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             solo_revive: options.verify_solo_revive,
             solo_bleedout: options.verify_solo_bleedout,
             perk_health: options.verify_perk_health,
+            speed_cola: options.verify_speed_cola,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -200,7 +206,7 @@ pub(crate) fn drive(
     else {
         return;
     };
-    if verification.solo_revive || verification.perk_health {
+    if verification.solo_revive || verification.perk_health || verification.speed_cola {
         return;
     }
     if verification.stage != 0
@@ -479,7 +485,7 @@ fn check(
     let Some(mut verification) = verification else {
         return;
     };
-    if verification.solo_revive || verification.perk_health {
+    if verification.solo_revive || verification.perk_health || verification.speed_cola {
         return;
     }
     for receipt in &history.recent {

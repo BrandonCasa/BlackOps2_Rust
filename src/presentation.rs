@@ -586,8 +586,10 @@ fn animate(
                 }
                 // Action timers remain authoritative; pause preserves the current pose.
             }
-            if let Some(selection) = &selected
-                && let Some((duration, remaining)) = selection.timing
+            if let Some((duration, remaining)) = selected
+                .as_ref()
+                .and_then(|s| s.timing)
+                .or_else(|| inventory.reload_timing(weapon))
                 && let Some(clip) = name
                     .and_then(|name| gltfs.get(&rig.source)?.named_animations.get(name))
                     .and_then(|h| clips.get(h))

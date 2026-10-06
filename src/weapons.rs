@@ -57,6 +57,7 @@ pub struct WeaponInventory {
     pub ads: f32,
     pub recoil: Vec2,
     pending: WeaponIntent,
+    reload_duration_scale: f32,
 }
 impl Default for WeaponInventory {
     fn default() -> Self {
@@ -73,6 +74,7 @@ impl Default for WeaponInventory {
             ads: 0.,
             recoil: Vec2::ZERO,
             pending: WeaponIntent::default(),
+            reload_duration_scale: 1.,
         }
     }
 }
@@ -158,6 +160,40 @@ pub fn spread_direction(rotation: Quat, degrees: f32, seed: u64) -> Dir3 {
 }
 
 impl WeaponInventory {
+    pub fn set_reload_duration_scale(&mut self, scale: f32) {
+        if scale.is_finite() && scale > 0. && scale <= 1. {
+            self.reload_duration_scale = scale;
+        }
+    }
+    pub fn reload_duration_scale(&self) -> f32 {
+        self.reload_duration_scale
+    }
+    /// Reload progress is expressed in native action seconds. Presentation
+    /// follows that progress even when a modifier changes its wall-clock rate.
+    pub fn reload_timing(&self, definition: &WeaponDefinition) -> Option<(f32, f32)> {
+        match self.action {
+            WeaponAction::Reloading { remaining, empty } => Some((
+                if empty {
+                    definition.mechanics.empty_reload
+                } else {
+                    definition.reload_seconds
+                },
+                remaining,
+            )),
+            WeaponAction::ShellReload {
+                remaining, phase, ..
+            } => Some((
+                match phase {
+                    ShellPhase::Start => definition.mechanics.reload_start_seconds,
+                    ShellPhase::Loop => definition.reload_seconds,
+                    ShellPhase::End => definition.mechanics.reload_end_seconds,
+                },
+                remaining,
+            )),
+            _ => None,
+        }
+        .filter(|(duration, _)| *duration > 0.)
+    }
     pub fn active(&self) -> Option<&OwnedWeapon> {
         self.slots[self.active].as_ref()
     }
@@ -386,6 +422,7 @@ impl WeaponInventory {
         definitions: &[WeaponDefinition],
     ) -> Vec<WeaponEmission> {
         let mut emissions = Vec::new();
+        let reload_dt = dt / self.reload_duration_scale;
         if self.action == WeaponAction::Ready {
             intent.pressed |= self.pending.pressed;
             intent.melee |= self.pending.melee;
@@ -475,7 +512,7 @@ impl WeaponInventory {
                 return emissions;
             }
             WeaponAction::Reloading { remaining, empty } => {
-                let remaining = (remaining - dt).max(0.);
+                let remaining = (remaining - reload_dt).max(0.);
                 if remaining > 0. {
                     self.action = WeaponAction::Reloading { remaining, empty };
                     return emissions;
@@ -505,7 +542,7 @@ impl WeaponInventory {
                     self.emit(WeaponSignal::ReloadEnd);
                     return emissions;
                 }
-                let remaining = (remaining - dt).max(0.);
+                let remaining = (remaining - reload_dt).max(0.);
                 let duration = if phase == ShellPhase::Start {
                     definition.mechanics.reload_start_seconds
                 } else {

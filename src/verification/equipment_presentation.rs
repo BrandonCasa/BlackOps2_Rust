@@ -32,6 +32,7 @@ fn capture(
     if **state != GameState::Playing
         || !(verification.solo_revive
             || verification.perk_health
+            || verification.speed_cola
             || verification.grenades
             || verification.semtex
             || verification.monkeys

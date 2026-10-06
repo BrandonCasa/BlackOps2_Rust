@@ -162,7 +162,7 @@ fn tick(
                 game.content
                     .perks
                     .iter()
-                    .any(|p| p.id == drink.perk && p.maximum_health.is_some())
+                    .any(|p| p.id == drink.perk && p.has_supported_effect())
                     && perks.owned.insert(drink.perk.clone())
             };
             if accepted {

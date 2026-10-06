@@ -649,7 +649,7 @@
 - [x] Add Juggernog health modifiers.
 - [x] Add Quick Revive solo purchase pricing.
 - [x] Add Quick Revive solo revival effects.
-- [ ] Add Speed Cola reload modifiers.
+- [x] Add Speed Cola reload modifiers.
 - [ ] Add Stamin-Up sprint modifiers.
 - [ ] Add Mule Kick inventory expansion.
 - [ ] Remove Mule Kick's assigned weapon after perk loss.

@@ -298,7 +298,16 @@ fn update(
         if let Ok(perks) = perks.single()
             && !perks.owned.is_empty()
         {
-            value.push_str("\nQuick Revive");
+            if let Some(game) = &definition {
+                let names: Vec<&str> = game
+                    .content
+                    .perks
+                    .iter()
+                    .filter(|p| perks.owned.contains(&p.id))
+                    .map(|p| p.name.as_str())
+                    .collect();
+                value.push_str(&format!("\n{}", names.join("    ")));
+            }
         }
     }
     if **state == GameState::Paused {
