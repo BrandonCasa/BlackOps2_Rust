@@ -32,10 +32,92 @@ def material_family(technique, layered=False):
     if "tile_blend" in technique:
         return "tile_blend"
     for token, family in (("shadowcaster", "shadow_helper"), ("water", "water"), ("unlit", "unlit"),
-                          ("alpha", "masked"), ("blend", "blended"), ("effect", "effect"), ("burn", "effect")):
+                          ("alpha", "masked"), ("blend", "blended"), ("effect", "effect"), ("burn", "effect"), ("smoke", "effect")):
         if token in technique:
             return family
     return "default" if technique == "wpc_default" else "layered_lit" if layered else "lit"
+
+
+def presentation(source, technique):
+    """Readable dispositions from the retained T6 TECH4 (or TECH2) state.
+
+    These are asset metadata, not runtime filename guesses. Tree-canopy coverage
+    is represented by a cutout in Bevy rather than sorted transparent cards.
+    """
+    entries = source["state_entries"]
+    index = next((entries[k] for k in (4, 2) if entries[k] != 255), None)
+    if index is None or index >= len(source["states"]):
+        raise ValueError("missing source presentation state")
+    bits = source["states"][index][0]
+    src, dst, op = bits & 15, (bits >> 4) & 15, (bits >> 8) & 7
+    mode = "opaque"
+    if op and dst != 1:
+        mode = "add" if dst == 2 else "multiply" if src == 1 and dst == 3 else "premultiplied" if src == 2 and dst == 6 else "blend"
+    elif not (bits >> 11) & 1:
+        mode = "mask"
+    if "treecanopy" in technique:
+        mode = "mask"
+    return {"alpha": mode, "cutoff": 0.5, "cull": {1: "none", 2: "back", 3: "front"}.get((bits >> 14) & 3, "back"),
+            "emissive": "emissive" in technique or "unlit" in technique and mode == "add",
+            "fog": "nofog" not in technique, "visible": "shadowcaster" not in technique and technique != "wpc_default" and "smoke_pillar_cheap" not in technique,
+            "solid": mode in ("opaque", "mask") and not any(token in technique for token in ("unlit", "water", "smoke")),
+            "wettable": "lit_sm" in technique and mode == "opaque"}
+
+
+def apply_presentation(material, state):
+    # Explicit scene-light providers, distinct from radios, glyphs and other glow.
+    state["lamp"] = material["name"] in {"mc/mtl_p6_zm_tm_gas_lamp_glass_on", "mc/mtl_p6_zm_tm_lantern_glass_on_01",
+        "mc/mtl_p6_zm_tm_hanging_light_fixture_on", "mc/mtl_p6_zm_tm_portable_lantern_on"}
+    material["extras"]["surface"]["presentation"] = state
+    material["doubleSided"] = state["cull"] == "none"
+    material["alphaMode"] = "MASK" if state["alpha"] == "mask" else "OPAQUE" if state["alpha"] == "opaque" else "BLEND"
+    if state["alpha"] == "mask":
+        material["alphaCutoff"] = state["cutoff"]
+
+
+def world_layer_layout(technique):
+    # Authored operations refer to layer numbers, not texture-table order.
+    return ["base"] + [dict(b="blend", m="multiply", a="add", t="blend")[m.group(1)]
+                         for m in re.finditer(r"_([bmat])[123]c[123]", technique)]
+
+
+def secondary_attributes(root, manifest, uv, ranges):
+    metadata = json.loads((root / "secondary-corners.json").read_text())
+    if metadata["geometry_sha256"] != manifest["geometry_sha256"]:
+        raise ValueError("secondary stream geometry mismatch")
+    raw = dependency(root, metadata["stream"])
+    local = np.frombuffer(dependency(root, metadata["corner_local_indices"]), "<u2")
+    layer_uv = np.column_stack((uv, uv)).astype(np.float32)
+    layer3 = uv.copy()
+    rotation1 = np.tile([1, 0, 0, 1], (len(uv), 1)).astype(np.float32)
+    rotation2 = rotation1.copy()
+    # Half UVs followed by normalized signed 2x2 normal-basis rotations.
+    layouts = {0: (0, 0, 0), 1: (4, 1, 0), 2: (8, 1, 1), 3: (8, 2, 0),
+               4: (12, 2, 1), 5: (16, 2, 2), 7: (16, 3, 1)}
+    for record, surface in zip(metadata["surfaces"], ranges, strict=True):
+        first, count = record["first_corner"], record["corners"]
+        if (first, count) != surface[:2]:
+            raise ValueError("secondary corner correspondence mismatch")
+        stride, uvs, rotations = layouts[record["source_format"]]
+        if not stride:
+            continue
+        addresses = record["byte_offset"] + local[first:first+count].astype(np.int64) * stride
+        if (addresses + stride > len(raw)).any():
+            raise ValueError("secondary corner outside buffer")
+        values = np.frombuffer(raw, np.uint8)[addresses[:, None] + np.arange(stride)]
+        decoded = values[:, :uvs*4].copy().view("<f2").astype(np.float32)
+        if not np.isfinite(decoded).all():
+            raise ValueError("non-finite layer UV")
+        layer_uv[first:first+count, :2] = decoded[:, :2]
+        if uvs >= 2:
+            layer_uv[first:first+count, 2:] = decoded[:, 2:4]
+        if uvs == 3:
+            layer3[first:first+count] = decoded[:, 4:6]
+        if rotations:
+            rotation1[first:first+count] = values[:, uvs*4:uvs*4+4] / 127.5 - 1
+        if rotations == 2:
+            rotation2[first:first+count] = values[:, uvs*4+4:uvs*4+8] / 127.5 - 1
+    return layer_uv, layer3, rotation1, rotation2
 
 
 def tile_blend_color(core, surface, control, tiles=4):
@@ -304,8 +386,12 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                     "metallicFactor": 0, "roughnessFactor": 0.85}}
                 layers = {}
                 color_pixels = []
+                state = presentation(original, original["family"])
+                apply_presentation(material, state)
                 for binding in original["textures"]:
                     role = {2: "color", 5: "normal", 8: "specular_gloss"}.get(binding["semantic"], "auxiliary")
+                    if role == "color" and "phong_emissive" in original["family"] and not color_pixels:
+                        role = "emissive"
                     layer = layers.get(role, 0)
                     layers[role] = layer + 1
                     image_path = external(model_root / "images" / (binding["image"] + ".dds"))
@@ -322,7 +408,7 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                         continue
                     else:
                         pixels = np.array(Image.open(image_path).convert("RGBA"))
-                    if role == "color":
+                    if role in ("color", "emissive"):
                         color_pixels.append(pixels)
                     modes = ["raw"] + (["normal"] if role == "normal" else ["roughness"] if role == "specular_gloss" else [])
                     for mode in modes:
@@ -345,6 +431,9 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                         elif role == "specular_gloss":
                             material["pbrMetallicRoughness"]["metallicRoughnessTexture"] = textures[(image_path, "roughness")]
                             material["pbrMetallicRoughness"]["roughnessFactor"] = 1
+                        elif role == "emissive":
+                            material["emissiveTexture"] = raw_texture
+                            material["emissiveFactor"] = [1, 1, 1]
                 if "tile_blend" in original["family"]:
                     if len(color_pixels) != 3:
                         raise ValueError("unsupported tile/macro material layout")
@@ -386,6 +475,8 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                     arrays.append(("TANGENT", tangents(vertices[:, 0].astype(np.uint32), vertices[:, 1])[local], "VEC4"))
                     provider.append(gltf.mesh(arrays, materials[primitive["material"]],
                                               "static_provider", collider=False, visible=False))
+                    state = gltf.document["materials"][materials[primitive["material"]]]["extras"]["surface"]["presentation"]
+                    gltf.collidable[provider[-1]] &= state["solid"]
                     # Expanded glTF corners still need their original LOD vertex identity
                     # to address each instance's separately retained baked color stream.
                     gltf.document["meshes"][provider[-1]]["extras"] = {
@@ -468,6 +559,7 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
     tangent = tangents(corners["tangent"], corners["p"][:, 3])
     color = corners["color"].astype(np.float32) / 255
     lm_uv = corners["lm"].astype(np.float32) / 65535
+    layer_uv, layer3_uv, rotation1, rotation2 = secondary_attributes(root, manifest, uv, surfaces)
     definition = gameplay_definition(entities(external(entity_path)))
     output.mkdir(parents=True, exist_ok=True)
     texture_dir = output / "textures"
@@ -499,14 +591,25 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
         identity = inventory["materials"][index]["name"]
         channels = []
         layers = {}
+        source_layers = {"color": {2695565377: 0, 3054311504: 1, 3054311507: 2, 3054311506: 3},
+                         "normal": {1507003663: 0, 2486480606: 1, 2486480605: 2},
+                         "specular_gloss": {887934131: 0, 3532022562: 1, 3532022561: 2}}
         for binding in bindings:
             role = {2: "color", 5: "normal", 8: "specular_gloss"}.get(binding["semantic"], "auxiliary")
-            layer = layers.get(role, 0)
+            layer = source_layers.get(role, {}).get(binding["name_hash"], layers.get(role, 0))
             layers[role] = layer + 1
             channels.append({"role": role, "layer": layer, "texture": texture(binding)["index"],
                              "channels": "rgb:specular,a:gloss" if role == "specular_gloss" else "rgba"})
         material = {"name": identity, "extras": {"surface": {"identity": identity, "family": material_family(family, len(colors) > 1), "channels": channels}},
                     "doubleSided": True, "pbrMetallicRoughness": pbr}
+        channels.sort(key=lambda c: (c["role"], c["layer"]))
+        apply_presentation(material, presentation(inventory["materials"][index], family))
+        operations = world_layer_layout(family)
+        if len(operations) > 1:
+            constants = {c["hash"]: c["value"] for c in inventory["materials"][index]["constants"]}
+            material["extras"]["surface"]["layers"] = {"operations": operations,
+                "reveal": [constants.get(2294217777, [0.25, 1, 0, 0])[:2], constants.get(2294217778, [0.25, 1, 0, 0])[:2]],
+                "controls": "vertex_color_gb", "uvs": "secondary_half", "normal_basis": "secondary_signed_rgba"}
         if colors:
             pbr["baseColorTexture"] = texture(colors[0])
         if normals_bindings:
@@ -517,11 +620,9 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
         if "unlit" in family:
             material["extensions"] = {"KHR_materials_unlit": {}}
             gltf.document.setdefault("extensionsUsed", ["KHR_materials_unlit"])
-        if any(s in family for s in ("blend", "water", "effect", "burn")):
-            material["alphaMode"] = "BLEND"
-        elif "alpha" in family:
-            material.update(alphaMode="MASK", alphaCutoff=0.5)
         if "water" in family:
+            material["alphaMode"] = "BLEND"
+            material["extras"]["surface"]["presentation"].update(alpha="blend", wettable=False)
             pbr.update(baseColorFactor=[0.12, 0.2, 0.23, 0.65], roughnessFactor=0.15)
         if family == "wpc_default":
             pbr.update(baseColorFactor=[0.3,0.3,0.3,1], metallicFactor=0, roughnessFactor=1)
@@ -559,7 +660,9 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
         key = (material, lightmap, probe, cell)
         groups.setdefault(key, []).extend(range(first, first+count))
     for (material, lightmap, probe, cell), indexes in groups.items():
-        selection = np.asarray(indexes)
+        # T6's world triangles are clockwise; glTF/Bevy front faces are CCW.
+        # Swap corners together (UVs/controls/bases included), preserving normals.
+        selection = np.asarray(indexes).reshape(-1, 3)[:, [0, 2, 1]].reshape(-1)
         family = families[material]
         lightmap_uri = None
         if lightmap is not None and lightmap < len(manifest["lightmaps"]):
@@ -571,7 +674,11 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
         gltf.mesh([("POSITION", positions[selection], "VEC3"), ("NORMAL", normals[selection], "VEC3"),
                    ("TANGENT", tangent[selection], "VEC4"),
                    ("TEXCOORD_0", uv[selection], "VEC2"), ("TEXCOORD_1", lm_uv[selection], "VEC2"),
-                   ("COLOR_0", color[selection], "VEC4")], material,
+                   ("COLOR_0", color[selection], "VEC4"),
+                   ("_ORIGINS_LAYER_UV", layer_uv[selection], "VEC4"),
+                   ("_ORIGINS_LAYER3_UV", layer3_uv[selection], "VEC2"),
+                   ("_ORIGINS_ROTATION1", rotation1[selection], "VEC4"),
+                   ("_ORIGINS_ROTATION2", rotation2[selection], "VEC4")], material,
                   f"world_{material}_{cell}", collider="water" not in family and "unlit" not in family,
                   lightmap=lightmap_uri, lighting={"lightmap": lightmap, "probe": probe}, visible="shadowcaster" not in family)
     instance_count, model_count, model_textures = static_models(gltf, instances_path, external(model_root), output, root)
@@ -582,8 +689,9 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
     receipt = {"source_surfaces": len(surfaces), "triangles": len(positions)//3,
                "render_meshes": definition["render_meshes"], "textures": len(cached) + len(lighting["probes"]) * 6,
                "shadow_helper_surfaces": shadow_only,
-               "approximations": ["Standard PBR instead of native shaders", "first color/normal layer outside tile/macro models",
-                                  "tile/macro diffuse bake with reconstructed fourfold tiling", "source-basis SH/probes retained but not rendered",
+               "approximations": ["Bevy PBR with parameterized layer/material response",
+                                  "tile/macro diffuse bake with reconstructed fourfold tiling", "runtime-calibrated source-basis SH/probes",
+                                  "unrecovered layer reveal constants use explicit defaults", "smoke proxy omitted in favor of single Bevy fog",
                                   "decoded top mip only", "neutral unresolved editor-default model image",
                                   "nearest path-node zombie admission"],
                "static_instances": instance_count, "model_providers": model_count, "model_textures": model_textures}
@@ -609,7 +717,9 @@ def main():
                         "--model-format", "GLTF", "-o", str(model_root), str(zone)], check=True,
                        stdout=subprocess.DEVNULL)
         entities_path = model_root / "maps/mp/zm_tomb.d3dbsp.ents"
-    if not instances_path.exists() or not (instances_path.parent / "model-surfaces.json").exists() or not (model_root / ".surface-data-ready").exists():
+    surface_path = instances_path.parent / "model-surfaces.json"
+    state_ready = surface_path.exists() and "states" in next(iter(json.loads(surface_path.read_text()).values()))[0]
+    if not instances_path.exists() or not state_ready or not (model_root / ".surface-data-ready").exists():
         from export_instances import export
         source = external(Path(settings.get("oat_source", root / "tooling/OAT/surface-7d027e8/source")))
         instances_path = export(source, zone, external(instances_path.parent), external(model_root / "images"))

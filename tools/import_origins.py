@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import io
 import json
+import math
 from pathlib import Path, PurePosixPath
 import re
 import shutil
@@ -211,7 +212,19 @@ def validate_gltf(root, relative, files):
         require(set(metadata) <= {"surface"}, "unsupported material extras")
         if "surface" in metadata:
             surface = metadata["surface"]
-            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation"}, "invalid surface metadata")
+            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation", "presentation", "layers"}, "invalid surface metadata")
+            if "presentation" in surface:
+                state = surface["presentation"]
+                require(set(state) == {"alpha", "cutoff", "cull", "emissive", "fog", "visible", "wettable", "lamp", "solid"}, "invalid presentation metadata")
+                require(state["alpha"] in ("opaque", "mask", "blend", "premultiplied", "add", "multiply") and state["cull"] in ("none", "back", "front"), "invalid surface state")
+                require(isinstance(state["cutoff"], (int, float)) and 0 <= state["cutoff"] <= 1 and all(type(state[k]) is bool for k in ("emissive", "fog", "visible", "wettable", "lamp", "solid")), "invalid presentation parameters")
+                require(material.get("doubleSided", False) == (state["cull"] == "none"), "cull disposition mismatch")
+            if "layers" in surface:
+                layout = surface["layers"]
+                require(set(layout) == {"operations", "reveal", "controls", "uvs", "normal_basis"}, "invalid layered metadata")
+                require(2 <= len(layout["operations"]) <= 4 and layout["operations"][0] == "base" and all(x in ("blend", "multiply", "add") for x in layout["operations"][1:]), "unsupported layer operation")
+                require(layout["controls"] == "vertex_color_gb" and layout["uvs"] == "secondary_half" and layout["normal_basis"] == "secondary_signed_rgba", "unsupported layer controls")
+                require(len(layout["reveal"]) == 2 and all(len(x) == 2 and all(isinstance(v, (int, float)) and math.isfinite(v) for v in x) for x in layout["reveal"]), "invalid blend parameters")
             if "preparation" in surface:
                 require(surface["family"] == "tile_blend" and surface["preparation"] == {"kind": "tile_macro_bake", "tiles": 4}, "invalid material preparation")
             require(surface["identity"] == material.get("name") and isinstance(surface["family"], str), "invalid material identity")
@@ -222,8 +235,8 @@ def validate_gltf(root, relative, files):
                 if "approximation" in channel:
                     require(channel["approximation"] == "neutral placeholder for unresolved editor-default image", "unknown texture approximation")
                 role = channel["role"]
-                require(role in ("color", "normal", "specular_gloss", "auxiliary"), "invalid channel role")
-                require(channel["layer"] == layers.get(role, 0), "unordered material layers")
+                require(role in ("color", "normal", "specular_gloss", "auxiliary", "emissive"), "invalid channel role")
+                require(0 <= channel["layer"] <= 31 and channel["layer"] >= layers.get(role, 0), "unordered material layers")
                 layers[role] = channel["layer"] + 1
                 ref(document.get("textures", []), channel["texture"], "raw texture")
                 require(channel["channels"] == ("rgb:specular,a:gloss" if role == "specular_gloss" else "rgba"), "invalid channel interpretation")
@@ -253,8 +266,8 @@ def validate_gltf(root, relative, files):
                 require(len(ref(arrays, index, "attribute accessor")) == len(position), "attribute count mismatch")
             for semantic, index in primitive["attributes"].items():
                 values = arrays[index]
-                require(semantic in ("POSITION", "NORMAL", "TANGENT", "COLOR_0", "TEXCOORD_0", "TEXCOORD_1"), "unsupported mesh attribute")
-                require(values.shape[1] == (2 if semantic.startswith("TEXCOORD") else 4 if semantic in ("TANGENT", "COLOR_0") else 3), "attribute width mismatch")
+                require(semantic in ("POSITION", "NORMAL", "TANGENT", "COLOR_0", "TEXCOORD_0", "TEXCOORD_1", "_ORIGINS_LAYER_UV", "_ORIGINS_LAYER3_UV", "_ORIGINS_ROTATION1", "_ORIGINS_ROTATION2"), "unsupported mesh attribute")
+                require(values.shape[1] == (2 if semantic.startswith("TEXCOORD") or semantic == "_ORIGINS_LAYER3_UV" else 4 if semantic in ("TANGENT", "COLOR_0", "_ORIGINS_LAYER_UV", "_ORIGINS_ROTATION1", "_ORIGINS_ROTATION2") else 3), "attribute width mismatch")
                 if semantic == "TANGENT":
                     require(np.allclose(np.linalg.norm(values[:, :3], axis=1), 1, atol=1e-5)
                             and np.isin(values[:, 3], [-1, 1]).all(), "invalid tangent or handedness")

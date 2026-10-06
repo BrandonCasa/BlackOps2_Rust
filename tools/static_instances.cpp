@@ -80,12 +80,24 @@ void ContentPrinter::PrintContent() const {
                     throw std::runtime_error("missing model surface data");
                 surfaces << "{\"material\":" << std::quoted(material->info.name)
                          << ",\"family\":" << std::quoted(material->techniqueSet->name)
-                         << ",\"textures\":[";
+                         << ",\"states\":[";
+                for (unsigned k = 0; k < material->stateBitsCount; ++k) {
+                    if (k) surfaces << ',';
+                    surfaces << '[' << material->stateBitsTable[k].loadBits.raw[0] << ','
+                             << material->stateBitsTable[k].loadBits.raw[1] << ']';
+                }
+                surfaces << "],\"state_entries\":[";
+                for (unsigned k = 0; k < 36; ++k) {
+                    if (k) surfaces << ',';
+                    surfaces << unsigned(static_cast<unsigned char>(material->stateBitsEntry[k]));
+                }
+                surfaces << "],\"textures\":[";
                 for (unsigned k = 0; k < material->textureCount; ++k) {
                     if (k) surfaces << ',';
                     const auto& binding = material->textureTable[k];
                     if (!binding.image) throw std::runtime_error("missing material image");
                     surfaces << "{\"semantic\":" << unsigned(binding.semantic)
+                             << ",\"hash\":" << binding.nameHash
                              << ",\"image\":" << std::quoted(binding.image->name) << '}';
                 }
                 surfaces << "],\"vertices\":[";
