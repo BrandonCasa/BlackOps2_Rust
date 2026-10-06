@@ -1,1 +1,5 @@
 * text=auto eol=lf
+
+# Prepared runtime assets only; configuration stays in ordinary Git.
+# Preserve source JSON bytes (including line endings), without LFS filtering.
+assets/origins/game.json !filter !diff !merge -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

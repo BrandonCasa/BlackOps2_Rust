@@ -2,7 +2,7 @@
 
 ## Working set and execution
 
-Start with [project state](docs/project-state.md), then relevant source and tests.
+Start with [project state](docs/project-state.md), then relevant source and validation tools.
 Work sequentially in this chat. **Subagents and delegated chats are banned.**
 Keep one current [handoff](docs/handoffs/current.md); replace stale state instead
 of accumulating audits. Git history holds retired documents and implementations.
@@ -30,28 +30,34 @@ Use stable Rust; retain `#![forbid(unsafe_code)]` and Cargo.lock.
 
 ## Assets
 
-Licensed originals, extracted content, converted assets, captures and reports
-remain external. Never commit proprietary assets/scripts/binaries, local
+Prepared runtime assets may be committed only under `assets/origins/`, using
+the offline importer to validate the complete dependency closure. Track glTF,
+binary mesh buffers and PNG textures through Git LFS; keep `game.json` in Git.
+Raw archives, original scripts/shaders, preparation inputs/intermediates,
+captures, research/inspection reports and receipts remain external. Never commit
 installation paths, secrets or generated builds. Real paths belong in ignored
 `config/local_assets.toml`; tracked configuration contains placeholders.
-Preparation tools read originals and emit an external standard asset pack.
-Use synthetic fixtures in repository tests. Inspect candidates before staging.
+Preparation reads originals and emits an external standard asset pack; import
+copies only validated runtime files and never modifies originals.
+Unit tests and Clippy are banned. Do not run Clippy or add it to validation gates.
+Do not add or restore test suites or test fixtures. Validate with asset integrity
+checks, compiler gates and the actual game window.
+Inspect candidates before staging.
 
 ## Validation and Git
 
 Implement a coherent milestone before testing it. Use targeted compile checks
-only when needed; run focused tests after assembly and the full gates once
+only when needed; run asset validation after assembly and the full gates once
 before integration. Repeat affected checks after actual failures/fixes:
 
 ```text
 cargo metadata --locked --no-deps --format-version 1
-cargo test --workspace --release --locked
+cargo build --workspace --release --locked
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
 
 Exercise the real game window and distinguish compiled, tested, rendered and
-played behavior. Do not claim original equivalence from synthetic tests.
+played behavior. Do not claim original equivalence from asset integrity checks.
 Review diffs and make coherent local commits. Never push unless requested.
 Do not install replacement toolchains when the existing Cargo is available.
 

@@ -47,7 +47,6 @@ impl Plugin for GameInputPlugin {
     }
 }
 
-#[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
 pub(crate) fn collect(
     keys: Res<ButtonInput<KeyCode>>,
     mut key_events: MessageReader<KeyboardInput>,
@@ -100,7 +99,6 @@ pub(crate) fn collect(
     }
 }
 
-#[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
 fn pause_and_restart(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,

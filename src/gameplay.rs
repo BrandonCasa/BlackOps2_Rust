@@ -407,11 +407,6 @@ fn combat(
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    clippy::type_complexity,
-    reason = "Bevy system parameters"
-)]
 fn move_zombies(
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
@@ -501,7 +496,6 @@ fn cleanup_dead(
     }
 }
 
-#[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
 fn rounds(
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,

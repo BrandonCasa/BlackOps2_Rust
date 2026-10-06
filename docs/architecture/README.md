@@ -13,7 +13,7 @@ One Cargo package, `origins`, produces one executable. `src/lib.rs` composes plu
 | origins | Map content contract and one tunable gameplay profile |
 | hud | Bevy UI and temporary weapon presentation |
 | verification | Opt-in driver and screenshots of the real application |
-| tools | Offline preparation only; all generated content is external |
+| tools | Offline external preparation and validated runtime-only import into assets/origins |
 
 Bevy owns ECS, scheduling, scenes, asset loading, materials, cameras, visibility, transforms and UI. Avian owns spatial queries and physics representations. Gameplay runs at 60 Hz in ordered movement, combat, zombie and round systems. Variable updates collect input and present the current simulation.
 

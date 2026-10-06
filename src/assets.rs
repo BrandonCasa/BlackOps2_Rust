@@ -176,7 +176,6 @@ fn begin_load(
     }
 }
 
-#[allow(clippy::too_many_arguments, reason = "Bevy observer parameters")]
 fn scene_ready(
     event: On<WorldInstanceReady>,
     roots: Query<&MapRoot>,

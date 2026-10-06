@@ -117,7 +117,6 @@ pub(crate) fn drive(
         input.reload = session.ammo == 0;
     }
 }
-#[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
 fn check(
     mut commands: Commands,
     time: Res<Time>,

@@ -94,7 +94,6 @@ fn look(
     input.look = Vec2::ZERO;
 }
 
-#[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
 pub fn move_player(
     mut input: ResMut<GameInput>,
     mut actions: ResMut<TickActions>,
