@@ -97,9 +97,11 @@ That prelude calls four small adapters reaching encoded record builders:
 | 1176a0 | 59f690 | c8f5dc | c8f5c8 |
 
 Each complete232-byte builder combines its return-address input, self-relative
-record tables and5ab140/5ac900/027db0/59e9c0 consumers to return a reconstructed
-pointer. Their active result/encoded payload semantics and transitive FP effects
-are not admitted. 1b1630 also reaches1caae0 and5ae590. Neither its own54 bytes nor
+record tables and checksum/finalizer consumers. Return values require individual
+qualification; they are not all pointers. [Native15](encoded-prelude-record-qualification.md)
+reconstructs the first record's scalar01025b40 and verified range association,
+without admitting storage semantics or transitive FP effects. The remaining
+record associations stay separate. 1b1630 also reaches1caae0 and5ae590. Neither its own54 bytes nor
 the immediate TLS initialization selects an FP policy; treating its unresolved
 consumers as harmless would be an inference. Subsequent callback helpers before
 the first movement call can also have unqualified transitive effects.
