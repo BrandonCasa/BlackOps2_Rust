@@ -176,6 +176,7 @@ fn update(
     focus: Res<crate::interactions::InteractionFocus>,
     grenades: Query<&crate::equipment::GrenadeInventory, With<Player>>,
     mines: Query<&crate::mines::MineInventory, With<Player>>,
+    tactical: Query<&crate::equipment::TacticalInventory, With<Player>>,
     mut text: Query<&mut Text, With<HudText>>,
 ) {
     let Ok(mut text) = text.single_mut() else {
@@ -246,6 +247,24 @@ fn update(
         && mines.definition.is_some()
     {
         value.push_str(&format!("    Claymores {}", mines.count));
+    }
+    if **state == GameState::Playing
+        && let Ok(tactical) = tactical.single()
+        && let Some(inventory) = &tactical.0
+    {
+        let label = definition
+            .as_ref()
+            .and_then(|d| {
+                d.content
+                    .weapons
+                    .iter()
+                    .find(|w| w.id == inventory.definition)
+            })
+            .map_or("Tactical", |w| w.name.as_str());
+        value.push_str(&format!("    {} {}", label, inventory.count));
+    }
+    if **state == GameState::Paused {
+        value.push_str("\nG grenade | T tactical | 4 Claymore");
     }
     if text.0 != value {
         text.0 = value;

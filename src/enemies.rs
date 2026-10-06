@@ -33,6 +33,7 @@ pub struct Zombie {
     pub action: EnemyAnimation,
     pub elapsed: f32,
     next_hit: usize,
+    lure: Option<Entity>,
 }
 impl Zombie {
     pub fn new(
@@ -51,6 +52,7 @@ impl Zombie {
             action: EnemyAnimation::Idle,
             elapsed: 0.,
             next_hit: 0,
+            lure: None,
         }
     }
     fn transition(&mut self, action: EnemyAnimation) {
@@ -150,10 +152,11 @@ impl Plugin for EnemyPlugin {
             .add_observer(ready);
     }
 }
-fn lifecycle(
+pub(crate) fn lifecycle(
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     navigation: Res<Navigation>,
+    attractions: Res<crate::lures::Attractions>,
     players: Query<(Entity, &Transform, &Vitality), (With<Player>, Without<Zombie>)>,
     mut enemies: Query<
         (
@@ -191,7 +194,13 @@ fn lifecycle(
             continue;
         }
         zombie.elapsed += dt;
-        let target = player_transform.translation;
+        let lure = attractions.0.get(&entity);
+        if zombie.lure != lure.map(|l| l.bomb) {
+            zombie.lure = lure.map(|l| l.bomb);
+            zombie.navigation = 0.;
+            zombie.transition(EnemyAnimation::Idle);
+        }
+        let target = lure.map_or(player_transform.translation, |l| l.position);
         let filter = SpatialQueryFilter::from_excluded_entities([entity, player_entity]);
         let visible = |from: Vec3, to: Vec3| {
             let delta = to - from;
@@ -202,7 +211,8 @@ fn lifecycle(
             })
         };
         let distance = transform.translation.distance(target);
-        if zombie.action != EnemyAnimation::Attack
+        if lure.is_none()
+            && zombie.action != EnemyAnimation::Attack
             && distance < 1.65
             && visible(transform.translation, target)
         {
@@ -244,7 +254,7 @@ fn lifecycle(
         }
         let delta = zombie.destination - transform.translation;
         let direction = Vec3::new(delta.x, 0., delta.z).normalize_or_zero();
-        let moving = zombie.action != EnemyAnimation::Attack;
+        let moving = zombie.action != EnemyAnimation::Attack && !(lure.is_some() && distance < 0.4);
         zombie.velocity.x = direction.x * zombie.speed * f32::from(moving);
         zombie.velocity.z = direction.z * zombie.speed * f32::from(moving);
         zombie.velocity.y = (zombie.velocity.y - definition.tuning.gravity * dt).max(-30.);
@@ -540,11 +550,7 @@ fn light_materials(
             let Some(source) = materials.get(&material.0) else {
                 continue;
             };
-            let mut source = source.clone();
-            // Reconstruct missing native actor probe illumination; direct lights and normals remain active.
-            source.emissive_texture = source.base_color_texture.clone();
-            source.emissive = LinearRgba::rgb(90., 90., 90.);
-            source.emissive_exposure_weight = 1.;
+            let source = crate::rendering::with_actor_fill(source);
             let handle = materials.add(source);
             cache.0.insert(material.0.id(), handle.clone());
             handle

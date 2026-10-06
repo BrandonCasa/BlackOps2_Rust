@@ -25,6 +25,7 @@ pub struct GameInput {
     pub use_held: bool,
     pub grenade_held: bool,
     pub mine_held: bool,
+    pub tactical_held: bool,
     pub look: Vec2,
 }
 
@@ -91,6 +92,7 @@ pub(crate) fn collect(
     input.use_held = keys.pressed(KeyCode::KeyF);
     input.grenade_held = keys.pressed(KeyCode::KeyG);
     input.mine_held = keys.pressed(KeyCode::Digit4);
+    input.tactical_held = keys.pressed(KeyCode::KeyT);
     for event in wheel.read() {
         input.cycle_weapon |= event.y != 0.;
     }

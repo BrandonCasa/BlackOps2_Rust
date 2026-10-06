@@ -15,6 +15,7 @@ use bevy::{prelude::*, world_serialization::WorldAssetRoot};
 #[derive(Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThrowableDefinition {
+    pub slot: ThrowableSlot,
     pub initial: u32,
     pub capacity: u32,
     pub prime_seconds: f32,
@@ -31,6 +32,12 @@ pub struct ThrowableDefinition {
     pub collision_radius: f32,
     pub cook_in_hand: bool,
     pub sticky: bool,
+}
+#[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThrowableSlot {
+    Lethal,
+    Tactical,
 }
 impl ThrowableDefinition {
     pub fn valid(&self) -> bool {
@@ -99,6 +106,7 @@ impl GrenadeInventory {
         let tuning = weapon
             .throwable
             .as_ref()
+            .filter(|t| t.slot == ThrowableSlot::Lethal)
             .ok_or(EquipmentError::Unsupported)?;
         if self.busy() {
             return Err(EquipmentError::Busy);
@@ -109,6 +117,35 @@ impl GrenadeInventory {
         self.definition = weapon.id.clone();
         self.capacity = tuning.capacity;
         self.count = tuning.initial;
+        Ok(())
+    }
+}
+#[derive(Component, Default)]
+pub struct TacticalInventory(pub Option<GrenadeInventory>);
+impl TacticalInventory {
+    pub fn busy(&self) -> bool {
+        self.0.as_ref().is_some_and(GrenadeInventory::busy)
+    }
+    pub fn receive(
+        &mut self,
+        weapon: &crate::origins::content::WeaponDefinition,
+    ) -> Result<(), EquipmentError> {
+        let tuning = weapon
+            .throwable
+            .as_ref()
+            .filter(|t| t.slot == ThrowableSlot::Tactical)
+            .ok_or(EquipmentError::Unsupported)?;
+        if self.busy() {
+            return Err(EquipmentError::Busy);
+        }
+        if self
+            .0
+            .as_ref()
+            .is_some_and(|i| i.definition == weapon.id && i.count == i.capacity)
+        {
+            return Err(EquipmentError::Full);
+        }
+        self.0 = Some(GrenadeInventory::new(weapon.id.clone(), tuning));
         Ok(())
     }
 }
@@ -130,12 +167,13 @@ enum GrenadeMotion {
 }
 #[derive(Component)]
 pub struct Grenade {
-    owner: Entity,
-    definition: WeaponId,
+    pub owner: Entity,
+    pub definition: WeaponId,
     motion: GrenadeMotion,
     pub remaining: f32,
     elapsed: f32,
     radius: f32,
+    pub lure_active: bool,
 }
 #[derive(Component)]
 struct Blast {
@@ -179,6 +217,7 @@ pub struct EquipmentPlugin;
 impl Plugin for EquipmentPlugin {
     fn build(&self, app: &mut App) {
         crate::mines::install(app);
+        crate::lures::install(app);
         app.init_resource::<BlastQueue>()
             .init_resource::<EquipmentEvidence>()
             .add_systems(
@@ -205,133 +244,173 @@ pub(crate) fn throw_input(
         &mut GrenadeInventory,
         &mut WeaponInventory,
         &crate::mines::MineInventory,
+        &mut TacticalInventory,
     )>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
-    for (owner, player, transform, health, mut inventory, mut weapons, mines) in &mut players {
+    for (owner, player, transform, health, mut lethal, mut weapons, mines, mut tactical) in
+        &mut players
+    {
         if health.state() != LifeState::Standing {
             continue;
         }
-        let Some(weapon) = definition
-            .content
-            .weapons
-            .iter()
-            .find(|w| w.id == inventory.definition)
-        else {
-            continue;
-        };
-        let Some(tuning) = &weapon.throwable else {
-            continue;
-        };
-        let pressed = input.grenade_held && !inventory.held;
-        inventory.held = input.grenade_held;
-        let dt = time.delta_secs();
-        let mut launch = None;
-        match inventory.state {
-            ThrowState::Ready if pressed && inventory.count > 0 && !mines.busy() => {
-                inventory.count -= 1;
-                weapons.cancel_action();
-                inventory.state = ThrowState::Priming {
-                    remaining: tuning.prime_seconds,
-                };
-                evidence.primed += 1;
-            }
-            ThrowState::Priming { remaining } => {
-                if remaining <= dt {
-                    inventory.state = ThrowState::Cooking {
-                        remaining: tuning.fuse_seconds,
-                    };
-                } else {
-                    inventory.state = ThrowState::Priming {
-                        remaining: remaining - dt,
-                    };
-                }
-            }
-            ThrowState::Cooking { remaining } => {
-                if tuning.cook_in_hand && remaining <= dt {
-                    launch = Some((0., true));
-                    evidence.cooked_off += 1;
-                } else if !input.grenade_held {
-                    launch = Some((
-                        if tuning.cook_in_hand {
-                            remaining - dt
-                        } else {
-                            tuning.fuse_seconds
-                        },
-                        false,
-                    ));
-                } else {
-                    inventory.state = ThrowState::Cooking {
-                        remaining: if tuning.cook_in_hand {
-                            remaining - dt
-                        } else {
-                            remaining
-                        },
-                    };
-                }
-            }
-            ThrowState::Recovery { remaining } => {
-                inventory.state = if remaining <= dt {
-                    ThrowState::Ready
-                } else {
-                    ThrowState::Recovery {
-                        remaining: remaining - dt,
-                    }
-                };
-            }
-            _ => {}
-        }
-        if let Some((fuse, cooked)) = launch {
-            let rotation = Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch);
-            let forward = rotation * Vec3::NEG_Z;
-            let eye = transform.translation
-                + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5);
-            let position = eye + forward * if cooked { 0. } else { 0.25 };
-            let velocity = if cooked {
-                Vec3::ZERO
+        // Lethal input wins simultaneous requests; active equipment always finishes its state.
+        for tactical_slot in [false, true] {
+            let other_busy = if tactical_slot {
+                lethal.busy()
             } else {
-                forward * tuning.speed + Vec3::Y * tuning.up_speed + player.velocity
+                tactical.busy()
             };
-            let entity = commands
-                .spawn((
-                    Grenade {
-                        owner,
-                        definition: weapon.id.clone(),
-                        motion: if cooked {
-                            GrenadeMotion::Resting
-                        } else {
-                            GrenadeMotion::Flying(velocity)
-                        },
-                        remaining: fuse,
-                        elapsed: 0.,
-                        radius: tuning.collision_radius,
-                    },
-                    SessionEntity,
-                    Transform::from_translation(position),
-                    Visibility::default(),
-                ))
-                .id();
-            if let Some(scene) = weapon
-                .pickup
-                .as_ref()
-                .and_then(|id| {
-                    definition
-                        .content
-                        .presentations
-                        .iter()
-                        .find(|p| p.id == *id)
-                })
-                .and_then(|p| p.scene.as_ref())
-            {
-                commands.entity(entity).with_children(|parent| {
-                    parent.spawn(WorldAssetRoot(server.load(scene.to_owned())));
-                });
+            let held = if tactical_slot {
+                input.tactical_held
+            } else {
+                input.grenade_held
+            };
+            let inventory = if tactical_slot {
+                let Some(inventory) = tactical.0.as_mut() else {
+                    continue;
+                };
+                inventory
+            } else {
+                &mut *lethal
+            };
+            let Some(weapon) = definition
+                .content
+                .weapons
+                .iter()
+                .find(|w| w.id == inventory.definition)
+            else {
+                continue;
+            };
+            let Some(tuning) = &weapon.throwable else {
+                continue;
+            };
+            let pressed = held && !inventory.held;
+            inventory.held = held;
+            let dt = time.delta_secs();
+            let mut launch = None;
+            match inventory.state {
+                ThrowState::Ready
+                    if pressed && inventory.count > 0 && !mines.busy() && !other_busy =>
+                {
+                    inventory.count -= 1;
+                    weapons.cancel_action();
+                    inventory.state = ThrowState::Priming {
+                        remaining: tuning.prime_seconds,
+                    };
+                    evidence.primed += 1;
+                }
+                ThrowState::Priming { remaining } => {
+                    if remaining <= dt {
+                        inventory.state = ThrowState::Cooking {
+                            remaining: tuning.fuse_seconds,
+                        };
+                    } else {
+                        inventory.state = ThrowState::Priming {
+                            remaining: remaining - dt,
+                        };
+                    }
+                }
+                ThrowState::Cooking { remaining } => {
+                    if tuning.cook_in_hand && remaining <= dt {
+                        launch = Some((0., true));
+                        evidence.cooked_off += 1;
+                    } else if !held {
+                        launch = Some((
+                            if tuning.cook_in_hand {
+                                remaining - dt
+                            } else {
+                                tuning.fuse_seconds
+                            },
+                            false,
+                        ));
+                    } else {
+                        inventory.state = ThrowState::Cooking {
+                            remaining: if tuning.cook_in_hand {
+                                remaining - dt
+                            } else {
+                                remaining
+                            },
+                        };
+                    }
+                }
+                ThrowState::Recovery { remaining } => {
+                    inventory.state = if remaining <= dt {
+                        ThrowState::Ready
+                    } else {
+                        ThrowState::Recovery {
+                            remaining: remaining - dt,
+                        }
+                    };
+                }
+                _ => {}
             }
-            inventory.state = ThrowState::Recovery {
-                remaining: tuning.throw_seconds,
-            };
-            evidence.thrown += u32::from(!cooked);
-            evidence.record(serde_json::json!({"event":"launch","weapon":weapon.id.0,"cooked":cooked,"fuse":fuse,"position":position.to_array(),"velocity":velocity.to_array(),"count":inventory.count}));
+            if let Some((fuse, cooked)) = launch {
+                let rotation =
+                    Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch);
+                let forward = rotation * Vec3::NEG_Z;
+                let eye = transform.translation
+                    + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5);
+                let position = eye + forward * if cooked { 0. } else { 0.25 };
+                let velocity = if cooked {
+                    Vec3::ZERO
+                } else {
+                    forward * tuning.speed + Vec3::Y * tuning.up_speed + player.velocity
+                };
+                let entity = commands
+                    .spawn((
+                        Grenade {
+                            owner,
+                            definition: weapon.id.clone(),
+                            motion: if cooked {
+                                GrenadeMotion::Resting
+                            } else {
+                                GrenadeMotion::Flying(velocity)
+                            },
+                            remaining: fuse,
+                            elapsed: 0.,
+                            radius: tuning.collision_radius,
+                            lure_active: false,
+                        },
+                        SessionEntity,
+                        Transform::from_translation(position),
+                        Visibility::default(),
+                    ))
+                    .id();
+                if let Some(scene) = weapon
+                    .pickup
+                    .as_ref()
+                    .and_then(|id| {
+                        definition
+                            .content
+                            .presentations
+                            .iter()
+                            .find(|p| p.id == *id)
+                    })
+                    .and_then(|p| p.scene.as_ref())
+                {
+                    commands.entity(entity).with_children(|parent| {
+                        let mut child = parent.spawn(WorldAssetRoot(server.load(scene.to_owned())));
+                        if let Some(lure) = &weapon.lure
+                            && let Some(clip) = definition
+                                .content
+                                .animations
+                                .iter()
+                                .find(|a| a.id == lure.animation)
+                        {
+                            child.insert(crate::lures::LureRig::new(
+                                entity,
+                                server.load(clip.path.clone()),
+                            ));
+                        }
+                    });
+                }
+                inventory.state = ThrowState::Recovery {
+                    remaining: tuning.throw_seconds,
+                };
+                evidence.thrown += u32::from(!cooked);
+                evidence.record(serde_json::json!({"event":"launch","weapon":weapon.id.0,"cooked":cooked,"fuse":fuse,"position":position.to_array(),"velocity":velocity.to_array(),"count":inventory.count}));
+            }
         }
     }
 }
@@ -344,17 +423,20 @@ fn flight(
     poses: Query<(&Transform, &GlobalTransform, Option<&ChildOf>), Without<Grenade>>,
     query: SpatialQuery,
     mut blasts: ResMut<BlastQueue>,
+    mut lures: ResMut<crate::lures::LureEvidence>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
     let dt = time.delta_secs();
     for (entity, mut grenade, mut transform) in &mut grenades {
-        let Some(tuning) = definition
+        let Some(weapon) = definition
             .content
             .weapons
             .iter()
             .find(|w| w.id == grenade.definition)
-            .and_then(|w| w.throwable.as_ref())
         else {
+            continue;
+        };
+        let Some(tuning) = weapon.throwable.as_ref() else {
             continue;
         };
         grenade.remaining -= dt;
@@ -439,8 +521,21 @@ fn flight(
                 }
             }
         }
+        if weapon.lure.is_some()
+            && !grenade.lure_active
+            && matches!(grenade.motion, GrenadeMotion::Resting)
+        {
+            grenade.lure_active = true;
+            grenade.remaining = tuning.fuse_seconds;
+            lures.activated += 1;
+            lures.record(serde_json::json!({"event":"activate","bomb":entity.to_bits(),"flight_seconds":grenade.elapsed,"fuse":grenade.remaining,"position":transform.translation.to_array()}));
+        }
         if grenade.remaining > 0. {
             continue;
+        }
+        if weapon.lure.is_some() {
+            lures.detonation += 1;
+            lures.record(serde_json::json!({"event":"detonate","bomb":entity.to_bits(),"elapsed":grenade.elapsed,"position":transform.translation.to_array()}));
         }
         evidence.detonations += 1;
         let center = transform.translation;

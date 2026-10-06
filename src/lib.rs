@@ -11,6 +11,7 @@ pub mod hud;
 pub mod input;
 pub mod interactions;
 pub mod life;
+pub mod lures;
 pub mod mines;
 pub mod origins;
 pub mod player;

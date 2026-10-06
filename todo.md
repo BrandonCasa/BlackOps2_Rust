@@ -138,7 +138,7 @@
 - [x] Add weapon cycle input.
 - [x] Add numbered weapon selection input.
 - [x] Add lethal equipment input.
-- [ ] Add tactical equipment input.
+- [x] Add tactical equipment input.
 - [ ] Add buildable equipment input.
 - [ ] Add staff secondary mode input.
 - [ ] Add scoreboard input.
@@ -449,10 +449,10 @@
 - [x] Add Claymore trigger volumes.
 - [x] Add Claymore detonation behavior.
 - [x] Add Claymore placement limits.
-- [ ] Add Monkey Bomb equipment definitions.
-- [ ] Add Monkey Bomb activation delays.
-- [ ] Add Monkey Bomb zombie attraction.
-- [ ] Add Monkey Bomb detonation.
+- [x] Add Monkey Bomb equipment definitions.
+- [x] Add Monkey Bomb activation delays.
+- [x] Add Monkey Bomb zombie attraction.
+- [x] Add Monkey Bomb detonation.
 - [ ] Add tactical equipment replacement.
 - [ ] Add source-defined equipment round replenishment.
 - [x] Add grenade explosion effects.

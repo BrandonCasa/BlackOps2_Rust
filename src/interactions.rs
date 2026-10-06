@@ -128,12 +128,7 @@ fn wall_ready(
                 let Some(source) = materials.get(&material.0) else {
                     continue;
                 };
-                let mut source = source.clone();
-                // Reconstruct the native actor probe fill without changing shared
-                // first-person materials or duplicating the world's baked lights.
-                source.emissive_texture = source.base_color_texture.clone();
-                source.emissive = LinearRgba::rgb(90., 90., 90.);
-                source.emissive_exposure_weight = 1.;
+                let source = crate::rendering::with_actor_fill(source);
                 let handle = materials.add(source);
                 cache.0.insert(material.0.id(), handle.clone());
                 handle
@@ -156,13 +151,22 @@ fn interact(
         &mut WeaponInventory,
         &mut crate::equipment::GrenadeInventory,
         &mut crate::mines::MineInventory,
+        &mut crate::equipment::TacticalInventory,
     )>,
     mut focus: ResMut<InteractionFocus>,
     mut ledger: ResMut<PointLedger>,
     mut session: ResMut<Session>,
 ) {
-    let Ok((player_entity, player, body, vitality, mut inventory, mut grenades, mut mines)) =
-        players.single_mut()
+    let Ok((
+        player_entity,
+        player,
+        body,
+        vitality,
+        mut inventory,
+        mut grenades,
+        mut mines,
+        mut tactical,
+    )) = players.single_mut()
     else {
         return;
     };
@@ -267,13 +271,26 @@ fn interact(
     focus.latched = true;
     let purchase = ledger.command(cost);
     let result = ledger.accept(&mut session.points, purchase, || {
-        if inventory.action != WeaponAction::Ready || grenades.busy() || mines.busy() {
+        if inventory.action != WeaponAction::Ready
+            || grenades.busy()
+            || mines.busy()
+            || tactical.busy()
+        {
             return Err(InteractionRejection::Busy);
         }
         if weapon.mine.is_some() {
             mines.receive(weapon)?;
         } else if weapon.throwable.is_some() {
-            grenades.receive(weapon).map_err(|e| match e {
+            let result = if weapon
+                .throwable
+                .as_ref()
+                .is_some_and(|t| t.slot == crate::equipment::ThrowableSlot::Tactical)
+            {
+                tactical.receive(weapon)
+            } else {
+                grenades.receive(weapon)
+            };
+            result.map_err(|e| match e {
                 crate::equipment::EquipmentError::Busy => InteractionRejection::Busy,
                 crate::equipment::EquipmentError::Full => InteractionRejection::FullAmmo,
                 crate::equipment::EquipmentError::Unsupported => InteractionRejection::Unavailable,

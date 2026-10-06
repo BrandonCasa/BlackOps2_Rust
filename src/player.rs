@@ -85,6 +85,7 @@ fn spawn_player(
         crate::player_health::Recovery::default(),
         inventory,
         crate::mines::MineInventory::default(),
+        crate::equipment::TacticalInventory::default(),
         crate::equipment::GrenadeInventory::new(
             crate::origins::content::WeaponId("weapon.frag_grenade_zm".into()),
             definition

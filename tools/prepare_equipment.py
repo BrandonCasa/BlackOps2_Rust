@@ -13,9 +13,10 @@ def prepare(config):
     rows = {r["id"].replace("weapons.","weapon."):r for r in source["weapons"]}
     receipts = []
     for weapon in game["content"]["weapons"]:
-        if weapon["id"] not in ("weapon.frag_grenade_zm","weapon.sticky_grenade_zm"): continue
+        if weapon["id"] not in ("weapon.frag_grenade_zm","weapon.sticky_grenade_zm","weapon.cymbal_monkey_zm"): continue
         row = rows[weapon["id"]]; f = row["fields"]
         weapon["throwable"] = {
+            "slot":"tactical" if f["offhandSlot"]=="Tactical grenade" else "lethal",
             "initial":int(f["startAmmo"]), "capacity":int(f["maxAmmo"]),
             "prime_seconds":float(f["holdFireTime"]), "throw_seconds":float(f["fireTime"]),
             "fuse_seconds":float(f["fuseTime"]), "speed":float(f["projectileSpeed"])*.0254,
@@ -36,6 +37,20 @@ def prepare(config):
     price=int(price_match.group(1))
     content=game["content"]
     from prepare_actors import convert
+    monkey_model="t6_wpn_zmb_monkey_bomb_world"
+    relative,notifications=convert(inspection / "game-prepare/models/model_export" / (monkey_model+"_lod0.gltf"),
+        pack / "actors",inspection / "solo-content/actor-images",[inspection / "solo-content/source/xanim/o_monkey_bomb"])
+    identity="actor."+monkey_model
+    content["presentations"][:]=[p for p in content["presentations"] if p["id"]!=identity]
+    content["animations"][:]=[a for a in content["animations"] if a["skeleton"]!=identity]
+    clip="animation."+monkey_model+".o_monkey_bomb"
+    content["animations"].append({"id":clip,"path":"actors/"+relative+"#Animation0","skeleton":identity,"notifications":notifications[0][1]})
+    content["presentations"].append({"id":identity,"scene":"actors/"+relative+"#Scene0","animations":[clip],"sounds":[]})
+    monkey=next(w for w in content["weapons"] if w["id"]=="weapon.cymbal_monkey_zm")
+    monkey["name"]="Monkey Bomb"
+    monkey["lure"]={"range":1536*.0254,"capacity":96,"spacing":45*.0254,"animation":clip}
+    monkey_script=inspection / "solo-content/monkey-recovery/decompiled/t6/_zm_weap_cymbal_monkey.gsc"
+    receipts.append({"weapon":monkey["id"],"script_sha256":hashlib.sha256(monkey_script.read_bytes()).hexdigest(),"lure":monkey["lure"],"activation":"stationary after native prime/flight; reset native fuse on activation"})
     model="t6_wpn_claymore_world"
     relative,_=convert(inspection / "game-prepare/models/model_export" / (model+"_lod0.gltf"),
         pack / "actors",inspection / "solo-content/actor-images",[])

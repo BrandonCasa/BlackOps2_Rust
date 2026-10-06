@@ -367,3 +367,12 @@ fn exposure(
     exposure.ev100 +=
         (target - exposure.ev100) * (1. - (-time.delta_secs() * profile.adaptation_speed).exp());
 }
+
+/// Reconstruct native dynamic-object probe fill while retaining direct lights and normals.
+pub(crate) fn with_actor_fill(source: &StandardMaterial) -> StandardMaterial {
+    let mut material = source.clone();
+    material.emissive_texture = material.base_color_texture.clone();
+    material.emissive = LinearRgba::rgb(90., 90., 90.);
+    material.emissive_exposure_weight = 1.;
+    material
+}

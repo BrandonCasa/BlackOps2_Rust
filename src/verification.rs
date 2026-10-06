@@ -13,6 +13,7 @@ use bevy::{
 use std::{path::PathBuf, time::Instant};
 mod arsenal;
 mod claymores;
+mod monkeys;
 mod performance;
 mod pipelines;
 mod semtex;
@@ -45,6 +46,8 @@ pub(crate) struct Verification {
     semtex_exercised: bool,
     claymores: bool,
     claymores_exercised: bool,
+    monkeys: bool,
+    monkeys_exercised: bool,
     grenade_flash_frame: bool,
     accepted_regions: std::collections::BTreeSet<String>,
     damage_frame: bool,
@@ -62,6 +65,9 @@ impl Plugin for VerificationPlugin {
             pipelines::install(app);
             if app.world().resource::<LaunchOptions>().verify_wall_weapons {
                 arsenal::install(app);
+            }
+            if app.world().resource::<LaunchOptions>().verify_monkeys {
+                monkeys::install(app);
             }
             if app.world().resource::<LaunchOptions>().verify_claymores {
                 claymores::install(app);
@@ -113,7 +119,8 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             recoil_seen: false,
             wall_weapons: options.verify_wall_weapons
                 || options.verify_semtex
-                || options.verify_claymores,
+                || options.verify_claymores
+                || options.verify_monkeys,
             rounds: options.verify_rounds,
             health: options.verify_health,
             hit_regions: options.verify_hit_regions,
@@ -122,6 +129,8 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             semtex_exercised: false,
             claymores: options.verify_claymores,
             claymores_exercised: false,
+            monkeys: options.verify_monkeys,
+            monkeys_exercised: false,
             grenade_flash_frame: false,
             accepted_regions: Default::default(),
             damage_frame: false,
@@ -786,6 +795,7 @@ fn check(
         let passed = session.round == 1
             && (!verification.semtex || verification.semtex_exercised)
             && (!verification.claymores || verification.claymores_exercised)
+            && (!verification.monkeys || verification.monkeys_exercised)
             && (!verification.grenades
                 || (equipment.thrown >= 1
                     && equipment.cooked_off >= 1
@@ -810,7 +820,7 @@ fn check(
             } else {
                 verification.round_two && verification.moved
             };
-        let receipt = serde_json::json!({"passed":passed,
+        let mut receipt = serde_json::json!({"passed":passed,
             "scope": if verification.benchmark && !verification.combat { "paused render survey and restart" } else { "combat movement round advance render survey and restart" },
             "continuous_camera_motion": verification.moving_view,
             "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round,
@@ -847,6 +857,7 @@ fn check(
             "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances,
             "survey_views":verification.camera_views.len(), "water_animation_seconds":verification.water_times,
             "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
+        receipt["monkeys_exercised"] = verification.monkeys_exercised.into();
         let _ = std::fs::write(
             verification.output.join("verification.json"),
             receipt.to_string(),

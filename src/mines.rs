@@ -168,10 +168,13 @@ fn place(
         &mut MineInventory,
         &mut crate::weapons::WeaponInventory,
         &crate::equipment::GrenadeInventory,
+        &crate::equipment::TacticalInventory,
     )>,
     mut evidence: ResMut<MineEvidence>,
 ) {
-    for (owner, player, pose, vitality, mut inventory, mut weapon, grenades) in &mut players {
+    for (owner, player, pose, vitality, mut inventory, mut weapon, grenades, tactical) in
+        &mut players
+    {
         let pressed = input.mine_held && !inventory.held;
         inventory.held = input.mine_held;
         let Some(id) = inventory.definition.clone() else {
@@ -262,6 +265,7 @@ fn place(
         } else if pressed
             && inventory.count > 0
             && !grenades.busy()
+            && !tactical.busy()
             && weapon.action == crate::weapons::WeaponAction::Ready
         {
             inventory.placing = true;

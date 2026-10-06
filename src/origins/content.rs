@@ -107,6 +107,8 @@ pub struct WeaponDefinition {
     pub throwable: Option<crate::equipment::ThrowableDefinition>,
     #[serde(default)]
     pub mine: Option<crate::mines::MineDefinition>,
+    #[serde(default)]
+    pub lure: Option<crate::lures::LureDefinition>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -674,6 +676,21 @@ impl ContentCatalog {
                         .iter()
                         .any(|p| p.id == mine.presentation && p.scene.is_some()),
                     "Missing mine presentation",
+                )?;
+            }
+            if let Some(lure) = &v.lure {
+                valid(lure.valid(), "Invalid lure tuning")?;
+                valid(
+                    v.throwable
+                        .as_ref()
+                        .is_some_and(|t| t.slot == crate::equipment::ThrowableSlot::Tactical),
+                    "Lure requires tactical throwable",
+                )?;
+                valid(
+                    self.animations
+                        .iter()
+                        .any(|a| a.id == lure.animation && v.pickup.as_ref() == Some(&a.skeleton)),
+                    "Missing lure animation",
                 )?;
             }
             valid(

@@ -1882,7 +1882,7 @@
       },
       {
         "id": "weapon.cymbal_monkey_zm",
-        "name": "ZOMBIE_CYMBAL_MONKEY",
+        "name": "Monkey Bomb",
         "localization_key": "ZOMBIE_CYMBAL_MONKEY",
         "damage": 15,
         "category": "explosive",
@@ -1978,6 +1978,31 @@
             0.0
           ],
           "fuse_seconds": 8.0
+        },
+        "throwable": {
+          "slot": "tactical",
+          "initial": 3,
+          "capacity": 3,
+          "prime_seconds": 1.9,
+          "throw_seconds": 0.7,
+          "fuse_seconds": 8.0,
+          "speed": 20.32,
+          "up_speed": 0.0,
+          "radius": 2.54,
+          "inner_radius": 0.0,
+          "inner_damage": 5000,
+          "outer_damage": 450,
+          "tangent_bounce": 0.5,
+          "normal_bounce": 0.25,
+          "collision_radius": 0.045,
+          "cook_in_hand": false,
+          "sticky": false
+        },
+        "lure": {
+          "range": 39.014399999999995,
+          "capacity": 96,
+          "spacing": 1.143,
+          "animation": "animation.t6_wpn_zmb_monkey_bomb_world.o_monkey_bomb"
         }
       },
       {
@@ -3895,6 +3920,7 @@
           "fuse_seconds": 3.5
         },
         "throwable": {
+          "slot": "lethal",
           "initial": 4,
           "capacity": 4,
           "prime_seconds": 0.55,
@@ -11464,6 +11490,7 @@
           "fuse_seconds": 2.0
         },
         "throwable": {
+          "slot": "lethal",
           "initial": 4,
           "capacity": 4,
           "prime_seconds": 0.6,
@@ -20012,12 +20039,6 @@
         "sounds": []
       },
       {
-        "id": "actor.t6_wpn_zmb_monkey_bomb_world",
-        "scene": "actors/t6_wpn_zmb_monkey_bomb_world_lod0.gltf#Scene0",
-        "animations": [],
-        "sounds": []
-      },
-      {
         "id": "actor.t6_wpn_zmb_perk_bottle_cherry_view",
         "scene": "actors/t6_wpn_zmb_perk_bottle_cherry_view_lod0.gltf#Scene0",
         "animations": [
@@ -20574,6 +20595,14 @@
           "animation.c_zom_tomb_crusader_head2.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_crusader_head2.ai_zombie_attack_v1",
           "animation.c_zom_tomb_crusader_head2.ai_zombie_firestaff_death_collapse_a"
+        ],
+        "sounds": []
+      },
+      {
+        "id": "actor.t6_wpn_zmb_monkey_bomb_world",
+        "scene": "actors/t6_wpn_zmb_monkey_bomb_world_lod0.gltf#Scene0",
+        "animations": [
+          "animation.t6_wpn_zmb_monkey_bomb_world.o_monkey_bomb"
         ],
         "sounds": []
       },
@@ -71800,6 +71829,65 @@
           },
           {
             "seconds": 3.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.t6_wpn_zmb_monkey_bomb_world.o_monkey_bomb",
+        "path": "actors/t6_wpn_zmb_monkey_bomb_world_lod0.gltf#Animation0",
+        "skeleton": "actor.t6_wpn_zmb_monkey_bomb_world",
+        "notifications": [
+          {
+            "seconds": 0.0,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 0.4666666666666667,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 0.6666666666666666,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 0.9,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 1.1333333333333333,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 1.3333333333333333,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 1.6,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 1.8,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 2.033333333333333,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 2.2666666666666666,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 2.5,
+            "event": "sndnt#zmb_monkeybomb_cym"
+          },
+          {
+            "seconds": 2.5,
             "event": "end"
           }
         ]
