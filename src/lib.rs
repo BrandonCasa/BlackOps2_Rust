@@ -24,7 +24,7 @@ pub enum GameState {
 
 pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     let options = assets::LaunchOptions::parse(arguments);
-    let configuration = assets::LocalConfig::discover(options.config.as_deref());
+    let configuration = assets::AssetPack::discover();
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins

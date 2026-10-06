@@ -1,39 +1,40 @@
 TASK:
-Commit the complete prepared Origins runtime pack with offline validation and Git LFS. Apply subsequent user directions to delete all tests and ban unit tests and Clippy.
+Make origins.exe use committed repository assets by default and package a portable adjacent asset pack. The user's follow-up removes runtime overrides and additional packaging flags.
 
 STATUS:
-COMPLETE â€” runtime asset import and local integration; repository-backed launch remains a separate milestone.
+COMPLETE — repository/Cargo, other-working-directory and relocated-package launches verified in the actual game window; local integration complete.
 
 FINDINGS:
-- External pack: 558 files, 322,002,566 bytes including its 400-byte preparation receipt. Runtime closure: 557 files, 322,002,166 bytes; game.json, map.gltf, map.bin and 554 decoded PNGs (204 world / 350 model).
-- Receipt and retained source data reconcile: 6,469 world surfaces, 149,907 world triangles, 14,480 placements, 494 shared providers / 632 provider meshes; render/collision scenes have 17,759 / 15,613 mesh nodes.
-- Configuration retains original CRLF bytes in ordinary Git. The other 556 files use canonical LFS pointers with verified local payloads.
+- Asset discovery starts at the executable: adjacent assets/origins takes priority; Cargo outputs find the repository through executable ancestors. Working directory, original BO2 installation and machine-specific configuration are unnecessary.
+- Runtime --config and its TOML dependency are removed. The existing --verify driver remains. Local configuration is exclusively for offline preparation/import.
+- Release pack: 557 runtime files, 322,002,166 bytes, including game.json, map.gltf, map.bin and 554 PNGs. Copy the whole release directory when relocating.
 
 EVIDENCE:
-- External import and staged hash manifests plus window screenshots/verification.json are under [assets] inspection_output/runtime-import-2026-10-06. No receipts or research outputs are imported.
-- The importer checks all staged paths, attributes, pointer sizes/hashes and local LFS objects against the source closure. Relative paths, shared references and placement transforms are preserved.
+- External logs, screenshots, verification receipts and relocated package: %TEMP%/origins-portable-20261006 (cargo, other-cwd, relocated).
+- All three real-window runs exited 0 and reported movement=true, round_two=true, restart_round=1, survey_views=8, source_surfaces=6469 and static_instances=14480.
+- Logs select repository assets for the other-CWD run and relocated-package/assets/origins for the portable run. Portable launch used an unrelated CWD plus nonexistent BEVY_ASSET_ROOT/CARGO_MANIFEST_DIR values.
+- missing-pack.png shows the actual error window with the missing directory and restoration/Git LFS instructions; missing-pack.log records the same error.
 
 CHANGES:
-- Added tools/import_origins.py; documented preparation/import, prerequisites, LFS checkout and retained-world-exchange limitations.
-- Updated repository policy, all ten retained skills, ignore rules and scoped LFS attributes. Documentation remains at 20 tracked Markdown files.
-- Deleted all Rust/Python test suites, including the newly drafted importer suite before execution. Unit tests/test suites and Clippy are banned. Removed Clippy from toolchain requirements, gates and source suppressions.
-- Runtime discovery, release packaging and material behavior are unchanged.
+- Replaced mandatory runtime local configuration with executable-relative discovery. Bevy AssetPlugin receives the resolved absolute pack root and retains scene/dependency loading ownership.
+- Loading errors include failing paths, Bevy dependency errors and recovery steps; HUD text wraps within the window.
+- tools/build.ps1 runs metadata/release/fmt gates, invokes the existing offline importer directly to validate/copy the complete runtime closure and compare every hash, and ships assets beside origins.exe. It removes the obsolete packaged local config.
+- Existing README, architecture, project state, asset reference and config template updated. No new Markdown files, executables, dependencies, tests or CLI flags.
 
 VALIDATION:
-- Compiled: locked metadata and release workspace build passed with the existing Rust 1.99 toolchain; formatting passed. Final source changes only remove tests and lint attributes.
-- Tested: no unit or synthetic suites run. The originally requested cargo test/preparation/import test gates were superseded by the user's deletion and ban. Clippy passed once before the later ban; it was then removed and not rerun.
-- Asset validation: full dependency graph, scene labels/counts, indices, buffer/accessor bounds, finite values, PNG decoding, lightmap extras, receipt/source reconciliation and all imported hashes passed. Staged closure contains only the 557 runtime files; 556 LFS pointers and one ordinary Git blob passed inspection. Git LFS integrity passed.
-- Rendered/played: actual release game using the external source pack exited successfully; movement, Round 2 progression, eight survey views and restart to Round 1 passed. Spawn and outdoor screenshots were inspected. This is automated play evidence, not manual play or original-game equivalence.
-- Actual interruptions/failures: initial validation was stopped to avoid repeatedly decoding shared lightmaps; cached decoding completed successfully. Cargo was initially absent from shell PATH; its existing executable was used successfully. Git's initial whitespace check flagged preserved CRLF; a scoped cr-at-eol attribute resolves that without changing source bytes. One handoff patch was rejected before writing and was reapplied successfully.
-- Skipped: fresh preparation/extraction was unnecessary for the existing pack; unit/synthetic tests were explicitly cancelled; no further Clippy run, push, repository-backed launch or packaging change.
+- Compiled: locked Cargo metadata, release workspace build and formatting gates passed through tools/build.ps1.
+- Asset integrity: glTF references/scene counts, buffer/index/accessor bounds, finite values, decoded PNGs, lightmap dependencies, exact file closure, unresolved-LFS rejection and copied SHA-256 comparison passed without original inputs or preparation receipts.
+- Rendered/played: the existing same-application driver passed Cargo, other-CWD and relocated-package runs; repository spawn screenshot inspected. Missing-pack error window inspected and closed.
+- Actual failures/fixes: removing TOML required an offline lockfile refresh before the locked build passed. Packaging initially selected Python below 3.11; selecting Python >=3.11 fixed tomllib import and packaging passed.
+- Skipped: unit tests, test suites and Clippy (banned); fresh preparation/source reconciliation (runtime bytes unchanged); manual or sustained play; original-game equivalence; push.
 
 UNRESOLVED:
-- Source-backed window logs contain nonfatal Bevy dependency warnings; outdoor materials/foliage remain visibly rough. Asset byte completeness does not establish rendering fidelity.
-- src/assets.rs still rejects repository asset roots. Repository-backed launch is unverified.
-- Preparation still requires retained external world exchanges and OAT inputs; a complete fresh fastfile extraction command is not implemented.
+- Git checkouts require materialized LFS payloads; package assets must remain beside the executable. Build-time validation needs uv, Python >=3.11, NumPy 2 and Pillow 12; the game package does not.
+- Cargo output discovery assumes the executable is within its repository; custom target directories outside the checkout need the adjacent pack layout.
+- Existing rough materials, temporary weapon/zombie visuals and remaining original systems are unchanged.
 
 RECOMMENDED NEXT WORK:
-- Implement repository-backed asset discovery/release packaging as a separate milestone, then refine materials in the existing game application.
+Refine material presentation and continue the existing complete-systems roadmap in the same game application.
 
 SCOPE NOT IMPLEMENTED:
-- Runtime discovery changes, packaging assets, material rendering changes, remaining original gameplay systems, exact original equivalence, remote upload/push.
+Runtime asset overrides (removed at user direction), asset regeneration, material/gameplay changes, custom external Cargo target discovery, exact original equivalence, remote upload/push.

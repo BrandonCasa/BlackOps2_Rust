@@ -1,8 +1,4 @@
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-    time::Instant,
-};
+use std::{ffi::OsString, path::PathBuf, time::Instant};
 
 use avian3d::prelude::*;
 use bevy::{
@@ -10,13 +6,11 @@ use bevy::{
     prelude::*,
     world_serialization::{WorldAsset, WorldAssetRoot, WorldInstanceReady},
 };
-use serde::Deserialize;
 
 use crate::GameState;
 
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
-    pub config: Option<PathBuf>,
     pub verify: Option<PathBuf>,
     pub error: Option<String>,
 }
@@ -24,22 +18,12 @@ pub struct LaunchOptions {
 impl LaunchOptions {
     pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
         let mut result = Self::default();
-        while let Some(argument) = args.next() {
-            match argument.to_str() {
-                Some("--config") => result.config = args.next().map(PathBuf::from),
-                Some("--verify") => result.verify = args.next().map(PathBuf::from),
-                _ => {
-                    result.error = Some(
-                        "Usage: origins [--config file.toml] [--verify external-output-folder]"
-                            .into(),
-                    )
-                }
+        if let Some(argument) = args.next() {
+            if argument == "--verify" {
+                result.verify = args.next().map(PathBuf::from);
             }
-            if matches!(argument.to_str(), Some("--config" | "--verify"))
-                && (argument == "--config" && result.config.is_none()
-                    || argument == "--verify" && result.verify.is_none())
-            {
-                result.error = Some("Missing command-line argument value.".into());
+            if result.verify.is_none() || args.next().is_some() {
+                result.error = Some("Usage: origins [--verify external-output-folder]".into());
             }
         }
         result
@@ -47,48 +31,42 @@ impl LaunchOptions {
 }
 
 #[derive(Debug)]
-pub struct LocalConfig {
+pub struct AssetPack {
     pub pack_root: PathBuf,
 }
 
-#[derive(Deserialize)]
-struct ConfigFile {
-    game: GameConfig,
-}
-#[derive(Deserialize)]
-struct GameConfig {
-    asset_pack: PathBuf,
-}
-
-impl LocalConfig {
-    pub fn discover(explicit: Option<&Path>) -> Result<Self, String> {
+impl AssetPack {
+    pub fn discover() -> Result<Self, String> {
         let executable = std::env::current_exe().map_err(|e| e.to_string())?;
-        let beside = executable
+        let directory = executable
             .parent()
-            .unwrap_or(Path::new("."))
-            .join("config/local_assets.toml");
-        let path = explicit.map(Path::to_path_buf).unwrap_or_else(|| {
-            if beside.is_file() {
-                beside
-            } else {
-                PathBuf::from("config/local_assets.toml")
-            }
-        });
-        let text = std::fs::read_to_string(&path).map_err(|_| "Local asset configuration is missing. Prepare your licensed asset pack and set [game] asset_pack in config/local_assets.toml.".to_string())?;
-        let config: ConfigFile = toml::from_str(text.trim_start_matches('\u{feff}'))
-            .map_err(|e| format!("Invalid local configuration: {e}"))?;
-        let pack_root = config.game.asset_pack.canonicalize().map_err(|_| {
-            "Configured asset pack does not exist. Run the preparation command first.".to_string()
+            .ok_or("Executable directory is unavailable.")?;
+        let beside = directory.join("assets/origins");
+        let pack_root = if beside.exists() {
+            beside
+        } else if let Some(repository) = directory
+            .ancestors()
+            .find(|p| p.join("Cargo.toml").is_file() && p.join("src/main.rs").is_file())
+        {
+            repository.join("assets/origins")
+        } else {
+            beside
+        };
+        let pack_root = pack_root.canonicalize().map_err(|e| {
+            format!("Cannot open asset pack {}: {e}\nRestore assets/origins beside origins.exe, or run git lfs pull in the checkout.", pack_root.display())
         })?;
-        if pack_root.starts_with(Path::new(env!("CARGO_MANIFEST_DIR"))) {
-            return Err("Licensed assets must remain outside the repository.".into());
+        if !pack_root.join("game.json").is_file() {
+            return Err(format!(
+                "Missing {}\nRestore the complete assets/origins directory.",
+                pack_root.join("game.json").display()
+            ));
         }
         Ok(Self { pack_root })
     }
 }
 
 #[derive(Resource)]
-pub struct LoadConfiguration(pub Result<LocalConfig, String>);
+pub struct LoadConfiguration(pub Result<AssetPack, String>);
 #[derive(Resource, Default)]
 pub struct LoadFailure(pub String);
 
@@ -131,14 +109,27 @@ fn begin_load(
             return Err(error.clone());
         }
         let config = config.0.as_ref().map_err(Clone::clone)?;
+        info!("Origins asset pack: {}", config.pack_root.display());
         let path = config.pack_root.join("game.json");
-        if std::fs::metadata(&path).map_err(|e| e.to_string())?.len() > 4 * 1024 * 1024 {
+        if std::fs::metadata(&path)
+            .map_err(|e| format!("{}: {e}", path.display()))?
+            .len()
+            > 4 * 1024 * 1024
+        {
             return Err("Gameplay definition is too large.".into());
         }
-        let definition: GameDefinition =
-            serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?;
-        definition.validate()?;
+        let definition: GameDefinition = serde_json::from_slice(
+            &std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?,
+        )
+        .map_err(|e| {
+            format!(
+                "Invalid {}: {e}\nRestore game.json from the runtime pack.",
+                path.display()
+            )
+        })?;
+        definition
+            .validate()
+            .map_err(|e| format!("Invalid {}: {e}", path.display()))?;
         Ok(definition)
     })();
     match definition {
@@ -170,6 +161,7 @@ fn begin_load(
             });
         }
         Err(error) => {
+            error!("Unable to load Origins: {error}");
             failure.0 = error;
             next.set(GameState::LoadError);
         }
@@ -218,6 +210,7 @@ fn scene_ready(
 fn finish_load(
     loading: Option<ResMut<Loading>>,
     definition: Option<Res<GameDefinition>>,
+    config: Res<LoadConfiguration>,
     server: Res<AssetServer>,
     mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
@@ -226,14 +219,24 @@ fn finish_load(
         return;
     };
     for handle in &loading.handles {
-        if matches!(
-            server.get_load_state(handle.id()),
-            Some(LoadState::Failed(_))
-        ) || matches!(
-            server.get_recursive_dependency_load_state(handle.id()),
-            Some(RecursiveDependencyLoadState::Failed(_))
-        ) {
-            failure.0 = "A scene or texture failed to load. Re-run asset preparation and inspect the application log.".into();
+        let error = match server.get_load_state(handle.id()) {
+            Some(LoadState::Failed(error)) => Some(error),
+            _ => match server.get_recursive_dependency_load_state(handle.id()) {
+                Some(RecursiveDependencyLoadState::Failed(error)) => Some(error),
+                _ => None,
+            },
+        };
+        if let Some(error) = error {
+            let root = config
+                .0
+                .as_ref()
+                .map(|c| c.pack_root.display().to_string())
+                .unwrap_or_default();
+            failure.0 = format!(
+                "Asset pack: {root}\nScene {:?}: {error}\nRestore the complete pack (map.gltf, map.bin and textures).\nFor a Git checkout, run git lfs pull; for a release, copy assets/origins beside origins.exe.",
+                handle.path()
+            );
+            error!("Unable to load Origins: {}", failure.0);
             next.set(GameState::LoadError);
             return;
         }

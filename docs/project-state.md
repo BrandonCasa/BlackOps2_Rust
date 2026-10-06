@@ -2,7 +2,7 @@
 
 The playable foundation replaces eleven packages and capture-dependent tools with one `origins` Cargo game application. Work is sequential in this chat; subagents and delegated chats are banned.
 
-Bevy 0.19.1 owns rendering and engine facilities; Avian 0.7 supplies physics queries/move-and-slide. Rust 1.99 stable is selected. Runtime coordinates are meters and Y-up. Original data, preparation intermediates and reports remain external. The validated prepared runtime pack is tracked under `assets/origins/`, with glTF/buffers/PNGs in Git LFS. Runtime discovery still uses the external pack; repository-backed launch is unverified.
+Bevy 0.19.1 owns rendering and engine facilities; Avian 0.7 supplies physics queries/move-and-slide. Rust 1.99 stable is selected. Runtime coordinates are meters and Y-up. Original data, preparation intermediates and reports remain external. The validated prepared runtime pack is tracked under `assets/origins/`, with glTF/buffers/PNGs in Git LFS. Runtime discovery uses the committed pack for Cargo builds and the adjacent pack for release packages, independent of the working directory. Play requires no original installation or local configuration. Runtime overrides are removed; external paths are used only by offline preparation/import.
 
 The implementation assembles source map geometry/static placements, spawn-room player movement, pistol/reload/melee, temporary zombies, pursuit/attacks, normal rounds, Bevy HUD, pause, game-over and restart. Practical reconstruction is authorized. Exact captured-frame/native numeric parity is not a delivery gate.
 

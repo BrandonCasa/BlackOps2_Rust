@@ -30,6 +30,7 @@ fn setup(
             position_type: PositionType::Absolute,
             left: px(22.),
             top: px(20.),
+            right: px(22.),
             ..default()
         },
         HudText,

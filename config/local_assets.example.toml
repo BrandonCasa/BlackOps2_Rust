@@ -1,4 +1,4 @@
-# Copy to ignored local_assets.toml. Preparation inputs/outputs stay external; import copies validated runtime files into assets/origins/.
+# Offline preparation/import only; the game does not read this config. Copy to ignored local_assets.toml. Preparation inputs/outputs stay external; import copies validated runtime files into assets/origins/.
 [assets]
 installation_root = "<absolute path to your licensed BO2 installation>"
 inspection_output = "<absolute external directory containing retained world exports and OAT>"

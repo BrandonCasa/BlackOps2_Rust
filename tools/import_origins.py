@@ -248,7 +248,7 @@ def validate_gltf(root, relative, files):
     return document, scene_meshes
 
 
-def validate_pack(root, receipt, exact=False):
+def validate_pack(root, receipt=None, exact=False):
     root = root.resolve()
     files = {"game.json"}
     game = read_json(safe_path(root, "game.json", {".json"}))
@@ -272,15 +272,19 @@ def validate_pack(root, receipt, exact=False):
         require(len(nodes) == natural(game[count_key], count_key, 1), "gameplay scene count mismatch")
     for game_key, receipt_key in (("source_surfaces", "source_surfaces"), ("render_meshes", "render_meshes"),
                                    ("static_model_instances", "static_instances")):
-        require(natural(game[game_key], game_key, 1) == receipt[receipt_key], "preparation receipt count mismatch")
+        count = natural(game[game_key], game_key, 1)
+        if receipt is not None:
+            require(count == receipt[receipt_key], "preparation receipt count mismatch")
     triangles = sum(doc["accessors"][p["indices"]]["count"] // 3
                     for doc, _ in documents.values() for mesh in doc["meshes"]
                     if mesh.get("name", "").startswith("world_") for p in mesh["primitives"])
-    require(triangles == receipt["triangles"], "world triangle receipt mismatch")
+    if receipt is not None:
+        require(triangles == receipt["triangles"], "world triangle receipt mismatch")
     pngs = sum(name.endswith(".png") for name in files)
-    require(pngs == receipt["textures"] + receipt["model_textures"], "texture receipt count mismatch")
-    require(sum(name.endswith(".png") and PurePosixPath(name).name.startswith("model-") for name in files)
-            == receipt["model_textures"], "model texture receipt count mismatch")
+    if receipt is not None:
+        require(pngs == receipt["textures"] + receipt["model_textures"], "texture receipt count mismatch")
+        require(sum(name.endswith(".png") and PurePosixPath(name).name.startswith("model-") for name in files)
+                == receipt["model_textures"], "model texture receipt count mismatch")
     if exact:
         actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
         require(actual == files, f"unexpected or missing runtime files: {sorted(actual ^ files)}")
@@ -345,7 +349,7 @@ def import_pack(source, destination, receipt, check=False):
     source, destination = source.resolve(), destination.resolve()
     require(source != destination and source not in destination.parents and destination not in source.parents,
             "source and destination overlap")
-    _, _, hashes = validate_pack(source, receipt)
+    _, _, hashes = validate_pack(source, receipt, exact=receipt is None)
     if not check:
         if destination.exists():
             existing = {p.relative_to(destination).as_posix() for p in destination.rglob("*") if p.is_file()}

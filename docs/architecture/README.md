@@ -4,7 +4,7 @@ One Cargo package, `origins`, produces one executable. `src/lib.rs` composes plu
 
 | Module | Responsibility |
 | --- | --- |
-| assets | External configuration, pack validation, Bevy glTF loading and collision admission |
+| assets | Executable-relative pack discovery, loading errors, Bevy glTF loading and collision admission |
 | rendering | Bevy camera, standard lighting, lightmaps, tone mapping, bloom and fog |
 | input | Physical input, persistent short edges, focus clearing, pause and restart |
 | player | Capsule stance, mouse look, grounding, gravity and Avian move-and-slide |
@@ -13,11 +13,11 @@ One Cargo package, `origins`, produces one executable. `src/lib.rs` composes plu
 | origins | Map content contract and one tunable gameplay profile |
 | hud | Bevy UI and temporary weapon presentation |
 | verification | Opt-in driver and screenshots of the real application |
-| tools | Offline external preparation and validated runtime-only import into assets/origins |
+| tools | Offline preparation/import and validated release packaging of assets/origins |
 
 Bevy owns ECS, scheduling, scenes, asset loading, materials, cameras, visibility, transforms and UI. Avian owns spatial queries and physics representations. Gameplay runs at 60 Hz in ordered movement, combat, zombie and round systems. Variable updates collect input and present the current simulation.
 
-Every session entity is marked for restart. Map and engine entities persist. Entering Playing from pause retains the session; restarting removes session entities and rebuilds Round 1. Loading failures become visible UI states.
+Every session entity is marked for restart. Map and engine entities persist. Entering Playing from pause retains the session; restarting removes session entities and rebuilds Round 1. Loading failures become visible UI states with the failing path and recovery steps. AssetPlugin receives the resolved absolute runtime pack root. Adjacent assets take priority; Cargo outputs find the pack through their repository ancestors. No runtime local config or asset override is read.
 
 The [coordinate decision](../adr/0002-bevy-runtime-coordinates.md) applies once during preparation. Runtime code uses meters and Y-up. Captures are references for visual understanding and never define scene membership or cameras.
 

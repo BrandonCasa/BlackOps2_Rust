@@ -4,15 +4,24 @@ Install Git LFS before checkout (`git lfs install`), then run `git lfs pull` to 
 
 One Rust/Bevy game application. All future gameplay and rendering work extends `origins.exe`.
 
-Copy `config/local_assets.example.toml` to ignored `config/local_assets.toml` and set external paths. Prepare the licensed local assets:
+Play directly from the committed runtime pack:
+
+```powershell
+cargo run --release --locked
+```
+
+No BO2 installation or local configuration is needed to play. Discovery uses `assets/origins/` beside the executable first, then the repository containing a Cargo-built executable. It never depends on the working directory or a compiled-in repository path. Local asset configuration is used only by the offline preparation/import tools; runtime overrides have been removed.
+
+Build with `tools/build.ps1`. The resulting `release/` contains `origins.exe` and `assets/origins/`. Copy that entire directory anywhere and launch its executable from any working directory. Keep the assets beside the executable when relocating it. Packaging runs the compiler gates and reuses the offline importer to validate the dependency closure and copied hashes, without original inputs or local configuration. Building needs existing Cargo, `uv`, Python 3.11+, NumPy 2 and Pillow 12; playing the package needs none of those tools.
+
+Missing or corrupt assets show a loading error in the game window and application log. Restore the complete package asset directory; for a checkout containing Git LFS pointers, run `git lfs pull`.
+
+To regenerate assets from licensed originals, copy `config/local_assets.example.toml` to ignored `config/local_assets.toml`, set its external preparation paths, then run:
 
 ```powershell
 uv run tools/prepare_origins.py --config config/local_assets.toml
 uv run tools/import_origins.py --config config/local_assets.toml
-cargo run --locked
 ```
-
-Build the double-clickable release with `tools/build.ps1`. It copies local configuration beside `release/origins.exe`. No command-line arguments are needed to play. Runtime discovery continues to use the external pack. A validated copy is tracked in `assets/origins/`; repository-backed launch and release packaging of that copy are separate, unverified milestones.
 
 WASD moves; mouse looks; Shift sprints; Space jumps; Control crouches. Left click fires; right click or V melees; R reloads. Escape pauses; R restarts after death. Starts in the spawn room at Round 1, with six enemies.
 
