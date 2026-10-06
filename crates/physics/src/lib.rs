@@ -8,5 +8,6 @@ pub mod moving_leaf_trace;
 pub mod static_point_trace;
 pub mod stationary_brush_trace;
 pub mod stationary_leaf_trace;
+pub mod terrain_point_trace;
 mod trace_shape;
 pub use bevy::math::{DVec3, Vec3};

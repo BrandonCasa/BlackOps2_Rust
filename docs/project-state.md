@@ -32,7 +32,7 @@ Work locally; no remote push is authorized.
   exchanges. It is not a full BO2 decoder.
 - Physics implements diagnostic segment queries plus source-qualified moving and
   stationary single-brush adapters, moving/stationary brush-leaf traversal and raw
-  per-instance static-point queries. World/family aggregation and the player
+  per-instance static-point and terrain point/triangle queries. World/family aggregation and the player
   receiver/contact solver remain unimplemented.
 - Rendering preserves the accepted mesh arrays and metadata. Canonical runtime
   mapping is source `(x,y,z)` -> Bevy `(x,z,-y)`; gray display is reusable.
@@ -52,14 +52,14 @@ input across zero/multiple fixed updates, and resolution or reproducible source
 exclusion of every participating full-map collision reference. Unsupported families
 cannot be silently skipped. Bevy's fixed rate does not establish native timing.
 
-Reviewed integration currently passes 261 workspace tests (9 external opt-ins
+Reviewed integration currently passes 269 workspace tests (9 external opt-ins
 ignored), locked metadata, formatting and warning-denying all-target Clippy.
 Hierarchy/static payload opt-ins and all 4,791 stationary brush-only leaf probes
 pass separately. Client host tests pass (8), with warning-denying client Clippy.
 Earlier brush/terrain opt-ins, input/pacing checks and a synthetic
 reconstructed-window GPU smoke pass; sustained physical input/full movement and
 original comparisons remain unverified. See [integration01](handoffs/movement-integration-01.md)
-and [reviewed integration03](handoffs/movement-integration-03.md).
+and [terrain numerical integration04](handoffs/movement-integration-04.md).
 
 Current contracts and limits:
 
@@ -78,7 +78,9 @@ Current contracts and limits:
 - [Baseline parameters](reverse_engineering/movement-baseline-parameters.md): script
   movement scale1, C96 ordinary movement/sprint modifiers1, sprint4000ms/cooldown0.
   Stop speed, base speed, gravity and other parameter registrations/defaults are
-  unresolved; no guessed executable profile is admitted.
+  unresolved; [startup override inspection](reverse_engineering/movement-baseline-startup-overrides.md)
+  narrows the inspected script route but supplies no bound defaults. No guessed
+  executable profile is admitted.
 - [Model ownership](reverse_engineering/collision-global-ownership.md): all265
   cmodel dispositions;583 model brush references already resolve in schema34.
   Serialized null providers do not imply missing geometry. Runtime scene/addon
@@ -86,7 +88,7 @@ Current contracts and limits:
 - [Terrain admission](reverse_engineering/terrain-payload-admission.md): complete
   arrays/refs and all map/model leaves, including214 root-zero terrain leaves.
   Numerical capsule/edge/vertex queries, stamp lifecycle and packed-edge semantics
-  remain to implement/qualify.
+  remain to implement/qualify. The raw point/triangle consumer is implemented.
 - [Static XModel contract](reverse_engineering/static-xmodel-collision-contract.md):
   all 10,837 instances resolve 420 shared providers. Complete bounded payload
   admission and raw per-instance classic point queries are implemented. Sector
