@@ -529,7 +529,7 @@ fn flight(
                     Quat::IDENTITY,
                     direction,
                     &ShapeCastConfig::from_max_distance(delta.length()),
-                    &SpatialQueryFilter::from_excluded_entities([grenade.owner]),
+                    &crate::environment::solids([grenade.owner]),
                 );
                 if let Some(hit) = hit {
                     let normal = hit.normal1;
@@ -639,7 +639,7 @@ pub(crate) fn resolve_blasts(
             &Collider::sphere(blast.radius),
             center,
             Quat::IDENTITY,
-            &SpatialQueryFilter::default(),
+            &crate::environment::solids([]),
         ) {
             let Ok((vitality, pose, player)) = targets.get(target) else {
                 continue;
@@ -662,7 +662,7 @@ pub(crate) fn resolve_blasts(
                         direction,
                         distance,
                         true,
-                        &SpatialQueryFilter::from_excluded_entities([target, blast.owner]),
+                        &crate::environment::solids([target, blast.owner]),
                         &|entity| !targets.contains(entity),
                     )
                     .is_some()

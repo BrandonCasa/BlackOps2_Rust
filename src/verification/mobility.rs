@@ -69,7 +69,7 @@ fn drive(
             session.pending = 0;
             session.intermission = Some(Timer::from_seconds(300., TimerMode::Once));
             c.owner = Some(owner);
-            let filter = avian3d::prelude::SpatialQueryFilter::from_excluded_entities([owner]);
+            let filter = crate::environment::solids([owner]);
             let mut clear = None;
             'search: for x in -12..=12 {
                 for z in -12..=12 {

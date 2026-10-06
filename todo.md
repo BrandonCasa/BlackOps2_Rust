@@ -160,7 +160,7 @@
 - [x] Implement standing-to-prone transitions.
 - [x] Implement crouched-to-prone transitions.
 - [x] Implement prone-to-crouched transitions.
-- [ ] Prevent blocked stance expansion.
+- [x] Prevent blocked stance expansion.
 - [x] Interpolate stance camera height.
 - [x] Implement sprinting dolphin dives.
 - [x] Implement dive landing recovery.
@@ -169,19 +169,19 @@
 - [x] Add source-defined jump recovery.
 - [x] Add source-defined fall damage.
 - [x] Add player landing camera feedback.
-- [ ] Add player walking camera bob.
-- [ ] Add player sprinting camera bob.
+- [x] Add player walking camera bob.
+- [x] Add player sprinting camera bob.
 - [x] Add ADS camera interpolation.
 - [x] Add ADS field-of-view interpolation.
-- [ ] Add weapon sway from camera motion.
+- [x] Add weapon sway from camera motion.
 - [ ] Add moving-platform support tracking.
 - [ ] Move boarded players with platform displacement.
 - [ ] Clear platform support when players jump.
-- [ ] Add source-defined mud trigger volumes.
-- [ ] Apply gradual mud movement slowdown.
-- [ ] Restore movement speed after leaving mud.
-- [ ] Apply Stamin-Up mud modifiers.
-- [ ] Add mud footstep surface selection.
+- [x] Add source-defined mud trigger volumes.
+- [x] Apply gradual mud movement slowdown.
+- [x] Restore movement speed after leaving mud.
+- [x] Apply Stamin-Up mud modifiers.
+- [x] Add mud footstep surface selection.
 - [ ] Add environmental damage volumes.
 - [ ] Apply environmental damage at fixed intervals.
 - [ ] Add out-of-bounds lethal volumes.

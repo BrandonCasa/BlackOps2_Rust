@@ -87,8 +87,12 @@ fn spawn_player(
             eye_height: definition.tuning.eye_height,
         },
         capsule(definition.tuning.radius, height),
-        crate::movement::SprintState::new(definition.tuning.sprint_seconds),
-        crate::movement::Mobility::new(definition.tuning.eye_height),
+        (
+            crate::movement::SprintState::new(definition.tuning.sprint_seconds),
+            crate::movement::Mobility::new(definition.tuning.eye_height),
+            crate::environment::TerrainMotion::default(),
+            crate::movement::MotionFeedback::default(),
+        ),
         vitality,
         crate::player_health::Recovery::default(),
         crate::solo_revive::PerkInventory::default(),
@@ -156,6 +160,7 @@ pub fn move_player(
         &crate::equipment::GrenadeInventory,
         &crate::equipment::TacticalInventory,
         &crate::mines::MineInventory,
+        &crate::environment::TerrainMotion,
     )>,
     mut commands: Commands,
     slide: MoveAndSlide,
@@ -188,6 +193,7 @@ pub fn move_player(
         lethal,
         tactical,
         mines,
+        terrain,
     )) = players.single_mut()
     else {
         return;
@@ -212,7 +218,7 @@ pub fn move_player(
     let mut collider = collider.clone();
     let tuning = &definition.tuning;
     let dt = time.delta_secs();
-    let filter = SpatialQueryFilter::from_excluded_entities([entity]);
+    let filter = crate::environment::solids([entity]);
     let m = &tuning.mobility;
     mobility.recovery = (mobility.recovery - dt).max(0.);
     mobility.jump_recovery = (mobility.jump_recovery - dt).max(0.);
@@ -309,7 +315,7 @@ pub fn move_player(
     );
     player.grounded = (ground.is_some_and(|hit| hit.normal1.y > 0.65)
         || support.is_some_and(|hit| hit.normal.y > 0.65))
-        && player.velocity.y <= 0.;
+        && (player.velocity.y <= 0. || !mobility.airborne);
     let feet = transform.translation - Vec3::Y * player.height * 0.5;
     if mobility.airborne && player.grounded && !launch_dive {
         let height = (mobility.peak - feet.y).max(0.);
@@ -401,18 +407,19 @@ pub fn move_player(
         tuning.sprint_speed * speed_scale
     } else {
         tuning.walk_speed * speed_scale
-    } * inventory
-        .definition(&definition.content.weapons)
-        .map_or(1., |weapon| {
-            weapon.mechanics.movement[0]
-                + (weapon.mechanics.movement[1] - weapon.mechanics.movement[0]) * inventory.ads
-        });
+    } * terrain.scale
+        * inventory
+            .definition(&definition.content.weapons)
+            .map_or(1., |weapon| {
+                weapon.mechanics.movement[0]
+                    + (weapon.mechanics.movement[1] - weapon.mechanics.movement[0]) * inventory.ads
+            });
     let desired = Quat::from_rotation_y(player.yaw)
         * Vec3::new(input.movement.x, 0., -input.movement.y).clamp_length_max(1.)
         * speed;
     if let Some(dive) = mobility.dive {
-        player.velocity.x = dive.direction.x * m.dive_speed;
-        player.velocity.z = dive.direction.z * m.dive_speed;
+        player.velocity.x = dive.direction.x * m.dive_speed * terrain.scale;
+        player.velocity.z = dive.direction.z * m.dive_speed * terrain.scale;
     } else {
         let desired = if mobility.recovery > 0. {
             Vec2::ZERO

@@ -82,6 +82,11 @@ pub struct MobilityTuning {
     pub fall_fatal: f32,
     pub landing_dip: f32,
     pub landing_seconds: f32,
+    pub walk_bob: [f32; 2],
+    pub sprint_bob: [f32; 2],
+    pub stride: [f32; 2],
+    pub sway_limit: f32,
+    pub sway_response: f32,
 }
 impl Default for MobilityTuning {
     fn default() -> Self {
@@ -103,6 +108,11 @@ impl Default for MobilityTuning {
             fall_fatal: 7.62,
             landing_dip: 0.12,
             landing_seconds: 0.3,
+            walk_bob: [0.016, 0.024],
+            sprint_bob: [0.025, 0.04],
+            stride: [2.4, 3.0],
+            sway_limit: 0.04,
+            sway_response: 14.,
         }
     }
 }
@@ -126,6 +136,14 @@ impl MobilityTuning {
             self.fall_fatal,
             self.landing_dip,
             self.landing_seconds,
+            self.sway_limit,
+            self.sway_response,
+            self.walk_bob[0],
+            self.walk_bob[1],
+            self.sprint_bob[0],
+            self.sprint_bob[1],
+            self.stride[0],
+            self.stride[1],
         ]
         .iter()
         .all(|v| v.is_finite() && *v > 0.)
@@ -194,4 +212,14 @@ impl MovementEvidence {
             self.events.push(event);
         }
     }
+}
+
+#[derive(Component, Default)]
+pub struct MotionFeedback {
+    pub bob: Vec2,
+    pub previous_bob: Vec2,
+    pub phase: f32,
+    pub position: Option<Vec3>,
+    pub look: Option<Vec2>,
+    pub sway: Vec2,
 }

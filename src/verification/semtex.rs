@@ -52,7 +52,7 @@ pub(super) fn standing(
     height: f32,
     radius: f32,
 ) -> Option<Vec3> {
-    let filter = SpatialQueryFilter::from_excluded_entities([player]);
+    let filter = crate::environment::solids([player]);
     let floor = query.cast_ray(probe + Vec3::Y * 2., Dir3::NEG_Y, 5., false, &filter)?;
     if floor.normal.y < 0.65 {
         return None;
@@ -149,7 +149,7 @@ fn drive(
                 Vec3::new(1., 0., -1.).normalize(),
                 Vec3::new(-1., 0., -1.).normalize(),
             ];
-            let filter = SpatialQueryFilter::from_excluded_entities([entity]);
+            let filter = crate::environment::solids([entity]);
             let approach = directions
                 .into_iter()
                 .cycle()
@@ -238,7 +238,7 @@ fn drive(
         3 => {
             let origin =
                 body.translation + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5);
-            let filter = SpatialQueryFilter::from_excluded_entities([entity]);
+            let filter = crate::environment::solids([entity]);
             let cover = (0..24).find_map(|i| {
                 let angle = i as f32 * std::f32::consts::TAU / 24.;
                 let dir = Vec3::new(angle.cos(), 0., angle.sin());
@@ -303,7 +303,7 @@ fn drive(
             if coverage.elapsed > 0.2 {
                 if let Ok(projectile) = projectiles.single() {
                     let center = projectile.translation;
-                    let filter = SpatialQueryFilter::from_excluded_entities([entity]);
+                    let filter = crate::environment::solids([entity]);
                     let protected = (0..24).find_map(|i| {
                         let angle = i as f32 * std::f32::consts::TAU / 24.;
                         let dir = Vec3::new(angle.cos(), 0., angle.sin());
@@ -360,7 +360,7 @@ fn drive(
             if v.state() != LifeState::ActorAlive || boxes.volumes.is_empty() {
                 return;
             }
-            let filter = SpatialQueryFilter::from_excluded_entities([entity]);
+            let filter = crate::environment::solids([entity]);
             let approach = [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z]
                 .into_iter()
                 .find_map(|dir| {

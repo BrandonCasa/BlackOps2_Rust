@@ -133,7 +133,7 @@ fn drive(
                     Dir3::NEG_Y,
                     3.,
                     false,
-                    &SpatialQueryFilter::from_excluded_entities([owner]),
+                    &crate::environment::solids([owner]),
                 );
                 let position = base + Vec3::Y * (floor.map_or(0., |h| 1. - h.distance) + 0.87);
                 let amount = if i == 0 { 500 } else { 10000 };

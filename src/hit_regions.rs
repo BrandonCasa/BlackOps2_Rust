@@ -118,7 +118,7 @@ pub fn cast(
         direction,
         range,
         true,
-        &SpatialQueryFilter::from_excluded_entities([shooter]),
+        &crate::environment::solids([shooter]),
         &|entity| !targets.contains(entity),
     );
     if blocker.is_some_and(|b| b.distance <= hit.hit.distance) {

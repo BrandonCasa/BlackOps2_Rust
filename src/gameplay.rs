@@ -207,7 +207,7 @@ fn begin_session(
                 Dir3::NEG_Y,
                 3.,
                 false,
-                &SpatialQueryFilter::default(),
+                &crate::environment::solids([]),
             )?;
             if floor.normal.y < 0.65 {
                 return None;
@@ -218,7 +218,7 @@ fn begin_session(
                     &shape,
                     feet + Vec3::Y * 0.85,
                     Quat::IDENTITY,
-                    &SpatialQueryFilter::default(),
+                    &crate::environment::solids([]),
                 )
                 .is_empty()
                 .then_some(feet)
@@ -251,7 +251,7 @@ fn begin_session(
                             ignore_origin_penetration: true,
                             ..ShapeCastConfig::from_max_distance(delta.length())
                         },
-                        &SpatialQueryFilter::default(),
+                        &crate::environment::solids([]),
                     )
                     .is_none()
             {
@@ -571,7 +571,7 @@ pub(crate) fn rounds(
             Dir3::NEG_Y,
             4.,
             false,
-            &SpatialQueryFilter::default(),
+            &crate::environment::solids([]),
         )?;
         if floor.normal.y < 0.5 {
             return None;
@@ -583,7 +583,7 @@ pub(crate) fn rounds(
                 &shape,
                 position,
                 Quat::IDENTITY,
-                &SpatialQueryFilter::default(),
+                &crate::environment::solids([]),
             )
             .is_empty()
         {

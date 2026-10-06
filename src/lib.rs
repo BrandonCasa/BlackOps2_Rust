@@ -4,6 +4,7 @@ pub mod assets;
 pub mod damage;
 pub mod economy;
 pub mod enemies;
+pub mod environment;
 pub mod equipment;
 pub mod gameplay;
 pub mod hit_regions;
@@ -97,6 +98,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
             solo_revive::SoloRevivePlugin,
             perks::PerkPlugin,
             perk_effects::PerkEffectsPlugin,
+            environment::EnvironmentPlugin,
         ),
         player_health::PlayerHealthPlugin,
         enemies::EnemyPlugin,

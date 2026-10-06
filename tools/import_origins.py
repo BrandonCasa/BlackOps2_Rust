@@ -432,14 +432,31 @@ def validate_pack(root, receipt=None, exact=False):
     game = read_json(safe_path(root, "game.json", {".json"}))
     require(set(game) <= {"version", "scene", "collision_scene", "spawn", "yaw", "spawn_points",
                           "waypoints", "survey_views", "source_surfaces", "render_meshes",
-                          "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health", "solo_revive"}, "unknown gameplay configuration")
+                          "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health", "solo_revive", "environment"}, "unknown gameplay configuration")
     require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "sprint_seconds", "sprint_minimum", "sprint_recovery_rate", "sprint_recovery_delay", "crouch_speed", "gravity",
         "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
         "mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
         "reload_seconds", "zombie_damage", "zombie_speed", "combat_points", "mobility"}, "unknown gameplay tuning")
+    environment = game.get("environment", {})
+    require(isinstance(environment,dict) and set(environment)<={"mud"},"unknown environment fields")
+    mud = environment.get("mud")
+    if mud is not None:
+        require(isinstance(mud,dict) and set(mud)=={"scale","stamin_scale","step","stamin_step","interval","volumes"},"invalid mud fields")
+        require(all(type(mud[k]) in (int,float) and math.isfinite(mud[k]) and mud[k]>0 for k in ("scale","stamin_scale","step","stamin_step","interval")),"invalid mud tuning")
+        require(mud["scale"]<=mud["stamin_scale"]<=1 and mud["stamin_step"]<=mud["step"]<=1,"invalid mud modifiers")
+        volumes=mud["volumes"];require(isinstance(volumes,list) and 0<len(volumes)<=4096,"invalid mud volume count")
+        identities=set()
+        for volume in volumes:
+            require(isinstance(volume,dict) and set(volume)=={"id","position","vertices"},"invalid volume fields")
+            require(isinstance(volume["id"],str) and re.fullmatch(r"[A-Za-z0-9_.-]+",volume["id"]) and volume["id"] not in identities,"invalid volume ID");identities.add(volume["id"])
+            points=volume["vertices"];require(isinstance(points,list) and 4<=len(points)<=128,"invalid convex volume")
+            require(all(isinstance(v,list) and len(v)==3 and all(type(x) in (int,float) and math.isfinite(x) for x in v) for v in [volume["position"]]+points),"invalid volume vectors")
+            require(np.linalg.matrix_rank(np.array(points)-points[0])==3,"flat volume vertices")
     mobility = game.get("tuning", {}).get("mobility", {})
-    require(isinstance(mobility, dict) and set(mobility) <= {"prone_height","prone_eye","prone_speed","prone_step","acceleration","deceleration","air_acceleration","air_deceleration","stance_seconds","jump_recovery","dive_speed","dive_lift","dive_recovery","fall_minimum","fall_fatal","landing_dip","landing_seconds"}, "unknown mobility tuning")
-    require(all(type(v) in (int,float) and math.isfinite(v) and v > 0 for v in mobility.values()),"invalid mobility tuning")
+    require(isinstance(mobility, dict) and set(mobility) <= {"prone_height","prone_eye","prone_speed","prone_step","acceleration","deceleration","air_acceleration","air_deceleration","stance_seconds","jump_recovery","dive_speed","dive_lift","dive_recovery","fall_minimum","fall_fatal","landing_dip","landing_seconds","walk_bob","sprint_bob","stride","sway_limit","sway_response"}, "unknown mobility tuning")
+    require(all(type(v) in (int,float) and math.isfinite(v) and v > 0 for k,v in mobility.items() if k not in ("walk_bob","sprint_bob","stride")),"invalid mobility tuning")
+    for key in ("walk_bob","sprint_bob","stride"):
+        if key in mobility: require(isinstance(mobility[key],list) and len(mobility[key])==2 and all(type(x) in (int,float) and math.isfinite(x) and x>0 for x in mobility[key]),"invalid movement feedback tuning")
     require(game.get("tuning", {}).get("radius",.35)*2 < mobility.get("prone_height",.75) < game.get("tuning", {}).get("crouch_height",1.15),"invalid prone capsule")
     require(mobility.get("prone_eye",.3048) < mobility.get("prone_height",.75),"invalid prone eye")
     require(mobility.get("fall_minimum",3.2512)<mobility.get("fall_fatal",7.62),"unordered fall thresholds")

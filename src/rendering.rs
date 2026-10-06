@@ -145,6 +145,7 @@ fn camera_follow(
             &Transform,
             &crate::weapons::WeaponInventory,
             &crate::movement::Mobility,
+            &crate::movement::MotionFeedback,
         ),
         Without<GameCamera>,
     >,
@@ -160,7 +161,7 @@ fn camera_follow(
         return;
     }
     let (
-        Ok((player, body, inventory, mobility)),
+        Ok((player, body, inventory, mobility, feedback)),
         Some(definition),
         Ok((mut camera, mut projection)),
     ) = (players.single(), definition, camera.single_mut())
@@ -174,8 +175,13 @@ fn camera_follow(
     } else {
         player.eye_height
     };
+    let bob = feedback
+        .previous_bob
+        .lerp(feedback.bob, time.overstep_fraction());
     let target = Transform {
-        translation: body.translation + Vec3::Y * (eye - player.height * 0.5),
+        translation: body.translation
+            + Vec3::Y * (eye - player.height * 0.5)
+            + Quat::from_rotation_y(player.yaw) * Vec3::new(bob.x, bob.y, 0.),
         rotation: Quat::from_rotation_y(player.yaw + inventory.recoil.x)
             * Quat::from_rotation_x((player.pitch + inventory.recoil.y).clamp(-1.5, 1.5)),
         ..*camera
@@ -370,7 +376,7 @@ fn exposure(
             Dir3::Y,
             20.,
             true,
-            &avian3d::prelude::SpatialQueryFilter::from_excluded_entities([player]),
+            &crate::environment::solids([player]),
         )
         .is_some();
     let target = if covered {

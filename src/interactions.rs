@@ -217,7 +217,7 @@ pub(crate) fn interact(
     let forward = Quat::from_rotation_y(player.yaw + inventory.recoil.x)
         * Quat::from_rotation_x((player.pitch + inventory.recoil.y).clamp(-1.5, 1.5))
         * Vec3::NEG_Z;
-    let filter = SpatialQueryFilter::from_excluded_entities([player_entity]);
+    let filter = crate::environment::solids([player_entity]);
     let candidate = targets
         .iter()
         .filter_map(|(entity, usable, transform)| {

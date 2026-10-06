@@ -141,7 +141,7 @@ fn drive(
             }
             let position = target.translation;
             let normal = target.rotation * Vec3::Z;
-            let filter = SpatialQueryFilter::from_excluded_entities([entity]);
+            let filter = crate::environment::solids([entity]);
             let approach = [
                 normal,
                 -normal,

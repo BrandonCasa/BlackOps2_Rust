@@ -50,7 +50,7 @@ fn wall_approach(
     normal: Vec3,
     game: &GameDefinition,
 ) -> Option<Vec3> {
-    let filter = SpatialQueryFilter::from_excluded_entities([owner]);
+    let filter = crate::environment::solids([owner]);
     [
         normal,
         -normal,

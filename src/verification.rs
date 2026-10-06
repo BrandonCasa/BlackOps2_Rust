@@ -20,6 +20,7 @@ mod firing_perks;
 mod health_recovery;
 mod mobility;
 mod monkeys;
+mod mud;
 mod mule_kick;
 mod performance;
 mod perk_health;
@@ -60,6 +61,7 @@ pub(crate) struct Verification {
     firing_perks: bool,
     defensive_perks: bool,
     mobility: bool,
+    mud: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -110,6 +112,9 @@ impl Plugin for VerificationPlugin {
             }
             if app.world().resource::<LaunchOptions>().verify_mobility {
                 mobility::install(app);
+            }
+            if app.world().resource::<LaunchOptions>().verify_mud {
+                mud::install(app);
             }
             equipment_presentation::install(app);
             if app.world().resource::<LaunchOptions>().verify_solo_revive {
@@ -197,6 +202,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             firing_perks: options.verify_firing_perks,
             defensive_perks: options.verify_defensive_perks,
             mobility: options.verify_mobility,
+            mud: options.verify_mud,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -248,6 +254,7 @@ pub(crate) fn drive(
         || verification.firing_perks
         || verification.defensive_perks
         || verification.mobility
+        || verification.mud
     {
         return;
     }
@@ -315,9 +322,7 @@ pub(crate) fn drive(
                                         ignore_origin_penetration: true,
                                         ..avian3d::prelude::ShapeCastConfig::from_max_distance(8.)
                                     },
-                                    &avian3d::prelude::SpatialQueryFilter::from_excluded_entities(
-                                        [entity],
-                                    ),
+                                    &crate::environment::solids([entity]),
                                 )
                                 .map_or(8., |hit| hit.distance)
                         };
@@ -535,6 +540,7 @@ fn check(
         || verification.firing_perks
         || verification.defensive_perks
         || verification.mobility
+        || verification.mud
     {
         return;
     }
@@ -724,7 +730,7 @@ fn check(
                 Dir3::NEG_Y,
                 4.,
                 false,
-                &avian3d::prelude::SpatialQueryFilter::default(),
+                &crate::environment::solids([]),
             );
             info!(
                 "Entry {:?}, floor {:?}",

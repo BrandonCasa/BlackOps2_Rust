@@ -122,7 +122,7 @@ fn drive(
             coverage.lethal = lethal.definition.0.clone();
             coverage.home = body.translation;
             coverage.yaw = player.yaw;
-            let filter = SpatialQueryFilter::from_excluded_entities([owner]);
+            let filter = crate::environment::solids([owner]);
             let approach=targets.iter().filter(|(t,_)|matches!(&t.source.action,
                 crate::origins::InteractionAction::Weapon{weapon,..} if weapon.0=="weapon.claymore_zm"))
                 .find_map(|(_,target)|{

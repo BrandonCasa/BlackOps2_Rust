@@ -28,6 +28,7 @@ pub struct LaunchOptions {
     pub verify_firing_perks: bool,
     pub verify_defensive_perks: bool,
     pub verify_mobility: bool,
+    pub verify_mud: bool,
     pub verify_hit_regions: bool,
     pub verify_grenades: bool,
     pub verify_semtex: bool,
@@ -58,6 +59,7 @@ impl LaunchOptions {
                 || argument == "--verify-firing-perks"
                 || argument == "--verify-defensive-perks"
                 || argument == "--verify-mobility"
+                || argument == "--verify-mud"
                 || argument == "--verify-health"
                 || argument == "--verify-hit-regions"
                 || argument == "--verify-grenades"
@@ -81,6 +83,7 @@ impl LaunchOptions {
                     || argument == "--verify-firing-perks"
                     || argument == "--verify-defensive-perks"
                     || argument == "--verify-mobility"
+                    || argument == "--verify-mud"
                     || argument == "--verify-health"
                     || argument == "--verify-hit-regions"
                     || argument == "--verify-grenades"
@@ -101,6 +104,7 @@ impl LaunchOptions {
                 result.verify_firing_perks = argument == "--verify-firing-perks";
                 result.verify_defensive_perks = argument == "--verify-defensive-perks";
                 result.verify_mobility = argument == "--verify-mobility";
+                result.verify_mud = argument == "--verify-mud";
                 result.verify_hit_regions = argument == "--verify-hit-regions";
                 result.verify_grenades = argument == "--verify-grenades";
                 result.verify_semtex = argument == "--verify-semtex";

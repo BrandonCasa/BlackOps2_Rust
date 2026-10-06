@@ -200,7 +200,7 @@ fn place(
             let forward = Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z;
             let origin = pose.translation + forward * 0.7;
             // Support and clearance are reconstructed from the player's normal standing reach.
-            let filter = SpatialQueryFilter::from_excluded_entities([owner]);
+            let filter = crate::environment::solids([owner]);
             let Some(hit) = query.cast_ray(origin, Dir3::NEG_Y, player.height + 1., true, &filter)
             else {
                 evidence.blocked += 1;
@@ -315,7 +315,7 @@ fn detect(
             &Collider::cylinder(profile.trigger_radius, 4.8768),
             pose.translation,
             Quat::IDENTITY,
-            &SpatialQueryFilter::from_excluded_entities([mine.owner]),
+            &crate::environment::solids([mine.owner]),
         ) {
             let Ok((life, target_pose)) = targets.get(target) else {
                 continue;
@@ -338,7 +338,7 @@ fn detect(
                     direction,
                     delta.length(),
                     true,
-                    &SpatialQueryFilter::from_excluded_entities([target, mine.owner]),
+                    &crate::environment::solids([target, mine.owner]),
                     &|e| !targets.contains(e),
                 )
                 .is_some()

@@ -71,7 +71,7 @@ fn approach(
         // Choose open ground for the intended lethal-blast branch as well.
         let ground = center - Vec3::Y * (height * 0.5 - 0.10);
         let blast_line = target - ground;
-        let filter = SpatialQueryFilter::from_excluded_entities([owner, actor]);
+        let filter = crate::environment::solids([owner, actor]);
         if distance <= 6.
             && query
                 .cast_ray(

@@ -217,7 +217,7 @@ pub(crate) fn lifecycle(
         } else {
             lure.map_or(player_transform.translation, |l| l.position)
         };
-        let filter = SpatialQueryFilter::from_excluded_entities([entity, player_entity]);
+        let filter = crate::environment::solids([entity, player_entity]);
         let visible = |from: Vec3, to: Vec3| {
             let delta = to - from;
             Dir3::new(delta).ok().is_some_and(|d| {
@@ -280,7 +280,7 @@ pub(crate) fn lifecycle(
         if direction.length_squared() > 0.001 {
             transform.rotation = Quat::from_rotation_y((-direction.z).atan2(direction.x));
         }
-        let filter = SpatialQueryFilter::from_excluded_entities([entity]);
+        let filter = crate::environment::solids([entity]);
         let support = query.cast_ray(feet + Vec3::Y * 0.1, Dir3::NEG_Y, 0.25, false, &filter);
         let grounded = support.is_some_and(|h| h.normal.y > 0.65) && zombie.velocity.y <= 0.;
         let before = transform.translation;

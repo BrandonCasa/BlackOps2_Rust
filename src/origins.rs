@@ -24,6 +24,8 @@ pub struct GameDefinition {
     pub rounds: crate::rounds::RoundProfile,
     pub solo_revive: crate::solo_revive::SoloReviveProfile,
     #[serde(default)]
+    pub environment: crate::environment::EnvironmentDefinition,
+    #[serde(default)]
     pub tuning: Tuning,
 }
 
@@ -201,6 +203,7 @@ impl GameDefinition {
                 .chain(self.survey_views.iter().flatten())
                 .all(|v| v.is_finite())
             || !values.iter().all(|v| v.is_finite() && *v > 0.)
+            || !self.environment.valid()
             || !self
                 .tuning
                 .mobility
