@@ -39,6 +39,7 @@ use std::{
 };
 
 mod captured_material;
+mod depth_atlas;
 mod gpu_probe;
 mod interactive;
 mod material_probe;
@@ -69,6 +70,7 @@ Usage: bo2-geometry-viewer --synthetic --output <new-external-directory>
        bo2-geometry-viewer --material-smoke
        bo2-geometry-viewer --captured-material <external-v2-scene.json> <external-fixture4462-directory> --output <new-external-directory>
        bo2-geometry-viewer --captured-translated <external-v2-scene.json> <external-fixture4462-directory> <external-shader-bank.json> --output <new-external-directory>
+       bo2-geometry-viewer --captured-shadow <external-v2-scene.json> <external-fixture4633-directory> <external-shader-bank.json> --output <new-external-directory>
 
 Finite offscreen GPU diagnostic of project-owned geometry snapshot v1.
 Source Z-up positions adapt to canonical Bevy Y-up: (x,y,z) -> (x,z,-y). Reads one

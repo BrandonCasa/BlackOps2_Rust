@@ -303,6 +303,7 @@ pub fn run_shadow(
         }
     }
     let mut loaded = Vec::new();
+    let mut depth_source = None;
     for index in 0..6 {
         let bytes = bounded(
             &fixture.join(format!("texture-{index}.dds")),
@@ -328,18 +329,40 @@ pub fn run_shadow(
                 return Err(DiagnosticError::Preservation);
             }
             image.texture_descriptor.format = TextureFormat::Depth32Float;
+            // Native R32 values must enter a depth texture through a GPU pass.
+            let mut source = image.clone();
+            source.texture_descriptor.format = TextureFormat::R32Float;
+            let data = source.data.as_ref().ok_or(DiagnosticError::Preservation)?;
+            if !data.len().is_multiple_of(4)
+                || data.as_chunks::<4>().0.iter().any(|bytes| {
+                    let value = f32::from_le_bytes(*bytes);
+                    !value.is_finite() || !(0.0..=1.0).contains(&value)
+                })
+            {
+                return Err(DiagnosticError::Preservation);
+            }
+            depth_source = Some(source);
+            image.data = None;
+            image.texture_descriptor.usage =
+                bevy::render::render_resource::TextureUsages::RENDER_ATTACHMENT
+                    | bevy::render::render_resource::TextureUsages::TEXTURE_BINDING;
         } else {
             bo2_assets::full_scene::inspect_dds(&bytes).map_err(DiagnosticError::Appearance)?;
         }
         loaded.push(image);
     }
     let mut app = configured_app(false, None);
+    app.add_plugins(super::depth_atlas::DepthAtlasPlugin);
     app.add_plugins(bo2_rendering::original_material::OriginalMaterialPlugin);
     let report = gpu_probe::render(app, |world| {
         let images: Vec<_> = loaded
             .into_iter()
             .map(|image| world.resource_mut::<Assets<Image>>().add(image))
             .collect();
+        let source = world
+            .resource_mut::<Assets<Image>>()
+            .add(depth_source.ok_or(DiagnosticError::Preservation)?);
+        super::depth_atlas::register(world, vec![(source.clone(), images[3].clone())]);
         let material = translated(world, &bank, &fixture, &scene_cb, &object_cb, &images, true)?;
         let material = world
             .resource_mut::<Assets<bo2_rendering::original_material::OriginalMaterial>>()
@@ -359,6 +382,7 @@ pub fn run_shadow(
             camera_source,
         );
         probe.images = images;
+        probe.images.push(source);
         Ok(probe)
     })?;
     let mut before = Vec::new();

@@ -55,6 +55,17 @@ pub fn render(
     }
     app.finish();
     app.cleanup();
+    let gpu_failed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let gpu_error = gpu_failed.clone();
+    app.get_sub_app(RenderApp)
+        .ok_or(DiagnosticError::EngineUnavailable)?
+        .world()
+        .resource::<bevy::render::renderer::RenderDevice>()
+        .wgpu_device()
+        .on_uncaptured_error(std::sync::Arc::new(move |error| {
+            eprintln!("probe GPU error: {error}");
+            gpu_error.store(true, std::sync::atomic::Ordering::Relaxed);
+        }));
     let scene = setup(app.world_mut())?;
     if scene.meshes.is_empty() {
         return Err(DiagnosticError::EmptyGeometry);
@@ -101,7 +112,22 @@ pub fn render(
             return Err(DiagnosticError::Deadline);
         }
         app.update();
+        if gpu_failed.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(DiagnosticError::PipelineFailure);
+        }
         bevy::tasks::tick_global_task_pools_on_main_thread();
+        // Manual offscreen execution must also advance pending pipeline tasks.
+        app.get_sub_app_mut(RenderApp)
+            .ok_or(DiagnosticError::EngineUnavailable)?
+            .world_mut()
+            .resource_mut::<PipelineCache>()
+            .process_queue();
+        app.get_sub_app(RenderApp)
+            .ok_or(DiagnosticError::EngineUnavailable)?
+            .world()
+            .resource::<bevy::render::renderer::RenderDevice>()
+            .poll(bevy::render::render_resource::PollType::Poll)
+            .map_err(|_| DiagnosticError::ReadbackLayout)?;
         let render_world = app
             .get_sub_app(RenderApp)
             .ok_or(DiagnosticError::EngineUnavailable)?
