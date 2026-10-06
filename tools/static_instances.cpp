@@ -118,6 +118,20 @@ void ContentPrinter::PrintContent() const {
             surfaces << ']';
         }
     }
+    std::unordered_set<const GfxImage*> required;
+    if (std::getenv("ORIGINS_INCLUDE_ACTOR_IMAGES")) {
+        for (auto* asset : m_zone.m_pools) {
+            if (asset->m_type != ASSET_TYPE_XMODEL || asset->IsReference()) continue;
+            const auto* model = static_cast<const XModel*>(asset->m_ptr);
+            for (unsigned j = 0; j < model->numsurfs; ++j) {
+                const auto* material = model->materialHandles[j];
+                if (!material) continue;
+                for (unsigned k = 0; k < material->textureCount; ++k)
+                    if (material->textureTable[k].image)
+                        required.insert(material->textureTable[k].image);
+            }
+        }
+    }
     out << ']';
     if (!out.good()) throw std::runtime_error("instance metadata write failed");
     out.close();
@@ -127,7 +141,6 @@ void ContentPrinter::PrintContent() const {
     const char* output_root = std::getenv("ORIGINS_IMAGE_OUTPUT");
     if (!data_root || !output_root) return;
     SearchPathFilesystem search(data_root);
-    std::unordered_set<const GfxImage*> required;
     for (unsigned i = 0; i < world->dpvs.smodelCount; ++i) {
         const auto* model = world->dpvs.smodelDrawInsts[i].model;
         for (unsigned j = 0; j < model->numsurfs; ++j) {

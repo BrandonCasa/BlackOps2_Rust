@@ -2,25 +2,25 @@ TASK:
 Complete all 1,219 todo.md tasks according to the accepted complete solo Origins plan.
 
 STATUS:
-PARTIAL - 48 content-contract/importer tasks completed; 1,171 remain. Goal active.
+PARTIAL - 58 tasks completed; 1,161 remain. Goal active. First content-contract batch committed as bd1c1a5.
 
 FINDINGS:
-Version-two content uses validated stable typed IDs and catalogs for gameplay/presentation. Empty catalogs explicitly mean content still awaits recovery/implementation. Starter weapon/enemy values retain temporary tuning. Existing OAT recovered weapon/attachment source definitions externally with zero errors; original character arms and weapon rigs also exist externally.
+Version-two typed catalogs/references are available; most remain unpopulated. Read-only patch-resolved recovery exports 129 weapons, 13 attachments, 56 attachment variants, 4,670 entities, 2,220 navigation nodes and 1,713 native animation files. Authored GUIDs repeat; hashed field content plus occurrence disambiguates entity IDs. Seven original skeletal actors are prepared with meter-scale positions/translations/inverse binds and normalized skin weights. Original files remain untouched.
 
 EVIDENCE:
-External inspection/solo-content/window-v2/verification.json reports passed=true, movement=true, round_two=true, restart_round=1 and 15 views. Its screenshots show the actual application. inspection/runtime-content-v2.json records the imported closure: 1,252 files, 1,249 PNGs, 717,945,746 bytes.
+External inspection/solo-content/window-v2/verification.json passed combat, movement, Round 2, restart and 15 rendered views. window-actor-pack/verification.json passed map rendering/restart with expanded definitions; it does not render actors. runtime-skeletal-content.json records 1,292 runtime files, 1,275 PNGs and 751,674,520 bytes. Seven actor glTF closures independently validated (40 dependencies). Global joint transforms multiplied by converted inverse binds have maximum identity error 0.000101307. recovered-gameplay.json retains source fields/hashes and animation headers.
 
 CHANGES:
-Typed content schemas/index/errors; unsupported-version loading errors; regenerated version-two game.json; Bevy animation/audio/Vorbis/JPEG; skin/joint/weight/animation validation and media dependency closure; OGG stream decoding; media/font packaging; scoped runtime/source LFS allowances. Tick only completed contract/importer tasks. Map placement ID rollout stays unchecked.
+Typed content/error/index contract, media/skin importer, Bevy features and runtime LFS allowances. Reproducible --recover-gameplay-content and --prepare-actors preparation paths; preserve expanded catalogs during regeneration. Extend existing OAT callback to recover actor images from explicit original image banks. Import Dempsey/Nikolai/Richtofen/Takeo arms, Mauser viewmodel and German zombie body/head through LFS. No actor gameplay binding yet.
 
 VALIDATION:
-Asset import and subsequent --check passed. Locked metadata, locked release build, formatting and diff whitespace passed. Existing actual-window driver passed combat/movement/round/restart/render checks. Initial importer indentation error corrected before successful validation. Cargo.lock regenerated for newly enabled Bevy features. Handoff replacement patch rejected conflicting operations; rewritten in place. No tests, fixtures, Clippy, toolchain installation, delegation or push.
+Source extraction and actor preparation passed, including repeat execution. Complete asset import passed. Locked metadata/build/formatting gates passed for both batches; actual-window outcomes recorded above. Staged expanded closure passed (1,291 LFS pointers plus game.json); Git LFS fsck passed. Initial indentation, missing DDS inputs, duplicate GUID assumptions, Python version, relative index-check path and C++ required-variable placement failed then were corrected. Direct OAT image export returned zero while logging errors; recovery now checks logs and uses the successful existing callback/image-bank path. No tests, fixtures, Clippy, replacement toolchain, delegation or push.
 
 UNRESOLVED:
-No new rigs, clips, audio, cinematic sequences or gameplay systems yet. Expanded skin/media branches are implemented but not exercised with assembled actor/media assets. Complete quest, sustained survival, 8,000 Hz device and relocated final-package gates remain pending.
+Native animation files are exported but not decoded into glTF clips. Prepared actors are not yet animated or rendered in gameplay; temporary pistol/zombies remain. Native weapon fields are external intermediates and not yet populated into runtime weapon behavior. Map placement ID rollout and trigger/brush/traversal conversion remain unchecked. Full quest/survival/device/relocated-package gates pending.
 
 RECOMMENDED NEXT WORK:
-Recover patch-resolved weapon/attachment fields, gameplay placements/navigation and skinned actor/animation/audio assets; assemble/import them, then replace temporary player/enemy presentation and gameplay in plan order.
+Decode version-19 native tracks using the retained OAT CompiledXAnimLoader/Writer source; convert compatible local bone tracks into actor glTF clips and notification content, then bind original first-person/enemy presentation. OAT already converts model geometry/global root rotations into Y-up; do not apply that basis twice. Preserve explicit fixed gameplay ownership when replacing temporary systems.
 
 SCOPE NOT IMPLEMENTED:
-The 1,171 unchecked tasks and final completion gates. Contract availability does not imply populated content, original fidelity or completed mechanics.
+The 1,161 unchecked tasks and final playthrough gates. Prepared skeletons are asset-integrity evidence, not animated gameplay or original equivalence.

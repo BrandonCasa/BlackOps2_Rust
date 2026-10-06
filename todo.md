@@ -34,21 +34,21 @@
 - [x] Enable Bevy audio support.
 - [x] Enable Bevy Vorbis decoding.
 - [x] Enable Bevy JPEG decoding.
-- [ ] Extend asset preparation with weapon definition extraction.
-- [ ] Extend asset preparation with attachment definition extraction.
-- [ ] Extend asset preparation with patch override resolution.
-- [ ] Extend asset preparation with gameplay entity extraction.
+- [x] Extend asset preparation with weapon definition extraction.
+- [x] Extend asset preparation with attachment definition extraction.
+- [x] Extend asset preparation with patch override resolution.
+- [x] Extend asset preparation with gameplay entity extraction.
 - [ ] Extend asset preparation with trigger volume conversion.
 - [ ] Extend asset preparation with brush entity conversion.
-- [ ] Extend asset preparation with navigation node extraction.
+- [x] Extend asset preparation with navigation node extraction.
 - [ ] Extend asset preparation with traversal link extraction.
-- [ ] Extend asset preparation with skeletal model export.
-- [ ] Extend asset preparation with animation track export.
+- [x] Extend asset preparation with skeletal model export.
+- [x] Extend asset preparation with animation track export.
 - [ ] Convert animation translations into runtime coordinates.
 - [ ] Convert animation rotations into runtime coordinates.
-- [ ] Preserve skeleton joint names during conversion.
-- [ ] Preserve inverse bind matrices during conversion.
-- [ ] Normalize exported skin weights.
+- [x] Preserve skeleton joint names during conversion.
+- [x] Preserve inverse bind matrices during conversion.
+- [x] Normalize exported skin weights.
 - [ ] Convert original animation tracks into glTF clips.
 - [ ] Retarget recovered clips onto compatible skeletons.
 - [ ] Generate missing locomotion clips for recovered rigs.

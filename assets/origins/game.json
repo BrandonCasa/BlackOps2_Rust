@@ -46,7 +46,50 @@
     "staff_puzzles": [],
     "quests": [],
     "quest_transitions": [],
-    "presentations": [],
+    "presentations": [
+      {
+        "id": "actor.c_zom_dempsey_viewhands",
+        "scene": "actors/c_zom_dempsey_viewhands_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "actor.c_zom_nikolai_viewhands",
+        "scene": "actors/c_zom_nikolai_viewhands_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "actor.c_zom_richtofen_viewhands",
+        "scene": "actors/c_zom_richtofen_viewhands_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "actor.c_zom_takeo_viewhands",
+        "scene": "actors/c_zom_takeo_viewhands_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "actor.t6_wpn_zmb_mc96_view",
+        "scene": "actors/t6_wpn_zmb_mc96_view_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "actor.c_zom_tomb_german_body_1a",
+        "scene": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "actor.c_zom_tomb_german_head1",
+        "scene": "actors/c_zom_tomb_german_head1_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      }
+    ],
     "sounds": [],
     "animations": [],
     "ui_assets": [],

@@ -566,6 +566,11 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
     lm_uv = corners["lm"].astype(np.float32) / 65535
     layer_uv, layer3_uv, rotation1, rotation2 = secondary_attributes(root, manifest, uv, surfaces)
     definition = gameplay_definition(entities(external(entity_path)))
+    previous_path = output / "game.json"
+    if previous_path.is_file():
+        previous = json.loads(previous_path.read_text(encoding="utf-8-sig"))
+        if previous.get("version") == 2:
+            definition["content"] = previous["content"]
     output.mkdir(parents=True, exist_ok=True)
     texture_dir = output / "textures"
     texture_dir.mkdir(exist_ok=True)
@@ -708,8 +713,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=WORKSPACE / "config/local_assets.toml")
     parser.add_argument("--content-only", action="store_true", help="regenerate game.json from map entities, preserving prepared geometry coverage")
+    parser.add_argument("--recover-gameplay-content", action="store_true", help="recover patch-resolved weapon/attachment definitions and map entities externally")
+    parser.add_argument("--prepare-actors", action="store_true", help="convert recovered starter skeletal actors into the external runtime pack")
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
+    if args.prepare_actors:
+        from prepare_actors import prepare as prepare_actors
+        prepare_actors(config)
+        return
+    if args.recover_gameplay_content:
+        from prepare_gameplay_content import recover
+        recover(config)
+        return
     root = Path(config["assets"]["inspection_output"])
     settings = config.get("preparation", {})
     entities_path = Path(settings.get("entities", root / "game-prepare/entities/maps/mp/zm_tomb.d3dbsp.ents"))
@@ -717,6 +732,8 @@ def main():
         output = external(Path(config["game"]["asset_pack"]))
         previous = json.loads((output / "game.json").read_text(encoding="utf-8-sig"))
         definition = gameplay_definition(entities(external(entities_path)))
+        if previous.get("version") == 2:
+            definition["content"] = previous["content"]
         for key in ("source_surfaces", "render_meshes", "collision_meshes", "static_model_instances", "survey_views", "tuning"):
             if key in previous:
                 definition[key] = previous[key]

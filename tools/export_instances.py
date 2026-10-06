@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 
 
-def export(source, zone, output, image_output=None):
+def export(source, zone, output, image_output=None, include_actor_images=False):
     output.mkdir(parents=True, exist_ok=True)
     callback = Path(__file__).with_name("static_instances.cpp")
     installations = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Microsoft Visual Studio"
@@ -47,6 +47,8 @@ def export(source, zone, output, image_output=None):
         if image_output is not None:
             environment["ORIGINS_DATA_ROOT"] = str(zone.parent)
             environment["ORIGINS_IMAGE_OUTPUT"] = str(image_output)
+        if include_actor_images:
+            environment["ORIGINS_INCLUDE_ACTOR_IMAGES"] = "1"
         subprocess.run([str(output / "Unlinker.exe"), "--no-color", "--list", str(zone)],
                        cwd=output, env=environment, check=True, stdout=log, stderr=log)
     return output / "static-instances.json"
