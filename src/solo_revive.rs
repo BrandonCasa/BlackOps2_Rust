@@ -198,6 +198,7 @@ fn begin(
             .find(|w| w.id == profile.downed_weapon)
             .expect("validated downed weapon");
         inventory.cancel_action();
+        let lost_weapon = inventory.set_third_slot(false, &definition.content.weapons);
         let backup = inventory.clone();
         *inventory = WeaponInventory::temporary(weapon, profile.reserve_clips);
         perks.owned.clear();
@@ -225,7 +226,7 @@ fn begin(
             backup,
             bleedout,
         });
-        evidence.record(serde_json::json!({"event":"downed","target":event.target.to_bits(),"episode":event.episode.number(),"health":health.current(),"weapon":weapon.id.0,"magazine":weapon.magazine,"reserve":inventory.reserve(weapon),"perks_lost":true}));
+        evidence.record(serde_json::json!({"event":"downed","target":event.target.to_bits(),"episode":event.episode.number(),"health":health.current(),"weapon":weapon.id.0,"magazine":weapon.magazine,"reserve":inventory.reserve(weapon),"perks_lost":true,"lost_third_weapon":lost_weapon.map(|w|w.definition.0)}));
     }
 }
 fn tick(
@@ -268,6 +269,7 @@ fn tick(
     }
 }
 pub(crate) fn finish(
+    definition: Res<GameDefinition>,
     mut results: ResMut<LifeCommandResults>,
     mut commands: Commands,
     mut queue: ResMut<LifeCommandQueue>,
@@ -301,7 +303,7 @@ pub(crate) fn finish(
             Ok(LifeCommandOutcome::Revived { current, maximum }) => {
                 *inventory = episode.backup.clone();
                 inventory.cancel_action();
-                inventory.set_third_slot(false);
+                let _ = inventory.set_third_slot(false, &definition.content.weapons);
                 perks.solo_charges = perks.solo_charges.saturating_sub(1);
                 *recovery = Recovery::default();
                 queue.retire_pending_target(result.target);

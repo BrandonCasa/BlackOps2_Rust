@@ -379,8 +379,8 @@
 - [x] Add per-weapon reserve ammunition.
 - [ ] Add shared ammunition groups.
 - [x] Add two default primary weapon slots.
-- [ ] Add Mule Kick's third weapon slot.
-- [ ] Track the weapon occupying Mule Kick's slot.
+- [x] Add Mule Kick's third weapon slot.
+- [x] Track the weapon occupying Mule Kick's slot.
 - [x] Add active weapon selection.
 - [x] Add weapon equip timing.
 - [x] Add weapon unequip timing.
@@ -651,8 +651,8 @@
 - [x] Add Quick Revive solo revival effects.
 - [x] Add Speed Cola reload modifiers.
 - [x] Add Stamin-Up sprint modifiers.
-- [ ] Add Mule Kick inventory expansion.
-- [ ] Remove Mule Kick's assigned weapon after perk loss.
+- [x] Add Mule Kick inventory expansion.
+- [x] Remove Mule Kick's assigned weapon after perk loss.
 - [ ] Add Double Tap firing-rate modifiers.
 - [ ] Add Double Tap eligible projectile duplication.
 - [ ] Add Deadshot hip-fire spread modifiers.

@@ -320,12 +320,15 @@ pub struct PerkDefinition {
     pub reload_duration_scale: Option<f32>,
     #[serde(default)]
     pub sprint: Option<PerkSprintDefinition>,
+    #[serde(default)]
+    pub third_weapon: bool,
 }
 impl PerkDefinition {
     pub fn has_supported_effect(&self) -> bool {
         self.maximum_health.is_some()
             || self.reload_duration_scale.is_some()
             || self.sprint.is_some()
+            || self.third_weapon
     }
 }
 #[derive(Clone, Deserialize)]

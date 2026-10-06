@@ -200,6 +200,14 @@ impl WeaponInventory {
     pub fn active_slot(&self) -> usize {
         self.active
     }
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+    pub fn perk_weapon(&self) -> Option<&OwnedWeapon> {
+        (self.capacity == 3)
+            .then(|| self.slots[2].as_ref())
+            .flatten()
+    }
     pub fn owned(&self) -> impl Iterator<Item = (usize, &OwnedWeapon)> {
         self.slots
             .iter()
@@ -302,10 +310,30 @@ impl WeaponInventory {
         Ok(())
     }
     /// The third slot is always the perk-owned slot; loss removes that instance only.
-    pub fn set_third_slot(&mut self, enabled: bool) {
+    pub fn set_third_slot(
+        &mut self,
+        enabled: bool,
+        definitions: &[WeaponDefinition],
+    ) -> Option<OwnedWeapon> {
+        if (self.capacity == 3) == enabled {
+            return None;
+        }
         self.capacity = if enabled { 3 } else { 2 };
         if !enabled {
-            self.slots[2] = None;
+            let removed = self.slots[2].take();
+            if let Some(definition) = removed
+                .as_ref()
+                .and_then(|w| definitions.iter().find(|d| d.id == w.definition))
+            {
+                let group = Self::group(definition);
+                let shared = self
+                    .owned()
+                    .filter_map(|(_, w)| definitions.iter().find(|d| d.id == w.definition))
+                    .any(|d| Self::group(d) == group);
+                if !shared {
+                    self.ammunition.remove(&group);
+                }
+            }
             if self.active == 2 {
                 self.active = self.slots[..2]
                     .iter()
@@ -313,7 +341,9 @@ impl WeaponInventory {
                     .unwrap_or(0);
             }
             self.cancel_action();
+            return removed;
         }
+        None
     }
     pub fn refill(&mut self, definitions: &[WeaponDefinition]) {
         for definition in definitions {

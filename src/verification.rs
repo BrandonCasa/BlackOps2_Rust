@@ -17,6 +17,7 @@ mod equipment_presentation;
 mod equipment_refills;
 mod health_recovery;
 mod monkeys;
+mod mule_kick;
 mod performance;
 mod perk_health;
 mod pipelines;
@@ -52,6 +53,7 @@ pub(crate) struct Verification {
     perk_health: bool,
     speed_cola: bool,
     stamin_up: bool,
+    mule_kick: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -78,6 +80,9 @@ impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
+            if app.world().resource::<LaunchOptions>().verify_mule_kick {
+                mule_kick::install(app);
+            }
             if app.world().resource::<LaunchOptions>().verify_stamin_up {
                 stamin_up::install(app);
             }
@@ -169,6 +174,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             perk_health: options.verify_perk_health,
             speed_cola: options.verify_speed_cola,
             stamin_up: options.verify_stamin_up,
+            mule_kick: options.verify_mule_kick,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -216,6 +222,7 @@ pub(crate) fn drive(
         || verification.perk_health
         || verification.speed_cola
         || verification.stamin_up
+        || verification.mule_kick
     {
         return;
     }
@@ -499,6 +506,7 @@ fn check(
         || verification.perk_health
         || verification.speed_cola
         || verification.stamin_up
+        || verification.mule_kick
     {
         return;
     }

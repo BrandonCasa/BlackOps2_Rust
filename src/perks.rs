@@ -107,14 +107,15 @@ impl Plugin for PerkPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                update_maximum
+                (update_maximum, update_inventory)
                     .in_set(GameStep::Interactions)
                     .after(tick)
+                    .before(crate::interactions::interact)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
                 FixedUpdate,
-                update_maximum
+                (update_maximum, update_inventory)
                     .in_set(GameStep::PlayerLife)
                     .after(crate::solo_revive::finish)
                     .before(crate::player_health::HealthUpdate)
@@ -226,6 +227,23 @@ fn update_maximum(
                 Ok(()) => evidence.record(serde_json::json!({"event":"maximum_changed","owner":owner.to_bits(),"before":before,"maximum":maximum,"current":health.current(),"state":format!("{:?}",health.state())})),
                 Err(error) => error!("Perk maximum rejected for {owner:?}: {error}"),
             }
+        }
+    }
+}
+fn update_inventory(
+    game: Res<GameDefinition>,
+    mut players: Query<(Entity, &PerkInventory, &mut WeaponInventory), With<Player>>,
+    mut evidence: ResMut<PerkEvidence>,
+) {
+    for (owner, perks, mut inventory) in &mut players {
+        let enabled = game
+            .content
+            .perks
+            .iter()
+            .any(|p| p.third_weapon && perks.owned.contains(&p.id));
+        if (inventory.capacity() == 3) != enabled {
+            let removed = inventory.set_third_slot(enabled, &game.content.weapons);
+            evidence.record(serde_json::json!({"event":"weapon_capacity_changed","owner":owner.to_bits(),"capacity":inventory.capacity(),"removed":removed.map(|w|w.definition.0)}));
         }
     }
 }
