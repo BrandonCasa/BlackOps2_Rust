@@ -314,6 +314,8 @@ pub struct PerkDefinition {
     pub presentation: Option<ContentId>,
     #[serde(default)]
     pub drink: Option<PerkDrinkDefinition>,
+    #[serde(default)]
+    pub maximum_health: Option<u32>,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -840,6 +842,11 @@ impl ContentCatalog {
             }
         }
         for v in &self.perks {
+            valid(
+                v.maximum_health
+                    .is_none_or(|h| h > 0 && h <= i32::MAX as u32),
+                "Invalid perk maximum health",
+            )?;
             optional(&v.id.0, &v.icon, "ui")?;
             optional(&v.id.0, &v.presentation, "presentation")?;
             if let Some(drink) = &v.drink {

@@ -205,6 +205,24 @@ impl Vitality {
     pub fn maximum(self) -> u32 {
         self.maximum.get()
     }
+    /// Human perk changes adjust the ceiling without granting health or reviving.
+    pub fn set_human_maximum(&mut self, maximum: u32) -> Result<(), LifeStateError> {
+        if !matches!(self.route, DamageRoute::Human { .. }) {
+            return Err(LifeStateError::NotHuman);
+        }
+        let maximum = NonZeroU32::new(maximum).ok_or(LifeStateError::ZeroMaximum)?;
+        if maximum.get() > MAX_POSITIVE_NATIVE_INTEGER {
+            return Err(LifeStateError::HealthOutOfRange);
+        }
+        if let DamageRoute::Human { downed_health, .. } = self.route
+            && maximum.get() < downed_health.get()
+        {
+            return Err(LifeStateError::InvalidDownedHealth);
+        }
+        self.maximum = maximum;
+        self.current = self.current.min(maximum.get());
+        Ok(())
+    }
     pub fn state(self) -> LifeState {
         self.state
     }

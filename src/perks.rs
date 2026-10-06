@@ -107,6 +107,21 @@ impl Plugin for PerkPlugin {
             )
             .add_systems(
                 FixedUpdate,
+                update_maximum
+                    .in_set(GameStep::Interactions)
+                    .after(tick)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                update_maximum
+                    .in_set(GameStep::PlayerLife)
+                    .after(crate::solo_revive::finish)
+                    .before(crate::player_health::HealthUpdate)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
                 cancel
                     .in_set(GameStep::PlayerLife)
                     .before(crate::life::ApplyLifeCommands)
@@ -141,10 +156,21 @@ fn tick(
         drink.elapsed += time.delta_secs();
         drink.remaining = (drink.remaining - time.delta_secs()).max(0.);
         if !drink.activated && drink.elapsed + 0.00001 >= drink.activation_at {
-            if drink.perk == game.solo_revive.perk && perks.buy_solo(&game.solo_revive).is_ok() {
+            let accepted = if drink.perk == game.solo_revive.perk {
+                perks.buy_solo(&game.solo_revive).is_ok()
+            } else {
+                game.content
+                    .perks
+                    .iter()
+                    .any(|p| p.id == drink.perk && p.maximum_health.is_some())
+                    && perks.owned.insert(drink.perk.clone())
+            };
+            if accepted {
                 drink.activated = true;
                 evidence.record(serde_json::json!({"event":"perk_activated","owner":owner.to_bits(),"perk":drink.perk.0,"seconds":drink.elapsed,"purchases":perks.solo_purchases}));
-                if perks.solo_purchases >= game.solo_revive.maximum_purchases {
+                if drink.perk == game.solo_revive.perk
+                    && perks.solo_purchases >= game.solo_revive.maximum_purchases
+                {
                     for (entity, usable) in &machines {
                         if matches!(&usable.source.action, crate::origins::InteractionAction::Perk { perk } if *perk == drink.perk)
                         {
@@ -176,6 +202,29 @@ fn tick(
                 inventory.cancel_action();
                 evidence.record(serde_json::json!({"event":"drink_finished","owner":owner.to_bits(),"perk":drink.perk.0,"seconds":drink.elapsed}));
                 commands.entity(owner).remove::<PerkDrinking>();
+            }
+        }
+    }
+}
+fn update_maximum(
+    game: Res<GameDefinition>,
+    mut players: Query<(Entity, &PerkInventory, &mut Vitality), With<Player>>,
+    mut evidence: ResMut<PerkEvidence>,
+) {
+    for (owner, perks, mut health) in &mut players {
+        let maximum = game
+            .content
+            .perks
+            .iter()
+            .filter(|p| perks.owned.contains(&p.id))
+            .filter_map(|p| p.maximum_health)
+            .max()
+            .unwrap_or(game.player_health.maximum);
+        if health.maximum() != maximum {
+            let before = health.maximum();
+            match health.set_human_maximum(maximum) {
+                Ok(()) => evidence.record(serde_json::json!({"event":"maximum_changed","owner":owner.to_bits(),"before":before,"maximum":maximum,"current":health.current(),"state":format!("{:?}",health.state())})),
+                Err(error) => error!("Perk maximum rejected for {owner:?}: {error}"),
             }
         }
     }

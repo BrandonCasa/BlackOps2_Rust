@@ -16138,6 +16138,20 @@
           "lower_seconds": 0.9,
           "activation_delay": 0.5
         }
+      },
+      {
+        "id": "perk.juggernog",
+        "name": "Juggernog",
+        "price": 2500,
+        "icon": null,
+        "presentation": "prop.zombie_vending_jugg_on",
+        "maximum_health": 250,
+        "drink": {
+          "bottle": "weapon.zombie_perk_bottle_jugg",
+          "seconds": 2.8,
+          "lower_seconds": 0.9,
+          "activation_delay": 0.5
+        }
       }
     ],
     "powerups": [],
@@ -16410,6 +16424,17 @@
           -129.4384
         ],
         "yaw": 1.1924874847788657e-08,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.juggernog",
+        "definition": "perk.juggernog",
+        "position": [
+          59.1312,
+          3.5305999999999997,
+          5.892799999999999
+        ],
+        "yaw": 3.141592653589793,
         "zone": "zone.start"
       }
     ],
@@ -16719,6 +16744,17 @@
         "action": {
           "kind": "perk",
           "perk": "perk.quick_revive"
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.juggernog",
+        "placement": "placement.juggernog",
+        "action": {
+          "kind": "perk",
+          "perk": "perk.juggernog"
         },
         "reach": 2.0,
         "hold_seconds": 0.0,
@@ -20694,6 +20730,12 @@
       {
         "id": "prop.p6_zm_tm_vending_revive_on",
         "scene": "props/p6_zm_tm_vending_revive_on_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "prop.zombie_vending_jugg_on",
+        "scene": "props/zombie_vending_jugg_on_lod0.gltf#Scene0",
         "animations": [],
         "sounds": []
       }

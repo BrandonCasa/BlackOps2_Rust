@@ -267,7 +267,7 @@ fn tick(
         }
     }
 }
-fn finish(
+pub(crate) fn finish(
     mut results: ResMut<LifeCommandResults>,
     mut commands: Commands,
     mut queue: ResMut<LifeCommandQueue>,

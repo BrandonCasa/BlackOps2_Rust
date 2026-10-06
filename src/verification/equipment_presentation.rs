@@ -31,6 +31,7 @@ fn capture(
     };
     if **state != GameState::Playing
         || !(verification.solo_revive
+            || verification.perk_health
             || verification.grenades
             || verification.semtex
             || verification.monkeys

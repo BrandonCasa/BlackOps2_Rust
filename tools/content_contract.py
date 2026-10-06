@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink"} if table == "perks" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink", "maximum_health"} if table == "perks" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -241,6 +241,9 @@ def validate_content(content, require):
                     require(abs(sum(x*x for x in m["ads_rotation"]) - 1) < 0.002, "unnormalized ADS rotation")
                     number(m["burst_delay"])
             elif table == "perks":
+                if row.get("maximum_health") is not None:
+                    natural(row["maximum_health"], positive=True)
+                    require(row["maximum_health"] <= 2147483647, "perk maximum exceeds native integer range")
                 resolve(owner, row["icon"], "ui", True)
                 resolve(owner, row.get("presentation"), "presentation", True)
                 drink = row.get("drink")

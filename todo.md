@@ -94,7 +94,7 @@
 - [ ] Reset player vitality when starting fresh sessions.
 - [ ] Reset purchased doors when starting fresh sessions.
 - [ ] Reset generators when starting fresh sessions.
-- [ ] Reset perks when starting fresh sessions.
+- [x] Reset perks when starting fresh sessions.
 - [ ] Reset active powerups when starting fresh sessions.
 - [ ] Reset quest progress when starting fresh sessions.
 - [ ] Reset weather when starting fresh sessions.
@@ -470,7 +470,7 @@
 - [x] Add health regeneration delay.
 - [x] Add health regeneration rates.
 - [x] Restart regeneration delay after damage.
-- [ ] Update maximum health from perk effects.
+- [x] Update maximum health from perk effects.
 - [x] Add explicit solo self-revive eligibility.
 - [x] Route lethal damage through current revive eligibility.
 - [x] Add solo downed movement restrictions.
@@ -646,7 +646,7 @@
 - [x] Reject duplicate perk ownership.
 - [x] Add perk drinking action timing.
 - [x] Activate purchased perks after drinking.
-- [ ] Add Juggernog health modifiers.
+- [x] Add Juggernog health modifiers.
 - [x] Add Quick Revive solo purchase pricing.
 - [x] Add Quick Revive solo revival effects.
 - [ ] Add Speed Cola reload modifiers.

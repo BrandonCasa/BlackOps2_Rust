@@ -260,7 +260,7 @@ pub(crate) fn interact(
         let Some(perk) = definition.content.perks.iter().find(|p| p.id == *perk) else {
             return;
         };
-        if perk.id != definition.solo_revive.perk {
+        if perk.id != definition.solo_revive.perk && perk.maximum_health.is_none() {
             focus.prompt.clear();
             return;
         }
@@ -283,7 +283,11 @@ pub(crate) fn interact(
             {
                 return Err(InteractionRejection::Busy);
             }
-            perks.can_buy_solo(&definition.solo_revive)?;
+            if perk.id == definition.solo_revive.perk {
+                perks.can_buy_solo(&definition.solo_revive)?;
+            } else if perks.owned.contains(&perk.id) {
+                return Err(InteractionRejection::Duplicate);
+            }
             let drink = crate::perks::PerkDrinking::new(perk, &inventory, &definition)?;
             inventory.cancel_action();
             commands.entity(player_entity).insert(drink);
