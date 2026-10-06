@@ -38,3 +38,22 @@ pub fn diagnostic_mesh(snapshot: GeometrySnapshot) -> (Mesh, Vec<SnapshotSurface
 }
 
 pub mod appearance;
+
+/// Shared original-data to canonical Bevy runtime basis.
+pub use bo2_core::coordinates;
+
+/// Adapt validated source geometry to canonical Bevy +Y-up runtime positions.
+/// Indices and UV conventions are unchanged. Returned surface bounds remain in
+/// source space; use `coordinates::source_bounds_to_bevy` for runtime bounds.
+/// The original-data reader and `diagnostic_mesh` retain their raw contracts.
+pub fn canonical_mesh(snapshot: GeometrySnapshot) -> (Mesh, Vec<SnapshotSurface>) {
+    let (mut mesh, surfaces) = diagnostic_mesh(snapshot);
+    if let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for position in positions {
+            *position = coordinates::source_to_bevy(*position);
+        }
+    }
+    (mesh, surfaces)
+}

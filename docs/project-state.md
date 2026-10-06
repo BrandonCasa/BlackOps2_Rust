@@ -46,7 +46,10 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
   project-owned geometry snapshot format, external schema28 brush records and
   bounded schema34 source-keyed brush collections.
   This is not a complete Rust BO2 decoder.
-- `crates/rendering`: preserves snapshot positions/indices in a Bevy Mesh.
+- `crates/rendering`: raw diagnostic Mesh preserves source arrays; canonical runtime
+  Mesh and textured scenes adapt source `(x,y,z)` to Bevy `(x,z,-y)` through
+  `bo2_core::coordinates`, retaining indices/UVs and source metadata. Runtime +Y-up
+  policy is [documented](adr/0002-bevy-runtime-coordinates.md).
 - `crates/physics`: safe owned convex halfspaces and deterministic point-segment
   clipping across all 8,417 selected diagnostic map-leaf brushes, including 3,178
   zero-side axial hulls. Queries preserve coefficients and use exact entry/source-key
@@ -66,7 +69,8 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
   to snapshot SHA256. One original surface renders recovered corner UVs and a
   native BC1 texture with all ten mip levels and its source sampler. This is an
   explicitly unlit, linear diagnostic preview, not a complete original material.
-- Original orientation, units, camera, full materials and lighting remain unresolved.
+- Runtime coordinates now follow Bevy +Y up; original basis calibration, units,
+  camera, full materials and lighting remain unresolved.
   Overall/gameplay/visual fidelity is UNKNOWN; data access is INVESTIGATING.
 
 ## Immediate implementation direction
@@ -155,6 +159,13 @@ implementation keeps the repository's sequential-delegation policy.
   not establish asset corruption or require redoing unrelated accepted work.
 
 ## Validation and essential references
+
+Canonical Bevy coordinate integration passes locked/offline metadata (11 members),
+all 171 workspace tests, formatting and strict all-target Clippy; four existing
+external collision tests remain ignored. Synthetic and full-map window smoke
+checks pass at35 updates with GPU readback and scripted move/look/reset. Map and
+texture windows are relaunched and responsive; original visual comparison remains
+unverified. See [coordinate handoff](handoffs/viewer-up-axis.md).
 
 Collision documentation integration passes local link, heading, content and
 whitespace checks. Outer review verifies Task0026's fourteen retained fixed

@@ -278,3 +278,19 @@ fn engine_strong_handle_lifecycle_releases_cpu_asset_storage() {
     assert!(!app.world().resource::<Assets<Mesh>>().contains(id));
     assert!(surfaces.is_empty());
 }
+
+#[test]
+fn canonical_mesh_rotates_positions_once_and_retains_source_metadata_and_winding() {
+    let (positions, indices, expected) = example();
+    let converted = positions
+        .iter()
+        .copied()
+        .map(bo2_rendering::coordinates::source_to_bevy)
+        .collect::<Vec<_>>();
+    let input = snapshot(&positions, &indices, &expected);
+    let position_pointer = input.positions().as_ptr();
+    let (mesh, surfaces) = bo2_rendering::canonical_mesh(input);
+    assert_mesh(&mesh, &converted, &indices);
+    assert_eq!(mesh_positions(&mesh).as_ptr(), position_pointer);
+    assert_surfaces(&surfaces, &expected);
+}

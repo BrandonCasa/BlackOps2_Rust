@@ -17,7 +17,7 @@ health remain unresolved. Fidelity remains APPROXIMATE.
 Local Cargo dependency edges are `bo2-boot -> bo2-core`,
 `bo2-asset-inspector -> bo2-assets`, `bo2-map-inspector -> bo2-assets, bo2-physics`,
 `bo2-physics -> bo2-assets` and
-`bo2-rendering -> bo2-assets` and `bo2-geometry-viewer -> bo2-assets, bo2-rendering`.
+`bo2-rendering -> bo2-assets, bo2-core` and `bo2-geometry-viewer -> bo2-assets, bo2-rendering`.
 Core, boot, physics, rendering and the viewer depend on the same workspace-pinned Bevy
 0.19.1 release. All eleven local crates forbid unsafe code.
 Core exposes the project name and `headless_app(ScheduleRunnerPlugin)`, a small
@@ -106,7 +106,10 @@ minimal feature choice. Rendering locally enables asset/mesh features; the viewe
 locally enables PBR/render/camera/core-pipeline facilities and PNG encoding.
 Task0027 adds a windowed diagnostic viewer mode using the same Mesh/display setup,
 Bevy WinitPlugin, InputPlugin and a tool-local inspection camera component/plugin.
-Perspective, raw +Y up and flight controls are explicit diagnostic choices.
+Perspective and flight controls are explicit diagnostic choices. Runtime map and
+textured scene positions now use the shared [Bevy coordinate policy](../adr/0002-bevy-runtime-coordinates.md):
+source `(x,y,z)` becomes `(x,z,-y)`, with canonical +Y up. Raw diagnostic adapters
+and source surface bounds remain source-space.
 The viewer locally enables window/keyboard/x11 features; legacy offscreen mode
 disables WinitPlugin. Scripted input and window readback checks establish engine
 integration, without original movement or rendering fidelity. See

@@ -75,7 +75,7 @@ fn repeated_source_vertices_keep_corner_seams_and_linear_dds() {
         matches!(scene.mesh.attribute(Mesh::ATTRIBUTE_UV_0),Some(VertexAttributeValues::Float32x2(v)) if v==&uv)
     );
     assert!(
-        matches!(scene.mesh.attribute(Mesh::ATTRIBUTE_POSITION),Some(VertexAttributeValues::Float32x3(v)) if v[0]==v[3])
+        matches!(scene.mesh.attribute(Mesh::ATTRIBUTE_POSITION),Some(VertexAttributeValues::Float32x3(v)) if v[0]==v[3] && v[2]==[0.0,0.0,-1.0])
     );
     assert!(matches!(scene.mesh.indices(),Some(Indices::U32(v)) if v==&vec![0,1,2,3,4,5]));
     assert!(!scene.image.texture_descriptor.format.is_srgb());

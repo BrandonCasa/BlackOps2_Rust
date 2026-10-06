@@ -7,5 +7,6 @@ publish.workspace = true
 description = "Preserving diagnostic geometry adapters using Bevy mesh ownership"
 
 [dependencies]
+bo2-core = { path = "../core" }
 bo2-assets = { path = "../assets" }
 bevy = { workspace = true, features = ["bevy_asset", "bevy_mesh", "bevy_image", "dds"] }

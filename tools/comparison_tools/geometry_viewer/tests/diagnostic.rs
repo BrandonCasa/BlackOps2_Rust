@@ -41,9 +41,14 @@ fn empty_extreme_degenerate_and_poorly_resolved_camera_inputs_reject() {
     }
 }
 #[test]
-fn render_opt_in_preserves_exact_arrays_metadata_and_allocations() {
+fn render_adapts_positions_and_preserves_source_metadata_indices_and_allocations() {
     let snapshot = synthetic_snapshot().unwrap();
-    let expected_positions = snapshot.positions().to_vec();
+    let expected_positions = snapshot
+        .positions()
+        .iter()
+        .copied()
+        .map(bo2_rendering::coordinates::source_to_bevy)
+        .collect::<Vec<_>>();
     let expected_indices = snapshot.indices().to_vec();
     let position_pointer = snapshot.positions().as_ptr();
     let index_pointer = snapshot.indices().as_ptr();
@@ -96,4 +101,35 @@ fn coverage_rejects_missing_rows_and_background_only_readback() {
     let offset = (32 * 512 + 32) * 4;
     pixels[offset..offset + 4].copy_from_slice(&[128, 128, 128, 255]);
     assert_eq!(foreground_pixels(&pixels), Ok(1));
+}
+
+#[test]
+fn canonical_geometry_camera_frusta_and_home_share_one_basis() {
+    let geometry = prepare(synthetic_snapshot().unwrap()).unwrap();
+    let Some(VertexAttributeValues::Float32x3(positions)) =
+        geometry.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+    else {
+        panic!("canonical positions");
+    };
+    let center = Vec3::new(0.5, 2.0, -0.5);
+    let radius = Vec3::new(2.5, 2.0, 1.5).length();
+    let mut controller =
+        bo2_geometry_viewer::camera::InspectionCamera::new(center, radius).unwrap();
+    let home = controller.home(4.0 / 3.0);
+    let mut projection = controller.projection();
+    projection.update(960.0, 720.0);
+    let perspective_clip = projection.get_clip_from_view() * home.to_matrix().inverse();
+    assert!(home.up().dot(Vec3::Y) > 0.0);
+    for point in positions {
+        let clip = perspective_clip.project_point3(Vec3::from_array(*point));
+        assert!(clip.x.abs() < 1.0 && clip.y.abs() < 1.0 && clip.z > 0.0 && clip.z < 1.0);
+    }
+    for mut view in geometry.views {
+        view.projection.update(512.0, 512.0);
+        let matrix = view.projection.get_clip_from_view() * view.transform.to_matrix().inverse();
+        for point in positions {
+            let clip = matrix.project_point3(Vec3::from_array(*point));
+            assert!(clip.x.abs() < 0.81 && clip.y.abs() < 0.81 && clip.z > 0.0 && clip.z < 1.0);
+        }
+    }
 }

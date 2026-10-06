@@ -12,9 +12,11 @@ use bo2_assets::appearance::{AppearanceError, MaterialSceneInput};
 
 #[derive(Asset, TypePath)]
 pub struct MaterialScene {
+    /// Canonical Bevy +Y-up positions, with original corner UVs.
     pub mesh: Mesh,
     pub image: Image,
     pub source_surface: usize,
+    /// Unchanged source-space metadata; bounds are not Bevy runtime bounds.
     pub surface_record: bo2_assets::geometry_snapshot::SnapshotSurface,
     pub source_indices: Vec<u32>,
 }
@@ -80,7 +82,7 @@ pub fn material_scene(
     positions.extend(
         source_indices
             .iter()
-            .map(|&i| input.geometry.positions()[i as usize]),
+            .map(|&i| crate::coordinates::source_to_bevy(input.geometry.positions()[i as usize])),
     );
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,

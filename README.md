@@ -7,7 +7,7 @@ application foundation.
 
 The default application runs a minimal headless Bevy lifecycle smoke check.
 Separate inspectors read metadata and diagnostic snapshots; a Bevy diagnostic
-tool renders unchanged raw snapshot geometry to external offscreen images or
+tool adapts source snapshot geometry into canonical Bevy coordinates for external offscreen images or
 opens it in a window with diagnostic flight controls. A separate headless damage
 demonstration applies ordered resolved impacts to an Origins-configured player
 and ordinary actor, with coop revival and bleedout clocks. This boundary is
@@ -103,13 +103,14 @@ cargo run -p bo2-geometry-viewer -- --snapshot "<external snapshot>" --output "<
 ```
 
 The [offscreen diagnostic](docs/architecture/diagnostic-geometry-render.md) emits
-three 512x512 raw-Z/raw-X/oblique images with a neutral unlit solid and built-in
-triangle-edge overlay. All mesh data and identity Transform are retained.
+three 512x512 canonical-axis images (legacy raw-Z/raw-X/oblique filenames) with a neutral unlit solid and built-in
+triangle-edge overlay. Positions adapt to Bevy space; indices, UVs, source metadata
+and identity mesh Transform are retained.
 These are chosen Bevy views; original orientation, units, visible side, camera,
 materials and appearance remain unresolved. Use an independent 120-second
 supervisor for GPU/driver calls. No original game or SDK capture is involved.
 
-Inspect the same raw geometry in a window with a diagnostic free camera:
+Inspect the geometry adapted to Bevy coordinates in a window with a diagnostic free camera:
 
 ```sh
 cargo run -p bo2-geometry-viewer -- --synthetic --interactive
@@ -117,10 +118,15 @@ cargo run -p bo2-geometry-viewer -- --snapshot "<external snapshot>" --interacti
 cargo run -p bo2-geometry-viewer -- --synthetic --interactive-smoke
 ```
 
-W/S move forward/back, A/D strafe, E/Q move along raw +Y/-Y, and arrow keys look.
+W/S move forward/back, A/D strafe, E/Q move along Bevy world +Y/-Y, and arrow keys look.
 Shift increases speed fivefold; Ctrl reduces it to one tenth. R resets and reframes
 the bounds; Escape or window close exits. Speed is one bounds radius per second.
-The perspective camera, raw +Y up, speed and flight behavior are diagnostic choices;
+Runtime coordinates follow Bevy: +Y up and camera-local -Z forward. The shared
+boundary adapter rotates source Z-up positions/vectors `(x,y,z)` to `(x,z,-y)`.
+Both the map and textured scene use this adapter once; source files, triangle
+winding, UVs and raw unit scale are retained. Source surface metadata bounds stay
+in source space. Legacy offscreen `raw-*` filenames now contain canonical views.
+The perspective camera, speed and flight behavior are diagnostic choices;
 there is no collision or original player movement. Original fidelity remains UNKNOWN.
 Interactive modes write no files. `--interactive --frames <64..600>` bounds updates;
 `--interactive-smoke` defaults to 180 updates and exercises scripted Bevy keyboard

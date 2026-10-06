@@ -1346,6 +1346,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bo2-origins"
+version = "0.1.0"
+dependencies = [
+ "bo2-gameplay",
+]
+
+[[package]]
 name = "bo2-physics"
 version = "0.1.0"
 dependencies = [
@@ -1355,18 +1362,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "bo2-origins"
-version = "0.1.0"
-dependencies = [
- "bo2-gameplay",
-]
-
-[[package]]
 name = "bo2-rendering"
 version = "0.1.0"
 dependencies = [
  "bevy",
  "bo2-assets",
+ "bo2-core",
 ]
 
 [[package]]

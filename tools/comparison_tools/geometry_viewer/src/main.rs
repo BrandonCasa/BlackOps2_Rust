@@ -61,16 +61,17 @@ Usage: bo2-geometry-viewer --synthetic --output <new-external-directory>
        bo2-geometry-viewer --help
        bo2-geometry-viewer --check-gpu
 
-Finite offscreen GPU diagnostic of project-owned geometry snapshot v1. Reads one
+Finite offscreen GPU diagnostic of project-owned geometry snapshot v1.
+Source Z-up positions adapt to canonical Bevy Y-up: (x,y,z) -> (x,z,-y). Reads one
 explicit snapshot or an asymmetric synthetic tetrahedron; no discovery/configuration.
 Writes raw-z.png, raw-x.png, raw-oblique.png and diagnostic.txt exclusively to a new
 directory whose existing parent is outside this workspace. Never overwrites files.
-Three fixed 512x512 orthographic Bevy views, identity mesh transform, unchanged raw
-positions/indices/surfaces, position-only neutral unlit solid display, culling disabled.
+Three fixed 512x512 orthographic Bevy views, identity mesh transform, unchanged
+indices/source surface metadata, adapted positions, position-only neutral unlit solid display, culling disabled.
 Built-in 1-pixel triangle-edge overlay retains Bevy depth/bias/backface rules;
 hidden/back-facing edges are not guaranteed visible. Requires POLYGON_MODE_LINE
 and IMMEDIATES; --check-gpu reports supported/enabled adapter features without images.
-Raw-Z/raw-X/oblique are chosen diagnostic axes, not original front/profile views.
+Legacy raw-* filenames now show canonical Bevy axes, not original front/profile views.
 Original orientation, units, visible side, camera, materials and appearance unresolved.
 Overall/gameplay/visual fidelity UNKNOWN. Parser limits apply separately from GPU
 allocations; camera admission rejects extreme/poorly resolved/empty data. At most
@@ -78,7 +79,7 @@ allocations; camera admission rejects extreme/poorly resolved/empty data. At mos
 120-second supervisor because engine/driver/file calls can block. At most three
 2-MiB PNG files plus <=2-KiB metadata; failed task-owned outputs may remain.
 Interactive mode opens a 960x720 perspective inspection window: W/S forward/back,
-A/D strafe, E/Q raw +Y/-Y, arrows look (no roll), Shift 5x speed, Ctrl 0.1x,
+A/D strafe, E/Q Bevy world +Y/-Y, arrows look (no roll), Shift 5x speed, Ctrl 0.1x,
 R reset/reframe, Escape or window close exit. Speed = bounds radius/second;
 axes/speed/projection are diagnostic choices. No collision or original movement.
 No output files in interactive mode. --frames bounds app updates and 60 seconds;
@@ -288,7 +289,7 @@ fn execute(input: Option<&std::ffi::OsStr>, output: &Path) -> Result<(), Diagnos
         writer.flush().map_err(|e| io_error("PNG flush", e))?;
     }
     let summary = format!(
-        "diagnostic: offscreen raw geometry in chosen Bevy frame\nmode: {}\nimage_dimensions: 512x512 RGBA8 sRGB\nviews: raw-z raw-x raw-oblique\nmesh_transform: identity\nmaterial: neutral unlit solid; culling disabled\noverlay: Bevy indexed triangles; width=1; depth-tested; slope bias=1; backface culling\nGPU_features_supported_enabled: POLYGON_MODE_LINE IMMEDIATES\nframing: raw-bounds sphere; orthographic; no geometry edits\noriginal_orientation_units_visible_side_camera_material: unresolved\noverall_gameplay_visual_fidelity: UNKNOWN\nbevy: 0.19.1\nbackend: {}\nvendor_device: {} {}\napp_updates: {}\nrender_world_mesh: prepared indexed U32 position-only\nCPU_geometry_retained: true\npositions: {}\nindices: {}\nsurfaces_retained: {}\nforeground_pixels_raw_z_x_oblique: {} {} {}\n",
+        "diagnostic: canonical Bevy geometry; source Z-up -> Y-up\nmode: {}\nimage_dimensions: 512x512 RGBA8 sRGB\nviews: raw-z raw-x raw-oblique\nmesh_transform: identity\nmaterial: neutral unlit solid; culling disabled\noverlay: Bevy indexed triangles; width=1; depth-tested; slope bias=1; backface culling\nGPU_features_supported_enabled: POLYGON_MODE_LINE IMMEDIATES\nframing: canonical bounds sphere; orthographic; positions=(x,z,-y), source metadata retained\noriginal_orientation_units_visible_side_camera_material: unresolved\noverall_gameplay_visual_fidelity: UNKNOWN\nbevy: 0.19.1\nbackend: {}\nvendor_device: {} {}\napp_updates: {}\nrender_world_mesh: prepared indexed U32 position-only\nCPU_geometry_retained: true\npositions: {}\nindices: {}\nsurfaces_retained: {}\nforeground_pixels_raw_z_x_oblique: {} {} {}\n",
         if input.is_some() {
             "single snapshot"
         } else {

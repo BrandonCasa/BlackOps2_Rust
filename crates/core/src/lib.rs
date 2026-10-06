@@ -2,6 +2,8 @@
 
 //! Shared engine composition. Original-game systems require separate evidence.
 
+pub mod coordinates;
+
 use bevy::{app::ScheduleRunnerPlugin, prelude::*};
 
 /// The project name displayed by the boot executable.

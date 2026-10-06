@@ -64,7 +64,7 @@ pub fn run_with_image(
         indices: geometry.indices,
     };
     let mut app = configured_app(true, Some(Window {
-        title: "Raw geometry inspection | W/S A/D E/Q arrows Shift/Ctrl R reset Esc exit | fidelity UNKNOWN".into(),
+        title: "Bevy Y-up geometry inspection | W/S A/D E/Q arrows Shift/Ctrl R reset Esc exit | fidelity UNKNOWN".into(),
         resolution: bevy::window::WindowResolution::new(960, 720).with_scale_factor_override(1.0),
         resizable: !smoke,
         resize_constraints: bevy::window::WindowResizeConstraints { min_width: 320.0, min_height: 240.0, max_width: 4096.0, max_height: 4096.0 },
