@@ -6,4 +6,6 @@ pub mod appearance;
 pub mod brush_collection;
 pub mod brush_snapshot;
 pub mod fastfile;
+pub mod full_scene;
 pub mod geometry_snapshot;
+pub mod shader_bank;
