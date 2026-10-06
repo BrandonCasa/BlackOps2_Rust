@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions"} if table == "weapons" else {"parts", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -143,6 +143,18 @@ def validate_content(content, require):
                     require(isinstance(part["socket"],str) and part["socket"], "invalid actor socket")
                     require(part["root_joint"] is None or isinstance(part["root_joint"],str), "invalid partial rig root")
                 actions = row.get("animation_actions", {})
+                region_ids = set()
+                regions = row.get("hit_regions", [])
+                require(isinstance(regions,list), "invalid hit regions")
+                for hit in regions:
+                    require(isinstance(hit,dict) and set(hit)=={"id","region","presentation","start","end","radius"}, "invalid hit volume")
+                    require(isinstance(hit["id"],str) and hit["id"] and all(c.isascii() and (c.isalnum() or c in "._-") for c in hit["id"]) and hit["id"] not in region_ids,"invalid or duplicate hit volume id")
+                    region_ids.add(hit["id"])
+                    require(hit["region"] in {"head","upper_torso","torso","arm","leg"},"invalid hit region")
+                    require(all(isinstance(hit[k],str) and hit[k] for k in ("start","end")),"invalid hit bone")
+                    number(hit["radius"],True)
+                    require(hit["presentation"] in [row["presentation"]]+[p["presentation"] for p in parts],"hit volume references unrelated rig")
+                    resolve(owner,hit["presentation"],"presentation")
                 require(isinstance(actions,dict) and set(actions)<={"idle","walk","run","sprint","attack","death"},"invalid enemy animation actions")
                 for identity in actions.values(): resolve(owner,identity,"animation")
             if table == "weapons":

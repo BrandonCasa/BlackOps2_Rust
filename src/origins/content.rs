@@ -252,6 +252,18 @@ pub struct EnemyDefinition {
     pub bounds_margin: f32,
     #[serde(default)]
     pub family: String,
+    #[serde(default)]
+    pub hit_regions: Vec<HitVolumeDefinition>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HitVolumeDefinition {
+    pub id: String,
+    pub region: crate::weapons::HitRegion,
+    pub presentation: ContentId,
+    pub start: String,
+    pub end: String,
+    pub radius: f32,
 }
 fn default_attack_seconds() -> f32 {
     1.8
@@ -729,6 +741,25 @@ impl ContentCatalog {
                 "Invalid enemy tuning",
             )?;
             optional(&v.id.0, &v.presentation, "presentation")?;
+            let mut hit_ids = std::collections::BTreeSet::new();
+            for hit in &v.hit_regions {
+                valid(
+                    !hit.id.is_empty()
+                        && hit
+                            .id
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+                        && hit_ids.insert(&hit.id)
+                        && !hit.start.is_empty()
+                        && !hit.end.is_empty()
+                        && hit.radius.is_finite()
+                        && hit.radius > 0.
+                        && (v.presentation.as_ref() == Some(&hit.presentation)
+                            || v.parts.iter().any(|p| p.presentation == hit.presentation)),
+                    "Invalid enemy hit region",
+                )?;
+                index.resolve(&v.id.0, &hit.presentation.0, "presentation")?;
+            }
             for part in &v.parts {
                 r(&v.id.0, &part.presentation.0, "presentation")?;
                 valid(

@@ -9,6 +9,34 @@ from xanim import decode
 CLIPS = {"idle":"ai_zombie_idle_v1_delta", "walk":"ai_zombie_walk_v1", "run":"ai_zombie_run_v2", "sprint":"ai_zombie_sprint_v1",
          "attack":"ai_zombie_attack_v1", "death":"ai_zombie_firestaff_death_collapse_a"}
 
+def hit_regions(enemy):
+    """Tunable capsules on original joints; radii reconstruct anatomical coverage."""
+    regions = [("head", "head", "j_head", "j_head_end", .105, enemy["parts"][0]["presentation"]),
+        ("chest", "upper_torso", "j_spineupper", "j_spine4", .21, enemy["presentation"]),
+        ("abdomen", "torso", "j_spinelower", "j_spineupper", .20, enemy["presentation"]),
+        ("pelvis", "torso", "j_mainroot", "j_spinelower", .18, enemy["presentation"])]
+    for side in ("le", "ri"):
+        for label, region, start, end, radius in (
+            ("upperarm", "arm", "shoulder", "elbow", .10),
+            ("forearm", "arm", "elbow", "wrist", .08),
+            ("hand", "arm", "wrist", "mid", .09),
+            ("thigh", "leg", "hip", "knee", .12),
+            ("shin", "leg", "knee", "ankle", .105),
+            ("foot", "leg", "ankle", "ball", .10)):
+            regions.append((label+"_"+side,region,"j_"+start+"_"+side,
+                "j_"+end+"_"+side+("_1" if end=="mid" else ""),radius,enemy["presentation"]))
+    return [dict(id=i,region=r,start=a,end=b,radius=v,presentation=p) for i,r,a,b,v,p in regions]
+
+def prepare_hit_regions(config):
+    pack = external(config["game"]["asset_pack"])
+    path = pack / "game.json"
+    game = json.loads(path.read_text(encoding="utf-8-sig"))
+    for enemy in game["content"]["enemies"]:
+        enemy["hit_regions"] = hit_regions(enemy)
+    path.write_text(json.dumps(game,indent=2)+"\n",encoding="utf-8")
+    print(json.dumps({"variants":len(game["content"]["enemies"]),"volumes_per_variant":16,
+        "approximation":"Anatomical capsule radii, bound to original animated joints; not recovered native collision surfaces."}))
+
 def skin_margin(path):
     """Bound every positively weighted vertex offset from its influencing joint."""
     doc = json.loads(path.read_text())
@@ -78,6 +106,8 @@ def prepare(config):
                     "death_seconds":death["duration"],"corpse_seconds":8.,"bounds_margin":max(margins[model],margins[f"c_zom_tomb_{family}_head{head}"]),
                     "family":family})
     content["enemies"] = enemies
+    for enemy in enemies:
+        enemy["hit_regions"] = hit_regions(enemy)
     (pack / "game.json").write_text(json.dumps(game,indent=2)+"\n",encoding="utf-8")
     report = {"models":len(names),"enemy_variants":len(enemies),"attack_hits":enemies[0]["attack_hits"],
         "death_seconds":death["duration"],"approximations":["Recovered fire-staff collapse provides ordinary corpse motion; actor translations are normalized to bind offsets, preserving omitted channels and collider-owned motion.",

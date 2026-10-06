@@ -1,4 +1,5 @@
 //! Ordinary enemy lifecycle and Bevy-owned original multipart actor playback.
+use crate::hit_regions::SkeletalReady as ActorReady;
 use crate::{
     GameState,
     assets::GameDefinition,
@@ -17,7 +18,11 @@ use bevy::{
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[derive(Component)]
-#[require(RigidBody::Kinematic, CustomPositionIntegration)]
+#[require(
+    RigidBody::Kinematic,
+    CustomPositionIntegration,
+    crate::hit_regions::Hitboxes
+)]
 pub struct Zombie {
     pub definition: ContentId,
     pub gait: crate::rounds::Gait,
@@ -69,6 +74,7 @@ pub struct EnemyEvidence {
 }
 #[derive(Component)]
 struct ActorRig {
+    presentation: ContentId,
     owner: Entity,
     source: Handle<Gltf>,
     socket: Option<String>,
@@ -86,8 +92,6 @@ struct ActorMesh {
 }
 #[derive(Component)]
 struct HasActor;
-#[derive(Component)]
-struct ActorReady;
 #[derive(Component)]
 struct ActorLit;
 #[derive(Resource, Default)]
@@ -360,6 +364,7 @@ fn spawn_actors(
                 .spawn((
                     WorldAssetRoot(server.load(scene.to_owned())),
                     ActorRig {
+                        presentation: id.clone(),
                         owner,
                         source,
                         socket,
@@ -395,11 +400,50 @@ fn ready(
     players: Query<(), With<AnimationPlayer>>,
     meshes: Query<(), With<Mesh3d>>,
     names: Query<&Name>,
+    definition: Res<GameDefinition>,
+    enemies: Query<&Zombie>,
 ) {
     let Ok(mut rig) = rigs.get_mut(event.entity) else {
         return;
     };
     rig.ready = true;
+    if let Ok(zombie) = enemies.get(rig.owner)
+        && let Some(enemy) = definition
+            .content
+            .enemies
+            .iter()
+            .find(|e| e.id == zombie.definition)
+    {
+        let bones: BTreeMap<_, _> = children
+            .iter_descendants(event.entity)
+            .filter_map(|child| {
+                names
+                    .get(child)
+                    .ok()
+                    .map(|name| (name.as_str().to_owned(), child))
+            })
+            .collect();
+        let bindings = enemy
+            .hit_regions
+            .iter()
+            .filter(|r| r.presentation == rig.presentation)
+            .filter_map(|r| {
+                Some(crate::hit_regions::HitBinding {
+                    id: r.id.clone(),
+                    region: r.region,
+                    start: *bones.get(&r.start)?,
+                    end: *bones.get(&r.end)?,
+                    radius: r.radius,
+                })
+            })
+            .collect();
+        commands
+            .entity(event.entity)
+            .insert(crate::hit_regions::HitRig {
+                owner: rig.owner,
+                bindings,
+            });
+    }
     for child in children.iter_descendants(event.entity) {
         if players.contains(child) {
             rig.players.push(child);

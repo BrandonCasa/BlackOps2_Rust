@@ -238,7 +238,7 @@
 - [ ] Add first-person downed animations.
 - [x] Attach weapons to authored hand sockets.
 - [ ] Attach combat effects to authored weapon sockets.
-- [ ] Add animated hit-region transforms.
+- [x] Add animated hit-region transforms.
 - [x] Add animated actor bounds.
 - [x] Invalidate affected shadows when skeletal poses change.
 - [x] Remove global shadow invalidation caused by skinned actors.
@@ -458,12 +458,12 @@
 - [ ] Add grenade explosion effects.
 - [ ] Add equipment deployment animations.
 - [x] Add typed damage impact events.
-- [ ] Add head hit regions.
-- [ ] Add torso hit regions.
-- [ ] Add arm hit regions.
-- [ ] Add leg hit regions.
+- [x] Add head hit regions.
+- [x] Add torso hit regions.
+- [x] Add arm hit regions.
+- [x] Add leg hit regions.
 - [ ] Add armored hit regions.
-- [ ] Resolve the nearest valid hit region.
+- [x] Resolve the nearest valid hit region.
 - [ ] Apply armor absorption before vitality damage.
 - [ ] Add damage immunity intervals.
 - [x] Add player damage feedback events.

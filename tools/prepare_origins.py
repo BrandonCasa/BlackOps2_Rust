@@ -717,10 +717,15 @@ def main():
     parser.add_argument("--prepare-actors", action="store_true", help="convert recovered starter skeletal actors into the external runtime pack")
     parser.add_argument("--prepare-arsenal", action="store_true", help="convert native weapon tuning/localization into the external runtime pack")
     parser.add_argument("--prepare-enemies", action="store_true", help="prepare intact native zombie rigs and lifecycle tuning")
+    parser.add_argument("--prepare-hit-regions", action="store_true", help="bind anatomical hit volumes to prepared original zombie joints")
     parser.add_argument("--prepare-rounds", action="store_true", help="recover native solo Original round health, populations, pacing and locomotion")
     parser.add_argument("--prepare-player-health", action="store_true", help="recover standing player regeneration and immunity")
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
+    if args.prepare_hit_regions:
+        from prepare_enemies import prepare_hit_regions
+        prepare_hit_regions(config)
+        return
     if args.prepare_player_health:
         from prepare_player_health import prepare
         prepare(config)

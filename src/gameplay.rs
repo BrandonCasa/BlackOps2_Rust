@@ -316,9 +316,10 @@ fn combat(
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
     mut players: Query<(Entity, &Player, &Transform, &mut WeaponInventory)>,
-    enemies: Query<(&Vitality, &Transform), With<Zombie>>,
+    enemies: crate::hit_regions::RayTargets,
     mut impacts: ResMut<crate::damage::DamageQueue>,
     query: SpatialQuery,
+    mut hit_evidence: ResMut<crate::hit_regions::HitEvidence>,
 ) {
     let dt = time.delta_secs();
     let Ok((entity, player, transform, mut inventory)) = players.single_mut() else {
@@ -346,7 +347,6 @@ fn combat(
     let rotation = Quat::from_rotation_y(player.yaw + inventory.recoil.x)
         * Quat::from_rotation_x((player.pitch + inventory.recoil.y).clamp(-1.5, 1.5));
     let direction = Dir3::new(rotation * Vec3::NEG_Z).unwrap_or(Dir3::NEG_Z);
-    let filter = SpatialQueryFilter::from_excluded_entities([entity]);
     for emission in emissions {
         let weapon = inventory.definition(&definition.content.weapons);
         let pellets = if matches!(emission, WeaponEmission::Melee) {
@@ -391,39 +391,31 @@ fn combat(
                     session.shots as u64 * 137 + pellet as u64 * 19,
                 )
             };
-            if let Some(hit) = query.cast_ray(
+            if let Some(hit) = crate::hit_regions::cast(
+                &enemies,
+                &query,
+                entity,
                 origin,
                 direction,
                 if melee { 2.2 } else { 100. },
-                true,
-                &filter,
-            ) && let Ok((vitality, target)) = enemies.get(hit.entity)
-                && vitality.state() == LifeState::ActorAlive
-            {
-                // Capsule regions are an explicit approximation until animated hit volumes are bound.
-                let local_height =
-                    (origin + direction.as_vec3() * hit.distance).y - target.translation.y;
-                let region = if local_height > 0.55 {
-                    crate::weapons::HitRegion::Head
-                } else if local_height > 0.1 {
-                    crate::weapons::HitRegion::UpperTorso
-                } else if local_height < -0.35 {
-                    crate::weapons::HitRegion::Leg
-                } else {
-                    crate::weapons::HitRegion::Torso
-                };
+            ) {
+                let region = hit.hit.region;
+                if hit_evidence.hits.len() < 128 {
+                    hit_evidence.hits.push(serde_json::json!({"target":hit.target.to_bits(),"region":format!("{region:?}"),
+                        "distance":hit.hit.distance,"point":hit.hit.point.to_array(),"melee":melee}));
+                }
                 let damage = if melee {
                     damage
                 } else {
                     inventory
                         .definition(&definition.content.weapons)
                         .map_or(damage, |weapon| {
-                            crate::weapons::damage_at(weapon, hit.distance, region)
+                            crate::weapons::damage_at(weapon, hit.hit.distance, region)
                         })
                 };
                 impacts.0.push(crate::damage::Impact {
                     attacker: entity,
-                    target: hit.entity,
+                    target: hit.target,
                     source: crate::damage::ImpactSource::Weapon(weapon_id.clone()),
                     category: if melee {
                         crate::origins::content::DamageCategory::Melee

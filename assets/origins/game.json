@@ -13793,7 +13793,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.653884337376213,
-        "family": "german"
+        "family": "german",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_head1"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          }
+        ]
       },
       {
         "id": "enemy.german.1a.2",
@@ -13824,7 +13954,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.653884337376213,
-        "family": "german"
+        "family": "german",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_head2"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          }
+        ]
       },
       {
         "id": "enemy.german.1a.3",
@@ -13855,7 +14115,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.653884337376213,
-        "family": "german"
+        "family": "german",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_head3"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1a"
+          }
+        ]
       },
       {
         "id": "enemy.german.1b.1",
@@ -13886,7 +14276,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.653884337376213,
-        "family": "german"
+        "family": "german",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_head1"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          }
+        ]
       },
       {
         "id": "enemy.german.1b.2",
@@ -13917,7 +14437,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.653884337376213,
-        "family": "german"
+        "family": "german",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_head2"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          }
+        ]
       },
       {
         "id": "enemy.german.1b.3",
@@ -13948,7 +14598,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.653884337376213,
-        "family": "german"
+        "family": "german",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_head3"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_german_body_1b"
+          }
+        ]
       },
       {
         "id": "enemy.crusader.1a.1",
@@ -13979,7 +14759,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.9266865267075215,
-        "family": "crusader"
+        "family": "crusader",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_head1"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          }
+        ]
       },
       {
         "id": "enemy.crusader.1a.2",
@@ -14010,7 +14920,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.9266865267075215,
-        "family": "crusader"
+        "family": "crusader",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_head2"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1a"
+          }
+        ]
       },
       {
         "id": "enemy.crusader.1c.1",
@@ -14041,7 +15081,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.9266865267075215,
-        "family": "crusader"
+        "family": "crusader",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_head1"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          }
+        ]
       },
       {
         "id": "enemy.crusader.1c.2",
@@ -14072,7 +15242,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.9266865267075215,
-        "family": "crusader"
+        "family": "crusader",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_head2"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_1c"
+          }
+        ]
       },
       {
         "id": "enemy.crusader.2b.1",
@@ -14103,7 +15403,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.9266865267075215,
-        "family": "crusader"
+        "family": "crusader",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_head1"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          }
+        ]
       },
       {
         "id": "enemy.crusader.2b.2",
@@ -14134,7 +15564,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.9266865267075215,
-        "family": "crusader"
+        "family": "crusader",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_head2"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2b"
+          }
+        ]
       },
       {
         "id": "enemy.crusader.2c.1",
@@ -14165,7 +15725,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.9266865267075215,
-        "family": "crusader"
+        "family": "crusader",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_head1"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          }
+        ]
       },
       {
         "id": "enemy.crusader.2c.2",
@@ -14196,7 +15886,137 @@
         "death_seconds": 3.0,
         "corpse_seconds": 8.0,
         "bounds_margin": 0.9266865267075215,
-        "family": "crusader"
+        "family": "crusader",
+        "hit_regions": [
+          {
+            "id": "head",
+            "region": "head",
+            "start": "j_head",
+            "end": "j_head_end",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_head2"
+          },
+          {
+            "id": "chest",
+            "region": "upper_torso",
+            "start": "j_spineupper",
+            "end": "j_spine4",
+            "radius": 0.21,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "abdomen",
+            "region": "torso",
+            "start": "j_spinelower",
+            "end": "j_spineupper",
+            "radius": 0.2,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "pelvis",
+            "region": "torso",
+            "start": "j_mainroot",
+            "end": "j_spinelower",
+            "radius": 0.18,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "upperarm_le",
+            "region": "arm",
+            "start": "j_shoulder_le",
+            "end": "j_elbow_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "forearm_le",
+            "region": "arm",
+            "start": "j_elbow_le",
+            "end": "j_wrist_le",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "hand_le",
+            "region": "arm",
+            "start": "j_wrist_le",
+            "end": "j_mid_le_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "thigh_le",
+            "region": "leg",
+            "start": "j_hip_le",
+            "end": "j_knee_le",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "shin_le",
+            "region": "leg",
+            "start": "j_knee_le",
+            "end": "j_ankle_le",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "foot_le",
+            "region": "leg",
+            "start": "j_ankle_le",
+            "end": "j_ball_le",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "upperarm_ri",
+            "region": "arm",
+            "start": "j_shoulder_ri",
+            "end": "j_elbow_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "forearm_ri",
+            "region": "arm",
+            "start": "j_elbow_ri",
+            "end": "j_wrist_ri",
+            "radius": 0.08,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "hand_ri",
+            "region": "arm",
+            "start": "j_wrist_ri",
+            "end": "j_mid_ri_1",
+            "radius": 0.09,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "thigh_ri",
+            "region": "leg",
+            "start": "j_hip_ri",
+            "end": "j_knee_ri",
+            "radius": 0.12,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "shin_ri",
+            "region": "leg",
+            "start": "j_knee_ri",
+            "end": "j_ankle_ri",
+            "radius": 0.105,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          },
+          {
+            "id": "foot_ri",
+            "region": "leg",
+            "start": "j_ankle_ri",
+            "end": "j_ball_ri",
+            "radius": 0.1,
+            "presentation": "actor.c_zom_tomb_crusader_body_2c"
+          }
+        ]
       }
     ],
     "perks": [],

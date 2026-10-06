@@ -37,6 +37,8 @@ pub(crate) struct Verification {
     wall_weapons: bool,
     rounds: bool,
     health: bool,
+    hit_regions: bool,
+    accepted_regions: std::collections::BTreeSet<String>,
     damage_frame: bool,
     healed_frame: bool,
     death_frame: bool,
@@ -98,6 +100,8 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             wall_weapons: options.verify_wall_weapons,
             rounds: options.verify_rounds,
             health: options.verify_health,
+            hit_regions: options.verify_hit_regions,
+            accepted_regions: Default::default(),
             damage_frame: false,
             healed_frame: false,
             death_frame: false,
@@ -112,7 +116,7 @@ pub(crate) fn drive(
     verification: Option<Res<Verification>>,
     mut input: ResMut<GameInput>,
     players: Query<(Entity, &Player, &Transform)>,
-    enemies: Query<(&Transform, &crate::life::Vitality), (With<Zombie>, Without<Player>)>,
+    enemies: crate::hit_regions::RayTargets,
     inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
     history: Res<crate::damage::CombatHistory>,
     enemy_evidence: Res<crate::enemies::EnemyEvidence>,
@@ -137,18 +141,63 @@ pub(crate) fn drive(
     } else {
         Vec2::ZERO
     };
-    if let Some((target, _)) = enemies
+    let origin =
+        transform.translation + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5);
+    let wanted = [
+        crate::weapons::HitRegion::Leg,
+        crate::weapons::HitRegion::Arm,
+        crate::weapons::HitRegion::Torso,
+        crate::weapons::HitRegion::UpperTorso,
+        crate::weapons::HitRegion::Head,
+    ]
+    .into_iter()
+    .find(|region| {
+        !history.recent.iter().any(|r| {
+            matches!(
+                r.impact.category,
+                crate::origins::content::DamageCategory::Bullet
+            ) && r.impact.region == *region
+        })
+    });
+    let aim = verification
+        .hit_regions
+        .then(|| wanted)
+        .flatten()
+        .and_then(|region| {
+            enemies
+                .iter()
+                .filter(|(_, health, _, _)| health.state() == crate::life::LifeState::ActorAlive)
+                .flat_map(|(_, _, t, boxes)| boxes.aim_points(t, region))
+                .filter(|point| {
+                    Dir3::new(*point - origin)
+                        .ok()
+                        .and_then(|dir| {
+                            crate::hit_regions::cast(&enemies, &query, entity, origin, dir, 200.)
+                        })
+                        .is_some_and(|hit| hit.hit.region == region)
+                })
+                .min_by(|a, b| {
+                    a.distance_squared(origin)
+                        .total_cmp(&b.distance_squared(origin))
+                })
+        });
+    if let Some((_, _, target, boxes)) = enemies
         .iter()
-        .filter(|(_, health)| health.state() == crate::life::LifeState::ActorAlive)
-        .min_by(|(a, _), (b, _)| {
+        .filter(|(_, health, _, _)| health.state() == crate::life::LifeState::ActorAlive)
+        .min_by(|(_, _, a, _), (_, _, b, _)| {
             a.translation
                 .distance_squared(transform.translation)
                 .total_cmp(&b.translation.distance_squared(transform.translation))
         })
     {
-        let delta = target.translation + Vec3::Y * 0.65
-            - (transform.translation
-                + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5));
+        let delta = aim
+            .or_else(|| {
+                boxes
+                    .aim_points(target, crate::weapons::HitRegion::Head)
+                    .next()
+            })
+            .unwrap_or(target.translation + Vec3::Y * 0.65)
+            - origin;
         let yaw = (-delta.x).atan2(-delta.z);
         if verification.health && (verification.stage == 2 || health_evidence.nonterminal_hits < 2)
         {
@@ -200,15 +249,17 @@ pub(crate) fn drive(
         input.fire = Dir3::new(delta)
             .ok()
             .and_then(|dir| {
-                query.cast_ray(
+                crate::hit_regions::cast(
+                    &enemies,
+                    &query,
+                    entity,
                     origin,
                     dir,
                     delta.length() + 0.3,
-                    true,
-                    &avian3d::prelude::SpatialQueryFilter::from_excluded_entities([entity]),
                 )
             })
-            .is_some_and(|hit| enemies.contains(hit.entity));
+            .is_some();
+        input.fire &= !verification.hit_regions || wanted.is_none() || aim.is_some();
         input.fire &= history.melee_kills > 0;
         input.ads &= history.melee_kills > 0;
         let struck = history.melee_kills > 0
@@ -236,6 +287,7 @@ fn check(
         Res<crate::enemies::EnemyEvidence>,
         Res<crate::rounds::RoundEvidence>,
         Res<crate::player_health::HealthEvidence>,
+        Res<crate::hit_regions::HitEvidence>,
     ),
     mut players: Query<
         (
@@ -266,10 +318,21 @@ fn check(
         With<crate::hud::PlayerOverlay>,
     >,
 ) {
-    let (session, history, impacts, enemy_evidence, round_evidence, health_evidence) = combat;
+    let (session, history, impacts, enemy_evidence, round_evidence, health_evidence, hit_evidence) =
+        combat;
     let Some(mut verification) = verification else {
         return;
     };
+    for receipt in &history.recent {
+        if matches!(
+            receipt.impact.category,
+            crate::origins::content::DamageCategory::Bullet
+        ) {
+            verification
+                .accepted_regions
+                .insert(format!("{:?}", receipt.impact.region));
+        }
+    }
     let ammo = players
         .iter()
         .next()
@@ -605,6 +668,7 @@ fn check(
             && recovery.feedback == 0.
             && health.current() == Some(definition.player_health.maximum);
         let passed = session.round == 1
+            && (!verification.hit_regions || verification.accepted_regions.len() == 5)
             && health_exercised
             && restart_health_clear
             && rounds_exercised
@@ -625,6 +689,8 @@ fn check(
             "scope": if verification.benchmark && !verification.combat { "paused render survey and restart" } else { "combat movement round advance render survey and restart" },
             "continuous_camera_motion": verification.moving_view,
             "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round,
+            "hit_regions_exercised":verification.accepted_regions,
+            "hit_volumes":{"bound":hit_evidence.bound_volumes,"pose_updates":hit_evidence.pose_updates,"regions":hit_evidence.regions,"hits":hit_evidence.hits},
             "enemy_attack_frame":verification.enemy_attack_frame,"enemy_death_frame":verification.enemy_death_frame,
             "enemy_presentation": {"variants":enemy_evidence.variants,"animations":enemy_evidence.animations,
                 "attached_heads":enemy_evidence.attached_heads,"attacks_started":enemy_evidence.attacks_started,

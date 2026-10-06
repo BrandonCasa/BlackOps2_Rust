@@ -499,6 +499,12 @@ def validate_pack(root, receipt=None, exact=False):
                 ImageFont.truetype(str(dependency), 16)
     presentations = {p["id"]:p for p in game["content"]["presentations"]}
     for enemy in game["content"]["enemies"]:
+        for hit in enemy.get("hit_regions",[]):
+            scene = presentations[hit["presentation"]]["scene"]
+            require(scene is not None,"hit volume has no rig scene")
+            doc = documents[scene.split("#",1)[0]][0]
+            names = {doc["nodes"][i].get("name") for skin in doc.get("skins",[]) for i in skin["joints"]}
+            require(hit["start"] in names and hit["end"] in names,"hit volume bone is absent from skin")
         if not enemy.get("parts"): continue
         scene = presentations[enemy["presentation"]]["scene"]
         require(scene is not None,"multipart enemy has no body scene")

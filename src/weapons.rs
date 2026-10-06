@@ -115,7 +115,8 @@ pub enum WeaponEmission {
     Melee,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HitRegion {
     Head,
     UpperTorso,
