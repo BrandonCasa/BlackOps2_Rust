@@ -19,6 +19,8 @@ pub struct LaunchOptions {
     pub verify_wall_weapons: bool,
     pub verify_rounds: bool,
     pub verify_health: bool,
+    pub verify_solo_revive: bool,
+    pub verify_solo_bleedout: bool,
     pub verify_hit_regions: bool,
     pub verify_grenades: bool,
     pub verify_semtex: bool,
@@ -40,6 +42,8 @@ impl LaunchOptions {
                 || argument == "--benchmark-combat"
                 || argument == "--verify-wall-weapons"
                 || argument == "--verify-rounds"
+                || argument == "--verify-solo-bleedout"
+                || argument == "--verify-solo-revive"
                 || argument == "--verify-health"
                 || argument == "--verify-hit-regions"
                 || argument == "--verify-grenades"
@@ -54,6 +58,8 @@ impl LaunchOptions {
                 result.benchmark_combat = argument == "--benchmark-combat"
                     || argument == "--verify-wall-weapons"
                     || argument == "--verify-rounds"
+                    || argument == "--verify-solo-bleedout"
+                    || argument == "--verify-solo-revive"
                     || argument == "--verify-health"
                     || argument == "--verify-hit-regions"
                     || argument == "--verify-grenades"
@@ -64,6 +70,9 @@ impl LaunchOptions {
                 result.verify_wall_weapons = argument == "--verify-wall-weapons";
                 result.verify_rounds = argument == "--verify-rounds";
                 result.verify_health = argument == "--verify-health";
+                result.verify_solo_revive =
+                    argument == "--verify-solo-revive" || argument == "--verify-solo-bleedout";
+                result.verify_solo_bleedout = argument == "--verify-solo-bleedout";
                 result.verify_hit_regions = argument == "--verify-hit-regions";
                 result.verify_grenades = argument == "--verify-grenades";
                 result.verify_semtex = argument == "--verify-semtex";

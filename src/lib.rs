@@ -19,6 +19,7 @@ pub mod player_health;
 pub mod presentation;
 pub mod rendering;
 pub mod rounds;
+pub mod solo_revive;
 pub mod verification;
 pub mod weapons;
 
@@ -88,6 +89,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         player::PlayerPlugin,
         gameplay::GameplayPlugin,
         damage::DamagePlugin,
+        (life::LifeStatePlugin, solo_revive::SoloRevivePlugin),
         player_health::PlayerHealthPlugin,
         enemies::EnemyPlugin,
         hit_regions::HitRegionsPlugin,

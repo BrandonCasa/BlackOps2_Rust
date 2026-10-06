@@ -87,6 +87,32 @@ fn assemble(
                 .with_rotation(Quat::from_rotation_y(placement.yaw)),
             Visibility::Inherited,
         ));
+        if let InteractionAction::Perk { perk } = &source.action {
+            let scene = definition
+                .content
+                .perks
+                .iter()
+                .find(|p| p.id == *perk)
+                .and_then(|p| p.presentation.as_ref())
+                .and_then(|id| {
+                    definition
+                        .content
+                        .presentations
+                        .iter()
+                        .find(|p| p.id == *id)
+                })
+                .and_then(|p| p.scene.as_ref());
+            if let Some(scene) = scene {
+                entity.insert(WorldAssetRoot(server.load(scene.clone())));
+            }
+            entity.with_children(|parent| {
+                parent.spawn((
+                    RigidBody::Static,
+                    Collider::cuboid(1.66, 2.17, 0.9),
+                    Transform::from_xyz(-0.203, 1.085, 0.152),
+                ));
+            });
+        }
         if let InteractionAction::Weapon { weapon, .. } = &source.action {
             let scene = definition
                 .content
@@ -137,7 +163,8 @@ fn wall_ready(
         }
     }
 }
-fn interact(
+pub(crate) fn interact(
+    mut commands: Commands,
     time: Res<Time<Fixed>>,
     input: Res<GameInput>,
     definition: Res<GameDefinition>,
@@ -152,6 +179,7 @@ fn interact(
         &mut crate::equipment::GrenadeInventory,
         &mut crate::mines::MineInventory,
         &mut crate::equipment::TacticalInventory,
+        &mut crate::solo_revive::PerkInventory,
     )>,
     mut focus: ResMut<InteractionFocus>,
     mut ledger: ResMut<PointLedger>,
@@ -166,6 +194,7 @@ fn interact(
         mut grenades,
         mut mines,
         mut tactical,
+        mut perks,
     )) = players.single_mut()
     else {
         return;
@@ -194,7 +223,10 @@ fn interact(
     let candidate = targets
         .iter()
         .filter_map(|(entity, usable, transform)| {
-            let delta = transform.translation - origin;
+            if matches!(&usable.source.action, InteractionAction::Perk { perk } if *perk == definition.solo_revive.perk)
+                && (perks.solo_charges > 0 || perks.solo_purchases >= definition.solo_revive.maximum_purchases) { return None; }
+            let endpoint = if matches!(usable.source.action, InteractionAction::Perk { .. }) { transform.translation + Vec3::Y + transform.rotation * Vec3::new(0., 0., 0.8) } else { transform.translation };
+            let delta = endpoint - origin;
             let distance = delta.length();
             if distance > usable.source.reach || distance < 0.01 {
                 return None;
@@ -222,6 +254,50 @@ fn interact(
         focus.rejection = None;
     }
     focus.target = Some(entity);
+    if let InteractionAction::Perk { perk } = &usable.source.action {
+        let Some(perk) = definition.content.perks.iter().find(|p| p.id == *perk) else {
+            return;
+        };
+        if perk.id != definition.solo_revive.perk {
+            focus.prompt.clear();
+            return;
+        }
+        focus.prompt = format!("Press F to buy {} [{}]", perk.name, perk.price);
+        if !input.use_held || focus.latched {
+            return;
+        }
+        focus.progress += time.delta_secs();
+        if focus.progress < usable.source.hold_seconds {
+            return;
+        }
+        focus.latched = true;
+        let purchase = ledger.command(perk.price);
+        let result = ledger.accept(&mut session.points, purchase, || {
+            if inventory.action != WeaponAction::Ready
+                || grenades.busy()
+                || mines.busy()
+                || tactical.busy()
+            {
+                return Err(InteractionRejection::Busy);
+            }
+            perks.buy_solo(&definition.solo_revive)
+        });
+        focus.rejection = match result {
+            Ok(()) => {
+                focus.accepted += 1;
+                if perks.solo_purchases >= definition.solo_revive.maximum_purchases {
+                    commands.entity(entity).despawn();
+                }
+                None
+            }
+            Err(PurchaseError::InsufficientPoints) => {
+                Some(InteractionRejection::InsufficientPoints)
+            }
+            Err(PurchaseError::Duplicate) => Some(InteractionRejection::Duplicate),
+            Err(PurchaseError::Rejected(reason)) => Some(reason),
+        };
+        return;
+    }
     let InteractionAction::Weapon {
         weapon,
         price,

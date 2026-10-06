@@ -18,6 +18,8 @@ pub use revive_clock::{
 
 pub mod bleedout;
 pub use bleedout::{BleedoutClock, BleedoutClockError, BleedoutTiming};
+mod self_revive;
+pub use self_revive::SelfReviveToken;
 
 use std::num::NonZeroU32;
 
@@ -83,6 +85,8 @@ pub enum PlayerLethalPolicy {
     DownWithEligibleTeammate,
     /// Session/game-end behavior must be resolved by a later task.
     SoloOrLastEligiblePlayer,
+    /// Caller has established a current, owned solo self-revival charge.
+    SoloSelfRevive,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +126,7 @@ pub struct Vitality {
     episode: u64,
     attempt: u64,
     active_revive: Option<ReviveToken>,
+    active_self_revive: Option<SelfReviveToken>,
     actor_subtraction: Option<ActorSubtraction>,
 }
 
@@ -147,6 +152,7 @@ impl Vitality {
             episode: 0,
             attempt: 0,
             active_revive: None,
+            active_self_revive: None,
             actor_subtraction: None,
         })
     }
@@ -348,6 +354,7 @@ impl Vitality {
         }
         self.state = LifeState::HumanTerminal;
         self.active_revive = None;
+        self.active_self_revive = None;
         Ok(ExpiryOutcome::Terminated {
             current: self.current,
             maximum: self.maximum.get(),
@@ -375,10 +382,19 @@ impl Vitality {
         episode: DownedEpisode,
     ) -> Result<ReviveToken, LifeStateError> {
         self.check_episode(episode)?;
+        if !matches!(
+            self.route,
+            DamageRoute::Human {
+                policy: PlayerLethalPolicy::DownWithEligibleTeammate,
+                ..
+            }
+        ) {
+            return Err(LifeStateError::UnsupportedPlayerPolicy);
+        }
         if target == reviver {
             return Err(LifeStateError::InvalidReviver);
         }
-        if self.active_revive.is_some() {
+        if self.active_revive.is_some() || self.active_self_revive.is_some() {
             return Err(LifeStateError::AttemptAlreadyActive);
         }
         let attempt = self
@@ -568,6 +584,14 @@ pub enum LifeCommand {
         token: ReviveToken,
         restore: ReviveRestoration,
     },
+    BeginSelfRevive {
+        episode: DownedEpisode,
+    },
+    CancelSelfRevive(SelfReviveToken),
+    CompleteSelfRevive {
+        token: SelfReviveToken,
+        restore: ReviveRestoration,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -576,6 +600,7 @@ pub enum LifeCommandOutcome {
     Expiry(ExpiryOutcome),
     ReviveBegan(ReviveToken),
     ReviveCanceled,
+    SelfReviveBegan(SelfReviveToken),
     Revived { current: u32, maximum: u32 },
 }
 
@@ -589,6 +614,24 @@ pub struct LifeCommandQueue {
 }
 
 impl LifeCommandQueue {
+    /// Allocate from the queue's shared lifetime sequence for ordered in-app producers.
+    pub fn submit_next(
+        &mut self,
+        target: Entity,
+        command: LifeCommand,
+    ) -> Result<u64, LifeStateError> {
+        let id = self
+            .last_id
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or(LifeStateError::CounterExhausted)?;
+        self.submit(LifeCommandRequest {
+            id,
+            target,
+            command,
+        })?;
+        Ok(id)
+    }
     pub fn submit(&mut self, request: LifeCommandRequest) -> Result<(), LifeStateError> {
         if self.last_id.is_some_and(|last| request.id <= last) {
             return Err(LifeStateError::NonIncreasingRequestId);
@@ -686,6 +729,19 @@ fn apply_life_commands(
                             return Err(LifeStateError::InvalidReviver);
                         }
                         target.complete_revive(request.target, token, restore)?;
+                        Ok(LifeCommandOutcome::Revived {
+                            current: target.current,
+                            maximum: target.maximum.get(),
+                        })
+                    }
+                    LifeCommand::BeginSelfRevive { episode } => target
+                        .begin_self_revive(request.target, episode)
+                        .map(LifeCommandOutcome::SelfReviveBegan),
+                    LifeCommand::CancelSelfRevive(token) => target
+                        .cancel_self_revive(request.target, token)
+                        .map(|()| LifeCommandOutcome::ReviveCanceled),
+                    LifeCommand::CompleteSelfRevive { token, restore } => {
+                        target.complete_self_revive(request.target, token, restore)?;
                         Ok(LifeCommandOutcome::Revived {
                             current: target.current,
                             maximum: target.maximum.get(),

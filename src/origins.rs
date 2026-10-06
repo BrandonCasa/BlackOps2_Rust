@@ -22,6 +22,7 @@ pub struct GameDefinition {
     pub content: ContentCatalog,
     pub player_health: crate::player_health::HealthProfile,
     pub rounds: crate::rounds::RoundProfile,
+    pub solo_revive: crate::solo_revive::SoloReviveProfile,
     #[serde(default)]
     pub tuning: Tuning,
 }
@@ -131,6 +132,11 @@ impl GameDefinition {
             return Err(ContentError::UnsupportedVersion(self.version));
         }
         self.content.validate()?;
+        if !self.solo_revive.valid(self) {
+            return Err(ContentError::InvalidDefinition(
+                "Invalid solo revive profile.".into(),
+            ));
+        }
         if !self.player_health.valid() {
             return Err(ContentError::InvalidDefinition(
                 "Invalid player health profile. Regenerate/import game.json.".into(),

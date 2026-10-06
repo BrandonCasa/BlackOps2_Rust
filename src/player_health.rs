@@ -117,6 +117,8 @@ pub struct HealthEvidence {
     pub hits: Vec<serde_json::Value>,
     pub heals: Vec<serde_json::Value>,
 }
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct HealthUpdate;
 pub struct PlayerHealthPlugin;
 impl Plugin for PlayerHealthPlugin {
     fn build(&self, app: &mut App) {
@@ -128,6 +130,7 @@ impl Plugin for PlayerHealthPlugin {
                 (feedback, regenerate, terminal)
                     .chain()
                     .in_set(GameStep::PlayerLife)
+                    .in_set(HealthUpdate)
                     .run_if(in_state(GameState::Playing)),
             );
     }

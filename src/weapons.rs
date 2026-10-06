@@ -188,6 +188,22 @@ impl WeaponInventory {
             .get(&Self::group(definition))
             .map_or(0, |p| p.rounds)
     }
+    /// An episode-owned weapon has its own ammo pool and never mutates the saved inventory.
+    pub fn temporary(definition: &WeaponDefinition, reserve_clips: u32) -> Self {
+        let mut inventory = Self::default();
+        inventory
+            .grant(definition)
+            .expect("empty temporary inventory");
+        let reserve = definition.magazine.saturating_mul(reserve_clips);
+        inventory.ammunition.insert(
+            Self::group(definition),
+            AmmoPool {
+                rounds: reserve,
+                capacity: reserve,
+            },
+        );
+        inventory
+    }
     pub fn grant(&mut self, definition: &WeaponDefinition) -> Result<usize, InventoryError> {
         if self.owned().any(|(_, w)| w.definition == definition.id) {
             return Err(InventoryError::AlreadyOwned);

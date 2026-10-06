@@ -83,6 +83,7 @@ fn spawn_player(
         capsule(definition.tuning.radius, height),
         vitality,
         crate::player_health::Recovery::default(),
+        crate::solo_revive::PerkInventory::default(),
         inventory,
         crate::mines::MineInventory::default(),
         crate::equipment::TacticalInventory::default(),
@@ -138,6 +139,7 @@ pub fn move_player(
         &mut Transform,
         &Collider,
         &crate::weapons::WeaponInventory,
+        &Vitality,
     )>,
     mut commands: Commands,
     slide: MoveAndSlide,
@@ -153,14 +155,32 @@ pub fn move_player(
         cycle_weapon: std::mem::take(&mut input.cycle_weapon),
         weapon_slot: input.weapon_slot.take(),
     };
-    let Ok((entity, mut player, mut transform, collider, inventory)) = players.single_mut() else {
+    let Ok((entity, mut player, mut transform, collider, inventory, vitality)) =
+        players.single_mut()
+    else {
         return;
     };
+    let downed = vitality.state() == crate::life::LifeState::Downed;
+    if downed {
+        actions.melee = false;
+        actions.ads = false;
+        actions.cycle_weapon = false;
+        actions.weapon_slot = None;
+    }
+    if !matches!(
+        vitality.state(),
+        crate::life::LifeState::Standing | crate::life::LifeState::Downed
+    ) {
+        *actions = TickActions::default();
+        return;
+    }
     let mut collider = collider.clone();
     let tuning = &definition.tuning;
     let dt = time.delta_secs();
     let filter = SpatialQueryFilter::from_excluded_entities([entity]);
-    let desired_height = if input.crouch {
+    let desired_height = if downed {
+        definition.solo_revive.downed_height
+    } else if input.crouch {
         tuning.crouch_height
     } else {
         tuning.standing_height
@@ -185,7 +205,7 @@ pub fn move_player(
             collider = shape;
             commands.entity(entity).insert(collider.clone());
             player.height = desired_height;
-            player.crouched = input.crouch;
+            player.crouched = downed || input.crouch;
         }
     }
     let ground = query.cast_shape(
@@ -206,7 +226,9 @@ pub fn move_player(
     player.grounded = (ground.is_some_and(|hit| hit.normal1.y > 0.65)
         || support.is_some_and(|hit| hit.normal.y > 0.65))
         && player.velocity.y <= 0.;
-    let speed = if player.crouched {
+    let speed = if downed {
+        definition.solo_revive.downed_speed
+    } else if player.crouched {
         tuning.crouch_speed
     } else if input.sprint
         && !input.ads
@@ -228,7 +250,11 @@ pub fn move_player(
     player.velocity.x = desired.x;
     player.velocity.z = desired.z;
     if player.grounded {
-        player.velocity.y = if jump { tuning.jump_speed } else { -0.5 };
+        player.velocity.y = if jump && !downed {
+            tuning.jump_speed
+        } else {
+            -0.5
+        };
     } else {
         player.velocity.y = (player.velocity.y - tuning.gravity * dt).max(-50.);
     }

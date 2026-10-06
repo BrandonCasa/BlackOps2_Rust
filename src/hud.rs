@@ -4,6 +4,8 @@ use bevy::prelude::*;
 #[derive(Component)]
 struct HudText;
 #[derive(Component)]
+struct ReviveText;
+#[derive(Component)]
 pub(crate) struct Crosshair;
 #[derive(Component)]
 pub(crate) struct PlayerOverlay;
@@ -16,6 +18,7 @@ impl Plugin for HudPlugin {
         )
         .add_systems(Update, update)
         .add_systems(Update, damage_feedback)
+        .add_systems(Update, revive_feedback)
         .add_systems(Update, crosshair.run_if(in_state(GameState::Playing)));
     }
 }
@@ -58,6 +61,26 @@ fn setup(
             position_type: PositionType::Absolute,
             left: percent(49.5),
             top: percent(48.),
+            ..default()
+        },
+    ));
+    commands.spawn((
+        Text::new(""),
+        ReviveText,
+        PlayerOverlay,
+        UiTargetCamera(camera),
+        TextFont {
+            font_size: FontSize::Px(24.),
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        TextLayout::justify(Justify::Center),
+        Visibility::Hidden,
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(0.),
+            bottom: px(160.),
+            width: percent(100.),
             ..default()
         },
     ));
@@ -143,7 +166,14 @@ fn damage_feedback(
                     } else {
                         0.
                     };
-                (flash + critical).clamp(0., 0.65)
+                (flash
+                    + critical
+                    + if health.state() == crate::life::LifeState::Downed {
+                        0.5
+                    } else {
+                        0.
+                    })
+                .clamp(0., 0.65)
             },
         )
     } else {
@@ -177,6 +207,7 @@ fn update(
     grenades: Query<&crate::equipment::GrenadeInventory, With<Player>>,
     mines: Query<&crate::mines::MineInventory, With<Player>>,
     tactical: Query<&crate::equipment::TacticalInventory, With<Player>>,
+    perks: Query<&crate::solo_revive::PerkInventory, With<Player>>,
     mut text: Query<&mut Text, With<HudText>>,
 ) {
     let Ok(mut text) = text.single_mut() else {
@@ -263,10 +294,52 @@ fn update(
             .map_or("Tactical", |w| w.name.as_str());
         value.push_str(&format!("    {} {}", label, inventory.count));
     }
+    if **state == GameState::Playing {
+        if let Ok(perks) = perks.single()
+            && !perks.owned.is_empty()
+        {
+            value.push_str("\nQuick Revive");
+        }
+    }
     if **state == GameState::Paused {
         value.push_str("\nG grenade | T tactical | 4 Claymore");
     }
     if text.0 != value {
         text.0 = value;
+    }
+}
+
+fn revive_feedback(
+    state: Res<State<GameState>>,
+    definition: Option<Res<crate::assets::GameDefinition>>,
+    episodes: Query<&crate::solo_revive::SoloEpisode, With<Player>>,
+    mut labels: Query<(&mut Text, &mut TextColor, &mut Visibility), With<ReviveText>>,
+) {
+    for (mut text, mut color, mut visibility) in &mut labels {
+        let Some((episode, definition)) = episodes
+            .single()
+            .ok()
+            .zip(definition.as_ref())
+            .filter(|_| **state == GameState::Playing)
+        else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        if text.0.is_empty() {
+            text.0 = definition
+                .content
+                .localized_strings
+                .iter()
+                .find(|s| s.key == "ZOMBIE_REVIVING_SOLO")
+                .map_or("Reviving", |s| s.text.trim())
+                .to_owned();
+        }
+        *visibility = Visibility::Inherited;
+        color.0 = Color::srgba(
+            1.,
+            1.,
+            1.,
+            (episode.remaining / definition.solo_revive.seconds).clamp(0., 1.),
+        );
     }
 }

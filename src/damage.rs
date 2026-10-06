@@ -92,6 +92,7 @@ fn resolve(
     mut accepted: MessageWriter<DamageApplied>,
     mut player_damage: MessageWriter<crate::player_health::PlayerDamage>,
     mut player_deaths: MessageWriter<crate::player_health::PlayerDeath>,
+    mut downed: MessageWriter<crate::solo_revive::PlayerDowned>,
 ) {
     // Resolve weapon combat first: a lethal shot cancels that enemy's queued impact.
     queue
@@ -101,7 +102,9 @@ fn resolve(
         let sender_alive = targets.get(impact.attacker).is_ok_and(|(v, _)| {
             matches!(
                 v.state(),
-                crate::life::LifeState::Standing | crate::life::LifeState::ActorAlive
+                crate::life::LifeState::Standing
+                    | crate::life::LifeState::Downed
+                    | crate::life::LifeState::ActorAlive
             )
         });
         let valid_source = match &impact.source {
@@ -158,6 +161,13 @@ fn resolve(
                 after,
                 terminal,
             });
+            if let DamageOutcome::Downed { episode, .. } = outcome {
+                downed.write(crate::solo_revive::PlayerDowned {
+                    target: impact.target,
+                    attacker: impact.attacker,
+                    episode,
+                });
+            }
             if terminal {
                 player_deaths.write(crate::player_health::PlayerDeath {
                     target: impact.target,

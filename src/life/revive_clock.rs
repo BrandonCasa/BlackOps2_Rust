@@ -126,7 +126,8 @@ impl ReviveClock {
         if matches!(
             vitality.route,
             DamageRoute::Human {
-                policy: PlayerLethalPolicy::SoloOrLastEligiblePlayer,
+                policy: PlayerLethalPolicy::SoloOrLastEligiblePlayer
+                    | PlayerLethalPolicy::SoloSelfRevive,
                 ..
             }
         ) {

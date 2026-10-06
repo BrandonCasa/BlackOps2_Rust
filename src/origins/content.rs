@@ -310,6 +310,8 @@ pub struct PerkDefinition {
     pub name: String,
     pub price: u32,
     pub icon: Option<ContentId>,
+    #[serde(default)]
+    pub presentation: Option<ContentId>,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -829,6 +831,7 @@ impl ContentCatalog {
         }
         for v in &self.perks {
             optional(&v.id.0, &v.icon, "ui")?;
+            optional(&v.id.0, &v.presentation, "presentation")?;
         }
         for v in &self.powerups {
             valid(nonnegative(v.duration), "Invalid powerup duration")?;

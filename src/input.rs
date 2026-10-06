@@ -132,6 +132,8 @@ fn pause_and_restart(
     session: Query<Entity, With<crate::gameplay::SessionEntity>>,
     options: Res<crate::assets::LaunchOptions>,
     mut restart: MessageReader<RestartGame>,
+    mut life_queue: ResMut<crate::life::LifeCommandQueue>,
+    mut life_results: ResMut<crate::life::LifeCommandResults>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         match **state {
@@ -150,8 +152,10 @@ fn pause_and_restart(
         && (keys.just_pressed(KeyCode::KeyR) || restart.read().next().is_some())
     {
         for entity in &session {
+            life_queue.retire_pending_target(entity);
             commands.entity(entity).despawn();
         }
+        life_results.drain().for_each(drop);
         next.set(GameState::Playing);
     }
     for (window, mut cursor) in &mut cursors {

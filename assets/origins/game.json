@@ -16125,7 +16125,15 @@
         ]
       }
     ],
-    "perks": [],
+    "perks": [
+      {
+        "id": "perk.quick_revive",
+        "name": "Quick Revive",
+        "price": 500,
+        "icon": null,
+        "presentation": "prop.p6_zm_tm_vending_revive_on"
+      }
+    ],
     "powerups": [],
     "zones": [
       {
@@ -16385,6 +16393,17 @@
           73.302876
         ],
         "yaw": 0.2617993877991494,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.quick_revive",
+        "definition": "perk.quick_revive",
+        "position": [
+          59.943999999999996,
+          -7.7216,
+          -129.4384
+        ],
+        "yaw": 1.1924874847788657e-08,
         "zone": "zone.start"
       }
     ],
@@ -16683,6 +16702,17 @@
           "weapon": "weapon.sticky_grenade_zm",
           "price": 250,
           "ammo_price": 250
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.quick_revive",
+        "placement": "placement.quick_revive",
+        "action": {
+          "kind": "perk",
+          "perk": "perk.quick_revive"
         },
         "reach": 2.0,
         "hold_seconds": 0.0,
@@ -20652,6 +20682,12 @@
       {
         "id": "actor.t6_wpn_claymore_world",
         "scene": "actors/t6_wpn_claymore_world_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "prop.p6_zm_tm_vending_revive_on",
+        "scene": "props/p6_zm_tm_vending_revive_on_lod0.gltf#Scene0",
         "animations": [],
         "sounds": []
       }
@@ -127782,5 +127818,16 @@
     "immunity_critical_enter": 0.5,
     "immunity_critical_repeat": 0.3,
     "feedback_seconds": 0.8
+  },
+  "solo_revive": {
+    "perk": "perk.quick_revive",
+    "seconds": 10.0,
+    "bleedout_seconds": 45.0,
+    "bleedout_poll_seconds": 0.05,
+    "maximum_purchases": 3,
+    "downed_weapon": "weapon.c96_upgraded_zm",
+    "reserve_clips": 2,
+    "downed_height": 0.75,
+    "downed_speed": 1.0
   }
 }

@@ -432,7 +432,7 @@ def validate_pack(root, receipt=None, exact=False):
     game = read_json(safe_path(root, "game.json", {".json"}))
     require(set(game) <= {"version", "scene", "collision_scene", "spawn", "yaw", "spawn_points",
                           "waypoints", "survey_views", "source_surfaces", "render_meshes",
-                          "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health"}, "unknown gameplay configuration")
+                          "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health", "solo_revive"}, "unknown gameplay configuration")
     require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "crouch_speed", "gravity",
         "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
         "mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
@@ -443,6 +443,13 @@ def validate_pack(root, receipt=None, exact=False):
     validate_rounds(game.get("rounds"), require)
     validate_player_health(game.get("player_health"), require)
     dependencies = validate_content(game.get("content"), require)
+    solo = game.get("solo_revive")
+    require(isinstance(solo, dict) and set(solo) == {"perk", "seconds", "bleedout_seconds", "bleedout_poll_seconds", "maximum_purchases", "downed_weapon", "reserve_clips", "downed_height", "downed_speed"}, "invalid solo revive profile")
+    require(all(type(solo[k]) in (int, float) and math.isfinite(solo[k]) and solo[k] > 0 for k in ("seconds", "bleedout_seconds", "bleedout_poll_seconds", "downed_height", "downed_speed")), "invalid solo revive timing/movement")
+    require(solo["seconds"] < solo["bleedout_seconds"] and solo["bleedout_seconds"] % 1 == 0 and solo["bleedout_seconds"] <= 3600 and 0.001 <= solo["bleedout_poll_seconds"] <= solo["bleedout_seconds"], "invalid solo revive deadline")
+    require(type(solo["maximum_purchases"]) is int and solo["maximum_purchases"] > 0 and type(solo["reserve_clips"]) is int and 0 <= solo["reserve_clips"] <= 100, "invalid solo charge/ammo count")
+    require(solo["perk"] in {p["id"] for p in game["content"]["perks"]} and solo["downed_weapon"] in {w["id"] for w in game["content"]["weapons"]}, "unresolved solo revive content")
+    require(game.get("tuning", {}).get("radius", .35) * 2 <= solo["downed_height"] < game.get("tuning", {}).get("standing_height", 1.8), "invalid downed capsule height")
     documents = {}
     for key, count_key in (("scene", "render_meshes"), ("collision_scene", "collision_meshes")):
         match = re.fullmatch(r"(.+\.gltf)#Scene(0|[1-9][0-9]*)", game[key])

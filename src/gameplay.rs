@@ -354,7 +354,7 @@ pub(crate) fn combat(
         &definition.content.weapons,
     );
     let eye = if player.crouched {
-        definition.tuning.crouch_height * 0.9
+        player.height * 0.8
     } else {
         definition.tuning.eye_height
     };

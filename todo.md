@@ -471,22 +471,22 @@
 - [x] Add health regeneration rates.
 - [x] Restart regeneration delay after damage.
 - [ ] Update maximum health from perk effects.
-- [ ] Add explicit solo self-revive eligibility.
-- [ ] Route lethal damage through current revive eligibility.
-- [ ] Add solo downed movement restrictions.
-- [ ] Equip Boomhilda during solo Quick Revive downing.
-- [ ] Restore the previous loadout after self-revival.
-- [ ] Add solo self-revive countdown.
-- [ ] Add explicit self-revive life commands.
-- [ ] Retire self-revive commands after episode changes.
-- [ ] Integrate bleedout clocks with the session.
-- [ ] Resolve bleedout into terminal death.
-- [ ] Stop regeneration while downed.
-- [ ] Remove owned perks when downing occurs.
-- [ ] Consume solo Quick Revive after revival.
-- [ ] Track solo Quick Revive purchase exhaustion.
-- [ ] Remove exhausted solo Quick Revive machines.
-- [ ] Prevent repeated death transition events.
+- [x] Add explicit solo self-revive eligibility.
+- [x] Route lethal damage through current revive eligibility.
+- [x] Add solo downed movement restrictions.
+- [x] Equip Boomhilda during solo Quick Revive downing.
+- [x] Restore the previous loadout after self-revival.
+- [x] Add solo self-revive countdown.
+- [x] Add explicit self-revive life commands.
+- [x] Retire self-revive commands after episode changes.
+- [x] Integrate bleedout clocks with the session.
+- [x] Resolve bleedout into terminal death.
+- [x] Stop regeneration while downed.
+- [x] Remove owned perks when downing occurs.
+- [x] Consume solo Quick Revive after revival.
+- [x] Track solo Quick Revive purchase exhaustion.
+- [x] Remove exhausted solo Quick Revive machines.
+- [x] Prevent repeated death transition events.
 - [ ] Add player death camera behavior.
 - [x] Route terminal death into game-over state.
 - [x] Emit one attributed enemy death event.
@@ -638,17 +638,17 @@
 - [ ] Add generator running animations.
 - [ ] Add generator shutdown animations.
 - [ ] Add generator capture sound loops.
-- [ ] Add owned perk state.
+- [x] Add owned perk state.
 - [ ] Add default perk purchase limits.
 - [ ] Add earned perk purchase slots.
 - [ ] Preserve source-defined earned slot persistence.
 - [ ] Add perk purchase interactions.
-- [ ] Reject duplicate perk ownership.
+- [x] Reject duplicate perk ownership.
 - [ ] Add perk drinking action timing.
 - [ ] Activate purchased perks after drinking.
 - [ ] Add Juggernog health modifiers.
-- [ ] Add Quick Revive solo purchase pricing.
-- [ ] Add Quick Revive solo revival effects.
+- [x] Add Quick Revive solo purchase pricing.
+- [x] Add Quick Revive solo revival effects.
 - [ ] Add Speed Cola reload modifiers.
 - [ ] Add Stamin-Up sprint modifiers.
 - [ ] Add Mule Kick inventory expansion.

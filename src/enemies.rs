@@ -200,7 +200,15 @@ pub(crate) fn lifecycle(
             zombie.navigation = 0.;
             zombie.transition(EnemyAnimation::Idle);
         }
-        let target = lure.map_or(player_transform.translation, |l| l.position);
+        let ignored = lure.is_none() && health.state() != LifeState::Standing;
+        if ignored {
+            zombie.transition(EnemyAnimation::Idle);
+        }
+        let target = if ignored {
+            transform.translation
+        } else {
+            lure.map_or(player_transform.translation, |l| l.position)
+        };
         let filter = SpatialQueryFilter::from_excluded_entities([entity, player_entity]);
         let visible = |from: Vec3, to: Vec3| {
             let delta = to - from;
@@ -212,6 +220,7 @@ pub(crate) fn lifecycle(
         };
         let distance = transform.translation.distance(target);
         if lure.is_none()
+            && !ignored
             && zombie.action != EnemyAnimation::Attack
             && distance < 1.65
             && visible(transform.translation, target)
@@ -254,7 +263,9 @@ pub(crate) fn lifecycle(
         }
         let delta = zombie.destination - transform.translation;
         let direction = Vec3::new(delta.x, 0., delta.z).normalize_or_zero();
-        let moving = zombie.action != EnemyAnimation::Attack && !(lure.is_some() && distance < 0.4);
+        let moving = !ignored
+            && zombie.action != EnemyAnimation::Attack
+            && !(lure.is_some() && distance < 0.4);
         zombie.velocity.x = direction.x * zombie.speed * f32::from(moving);
         zombie.velocity.z = direction.z * zombie.speed * f32::from(moving);
         zombie.velocity.y = (zombie.velocity.y - definition.tuning.gravity * dt).max(-30.);

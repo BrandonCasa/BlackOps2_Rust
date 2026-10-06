@@ -20,6 +20,7 @@ mod monkeys;
 mod performance;
 mod pipelines;
 mod semtex;
+mod solo_revive;
 
 #[derive(Resource)]
 pub(crate) struct Verification {
@@ -43,6 +44,8 @@ pub(crate) struct Verification {
     wall_weapons: bool,
     rounds: bool,
     health: bool,
+    solo_revive: bool,
+    solo_bleedout: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -70,6 +73,9 @@ impl Plugin for VerificationPlugin {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
             equipment_presentation::install(app);
+            if app.world().resource::<LaunchOptions>().verify_solo_revive {
+                solo_revive::install(app);
+            }
             if app.world().resource::<LaunchOptions>().verify_health {
                 health_recovery::install(app);
             }
@@ -143,6 +149,8 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             equipment_refills_exercised: false,
             rounds: options.verify_rounds,
             health: options.verify_health,
+            solo_revive: options.verify_solo_revive,
+            solo_bleedout: options.verify_solo_bleedout,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -186,6 +194,9 @@ pub(crate) fn drive(
     else {
         return;
     };
+    if verification.solo_revive {
+        return;
+    }
     if verification.stage != 0
         && !((verification.health || verification.grenades) && verification.stage == 2)
     {
@@ -462,6 +473,9 @@ fn check(
     let Some(mut verification) = verification else {
         return;
     };
+    if verification.solo_revive {
+        return;
+    }
     for receipt in &history.recent {
         if matches!(
             receipt.impact.category,
