@@ -11,10 +11,16 @@ use bevy::{
     render::view::screenshot::{Screenshot, save_to_disk},
 };
 use std::{path::PathBuf, time::Instant};
+mod performance;
+mod pipelines;
 
 #[derive(Resource)]
 pub(crate) struct Verification {
     output: PathBuf,
+    benchmark: bool,
+    combat: bool,
+    only_view: bool,
+    moving_view: bool,
     started: Instant,
     playing: f32,
     stage: usize,
@@ -29,6 +35,9 @@ pub(crate) struct Verification {
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
+        if app.world().resource::<LaunchOptions>().verify.is_some() {
+            pipelines::install(app);
+        }
         app.add_systems(Startup, setup)
             .add_systems(
                 PreUpdate,
@@ -36,7 +45,8 @@ impl Plugin for VerificationPlugin {
                     .after(bevy::input::InputSystems)
                     .after(crate::input::collect),
             )
-            .add_systems(Update, check);
+            .add_systems(Update, check)
+            .add_systems(Last, performance::record);
     }
 }
 fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
@@ -53,12 +63,16 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
         }
         commands.insert_resource(Verification {
             output: output.clone(),
+            benchmark: options.benchmark,
+            combat: options.benchmark_combat,
+            only_view: options.benchmark_view.is_some(),
+            moving_view: options.benchmark_motion,
             started: Instant::now(),
             playing: 0.,
             stage: 0,
             initial: None,
             moved: false,
-            survey: 0,
+            survey: options.benchmark_view.unwrap_or(0),
             round_two: false,
             water_times: Vec::new(),
             camera_views: Vec::new(),
@@ -98,6 +112,9 @@ pub(crate) fn drive(
             - (transform.translation
                 + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5));
         let yaw = (-delta.x).atan2(-delta.z);
+        if verification.playing >= 1. && delta.length() < 3. {
+            input.movement = Vec2::new(0., -0.7);
+        }
         let pitch = delta.y.atan2(Vec2::new(delta.x, delta.z).length());
         let yaw_delta = (yaw - player.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
             - std::f32::consts::PI;
@@ -149,6 +166,17 @@ fn check(
     let Some(mut verification) = verification else {
         return;
     };
+    if verification.benchmark
+        && !verification.combat
+        && verification.stage == 0
+        && **state == GameState::Playing
+    {
+        // Rendering measurements use an isolated paused survey. Combat remains
+        // exercised separately by --verify, at the optimized frame rate.
+        verification.stage = 1;
+        verification.playing = 0.;
+        next.set(GameState::Paused);
+    }
     for mut visibility in &mut overlays {
         *visibility = if verification.stage == 1 {
             Visibility::Hidden
@@ -156,13 +184,19 @@ fn check(
             Visibility::Inherited
         };
     }
-    if verification.started.elapsed().as_secs() > 180
+    if verification.started.elapsed().as_secs() > if verification.benchmark { 360 } else { 180 }
         || **state == GameState::LoadError
         || (**state == GameState::GameOver && verification.stage == 0)
     {
         error!(
-            "Game verification failed: {:?}, round {}, pending {}, kills {}, {}",
-            **state, session.round, session.pending, session.kills, failure.0
+            "Game verification failed: {:?}, round {}, pending {}, kills {}, shots {}, ammo {}, {}",
+            **state,
+            session.round,
+            session.pending,
+            session.kills,
+            session.shots,
+            session.ammo,
+            failure.0
         );
         commands.write_message(AppExit::error());
         return;
@@ -238,16 +272,61 @@ fn check(
                 // Comparison-only projection; ordinary player projection is unchanged.
                 perspective.fov = profile.comparison_fov_degrees.to_radians();
             }
-            let sweep = (verification.playing - 1.).clamp(0., 1.);
-            let moving = verification.survey < definition.survey_views.len();
+            let sweep = if verification.moving_view {
+                ((verification.playing - 1.) * 0.6).sin()
+            } else {
+                (verification.playing - 1.).clamp(0., 1.)
+            };
+            let moving =
+                verification.moving_view || verification.survey < definition.survey_views.len();
             transform.translation =
                 position + Vec3::new(if moving { sweep * 0.3 } else { 0. }, 0., 0.);
             player.velocity = Vec3::ZERO;
-            player.yaw = yaw + if moving { sweep * 0.2 } else { 0. };
+            player.yaw = yaw
+                + if moving {
+                    if verification.moving_view {
+                        if verification.playing >= 60. {
+                            ((verification.playing - 60.) / 0.5).floor().min(11.)
+                                * std::f32::consts::TAU
+                                / 12.
+                        } else {
+                            (verification.playing - 1.) * 0.5
+                        }
+                    } else {
+                        sweep * 0.2
+                    }
+                } else {
+                    0.
+                };
             player.pitch = pitch;
+            if verification.moving_view && verification.playing >= 60. {
+                transform.translation = position;
+                if verification.reported < 12
+                    && verification.playing > 60.4 + verification.reported as f32 * 0.5
+                {
+                    commands
+                        .spawn(Screenshot::primary_window())
+                        .observe(save_to_disk(
+                            verification
+                                .output
+                                .join(format!("rotation-{}.png", verification.reported)),
+                        ));
+                    verification.reported += 1;
+                }
+            }
             let water_view = verification.survey >= definition.survey_views.len() + 5;
             // Allow exposure to settle before judging atmosphere/animation.
-            if verification.playing > if water_view { 8. } else { 4. } {
+            if verification.playing
+                > if verification.moving_view {
+                    66.
+                } else if verification.benchmark {
+                    14.
+                } else if water_view {
+                    8.
+                } else {
+                    4.
+                }
+            {
                 if let Ok((camera, projection)) = cameras.single_mut()
                     && let Projection::Perspective(perspective) = &*projection
                 {
@@ -271,6 +350,10 @@ fn check(
                     ));
                 verification.survey += 1;
                 verification.playing = 0.;
+                if verification.only_view {
+                    verification.stage = 2;
+                    next.set(GameState::GameOver);
+                }
             }
         } else {
             verification.stage = 2;
@@ -279,11 +362,26 @@ fn check(
         }
     }
     if verification.stage == 3 && verification.playing > 0.2 {
-        let passed = verification.round_two
-            && verification.moved
-            && session.round == 1
-            && surfaces.pending == 0;
-        let receipt = serde_json::json!({"passed":passed, "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round, "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances, "survey_views":verification.survey, "water_animation_seconds":verification.water_times, "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
+        let passed = session.round == 1
+            && surfaces.pending == 0
+            && if verification.benchmark {
+                (!verification.combat || verification.round_two)
+                    && verification.camera_views.len()
+                        == if verification.only_view {
+                            1
+                        } else {
+                            definition.survey_views.len() + 7
+                        }
+            } else {
+                verification.round_two && verification.moved
+            };
+        let receipt = serde_json::json!({"passed":passed,
+            "scope": if verification.benchmark && !verification.combat { "paused render survey and restart" } else { "combat movement round advance render survey and restart" },
+            "continuous_camera_motion": verification.moving_view,
+            "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round,
+            "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances,
+            "survey_views":verification.camera_views.len(), "water_animation_seconds":verification.water_times,
+            "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
         let _ = std::fs::write(
             verification.output.join("verification.json"),
             receipt.to_string(),

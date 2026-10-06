@@ -5,6 +5,7 @@ use crate::{
 };
 use bevy::{
     asset::RenderAssetUsages,
+    camera::visibility::NoFrustumCulling,
     camera::{Exposure, Hdr, primitives::Aabb},
     core_pipeline::tonemapping::Tonemapping,
     gltf::{GltfExtras, GltfMaterialName},
@@ -19,9 +20,13 @@ use std::collections::HashMap;
 mod mipmaps;
 mod opaque;
 pub(crate) mod profile;
+mod residency;
+mod shadow_cache;
 mod sky;
+mod static_probes;
 pub(crate) use opaque::OpaqueSurfaceStatus;
 pub(crate) use opaque::{LAYER_UV, LAYER3_UV, ROTATION1, ROTATION2};
+pub(crate) use shadow_cache::ShadowCacheStats;
 
 #[derive(Component)]
 pub struct GameCamera;
@@ -37,26 +42,42 @@ pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<opaque::OpaqueMaterial>::default())
+            .add_plugins(static_probes::StaticProbePlugin)
+            .add_plugins((shadow_cache::ShadowCachePlugin, residency::ResidencyPlugin))
             .init_resource::<profile::VisualProfile>()
             .init_resource::<OpaqueSurfaceStatus>()
             .add_systems(Startup, (setup, opaque::initialize))
             .add_systems(PostStartup, sky::setup)
+            .add_systems(Startup, cpu_clusters)
             .add_systems(
                 Update,
                 (
                     camera_follow,
                     opaque::probes,
+                    opaque::baked_lighting,
                     mipmaps::prepare.before(opaque::convert),
-                    (lightmaps, surfaces, opaque::convert, decode_lightmaps).chain(),
+                    (
+                        lightmaps,
+                        surfaces,
+                        opaque::convert.run_if(resource_exists::<opaque::BakedLightingReady>),
+                        decode_lightmaps,
+                    )
+                        .chain(),
                     opaque::animate_water.after(opaque::convert),
-                    lantern_shadows,
                     exposure.after(camera_follow),
                 ),
             );
     }
 }
 
+fn cpu_clusters(mut settings: ResMut<bevy::light::cluster::GlobalClusterSettings>) {
+    settings.gpu_clustering = None;
+}
+
 pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>) {
+    commands.insert_resource(bevy::light::PointLightShadowMap {
+        size: profile.lantern_shadow_map_size,
+    });
     commands.insert_resource(ClearColor(profile::color(profile.fog_color)));
     commands.insert_resource(GlobalAmbientLight {
         color: profile::color(profile.ambient_color),
@@ -80,7 +101,7 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
         )),
         Name::new("Origins sunlight"),
     ));
-    commands.spawn((
+    let mut camera = commands.spawn((
         Camera3d::default(),
         GameCamera,
         Transform::from_xyz(0., 2., 0.),
@@ -100,7 +121,10 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
             intensity: profile.bloom_intensity,
             ..default()
         },
-        Msaa::Sample4,
+        match profile.antialiasing {
+            profile::Antialiasing::Msaa4 => Msaa::Sample4,
+            profile::Antialiasing::Smaa => Msaa::Off,
+        },
         DistanceFog {
             color: profile::color(profile.fog_color),
             falloff: FogFalloff::Exponential {
@@ -109,6 +133,9 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
             ..default()
         },
     ));
+    if matches!(profile.antialiasing, profile::Antialiasing::Smaa) {
+        camera.insert(bevy::anti_alias::smaa::Smaa::default());
+    }
 }
 
 fn camera_follow(
@@ -133,8 +160,12 @@ fn camera_follow(
     } else {
         definition.tuning.eye_height
     };
-    camera.translation = body.translation + Vec3::Y * (eye - player.height * 0.5);
-    camera.rotation = Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch);
+    let target = Transform {
+        translation: body.translation + Vec3::Y * (eye - player.height * 0.5),
+        rotation: Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch),
+        ..*camera
+    };
+    camera.set_if_neq(target);
 }
 
 fn lightmaps(
@@ -284,28 +315,19 @@ fn surfaces(
                         intensity: profile.lantern_lumens,
                         range: profile.lantern_range,
                         radius: 0.12,
+                        shadow_maps_enabled: true,
                         ..default()
                     },
                     Transform::from_translation(Vec3::from(bounds.center)),
                     LanternLight,
+                    // Keep cube-array ownership stable across camera rotation.
+                    // Bevy still clusters the finite-range contribution per fragment.
+                    NoFrustumCulling,
                     Name::new("Origins warm lantern"),
                 ));
             });
         }
         commands.entity(entity).insert(SurfaceReady);
-    }
-}
-
-fn lantern_shadows(
-    camera: Query<&GlobalTransform, With<GameCamera>>,
-    mut lights: Query<(&GlobalTransform, &mut PointLight), With<LanternLight>>,
-) {
-    let Ok(camera) = camera.single() else { return };
-    for (transform, mut light) in &mut lights {
-        light.shadow_maps_enabled = transform
-            .translation()
-            .distance_squared(camera.translation())
-            < 100.;
     }
 }
 

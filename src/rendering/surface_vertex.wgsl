@@ -1,6 +1,7 @@
 #import "embedded://bevy_pbr/render/mesh.wgsl"::vertex as bevy_vertex
 #import bevy_pbr::forward_io::{Vertex, VertexOutput}
-@group(#{MATERIAL_BIND_GROUP}) @binding(127) var instance_lighting: texture_2d<f32>;
+#import origins::surface_bindings::instance_color
+#import bevy_pbr::mesh_bindings::mesh
 struct SurfaceVertex {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
@@ -64,8 +65,11 @@ fn vertex(input: SurfaceVertex) -> SurfaceOutput {
     out.layer3_uv = input.layer3_uv;
     out.rotation1 = input.rotation1;
     out.rotation2 = input.rotation2;
-    let width = textureDimensions(instance_lighting).x;
-    let index = u32(input.lighting_vertex);
-    out.baked_color = textureLoad(instance_lighting, vec2<i32>(i32(index % width),i32(index / width)),0).rgb;
+#ifdef BINDLESS
+    let slot = mesh[input.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
+#else
+    let slot = 0u;
+#endif
+    out.baked_color = instance_color(slot, u32(input.lighting_vertex));
     return out;
 }

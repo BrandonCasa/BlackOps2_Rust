@@ -19,13 +19,59 @@ use bevy::{
         AsBindGroup, Extent3d, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
         TextureDimension, TextureFormat, TextureViewDescriptor, TextureViewDimension, VertexFormat,
     },
-    shader::{Shader, ShaderRef},
+    render::storage::ShaderBuffer,
+    shader::{Shader, ShaderImport, ShaderRef},
 };
 use serde_json::Value;
 use std::collections::HashMap;
 
 const SHADER: Handle<Shader> = uuid_handle!("d61788a5-711f-4eb1-a7f7-bd1b9558da81");
 const VERTEX_SHADER: Handle<Shader> = uuid_handle!("e6ed1727-30d7-4c74-b53d-59cb68d0fa84");
+const BAKED_LIGHTING_SHADER: Handle<Shader> = uuid_handle!("febbf3da-9e6f-43b4-96bb-14ec1cfeb564");
+const BINDINGS_SHADER: Handle<Shader> = uuid_handle!("20c29018-2914-4277-b41a-a97c8ad9cf0e");
+
+#[derive(Resource)]
+pub(super) struct BakedLightingReady;
+
+// Use the pinned engine's lighting functions, with their baked-light conditions
+// independent of its per-entity Lightmap allocator. No lighting equations are copied.
+pub(super) fn baked_lighting(
+    mut commands: Commands,
+    mut shaders: ResMut<Assets<Shader>>,
+    ready: Option<Res<BakedLightingReady>>,
+    mut failure: ResMut<LoadFailure>,
+    mut next: ResMut<NextState<crate::GameState>>,
+) {
+    if ready.is_some() {
+        return;
+    }
+    let Some(source) = shaders.iter().find_map(|(_, shader)| {
+        (shader.import_path == ShaderImport::Custom("bevy_pbr::pbr_functions".into()))
+            .then(|| shader.source.as_str().to_string())
+    }) else {
+        return;
+    };
+    if source.matches("#ifdef LIGHTMAP").count() != 5 {
+        failure.0 = "Pinned Bevy baked-lighting adapter no longer matches the engine shader".into();
+        next.set(crate::GameState::LoadError);
+        error!("{}", failure.0);
+        return;
+    }
+    let adapted = source
+        .replacen(
+            "#define_import_path bevy_pbr::pbr_functions",
+            "#define_import_path origins::baked_lighting",
+            1,
+        )
+        .replace("#ifdef LIGHTMAP", "#ifdef ORIGINS_BAKED_LIGHTING");
+    shaders
+        .insert(
+            BAKED_LIGHTING_SHADER.id(),
+            Shader::from_wgsl(adapted, "origins::baked_lighting"),
+        )
+        .expect("Shader UUID is valid");
+    commands.insert_resource(BakedLightingReady);
+}
 pub(crate) const LAYER_UV: MeshVertexAttribute =
     MeshVertexAttribute::new("OriginsLayerUv", 10001, VertexFormat::Float32x4);
 pub(crate) const LAYER3_UV: MeshVertexAttribute =
@@ -64,6 +110,28 @@ impl OpaqueSurfaceStatus {
     }
 }
 
+// Preparation-only face images and per-corner source arrays are no longer
+// needed once all instances have their materials and vertex attributes.
+pub(super) fn release_preparation(library: &mut SurfaceLibrary) -> Vec<AssetId<Image>> {
+    let mut images = Vec::new();
+    for probe in &mut library.probes {
+        probe.faces.clear();
+        if let Some(reflection) = &probe.reflection {
+            images.push(reflection.id());
+        }
+    }
+    library.lighting_vertices.clear();
+    library.lighting_vertices.shrink_to_fit();
+    images.extend(library.static_colors.values().map(Handle::id));
+    images.push(library.black_cube.id());
+    for definition in library.definitions.values_mut() {
+        definition.channels.clear();
+    }
+    library.static_colors.clear();
+    library.lightmaps.clear();
+    images
+}
+
 // x: normal slope scale; y: gloss-to-roughness exponent; z: F0 scale; w: tile repeats.
 // modes: tile bake, first specular, second specular, baked lighting kind (0/atlas/SH/colors).
 #[derive(Clone, Copy, Debug, Reflect, ShaderType)]
@@ -83,8 +151,10 @@ struct SurfaceParameters {
 }
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+#[bind_group_data(OpaqueSurfaceKey)]
+#[data(100, SurfaceParameters, binding_array(130))]
+#[bindless(limit(4096), index_table(range(100..129), binding(129)))]
 pub(super) struct OpaqueSurface {
-    #[uniform(100)]
     parameters: SurfaceParameters,
     #[texture(101)]
     #[sampler(102)]
@@ -127,6 +197,27 @@ pub(super) struct OpaqueSurface {
     third_specular: Option<Handle<Image>>,
     #[texture(127)]
     instance_lighting: Option<Handle<Image>>,
+    #[storage(128, read_only, binding_array(132))]
+    animation_clock: Handle<ShaderBuffer>,
+}
+
+impl From<&OpaqueSurface> for SurfaceParameters {
+    fn from(surface: &OpaqueSurface) -> Self {
+        surface.parameters
+    }
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+pub(super) struct OpaqueSurfaceKey {
+    baked: bool,
+}
+
+impl From<&OpaqueSurface> for OpaqueSurfaceKey {
+    fn from(surface: &OpaqueSurface) -> Self {
+        Self {
+            baked: surface.parameters.modes.w != 0,
+        }
+    }
 }
 
 impl MaterialExtension for OpaqueSurface {
@@ -140,12 +231,18 @@ impl MaterialExtension for OpaqueSurface {
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         layout: &MeshVertexBufferLayoutRef,
-        _key: MaterialExtensionKey<Self>,
+        key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         // Bevy's shadow/depth prepass uses its own locations (including color at 7).
         // Only the forward adapter needs the additional authored layer attributes.
         if descriptor.vertex.shader != VERTEX_SHADER {
             return Ok(());
+        }
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment.shader_defs.push(bevy::shader::ShaderDefVal::Bool(
+                "ORIGINS_BAKED_LIGHTING".into(),
+                key.bind_group_data.baked,
+            ));
         }
         let mut attributes = vec![
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
@@ -194,11 +291,10 @@ pub(super) struct SurfaceLibrary {
     static_colors: HashMap<u64, Handle<Image>>,
     lighting_vertices: HashMap<usize, Vec<f32>>,
     lightmaps: HashMap<String, Handle<Image>>,
-    black: Handle<Image>,
     black_cube: Handle<Image>,
     // Identity + source node lighting metadata preserves assignment-specific materials.
     materials: HashMap<(AssetId<StandardMaterial>, String), Handle<OpaqueMaterial>>,
-    water_materials: Vec<Handle<OpaqueMaterial>>,
+    animation_clock: Handle<ShaderBuffer>,
 }
 
 fn data_texture(server: &AssetServer, path: String, repeat: bool) -> Handle<Image> {
@@ -222,6 +318,7 @@ pub(super) fn initialize(
     server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
     mut shaders: ResMut<Assets<Shader>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
@@ -448,13 +545,6 @@ pub(super) fn initialize(
                 static_colors.insert(index, images.add(image));
             }
         }
-        let black = images.add(Image::new_fill(
-            Extent3d::default(),
-            TextureDimension::D2,
-            &[0, 0, 0, 255],
-            TextureFormat::Rgba8Unorm,
-            RenderAssetUsages::default(),
-        ));
         let mut cube = Image::new_fill(
             Extent3d {
                 width: 1,
@@ -476,14 +566,22 @@ pub(super) fn initialize(
             static_colors,
             lighting_vertices,
             lightmaps: HashMap::new(),
-            black,
             black_cube: images.add(cube),
             materials: HashMap::new(),
-            water_materials: Vec::new(),
+            animation_clock: buffers.add(ShaderBuffer::from(Vec4::ZERO)),
         })
     })();
     match result {
         Ok(library) => {
+            shaders
+                .insert(
+                    BINDINGS_SHADER.id(),
+                    Shader::from_wgsl(
+                        include_str!("surface_bindings.wgsl"),
+                        "origins::surface_bindings",
+                    ),
+                )
+                .expect("Shader UUID is valid");
             shaders
                 .insert(
                     VERTEX_SHADER.id(),
@@ -608,13 +706,13 @@ pub(super) fn probes(
 pub(super) fn animate_water(
     time: Res<Time<Real>>,
     library: Option<Res<SurfaceLibrary>>,
-    mut materials: ResMut<Assets<OpaqueMaterial>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
 ) {
     let Some(library) = library else { return };
-    for handle in &library.water_materials {
-        if let Some(mut material) = materials.get_mut(handle) {
-            material.extension.parameters.radiance.z = time.elapsed_secs();
-        }
+    // Updating material assets would churn bindless slabs and invalidate cached
+    // shadow queues. Bevy uploads one shared buffer in place; materials stay static.
+    if let Some(mut clock) = buffers.get_mut(&library.animation_clock) {
+        clock.set_data(Vec4::new(time.elapsed_secs(), 0., 0., 0.));
     }
 }
 
@@ -687,7 +785,6 @@ pub(super) fn convert(
             .as_u64()
             .and_then(|i| library.static_colors.get(&i))
             .cloned();
-        let baked = lightmap_path.is_some() || colors.is_some() || probe.is_some();
         let handle = if let Some(handle) = library.materials.get(&key) {
             handle.clone()
         } else {
@@ -790,6 +887,7 @@ pub(super) fn convert(
                 third_normal: channel("normal", 2),
                 third_specular: channel("specular_gloss", 2),
                 instance_lighting: colors.clone(),
+                animation_clock: library.animation_clock.clone(),
             };
             let mut base = base.clone();
             base.normal_map_texture = None;
@@ -817,14 +915,11 @@ pub(super) fn convert(
                 );
             }
             let handle = materials.add(ExtendedMaterial { base, extension });
-            if water {
-                library.water_materials.push(handle.clone());
-            }
             library.materials.insert(key, handle.clone());
             handle
         };
-        // A zero Bevy lightmap marks baked meshes for standard light/ambient exclusion.
-        // Our fragment supplies the directional/HDR irradiance exactly once instead.
+        // Baked-light exclusion is a material pipeline key, without allocating a
+        // dummy Bevy lightmap slot (and mesh bind group) for every placement.
         {
             let lighting_vertices = server
                 .get_path(mesh.0.id())
@@ -875,18 +970,12 @@ pub(super) fn convert(
                 mesh.insert_attribute(ROTATION1, vec![[1., 0., 0., 1.]; count]);
                 mesh.insert_attribute(ROTATION2, vec![[1., 0., 0., 1.]; count]);
             }
-            if baked {
-                commands.entity(entity).insert(Lightmap {
-                    image: library.black.clone(),
-                    uv_rect: Rect::new(0., 0., 1., 1.),
-                    bicubic_sampling: false,
-                });
-            }
         }
         commands
             .entity(entity)
             .remove::<MeshMaterial3d<StandardMaterial>>()
             .remove::<PendingLightmap>()
+            .remove::<Lightmap>()
             .insert((MeshMaterial3d(handle.clone()), OpaqueReady));
         if lighting.get("lighting_id").is_some() {
             status.static_models += 1;

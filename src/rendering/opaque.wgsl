@@ -2,45 +2,19 @@
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
     pbr_fragment::pbr_input_from_standard_material,
-    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_tbn_mikktspace, alpha_discard},
+    pbr_functions::{main_pass_post_lighting_processing, calculate_tbn_mikktspace, alpha_discard},
     lighting::F_AB,
     mesh_view_bindings::view,
     pbr_types::{STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS},
 }
+#import origins::baked_lighting::apply_pbr_lighting
 
-struct SurfaceParameters {
-    response: vec4<f32>,
-    radiance: vec4<f32>,
-    modes: vec4<u32>,
-    lighting: vec4<f32>,
-    sh0: vec4<f32>,
-    sh1: vec4<f32>,
-    sh2: vec4<f32>,
-    layers: vec4<u32>,
-    reveal: vec4<f32>,
-    wetness: vec4<f32>,
-    water: vec4<f32>,
-    velocity: vec4<f32>,
-}
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: SurfaceParameters;
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var normal_map: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var normal_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(103) var second_normal: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(104) var second_normal_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(105) var specular_map: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(106) var specular_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(107) var second_specular: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(108) var second_specular_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(109) var control_map: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(110) var control_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(111) var packed_lightmap: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(112) var lightmap_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(113) var reflection_map: texture_cube<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(114) var reflection_sampler: sampler;
+#import origins::surface_bindings::{OriginsSurfaceData, animation_time, parameters_for, atlas_dimensions, reflection_levels, sample_reflection, sample_normal_map, sample_second_normal, sample_specular_map, sample_second_specular, sample_control_map, sample_packed_lightmap, sample_color0, sample_color1, sample_color2, sample_color3, sample_third_normal, sample_third_specular}
+#import bevy_pbr::mesh_bindings::mesh
 
-fn normal_slope(sampled: vec2<f32>) -> vec2<f32> {
+fn normal_slope(sampled: vec2<f32>, strength: f32) -> vec2<f32> {
     // Raw BC5 source slope convention, with DirectX Y reversed for glTF tangents.
-    return (sampled * 4.015748 - 2.015748) * vec2(1.0, -1.0) * surface.response.x;
+    return (sampled * 4.015748 - 2.015748) * vec2(1.0, -1.0) * strength;
 }
 
 fn source_basis(direction: vec3<f32>) -> vec3<f32> {
@@ -48,19 +22,19 @@ fn source_basis(direction: vec3<f32>) -> vec3<f32> {
     return vec3(direction.x, -direction.z, direction.y);
 }
 
-fn probe_diffuse(normal: vec3<f32>) -> vec3<f32> {
+fn probe_diffuse(normal: vec3<f32>, surface: OriginsSurfaceData) -> vec3<f32> {
     let n = source_basis(normal);
-    let k = dot(surface.sh2, vec4(n.z*n.x, n.y*n.z, n.x*n.y, n.x*n.x-n.y*n.y))
-        + dot(surface.sh1, vec4(n, 1.0)) + surface.sh0.w*n.z*n.z;
-    return max(surface.sh0.rgb * k, vec3(0.0));
+    let k = dot(surface.sh_two, vec4(n.z*n.x, n.y*n.z, n.x*n.y, n.x*n.x-n.y*n.y))
+        + dot(surface.sh_one, vec4(n, 1.0)) + surface.sh_zero.w*n.z*n.z;
+    return max(surface.sh_zero.rgb * k, vec3(0.0));
 }
 
-fn atlas_sample(uv: vec2<f32>, band: f32) -> vec4<f32> {
+fn atlas_sample(slot: u32, uv: vec2<f32>, band: f32) -> vec4<f32> {
     // Clamp within each band to avoid bilinear bleeding into its neighbour.
-    let dimensions = vec2<f32>(textureDimensions(packed_lightmap));
+    let dimensions = vec2<f32>(atlas_dimensions(slot));
     let inset = vec2(0.5) / vec2(dimensions.x, dimensions.y / 3.0);
     let w = clamp(uv, inset, vec2(1.0) - inset);
-    return textureSample(packed_lightmap, lightmap_sampler, vec2(w.x, (w.y+band)/3.0));
+    return sample_packed_lightmap(slot, vec2(w.x, (w.y+band)/3.0));
 }
 
 fn reveal(control: f32, alpha: f32, parameters: vec2<f32>) -> f32 {
@@ -83,6 +57,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     @location(8) layer_uv: vec4<f32>, @location(9) layer3_uv: vec2<f32>,
     @location(10) rotation1: vec4<f32>, @location(11) rotation2: vec4<f32>,
     @location(12) baked_color: vec3<f32>) -> FragmentOutput {
+    #ifdef BINDLESS
+    let slot = mesh[in.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
+#else
+    let slot = 0u;
+#endif
+    let surface = parameters_for(slot);
     var standard = in;
     let layered = surface.layers.x > 1u;
     if layered { standard.color = vec4(1.0); }
@@ -97,25 +77,25 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     let water = (surface.modes.x & 16u) != 0u;
     let tile_macro = (surface.modes.x & 1u) != 0u;
     if tile_macro {
-        let mask = textureSample(control_map, control_sampler, in.uv).rg;
+        let mask = sample_control_map(slot, in.uv).rg;
         weights = vec3(mask.g,mask.r,0.0)/max(mask.r+mask.g,0.0001);
         // Normal 0 describes the whole object's shape at authored UVs.
         // Normals 1/2 accompany coating/core (color 1/0), respectively.
         uv1 = in.uv * surface.response.w;
     }
-    var slope0 = select(vec2(0.0), normal_slope(textureSample(normal_map, normal_sampler, uv0).rg), (surface.modes.x & 2u) != 0u);
-    var slope1 = select(vec2(0.0), normal_slope(textureSample(second_normal, second_normal_sampler, uv1).rg), (surface.modes.x & 4u) != 0u);
+    var slope0 = select(vec2(0.0), normal_slope(sample_normal_map(slot, uv0).rg, surface.response.x), (surface.modes.x & 2u) != 0u);
+    var slope1 = select(vec2(0.0), normal_slope(sample_second_normal(slot, uv1).rg, surface.response.x), (surface.modes.x & 4u) != 0u);
     var slope2 = vec2(0.0);
-    var s0 = select(vec4(0.5,0.5,0.5,0.36), textureSample(specular_map,specular_sampler,uv0), surface.modes.y != 0u);
-    var s1 = select(s0, textureSample(second_specular,second_specular_sampler,uv1), (surface.modes.z & 1u) != 0u);
+    var s0 = select(vec4(0.5,0.5,0.5,0.36), sample_specular_map(slot, uv0), surface.modes.y != 0u);
+    var s1 = select(s0, sample_second_specular(slot, uv1), (surface.modes.z & 1u) != 0u);
     var s2 = s0;
     if layered {
         uv1 = layer_uv.xy;
         uv2 = layer_uv.zw;
-        let c0 = textureSample(color0,color0_sampler,uv0);
-        let c1 = textureSample(color1,color1_sampler,uv1);
-        let c2 = textureSample(color2,color2_sampler,uv2);
-        let c3 = textureSample(color3,color3_sampler,layer3_uv);
+        let c0 = sample_color0(slot, uv0);
+        let c1 = sample_color1(slot, uv1);
+        let c2 = sample_color2(slot, uv2);
+        let c3 = sample_color3(slot, layer3_uv);
         // Authored vertex G/B control consecutive overlays. Alpha is the retained
         // texture reveal/macro mask, sampled as data by the sRGB texture's alpha.
         let w1 = reveal(in.color.g,c1.a,surface.reveal.xy);
@@ -127,29 +107,29 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         let response1 = select(0.0,w1,surface.layers.y == 1u);
         let response2 = select(0.0,w2,surface.layers.z == 1u);
         weights = vec3((1.0-response1)*(1.0-response2),response1*(1.0-response2),response2);
-        slope1 = select(slope0,orient(normal_slope(textureSample(second_normal,second_normal_sampler,uv1).rg),rotation1),(surface.modes.x & 4u) != 0u);
-        slope2 = select(slope0,orient(normal_slope(textureSample(third_normal,third_normal_sampler,uv2).rg),rotation2),(surface.modes.x & 8u) != 0u);
-        s1 = select(s0,textureSample(second_specular,second_specular_sampler,uv1),(surface.modes.z & 1u) != 0u);
-        s2 = select(s0,textureSample(third_specular,third_specular_sampler,uv2),(surface.modes.z & 2u) != 0u);
+        slope1 = select(slope0,orient(normal_slope(sample_second_normal(slot, uv1).rg, surface.response.x),rotation1),(surface.modes.x & 4u) != 0u);
+        slope2 = select(slope0,orient(normal_slope(sample_third_normal(slot, uv2).rg, surface.response.x),rotation2),(surface.modes.x & 8u) != 0u);
+        s1 = select(s0,sample_second_specular(slot, uv1),(surface.modes.z & 1u) != 0u);
+        s2 = select(s0,sample_third_specular(slot, uv2),(surface.modes.z & 2u) != 0u);
     }
     var slope = slope0*weights.x+slope1*weights.y+slope2*weights.z;
     var sg = s0*weights.x+s1*weights.y+s2*weights.z;
     if tile_macro {
-        let coating = select(vec2(0.0),normal_slope(textureSample(second_normal,second_normal_sampler,uv1).rg),(surface.modes.x & 4u) != 0u);
-        let core = select(vec2(0.0),normal_slope(textureSample(third_normal,third_normal_sampler,uv1).rg),(surface.modes.x & 8u) != 0u);
+        let coating = select(vec2(0.0),normal_slope(sample_second_normal(slot, uv1).rg, surface.response.x),(surface.modes.x & 4u) != 0u);
+        let core = select(vec2(0.0),normal_slope(sample_third_normal(slot, uv1).rg, surface.response.x),(surface.modes.x & 8u) != 0u);
         // Blend detail slopes onto the unscaled macro normal. The shared diffuse
         // bake already includes this mask's occlusion, so do not multiply it again.
         slope = slope0 + core*weights.x + coating*weights.y;
-        s0 = select(vec4(0.5,0.5,0.5,0.36),textureSample(specular_map,specular_sampler,uv1),surface.modes.y != 0u);
-        s1 = select(s0,textureSample(second_specular,second_specular_sampler,uv1),(surface.modes.z & 1u) != 0u);
+        s0 = select(vec4(0.5,0.5,0.5,0.36),sample_specular_map(slot, uv1),surface.modes.y != 0u);
+        s1 = select(s0,sample_second_specular(slot, uv1),(surface.modes.z & 1u) != 0u);
         // Specular bindings follow coating/core order, like detail normals.
         sg = s0*weights.y+s1*weights.x;
     }
     if water {
-        let t = surface.radiance.z;
+        let t = animation_time(slot);
         let wuv = in.uv*surface.water.z;
-        let a = normal_slope(textureSample(normal_map,normal_sampler,wuv+t*surface.velocity.xy).rg);
-        let b = normal_slope(textureSample(second_normal,second_normal_sampler,wuv*1.37+t*surface.velocity.zw).rg);
+        let a = normal_slope(sample_normal_map(slot, wuv+t*surface.velocity.xy).rg, surface.response.x);
+        let b = normal_slope(sample_second_normal(slot, wuv*1.37+t*surface.velocity.zw).rg, surface.response.x);
         slope = (a+b)*surface.water.x;
         sg = vec4(vec3(sqrt(0.02/surface.response.z)),1.0-surface.water.y*surface.water.y);
         // Transparent tint approximates shallow refraction; no opaque scene copy.
@@ -169,18 +149,18 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     pbr.material.base_color = alpha_discard(pbr.material,pbr.material.base_color);
     if surface.modes.w == 1u {
 #ifdef VERTEX_UVS_B
-        let ambient = atlas_sample(in.uv_b, 0.0);
-        let directional = atlas_sample(in.uv_b, 1.0);
-        let direction = atlas_sample(in.uv_b, 2.0).rgb*2.0-1.0;
+        let ambient = atlas_sample(slot, in.uv_b, 0.0);
+        let directional = atlas_sample(slot, in.uv_b, 1.0);
+        let direction = atlas_sample(slot, in.uv_b, 2.0).rgb*2.0-1.0;
         let world_direction = vec3(direction.x, direction.z, -direction.y);
         pbr.lightmap_light = (ambient.rgb/max(ambient.a, 1.0/255.0)
             + directional.rgb/max(directional.a, 1.0/255.0)*clamp(dot(world_direction,pbr.N),0.0,1.0))*surface.radiance.x;
 #endif
     } else if surface.modes.w == 2u {
-        pbr.lightmap_light = probe_diffuse(pbr.N)*surface.radiance.x;
+        pbr.lightmap_light = probe_diffuse(pbr.N, surface)*surface.radiance.x;
     } else if surface.modes.w == 3u {
         // Interpolated retained instance irradiance; alpha is not surface opacity.
-        pbr.lightmap_light = (baked_color + probe_diffuse(pbr.N)*surface.radiance.w)*surface.radiance.x;
+        pbr.lightmap_light = (baked_color + probe_diffuse(pbr.N, surface)*surface.radiance.w)*surface.radiance.x;
     }
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr);
@@ -190,8 +170,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         let source = source_basis(r);
         // Retained DDS faces already use source sampling axes. Unlike a cube
         // authored for Bevy's world basis, this requires no additional Z flip.
-        let radiance = textureSampleLevel(reflection_map, reflection_sampler,
-            source, roughness*f32(textureNumLevels(reflection_map)-1u)).rgb;
+        let radiance = sample_reflection(slot,
+            source, roughness*f32(reflection_levels(slot)-1u)).rgb;
         let fab = F_AB(roughness, max(dot(pbr.N,pbr.V),0.0001));
         let reflection_weight = (f0*fab.x + fab.y)*pbr.specular_occlusion;
         out.color = vec4(out.color.rgb + radiance*reflection_weight*surface.radiance.y*view.exposure, out.color.a);
@@ -204,21 +184,3 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     }
     return out;
 }
-
-@group(#{MATERIAL_BIND_GROUP}) @binding(115) var color0: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(116) var color0_sampler: sampler;
-
-@group(#{MATERIAL_BIND_GROUP}) @binding(117) var color1: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(118) var color1_sampler: sampler;
-
-@group(#{MATERIAL_BIND_GROUP}) @binding(119) var color2: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(120) var color2_sampler: sampler;
-
-@group(#{MATERIAL_BIND_GROUP}) @binding(121) var color3: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(122) var color3_sampler: sampler;
-
-@group(#{MATERIAL_BIND_GROUP}) @binding(123) var third_normal: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(124) var third_normal_sampler: sampler;
-
-@group(#{MATERIAL_BIND_GROUP}) @binding(125) var third_specular: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(126) var third_specular_sampler: sampler;

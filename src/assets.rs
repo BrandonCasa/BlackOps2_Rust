@@ -12,6 +12,11 @@ use crate::GameState;
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
     pub verify: Option<PathBuf>,
+    pub benchmark: bool,
+    pub benchmark_view: Option<usize>,
+    pub benchmark_motion: bool,
+    pub benchmark_combat: bool,
+    pub uncached_shadows: bool,
     pub error: Option<String>,
 }
 
@@ -19,11 +24,40 @@ impl LaunchOptions {
     pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
         let mut result = Self::default();
         if let Some(argument) = args.next() {
-            if argument == "--verify" {
+            if argument == "--verify"
+                || argument == "--benchmark"
+                || argument == "--benchmark-view"
+                || argument == "--benchmark-moving-view"
+                || argument == "--benchmark-combat"
+            {
+                result.benchmark = argument != "--verify";
                 result.verify = args.next().map(PathBuf::from);
+                result.benchmark_motion = argument == "--benchmark-moving-view";
+                result.benchmark_combat = argument == "--benchmark-combat";
+                if result.benchmark_combat {
+                    result.benchmark_view = Some(8);
+                }
+                if argument == "--benchmark-view" || result.benchmark_motion {
+                    result.benchmark_view =
+                        args.next().and_then(|value| value.to_str()?.parse().ok());
+                    if result.benchmark_view.is_none() {
+                        result.error = Some(
+                            "View benchmarks require an external folder and a view index".into(),
+                        );
+                    }
+                }
+            }
+            let remaining = args.next();
+            if result.benchmark
+                && remaining.as_deref() == Some(std::ffi::OsStr::new("--uncached-shadows"))
+            {
+                result.uncached_shadows = true;
+            } else if remaining.is_some() {
+                result.error = Some("Unexpected launch argument".into());
             }
             if result.verify.is_none() || args.next().is_some() {
-                result.error = Some("Usage: origins [--verify external-output-folder]".into());
+                result.error =
+                    Some("Usage: origins [--verify|--benchmark external-output-folder] or [--benchmark-view|--benchmark-moving-view external-output-folder index]".into());
             }
         }
         result

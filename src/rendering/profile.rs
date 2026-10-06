@@ -3,6 +3,12 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 
+#[derive(Deserialize, serde::Serialize)]
+pub(crate) enum Antialiasing {
+    Msaa4,
+    Smaa,
+}
+
 #[derive(Resource, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct VisualProfile {
@@ -23,6 +29,7 @@ pub(crate) struct VisualProfile {
     pub reveal_softness: f32,
     pub post_saturation: f32,
     pub comparison_fov_degrees: f32,
+    pub antialiasing: Antialiasing,
     pub reflection_radiance: f32,
     pub normal_strength: f32,
     pub tile_normal_strength: f32,
@@ -34,6 +41,7 @@ pub(crate) struct VisualProfile {
     pub lantern_color: [f32; 3],
     pub lantern_lumens: f32,
     pub lantern_range: f32,
+    pub lantern_shadow_map_size: usize,
     pub emissive_nits: f32,
     pub lantern_emissive_nits: f32,
     pub water_color: [f32; 3],

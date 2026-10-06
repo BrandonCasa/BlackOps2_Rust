@@ -79,7 +79,7 @@ fn update(
         .single()
         .map(|v| v.current().unwrap_or(0))
         .unwrap_or(0);
-    **text = match **state {
+    let value = match **state {
         GameState::Loading => "Loading Origins…".into(),
         GameState::LoadError => format!("Unable to load Origins\n{}", failure.0),
         GameState::Paused => "Paused — Escape or click to resume\nWASD move | mouse look | Shift sprint | Space jump | Ctrl crouch\nLeft click fire | right click/V melee | R reload".into(),
@@ -98,4 +98,7 @@ fn update(
             }
         ),
     };
+    if text.0 != value {
+        text.0 = value;
+    }
 }

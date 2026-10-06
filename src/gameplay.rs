@@ -173,9 +173,31 @@ impl Navigation {
 }
 
 pub struct GameplayPlugin;
+#[derive(Resource)]
+struct ZombieVisuals {
+    mesh: Handle<Mesh>,
+    material: Handle<StandardMaterial>,
+}
+
+fn zombie_visuals(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.insert_resource(ZombieVisuals {
+        mesh: meshes.add(Capsule3d::new(0.3, 1.1)),
+        material: materials.add(StandardMaterial {
+            base_color: Color::srgb(0.32, 0.4, 0.28),
+            perceptual_roughness: 0.9,
+            ..default()
+        }),
+    });
+}
+
 impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Session>()
+            .add_systems(Startup, zombie_visuals)
             .init_resource::<Navigation>()
             .configure_sets(
                 FixedUpdate,
@@ -503,8 +525,7 @@ fn rounds(
     enemies: Query<&Vitality, With<Zombie>>,
     mut commands: Commands,
     query: SpatialQuery,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    visuals: Res<ZombieVisuals>,
     navigation: Res<Navigation>,
 ) {
     let living = enemies
@@ -579,12 +600,8 @@ fn rounds(
         shape,
         health,
         SessionEntity,
-        Mesh3d(meshes.add(Capsule3d::new(0.3, 1.1))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.32, 0.4, 0.28),
-            perceptual_roughness: 0.9,
-            ..default()
-        })),
+        Mesh3d(visuals.mesh.clone()),
+        MeshMaterial3d(visuals.material.clone()),
         Transform::from_translation(position),
         Name::new("Temporary zombie"),
     ));

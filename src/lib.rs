@@ -26,8 +26,15 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     let options = assets::LaunchOptions::parse(arguments);
     let configuration = assets::AssetPack::discover();
     let mut app = App::new();
+    let benchmark = options.benchmark;
     app.add_plugins(
         DefaultPlugins
+            .build()
+            .disable::<bevy::anti_alias::AntiAliasPlugin>()
+            .set(bevy::pbr::PbrPlugin {
+                use_gpu_instance_buffer_builder: false,
+                ..default()
+            })
             .set(
                 bevy::gltf::GltfPlugin::default()
                     .add_custom_vertex_attribute("ORIGINS_LAYER_UV", rendering::LAYER_UV)
@@ -39,6 +46,11 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
                 primary_window: Some(Window {
                     title: "Origins".into(),
                     resolution: (1280, 720).into(),
+                    present_mode: if benchmark {
+                        bevy::window::PresentMode::AutoNoVsync
+                    } else {
+                        default()
+                    },
                     ..default()
                 }),
                 ..default()
@@ -51,6 +63,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
                 ..default()
             }),
     )
+    .add_plugins(bevy::anti_alias::smaa::SmaaPlugin)
     .add_plugins(avian3d::prelude::PhysicsPlugins::default())
     .init_state::<GameState>()
     .insert_resource(Time::<Fixed>::from_hz(60.0))
@@ -65,5 +78,8 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
+    if benchmark && !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
+        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    }
     app
 }
