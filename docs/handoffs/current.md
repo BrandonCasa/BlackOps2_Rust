@@ -1,33 +1,30 @@
 TASK:
-Correct the loose rocks/rubble so their surface response and illumination fit the supplied original room reference; make a local commit.
+Review the external PLAN (3).md with at least three independent subagents and edit it for very high realism, modern rendering, clear detail and Forward+.
 
 STATUS:
-COMPLETE - scoped rubble shading/lighting correction validated in the actual game. Exact original image equivalence remains unverified.
+COMPLETE - three source-grounded reviews incorporated into the external plan. Rendering implementation remains unverified.
 
 FINDINGS:
-- Tile/macro normal binding 0 contains whole-object shape. The previous shader incorrectly tiled it fourfold, blended it as core detail and never sampled detail normal 2.
-- Retained normal bindings 1/2 are coating/core, paired with color bindings 1/0. Specular bindings 0/1 also follow coating/core order. Macro red/green weights coating/core; diffuse already retains macro occlusion.
-- Normal correction alone helped but did not resolve the user's appearance concern. At the spawn-room rubble, 708 nearby up-facing world corners have median irradiance RGB approximately (80,147,183); upward assigned SH at ordinary gain 22 gives (32,52,63). Separate tile gain 60 gives (86,142,172), narrowing the lighting discontinuity.
+- The existing material adapter changes baked-light guards, not the custom BRDF in point/spot/sun evaluations.
+- Current-frame cube filtering requires explicit render-graph dependencies; the existing shadow cache assumes one camera.
+- GI needs defined source/path ownership, Bevy/Cycles unit conversion, equivalent offline material closures, topology/visibility and a new HDR decode contract.
+- Metallic response, dual GGX versus coatings, spatial/alpha filtering and full closure migration need explicit correctness criteria.
+- User requires every feature in the finished runtime, accepts even 1 FPS and excludes optimization. No reduced-quality shipping path or FPS acceptance target.
 
 EVIDENCE:
-Supplied original/current clipboard comparison; retained external game-prepare/instances/model-surfaces.json and committed material channels. Rubble macro/detail identities are p6_rocks_cluster_01_n, rubble_concrete_dust01_n and concrete_wall_broken_n; pillar/monolith bindings confirm the same layout. External inspection/rubble-normal-fix contains run-1 (normals only), run-2 (final), lighting-calibration.json, cargo-metadata.json and comparison.jpg. The comparison uses the previous visual-profile/run-11 and final run-2 room view 8; final camera receipts preserve pose/projection.
+Read the dirty worktree, project state, rendering/asset source and pinned Bevy 0.19.1 modules. Independent reviewers: forward_plus_review, gi_asset_review and realism_clarity_review. Primary Callisto, Filament, Cycles and irradiance-field references are linked in the external plan. Revised plan SHA256: F76F79CB43E687C12DE63E5B14D484F2EA34845048DB9777A8259D24BC901B59.
 
 CHANGES:
-- Sample macro normals at authored UVs; add masked coating/core detail slopes at fourfold UVs. Correct corresponding specular sampling and weights. Keep the shared diffuse bake sampled once.
-- Add embedded tile_probe_radiance=60 for probe-only tile/macro materials. Ordinary prop gain 22, vertex/atlas gains and retained probe colors remain in use. Existing shared providers/placements and Bevy material pipeline remain intact.
-- Update rendering guidance and this one handoff. Runtime asset bytes remain unchanged.
+Replace the external plan with separate prioritized critique and a correctness-first full-runtime implementation/acceptance plan. Replace this current handoff. Preserve all pre-existing dirty source/assets and the prior rubble implementation at 39c5021.
 
 VALIDATION:
-- Final locked Cargo metadata, release build and formatting passed with the installed toolchain; git diff whitespace check passed. Complete committed runtime closure validation passed with 1,252 hashed files.
-- Both actual game-window driver receipts passed movement, Round 2, restart to Round 1, all 15 views and pending=0. Final info-level log has no shader/render warnings or errors. Inspected final fixed room, room side view and outdoor captures; loose rocks have clearer shape response and lighter cool illumination that joins the surrounding terrain.
-- Initial texture inspection failed because default Python lacked Pillow; reran successfully through the existing uv dependency environment.
-- Tracked Markdown remains 20. No tests/suites/fixtures or Clippy were added or run. Skipped manual/sustained play, packaging, pixel/native parity and push. Driver exercise is not manual play.
+All three reviews completed read-only. Revised file reread; 14 local evidence links resolve; Markdown fences balanced; explicit Forward+, full-runtime quality and optimization exclusions present. Tracked Markdown remains 20. No builds, game runs, asset validation, tests, fixtures, Clippy or packaging performed for this planning-only request. No push.
 
 UNRESOLVED:
-The later supplied close-up calls for a broader broken-concrete pattern on large rocks. That diffuse-pattern refinement was not implemented: the user requested committing the current normal/lighting changes and stopping further refinement. Fourfold repeats, slope addition and family radiance calibration are practical reconstructions. SH/native light transfer is approximate. The supplied original view differs in camera pose. Whole-room brightness, native smoke/sky and individual surface responses are outside this bounded correction.
+Shader integration, offline material equivalence, lossless field decoding, GI convergence, multiview/current-frame reflection correctness and actual-window image quality require implementation and runtime evidence. Static GI does not establish dynamic bounce lighting. Temporary actor/weapon and missing atmosphere content still limit final realism.
 
 RECOMMENDED NEXT WORK:
-Continue reference-driven local surface refinements where useful. Preserve the complete gameplay roadmap; replace temporary weapon/arms, actors and HUD through licensed preparation in a separate milestone.
+Implement the revised external plan sequentially in origins.exe, beginning with radiometric/path contracts and complete Forward+ material integration. Sampling and resolution follow image correctness; optimization is outside scope.
 
 SCOPE NOT IMPLEMENTED:
-Geometry redesign, new asset preparation/import, original shaders, a separate renderer/viewer, capture-fed scene content, unrelated gameplay/atmosphere changes, tests, Clippy, packaging or push.
+New renderer features, new baked/runtime assets, gameplay/content changes, performance optimization, tests/Clippy, packaging or push. This review is not new rendered or played evidence.
