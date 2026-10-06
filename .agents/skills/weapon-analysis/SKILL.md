@@ -1,61 +1,17 @@
 ---
 name: weapon-analysis
-description: Investigate one shared weapon-definition pattern or measure and implement one evidenced weapon transition. Use for weapon configuration and firing/ammunition semantics, not all weapons, global damage, upgrades or complete combat.
+description: Work on one weapon behavior in the Origins game application.
 ---
 
-# Weapon analysis
+# weapon-analysis
 
-## Bounded task
+Use for one weapon behavior; do not expand it into unrelated engine or game work.
 
-Choose one definition-family question or one representative weapon transition,
-such as a reload interruption. Specify weapon/build/variant, source set, observed
-contract, owned files and completion condition. Read
-[project rules](../../../AGENTS.md), existing weapon/inventory/damage findings,
-[architecture](../../../docs/architecture/README.md), tests and previous handoff.
-Do not spawn agents, commit or combine all weapon mechanics into one assignment.
+Work sequentially in this chat. Never spawn subagents or delegate to another chat.
+Read `docs/project-state.md`, applicable source/tests and the retained reference relevant to the task.
 
-## Investigation
+Inspect available weapon configuration/evidence. Implement practical firing, ammunition, reload, hit and timing semantics in the existing game; temporary presentation is allowed. Keep tunables together.
 
-1. Inspect licensed definition/animation data read-only. Identify recurring fields,
-   references, configuration versus runtime state and variant relationships;
-   summarize semantics without copying definitions or scripts.
-2. Compare representative definitions only to resolve the selected shared-pattern
-   question. Names such as hitscan/projectile are investigative leads, not APIs.
-3. Measure the chosen transition with controlled weapon, ammo, player state and
-   inputs. Record build, timing reference, units and relevant perk/upgrade effects
-   as conditions; do not accidentally attribute modified behavior to the base gun.
-4. Trace the observed event order between input, eligibility, ammunition change,
-   shot/hit generation, animation and feedback, limited to the assigned case.
-   Separate observations, timing uncertainty and inferred implementation choices.
-5. Inspect existing inventory, damage and Bevy fixed-step facilities before
-   proposing reusable weapon components/configuration. Report missing dependencies.
+Practical reconstruction is authorized. Missing exact native behavior does not block useful implementation; label approximations and preserve the complete systems roadmap. Do not create another viewer, demo, custom renderer, ECS or scheduler.
 
-## Required evidence
-
-Record permitted source identifiers, abstract field/relationship summaries,
-procedures, timing/ammo observations, boundary cases and unknowns in
-`docs/reverse_engineering/`; put original comparisons in `docs/fidelity/`.
-Original assets, definitions, scripts, raw dumps/captures and paths stay external.
-
-## Implementation expectations
-
-Implement only the assigned evidence-backed definition model or transition.
-Separate reusable weapon state/simulation from Origins configuration and render/
-audio presentation. Use safe Rust and Bevy composition, explicit fixed-step event
-ordering and seeded randomness when applicable. Do not invent damage, cadence,
-spread, ammo or reload constants, or create a parallel combat/event foundation.
-
-## Validation
-
-Test observed preconditions, boundary ammo/input states and interruptions within
-scope using synthetic definitions. Check deterministic replay/event ordering and
-explicit unsupported/invalid configuration errors. Run applicable workspace gates;
-compare the stated weapon cases against the original separately from unit tests.
-
-## Handoff and escalation
-
-Save and return the [required handoff](../../../AGENTS.md#required-handoff) with
-linked evidence and actual results. Preserve `UNKNOWN`/`INVESTIGATING` for missing
-evidence and explicit `APPROXIMATE` limits; `MATCHED`/`VERIFIED` need scoped original
-comparisons. Report ambiguous units/variants, contradictory timing, missing shared
-damage/inventory semantics or unsupported asset relationships to the outer agent.
+Deliver a coherent implementation or reproducible finding, with meaningful validation appropriate to the change. Keep evidence concise and external proprietary content out of Git. Update the one current handoff with findings, changes, actual validation, limitations, fidelity status and next work. Escalate only a concrete missing input or failed dependency; continue independent work without routine confirmation.
