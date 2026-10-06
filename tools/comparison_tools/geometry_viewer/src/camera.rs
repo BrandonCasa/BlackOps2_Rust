@@ -8,6 +8,7 @@ pub struct InspectionCamera {
     radius: f32,
     yaw: f32,
     pitch: f32,
+    home_pose: Option<Transform>,
 }
 
 impl InspectionCamera {
@@ -25,13 +26,35 @@ impl InspectionCamera {
             radius,
             yaw: 0.0,
             pitch: 0.0,
+            home_pose: None,
         };
         camera.home(4.0 / 3.0);
         Some(camera)
     }
 
+    pub fn at_pose(pose: Transform, speed: f32) -> Option<Self> {
+        if !pose.translation.is_finite()
+            || !pose.rotation.is_finite()
+            || (pose.rotation.length_squared() - 1.0).abs() > 0.0001
+            || pose.scale != Vec3::ONE
+        {
+            return None;
+        }
+        let mut camera = Self::new(Vec3::ZERO, speed)?;
+        camera.center = pose.translation;
+        camera.home_pose = Some(pose);
+        camera.home(16.0 / 9.0);
+        Some(camera)
+    }
+
     /// Sphere fits the shorter perspective dimension with 25% angular margin.
     pub fn home(&mut self, aspect: f32) -> Transform {
+        if let Some(pose) = self.home_pose {
+            let forward = *pose.forward();
+            self.yaw = (-forward.x).atan2(-forward.z);
+            self.pitch = forward.y.asin();
+            return pose;
+        }
         let aspect = if aspect.is_finite() {
             aspect.clamp(0.05, 20.0)
         } else {

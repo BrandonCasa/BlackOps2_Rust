@@ -92,8 +92,7 @@ pub fn render(
             output.format,
             None,
         ));
-    let native_frame =
-        app.is_plugin_added::<super::frame_initialization::FrameInitializationPlugin>();
+    let native_frame = app.is_plugin_added::<bo2_rendering::captured_world::CapturedWorldPlugin>();
     let mut camera = app.world_mut().spawn((
         Camera3d::default(),
         Camera {

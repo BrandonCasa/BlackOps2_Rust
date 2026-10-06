@@ -186,3 +186,17 @@ fn bevy_keyboard_messages_drive_camera_reset_focus_loss_and_escape() {
     app.update();
     assert_eq!(app.should_exit(), Some(AppExit::Success));
 }
+
+#[test]
+fn flight_pose_reset_is_exact() {
+    let pose = Transform::from_translation(Vec3::new(-684.0, -89.0, -2812.0))
+        .with_rotation(Quat::from_rotation_y(2.9) * Quat::from_rotation_x(-0.2));
+    let mut camera = InspectionCamera::at_pose(pose, 350.0).unwrap();
+    let mut keys = ButtonInput::default();
+    keys.press(KeyCode::KeyW);
+    keys.press(KeyCode::ArrowRight);
+    let mut moved = pose;
+    camera.step(&mut moved, &keys, 0.1, 16.0 / 9.0);
+    assert_ne!(pose, moved);
+    assert_eq!(camera.home(16.0 / 9.0), pose);
+}
