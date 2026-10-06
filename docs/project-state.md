@@ -1,250 +1,137 @@
 # Project state
 
-Updated: 2026-10-05. This is the current working brief; historical detail is linked below.
+Updated: 2026-10-05. Read this brief, then the source/tests and evidence needed for
+the next bounded task. Historical snapshots are lookup references.
 
-## Integrated damage and life states
+## Objective and policy
 
-The damage goal is paused at the user's request. Reviewed work through
-`7e241cc` is integrated into main: safe Bevy Vitality, ordered resolved-damage and
-coop revival/expiry commands, stale-token checks, episode-bound bleedout and
-sampled revival clocks, Origins configuration and a runnable headless demo.
-See the [boundary](architecture/damage-life-state.md) and
-[latest comparison handoff](handoffs/damage-life-state-23.md).
+Reimplement the complete Black Ops II Zombies Origins experience in stable Rust
+with Bevy, preserving observable original behavior and appearance. Prioritize
+correctness, safety, reusable architecture, fidelity and deterministic gameplay
+before performance. A scaffold or vertical slice is not the complete goal.
 
-Original player health 100 to 40 and a combat-associated actor sequence from
-150 to -11 support scoped resolved arithmetic comparisons. Final actor health
-remains unknown; raw impacts, live coop timing and solo/session-loss implementation
-remain unresolved. [Source24](reverse_engineering/damage-life-state-24.md) separates
-solo without available Quick Revive from last-eligible multiplayer; Task25 was
-stopped before edits. No observer runs; the original game is under user control.
-Fidelity remains APPROXIMATE / INVESTIGATING. Integrated validation is recorded below.
+The active full-map movement phase uses three concurrent workers plus the primary,
+replacing sequential delegation at the user's instruction. Workers exclusively
+own assigned modules/tests/handoffs; primary owns shared exports, manifests,
+lockfile, boot dispatch, integration tests, project state and reviewed local commits.
+Investigations resolve named implementation questions and release ready code work.
+Use licensed files and retained evidence; no original play, capture, process reads
+or native invocation during this phase. Appearance and damage remain paused.
 
-## Objective and working policy
+Original assets and inspection outputs stay external. Machine paths belong only
+in ignored local configuration. Keep safe crates' unsafe prohibition, Bevy 0.19.1,
+stable Rust 1.99.0 and minimal default features. Enable client features locally.
+Work locally; no remote push is authorized.
 
-Reimplement the full Black Ops II Zombies Origins game in stable Rust with Bevy,
-using the licensed original as the specification. Prioritize executable progress:
-inspectable map geometry, measured movement/collision, then a weapon, a zombie,
-damage/death and one round before expanding remaining Origins systems.
-The full goal is not complete when the first vertical slice works.
+## Implemented boundaries
 
-Read this brief, the relevant source/tests, and only the evidence needed for the
-next code change. The full-map movement phase uses three concurrent workers plus
-the primary integration agent, replacing the previous sequential policy by the
-user's instruction on 2026-10-05. Keep exclusive module ownership and route shared
-contracts, manifests, exports and boot dispatch through the primary. Keep documentation
-to a short handoff and an updated current brief; avoid repeating historical audits.
-Investigations should resolve a named implementation question. Do not make a
-complete capture framework or perfect understanding of every subsystem a
-prerequisite for implementing independently supported behavior. Preserve explicit
-uncertainty and do not invent original behavior to achieve a visible milestone.
+- Eleven Cargo members. [Architecture](architecture/README.md) owns dependency
+  direction and directory responsibilities; Bevy owns ECS, schedules and rendering.
+- Assets admits bounded geometry snapshots, schema28 brushes, schema34 brush
+  collections, complete terrain, global collision hierarchy and static-model
+  exchanges. It is not a full BO2 decoder.
+- Physics implements diagnostic segment queries plus source-qualified moving and
+  stationary single-brush adapters, moving/stationary brush-leaf traversal and raw
+  per-instance static-point queries. World/family aggregation and the player
+  receiver/contact solver remain unimplemented.
+- Rendering preserves the accepted mesh arrays and metadata. Canonical runtime
+  mapping is source `(x,y,z)` -> Bevy `(x,z,-y)`; gray display is reusable.
+- Viewer retains offscreen/windowed diagnostic inspection and one unlit BC1/UV
+  material preview. Its flight camera is diagnostic, not original player movement.
+- Boot has the headless lifecycle check and persistent ordered input/host modules.
+  There is no full motor, movement replay CLI or interactive Origins controller.
+- Gameplay's reviewed life-state boundary handles resolved damage, revival and
+  bleedout. Original raw impacts, complete solo/session-loss behavior and final
+  actor health remain unresolved. See [damage integration](handoffs/damage-life-state-integration.md).
 
-## Working implementation
+## Active movement delivery
 
-- Eleven Cargo members: core, assets, physics, rendering, gameplay, Origins configuration,
-  boot, asset inspector, map inspector, geometry viewer and damage demo.
-  Stable Rust 1.99.0 / Bevy 0.19.1 are pinned; retain the
-  existing toolchain unless an actual implementation requirement needs a change.
-- `crates/assets`: bounded fastfile envelope inspection and a safe reader for the
-  project-owned geometry snapshot format, external schema28 brush records and
-  bounded schema34 source-keyed brush collections and complete terrain exchange v1.
-  This is not a complete Rust BO2 decoder.
-- `crates/rendering`: raw diagnostic Mesh preserves source arrays; canonical runtime
-  Mesh and textured scenes adapt source `(x,y,z)` to Bevy `(x,z,-y)` through
-  `bo2_core::coordinates`, retaining indices/UVs and source metadata. Runtime +Y-up
-  policy is [documented](adr/0002-bevy-runtime-coordinates.md).
-- `crates/physics`: safe owned convex halfspaces and deterministic point-segment
-  clipping across all 8,417 selected diagnostic map-leaf brushes, including 3,178
-  zero-side axial hulls. Queries preserve coefficients and use exact entry/source-key
-  ties; precision diagnostics stay separate. A separate single moving-brush adapter
-  now implements the evidenced native scalar-f32 request/contact contract with
-  explicit shape, mask and incoming result. World/player traces and runtime output
-  comparisons remain unresolved.
-- `tools/comparison_tools/geometry_viewer`: renders three offscreen raw-coordinate
-  solid/wireframe views and a windowed perspective inspection scene with diagnostic
-  keyboard flight/look/reset. Accepted external snapshot: 191,259 positions,
-  149,907 triangles, 6,469 surfaces. Geometry and decoded assets remain external.
-- `game/boot`: a headless lifecycle smoke check. There is no interactive game,
-  player movement, player collision integration, weapon, zombie AI or round yet.
-  The integrated damage demo runs the shared resolved life-state boundary, rather
-  than an interactive game or complete zombie/player controller.
-- The integrated viewer adds --scene with a bounded external manifest bound
-  to snapshot SHA256. One original surface renders recovered corner UVs and a
-  native BC1 texture with all ten mip levels and its source sampler. This is an
-  explicitly unlit, linear diagnostic preview, not a complete original material.
-- Runtime coordinates now follow Bevy +Y up; original basis calibration, units,
-  camera, full materials and lighting remain unresolved.
-  Overall/gameplay/visual fidelity is UNKNOWN; data access is INVESTIGATING.
+Completion requires walking, sprinting, jumping, crouching, prone and authentic
+camera behavior, the same numerical motor for headless/windowed replay, persistent
+input across zero/multiple fixed updates, and resolution or reproducible source
+exclusion of every participating full-map collision reference. Unsupported families
+cannot be silently skipped. Bevy's fixed rate does not establish native timing.
 
-## Immediate implementation direction
+Reviewed integration currently passes 261 workspace tests (9 external opt-ins
+ignored), locked metadata, formatting and warning-denying all-target Clippy.
+Hierarchy/static payload opt-ins and all 4,791 stationary brush-only leaf probes
+pass separately. Client host tests pass (8), with warning-denying client Clippy.
+Earlier brush/terrain opt-ins, input/pacing checks and a synthetic
+reconstructed-window GPU smoke pass; sustained physical input/full movement and
+original comparisons remain unverified. See [integration01](handoffs/movement-integration-01.md)
+and [reviewed integration03](handoffs/movement-integration-03.md).
 
-The full-map movement phase is active on `codex/origins-full-map-movement`.
-Three concurrent lanes qualify native movement, world collision coverage, and
-the reusable Bevy map/input host. Investigation uses licensed files and retained
-evidence only; no original-game play, capture or process reads. The primary owns
-shared interfaces and integration. Appearance and damage remain paused. Completion
-requires all five locomotion modes and every participating full-map collision
-reference resolved or reproducibly excluded; the existing brush collection alone
-does not meet that condition. Native command timing and posture hulls are now
-source-qualified; numerical motor rules and a complete executable profile remain pending.
+Current contracts and limits:
 
-Reviewed host preparation, stationary single-brush and terrain reader integration pass 194 workspace
-tests, locked metadata, formatting and strict all-target Clippy; both retained brush
-opt-ins and client input/pacing checks pass separately. Synthetic reconstructed
-window smoke passes with GPU readback. The external terrain opt-in separately
-admits all declared terrain arrays and map/model leaf references; numerical terrain
-queries remain unimplemented. See [integration01](handoffs/movement-integration-01.md)
-and [terrain integration02](handoffs/movement-integration-02.md).
-The command owner, explicit 150ms backlog/66ms substeps and posture hulls are in
-[native02](handoffs/movement-native-02.md). All 265 declared model dispositions and
-583 existing model brush references are in [ownership04](handoffs/movement-collision-04.md);
-serialized null providers are not missing geometry. Runtime scene binding, addon
-association, movement solver access and complete collision families remain under
-qualification; there is no executable movement motor or full-map coverage yet.
-The [grounded contract](reverse_engineering/movement-grounded-contract.md) requires
-the receiver/contact solver, beyond classic world traces. [Collision access](reverse_engineering/movement-collision-access.md)
-records its provider/pose gaps. [Baseline parameters](reverse_engineering/movement-baseline-parameters.md)
-qualify C96 movement/sprint modifiers and script movement scale; parameter defaults
-and startup floating-point policy remain unresolved. Timing/SSE kernels are next.
+- [Native command/update](reverse_engineering/movement-command-update.md): 60-byte
+  command shape, ordinary masks/posture hulls, 150 ms backlog and 66 ms substeps.
+- [Grounded source](reverse_engineering/movement-grounded-contract.md): friction,
+  acceleration, slope and step rules. [Kernel05](handoffs/movement-native-05.md)
+  supplies independently qualified timing/SSE building blocks. Integer sprint
+  accounting and atomic stop kernels are also implemented. Full motor, x87 policy
+  and mode eligibility remain unresolved.
+- [Jump](reverse_engineering/movement-jump-contract.md),
+  [sprint](reverse_engineering/movement-sprint-contract.md) and
+  [stance](reverse_engineering/movement-stance-contract.md) contracts distinguish
+  qualified transitions from missing providers. Effective posture uses target
+  height; blocked clearance can retain native events and transition side effects.
+- [Baseline parameters](reverse_engineering/movement-baseline-parameters.md): script
+  movement scale1, C96 ordinary movement/sprint modifiers1, sprint4000ms/cooldown0.
+  Stop speed, base speed, gravity and other parameter registrations/defaults are
+  unresolved; no guessed executable profile is admitted.
+- [Model ownership](reverse_engineering/collision-global-ownership.md): all265
+  cmodel dispositions;583 model brush references already resolve in schema34.
+  Serialized null providers do not imply missing geometry. Runtime scene/addon
+  binding, model poses and activation remain unresolved.
+- [Terrain admission](reverse_engineering/terrain-payload-admission.md): complete
+  arrays/refs and all map/model leaves, including214 root-zero terrain leaves.
+  Numerical capsule/edge/vertex queries, stamp lifecycle and packed-edge semantics
+  remain to implement/qualify.
+- [Static XModel contract](reverse_engineering/static-xmodel-collision-contract.md):
+  all 10,837 instances resolve 420 shared providers. Complete bounded payload
+  admission and raw per-instance classic point queries are implemented. Sector
+  setup and player-hull binding remain pending. Contents-zero exclusions apply
+  only to the proven route.
+- [Collision access](reverse_engineering/movement-collision-access.md) and
+  [effective producer gap](reverse_engineering/movement-collision-receiver-producer.md):
+  motor uses receiver shapes/candidate contacts beyond classic traces. Effective
+  callback, receiver initialization and candidate world/pose bindings are missing.
+- [Floating-point policy](reverse_engineering/movement-floating-point-policy.md)
+  establishes a startup-thread 53-bit x87 precision request; movement-thread
+  rounding/MXCSR binding remains unknown. [Camera](reverse_engineering/first-person-camera-contract.md)
+  qualifies angles/basis and eye-effect ownership; runtime parameters and final
+  view/projection publication remain unresolved.
+- [Coverage ledger](reverse_engineering/player-world-contract.md) tracks hierarchy,
+  terrain, static XModels, transformed models, dynents and separate box scope.
 
-The reviewed first texture increment and selected opaque material contract are
-integrated. All five selected image dependencies resolve; shader equations are
-recovered, but packed normal/tangent/lightmap-UV formats, runtime technique
-selection, global bindings and transfer conventions remain unproved. Original
-shaded-scene admission is unsupported. Remaining 6,468 surfaces and complete
-original shading/lighting are unsupported; gray diagnostics remain available.
-See [texture increment](handoffs/materials-0001-textured-surface.md) and
-[material contract](handoffs/materials-0002-opaque-contract.md). The appearance
-worker is stopped; this appearance goal pauses after integration at the user's
-request. Further appearance implementation requires resuming that work.
-An original spawn observation was captured externally through Plutonium LAN;
-measured camera conditions and equivalent reconstructed comparisons remain pending.
+Ready lanes: terrain point numerical queries, movement-thread floating-point
+binding and baseline startup overrides proceed in parallel. Keep one
+numerical motor owner across all locomotion modes. Shared
+PlayerCollisionWorld/scene and MovementState/Command/Profile/Step/Error contracts
+must reflect qualified source needs; do not substitute a generic trace-only motor.
 
-1. Use the existing interactive inspection scene when useful; its free-camera
-   axes, speed and projection are diagnostic, not original movement. Reuse the
-   accepted external snapshot instead of restarting asset extraction.
-2. Integrate ordered world/family queries on admitted ownership and payloads.
-   Single moving and stationary brush consumers are implemented. Native02 supplies
-   ordinary posture hulls/masks; native03/access05 identify the separate receiver
-   solver required by the motor. Keep classic traces and that solver distinct.
-   [Coverage ledger](reverse_engineering/player-world-contract.md) tracks remaining
-   traversal, terrain, static XModel, transformed-model and dynent requirements.
-3. Implement qualified numerical increments and explicit command timing while
-   completing source/profile and solver prerequisites. Point-segment diagnostics,
-   synthetic kernels and host tests do not establish a full movement controller.
-4. Continue through one evidenced weapon, zombie, damage/death and round, then
-   compare and expand toward the full Origins scope. Keep visible progress and
-   behavior comparisons distinct from scaffolding and synthetic correctness.
+Overall gameplay/visual fidelity remains UNKNOWN. Source/data interpretation is
+INVESTIGATING. Synthetic tests/native-flow reconstructions do not justify MATCHED
+or VERIFIED without original comparison evidence.
 
-RenderDoc/process-protection work is parked. The static camera fallback established
-no usable camera locator. Reopen either only when a specific gameplay/rendering
-measurement needs it and there is a concrete new route; historical tool-preparation
-work does not itself advance the implemented game.
+## Subsequent work and references
 
-## Restart and pending work
+After movement: one weapon, one zombie controller, existing damage integration and
+an ordinary round, then economy, generators, inventory/buildables, robots, staffs,
+quests, audio/HUD and cooperative behavior toward the complete game.
+[Origins mechanics research](reverse_engineering/origins-mechanics/README.md) is
+merged research, not production implementation or comparison proof.
 
-### Origins mechanics research
+Appearance is paused after the selected opaque-material contract/one-texture
+increment; see [material handoff](handoffs/materials-0002-opaque-contract.md).
+RenderDoc/process-protection preparation is parked. Previous Goal/monitor work is
+paused; this phase adds no automation or original-game observer.
 
-Source-only research from `codex/origins-mechanics-research` is merged into main
-at `8af13e8`; see
-[coverage and gaps](reverse_engineering/origins-mechanics/README.md),
-[proposed shared boundaries](architecture/origins-mechanics-proposal.md) and
-[dependency-ordered tasks](reverse_engineering/origins-mechanics/implementation-backlog.md).
-Original compiled-script interpretation supports representative round accounting,
-perk purchase, generator capture and inventory/progression transitions. These
-documents propose future gameplay work; they add no production Rust or fidelity
-comparison. Research fidelity is INVESTIGATING, gameplay remains UNKNOWN.
-The other chats own collision/movement, appearance and damage/downing/revival.
-Shared original-game input requires runtime-owner coordination.
-The current full-map movement phase also uses the user's four-agent instruction.
+Baseline gates: locked workspace metadata/tests, cargo fmt --all -- --check and
+locked all-target Clippy with -D warnings. Validate headless/client separately.
+Use existing Cargo installation if it is absent from PATH; do not reinstall it.
+[Root README](../README.md) retains boot/viewer commands.
 
-- Previous Goal chat is paused; its worker finished and reports no owned operation
-  running. Its hourly auto-resume monitor is also paused.
-- The latest reviewed collision increments are linked in the handoffs below.
-- Task0026 is now reviewed and retained as historical PARTIAL evidence. Its two
-  original reads produced no brush; Task0028 later names the failed bounds.nonnull
-  predicate and recovers one. Punctuation is repaired; historical project-state
-  and docs-index proposals remain in the snapshots below. Accepting the historical
-  record does not establish original geometry or gameplay fidelity.
-- Task0037 is reviewed as PARTIAL: bounds/mask forwarding is qualified, ordinary
-  standing-player inputs remain unknown. All collision workers are stopped;
-  this documentation integration performs no original-game reads or inputs.
-- One task-local synthetic executable was overwritten during the old investigation;
-  original identity/test receipts survive, but exact old bytes do not. This does
-  not establish asset corruption or require redoing unrelated accepted work.
-
-## Validation and essential references
-
-Canonical Bevy coordinate integration passes locked/offline metadata (11 members),
-all 171 workspace tests, formatting and strict all-target Clippy; four existing
-external collision tests remain ignored. Synthetic and full-map window smoke
-checks pass at35 updates with GPU readback and scripted move/look/reset. Map and
-texture windows are relaunched and responsive; original visual comparison remains
-unverified. See [coordinate handoff](handoffs/viewer-up-axis.md).
-
-Collision documentation integration passes local link, heading, content and
-whitespace checks. Outer review verifies Task0026's fourteen retained fixed
-identities and Task0037's24 windows, three complete functions and66 worker-closure
-identities before review edits; nine forwarding checks rerun successfully without
-a process observer.
-No production code changed, so the unchanged workspace gates below are not rerun.
-
-Damage integration through `7e241cc` passes locked metadata (eleven members),
-all 167 workspace tests, formatting and warning-denying all-target Clippy.
-Four external collision tests remain ignored by default. The damage demo passes
-21 ordered outcomes plus elapsed bleedout and sampled revival scenarios in main.
-Existing collision/rendering implementation and pending collision documents are
-preserved. See [integration handoff](handoffs/damage-life-state-integration.md).
-
-Task0036 passes locked/offline metadata (eight members), all 127 workspace tests,
-formatting and strict all-target Clippy. Four external tests are ignored by default;
-the new retained-input opt-in separately passes. Outer review repeats that opt-in,
-its six exact independent-model comparisons and the retained collection inspector.
-All 8,417 source records/words and residual totals remain unchanged. No new original
-reads or unsafe code; worker execution is stopped. Native outputs, player movement,
-world/stationary traces and performance comparisons remain unverified.
-Task0035 recovers the native moving-brush/request contract through a named builtin
-and direct call chain. Fifteen complete functions (8,515 bytes), registration and
-constant identities requalify with read-only handles. Twenty-four synthetic f32
-versus rational cases and eight registration checks pass. Outer review independently
-checks retained span hashes and reruns all 24 analytic cases. No native invocation,
-runtime output comparison or player default is established; unchanged Cargo gates
-were not rerun. Worker execution is stopped and handles are closed.
-Retained task0034 geometry contains all 17,108 sides and 68,642 vertices; its
-producer/checker and task0033 candidate replay were reviewed. The diagnostic graph
-reaches 14,551 nodes and excludes the separately identified box. Full source and
-test receipts are linked in their handoffs; those results do not prove runtime
-static ownership or the unsupported collision families.
-The accepted task0027 window checks pass at35 updates on synthetic and external
-geometry with scripted input, GPU mesh/pipeline readiness and foreground960x720
-readback. Legacy offscreen rendering passes on Vulkan. Physical keyboard routing,
-sustained use and original comparisons remain unverified. Run applicable gates:
-`cargo metadata --locked
---no-deps --format-version 1`, `cargo test --workspace --locked`, `cargo fmt --all
--- --check`, and `cargo clippy --workspace --all-targets --locked -- -D warnings`.
-If Cargo is absent from the shell PATH, use the existing user Cargo installation.
-Use `cargo run -p bo2-boot -- --smoke` for the headless boot check; see the root
-README for the existing snapshot viewer commands. Do not reinstall working tools.
-
-- [Architecture and crate responsibilities](architecture/README.md)
-- [Snapshot contract](architecture/diagnostic-geometry-snapshot.md)
-- [Accepted renderer milestone](handoffs/0020-bevy-offscreen-geometry-diagnostic.md)
-- [Interactive inspection milestone](handoffs/0027-interactive-geometry-inspection.md)
-- [One recovered collision brush](handoffs/0028-origins-collision-brush-recovery.md)
-- [Rust brush collision boundary](handoffs/0029-rust-brush-collision.md)
-- [Unresolved world-brush membership](handoffs/0030-origins-world-brush-membership.md)
-- [One-past leaf-brush identifier](handoffs/0031-origins-leaf-brush-index-namespace.md)
-- [Separate box-brush association](handoffs/0032-origins-box-brush-membership.md)
-- [Diagnostic map-leaf membership](handoffs/0033-origins-map-leaf-brush-membership.md)
-- [Rust brush collection](handoffs/0034-rust-brush-collection.md)
-- [Original moving-brush contract](handoffs/0035-original-brush-trace-consumer.md)
-- [Rust moving-brush query](handoffs/0036-rust-moving-brush-trace.md)
-- [Standing-player request investigation](handoffs/0037-original-standing-player-trace-request.md)
-- [Historical partial collision result](handoffs/0026-origins-collision-brush-boundary.md)
-- [Collision source/loader evidence](reverse_engineering/0018-origins-collision-brush-boundary.md)
-- [Fidelity status](fidelity/README.md)
-- [Historical project state](project-state-history-2026-10-05.md) and
-  [historical document index](history-index-2026-10-05.md): reference only, not a startup reading list.
-
-Keep real asset/tool/output paths only in ignored local configuration. Original
-assets, scripts, binaries and generated proprietary data stay outside Git. Work
-locally and do not push without the user's instruction.
+[Historical project state](project-state-history-2026-10-05.md) and
+[historical index](history-index-2026-10-05.md) retain earlier milestone details.
+Task handoffs/evidence carry detailed receipts; this brief does not duplicate them.

@@ -71,12 +71,12 @@ All counts below were rechecked from the identity-bound external schemas.
 
 | Family/reference set | Declared scope | Disposition and missing qualification |
 | --- | ---: | --- |
-| Map BSP and leaves | 4,525 nodes; 4,791 leaves | Source metadata retained; native traversal arithmetic/order and owner admission pending. |
-| Ordinary brushes | 8,417; 17,108 sides; 68,642 vertices | Payload reader and moving/stationary narrow phases available; runtime traversal/membership remain pending. |
+| Map BSP and leaves | 4,525 nodes; 4,791 leaves | Complete bounded hierarchy reader resolves global references and all common leaf roots; numerical BSP traversal and runtime owner admission remain pending. |
+| Ordinary brushes | 8,417; 17,108 sides; 68,642 vertices | Payload reader, moving/stationary narrow phases and ordered brush-leaf traversal are executable. Full world aggregation remains pending. |
 | Declared cmodels | Every ordinal 0 through 264 (265 total) | All serialized provider pointers are null; this is not missing native geometry. Reviewed global-node closure resolves all 583 model brush IDs in schema34. Dispositions: world selector 0, empty leaf 5, 223 brush-only, 13 brush/terrain, 27 terrain-only. Terrain exchange v1 now admits all declared terrain arrays and embedded model leaves; numerical queries and runtime scene binding/transforms remain pending. See ownership lane04 and [terrain admission](terrain-payload-admission.md). |
 | Root-zero terrain leaves | 214 leaves; 253 AABB references | Every leaf has positive AABB count and nonzero terrain contents. Participating candidates require terrain dispatch/contents qualification, never brush-root exclusion. |
 | Terrain | 67,196 triangles; 18,968 partitions; 51,129 AABB records | Complete payload reader and source contract available. Numerical stationary/moving consumers, packed-edge interpretation and query stamps remain pending. Render triangles are not a collision replacement. |
-| Static XModels | 10,837 instances; 420 shared providers | [Classic point contract](static-xmodel-collision-contract.md) resolves all decoded providers and qualifies transforms/surface gates. Complete Rust payload reader, runtime sector setup and player-hull/backend association remain pending.210 contents-zero constructor exclusions are scoped to that classic route. |
+| Static XModels | 10,837 instances; 420 shared providers | [Classic point contract](static-xmodel-collision-contract.md), complete bounded Rust payload reader and raw per-instance point consumer resolve retained geometry. Runtime sector setup and player-hull/backend association remain pending. The 210 contents-zero constructor exclusions are scoped to that classic route. |
 | Dynent lists | `[275, 0, 19, 0]` | Definition/model references, runtime pose/activation and collision-list association pending; zero list counts do not exclude the nonzero lists. |
 | Separate box | Explicit box owner; diagnostic map candidate does not reach it | Source-backed exclusion from that diagnostic candidate only; special native selectors remain distinct queries. |
 
