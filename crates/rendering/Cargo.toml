@@ -6,6 +6,10 @@ rust-version.workspace = true
 publish.workspace = true
 description = "Preserving diagnostic geometry adapters using Bevy mesh ownership"
 
+[features]
+default = []
+client = ["bevy/bevy_pbr"]
+
 [dependencies]
 bo2-core = { path = "../core" }
 bo2-assets = { path = "../assets" }

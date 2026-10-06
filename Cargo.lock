@@ -1300,6 +1300,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bo2-core",
+ "bo2-rendering",
 ]
 
 [[package]]

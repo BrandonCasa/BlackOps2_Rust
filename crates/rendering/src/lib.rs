@@ -38,6 +38,7 @@ pub fn diagnostic_mesh(snapshot: GeometrySnapshot) -> (Mesh, Vec<SnapshotSurface
 }
 
 pub mod appearance;
+pub mod gray_map;
 
 /// Shared original-data to canonical Bevy runtime basis.
 pub use bo2_core::coordinates;

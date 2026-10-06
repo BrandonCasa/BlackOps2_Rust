@@ -4,9 +4,7 @@
 
 use std::{fmt, io};
 
-use bevy::{
-    asset::RenderAssetUsages, camera::ScalingMode, mesh::VertexAttributeValues, prelude::*,
-};
+use bevy::{camera::ScalingMode, mesh::VertexAttributeValues, prelude::*};
 use bo2_assets::geometry_snapshot::{
     GeometrySnapshot, SnapshotError, SnapshotSurface, read_geometry_snapshot,
 };
@@ -134,14 +132,14 @@ pub fn prepare(snapshot: GeometrySnapshot) -> Result<PreparedGeometry, Diagnosti
     }
     let positions = snapshot.positions().len();
     let indices = snapshot.indices().len();
-    let (mut mesh, surfaces) = bo2_rendering::canonical_mesh(snapshot);
+    let bo2_rendering::gray_map::GrayMap { mesh, surfaces } =
+        bo2_rendering::gray_map::prepare_gray_map(snapshot);
     let Some(VertexAttributeValues::Float32x3(canonical_positions)) =
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
     else {
         return Err(DiagnosticError::Preservation);
     };
     let views = views(canonical_positions)?;
-    mesh.asset_usage |= RenderAssetUsages::RENDER_WORLD;
     Ok(PreparedGeometry {
         mesh,
         surfaces,
