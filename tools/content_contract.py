@@ -361,11 +361,11 @@ def validate_rounds(profile, require):
 
 
 def validate_player_health(profile, require):
-    scalars = {"regular_delay","critical_delay","critical_ratio","critical_step_seconds","critical_step_fraction",
+    scalars = {"regular_delay","regular_step_fraction","critical_delay","critical_ratio","critical_step_seconds","critical_step_fraction",
         "worthy_damage_ratio","immunity_regular","immunity_critical_enter","immunity_critical_repeat","feedback_seconds"}
     require(isinstance(profile,dict) and set(profile)==scalars | {"maximum"},"incomplete player health profile")
     require(type(profile["maximum"]) is int and 0<profile["maximum"]<=2147483647,"invalid player maximum health")
     for key in scalars:
         require(type(profile[key]) in (int,float) and math.isfinite(profile[key]) and profile[key]>0,"invalid player health scalar")
     require(profile["critical_delay"]>=profile["regular_delay"] and all(profile[k]<=1 for k in
-        ["critical_ratio","critical_step_fraction","worthy_damage_ratio"]),"invalid player health thresholds")
+        ["regular_step_fraction","critical_ratio","critical_step_fraction","worthy_damage_ratio"]),"invalid player health thresholds")

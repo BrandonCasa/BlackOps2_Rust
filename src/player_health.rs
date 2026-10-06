@@ -14,6 +14,7 @@ use serde::Deserialize;
 pub struct HealthProfile {
     pub maximum: u32,
     pub regular_delay: f32,
+    pub regular_step_fraction: f32,
     pub critical_delay: f32,
     pub critical_ratio: f32,
     pub critical_step_seconds: f32,
@@ -30,6 +31,7 @@ impl HealthProfile {
             && self.maximum <= i32::MAX as u32
             && [
                 self.regular_delay,
+                self.regular_step_fraction,
                 self.critical_delay,
                 self.critical_ratio,
                 self.critical_step_seconds,
@@ -44,6 +46,7 @@ impl HealthProfile {
             .all(|v| v.is_finite() && *v > 0.)
             && self.critical_delay >= self.regular_delay
             && self.critical_ratio <= 1.
+            && self.regular_step_fraction <= 1.
             && self.critical_step_fraction <= 1.
             && self.worthy_damage_ratio <= 1.
     }
@@ -129,7 +132,11 @@ impl Plugin for PlayerHealthPlugin {
             );
     }
 }
-fn feedback(mut events: MessageReader<PlayerDamage>, mut evidence: ResMut<HealthEvidence>) {
+fn feedback(
+    mut events: MessageReader<PlayerDamage>,
+    recoveries: Query<&Recovery>,
+    mut evidence: ResMut<HealthEvidence>,
+) {
     for damage in events.read() {
         evidence.feedback_events += 1;
         if !damage.terminal {
@@ -138,7 +145,9 @@ fn feedback(mut events: MessageReader<PlayerDamage>, mut evidence: ResMut<Health
         if evidence.hits.len() < 128 {
             evidence.hits.push(serde_json::json!({"target":damage.impact.target.to_bits(),
                 "attacker":damage.impact.attacker.to_bits(),"source":damage.impact.source.id(),
-                "damage":damage.impact.amount,"before":damage.before,"after":damage.after,"terminal":damage.terminal}));
+                "damage":damage.impact.amount,"before":damage.before,"after":damage.after,"terminal":damage.terminal,
+                "immunity_seconds":recoveries.get(damage.impact.target).ok().map(|r|r.immunity),
+                "critical":recoveries.get(damage.impact.target).ok().map(|r|r.critical)}));
         }
     }
 }
@@ -183,7 +192,7 @@ fn regenerate(
             recovery.step -= profile.critical_step_seconds;
             ((health.maximum() as f32 * profile.critical_step_fraction) as u32).max(1)
         } else {
-            health.maximum()
+            ((health.maximum() as f32 * profile.regular_step_fraction) as u32).max(1)
         };
         if health.regenerate(amount).is_ok_and(|healed| healed > 0) && evidence.heals.len() < 128 {
             evidence.heals.push(serde_json::json!({"target":entity.to_bits(),"before":before,"after":health.current(),

@@ -16,6 +16,7 @@ def prepare(config):
     for fragment in ["regenrate = 0.1", "wait 0.05", "newhealth = 1", "hurttime = gettime()"]:
         if fragment not in text: raise ValueError("native player-health algorithm changed")
     profile = {"maximum":100, "regular_delay":variable("playerhealth_regularregendelay") / 1000,
+        "regular_step_fraction":1.0,
         "critical_delay":variable("longregentime") / 1000,"critical_ratio":variable("healthoverlaycutoff"),
         "critical_step_seconds":0.05,"critical_step_fraction":0.1,
         "worthy_damage_ratio":variable("worthydamageratio"),"immunity_regular":variable("invultime_preshield"),

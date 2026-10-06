@@ -127772,6 +127772,7 @@
   "player_health": {
     "maximum": 100,
     "regular_delay": 2.4,
+    "regular_step_fraction": 1.0,
     "critical_delay": 5.0,
     "critical_ratio": 0.2,
     "critical_step_seconds": 0.05,

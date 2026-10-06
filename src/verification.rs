@@ -15,6 +15,7 @@ mod arsenal;
 mod claymores;
 mod equipment_presentation;
 mod equipment_refills;
+mod health_recovery;
 mod monkeys;
 mod performance;
 mod pipelines;
@@ -42,6 +43,7 @@ pub(crate) struct Verification {
     wall_weapons: bool,
     rounds: bool,
     health: bool,
+    health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
     semtex: bool,
@@ -68,6 +70,9 @@ impl Plugin for VerificationPlugin {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             pipelines::install(app);
             equipment_presentation::install(app);
+            if app.world().resource::<LaunchOptions>().verify_health {
+                health_recovery::install(app);
+            }
             if app
                 .world()
                 .resource::<LaunchOptions>()
@@ -138,6 +143,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             equipment_refills_exercised: false,
             rounds: options.verify_rounds,
             health: options.verify_health,
+            health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
             semtex: options.verify_semtex,
@@ -668,7 +674,9 @@ fn check(
         });
         verification.round_two = true;
         verification.stage = 1;
-        if verification.wall_weapons {
+        if verification.wall_weapons
+            || (verification.health && !verification.health_recovery_exercised)
+        {
             verification.stage = 4;
             return;
         }
@@ -803,7 +811,8 @@ fn check(
                     == 8
                 && round_evidence.budget_consumed_on_failure == 0);
         let health_exercised = !verification.health
-            || (health_evidence.heals.len() >= 2
+            || (verification.health_recovery_exercised
+                && health_evidence.heals.len() >= 2
                 && health_evidence.nonterminal_hits >= 3
                 && health_evidence.death_events == 1
                 && verification.damage_frame

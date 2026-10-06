@@ -465,10 +465,10 @@
 - [ ] Add armored hit regions.
 - [x] Resolve the nearest valid hit region.
 - [ ] Apply armor absorption before vitality damage.
-- [ ] Add damage immunity intervals.
+- [x] Add damage immunity intervals.
 - [x] Add player damage feedback events.
 - [x] Add health regeneration delay.
-- [ ] Add health regeneration rates.
+- [x] Add health regeneration rates.
 - [x] Restart regeneration delay after damage.
 - [ ] Update maximum health from perk effects.
 - [ ] Add explicit solo self-revive eligibility.
