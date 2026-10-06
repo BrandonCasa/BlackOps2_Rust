@@ -138,7 +138,7 @@ def validate_content(content, require):
                     require(row["localization_key"] is None or isinstance(row["localization_key"], str), "invalid localization key")
                 if "mechanics" in row:
                     m = row["mechanics"]
-                    required_fields = "delivery fire starting_reserve minimum_damage damage_range hit_multipliers pellets penetration recoil_pitch recoil_yaw recoil_recovery spread ads_fov ads_seconds movement empty_reload shell_reload shell_seconds equip_seconds unequip_seconds dual_wield projectile_speed projectile_lifetime explosion_radius explosion_damage melee_seconds fuse_seconds".split()
+                    required_fields = "delivery fire starting_reserve minimum_damage damage_range hit_multipliers pellets penetration recoil_pitch recoil_yaw recoil_recovery spread ads_fov ads_seconds ads_enabled ads_translation ads_rotation burst_delay movement empty_reload shell_reload shell_seconds equip_seconds unequip_seconds dual_wield projectile_speed projectile_lifetime explosion_radius explosion_damage melee_seconds fuse_seconds".split()
                     require(isinstance(m, dict) and set(m) == set(required_fields), "invalid weapon mechanics fields")
                     require(m["delivery"] in ("hitscan", "projectile", "melee", "equipment"), "invalid weapon delivery")
                     fire = m["fire"]
@@ -166,6 +166,11 @@ def validate_content(content, require):
                         number(m[key], True)
                     require(1 <= m["ads_fov"] <= 179, "invalid ADS FOV")
                     require(type(m["shell_reload"]) is bool and type(m["dual_wield"]) is bool, "invalid weapon flags")
+                    require(type(m["ads_enabled"]) is bool, "invalid ADS flag")
+                    vector(m["ads_translation"])
+                    require(isinstance(m["ads_rotation"], list) and len(m["ads_rotation"]) == 4 and all(type(x) in (int, float) and math.isfinite(x) for x in m["ads_rotation"]), "invalid ADS rotation")
+                    require(abs(sum(x*x for x in m["ads_rotation"]) - 1) < 0.002, "unnormalized ADS rotation")
+                    number(m["burst_delay"])
             elif table == "perks":
                 resolve(owner, row["icon"], "ui", True)
             elif table == "powerups":

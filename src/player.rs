@@ -92,19 +92,21 @@ pub fn capsule(radius: f32, height: f32) -> Collider {
 fn look(
     mut input: ResMut<GameInput>,
     definition: Option<Res<GameDefinition>>,
-    mut players: Query<&mut Player>,
+    mut players: Query<(&mut Player, &crate::weapons::WeaponInventory)>,
     state: Res<State<GameState>>,
 ) {
     if **state != GameState::Playing {
         input.look = Vec2::ZERO;
         return;
     }
-    let (Some(definition), Ok(mut player)) = (definition, players.single_mut()) else {
+    let (Some(definition), Ok((mut player, inventory))) = (definition, players.single_mut()) else {
         return;
     };
-    player.yaw -= input.look.x * definition.tuning.mouse_sensitivity;
-    player.pitch =
-        (player.pitch - input.look.y * definition.tuning.mouse_sensitivity).clamp(-1.5, 1.5);
+    let sensitivity = definition.tuning.mouse_sensitivity
+        + (definition.tuning.ads_mouse_sensitivity - definition.tuning.mouse_sensitivity)
+            * inventory.ads;
+    player.yaw -= input.look.x * sensitivity;
+    player.pitch = (player.pitch - input.look.y * sensitivity).clamp(-1.5, 1.5);
     input.look = Vec2::ZERO;
 }
 
@@ -113,7 +115,13 @@ pub fn move_player(
     mut actions: ResMut<TickActions>,
     definition: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
-    mut players: Query<(Entity, &mut Player, &mut Transform, &Collider)>,
+    mut players: Query<(
+        Entity,
+        &mut Player,
+        &mut Transform,
+        &Collider,
+        &crate::weapons::WeaponInventory,
+    )>,
     mut commands: Commands,
     slide: MoveAndSlide,
     query: SpatialQuery,
@@ -128,7 +136,7 @@ pub fn move_player(
         cycle_weapon: std::mem::take(&mut input.cycle_weapon),
         weapon_slot: input.weapon_slot.take(),
     };
-    let Ok((entity, mut player, mut transform, collider)) = players.single_mut() else {
+    let Ok((entity, mut player, mut transform, collider, inventory)) = players.single_mut() else {
         return;
     };
     let mut collider = collider.clone();
@@ -183,11 +191,20 @@ pub fn move_player(
         && player.velocity.y <= 0.;
     let speed = if player.crouched {
         tuning.crouch_speed
-    } else if input.sprint {
+    } else if input.sprint
+        && !input.ads
+        && inventory.ads < 0.05
+        && inventory.action == crate::weapons::WeaponAction::Ready
+    {
         tuning.sprint_speed
     } else {
         tuning.walk_speed
-    };
+    } * inventory
+        .definition(&definition.content.weapons)
+        .map_or(1., |weapon| {
+            weapon.mechanics.movement[0]
+                + (weapon.mechanics.movement[1] - weapon.mechanics.movement[0]) * inventory.ads
+        });
     let desired = Quat::from_rotation_y(player.yaw)
         * Vec3::new(input.movement.x, 0., -input.movement.y)
         * speed;

@@ -591,11 +591,14 @@ def reconcile_sources(config, receipt, documents):
     require(len(set(all_meshes)) == len(all_meshes), "distinct source providers unexpectedly merged")
 
 
-def import_pack(source, destination, receipt, check=False):
+def import_pack(source, destination, receipt, check=False, validated_hashes=None):
     source, destination = source.resolve(), destination.resolve()
     require(source != destination and source not in destination.parents and destination not in source.parents,
             "source and destination overlap")
-    _, _, hashes = validate_pack(source, receipt, exact=receipt is None)
+    if validated_hashes is None:
+        _, _, hashes = validate_pack(source, receipt, exact=receipt is None)
+    else:
+        hashes = validated_hashes
     if not check:
         if destination.exists():
             existing = {p.relative_to(destination).as_posix() for p in destination.rglob("*") if p.is_file()}
@@ -670,9 +673,9 @@ def main():
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
     source = external(config["game"]["asset_pack"])
     receipt = read_json(source / "preparation.json")
-    _, documents, _ = validate_pack(source, receipt)
+    _, documents, hashes = validate_pack(source, receipt)
     reconcile_sources(config, receipt, documents)
-    result = import_pack(source, WORKSPACE / "assets/origins", receipt, args.check or args.check_index)
+    result = import_pack(source, WORKSPACE / "assets/origins", receipt, args.check or args.check_index, hashes)
     if args.check_index:
         result.update(check_index(WORKSPACE / "assets/origins", result["sha256"]))
     if args.receipt:

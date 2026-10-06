@@ -46,6 +46,8 @@ pub struct WeaponInventory {
     burst: u32,
     pub sequence: u64,
     pub signal: WeaponSignal,
+    pub ads: f32,
+    pub recoil: Vec2,
 }
 impl Default for WeaponInventory {
     fn default() -> Self {
@@ -59,6 +61,8 @@ impl Default for WeaponInventory {
             burst: 0,
             sequence: 0,
             signal: WeaponSignal::Idle,
+            ads: 0.,
+            recoil: Vec2::ZERO,
         }
     }
 }
@@ -83,6 +87,7 @@ pub struct WeaponIntent {
     pub melee: bool,
     pub cycle: bool,
     pub slot: Option<usize>,
+    pub ads: bool,
 }
 #[derive(Clone, Debug)]
 pub enum InventoryError {
@@ -125,6 +130,18 @@ pub fn damage_at(definition: &WeaponDefinition, distance: f32, region: HitRegion
     (damage * definition.mechanics.hit_multipliers[index])
         .round()
         .max(1.) as u32
+}
+pub fn sample(seed: u64) -> f32 {
+    let mut value = seed.wrapping_add(0x9e3779b97f4a7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
+    ((value ^ (value >> 31)) >> 40) as f32 / (1_u32 << 24) as f32
+}
+pub fn spread_direction(rotation: Quat, degrees: f32, seed: u64) -> Dir3 {
+    let radius = sample(seed).sqrt() * degrees.to_radians().tan();
+    let angle = sample(seed.wrapping_add(1)) * std::f32::consts::TAU;
+    Dir3::new(rotation * Vec3::new(radius * angle.cos(), radius * angle.sin(), -1.))
+        .unwrap_or(Dir3::NEG_Z)
 }
 
 impl WeaponInventory {
@@ -241,6 +258,16 @@ impl WeaponInventory {
         self.burst = 0;
         self.emit(WeaponSignal::Idle);
     }
+    pub fn recoil_impulse(&mut self, definition: &WeaponDefinition, seed: u64) {
+        let yaw = definition.mechanics.recoil_yaw;
+        let pitch = definition.mechanics.recoil_pitch;
+        self.recoil += Vec2::new(
+            yaw[0] + (yaw[1] - yaw[0]) * sample(seed),
+            pitch[0] + (pitch[1] - pitch[0]) * sample(seed.wrapping_add(1)),
+        )
+        .map(f32::to_radians);
+        self.recoil = self.recoil.clamp(Vec2::splat(-0.4), Vec2::splat(0.4));
+    }
     fn emit(&mut self, signal: WeaponSignal) {
         self.signal = signal;
         self.sequence = self.sequence.wrapping_add(1);
@@ -305,6 +332,19 @@ impl WeaponInventory {
         let Some(definition) = self.definition(definitions) else {
             return emissions;
         };
+        let aiming =
+            intent.ads && definition.mechanics.ads_enabled && self.action == WeaponAction::Ready;
+        let target = if aiming { 1. } else { 0. };
+        let step = dt / definition.mechanics.ads_seconds[if aiming { 0 } else { 1 }];
+        self.ads = if self.ads < target {
+            (self.ads + step).min(target)
+        } else {
+            (self.ads - step).max(target)
+        };
+        let recovery = definition.mechanics.recoil_recovery.to_radians() * dt;
+        self.recoil = self
+            .recoil
+            .map(|value| value.signum() * (value.abs() - recovery).max(0.));
         match self.action {
             WeaponAction::Ready => {}
             WeaponAction::Equipping { remaining } | WeaponAction::Melee { remaining } => {
@@ -476,7 +516,14 @@ impl WeaponInventory {
             } else {
                 weapon.magazine -= 1;
                 self.burst = self.burst.saturating_sub(1);
-                self.cooldown = definition.fire_interval;
+                self.cooldown = definition.fire_interval
+                    + if matches!(definition.mechanics.fire, FirePattern::Burst { .. })
+                        && self.burst == 0
+                    {
+                        definition.mechanics.burst_delay
+                    } else {
+                        0.
+                    };
                 self.emit(WeaponSignal::Fire);
                 emissions.push(WeaponEmission::Shot(definition.id.clone()));
             }

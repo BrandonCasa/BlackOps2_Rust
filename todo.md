@@ -123,14 +123,14 @@
 - [ ] Apply mouse sensitivity once to aggregated deltas.
 - [ ] Update camera look independently of fixed gameplay ticks.
 - [ ] Remove per-event gameplay work from mouse handling.
-- [ ] Add separate ADS mouse sensitivity.
+- [x] Add separate ADS mouse sensitivity.
 - [ ] Add mouse inversion settings.
 - [ ] Clear accumulated mouse motion after focus loss.
 - [ ] Clear held actions after focus loss.
 - [ ] Preserve pressed action edges between fixed ticks.
 - [ ] Preserve released action edges between fixed ticks.
 - [ ] Add held fire input.
-- [ ] Add held ADS input.
+- [x] Add held ADS input.
 - [ ] Bind right mouse to aiming.
 - [ ] Keep melee on a dedicated action.
 - [ ] Add prone input.
@@ -153,8 +153,8 @@
 - [ ] Add player movement deceleration.
 - [ ] Add sprint stamina.
 - [ ] Add sprint stamina recovery.
-- [ ] Prevent sprinting during incompatible weapon actions.
-- [ ] Apply weapon-specific movement speed modifiers.
+- [x] Prevent sprinting during incompatible weapon actions.
+- [x] Apply weapon-specific movement speed modifiers.
 - [ ] Add prone capsule dimensions.
 - [ ] Add prone eye height.
 - [ ] Implement standing-to-prone transitions.
@@ -171,8 +171,8 @@
 - [ ] Add player landing camera feedback.
 - [ ] Add player walking camera bob.
 - [ ] Add player sprinting camera bob.
-- [ ] Add ADS camera interpolation.
-- [ ] Add ADS field-of-view interpolation.
+- [x] Add ADS camera interpolation.
+- [x] Add ADS field-of-view interpolation.
 - [ ] Add weapon sway from camera motion.
 - [ ] Add moving-platform support tracking.
 - [ ] Move boarded players with platform displacement.
@@ -399,11 +399,11 @@
 - [ ] Add projectile impact resolution.
 - [x] Add weapon damage falloff.
 - [x] Add weapon-specific hit multipliers.
-- [ ] Add weapon-specific recoil impulses.
-- [ ] Add recoil recovery.
-- [ ] Add hip-fire spread.
-- [ ] Add ADS spread.
-- [ ] Add movement spread modifiers.
+- [x] Add weapon-specific recoil impulses.
+- [x] Add recoil recovery.
+- [x] Add hip-fire spread.
+- [x] Add ADS spread.
+- [x] Add movement spread modifiers.
 - [ ] Add stance spread modifiers.
 - [ ] Add shotgun pellet generation.
 - [ ] Add material penetration resistance.
@@ -1143,7 +1143,7 @@
 - [ ] Add original reserve ammunition indicator.
 - [ ] Add original weapon name indicator.
 - [ ] Add original crosshair behavior.
-- [ ] Add ADS crosshair suppression.
+- [x] Add ADS crosshair suppression.
 - [x] Add reload state feedback.
 - [ ] Add interaction prompt presentation.
 - [ ] Add generator capture progress presentation.

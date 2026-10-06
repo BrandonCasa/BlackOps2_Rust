@@ -361,6 +361,7 @@ fn combat(
             melee: actions.melee,
             cycle: actions.cycle_weapon,
             slot: actions.weapon_slot,
+            ads: actions.ads,
         },
         &definition.content.weapons,
     );
@@ -370,10 +371,17 @@ fn combat(
         definition.tuning.eye_height
     };
     let origin = transform.translation + Vec3::Y * (eye - player.height * 0.5);
-    let rotation = Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch);
+    let rotation = Quat::from_rotation_y(player.yaw + inventory.recoil.x)
+        * Quat::from_rotation_x((player.pitch + inventory.recoil.y).clamp(-1.5, 1.5));
     let direction = Dir3::new(rotation * Vec3::NEG_Z).unwrap_or(Dir3::NEG_Z);
     let filter = SpatialQueryFilter::from_excluded_entities([entity]);
     for emission in emissions {
+        let weapon = inventory.definition(&definition.content.weapons);
+        let pellets = if matches!(emission, WeaponEmission::Melee) {
+            1
+        } else {
+            weapon.map_or(1, |w| w.mechanics.pellets)
+        };
         let (melee, damage) = match emission {
             WeaponEmission::Shot(id) => {
                 session.shots += 1;
@@ -392,44 +400,63 @@ fn combat(
                     .map_or(definition.tuning.melee_damage, |w| w.damage),
             ),
         };
-        if let Some(hit) = query.cast_ray(
-            origin,
-            direction,
-            if melee { 2.2 } else { 100. },
-            true,
-            &filter,
-        ) && let Ok((mut vitality, target)) = enemies.get_mut(hit.entity)
-            && vitality.state() == LifeState::ActorAlive
-        {
-            // Capsule regions are an explicit approximation until animated hit volumes are bound.
-            let local_height =
-                (origin + direction.as_vec3() * hit.distance).y - target.translation.y;
-            let region = if local_height > 0.55 {
-                crate::weapons::HitRegion::Head
-            } else if local_height > 0.1 {
-                crate::weapons::HitRegion::UpperTorso
-            } else if local_height < -0.35 {
-                crate::weapons::HitRegion::Leg
+        let spread = weapon.map_or(0., |w| {
+            let hip = w.mechanics.spread[if player.crouched { 1 } else { 0 }]
+                * (1. + player.velocity.xz().length().min(6.) / 6.);
+            hip + (w.mechanics.spread[3] - hip) * inventory.ads
+        });
+        if !melee && let Some(weapon) = weapon {
+            inventory.recoil_impulse(weapon, session.shots.wrapping_mul(31) as u64);
+        }
+        for pellet in 0..pellets {
+            let direction = if melee {
+                direction
             } else {
-                crate::weapons::HitRegion::Torso
+                crate::weapons::spread_direction(
+                    rotation,
+                    spread,
+                    session.shots as u64 * 137 + pellet as u64 * 19,
+                )
             };
-            let damage = if melee {
-                damage
-            } else {
-                inventory
-                    .definition(&definition.content.weapons)
-                    .map_or(damage, |weapon| {
-                        crate::weapons::damage_at(weapon, hit.distance, region)
-                    })
-            };
-            let Ok(damage) = ResolvedDamage::new(damage) else {
-                continue;
-            };
-            if vitality.apply(damage).is_ok() {
-                session.points = session.points.saturating_add(10);
-            }
-            if vitality.state() == LifeState::ActorDead {
-                session.points = session.points.saturating_add(if melee { 130 } else { 60 });
+            if let Some(hit) = query.cast_ray(
+                origin,
+                direction,
+                if melee { 2.2 } else { 100. },
+                true,
+                &filter,
+            ) && let Ok((mut vitality, target)) = enemies.get_mut(hit.entity)
+                && vitality.state() == LifeState::ActorAlive
+            {
+                // Capsule regions are an explicit approximation until animated hit volumes are bound.
+                let local_height =
+                    (origin + direction.as_vec3() * hit.distance).y - target.translation.y;
+                let region = if local_height > 0.55 {
+                    crate::weapons::HitRegion::Head
+                } else if local_height > 0.1 {
+                    crate::weapons::HitRegion::UpperTorso
+                } else if local_height < -0.35 {
+                    crate::weapons::HitRegion::Leg
+                } else {
+                    crate::weapons::HitRegion::Torso
+                };
+                let damage = if melee {
+                    damage
+                } else {
+                    inventory
+                        .definition(&definition.content.weapons)
+                        .map_or(damage, |weapon| {
+                            crate::weapons::damage_at(weapon, hit.distance, region)
+                        })
+                };
+                let Ok(damage) = ResolvedDamage::new(damage) else {
+                    continue;
+                };
+                if vitality.apply(damage).is_ok() {
+                    session.points = session.points.saturating_add(10);
+                }
+                if vitality.state() == LifeState::ActorDead {
+                    session.points = session.points.saturating_add(if melee { 130 } else { 60 });
+                }
             }
         }
     }

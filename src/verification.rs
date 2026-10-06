@@ -31,6 +31,8 @@ pub(crate) struct Verification {
     water_times: Vec<f32>,
     camera_views: Vec<serde_json::Value>,
     reported: u32,
+    ads_seen: bool,
+    recoil_seen: bool,
 }
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
@@ -77,6 +79,8 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             water_times: Vec::new(),
             camera_views: Vec::new(),
             reported: 0,
+            ads_seen: false,
+            recoil_seen: false,
         });
     }
 }
@@ -120,6 +124,14 @@ pub(crate) fn drive(
             - std::f32::consts::PI;
         input.look =
             Vec2::new(-yaw_delta, player.pitch - pitch) / definition.tuning.mouse_sensitivity;
+        if let Ok(inventory) = inventories.single() {
+            input.look += inventory.recoil / definition.tuning.mouse_sensitivity;
+            let sensitivity = definition.tuning.mouse_sensitivity
+                + (definition.tuning.ads_mouse_sensitivity - definition.tuning.mouse_sensitivity)
+                    * inventory.ads;
+            input.look *= definition.tuning.mouse_sensitivity / sensitivity;
+            input.ads = verification.playing >= 1.;
+        }
         let origin =
             transform.translation + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5);
         input.fire = Dir3::new(delta)
@@ -173,7 +185,10 @@ fn check(
             Without<Zombie>,
         ),
     >,
-    mut overlays: Query<&mut Visibility, With<crate::hud::PlayerOverlay>>,
+    mut overlays: Query<
+        (&mut Visibility, Option<&crate::hud::Crosshair>),
+        With<crate::hud::PlayerOverlay>,
+    >,
 ) {
     let Some(mut verification) = verification else {
         return;
@@ -183,6 +198,17 @@ fn check(
         .next()
         .and_then(|(_, _, _, i)| i.active())
         .map_or(0, |w| w.magazine);
+    if verification.stage == 0 {
+        for (_, _, _, inventory) in &players {
+            verification.recoil_seen |= inventory.recoil.length_squared() > 0.000001;
+            if inventory.ads >= 0.99 && !verification.ads_seen {
+                verification.ads_seen = true;
+                commands
+                    .spawn(Screenshot::primary_window())
+                    .observe(save_to_disk(verification.output.join("ads.png")));
+            }
+        }
+    }
     if verification.benchmark
         && !verification.combat
         && verification.stage == 0
@@ -194,7 +220,10 @@ fn check(
         verification.playing = 0.;
         next.set(GameState::Paused);
     }
-    for mut visibility in &mut overlays {
+    for (mut visibility, crosshair) in &mut overlays {
+        if crosshair.is_some() && verification.stage != 1 {
+            continue;
+        }
         *visibility = if verification.stage == 1 {
             Visibility::Hidden
         } else {
@@ -399,6 +428,7 @@ fn check(
             "scope": if verification.benchmark && !verification.combat { "paused render survey and restart" } else { "combat movement round advance render survey and restart" },
             "continuous_camera_motion": verification.moving_view,
             "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round,
+            "ads_reached": verification.ads_seen, "recoil_observed": verification.recoil_seen,
             "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances,
             "survey_views":verification.camera_views.len(), "water_animation_seconds":verification.water_times,
             "camera_views":verification.camera_views, "opaque_materials": &*surfaces});

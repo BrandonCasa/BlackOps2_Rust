@@ -1,13 +1,16 @@
 """Convert resolved BO2 weapon fields into typed, reusable runtime definitions."""
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 
 try:
     from .prepare_gameplay_content import external
+    from .xanim import decode
 except ImportError:
     from prepare_gameplay_content import external
+    from xanim import decode
 
 ACTIONS = {
     "idle": "idleAnim", "fire": "fireAnim", "reload": "reloadAnim", "reload_empty": "reloadEmptyAnim",
@@ -83,6 +86,24 @@ def prepare(config):
         recoil_pitch = sorted([number("hipViewKickPitchMin") * 0.01, number("hipViewKickPitchMax") * 0.01])
         recoil_yaw = sorted([number("hipViewKickYawMin") * 0.01, number("hipViewKickYawMax") * 0.01])
         key = f.get("displayName", "")
+        # These tracks are local to tag_view's converted basis. Keep parent-local
+        # coordinates and derive a delta from the authored idle torso pose.
+        ads_translation = [0., 0., 0.]
+        ads_rotation = [0., 0., 0., 1.]
+        native_clips = inspection / "solo-content/source/xanim"
+        idle_path, ads_path = [native_clips / f.get(k, "") for k in ("idleAnim", "adsUpAnim")]
+        if idle_path.is_file() and ads_path.is_file():
+            idle = decode(idle_path.read_bytes())["tracks"].get("tag_torso", {})
+            ads = decode(ads_path.read_bytes())["tracks"].get("tag_torso", {})
+            if "translation" in ads:
+                base = idle.get("translation", ads["translation"])[1][0]
+                ads_translation = ((ads["translation"][1][-1] - base) * 0.0254).tolist()
+            if "rotation" in ads:
+                a, b = idle.get("rotation", ads["rotation"])[1][0], ads["rotation"][1][-1]
+                # inverse(a) * b, native normalized quaternions in xyzw order.
+                import numpy as np
+                vector = a[3] * b[:3] - b[3] * a[:3] - np.cross(a[:3], b[:3])
+                ads_rotation = [*vector.tolist(), float(a[3] * b[3] + np.dot(a[:3], b[:3]))]
         weapon = {
             "id": "weapon." + name, "name": strings.get(key) or key or name,
             "localization_key": key or None, "damage": integer("meleeDamage") if delivery == "melee" else integer("damage"),
@@ -100,9 +121,13 @@ def prepare(config):
                 "recoil_pitch": recoil_pitch, "recoil_yaw": recoil_yaw,
                 "recoil_recovery": positive("hipViewKickCenterSpeed", 800.) * 0.01,
                 "spread": [number(k) for k in ("hipSpreadStandMin", "hipSpreadDuckedMin", "hipSpreadProneMin", "adsSpread")],
-                "ads_fov": max(1., min(179., number("adsZoomFov1", 50.))),
+                # BO2 authored horizontal FOV uses its reference 4:3 aspect.
+                "ads_fov": max(1., math.degrees(2 * math.atan(math.tan(math.radians(max(1., min(179., number("adsZoomFov1", 50.)))) / 2) * 0.75))),
                 "ads_seconds": [positive("adsTransInTime", 0.2), positive("adsTransOutTime", 0.2)],
-                "movement": [positive("moveSpeedScale", 1.), positive("adsMoveSpeedScale", 0.5)],
+                "ads_enabled": f.get("aimDownSight") == "1",
+                "ads_translation": ads_translation, "ads_rotation": ads_rotation,
+                "burst_delay": number("burstFireDelay"),
+                "movement": [positive("moveSpeedScale", 1.), min(1., positive("adsMoveSpeedScale", 0.5))],
                 "empty_reload": positive("reloadEmptyTime", 1.), "shell_reload": f.get("segmentedReload") == "1",
                 "shell_seconds": positive("reloadAddTime", 0.5), "equip_seconds": positive("raiseTime", 0.5),
                 "unequip_seconds": positive("dropTime", 0.3), "dual_wield": f.get("dualWield") == "1",
@@ -125,6 +150,7 @@ def prepare(config):
     report = {"weapons": len(weapons), "strings": len(strings), "ammunition_groups": len(ammunition),
         "missing_presentations": unresolved,
         "approximations": ["Native view-kick values use a 0.01 reconstruction scale.",
+                           "ADS horizontal FOV uses the 4:3 reference aspect; movement scales are capped at one.",
                            "Penetration classes map to tunable material depths.",
                            "Zero action times use bounded runtime defaults; script-only damage needs dedicated effects."]}
     (inspection / "solo-content/arsenal-preparation.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

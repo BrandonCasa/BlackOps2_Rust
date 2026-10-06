@@ -25,6 +25,12 @@ pub struct PresentationPlugin;
 #[derive(Component)]
 pub(crate) struct ViewModelCamera;
 #[derive(Component)]
+struct AimingJoint {
+    owner: Entity,
+    translation: Vec3,
+    rotation: Quat,
+}
+#[derive(Component)]
 struct FirstPerson {
     owner: Entity,
     weapon: WeaponId,
@@ -47,6 +53,12 @@ impl Plugin for PresentationPlugin {
             (spawn_viewmodels, build_graphs, attach_weapons, animate).chain(),
         )
         .add_systems(Startup, first_person_light.after(crate::rendering::setup))
+        .add_systems(
+            PostUpdate,
+            aim_pose
+                .after(bevy::app::AnimationSystems)
+                .before(bevy::transform::TransformSystems::Propagate),
+        )
         .add_observer(rig_ready);
     }
 }
@@ -229,11 +241,23 @@ fn rig_ready(
     children: Query<&Children>,
     players: Query<(), With<AnimationPlayer>>,
     meshes: Query<(), With<Mesh3d>>,
+    names: Query<&Name>,
 ) {
     let Ok(mut rig) = rigs.get_mut(event.entity) else {
         return;
     };
     for child in children.iter_descendants(event.entity) {
+        if rig.arms
+            && names
+                .get(child)
+                .is_ok_and(|name| name.as_str() == "tag_torso")
+        {
+            commands.entity(child).insert(AimingJoint {
+                owner: rig.owner,
+                translation: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+            });
+        }
         if players.contains(child) {
             rig.players.push(child);
         }
@@ -249,6 +273,40 @@ fn rig_ready(
         "First-person scene ready: {} animation players",
         rig.players.len()
     );
+}
+fn aim_pose(
+    definition: Option<Res<GameDefinition>>,
+    inventories: Query<&WeaponInventory>,
+    mut joints: Query<(&mut AimingJoint, &mut Transform)>,
+    mut cameras: Query<&mut Projection, With<ViewModelCamera>>,
+) {
+    let Some(definition) = definition else {
+        return;
+    };
+    for (mut joint, mut pose) in &mut joints {
+        let Ok(inventory) = inventories.get(joint.owner) else {
+            continue;
+        };
+        let Some(weapon) = inventory.definition(&definition.content.weapons) else {
+            continue;
+        };
+        if !pose.is_changed() {
+            pose.translation -= joint.translation;
+            pose.rotation *= joint.rotation.inverse();
+        }
+        joint.translation = Vec3::from_array(weapon.mechanics.ads_translation) * inventory.ads;
+        joint.rotation = Quat::IDENTITY.slerp(
+            Quat::from_array(weapon.mechanics.ads_rotation),
+            inventory.ads,
+        );
+        pose.translation += joint.translation;
+        pose.rotation *= joint.rotation;
+        for mut projection in &mut cameras {
+            if let Projection::Perspective(p) = &mut *projection {
+                p.fov = (65. + (weapon.mechanics.ads_fov - 65.) * inventory.ads).to_radians();
+            }
+        }
+    }
 }
 fn build_graphs(
     mut rigs: Query<&mut Rig>,

@@ -139,8 +139,8 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
 }
 
 fn camera_follow(
-    players: Query<(&Player, &Transform), Without<GameCamera>>,
-    mut camera: Query<&mut Transform, With<GameCamera>>,
+    players: Query<(&Player, &Transform, &crate::weapons::WeaponInventory), Without<GameCamera>>,
+    mut camera: Query<(&mut Transform, &mut Projection), With<GameCamera>>,
     definition: Option<Res<GameDefinition>>,
     state: Res<State<GameState>>,
 ) {
@@ -150,7 +150,7 @@ fn camera_follow(
     ) {
         return;
     }
-    let (Ok((player, body)), Some(definition), Ok(mut camera)) =
+    let (Ok((player, body, inventory)), Some(definition), Ok((mut camera, mut projection))) =
         (players.single(), definition, camera.single_mut())
     else {
         return;
@@ -162,10 +162,19 @@ fn camera_follow(
     };
     let target = Transform {
         translation: body.translation + Vec3::Y * (eye - player.height * 0.5),
-        rotation: Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch),
+        rotation: Quat::from_rotation_y(player.yaw + inventory.recoil.x)
+            * Quat::from_rotation_x((player.pitch + inventory.recoil.y).clamp(-1.5, 1.5)),
         ..*camera
     };
     camera.set_if_neq(target);
+    if **state == GameState::Playing
+        && let Projection::Perspective(perspective) = &mut *projection
+    {
+        let ads_fov = inventory
+            .definition(&definition.content.weapons)
+            .map_or(55., |w| w.mechanics.ads_fov);
+        perspective.fov = (55. + (ads_fov - 55.) * inventory.ads).to_radians();
+    }
 }
 
 fn lightmaps(

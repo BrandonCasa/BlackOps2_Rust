@@ -4,6 +4,8 @@ use bevy::prelude::*;
 #[derive(Component)]
 struct HudText;
 #[derive(Component)]
+pub(crate) struct Crosshair;
+#[derive(Component)]
 pub(crate) struct PlayerOverlay;
 pub struct HudPlugin;
 impl Plugin for HudPlugin {
@@ -12,7 +14,8 @@ impl Plugin for HudPlugin {
             Startup,
             setup.after(crate::presentation::first_person_light),
         )
-        .add_systems(Update, update);
+        .add_systems(Update, update)
+        .add_systems(Update, crosshair.run_if(in_state(GameState::Playing)));
     }
 }
 fn setup(
@@ -42,6 +45,7 @@ fn setup(
     ));
     commands.spawn((
         Text::new("+"),
+        Crosshair,
         PlayerOverlay,
         UiTargetCamera(camera),
         TextFont {
@@ -56,6 +60,19 @@ fn setup(
             ..default()
         },
     ));
+}
+fn crosshair(
+    inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
+    mut text: Query<&mut Visibility, With<Crosshair>>,
+) {
+    let aiming = inventories.single().is_ok_and(|i| i.ads > 0.05);
+    for mut visibility in &mut text {
+        *visibility = if aiming {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+    }
 }
 fn update(
     state: Res<State<GameState>>,

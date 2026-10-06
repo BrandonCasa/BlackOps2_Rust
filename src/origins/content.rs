@@ -167,6 +167,10 @@ pub struct WeaponMechanics {
     pub spread: [f32; 4],
     pub ads_fov: f32,
     pub ads_seconds: [f32; 2],
+    pub ads_enabled: bool,
+    pub ads_translation: [f32; 3],
+    pub ads_rotation: [f32; 4],
+    pub burst_delay: f32,
     pub movement: [f32; 2],
     pub empty_reload: f32,
     pub shell_reload: bool,
@@ -198,6 +202,10 @@ impl Default for WeaponMechanics {
             spread: [3., 2., 1., 0.],
             ads_fov: 50.,
             ads_seconds: [0.2, 0.2],
+            ads_enabled: true,
+            ads_translation: [0.; 3],
+            ads_rotation: [0., 0., 0., 1.],
+            burst_delay: 0.,
             movement: [1., 0.5],
             empty_reload: 1.8,
             shell_reload: false,
@@ -569,6 +577,15 @@ impl ContentCatalog {
                 m.delivery,
                 WeaponDelivery::Hitscan | WeaponDelivery::Projectile
             );
+            valid(
+                m.ads_translation
+                    .iter()
+                    .chain(m.ads_rotation.iter())
+                    .all(|v| v.is_finite())
+                    && (m.ads_rotation.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
+                    && nonnegative(m.burst_delay),
+                "Invalid ADS pose or burst delay",
+            )?;
             valid(
                 (!uses_ammo || (v.damage > 0 && v.magazine > 0))
                     && positive(v.fire_interval)
