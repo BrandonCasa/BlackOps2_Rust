@@ -523,12 +523,17 @@ fn update_flight(
     mut materials: ResMut<Assets<OriginalMaterial>>,
 
     mut exit: MessageWriter<AppExit>,
+    mut previous: Local<Option<Transform>>,
 ) {
     let Some(targets) = targets else {
         return;
     };
 
     for pose in &cameras {
+        if previous.as_ref() == Some(pose) {
+            continue;
+        }
+        *previous = Some(*pose);
         let patches = match adapter.0.uniform_patches(pose) {
             Ok(patches) => patches,
 
@@ -549,6 +554,9 @@ fn update_flight(
             };
 
             for (&binding, baseline) in &target.baseline {
+                if !update.patches.iter().any(|p| p.binding == binding) {
+                    continue;
+                }
                 let mut bytes = baseline.clone();
 
                 for patch in update.patches.iter().filter(|p| p.binding == binding) {

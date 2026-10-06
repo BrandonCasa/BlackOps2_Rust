@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+//! Shared life-state boundaries and independently qualified movement kernels.
+//!
 //! Resolved damage, admitted coop revival and bleedout disposition. Ordinary positive
 //! player subtraction has static evidence and one scoped live comparison. Native
 //! actor subtraction is qualified before notifications; final ActorDead health is unknown.
@@ -9,6 +11,7 @@
 //! See docs/reverse_engineering/damage-life-state-{01,06,10,14,15}.md and
 //! docs/fidelity/damage-life-state-comparison.md for evidence and limits.
 
+pub mod movement;
 pub mod revive_clock;
 pub use revive_clock::{
     ReviveClock, ReviveClockError, ReviveDecision, ReviveEligibility, ReviveTiming,
