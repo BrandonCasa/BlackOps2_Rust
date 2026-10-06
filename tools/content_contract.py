@@ -143,7 +143,7 @@ def validate_content(content, require):
                     require(isinstance(part["socket"],str) and part["socket"], "invalid actor socket")
                     require(part["root_joint"] is None or isinstance(part["root_joint"],str), "invalid partial rig root")
                 actions = row.get("animation_actions", {})
-                require(isinstance(actions,dict) and set(actions)<={"idle","walk","run","attack","death"},"invalid enemy animation actions")
+                require(isinstance(actions,dict) and set(actions)<={"idle","walk","run","sprint","attack","death"},"invalid enemy animation actions")
                 for identity in actions.values(): resolve(owner,identity,"animation")
             if table == "weapons":
                 resolve(owner, row["upgraded"], "weapon", True)
@@ -289,3 +289,26 @@ def validate_content(content, require):
                     path(frame)
                 resolve(owner, row["audio"], "sound", True)
     return dependencies
+
+
+def validate_rounds(profile, require):
+    integers = {"health_start","health_increase","exponential_round","population_base","population_round_divisor",
+        "population_acceleration_round","ordinary_cap","actor_cap","speed_multiplier","speed_random_band"}
+    scalars = {"health_multiplier","solo_population_increment","population_acceleration","spawn_seconds",
+        "spawn_decay","minimum_spawn_seconds","first_spawn_seconds","between_round_seconds"}
+    vectors = {"early_population":5,"gait_thresholds":2,"gait_speeds":3}
+    require(isinstance(profile,dict) and set(profile) == integers | scalars | set(vectors),"incomplete round profile")
+    for key in integers:
+        require(type(profile[key]) is int and 0 < profile[key] <= 2147483647,"invalid round integer")
+    for key in scalars:
+        value = profile[key]
+        require(type(value) in (int,float) and math.isfinite(value) and value > 0,"invalid round scalar")
+    for key,size in vectors.items():
+        value = profile[key]
+        require(isinstance(value,list) and len(value)==size and all(type(v) in (int,float) and math.isfinite(v) and v>0 for v in value),"invalid round vector")
+    require(all(type(v) is int and v<=2147483647 for v in profile["gait_thresholds"]),"invalid gait thresholds")
+    require(profile["exponential_round"]>=2 and profile["actor_cap"]>=profile["ordinary_cap"]
+        and profile["spawn_decay"]<=1 and profile["minimum_spawn_seconds"]<=profile["spawn_seconds"]
+        and all(v<=1 for v in profile["early_population"])
+        and profile["gait_thresholds"][0]<profile["gait_thresholds"][1]
+        and all(a<b for a,b in zip(profile["gait_speeds"],profile["gait_speeds"][1:])),"invalid round profile ordering")

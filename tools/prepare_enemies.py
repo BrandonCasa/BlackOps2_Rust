@@ -6,7 +6,7 @@ from prepare_actors import convert
 from prepare_gameplay_content import external
 from xanim import decode
 
-CLIPS = {"idle":"ai_zombie_idle_v1_delta", "walk":"ai_zombie_walk_v1", "run":"ai_zombie_run_v2",
+CLIPS = {"idle":"ai_zombie_idle_v1_delta", "walk":"ai_zombie_walk_v1", "run":"ai_zombie_run_v2", "sprint":"ai_zombie_sprint_v1",
          "attack":"ai_zombie_attack_v1", "death":"ai_zombie_firestaff_death_collapse_a"}
 
 def skin_margin(path):

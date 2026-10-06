@@ -35,6 +35,7 @@ pub(crate) struct Verification {
     ads_seen: bool,
     recoil_seen: bool,
     wall_weapons: bool,
+    rounds: bool,
     melee_frame: bool,
     enemy_attack_frame: bool,
     enemy_death_frame: bool,
@@ -91,6 +92,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             ads_seen: false,
             recoil_seen: false,
             wall_weapons: options.verify_wall_weapons,
+            rounds: options.verify_rounds,
             melee_frame: false,
             enemy_attack_frame: false,
             enemy_death_frame: false,
@@ -195,6 +197,7 @@ fn check(
         Res<crate::damage::CombatHistory>,
         Res<crate::damage::DamageQueue>,
         Res<crate::enemies::EnemyEvidence>,
+        Res<crate::rounds::RoundEvidence>,
     ),
     mut players: Query<
         (
@@ -223,7 +226,7 @@ fn check(
         With<crate::hud::PlayerOverlay>,
     >,
 ) {
-    let (session, history, impacts, enemy_evidence) = combat;
+    let (session, history, impacts, enemy_evidence, round_evidence) = combat;
     let Some(mut verification) = verification else {
         return;
     };
@@ -371,7 +374,7 @@ fn check(
             .spawn(Screenshot::primary_window())
             .observe(save_to_disk(verification.output.join("playing.png")));
     }
-    if verification.stage == 0 && session.round >= 2 {
+    if verification.stage == 0 && session.round >= if verification.rounds { 3 } else { 2 } {
         verification.combat_receipt = serde_json::json!({
             "melee_hits":history.melee_hits,"melee_kills":history.melee_kills,
             "headshot_kills":history.headshot_kills,"rejected_terminal":history.rejected_terminal,
@@ -496,7 +499,23 @@ fn check(
     if verification.stage == 3 && verification.playing > 0.2 {
         let restart_damage_clear =
             history.recent.is_empty() && history.awarded_points == 0 && impacts.0.is_empty();
+        let rounds_exercised = !verification.rounds
+            || (round_evidence.transitions >= 2
+                && round_evidence
+                    .admitted
+                    .iter()
+                    .filter(|v| v["round"] == 1)
+                    .count()
+                    == 6
+                && round_evidence
+                    .admitted
+                    .iter()
+                    .filter(|v| v["round"] == 2)
+                    .count()
+                    == 8
+                && round_evidence.budget_consumed_on_failure == 0);
         let passed = session.round == 1
+            && rounds_exercised
             && restart_damage_clear
             && surfaces.pending == 0
             && if verification.benchmark {
@@ -519,6 +538,13 @@ fn check(
                 "attached_heads":enemy_evidence.attached_heads,"attacks_started":enemy_evidence.attacks_started,
                 "attack_hits":enemy_evidence.attack_hits,"deaths":enemy_evidence.deaths,
                 "corpses_removed":enemy_evidence.corpses_removed,"bounds_updates":enemy_evidence.bounds_updates},
+            "rounds_exercised":rounds_exercised,
+            "round_profile":(1..=255).map(|r| serde_json::json!({"round":r,"health":definition.rounds.health(r),
+                "population":definition.rounds.population(r),"spawn_delay":definition.rounds.spawn_delay(r)})).collect::<Vec<_>>(),
+            "round_admissions":round_evidence.admitted,"round_attempts":round_evidence.attempts,
+            "failed_admissions":round_evidence.failed_admissions,"budget_consumed_on_failure":round_evidence.budget_consumed_on_failure,
+            "peak_ordinary":round_evidence.peak_ordinary,"cap_waits":round_evidence.cap_waits,
+            "round_transitions":round_evidence.transitions,"between_round_seconds":round_evidence.intermission_seconds,
             "combat_rewards":verification.combat_receipt,"melee_frame_captured":verification.melee_frame,
             "restart_damage_clear":restart_damage_clear,
             "ads_reached": verification.ads_seen, "recoil_observed": verification.recoil_seen,

@@ -20,6 +20,7 @@ pub struct GameDefinition {
     pub collision_meshes: usize,
     pub static_model_instances: usize,
     pub content: ContentCatalog,
+    pub rounds: crate::rounds::RoundProfile,
     #[serde(default)]
     pub tuning: Tuning,
 }
@@ -129,6 +130,11 @@ impl GameDefinition {
             return Err(ContentError::UnsupportedVersion(self.version));
         }
         self.content.validate()?;
+        if !self.rounds.valid() {
+            return Err(ContentError::InvalidDefinition(
+                "Invalid round profile. Regenerate/import game.json.".into(),
+            ));
+        }
         for path in [&self.scene, &self.collision_scene] {
             validate_asset_path(path)?;
             let base = path.split('#').next().unwrap_or("");

@@ -537,22 +537,22 @@
 - [x] Add corpse cleanup scheduling.
 - [ ] Add enemy gore effects.
 - [ ] Add source-defined enemy model selection.
-- [ ] Replace placeholder round health scaling with BO2 profile values.
-- [ ] Replace placeholder round population scaling with BO2 profile values.
+- [x] Replace placeholder round health scaling with BO2 profile values.
+- [x] Replace placeholder round population scaling with BO2 profile values.
 - [ ] Add round-dependent zombie speed selection.
-- [ ] Add round-dependent spawn pacing.
+- [x] Add round-dependent spawn pacing.
 - [ ] Add accessible-zone spawn weighting.
 - [ ] Add spawn admission collision checks.
 - [ ] Add offscreen spawn preference.
 - [ ] Preserve pending budget after failed admission.
-- [ ] Track ordinary living population separately.
+- [x] Track ordinary living population separately.
 - [ ] Track special living population separately.
 - [ ] Track generator defender population separately.
 - [ ] Add population admission caps.
 - [ ] Add source-defined zombie replacement rules.
 - [ ] Preserve replacement enemy health.
 - [ ] Add round transition announcements.
-- [ ] Add round intermission state.
+- [x] Add round intermission state.
 - [ ] Add quest-controlled round holds.
 - [ ] Release round holds after quest progression.
 - [ ] Add first Panzersoldat round scheduling.

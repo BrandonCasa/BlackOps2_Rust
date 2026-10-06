@@ -13781,6 +13781,7 @@
           "idle": "animation.c_zom_tomb_german_body_1a.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_german_body_1a.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_german_body_1a.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_german_body_1a.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_german_body_1a.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_german_body_1a.ai_zombie_firestaff_death_collapse_a"
         },
@@ -13811,6 +13812,7 @@
           "idle": "animation.c_zom_tomb_german_body_1a.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_german_body_1a.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_german_body_1a.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_german_body_1a.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_german_body_1a.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_german_body_1a.ai_zombie_firestaff_death_collapse_a"
         },
@@ -13841,6 +13843,7 @@
           "idle": "animation.c_zom_tomb_german_body_1a.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_german_body_1a.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_german_body_1a.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_german_body_1a.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_german_body_1a.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_german_body_1a.ai_zombie_firestaff_death_collapse_a"
         },
@@ -13871,6 +13874,7 @@
           "idle": "animation.c_zom_tomb_german_body_1b.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_german_body_1b.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_german_body_1b.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_german_body_1b.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_german_body_1b.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_german_body_1b.ai_zombie_firestaff_death_collapse_a"
         },
@@ -13901,6 +13905,7 @@
           "idle": "animation.c_zom_tomb_german_body_1b.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_german_body_1b.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_german_body_1b.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_german_body_1b.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_german_body_1b.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_german_body_1b.ai_zombie_firestaff_death_collapse_a"
         },
@@ -13931,6 +13936,7 @@
           "idle": "animation.c_zom_tomb_german_body_1b.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_german_body_1b.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_german_body_1b.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_german_body_1b.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_german_body_1b.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_german_body_1b.ai_zombie_firestaff_death_collapse_a"
         },
@@ -13961,6 +13967,7 @@
           "idle": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_firestaff_death_collapse_a"
         },
@@ -13991,6 +13998,7 @@
           "idle": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_firestaff_death_collapse_a"
         },
@@ -14021,6 +14029,7 @@
           "idle": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_firestaff_death_collapse_a"
         },
@@ -14051,6 +14060,7 @@
           "idle": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_firestaff_death_collapse_a"
         },
@@ -14081,6 +14091,7 @@
           "idle": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_firestaff_death_collapse_a"
         },
@@ -14111,6 +14122,7 @@
           "idle": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_firestaff_death_collapse_a"
         },
@@ -14141,6 +14153,7 @@
           "idle": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_firestaff_death_collapse_a"
         },
@@ -14171,6 +14184,7 @@
           "idle": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_idle_v1_delta",
           "walk": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_walk_v1",
           "run": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_run_v2",
+          "sprint": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_sprint_v1",
           "attack": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_attack_v1",
           "death": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_firestaff_death_collapse_a"
         },
@@ -18435,6 +18449,7 @@
           "animation.c_zom_tomb_german_body_1a.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_german_body_1a.ai_zombie_walk_v1",
           "animation.c_zom_tomb_german_body_1a.ai_zombie_run_v2",
+          "animation.c_zom_tomb_german_body_1a.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_german_body_1a.ai_zombie_attack_v1",
           "animation.c_zom_tomb_german_body_1a.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -18447,6 +18462,7 @@
           "animation.c_zom_tomb_german_body_1b.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_german_body_1b.ai_zombie_walk_v1",
           "animation.c_zom_tomb_german_body_1b.ai_zombie_run_v2",
+          "animation.c_zom_tomb_german_body_1b.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_german_body_1b.ai_zombie_attack_v1",
           "animation.c_zom_tomb_german_body_1b.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -18459,6 +18475,7 @@
           "animation.c_zom_tomb_german_head1.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_german_head1.ai_zombie_walk_v1",
           "animation.c_zom_tomb_german_head1.ai_zombie_run_v2",
+          "animation.c_zom_tomb_german_head1.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_german_head1.ai_zombie_attack_v1",
           "animation.c_zom_tomb_german_head1.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -18471,6 +18488,7 @@
           "animation.c_zom_tomb_german_head2.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_german_head2.ai_zombie_walk_v1",
           "animation.c_zom_tomb_german_head2.ai_zombie_run_v2",
+          "animation.c_zom_tomb_german_head2.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_german_head2.ai_zombie_attack_v1",
           "animation.c_zom_tomb_german_head2.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -18483,6 +18501,7 @@
           "animation.c_zom_tomb_german_head3.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_german_head3.ai_zombie_walk_v1",
           "animation.c_zom_tomb_german_head3.ai_zombie_run_v2",
+          "animation.c_zom_tomb_german_head3.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_german_head3.ai_zombie_attack_v1",
           "animation.c_zom_tomb_german_head3.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -18495,6 +18514,7 @@
           "animation.c_zom_tomb_crusader_body_1a.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_crusader_body_1a.ai_zombie_walk_v1",
           "animation.c_zom_tomb_crusader_body_1a.ai_zombie_run_v2",
+          "animation.c_zom_tomb_crusader_body_1a.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_crusader_body_1a.ai_zombie_attack_v1",
           "animation.c_zom_tomb_crusader_body_1a.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -18507,6 +18527,7 @@
           "animation.c_zom_tomb_crusader_body_1c.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_crusader_body_1c.ai_zombie_walk_v1",
           "animation.c_zom_tomb_crusader_body_1c.ai_zombie_run_v2",
+          "animation.c_zom_tomb_crusader_body_1c.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_crusader_body_1c.ai_zombie_attack_v1",
           "animation.c_zom_tomb_crusader_body_1c.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -18519,6 +18540,7 @@
           "animation.c_zom_tomb_crusader_body_2b.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_crusader_body_2b.ai_zombie_walk_v1",
           "animation.c_zom_tomb_crusader_body_2b.ai_zombie_run_v2",
+          "animation.c_zom_tomb_crusader_body_2b.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_crusader_body_2b.ai_zombie_attack_v1",
           "animation.c_zom_tomb_crusader_body_2b.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -18531,6 +18553,7 @@
           "animation.c_zom_tomb_crusader_body_2c.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_crusader_body_2c.ai_zombie_walk_v1",
           "animation.c_zom_tomb_crusader_body_2c.ai_zombie_run_v2",
+          "animation.c_zom_tomb_crusader_body_2c.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_crusader_body_2c.ai_zombie_attack_v1",
           "animation.c_zom_tomb_crusader_body_2c.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -18543,6 +18566,7 @@
           "animation.c_zom_tomb_crusader_head1.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_crusader_head1.ai_zombie_walk_v1",
           "animation.c_zom_tomb_crusader_head1.ai_zombie_run_v2",
+          "animation.c_zom_tomb_crusader_head1.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_crusader_head1.ai_zombie_attack_v1",
           "animation.c_zom_tomb_crusader_head1.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -18555,6 +18579,7 @@
           "animation.c_zom_tomb_crusader_head2.ai_zombie_idle_v1_delta",
           "animation.c_zom_tomb_crusader_head2.ai_zombie_walk_v1",
           "animation.c_zom_tomb_crusader_head2.ai_zombie_run_v2",
+          "animation.c_zom_tomb_crusader_head2.ai_zombie_sprint_v1",
           "animation.c_zom_tomb_crusader_head2.ai_zombie_attack_v1",
           "animation.c_zom_tomb_crusader_head2.ai_zombie_firestaff_death_collapse_a"
         ],
@@ -67045,8 +67070,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_german_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_german_body_1a",
         "notifications": [
           {
@@ -67077,7 +67165,7 @@
       },
       {
         "id": "animation.c_zom_tomb_german_body_1a.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_german_body_1a_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_german_body_1a",
         "notifications": [
           {
@@ -67244,8 +67332,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_german_body_1b",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_german_body_1b",
         "notifications": [
           {
@@ -67276,7 +67427,7 @@
       },
       {
         "id": "animation.c_zom_tomb_german_body_1b.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_german_body_1b_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_german_body_1b",
         "notifications": [
           {
@@ -67443,8 +67594,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_german_head1.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_german_head1",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head1.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_german_head1",
         "notifications": [
           {
@@ -67475,7 +67689,7 @@
       },
       {
         "id": "animation.c_zom_tomb_german_head1.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_german_head1_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_german_head1",
         "notifications": [
           {
@@ -67642,8 +67856,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_german_head2.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_german_head2",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head2.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_german_head2",
         "notifications": [
           {
@@ -67674,7 +67951,7 @@
       },
       {
         "id": "animation.c_zom_tomb_german_head2.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_german_head2_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_german_head2",
         "notifications": [
           {
@@ -67841,8 +68118,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_german_head3.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_german_head3",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_german_head3.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_german_head3",
         "notifications": [
           {
@@ -67873,7 +68213,7 @@
       },
       {
         "id": "animation.c_zom_tomb_german_head3.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_german_head3_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_german_head3",
         "notifications": [
           {
@@ -68040,8 +68380,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1a",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_crusader_body_1a",
         "notifications": [
           {
@@ -68072,7 +68475,7 @@
       },
       {
         "id": "animation.c_zom_tomb_crusader_body_1a.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_crusader_body_1a_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_crusader_body_1a",
         "notifications": [
           {
@@ -68239,8 +68642,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_crusader_body_1c",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_crusader_body_1c",
         "notifications": [
           {
@@ -68271,7 +68737,7 @@
       },
       {
         "id": "animation.c_zom_tomb_crusader_body_1c.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_crusader_body_1c_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_crusader_body_1c",
         "notifications": [
           {
@@ -68438,8 +68904,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2b",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_crusader_body_2b",
         "notifications": [
           {
@@ -68470,7 +68999,7 @@
       },
       {
         "id": "animation.c_zom_tomb_crusader_body_2b.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_crusader_body_2b_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_crusader_body_2b",
         "notifications": [
           {
@@ -68637,8 +69166,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_crusader_body_2c",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_crusader_body_2c",
         "notifications": [
           {
@@ -68669,7 +69261,7 @@
       },
       {
         "id": "animation.c_zom_tomb_crusader_body_2c.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_crusader_body_2c_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_crusader_body_2c",
         "notifications": [
           {
@@ -68836,8 +69428,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_crusader_head1",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_crusader_head1",
         "notifications": [
           {
@@ -68868,7 +69523,7 @@
       },
       {
         "id": "animation.c_zom_tomb_crusader_head1.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_crusader_head1_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_crusader_head1",
         "notifications": [
           {
@@ -69035,8 +69690,71 @@
         ]
       },
       {
-        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_attack_v1",
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_sprint_v1",
         "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation3",
+        "skeleton": "actor.c_zom_tomb_crusader_head2",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 0.2,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.3,
+            "event": "sndnt#zmb_zombie_vocals_sprint"
+          },
+          {
+            "seconds": 0.5,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.8666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 0.9,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.2,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 1.2333333333333334,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.5333333333333334,
+            "event": "footstep_right_large"
+          },
+          {
+            "seconds": 1.5666666666666667,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#fly_step_zombie"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "footstep_left_large"
+          },
+          {
+            "seconds": 2.1333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_attack_v1",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation4",
         "skeleton": "actor.c_zom_tomb_crusader_head2",
         "notifications": [
           {
@@ -69067,7 +69785,7 @@
       },
       {
         "id": "animation.c_zom_tomb_crusader_head2.ai_zombie_firestaff_death_collapse_a",
-        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation4",
+        "path": "actors/c_zom_tomb_crusader_head2_lod0.gltf#Animation5",
         "skeleton": "actor.c_zom_tomb_crusader_head2",
         "notifications": [
           {
@@ -124520,6 +125238,42 @@
       50,
       10,
       80
+    ]
+  },
+  "rounds": {
+    "health_start": 150,
+    "health_increase": 100,
+    "health_multiplier": 0.1,
+    "exponential_round": 10,
+    "population_base": 24,
+    "solo_population_increment": 3.0,
+    "population_round_divisor": 5,
+    "population_acceleration_round": 10,
+    "population_acceleration": 0.15,
+    "early_population": [
+      0.25,
+      0.3,
+      0.5,
+      0.7,
+      0.9
+    ],
+    "ordinary_cap": 24,
+    "actor_cap": 31,
+    "spawn_seconds": 2.0,
+    "spawn_decay": 0.95,
+    "minimum_spawn_seconds": 0.08,
+    "first_spawn_seconds": 2.0,
+    "between_round_seconds": 10.0,
+    "speed_multiplier": 8,
+    "speed_random_band": 35,
+    "gait_thresholds": [
+      35,
+      70
+    ],
+    "gait_speeds": [
+      0.9560373648293471,
+      2.7519523306193436,
+      3.608609407724153
     ]
   }
 }

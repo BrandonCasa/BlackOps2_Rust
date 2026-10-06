@@ -13,6 +13,7 @@ pub mod origins;
 pub mod player;
 pub mod presentation;
 pub mod rendering;
+pub mod rounds;
 pub mod verification;
 pub mod weapons;
 

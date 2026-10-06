@@ -51,6 +51,10 @@ impl Default for Session {
 }
 
 impl Session {
+    pub fn random(&mut self) -> u32 {
+        self.seed = self.seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        (self.seed >> 32) as u32
+    }
     pub fn admitted_spawn(&mut self) -> bool {
         if self.pending == 0 {
             return false;
@@ -65,21 +69,9 @@ impl Session {
         if count == 0 {
             return None;
         }
-        self.seed = self.seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let random = self.random();
         self.spawn_cursor = self.spawn_cursor.wrapping_add(1);
-        Some(((self.seed >> 32) as usize) % count)
-    }
-}
-
-pub fn round_budget(round: u32) -> u32 {
-    let round = round.clamp(1, 255);
-    let multiplier = (round / 5).max(1) as f64 * if round >= 10 { round as f64 * 0.15 } else { 1. };
-    let base = 24 + (3. * multiplier) as u32;
-    let early = [0.25, 0.3, 0.5, 0.7, 0.9];
-    if round < 6 {
-        (base as f64 * early[(round - 1) as usize]) as u32
-    } else {
-        base
+        Some((random as usize) % count)
     }
 }
 
@@ -151,6 +143,8 @@ impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Session>()
             .init_resource::<Navigation>()
+            .init_resource::<crate::rounds::Population>()
+            .init_resource::<crate::rounds::RoundEvidence>()
             .configure_sets(
                 FixedUpdate,
                 (
@@ -189,6 +183,9 @@ fn begin_session(
         return;
     }
     *session = Session::default();
+    session.pending = definition.rounds.population(1);
+    session.spawn_timer =
+        Timer::from_seconds(definition.rounds.first_spawn_seconds, TimerMode::Once);
     impacts.0.clear();
     *history = default();
     if !navigation.points.is_empty() {
@@ -443,90 +440,122 @@ fn rounds(
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
-    enemies: Query<&Vitality, With<Zombie>>,
+    enemies: Query<(&Vitality, &crate::rounds::PopulationKind)>,
     mut commands: Commands,
     query: SpatialQuery,
     navigation: Res<Navigation>,
+    mut population: ResMut<crate::rounds::Population>,
+    mut evidence: ResMut<crate::rounds::RoundEvidence>,
 ) {
-    let living = enemies
-        .iter()
-        .filter(|v| v.state() == LifeState::ActorAlive)
-        .count();
-    if session.round_complete(living) {
-        let timer = session
-            .intermission
-            .get_or_insert_with(|| Timer::from_seconds(5., TimerMode::Once));
+    use crate::rounds::PopulationKind;
+    *population = default();
+    for (vitality, kind) in &enemies {
+        if vitality.state() != LifeState::ActorAlive {
+            continue;
+        }
+        match kind {
+            PopulationKind::Ordinary => population.ordinary += 1,
+            PopulationKind::Special => population.special += 1,
+            PopulationKind::GeneratorDefender => population.defenders += 1,
+        }
+    }
+    evidence.peak_ordinary = evidence.peak_ordinary.max(population.ordinary);
+    let profile = &definition.rounds;
+    // Generator attacks run independently; ordinary and scheduled special actors hold the round.
+    if session.round_complete(population.ordinary + population.special) {
+        let timer = session.intermission.get_or_insert_with(|| {
+            Timer::from_seconds(profile.between_round_seconds, TimerMode::Once)
+        });
         timer.tick(time.delta());
         if timer.is_finished() {
+            evidence.intermission_seconds = timer.elapsed_secs();
+            evidence.transitions += 1;
             session.round = (session.round + 1).min(255);
-            session.pending = round_budget(session.round);
+            session.pending = profile.population(session.round);
             session.intermission = None;
-            session.spawn_timer = Timer::from_seconds(1., TimerMode::Once);
+            session.spawn_timer = Timer::from_seconds(profile.first_spawn_seconds, TimerMode::Once);
             info!("Round {} begins, budget {}", session.round, session.pending);
         }
         return;
     }
     session.spawn_timer.tick(time.delta());
-    if session.pending == 0 || living >= 24 || !session.spawn_timer.is_finished() {
+    if session.pending == 0 || !session.spawn_timer.is_finished() {
         return;
     }
-    session.spawn_timer = Timer::from_seconds(1.2, TimerMode::Once);
-    let count = if navigation.admissions.is_empty() {
-        definition.spawn_points.len()
-    } else {
-        navigation.admissions.len()
-    };
-    let Some(index) = session.spawn_index(count) else {
-        return;
-    };
-    let base = navigation
-        .admissions
-        .get(index)
-        .copied()
-        .unwrap_or_else(|| Vec3::from_array(definition.spawn_points[index]));
-    let Some(floor) = query.cast_ray(
-        base + Vec3::Y * 0.1,
-        Dir3::NEG_Y,
-        4.,
-        false,
-        &SpatialQueryFilter::default(),
-    ) else {
-        return;
-    };
-    if floor.normal.y < 0.5 {
+    if population.ordinary >= profile.ordinary_cap as usize
+        || population.total() >= profile.actor_cap as usize
+    {
+        evidence.cap_waits += 1;
         return;
     }
-    let position = base + Vec3::Y * (0.1 - floor.distance + 0.87);
-    let shape = capsule(0.3, 1.7);
-    let blocked = query.shape_intersections(
-        &shape,
-        position,
-        Quat::IDENTITY,
-        &SpatialQueryFilter::default(),
-    );
-    if !blocked.is_empty() {
-        return;
-    }
-    let health_amount = 150 + (session.round - 1).min(100) * 100;
-    let Ok(health) = Vitality::ordinary_actor(health_amount, health_amount) else {
-        return;
-    };
-    if !session.admitted_spawn() {
-        return;
-    }
+    session.spawn_timer = Timer::from_seconds(profile.spawn_delay(session.round), TimerMode::Once);
+    evidence.attempts += 1;
+    let pending = session.pending;
     let variants: Vec<_> = definition
         .content
         .enemies
         .iter()
         .filter(|e| e.family == "german")
         .collect();
-    let Some(enemy) = variants.get(session.spawn_cursor % variants.len().max(1)) else {
+    let candidate = (|| {
+        let count = if navigation.admissions.is_empty() {
+            definition.spawn_points.len()
+        } else {
+            navigation.admissions.len()
+        };
+        let index = session.spawn_index(count)?;
+        let base = navigation
+            .admissions
+            .get(index)
+            .copied()
+            .unwrap_or_else(|| Vec3::from_array(definition.spawn_points[index]));
+        let floor = query.cast_ray(
+            base + Vec3::Y * 0.1,
+            Dir3::NEG_Y,
+            4.,
+            false,
+            &SpatialQueryFilter::default(),
+        )?;
+        if floor.normal.y < 0.5 {
+            return None;
+        }
+        let position = base + Vec3::Y * (0.1 - floor.distance + 0.87);
+        let shape = capsule(0.3, 1.7);
+        if !query
+            .shape_intersections(
+                &shape,
+                position,
+                Quat::IDENTITY,
+                &SpatialQueryFilter::default(),
+            )
+            .is_empty()
+        {
+            return None;
+        }
+        let amount = profile.health(session.round);
+        let health = Vitality::ordinary_actor(amount, amount).ok()?;
+        let enemy = variants.get(session.spawn_cursor % variants.len().max(1))?;
+        let gait = profile.gait(session.round, session.random());
+        Some((position, shape, health, enemy.id.clone(), gait))
+    })();
+    let Some((position, shape, health, identity, gait)) = candidate else {
+        evidence.failed_admissions += 1;
+        evidence.budget_consumed_on_failure += u64::from(pending != session.pending);
         return;
     };
+    if !session.admitted_spawn() {
+        return;
+    }
+    if evidence.admitted.len() < 256 {
+        evidence.admitted.push(serde_json::json!({"round":session.round,"health":profile.health(session.round),
+            "gait":format!("{gait:?}"),"speed":profile.speed(gait),"time":time.elapsed_secs_f64(),
+            "spawn_delay":profile.spawn_delay(session.round),"pending_before":pending,"pending_after":session.pending}));
+    }
     commands.spawn((
-        Zombie::new(position, enemy.id.clone()),
+        Zombie::new(position, identity, gait, profile.speed(gait)),
         shape,
         health,
+        PopulationKind::Ordinary,
         SessionEntity,
         Visibility::Inherited,
         Transform::from_translation(position),

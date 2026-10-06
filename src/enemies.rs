@@ -20,6 +20,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 #[require(RigidBody::Kinematic, CustomPositionIntegration)]
 pub struct Zombie {
     pub definition: ContentId,
+    pub gait: crate::rounds::Gait,
+    pub speed: f32,
     velocity: Vec3,
     navigation: f32,
     destination: Vec3,
@@ -28,9 +30,16 @@ pub struct Zombie {
     next_hit: usize,
 }
 impl Zombie {
-    pub fn new(position: Vec3, definition: ContentId) -> Self {
+    pub fn new(
+        position: Vec3,
+        definition: ContentId,
+        gait: crate::rounds::Gait,
+        speed: f32,
+    ) -> Self {
         Self {
             definition,
+            gait,
+            speed,
             velocity: Vec3::ZERO,
             navigation: 0.,
             destination: position,
@@ -236,8 +245,8 @@ fn lifecycle(
         let delta = zombie.destination - transform.translation;
         let direction = Vec3::new(delta.x, 0., delta.z).normalize_or_zero();
         let moving = zombie.action != EnemyAnimation::Attack;
-        zombie.velocity.x = direction.x * enemy.speed * f32::from(moving);
-        zombie.velocity.z = direction.z * enemy.speed * f32::from(moving);
+        zombie.velocity.x = direction.x * zombie.speed * f32::from(moving);
+        zombie.velocity.z = direction.z * zombie.speed * f32::from(moving);
         zombie.velocity.y = (zombie.velocity.y - definition.tuning.gravity * dt).max(-30.);
         if direction.length_squared() > 0.001 {
             transform.rotation = Quat::from_rotation_y((-direction.z).atan2(direction.x));
@@ -264,13 +273,16 @@ fn lifecycle(
         zombie.velocity.y = result.projected_velocity.y;
         if moving {
             let speed = transform.translation.xz().distance(before.xz()) / dt;
-            zombie.transition(if speed < 0.05 {
+            let action = if speed < 0.05 {
                 EnemyAnimation::Idle
-            } else if speed > 2. {
-                EnemyAnimation::Run
             } else {
-                EnemyAnimation::Walk
-            });
+                match zombie.gait {
+                    crate::rounds::Gait::Walk => EnemyAnimation::Walk,
+                    crate::rounds::Gait::Run => EnemyAnimation::Run,
+                    crate::rounds::Gait::Sprint => EnemyAnimation::Sprint,
+                }
+            };
+            zombie.transition(action);
         }
     }
 }
@@ -544,7 +556,10 @@ fn animate(
                 let active = player.play(node);
                 if matches!(
                     zombie.action,
-                    EnemyAnimation::Idle | EnemyAnimation::Walk | EnemyAnimation::Run
+                    EnemyAnimation::Idle
+                        | EnemyAnimation::Walk
+                        | EnemyAnimation::Run
+                        | EnemyAnimation::Sprint
                 ) {
                     active.repeat();
                 }

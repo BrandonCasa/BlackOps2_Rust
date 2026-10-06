@@ -278,6 +278,7 @@ pub enum EnemyAnimation {
     Idle,
     Walk,
     Run,
+    Sprint,
     Attack,
     Death,
 }
