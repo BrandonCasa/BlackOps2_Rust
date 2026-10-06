@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -170,6 +170,14 @@ def validate_content(content, require):
                 for k in ("tangent_bounce","normal_bounce"):
                     number(t[k]);require(t[k]<=1,"invalid bounce ratio")
             if table == "weapons":
+                if row.get("mine") is not None:
+                    m=row["mine"]
+                    require(isinstance(m,dict) and set(m)==set("stock limit place_seconds recovery_seconds trigger_radius trigger_cos minimum_forward alert_seconds unsafe_seconds radius inner_damage outer_damage blast_cos presentation".split()),"invalid mine fields")
+                    for k in ("stock","limit","inner_damage","outer_damage"): require(type(m[k]) is int and m[k]>0,"invalid mine counts")
+                    require(m["inner_damage"]>=m["outer_damage"],"invalid mine damage")
+                    for k in ("place_seconds","recovery_seconds","trigger_radius","minimum_forward","alert_seconds","unsafe_seconds","radius"):number(m[k],True)
+                    for k in ("trigger_cos","blast_cos"):require(isinstance(m[k],(float,int)) and -1<=m[k]<=1,"invalid mine cone")
+                    resolve(owner,m["presentation"],"presentation")
                 resolve(owner, row["upgraded"], "weapon", True)
                 require(row["category"] in ("bullet", "melee", "explosive", "fire", "ice", "lightning", "wind", "environmental", "crush"), "invalid damage category")
                 resolve(owner, row.get("pickup"), "presentation", True)

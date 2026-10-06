@@ -105,6 +105,8 @@ pub struct WeaponDefinition {
     pub mechanics: WeaponMechanics,
     #[serde(default)]
     pub throwable: Option<crate::equipment::ThrowableDefinition>,
+    #[serde(default)]
+    pub mine: Option<crate::mines::MineDefinition>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -664,6 +666,15 @@ impl ContentCatalog {
             }
             if let Some(throwable) = &v.throwable {
                 valid(throwable.valid(), "Invalid throwable tuning")?;
+            }
+            if let Some(mine) = &v.mine {
+                valid(mine.valid(), "Invalid mine tuning")?;
+                valid(
+                    self.presentations
+                        .iter()
+                        .any(|p| p.id == mine.presentation && p.scene.is_some()),
+                    "Missing mine presentation",
+                )?;
             }
             valid(
                 m.ads_translation

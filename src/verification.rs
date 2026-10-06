@@ -12,6 +12,7 @@ use bevy::{
 };
 use std::{path::PathBuf, time::Instant};
 mod arsenal;
+mod claymores;
 mod performance;
 mod pipelines;
 mod semtex;
@@ -42,6 +43,8 @@ pub(crate) struct Verification {
     grenades: bool,
     semtex: bool,
     semtex_exercised: bool,
+    claymores: bool,
+    claymores_exercised: bool,
     grenade_flash_frame: bool,
     accepted_regions: std::collections::BTreeSet<String>,
     damage_frame: bool,
@@ -59,6 +62,9 @@ impl Plugin for VerificationPlugin {
             pipelines::install(app);
             if app.world().resource::<LaunchOptions>().verify_wall_weapons {
                 arsenal::install(app);
+            }
+            if app.world().resource::<LaunchOptions>().verify_claymores {
+                claymores::install(app);
             }
             if app.world().resource::<LaunchOptions>().verify_semtex {
                 semtex::install(app);
@@ -105,13 +111,17 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             reported: 0,
             ads_seen: false,
             recoil_seen: false,
-            wall_weapons: options.verify_wall_weapons || options.verify_semtex,
+            wall_weapons: options.verify_wall_weapons
+                || options.verify_semtex
+                || options.verify_claymores,
             rounds: options.verify_rounds,
             health: options.verify_health,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
             semtex: options.verify_semtex,
             semtex_exercised: false,
+            claymores: options.verify_claymores,
+            claymores_exercised: false,
             grenade_flash_frame: false,
             accepted_regions: Default::default(),
             damage_frame: false,
@@ -775,6 +785,7 @@ fn check(
             && health.current() == Some(definition.player_health.maximum);
         let passed = session.round == 1
             && (!verification.semtex || verification.semtex_exercised)
+            && (!verification.claymores || verification.claymores_exercised)
             && (!verification.grenades
                 || (equipment.thrown >= 1
                     && equipment.cooked_off >= 1
@@ -805,6 +816,7 @@ fn check(
             "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round,
             "hit_regions_exercised":verification.accepted_regions,
             "semtex_exercised":verification.semtex_exercised,
+            "claymores_exercised":verification.claymores_exercised,
             "equipment":{"primed":equipment.primed,"thrown":equipment.thrown,"cooked_off":equipment.cooked_off,
                 "flash_frame":verification.grenade_flash_frame,
                 "bounces":equipment.bounces,"detonations":equipment.detonations,"obstructed":equipment.obstructed,

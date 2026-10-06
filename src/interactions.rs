@@ -155,12 +155,13 @@ fn interact(
         &Vitality,
         &mut WeaponInventory,
         &mut crate::equipment::GrenadeInventory,
+        &mut crate::mines::MineInventory,
     )>,
     mut focus: ResMut<InteractionFocus>,
     mut ledger: ResMut<PointLedger>,
     mut session: ResMut<Session>,
 ) {
-    let Ok((player_entity, player, body, vitality, mut inventory, mut grenades)) =
+    let Ok((player_entity, player, body, vitality, mut inventory, mut grenades, mut mines)) =
         players.single_mut()
     else {
         return;
@@ -266,10 +267,12 @@ fn interact(
     focus.latched = true;
     let purchase = ledger.command(cost);
     let result = ledger.accept(&mut session.points, purchase, || {
-        if inventory.action != WeaponAction::Ready || grenades.busy() {
+        if inventory.action != WeaponAction::Ready || grenades.busy() || mines.busy() {
             return Err(InteractionRejection::Busy);
         }
-        if weapon.throwable.is_some() {
+        if weapon.mine.is_some() {
+            mines.receive(weapon)?;
+        } else if weapon.throwable.is_some() {
             grenades.receive(weapon).map_err(|e| match e {
                 crate::equipment::EquipmentError::Busy => InteractionRejection::Busy,
                 crate::equipment::EquipmentError::Full => InteractionRejection::FullAmmo,

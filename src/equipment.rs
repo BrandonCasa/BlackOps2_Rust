@@ -56,12 +56,6 @@ impl ThrowableDefinition {
                 .iter()
                 .all(|v| v.is_finite() && (0. ..=1.).contains(v))
     }
-    fn damage(&self, distance: f32) -> u32 {
-        let ratio =
-            ((distance - self.inner_radius) / (self.radius - self.inner_radius)).clamp(0., 1.);
-        (self.inner_damage as f32 + (self.outer_damage as f32 - self.inner_damage as f32) * ratio)
-            .round() as u32
-    }
 }
 #[derive(Clone, Copy, Debug, Default)]
 pub enum ThrowState {
@@ -147,6 +141,18 @@ pub struct Grenade {
 struct Blast {
     remaining: f32,
 }
+pub struct BlastRequest {
+    pub owner: Entity,
+    pub definition: WeaponId,
+    pub center: Vec3,
+    pub radius: f32,
+    pub inner_radius: f32,
+    pub inner_damage: u32,
+    pub outer_damage: u32,
+    pub direction: Option<(Vec3, f32)>,
+}
+#[derive(Resource, Default)]
+pub struct BlastQueue(pub Vec<BlastRequest>);
 #[derive(Resource, Default)]
 pub struct EquipmentEvidence {
     pub primed: u32,
@@ -172,17 +178,20 @@ impl EquipmentEvidence {
 pub struct EquipmentPlugin;
 impl Plugin for EquipmentPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<EquipmentEvidence>().add_systems(
-            FixedUpdate,
-            (throw_input, flight, blast_lifetime)
-                .chain()
-                .in_set(GameStep::Combat)
-                .before(crate::gameplay::combat)
-                .run_if(in_state(GameState::Playing)),
-        );
+        crate::mines::install(app);
+        app.init_resource::<BlastQueue>()
+            .init_resource::<EquipmentEvidence>()
+            .add_systems(
+                FixedUpdate,
+                (throw_input, flight, resolve_blasts, blast_lifetime)
+                    .chain()
+                    .in_set(GameStep::Combat)
+                    .before(crate::gameplay::combat)
+                    .run_if(in_state(GameState::Playing)),
+            );
     }
 }
-fn throw_input(
+pub(crate) fn throw_input(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
     input: Res<GameInput>,
@@ -195,10 +204,11 @@ fn throw_input(
         &Vitality,
         &mut GrenadeInventory,
         &mut WeaponInventory,
+        &crate::mines::MineInventory,
     )>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
-    for (owner, player, transform, health, mut inventory, mut weapons) in &mut players {
+    for (owner, player, transform, health, mut inventory, mut weapons, mines) in &mut players {
         if health.state() != LifeState::Standing {
             continue;
         }
@@ -218,7 +228,7 @@ fn throw_input(
         let dt = time.delta_secs();
         let mut launch = None;
         match inventory.state {
-            ThrowState::Ready if pressed && inventory.count > 0 => {
+            ThrowState::Ready if pressed && inventory.count > 0 && !mines.busy() => {
                 inventory.count -= 1;
                 weapons.cancel_action();
                 inventory.state = ThrowState::Priming {
@@ -333,9 +343,7 @@ fn flight(
     targets: Query<(&Vitality, &Transform, Option<&Player>), Without<Grenade>>,
     poses: Query<(&Transform, &GlobalTransform, Option<&ChildOf>), Without<Grenade>>,
     query: SpatialQuery,
-    mut impacts: ResMut<crate::damage::DamageQueue>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut blasts: ResMut<BlastQueue>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
     let dt = time.delta_secs();
@@ -436,8 +444,48 @@ fn flight(
         }
         evidence.detonations += 1;
         let center = transform.translation;
+        blasts.0.push(BlastRequest {
+            owner: grenade.owner,
+            definition: grenade.definition.clone(),
+            center,
+            radius: tuning.radius,
+            inner_radius: tuning.inner_radius,
+            inner_damage: tuning.inner_damage,
+            outer_damage: tuning.outer_damage,
+            direction: None,
+        });
+        evidence.record(serde_json::json!({"event":"detonate","position":center.to_array(),"flight_seconds":grenade.elapsed}));
+        commands.entity(entity).despawn();
+    }
+}
+fn blast_lifetime(
+    mut commands: Commands,
+    time: Res<Time<Fixed>>,
+    mut blasts: Query<(Entity, &mut Blast, &mut Transform), Without<Grenade>>,
+) {
+    for (entity, mut blast, mut transform) in &mut blasts {
+        blast.remaining -= time.delta_secs();
+        transform.scale = Vec3::splat(1. + (0.25 - blast.remaining) * 16.);
+        if blast.remaining <= 0. {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+pub(crate) fn resolve_blasts(
+    mut commands: Commands,
+    mut queue: ResMut<BlastQueue>,
+    query: SpatialQuery,
+    targets: Query<(&Vitality, &Transform, Option<&Player>)>,
+    mut impacts: ResMut<crate::damage::DamageQueue>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut evidence: ResMut<EquipmentEvidence>,
+) {
+    for blast in queue.0.drain(..) {
+        let center = blast.center;
         for target in query.shape_intersections(
-            &Collider::sphere(tuning.radius),
+            &Collider::sphere(blast.radius),
             center,
             Quat::IDENTITY,
             &SpatialQueryFilter::default(),
@@ -453,7 +501,7 @@ fn flight(
             }
             let delta = pose.translation - center;
             let distance = delta.length();
-            if distance > tuning.radius {
+            if distance > blast.radius {
                 continue;
             }
             if let Ok(direction) = Dir3::new(delta)
@@ -463,7 +511,7 @@ fn flight(
                         direction,
                         distance,
                         true,
-                        &SpatialQueryFilter::from_excluded_entities([target, grenade.owner]),
+                        &SpatialQueryFilter::from_excluded_entities([target, blast.owner]),
                         &|entity| !targets.contains(entity),
                     )
                     .is_some()
@@ -472,11 +520,21 @@ fn flight(
                 evidence.record(serde_json::json!({"event":"obstructed","target":target.to_bits(),"center":center.to_array(),"position":pose.translation.to_array()}));
                 continue;
             }
-            let damage = tuning.damage(distance);
+            if let Some((forward, cosine)) = blast.direction
+                && distance > 0.001
+                && forward.dot(delta / distance) < cosine
+            {
+                continue;
+            }
+            let ratio = ((distance - blast.inner_radius) / (blast.radius - blast.inner_radius))
+                .clamp(0., 1.);
+            let damage = (blast.inner_damage as f32
+                + (blast.outer_damage as f32 - blast.inner_damage as f32) * ratio)
+                .round() as u32;
             impacts.0.push(crate::damage::Impact {
-                attacker: grenade.owner,
+                attacker: blast.owner,
                 target,
-                source: crate::damage::ImpactSource::Projectile(grenade.definition.clone()),
+                source: crate::damage::ImpactSource::Projectile(blast.definition.clone()),
                 category: DamageCategory::Explosive,
                 region: HitRegion::Torso,
                 amount: damage,
@@ -502,20 +560,5 @@ fn flight(
             })),
             Transform::from_translation(center),
         ));
-        evidence.record(serde_json::json!({"event":"detonate","position":center.to_array(),"flight_seconds":grenade.elapsed}));
-        commands.entity(entity).despawn();
-    }
-}
-fn blast_lifetime(
-    mut commands: Commands,
-    time: Res<Time<Fixed>>,
-    mut blasts: Query<(Entity, &mut Blast, &mut Transform), Without<Grenade>>,
-) {
-    for (entity, mut blast, mut transform) in &mut blasts {
-        blast.remaining -= time.delta_secs();
-        transform.scale = Vec3::splat(1. + (0.25 - blast.remaining) * 16.);
-        if blast.remaining <= 0. {
-            commands.entity(entity).despawn();
-        }
     }
 }

@@ -45,7 +45,7 @@ pub fn install(app: &mut App) {
         drive.after(super::drive).before(crate::player::look),
     );
 }
-fn standing(
+pub(super) fn standing(
     query: &SpatialQuery,
     player: Entity,
     probe: Vec3,
@@ -68,7 +68,7 @@ fn standing(
         .is_empty()
         .then_some(center)
 }
-fn aim(player: &mut Player, body: &Transform, point: Vec3, eye: f32) {
+pub(super) fn aim(player: &mut Player, body: &Transform, point: Vec3, eye: f32) {
     let delta = point - (body.translation + Vec3::Y * (eye - player.height * 0.5));
     player.yaw = (-delta.x).atan2(-delta.z);
     player.pitch = delta.y.atan2(delta.xz().length());

@@ -444,11 +444,11 @@
 - [x] Add fragmentation grenade definitions.
 - [x] Add Semtex grenade definitions.
 - [x] Add Semtex attachment on collision.
-- [ ] Add Claymore equipment definitions.
-- [ ] Add Claymore placement queries.
-- [ ] Add Claymore trigger volumes.
-- [ ] Add Claymore detonation behavior.
-- [ ] Add Claymore placement limits.
+- [x] Add Claymore equipment definitions.
+- [x] Add Claymore placement queries.
+- [x] Add Claymore trigger volumes.
+- [x] Add Claymore detonation behavior.
+- [x] Add Claymore placement limits.
 - [ ] Add Monkey Bomb equipment definitions.
 - [ ] Add Monkey Bomb activation delays.
 - [ ] Add Monkey Bomb zombie attraction.

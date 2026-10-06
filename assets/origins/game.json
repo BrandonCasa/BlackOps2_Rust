@@ -1862,6 +1862,22 @@
             0.0
           ],
           "fuse_seconds": 3.5
+        },
+        "mine": {
+          "stock": 2,
+          "limit": 12,
+          "place_seconds": 0.2,
+          "recovery_seconds": 0.992,
+          "trigger_radius": 2.4383999999999997,
+          "trigger_cos": 0.3420201433256688,
+          "minimum_forward": 0.508,
+          "alert_seconds": 0.4,
+          "unsafe_seconds": 0.1,
+          "radius": 5.08,
+          "inner_damage": 200,
+          "outer_damage": 50,
+          "blast_cos": 0.5000000000000001,
+          "presentation": "actor.t6_wpn_claymore_world"
         }
       },
       {
@@ -16263,6 +16279,39 @@
         "zone": "zone.start"
       },
       {
+        "id": "placement.mine.e72cfe4c.aa56b904a0d5c3bb97aa24ac.0",
+        "definition": "weapon.claymore_zm",
+        "position": [
+          30.4038,
+          -7.340599999999999,
+          -110.86465
+        ],
+        "yaw": 3.141592653589793,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.mine.e72cfe4c.6e55b18ff71ea4056ab5cea6.0",
+        "definition": "weapon.claymore_zm",
+        "position": [
+          -72.1614,
+          7.7978,
+          1.77165
+        ],
+        "yaw": 1.7484533913553992e-07,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.mine.e72cfe4c.d1f9c5e626bbb50dde534b55.0",
+        "definition": "weapon.claymore_zm",
+        "position": [
+          59.7662,
+          4.3688,
+          -12.014199999999999
+        ],
+        "yaw": 3.141592653589793,
+        "zone": "zone.start"
+      },
+      {
         "id": "placement.lethal.cd6140bb.4b49ab65781726d629aedce2.0",
         "definition": "weapon.sticky_grenade_zm",
         "position": [
@@ -16515,6 +16564,45 @@
           "weapon": "weapon.mp40_zm",
           "price": 1300,
           "ammo_price": 650
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.mine.e72cfe4c.aa56b904a0d5c3bb97aa24ac.0",
+        "placement": "placement.mine.e72cfe4c.aa56b904a0d5c3bb97aa24ac.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.claymore_zm",
+          "price": 1000,
+          "ammo_price": null
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.mine.e72cfe4c.6e55b18ff71ea4056ab5cea6.0",
+        "placement": "placement.mine.e72cfe4c.6e55b18ff71ea4056ab5cea6.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.claymore_zm",
+          "price": 1000,
+          "ammo_price": null
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.mine.e72cfe4c.d1f9c5e626bbb50dde534b55.0",
+        "placement": "placement.mine.e72cfe4c.d1f9c5e626bbb50dde534b55.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.claymore_zm",
+          "price": 1000,
+          "ammo_price": null
         },
         "reach": 2.0,
         "hold_seconds": 0.0,
@@ -20487,6 +20575,12 @@
           "animation.c_zom_tomb_crusader_head2.ai_zombie_attack_v1",
           "animation.c_zom_tomb_crusader_head2.ai_zombie_firestaff_death_collapse_a"
         ],
+        "sounds": []
+      },
+      {
+        "id": "actor.t6_wpn_claymore_world",
+        "scene": "actors/t6_wpn_claymore_world_lod0.gltf#Scene0",
+        "animations": [],
         "sounds": []
       }
     ],

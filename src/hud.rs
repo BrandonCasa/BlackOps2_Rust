@@ -175,6 +175,7 @@ fn update(
     players: Query<&Vitality, With<Player>>,
     focus: Res<crate::interactions::InteractionFocus>,
     grenades: Query<&crate::equipment::GrenadeInventory, With<Player>>,
+    mines: Query<&crate::mines::MineInventory, With<Player>>,
     mut text: Query<&mut Text, With<HudText>>,
 ) {
     let Ok(mut text) = text.single_mut() else {
@@ -239,6 +240,12 @@ fn update(
             })
             .map_or("Grenades", |w| w.name.as_str());
         value.push_str(&format!("    {} {}", label, grenades.count));
+    }
+    if **state == GameState::Playing
+        && let Ok(mines) = mines.single()
+        && mines.definition.is_some()
+    {
+        value.push_str(&format!("    Claymores {}", mines.count));
     }
     if text.0 != value {
         text.0 = value;
