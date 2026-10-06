@@ -35,4 +35,3 @@ The implementation owns no allocation, workspace, world membership, mask, timing
 Independent scalar f32 fixtures were reconstructed before implementation, from the admitted equations/regions and synthetic coordinates. Seven axis fixtures cover vertex, single-edge, opposing-edge, interior and equality cases. An oblique cancellation-sensitive fixture has squared-distance bits `43006e7a`. Synthetic Rust checks also cover radius tangency/overlap, supplied winding, seeded flags/fraction, signed zero, degenerate finite/error branches, invalid references/input/fraction and late radius/center arithmetic failure atomicity. Actual focused and crate gates are recorded in [the handoff](../handoffs/movement-terrain-06.md).
 
 No claim of MATCHED/VERIFIED, full stationary terrain, player capsule, map collision or alternate receiver access is made.
-

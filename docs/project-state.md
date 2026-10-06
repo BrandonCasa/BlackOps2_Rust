@@ -32,7 +32,7 @@ Work locally; no remote push is authorized.
   exchanges. It is not a full BO2 decoder.
 - Physics implements diagnostic segment queries plus source-qualified moving and
   stationary single-brush adapters, moving/stationary brush-leaf traversal and raw
-  per-instance static-point queries, ordered terrain point aggregation and a
+  per-instance static-point queries, raw stationary terrain spheres, ordered terrain point aggregation and a
   supplied-transform model adapter. Full world aggregation and the player
   receiver/contact solver remain unimplemented.
 - Rendering preserves the accepted mesh arrays and metadata. Canonical runtime
@@ -53,14 +53,14 @@ input across zero/multiple fixed updates, and resolution or reproducible source
 exclusion of every participating full-map collision reference. Unsupported families
 cannot be silently skipped. Bevy's fixed rate does not establish native timing.
 
-Reviewed integration currently passes 305 workspace tests (10 external opt-ins
+Reviewed integration currently passes 312 workspace tests (10 external opt-ins
 ignored), locked metadata, formatting and warning-denying all-target Clippy.
 Hierarchy/static payload opt-ins and all 4,791 stationary brush-only leaf probes
 pass separately. Client host tests pass (8), with warning-denying client Clippy.
 Earlier brush/terrain opt-ins, input/pacing checks and a synthetic
 reconstructed-window GPU smoke pass; sustained physical input/full movement and
 original comparisons remain unverified. See [integration01](handoffs/movement-integration-01.md)
-and [movement/collision integration05](handoffs/movement-integration-05.md).
+and [stable checkpoint integration06](handoffs/movement-integration-06.md).
 
 Current contracts and limits:
 
@@ -91,7 +91,9 @@ Current contracts and limits:
 - [Terrain admission](reverse_engineering/terrain-payload-admission.md): complete
   arrays/refs and all map/model leaves, including214 root-zero terrain leaves.
   Ordered point aggregation reuses map/model leaves and a fresh exclusive stamp
-  workspace. Generation wrap errors explicitly. Stationary/capsule/edge/vertex
+  workspace. Generation wrap errors explicitly. The raw stationary sphere kernel
+  preserves admitted static arithmetic, including its unusual signs; effective
+  original runtime equivalence is unverified. Capsule/edge/vertex/aggregation
   queries, reset scheduling and packed-edge semantics remain to implement/qualify.
 - [Static XModel contract](reverse_engineering/static-xmodel-collision-contract.md):
   all 10,837 instances resolve 420 shared providers. Complete bounded payload
@@ -103,8 +105,10 @@ Current contracts and limits:
   Runtime poses, activation and special selectors remain pending.
 - [Dynent dispatch](reverse_engineering/dynent-collision-contract.md) distinguishes
   native class-zero/one sector traversal from decoder counts `[275,0,19,0]` and
-  original count19. Definition poses are query inputs; activation/index bounds
-  remain unresolved. The zero-content suffix is not a runtime exclusion.
+  original count19. [Initialization](reverse_engineering/dynent-activation-initialization.md)
+  reserves256 client-only slots; initial server indices0..18 are source-backed
+  conditional on startup/providers. Current activation/poses remain unresolved.
+  The zero-content suffix is not a permanent runtime exclusion.
 - [Collision access](reverse_engineering/movement-collision-access.md) and
   [effective producer gap](reverse_engineering/movement-collision-receiver-producer.md):
   motor uses receiver shapes/candidate contacts beyond classic traces. Effective
@@ -116,13 +120,17 @@ Current contracts and limits:
   view/projection publication remain unresolved.
 - [Encoded prelude record](reverse_engineering/encoded-prelude-record-qualification.md)
   reproduces one static checksum/range/digest association. Returned scalar storage
-  and later consumers remain distinct from verified bytes; no FP/default/provider
-  semantics follow from digest equality.
+  is now bound to [shared checksum-table initialization](reverse_engineering/encoded-prelude-storage-binding.md).
+  A separate [direct polynomial initializer](reverse_engineering/receiver-polynomial-initialization.md)
+  supplies edb88320 conditionally; the effective receiver callback stays unresolved.
+  No FP/default/provider semantics follow from digest equality.
 - [Coverage ledger](reverse_engineering/player-world-contract.md) tracks hierarchy,
   terrain, static XModels, transformed models, dynents and separate box scope.
 
-Ready lanes: stationary terrain sphere consumer, encoded prelude storage binding
-and dynent initialization/index ownership proceed in parallel. Keep one
+Stable checkpoint requested by the user: reviewed work is committed locally;
+workers have stopped at bounded handoffs and no subsequent task was launched.
+Ready follow-ups are stationary terrain capsule qualification/implementation,
+effective receiver/prelude effects and reusable XModel/dynent consumers. Keep one
 numerical motor owner across all locomotion modes. Shared
 PlayerCollisionWorld/scene and MovementState/Command/Profile/Step/Error contracts
 must reflect qualified source needs; do not substitute a generic trace-only motor.
