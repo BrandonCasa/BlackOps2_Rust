@@ -28,6 +28,13 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
+            .set(
+                bevy::gltf::GltfPlugin::default()
+                    .add_custom_vertex_attribute("ORIGINS_LAYER_UV", rendering::LAYER_UV)
+                    .add_custom_vertex_attribute("ORIGINS_LAYER3_UV", rendering::LAYER3_UV)
+                    .add_custom_vertex_attribute("ORIGINS_ROTATION1", rendering::ROTATION1)
+                    .add_custom_vertex_attribute("ORIGINS_ROTATION2", rendering::ROTATION2),
+            )
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Origins".into(),

@@ -22,6 +22,8 @@ pub(crate) struct Verification {
     moved: bool,
     survey: usize,
     round_two: bool,
+    water_times: Vec<f32>,
+    camera_views: Vec<serde_json::Value>,
     reported: u32,
 }
 pub struct VerificationPlugin;
@@ -58,6 +60,8 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             moved: false,
             survey: 0,
             round_two: false,
+            water_times: Vec::new(),
+            camera_views: Vec::new(),
             reported: 0,
         });
     }
@@ -120,6 +124,7 @@ pub(crate) fn drive(
 fn check(
     mut commands: Commands,
     time: Res<Time>,
+    real_time: Res<Time<Real>>,
     verification: Option<ResMut<Verification>>,
     state: Res<State<GameState>>,
     failure: Res<LoadFailure>,
@@ -130,11 +135,28 @@ fn check(
     enemies: Query<&Transform, (With<Zombie>, Without<Player>)>,
     query: avian3d::prelude::SpatialQuery,
     surfaces: Res<crate::rendering::OpaqueSurfaceStatus>,
+    profile: Res<crate::rendering::profile::VisualProfile>,
+    mut cameras: Query<
+        (&Transform, &mut Projection),
+        (
+            With<crate::rendering::GameCamera>,
+            Without<Player>,
+            Without<Zombie>,
+        ),
+    >,
+    mut overlays: Query<&mut Visibility, With<crate::hud::PlayerOverlay>>,
 ) {
     let Some(mut verification) = verification else {
         return;
     };
-    if verification.started.elapsed().as_secs() > 110
+    for mut visibility in &mut overlays {
+        *visibility = if verification.stage == 1 {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+    }
+    if verification.started.elapsed().as_secs() > 180
         || **state == GameState::LoadError
         || (**state == GameState::GameOver && verification.stage == 0)
     {
@@ -208,14 +230,38 @@ fn check(
             .observe(save_to_disk(verification.output.join("round-two.png")));
     }
     if verification.stage == 1 && verification.playing > 1. {
-        if verification.survey < definition.survey_views.len() {
+        let view = visual_view(verification.survey, &definition);
+        if let Some((position, yaw, pitch)) = view {
+            if let Ok((_, mut projection)) = cameras.single_mut()
+                && let Projection::Perspective(perspective) = &mut *projection
+            {
+                // Comparison-only projection; ordinary player projection is unchanged.
+                perspective.fov = profile.comparison_fov_degrees.to_radians();
+            }
             let sweep = (verification.playing - 1.).clamp(0., 1.);
-            transform.translation = Vec3::from_array(definition.survey_views[verification.survey])
-                + Vec3::Y * 1.8
-                + Vec3::new(sweep * 0.3, 0., 0.);
+            let moving = verification.survey < definition.survey_views.len();
+            transform.translation =
+                position + Vec3::new(if moving { sweep * 0.3 } else { 0. }, 0., 0.);
             player.velocity = Vec3::ZERO;
-            player.yaw = verification.survey as f32 + sweep * 0.2;
-            if verification.playing > 2. {
+            player.yaw = yaw + if moving { sweep * 0.2 } else { 0. };
+            player.pitch = pitch;
+            let water_view = verification.survey >= definition.survey_views.len() + 5;
+            // Allow exposure to settle before judging atmosphere/animation.
+            if verification.playing > if water_view { 8. } else { 4. } {
+                if let Ok((camera, projection)) = cameras.single_mut()
+                    && let Projection::Perspective(perspective) = &*projection
+                {
+                    let survey = verification.survey;
+                    verification.camera_views.push(serde_json::json!({
+                        "view": survey, "position": camera.translation.to_array(),
+                        "yaw": player.yaw, "pitch": player.pitch, "vertical_fov_degrees": perspective.fov.to_degrees(),
+                        "body_position": transform.translation.to_array(), "eye_height": definition.tuning.eye_height,
+                        "aspect": perspective.aspect_ratio,
+                    }));
+                }
+                if water_view {
+                    verification.water_times.push(real_time.elapsed_secs());
+                }
                 commands
                     .spawn(Screenshot::primary_window())
                     .observe(save_to_disk(
@@ -237,7 +283,7 @@ fn check(
             && verification.moved
             && session.round == 1
             && surfaces.pending == 0;
-        let receipt = serde_json::json!({"passed":passed, "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round, "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances, "survey_views":verification.survey, "opaque_materials": &*surfaces});
+        let receipt = serde_json::json!({"passed":passed, "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round, "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances, "survey_views":verification.survey, "water_animation_seconds":verification.water_times, "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
         let _ = std::fs::write(
             verification.output.join("verification.json"),
             receipt.to_string(),
@@ -248,5 +294,29 @@ fn check(
         } else {
             AppExit::error()
         });
+    }
+}
+
+// Additional actual-map views target the supplied spawn-room references and a
+// retained puddle. The repeated water view checks animation at a stationary camera.
+fn visual_view(index: usize, definition: &GameDefinition) -> Option<(Vec3, f32, f32)> {
+    if let Some(position) = definition.survey_views.get(index) {
+        return Some((
+            Vec3::from_array(*position) + Vec3::Y * 1.8,
+            index as f32,
+            0.,
+        ));
+    }
+    let local = index - definition.survey_views.len();
+    let spawn = Vec3::from_array(definition.spawn) + Vec3::new(0., 0.2, 1.);
+    match local {
+        0..=3 => Some((
+            spawn,
+            definition.yaw + local as f32 * std::f32::consts::FRAC_PI_2,
+            0.05,
+        )),
+        4 => Some((spawn, definition.yaw, 0.7)),
+        5..=6 => Some((Vec3::new(-38.7, 4.5, -13.), 0., -0.6)),
+        _ => None,
     }
 }

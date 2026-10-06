@@ -25,7 +25,7 @@ uv run tools/import_origins.py --config config/local_assets.toml
 
 WASD moves; mouse looks; Shift sprints; Space jumps; Control crouches. Left click fires; right click or V melees; R reloads. Escape pauses; R restarts after death. Starts in the spawn room at Round 1, with six enemies.
 
-Rendering uses standard Bevy glTF/PBR, lightmaps, HDR, AgX, bloom and fog. Avian supplies collision queries and move-and-slide. Weapons and zombies currently use temporary visuals. Practical differences are documented in [gameplay](docs/reverse_engineering/gameplay.md) and [rendering](docs/reverse_engineering/rendering.md).
+Rendering uses Bevy glTF/PBR with layered terrain, explicit surface states, animated water, wetness, baked light/probes, HDR, AgX, bloom, storm sky and fog. `config/origins-visual.json` holds the embedded adjustable visual profile; edit and rebuild to tune it. Avian supplies collision queries and move-and-slide. Weapons and zombies currently use temporary visuals. Practical differences are documented in [gameplay](docs/reverse_engineering/gameplay.md) and [rendering](docs/reverse_engineering/rendering.md).
 
 Read [project state](docs/project-state.md), [architecture](docs/architecture/README.md), [asset preparation](docs/reverse_engineering/assets.md) and the [complete systems roadmap](docs/roadmap.md). Historical research is recoverable from Git.
 

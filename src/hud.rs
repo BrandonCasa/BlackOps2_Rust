@@ -6,6 +6,8 @@ use bevy::prelude::*;
 
 #[derive(Component)]
 struct HudText;
+#[derive(Component)]
+pub(crate) struct PlayerOverlay;
 pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
@@ -34,9 +36,11 @@ fn setup(
             ..default()
         },
         HudText,
+        PlayerOverlay,
     ));
     commands.spawn((
         Text::new("+"),
+        PlayerOverlay,
         TextFont {
             font_size: FontSize::Px(24.),
             ..default()
@@ -56,6 +60,7 @@ fn setup(
                 MeshMaterial3d(materials.add(Color::srgb(0.12, 0.13, 0.15))),
                 Transform::from_xyz(0.25, -0.22, -0.5),
                 Name::new("Temporary pistol"),
+                PlayerOverlay,
             ));
         });
     }

@@ -13,10 +13,15 @@ use bevy::{
     post_process::bloom::Bloom,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    render::view::{ColorGrading, ColorGradingGlobal},
 };
 use std::collections::HashMap;
+mod mipmaps;
 mod opaque;
+pub(crate) mod profile;
+mod sky;
 pub(crate) use opaque::OpaqueSurfaceStatus;
+pub(crate) use opaque::{LAYER_UV, LAYER3_UV, ROTATION1, ROTATION2};
 
 #[derive(Component)]
 pub struct GameCamera;
@@ -32,14 +37,18 @@ pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<opaque::OpaqueMaterial>::default())
+            .init_resource::<profile::VisualProfile>()
             .init_resource::<OpaqueSurfaceStatus>()
             .add_systems(Startup, (setup, opaque::initialize))
+            .add_systems(PostStartup, sky::setup)
             .add_systems(
                 Update,
                 (
                     camera_follow,
                     opaque::probes,
+                    mipmaps::prepare.before(opaque::convert),
                     (lightmaps, surfaces, opaque::convert, decode_lightmaps).chain(),
+                    opaque::animate_water.after(opaque::convert),
                     lantern_shadows,
                     exposure.after(camera_follow),
                 ),
@@ -47,23 +56,28 @@ impl Plugin for GameRenderingPlugin {
     }
 }
 
-pub(crate) fn setup(mut commands: Commands) {
-    commands.insert_resource(ClearColor(Color::srgb(0.08, 0.11, 0.13)));
+pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>) {
+    commands.insert_resource(ClearColor(profile::color(profile.fog_color)));
     commands.insert_resource(GlobalAmbientLight {
-        color: Color::srgb(0.48, 0.61, 0.68),
-        brightness: 180.,
+        color: profile::color(profile.ambient_color),
+        brightness: profile.ambient_brightness,
         affects_lightmapped_meshes: false,
         ..default()
     });
     commands.spawn((
         DirectionalLight {
-            illuminance: 2600.,
-            color: Color::srgb(0.65, 0.74, 0.8),
+            illuminance: profile.sun_illuminance,
+            color: profile::color(profile.sun_color),
             affects_lightmapped_mesh_diffuse: false,
             shadow_maps_enabled: true,
             ..default()
         },
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, -0.5, 0.)),
+        Transform::from_rotation(Quat::from_euler(
+            EulerRot::XYZ,
+            profile.sun_rotation[0],
+            profile.sun_rotation[1],
+            profile.sun_rotation[2],
+        )),
         Name::new("Origins sunlight"),
     ));
     commands.spawn((
@@ -71,16 +85,27 @@ pub(crate) fn setup(mut commands: Commands) {
         GameCamera,
         Transform::from_xyz(0., 2., 0.),
         Hdr,
-        Exposure::INDOOR,
+        Exposure {
+            ev100: profile.indoor_ev100,
+        },
         Tonemapping::AgX,
+        ColorGrading {
+            global: ColorGradingGlobal {
+                post_saturation: profile.post_saturation,
+                ..default()
+            },
+            ..default()
+        },
         Bloom {
-            intensity: 0.18,
+            intensity: profile.bloom_intensity,
             ..default()
         },
         Msaa::Sample4,
         DistanceFog {
-            color: Color::srgb(0.13, 0.19, 0.2),
-            falloff: FogFalloff::Exponential { density: 0.009 },
+            color: profile::color(profile.fog_color),
+            falloff: FogFalloff::Exponential {
+                density: profile.fog_density,
+            },
             ..default()
         },
     ));
@@ -212,20 +237,52 @@ fn surfaces(
         (Without<SurfaceReady>, Without<WorldCollider>),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    library: Option<Res<opaque::SurfaceLibrary>>,
+    profile: Res<profile::VisualProfile>,
 ) {
+    let Some(library) = library else { return };
     for (entity, handle, name, bounds) in &surfaces {
         let Some(mut material) = materials.get_mut(&handle.0) else {
             continue;
         };
-        if name.0.contains("glass_on") {
-            material.emissive = LinearRgba::rgb(4., 1.9, 0.6);
+        let Some(definition) = library.definitions.get(&name.0) else {
+            continue;
+        };
+        let state = &definition.presentation;
+        if state["visible"].as_bool() == Some(false) {
+            commands.entity(entity).insert(Visibility::Hidden);
+        }
+        material.fog_enabled = state["fog"].as_bool().unwrap_or(true);
+        material.double_sided = state["cull"].as_str() == Some("none");
+        material.cull_mode = match state["cull"].as_str() {
+            Some("none") => None,
+            Some("front") => Some(bevy::render::render_resource::Face::Front),
+            _ => Some(bevy::render::render_resource::Face::Back),
+        };
+        material.alpha_mode = match state["alpha"].as_str() {
+            Some("mask") => AlphaMode::Mask(state["cutoff"].as_f64().unwrap_or(0.5) as f32),
+            Some("blend") => AlphaMode::Blend,
+            Some("premultiplied") => AlphaMode::Premultiplied,
+            Some("add") => AlphaMode::Add,
+            Some("multiply") => AlphaMode::Multiply,
+            _ => AlphaMode::Opaque,
+        };
+        if state["emissive"].as_bool() == Some(true) {
+            material.emissive_exposure_weight = 1.;
+            material.emissive = if state["lamp"].as_bool() == Some(true) {
+                profile::color(profile.lantern_color).to_linear() * profile.lantern_emissive_nits
+            } else {
+                LinearRgba::WHITE * profile.emissive_nits
+            };
+        }
+        if state["lamp"].as_bool() == Some(true) {
             commands.entity(entity).insert(NotShadowCaster);
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
                     PointLight {
-                        color: Color::srgb(1., 0.69, 0.35),
-                        intensity: 6000.,
-                        range: 9.,
+                        color: profile::color(profile.lantern_color),
+                        intensity: profile.lantern_lumens,
+                        range: profile.lantern_range,
                         radius: 0.12,
                         ..default()
                     },
@@ -257,6 +314,7 @@ fn exposure(
     players: Query<Entity, With<Player>>,
     query: avian3d::prelude::SpatialQuery,
     time: Res<Time>,
+    profile: Res<profile::VisualProfile>,
 ) {
     let (Ok((camera, mut exposure)), Ok(player)) = (cameras.single_mut(), players.single()) else {
         return;
@@ -271,9 +329,10 @@ fn exposure(
         )
         .is_some();
     let target = if covered {
-        Exposure::EV100_INDOOR
+        profile.indoor_ev100
     } else {
-        Exposure::EV100_BLENDER
+        profile.outdoor_ev100
     };
-    exposure.ev100 += (target - exposure.ev100) * (1. - (-time.delta_secs() * 2.).exp());
+    exposure.ev100 +=
+        (target - exposure.ev100) * (1. - (-time.delta_secs() * profile.adaptation_speed).exp());
 }
