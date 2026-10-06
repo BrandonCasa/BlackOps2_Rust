@@ -20,6 +20,11 @@ import struct
 import subprocess
 import tomllib
 
+try:
+    from .content_contract import initial_catalog
+except ImportError:
+    from content_contract import initial_catalog
+
 import numpy as np
 from PIL import Image
 
@@ -273,7 +278,7 @@ def gameplay_definition(records):
             points.append(point.tolist())
     if not points:
         raise ValueError("map entities have no starting-zone zombie entry points")
-    return {"version": 1, "scene": "map.gltf#Scene0", "collision_scene": "map.gltf#Scene1",
+    return {"version": 2, "content": initial_catalog(), "scene": "map.gltf#Scene0", "collision_scene": "map.gltf#Scene1",
             "spawn": spawn, "yaw": math.radians(90 - angles[1]), "spawn_points": points,
             "waypoints": local, "survey_views": [p for p in nodes[::max(1, len(nodes)//8)]][:8],
             "source_surfaces": 0, "render_meshes": 0, "collision_meshes": 0,
@@ -702,11 +707,22 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=WORKSPACE / "config/local_assets.toml")
+    parser.add_argument("--content-only", action="store_true", help="regenerate game.json from map entities, preserving prepared geometry coverage")
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
     root = Path(config["assets"]["inspection_output"])
     settings = config.get("preparation", {})
     entities_path = Path(settings.get("entities", root / "game-prepare/entities/maps/mp/zm_tomb.d3dbsp.ents"))
+    if args.content_only:
+        output = external(Path(config["game"]["asset_pack"]))
+        previous = json.loads((output / "game.json").read_text(encoding="utf-8-sig"))
+        definition = gameplay_definition(entities(external(entities_path)))
+        for key in ("source_surfaces", "render_meshes", "collision_meshes", "static_model_instances", "survey_views", "tuning"):
+            if key in previous:
+                definition[key] = previous[key]
+        (output / "game.json").write_text(json.dumps(definition, indent=2) + "\n", encoding="utf-8")
+        print("Regenerated version-two game.json; retained previously prepared geometry and texture bytes.")
+        return
     model_root = Path(settings.get("models", root / "game-prepare/models"))
     instances_path = Path(settings.get("instances", root / "game-prepare/instances/static-instances.json"))
     zone = Path(config["assets"]["installation_root"]) / "zone/all/zm_tomb.ff"

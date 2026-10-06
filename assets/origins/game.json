@@ -1,5 +1,58 @@
 {
-  "version": 1,
+  "version": 2,
+  "content": {
+    "weapons": [
+      {
+        "id": "weapon.mauser",
+        "name": "Mauser C96",
+        "damage": 50,
+        "category": "bullet",
+        "magazine": 8,
+        "reserve": 32,
+        "fire_interval": 0.2,
+        "reload_seconds": 1.5,
+        "upgraded": null,
+        "presentation": null
+      }
+    ],
+    "enemies": [
+      {
+        "id": "enemy.zombie",
+        "health": 150,
+        "speed": 1.15,
+        "damage": 50,
+        "presentation": null
+      }
+    ],
+    "perks": [],
+    "powerups": [],
+    "zones": [
+      {
+        "id": "zone.start",
+        "initially_open": true
+      }
+    ],
+    "placements": [],
+    "interactions": [],
+    "zone_connections": [],
+    "navigation_nodes": [],
+    "navigation_links": [],
+    "generators": [],
+    "robot_routes": [],
+    "tank_routes": [],
+    "weather": [],
+    "digging": [],
+    "recipes": [],
+    "staff_puzzles": [],
+    "quests": [],
+    "quest_transitions": [],
+    "presentations": [],
+    "sounds": [],
+    "animations": [],
+    "ui_assets": [],
+    "cinematics": [],
+    "definitions": []
+  },
   "scene": "map.gltf#Scene0",
   "collision_scene": "map.gltf#Scene1",
   "spawn": [

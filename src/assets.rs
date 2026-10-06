@@ -145,25 +145,7 @@ fn begin_load(
         let config = config.0.as_ref().map_err(Clone::clone)?;
         info!("Origins asset pack: {}", config.pack_root.display());
         let path = config.pack_root.join("game.json");
-        if std::fs::metadata(&path)
-            .map_err(|e| format!("{}: {e}", path.display()))?
-            .len()
-            > 4 * 1024 * 1024
-        {
-            return Err("Gameplay definition is too large.".into());
-        }
-        let definition: GameDefinition = serde_json::from_slice(
-            &std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?,
-        )
-        .map_err(|e| {
-            format!(
-                "Invalid {}: {e}\nRestore game.json from the runtime pack.",
-                path.display()
-            )
-        })?;
-        definition
-            .validate()
-            .map_err(|e| format!("Invalid {}: {e}", path.display()))?;
+        let definition = GameDefinition::load(&path).map_err(|e| e.to_string())?;
         Ok(definition)
     })();
     match definition {

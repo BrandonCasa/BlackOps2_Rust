@@ -2,7 +2,10 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 use std::path::Path;
+pub mod content;
+pub use content::*;
 #[derive(Resource, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct GameDefinition {
     pub version: u32,
     pub scene: String,
@@ -16,6 +19,7 @@ pub struct GameDefinition {
     pub render_meshes: usize,
     pub collision_meshes: usize,
     pub static_model_instances: usize,
+    pub content: ContentCatalog,
     #[serde(default)]
     pub tuning: Tuning,
 }
@@ -71,8 +75,58 @@ impl Default for Tuning {
 }
 
 impl GameDefinition {
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn load(path: &Path) -> Result<Self, ContentError> {
+        let size = std::fs::metadata(path)
+            .map_err(|source| ContentError::Io {
+                path: path.into(),
+                source,
+            })?
+            .len();
+        if size > 4 * 1024 * 1024 {
+            return Err(ContentError::InvalidDefinition(
+                "Gameplay definition exceeds 4 MiB.".into(),
+            ));
+        }
+        let bytes = std::fs::read(path).map_err(|source| ContentError::Io {
+            path: path.into(),
+            source,
+        })?;
+        if bytes.len() > 4 * 1024 * 1024 {
+            return Err(ContentError::InvalidDefinition(
+                "Gameplay definition exceeds 4 MiB.".into(),
+            ));
+        }
+        // Version is checked before parsing a newer/older schema's required fields.
+        let header: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|source| ContentError::Json {
+                path: path.into(),
+                source,
+            })?;
+        let version = header
+            .get("version")
+            .and_then(|v| v.as_u64())
+            .and_then(|v| u32::try_from(v).ok())
+            .ok_or_else(|| {
+                ContentError::InvalidDefinition("Missing integer content version.".into())
+            })?;
+        if version != 2 {
+            return Err(ContentError::UnsupportedVersion(version));
+        }
+        let definition: Self =
+            serde_json::from_value(header).map_err(|source| ContentError::Json {
+                path: path.into(),
+                source,
+            })?;
+        definition.validate()?;
+        Ok(definition)
+    }
+    pub fn validate(&self) -> Result<(), ContentError> {
+        if self.version != 2 {
+            return Err(ContentError::UnsupportedVersion(self.version));
+        }
+        self.content.validate()?;
         for path in [&self.scene, &self.collision_scene] {
+            validate_asset_path(path)?;
             let base = path.split('#').next().unwrap_or("");
             if base.is_empty()
                 || Path::new(base).is_absolute()
@@ -80,7 +134,7 @@ impl GameDefinition {
                     .components()
                     .any(|c| !matches!(c, std::path::Component::Normal(_)))
             {
-                return Err("Scene references must be relative asset paths.".into());
+                return Err(ContentError::InvalidPath(path.clone()));
             }
         }
         let values = [
@@ -99,8 +153,7 @@ impl GameDefinition {
             self.tuning.reload_seconds,
             self.tuning.zombie_speed,
         ];
-        if self.version != 1
-            || self.spawn_points.is_empty()
+        if self.spawn_points.is_empty()
             || self.render_meshes == 0
             || self.collision_meshes == 0
             || !self.yaw.is_finite()
@@ -124,10 +177,10 @@ impl GameDefinition {
             .iter()
             .any(|value| *value == 0 || *value > i32::MAX as u32)
         {
-            return Err(
+            return Err(ContentError::InvalidDefinition(
                 "Asset pack contains invalid gameplay parameters or incomplete scene coverage."
                     .into(),
-            );
+            ));
         }
         Ok(())
     }

@@ -22,6 +22,11 @@
 !/assets/origins/**/*.gltf
 !/assets/origins/**/*.bin
 !/assets/origins/**/*.png
+!/assets/origins/**/*.jpg
+!/assets/origins/**/*.jpeg
+!/assets/origins/**/*.ogg
+!/assets/origins/**/*.ttf
+!/assets/origins/**/*.otf
 **/original-assets/
 **/local-assets/
 **/local_assets/
@@ -73,3 +78,20 @@
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Optional preparation inputs are separate from runtime assets. Original
+# installations and generated build products remain outside this allowance.
+!/assets/source/
+!/assets/source/**/
+!/assets/source/**/*.ff
+!/assets/source/**/*.iwd
+!/assets/source/**/*.iwi
+!/assets/source/**/*.xpak
+!/assets/source/**/*.pak
+!/assets/source/**/*.bik
+!/assets/source/**/*.xmodel
+!/assets/source/**/*.xanim
+!/assets/source/**/*.bin
+!/assets/source/**/*.dds
+!/assets/source/**/*.wav
+!/assets/source/**/*.zip

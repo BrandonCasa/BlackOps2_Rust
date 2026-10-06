@@ -1,39 +1,39 @@
-- [ ] Add stable IDs for content definitions.
+- [x] Add stable IDs for content definitions.
 - [ ] Add stable IDs for map placements.
-- [ ] Add typed zone identifiers.
-- [ ] Add typed weapon identifiers.
-- [ ] Add typed perk identifiers.
-- [ ] Add typed quest identifiers.
-- [ ] Add typed interaction identifiers.
-- [ ] Add typed damage categories.
-- [ ] Add typed content loading errors.
-- [ ] Upgrade GameDefinition to version two.
-- [ ] Add weapon catalogs to GameDefinition.
-- [ ] Add enemy catalogs to GameDefinition.
-- [ ] Add perk catalogs to GameDefinition.
-- [ ] Add powerup catalogs to GameDefinition.
-- [ ] Add interaction placements to GameDefinition.
-- [ ] Add zone connections to GameDefinition.
-- [ ] Add navigation links to GameDefinition.
-- [ ] Add generator definitions to GameDefinition.
-- [ ] Add robot routes to GameDefinition.
-- [ ] Add tank routes to GameDefinition.
-- [ ] Add weather definitions to GameDefinition.
-- [ ] Add digging definitions to GameDefinition.
-- [ ] Add crafting recipes to GameDefinition.
-- [ ] Add staff puzzle definitions to GameDefinition.
-- [ ] Add quest transitions to GameDefinition.
-- [ ] Add sound references to GameDefinition.
-- [ ] Add animation references to GameDefinition.
-- [ ] Add UI asset references to GameDefinition.
-- [ ] Add cinematic sequences to GameDefinition.
-- [ ] Reject unsupported content versions during loading.
-- [ ] Resolve content references through stable IDs.
-- [ ] Regenerate the existing pack using version two.
-- [ ] Enable Bevy animation support.
-- [ ] Enable Bevy audio support.
-- [ ] Enable Bevy Vorbis decoding.
-- [ ] Enable Bevy JPEG decoding.
+- [x] Add typed zone identifiers.
+- [x] Add typed weapon identifiers.
+- [x] Add typed perk identifiers.
+- [x] Add typed quest identifiers.
+- [x] Add typed interaction identifiers.
+- [x] Add typed damage categories.
+- [x] Add typed content loading errors.
+- [x] Upgrade GameDefinition to version two.
+- [x] Add weapon catalogs to GameDefinition.
+- [x] Add enemy catalogs to GameDefinition.
+- [x] Add perk catalogs to GameDefinition.
+- [x] Add powerup catalogs to GameDefinition.
+- [x] Add interaction placements to GameDefinition.
+- [x] Add zone connections to GameDefinition.
+- [x] Add navigation links to GameDefinition.
+- [x] Add generator definitions to GameDefinition.
+- [x] Add robot routes to GameDefinition.
+- [x] Add tank routes to GameDefinition.
+- [x] Add weather definitions to GameDefinition.
+- [x] Add digging definitions to GameDefinition.
+- [x] Add crafting recipes to GameDefinition.
+- [x] Add staff puzzle definitions to GameDefinition.
+- [x] Add quest transitions to GameDefinition.
+- [x] Add sound references to GameDefinition.
+- [x] Add animation references to GameDefinition.
+- [x] Add UI asset references to GameDefinition.
+- [x] Add cinematic sequences to GameDefinition.
+- [x] Reject unsupported content versions during loading.
+- [x] Resolve content references through stable IDs.
+- [x] Regenerate the existing pack using version two.
+- [x] Enable Bevy animation support.
+- [x] Enable Bevy audio support.
+- [x] Enable Bevy Vorbis decoding.
+- [x] Enable Bevy JPEG decoding.
 - [ ] Extend asset preparation with weapon definition extraction.
 - [ ] Extend asset preparation with attachment definition extraction.
 - [ ] Extend asset preparation with patch override resolution.
@@ -64,19 +64,19 @@
 - [ ] Convert loading footage into timed image frames.
 - [ ] Convert ending footage into timed image frames.
 - [ ] Bind cinematic audio aliases to frame sequences.
-- [ ] Extend importer support for glTF skins.
-- [ ] Extend importer support for glTF animations.
-- [ ] Extend importer support for joint attributes.
-- [ ] Extend importer support for weight attributes.
-- [ ] Extend importer support for audio dependencies.
-- [ ] Extend importer support for JPEG dependencies.
-- [ ] Extend importer support for font dependencies.
-- [ ] Extend importer support for cinematic frame dependencies.
-- [ ] Extend importer support for gameplay content references.
-- [ ] Separate optional raw inputs from runtime dependency enumeration.
-- [ ] Add LFS attributes for prepared audio.
-- [ ] Add LFS attributes for cinematic images.
-- [ ] Add LFS attributes for committed raw binaries.
+- [x] Extend importer support for glTF skins.
+- [x] Extend importer support for glTF animations.
+- [x] Extend importer support for joint attributes.
+- [x] Extend importer support for weight attributes.
+- [x] Extend importer support for audio dependencies.
+- [x] Extend importer support for JPEG dependencies.
+- [x] Extend importer support for font dependencies.
+- [x] Extend importer support for cinematic frame dependencies.
+- [x] Extend importer support for gameplay content references.
+- [x] Separate optional raw inputs from runtime dependency enumeration.
+- [x] Add LFS attributes for prepared audio.
+- [x] Add LFS attributes for cinematic images.
+- [x] Add LFS attributes for committed raw binaries.
 - [ ] Replace pistol-specific Session fields with player inventory.
 - [ ] Move weapon behavior into a reusable weapon module.
 - [ ] Move enemy behavior into a reusable enemy module.

@@ -1,26 +1,26 @@
 TASK:
-Create and locally commit todo.md containing every outstanding solo Origins implementation task as individual unchecked bullets, each at most 15 words.
+Complete all 1,219 todo.md tasks according to the accepted complete solo Origins plan.
 
 STATUS:
-COMPLETE - checklist creation only. Gameplay implementation remains outstanding.
+PARTIAL - 48 content-contract/importer tasks completed; 1,171 remain. Goal active.
 
 FINDINGS:
-The repository already tracked 20 Markdown files. The broad roadmap is replaced by the atomic checklist, preserving that limit and all ten required skills. The accepted scope uses intended BO2 behavior, finished reconstructed presentation where needed, mouse and keyboard with efficient 8,000 Hz handling, original HUD information and measured playability. The user explicitly permits necessary file types and raw inputs in this local-only repository.
+Version-two content uses validated stable typed IDs and catalogs for gameplay/presentation. Empty catalogs explicitly mean content still awaits recovery/implementation. Starter weapon/enemy values retain temporary tuning. Existing OAT recovered weapon/attachment source definitions externally with zero errors; original character arms and weapon rigs also exist externally.
 
 EVIDENCE:
-todo.md contains 1,219 unique unchecked implementation tasks; the longest task is 10 words. Items cover content preparation, reusable gameplay, input, movement, presentation, weapons, damage, enemies, rounds, purchases, generators, perks, powerups, robots, tank, digging, crafting, staffs, puzzles, challenges, quests, audio, HUD and menus.
+External inspection/solo-content/window-v2/verification.json reports passed=true, movement=true, round_two=true, restart_round=1 and 15 views. Its screenshots show the actual application. inspection/runtime-content-v2.json records the imported closure: 1,252 files, 1,249 PNGs, 717,945,746 bytes.
 
 CHANGES:
-Add root todo.md as a flat checkbox list without headings, prose or external instructions. Retire docs/roadmap.md. Redirect README and project-state links. Record the approved asset permission in AGENTS.md and asset documentation. Replace this current handoff.
+Typed content schemas/index/errors; unsupported-version loading errors; regenerated version-two game.json; Bevy animation/audio/Vorbis/JPEG; skin/joint/weight/animation validation and media dependency closure; OGG stream decoding; media/font packaging; scoped runtime/source LFS allowances. Tick only completed contract/importer tasks. Map placement ID rollout stays unchecked.
 
 VALIDATION:
-Checklist formatting, word counts, duplicate items, forbidden verification-only wording, stale roadmap links, Markdown count and diff whitespace checked before commit. Initial documentation patch rejected conflicting replacement operations; corrected with updates. Application compiler gates, asset assembly checks and actual-window gameplay are skipped because this change contains documentation only. No unit tests, fixtures or Clippy. No push.
+Asset import and subsequent --check passed. Locked metadata, locked release build, formatting and diff whitespace passed. Existing actual-window driver passed combat/movement/round/restart/render checks. Initial importer indentation error corrected before successful validation. Cargo.lock regenerated for newly enabled Bevy features. Handoff replacement patch rejected conflicting operations; rewritten in place. No tests, fixtures, Clippy, toolchain installation, delegation or push.
 
 UNRESOLVED:
-All 1,219 gameplay checklist items remain unchecked. No application, importer, asset or gameplay changes are implemented by this task. Prior rendering review and implementation evidence remain in Git history.
+No new rigs, clips, audio, cinematic sequences or gameplay systems yet. Expanded skin/media branches are implemented but not exercised with assembled actor/media assets. Complete quest, sustained survival, 8,000 Hz device and relocated final-package gates remain pending.
 
 RECOMMENDED NEXT WORK:
-Implement checklist items sequentially within origins.exe and check each item only after its individual code or content change is complete. Preserve the project rules for coherent milestone integration.
+Recover patch-resolved weapon/attachment fields, gameplay placements/navigation and skinned actor/animation/audio assets; assemble/import them, then replace temporary player/enemy presentation and gameplay in plan order.
 
 SCOPE NOT IMPLEMENTED:
-Gameplay/content implementation, renderer changes, asset conversions, new verification code, builds, packaged delivery and gameplay acceptance.
+The 1,171 unchecked tasks and final completion gates. Contract availability does not imply populated content, original fidelity or completed mechanics.

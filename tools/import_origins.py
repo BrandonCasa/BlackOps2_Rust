@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
+# dependencies = ["numpy>=2,<3", "pillow>=12,<13", "soundfile>=0.13,<0.14"]
 # ///
 """Validate and copy the prepared runtime closure; never rewrite source assets.
 
@@ -20,11 +20,17 @@ import struct
 import subprocess
 import tomllib
 
+try:
+    from .content_contract import validate_content
+except ImportError:
+    from content_contract import validate_content
+
 import numpy as np
 from PIL import Image
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 POINTER = b"version https://git-lfs.github.com/spec/v1"
+RUNTIME_SUFFIXES = {".json", ".gltf", ".bin", ".png", ".jpg", ".jpeg", ".ogg", ".ttf", ".otf"}
 
 
 def require(condition, message):
@@ -98,7 +104,7 @@ def validate_gltf(root, relative, files):
     require(document.get("asset", {}).get("version") == "2.0", "unsupported glTF version")
     require(set(document) <= {"asset", "scene", "scenes", "nodes", "meshes", "materials",
                               "textures", "images", "samplers", "accessors", "bufferViews",
-                              "buffers", "extensionsUsed", "extensionsRequired", "extras"},
+                              "buffers", "extensionsUsed", "extensionsRequired", "extras", "skins", "animations"},
             "unsupported glTF feature")
     require(set(document.get("extensionsUsed", []) + document.get("extensionsRequired", []))
             <= {"KHR_materials_unlit"}, "unsupported glTF extension")
@@ -132,7 +138,7 @@ def validate_gltf(root, relative, files):
         view = ref(views, accessor["bufferView"], "buffer-view")
         component = accessor["componentType"]
         types = {5120: "i1", 5121: "u1", 5122: "<i2", 5123: "<u2", 5125: "<u4", 5126: "<f4"}
-        widths = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
+        widths = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
         require(component in types and accessor["type"] in widths, "unsupported accessor layout")
         dtype = np.dtype(types[component])
         width = widths[accessor["type"]]
@@ -166,7 +172,18 @@ def validate_gltf(root, relative, files):
         decoded.add(image_path)
     for image in document.get("images", []):
         require(set(image) <= {"uri", "name"}, "embedded or extended images unsupported")
-        decode_png(dependency(image["uri"], ".png"))
+        suffix = PurePosixPath(image["uri"]).suffix
+        require(suffix in {".png", ".jpg", ".jpeg"}, "unsupported glTF image")
+        image_path = dependency(image["uri"], suffix)
+        if suffix == ".png":
+            decode_png(image_path)
+        else:
+            read_bytes(image_path)
+            with Image.open(image_path) as pixels:
+                require(pixels.format == "JPEG", "non-JPEG image")
+                pixels.verify()
+            with Image.open(image_path) as pixels:
+                pixels.load()
     for texture in document.get("textures", []):
         require(set(texture) <= {"source", "sampler", "name"}, "unsupported texture feature")
         ref(document.get("images", []), texture["source"], "image")
@@ -266,13 +283,25 @@ def validate_gltf(root, relative, files):
                 require(len(ref(arrays, index, "attribute accessor")) == len(position), "attribute count mismatch")
             for semantic, index in primitive["attributes"].items():
                 values = arrays[index]
-                require(semantic in ("POSITION", "NORMAL", "TANGENT", "COLOR_0", "TEXCOORD_0", "TEXCOORD_1", "_ORIGINS_LAYER_UV", "_ORIGINS_LAYER3_UV", "_ORIGINS_ROTATION1", "_ORIGINS_ROTATION2"), "unsupported mesh attribute")
-                require(values.shape[1] == (2 if semantic.startswith("TEXCOORD") or semantic == "_ORIGINS_LAYER3_UV" else 4 if semantic in ("TANGENT", "COLOR_0", "_ORIGINS_LAYER_UV", "_ORIGINS_ROTATION1", "_ORIGINS_ROTATION2") else 3), "attribute width mismatch")
+                require(semantic in ("POSITION", "NORMAL", "TANGENT", "COLOR_0", "TEXCOORD_0", "TEXCOORD_1", "JOINTS_0", "WEIGHTS_0", "_ORIGINS_LAYER_UV", "_ORIGINS_LAYER3_UV", "_ORIGINS_ROTATION1", "_ORIGINS_ROTATION2"), "unsupported mesh attribute")
+                require(values.shape[1] == (2 if semantic.startswith("TEXCOORD") or semantic == "_ORIGINS_LAYER3_UV" else 4 if semantic in ("TANGENT", "COLOR_0", "JOINTS_0", "WEIGHTS_0", "_ORIGINS_LAYER_UV", "_ORIGINS_ROTATION1", "_ORIGINS_ROTATION2") else 3), "attribute width mismatch")
+                if semantic == "JOINTS_0":
+                    require(values.dtype.kind == "u" and values.dtype.itemsize <= 2, "invalid joint indices")
+                if semantic == "WEIGHTS_0":
+                    accessor = document["accessors"][index]
+                    weights = values.astype(float)
+                    if values.dtype.kind == "u":
+                        require(accessor.get("normalized") and values.dtype.itemsize <= 2, "unnormalized integer skin weights")
+                        weights /= np.iinfo(values.dtype).max
+                    else:
+                        require(values.dtype.kind == "f", "invalid skin weight type")
+                    require((weights >= 0).all() and (weights <= 1).all() and np.allclose(weights.sum(axis=1), 1, atol=1e-4), "invalid skin weight normalization")
                 if semantic == "TANGENT":
                     require(np.allclose(np.linalg.norm(values[:, :3], axis=1), 1, atol=1e-5)
                             and np.isin(values[:, 3], [-1, 1]).all(), "invalid tangent or handedness")
                 if semantic == "COLOR_0":
                     require(((values >= 0) & (values <= 1)).all(), "invalid vertex color")
+            require(("JOINTS_0" in primitive["attributes"]) == ("WEIGHTS_0" in primitive["attributes"]), "incomplete skin attributes")
             if extras:
                 require("TANGENT" in primitive["attributes"] and "COLOR_0" in primitive["attributes"], "missing retained surface attributes")
             indices = ref(arrays, primitive["indices"], "index accessor")
@@ -282,7 +311,7 @@ def validate_gltf(root, relative, files):
             ref(document.get("materials", []), primitive["material"], "material")
     nodes = document.get("nodes", [])
     for node in nodes:
-        require(set(node) <= {"name", "mesh", "children", "matrix", "translation", "rotation", "scale", "extras"},
+        require(set(node) <= {"name", "mesh", "skin", "children", "matrix", "translation", "rotation", "scale", "extras"},
                 "unsupported node feature")
         if "mesh" in node:
             ref(document.get("meshes", []), node["mesh"], "mesh")
@@ -311,6 +340,59 @@ def validate_gltf(root, relative, files):
                         require(values.shape[1] == 4 and ((values >= 0) & (values <= 1)).all(), "invalid instance lighting colors")
         for child in node.get("children", []):
             ref(nodes, child, "child node")
+    skins = document.get("skins", [])
+    for skin in skins:
+        require(set(skin) <= {"name", "joints", "skeleton", "inverseBindMatrices"}, "unsupported skin feature")
+        joints = skin.get("joints", [])
+        require(joints and len(set(joints)) == len(joints), "empty or duplicate skin joints")
+        for joint in joints:
+            node = ref(nodes, joint, "skin joint")
+            require(isinstance(node.get("name"), str) and node["name"], "skin joint lost its name")
+        require(len({nodes[j]["name"] for j in joints}) == len(joints), "ambiguous skin joint names")
+        if "skeleton" in skin:
+            ref(nodes, skin["skeleton"], "skeleton root")
+        if "inverseBindMatrices" in skin:
+            matrix_index = skin["inverseBindMatrices"]
+            matrices = ref(arrays, matrix_index, "inverse bind matrices")
+            accessor = document["accessors"][matrix_index]
+            require(accessor["type"] == "MAT4" and accessor["componentType"] == 5126 and len(matrices) == len(joints), "invalid inverse bind matrix layout")
+    for node in nodes:
+        if "skin" in node:
+            skin = ref(skins, node["skin"], "node skin")
+            mesh = ref(document.get("meshes", []), node.get("mesh"), "skinned mesh")
+            for primitive in mesh["primitives"]:
+                attributes = primitive["attributes"]
+                require({"JOINTS_0", "WEIGHTS_0"} <= attributes.keys(), "skinned node lacks joint/weight attributes")
+                require(int(arrays[attributes["JOINTS_0"]].max()) < len(skin["joints"]), "skin joint index out of bounds")
+    for animation in document.get("animations", []):
+        require(set(animation) <= {"name", "channels", "samplers"}, "unsupported animation feature")
+        samplers = animation.get("samplers", [])
+        require(samplers and animation.get("channels"), "empty animation")
+        for sampler in samplers:
+            require(set(sampler) <= {"input", "output", "interpolation"}, "unsupported animation sampler")
+            times = ref(arrays, sampler["input"], "animation times")
+            values = ref(arrays, sampler["output"], "animation values")
+            require(document["accessors"][sampler["input"]]["componentType"] == 5126 and times.shape[1] == 1 and (times >= 0).all() and (np.diff(times[:, 0]) > 0).all(), "invalid animation times")
+            require(document["accessors"][sampler["output"]]["componentType"] == 5126, "invalid animation value type")
+            mode = sampler.get("interpolation", "LINEAR")
+            require(mode in {"LINEAR", "STEP", "CUBICSPLINE"}, "unsupported animation interpolation")
+            require(len(values) == len(times) * (3 if mode == "CUBICSPLINE" else 1), "animation sample count mismatch")
+        targets = set()
+        for channel in animation["channels"]:
+            require(set(channel) == {"sampler", "target"} and set(channel["target"]) == {"node", "path"}, "invalid animation channel")
+            target = channel["target"]
+            node = ref(nodes, target["node"], "animation target")
+            require(node.get("name") and "matrix" not in node, "animation target lacks named TRS node")
+            require(target["path"] in {"translation", "rotation", "scale"}, "unsupported animation target")
+            key = (target["node"], target["path"])
+            require(key not in targets, "duplicate animation target")
+            targets.add(key)
+            sampler = ref(samplers, channel["sampler"], "animation sampler")
+            values = arrays[sampler["output"]]
+            require(values.shape[1] == (4 if target["path"] == "rotation" else 3), "animation value width mismatch")
+            if target["path"] == "rotation":
+                quaternions = values[1::3] if sampler.get("interpolation") == "CUBICSPLINE" else values
+                require(np.allclose(np.linalg.norm(quaternions, axis=1), 1, atol=1e-4), "invalid animation quaternion")
     scenes = document.get("scenes", [])
     if "scene" in document:
         ref(scenes, document["scene"], "default scene")
@@ -346,12 +428,13 @@ def validate_pack(root, receipt=None, exact=False):
     game = read_json(safe_path(root, "game.json", {".json"}))
     require(set(game) <= {"version", "scene", "collision_scene", "spawn", "yaw", "spawn_points",
                           "waypoints", "survey_views", "source_surfaces", "render_meshes",
-                          "collision_meshes", "static_model_instances", "tuning"}, "unknown gameplay configuration")
+                          "collision_meshes", "static_model_instances", "tuning", "content"}, "unknown gameplay configuration")
     require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "crouch_speed", "gravity",
         "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
         "mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
         "reload_seconds", "zombie_damage", "zombie_speed"}, "unknown gameplay tuning")
-    require(game.get("version") == 1, "unsupported gameplay version")
+    require(game.get("version") == 2, "unsupported gameplay version; expected 2, regenerate/import the pack")
+    dependencies = validate_content(game.get("content"), require)
     documents = {}
     for key, count_key in (("scene", "render_meshes"), ("collision_scene", "collision_meshes")):
         match = re.fullmatch(r"(.+\.gltf)#Scene(0|[1-9][0-9]*)", game[key])
@@ -367,20 +450,59 @@ def validate_pack(root, receipt=None, exact=False):
         count = natural(game[game_key], game_key, 1)
         if receipt is not None:
             require(count == receipt[receipt_key], "preparation receipt count mismatch")
+    # Additional presentation dependencies belong to the runtime closure. Raw source
+    # inputs and preparation receipts are never traversed here.
+    map_documents = dict(documents)
+    map_files = set(files)
+    for reference in dependencies:
+        name, _, label = reference.partition("#")
+        dependency = safe_path(root, name, RUNTIME_SUFFIXES - {".json", ".bin"})
+        suffix = dependency.suffix
+        if suffix == ".gltf":
+            if name not in documents:
+                documents[name] = validate_gltf(root, name, files)
+            if label:
+                match = re.fullmatch(r"(Scene|Animation)(0|[1-9][0-9]*)", label)
+                require(match is not None, "invalid glTF content label")
+                doc, scenes = documents[name]
+                ref(scenes if match[1] == "Scene" else doc.get("animations", []), int(match[2]), "glTF content label")
+        else:
+            require(not label, "unexpected media asset label")
+            read_bytes(dependency)
+            files.add(name)
+            if suffix in {".png", ".jpg", ".jpeg"}:
+                with Image.open(dependency) as pixels:
+                    require(pixels.format == ("PNG" if suffix == ".png" else "JPEG"), "image format mismatch")
+                    pixels.verify()
+                with Image.open(dependency) as pixels:
+                    pixels.load()
+            elif suffix == ".ogg":
+                # Stream-decode rather than accepting a valid header with damaged packets.
+                import soundfile
+                with soundfile.SoundFile(dependency) as sound:
+                    require(sound.format == "OGG" and sound.subtype == "VORBIS" and sound.frames > 0, "unsupported or empty runtime audio")
+                    frames = 0
+                    for block in sound.blocks(blocksize=65536):
+                        require(np.isfinite(block).all(), "non-finite audio samples")
+                        frames += len(block)
+                    require(frames == sound.frames, "truncated audio stream")
+            else:
+                from PIL import ImageFont
+                ImageFont.truetype(str(dependency), 16)
     triangles = sum(doc["accessors"][p["indices"]]["count"] // 3
-                    for doc, _ in documents.values() for mesh in doc["meshes"]
+                    for doc, _ in map_documents.values() for mesh in doc["meshes"]
                     if mesh.get("name", "").startswith("world_") for p in mesh["primitives"])
     if receipt is not None:
         require(triangles == receipt["triangles"], "world triangle receipt mismatch")
-    pngs = sum(name.endswith(".png") for name in files)
+    pngs = sum(name.endswith(".png") for name in map_files)
     if receipt is not None:
         require(pngs == receipt["textures"] + receipt["model_textures"], "texture receipt count mismatch")
-        require(sum(name.endswith(".png") and PurePosixPath(name).name.startswith("model-") for name in files)
+        require(sum(name.endswith(".png") and PurePosixPath(name).name.startswith("model-") for name in map_files)
                 == receipt["model_textures"], "model texture receipt count mismatch")
     if exact:
         actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
         require(actual == files, f"unexpected or missing runtime files: {sorted(actual ^ files)}")
-    hashes = {name: hashlib.sha256(read_bytes(safe_path(root, name, {".json", ".gltf", ".bin", ".png"}))).hexdigest()
+    hashes = {name: hashlib.sha256(read_bytes(safe_path(root, name, RUNTIME_SUFFIXES))).hexdigest()
               for name in sorted(files)}
     return game, documents, hashes
 
@@ -475,9 +597,9 @@ def import_pack(source, destination, receipt, check=False):
             existing = {p.relative_to(destination).as_posix() for p in destination.rglob("*") if p.is_file()}
             require(existing <= hashes.keys(), "destination contains unrelated files; refusing to replace them")
         for name in hashes:
-            target = safe_path(destination, name, {".json", ".gltf", ".bin", ".png"})
+            target = safe_path(destination, name, RUNTIME_SUFFIXES)
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(safe_path(source, name, {".json", ".gltf", ".bin", ".png"}), target)
+            shutil.copyfile(safe_path(source, name, RUNTIME_SUFFIXES), target)
     _, _, imported = validate_pack(destination, receipt, exact=True)
     require(imported == hashes, "imported file hashes differ from source")
     require(all(hashlib.sha256(read_bytes(source / name)).hexdigest() == digest for name, digest in hashes.items()),
