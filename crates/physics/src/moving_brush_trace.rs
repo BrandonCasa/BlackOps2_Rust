@@ -1,6 +1,7 @@
 //! One native-evidenced moving brush query; no world traversal or stationary path.
 //! Scalar f32 evaluation order follows findings0024. Invalid arithmetic is a safe
 //! project rejection, not a claim about the original's invalid-input behavior.
+use crate::trace_shape::{centered_endpoints, checked};
 use bevy::math::Vec3;
 use bo2_assets::brush_snapshot::BrushSnapshot;
 use std::fmt;
@@ -63,35 +64,16 @@ pub struct MovingBrushRequest {
 }
 impl MovingBrushRequest {
     pub fn new(start: Vec3, end: Vec3, lo: Vec3, hi: Vec3, mask: u32) -> Result<Self, TraceError> {
-        if ![start, end, lo, hi].into_iter().all(Vec3::is_finite) {
-            return Err(TraceError::NonFiniteInput);
-        }
-        let mut s = start.to_array();
-        let mut e = end.to_array();
-        let mut extent = [0.0; 3];
-        for axis in 0..3 {
-            if lo[axis] > hi[axis] {
-                return Err(TraceError::InvalidExtents);
-            }
-            let center = checked(checked(hi[axis] + lo[axis])? * 0.5)?;
-            extent[axis] = checked(hi[axis] - center)?;
-            if extent[axis] < 0.0 {
-                return Err(TraceError::InvalidExtents);
-            }
-            s[axis] = checked(s[axis] + center)?;
-            e[axis] = checked(e[axis] + center)?;
-        }
+        let centered = centered_endpoints(start, end, lo, hi)?;
+        let s = centered.start;
+        let e = centered.end;
         if s == e {
             return Err(TraceError::UnsupportedStationary);
         }
-        // The native ordered comparison chooses X on equality, including zeros.
-        let radius = if extent[0] > extent[2] {
-            extent[2]
-        } else {
-            extent[0]
-        };
-        let half_segment = checked(extent[2] - radius)?;
-        let support = [radius, radius, checked(radius + half_segment)?];
+        let shape = centered.capsule_support()?;
+        let radius = shape.radius;
+        let half_segment = shape.half_segment;
+        let support = shape.axial;
         let mut reciprocal = [0.0; 3];
         for axis in 0..3 {
             let delta = checked(s[axis] - e[axis])?;
@@ -277,13 +259,6 @@ impl Clip {
             self.end_inside = false;
         }
         Ok(true)
-    }
-}
-fn checked(value: f32) -> Result<f32, TraceError> {
-    if value.is_finite() {
-        Ok(value)
-    } else {
-        Err(TraceError::NonFiniteArithmetic)
     }
 }
 fn dot(n: [f32; 3], x: [f32; 3]) -> Result<f32, TraceError> {

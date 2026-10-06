@@ -86,6 +86,13 @@ requires all five locomotion modes and every participating full-map collision
 reference resolved or reproducibly excluded; the existing brush collection alone
 does not meet that condition. Native timing and baseline profile remain pending.
 
+Reviewed host preparation and stationary single-brush integration pass188 workspace
+tests, locked metadata, formatting and strict all-target Clippy; both retained brush
+opt-ins and client input/pacing checks pass separately. Synthetic reconstructed
+window smoke passes with GPU readback. See [integration01](handoffs/movement-integration-01.md).
+The native updater timing/hulls and complete collision families remain under
+qualification; there is no executable movement motor or full-map coverage yet.
+
 The reviewed first texture increment and selected opaque material contract are
 integrated. All five selected image dependencies resolve; shader equations are
 recovered, but packed normal/tangent/lightmap-UV formats, runtime technique
