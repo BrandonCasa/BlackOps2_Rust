@@ -90,7 +90,7 @@ friction/modifier branches and cannot be silently treated as ordinary ground.
 F(F(F(direction.x*velocity.x)+F(velocity.y*direction.y))+
 F(velocity.z*direction.z)); available=F(wishSpeed-projected). It returns unchanged
 if available<=0. amount=min(F(F(seconds*acceleration)*max(stopSpeed,wishSpeed)),
-available), followed by velocity[i]=F(velocity[i]+F(direction[i]*amount)).
+available), followed by velocity[i]=F(F(direction[i]*amount)+velocity[i]).
 The flag-bit3 branch instead accelerates toward a target velocity; that separate
 mode is excluded from this grounded increment.
 
@@ -197,3 +197,30 @@ wish speed), two friction cases and an analytic ascending slope case mapping
 synthetic inputs, not admitted defaults. No wall/stair/inside solver checks or
 original comparisons were performed. Grounded motor implementation remains
 blocked on the named solver, ordinary eligibility and parameter associations.
+
+## Implemented independent increment: movement-native-05
+
+`bo2-gameplay::movement::timing` now exposes validated, allocation-free command
+plans and explicit single-step durations. The regular loop preserves backward
+requests as ignored, the150ms discard and66ms maximum chunks; the independent
+single-step clamp remains1..200ms with exact f32 seconds conversion. Signed
+arithmetic outside the qualified non-wrapping domain is rejected by safe-boundary
+policy. Server-owner time clamping and previous-command payload copies remain
+caller work; there is no Bevy fixed-rate inference.
+
+`movement::acceleration` implements only53dc10's ordinary flag-bit3-clear SSE
+branch. It accepts supplied velocity/direction/coefficient values and the typed
+duration, with no direction normalization or profile defaults. It preserves
+strict stop>wish selection (else wish), uncapped>available replacement (else
+uncapped), and increment+velocity operand order, including signed zero. Finite
+input/intermediate/output guards and nonnegative coefficient restrictions are
+safe API policy, not claims about native registration ranges or native errors.
+Errors return no authoritative velocity; callers receive a fresh result to commit.
+
+Twelve focused locked tests pass, including independent output-bit references,
+a fusion discriminator, signed-zero selection, saturation, overflow/error paths,
+explicit timing boundaries and1001 iterator conservation cases. The same12 tests
+pass under standalone optimized compilation of the unchanged modules/tests.
+Package all-target warning-denying Clippy, owned-file formatting and diff checks
+pass. This increment does not implement x87 friction, slope projection, mode
+predicates, collision, a full motor, an executable Origins profile or ECS queues.
