@@ -29,6 +29,8 @@ pub struct ThrowableDefinition {
     pub tangent_bounce: f32,
     pub normal_bounce: f32,
     pub collision_radius: f32,
+    pub cook_in_hand: bool,
+    pub sticky: bool,
 }
 impl ThrowableDefinition {
     pub fn valid(&self) -> bool {
@@ -96,16 +98,50 @@ impl GrenadeInventory {
     pub fn busy(&self) -> bool {
         !matches!(self.state, ThrowState::Ready)
     }
+    pub fn receive(
+        &mut self,
+        weapon: &crate::origins::content::WeaponDefinition,
+    ) -> Result<(), EquipmentError> {
+        let tuning = weapon
+            .throwable
+            .as_ref()
+            .ok_or(EquipmentError::Unsupported)?;
+        if self.busy() {
+            return Err(EquipmentError::Busy);
+        }
+        if self.definition == weapon.id && self.count == self.capacity {
+            return Err(EquipmentError::Full);
+        }
+        self.definition = weapon.id.clone();
+        self.capacity = tuning.capacity;
+        self.count = tuning.initial;
+        Ok(())
+    }
+}
+#[derive(Debug)]
+pub enum EquipmentError {
+    Busy,
+    Full,
+    Unsupported,
+}
+#[derive(Clone, Copy)]
+enum GrenadeMotion {
+    Flying(Vec3),
+    Resting,
+    Attached {
+        target: Entity,
+        offset: Vec3,
+        rotation: Quat,
+    },
 }
 #[derive(Component)]
 pub struct Grenade {
     owner: Entity,
     definition: WeaponId,
-    velocity: Vec3,
+    motion: GrenadeMotion,
     pub remaining: f32,
     elapsed: f32,
     radius: f32,
-    resting: bool,
 }
 #[derive(Component)]
 struct Blast {
@@ -121,6 +157,9 @@ pub struct EquipmentEvidence {
     pub obstructed: u32,
     pub self_impacts: u32,
     pub enemy_impacts: u32,
+    pub surface_attachments: u32,
+    pub actor_attachments: u32,
+    pub attached_motion: f32,
     pub events: Vec<serde_json::Value>,
 }
 impl EquipmentEvidence {
@@ -199,14 +238,25 @@ fn throw_input(
                 }
             }
             ThrowState::Cooking { remaining } => {
-                if remaining <= dt {
+                if tuning.cook_in_hand && remaining <= dt {
                     launch = Some((0., true));
                     evidence.cooked_off += 1;
                 } else if !input.grenade_held {
-                    launch = Some((remaining - dt, false));
+                    launch = Some((
+                        if tuning.cook_in_hand {
+                            remaining - dt
+                        } else {
+                            tuning.fuse_seconds
+                        },
+                        false,
+                    ));
                 } else {
                     inventory.state = ThrowState::Cooking {
-                        remaining: remaining - dt,
+                        remaining: if tuning.cook_in_hand {
+                            remaining - dt
+                        } else {
+                            remaining
+                        },
                     };
                 }
             }
@@ -237,11 +287,14 @@ fn throw_input(
                     Grenade {
                         owner,
                         definition: weapon.id.clone(),
-                        velocity,
+                        motion: if cooked {
+                            GrenadeMotion::Resting
+                        } else {
+                            GrenadeMotion::Flying(velocity)
+                        },
                         remaining: fuse,
                         elapsed: 0.,
                         radius: tuning.collision_radius,
-                        resting: cooked,
                     },
                     SessionEntity,
                     Transform::from_translation(position),
@@ -268,7 +321,7 @@ fn throw_input(
                 remaining: tuning.throw_seconds,
             };
             evidence.thrown += u32::from(!cooked);
-            evidence.record(serde_json::json!({"event":"launch","cooked":cooked,"fuse":fuse,"position":position.to_array(),"velocity":velocity.to_array(),"count":inventory.count}));
+            evidence.record(serde_json::json!({"event":"launch","weapon":weapon.id.0,"cooked":cooked,"fuse":fuse,"position":position.to_array(),"velocity":velocity.to_array(),"count":inventory.count}));
         }
     }
 }
@@ -278,6 +331,7 @@ fn flight(
     definition: Res<GameDefinition>,
     mut grenades: Query<(Entity, &mut Grenade, &mut Transform)>,
     targets: Query<(&Vitality, &Transform, Option<&Player>), Without<Grenade>>,
+    poses: Query<(&Transform, &GlobalTransform, Option<&ChildOf>), Without<Grenade>>,
     query: SpatialQuery,
     mut impacts: ResMut<crate::damage::DamageQueue>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -297,9 +351,31 @@ fn flight(
         };
         grenade.remaining -= dt;
         grenade.elapsed += dt;
-        if !grenade.resting && grenade.remaining > 0. {
-            grenade.velocity.y -= definition.tuning.gravity * dt;
-            let delta = grenade.velocity * dt;
+        if let GrenadeMotion::Attached {
+            target,
+            offset,
+            rotation,
+        } = grenade.motion
+        {
+            if let Ok((local, global, parent)) = poses.get(target) {
+                let pose = if parent.is_none() {
+                    *local
+                } else {
+                    global.compute_transform()
+                };
+                let next = pose.compute_affine().transform_point3(offset);
+                evidence.attached_motion += transform.translation.distance(next);
+                transform.translation = next;
+                transform.rotation = pose.rotation * rotation;
+            } else {
+                grenade.motion = GrenadeMotion::Flying(Vec3::ZERO);
+            }
+        }
+        if let GrenadeMotion::Flying(mut velocity) = grenade.motion
+            && grenade.remaining > 0.
+        {
+            velocity.y -= definition.tuning.gravity * dt;
+            let delta = velocity * dt;
             if let Ok(direction) = Dir3::new(delta) {
                 let hit = query.cast_shape(
                     &Collider::sphere(grenade.radius),
@@ -313,17 +389,45 @@ fn flight(
                     let normal = hit.normal1;
                     transform.translation += direction.as_vec3() * hit.distance.max(0.);
                     transform.translation += normal * 0.003;
-                    let perpendicular = normal * grenade.velocity.dot(normal);
-                    grenade.velocity = (grenade.velocity - perpendicular) * tuning.tangent_bounce
-                        - perpendicular * tuning.normal_bounce;
-                    if normal.y > 0.6 && grenade.velocity.length() < 0.5 {
-                        grenade.velocity = Vec3::ZERO;
-                        grenade.resting = true;
+                    if tuning.sticky {
+                        transform.rotation = Quat::from_rotation_arc(Vec3::Y, normal);
+                        grenade.motion = if let Ok((local, global, parent)) = poses.get(hit.entity)
+                        {
+                            let pose = if parent.is_none() {
+                                *local
+                            } else {
+                                global.compute_transform()
+                            };
+                            GrenadeMotion::Attached {
+                                target: hit.entity,
+                                offset: pose
+                                    .compute_affine()
+                                    .inverse()
+                                    .transform_point3(transform.translation),
+                                rotation: pose.rotation.inverse() * transform.rotation,
+                            }
+                        } else {
+                            GrenadeMotion::Resting
+                        };
+                        let actor = targets.contains(hit.entity);
+                        evidence.actor_attachments += u32::from(actor);
+                        evidence.surface_attachments += u32::from(!actor);
+                        evidence.record(serde_json::json!({"event":"attach","target":hit.entity.to_bits(),"actor":actor,"position":transform.translation.to_array()}));
+                    } else {
+                        let perpendicular = normal * velocity.dot(normal);
+                        velocity = (velocity - perpendicular) * tuning.tangent_bounce
+                            - perpendicular * tuning.normal_bounce;
+                        grenade.motion = if normal.y > 0.6 && velocity.length() < 0.5 {
+                            GrenadeMotion::Resting
+                        } else {
+                            GrenadeMotion::Flying(velocity)
+                        };
+                        evidence.bounces += 1;
+                        evidence.record(serde_json::json!({"event":"bounce","normal":normal.to_array(),"position":transform.translation.to_array(),"speed":velocity.length()}));
                     }
-                    evidence.bounces += 1;
-                    evidence.record(serde_json::json!({"event":"bounce","normal":normal.to_array(),"position":transform.translation.to_array(),"speed":grenade.velocity.length()}));
                 } else {
                     transform.translation += delta;
+                    grenade.motion = GrenadeMotion::Flying(velocity);
                 }
             }
         }
@@ -365,6 +469,7 @@ fn flight(
                     .is_some()
             {
                 evidence.obstructed += 1;
+                evidence.record(serde_json::json!({"event":"obstructed","target":target.to_bits(),"center":center.to_array(),"position":pose.translation.to_array()}));
                 continue;
             }
             let damage = tuning.damage(distance);

@@ -3892,7 +3892,9 @@
           "outer_damage": 75,
           "tangent_bounce": 0.7,
           "normal_bounce": 0.2,
-          "collision_radius": 0.045
+          "collision_radius": 0.045,
+          "cook_in_hand": true,
+          "sticky": false
         }
       },
       {
@@ -11444,6 +11446,24 @@
             0.0
           ],
           "fuse_seconds": 2.0
+        },
+        "throwable": {
+          "initial": 4,
+          "capacity": 4,
+          "prime_seconds": 0.6,
+          "throw_seconds": 0.36,
+          "fuse_seconds": 2.0,
+          "speed": 23.368,
+          "up_speed": 3.048,
+          "radius": 6.5024,
+          "inner_radius": 0.0,
+          "inner_damage": 300,
+          "outer_damage": 55,
+          "tangent_bounce": 0.5,
+          "normal_bounce": 0.25,
+          "collision_radius": 0.045,
+          "cook_in_hand": false,
+          "sticky": true
         }
       },
       {
@@ -16241,6 +16261,28 @@
         ],
         "yaw": 0.9599310885968813,
         "zone": "zone.start"
+      },
+      {
+        "id": "placement.lethal.cd6140bb.4b49ab65781726d629aedce2.0",
+        "definition": "weapon.sticky_grenade_zm",
+        "position": [
+          58.4454,
+          -5.4864,
+          -72.64399999999999
+        ],
+        "yaw": 1.5707963267948966,
+        "zone": "zone.start"
+      },
+      {
+        "id": "placement.lethal.cd6140bb.9751dbf7e2567f5587b8b075.0",
+        "definition": "weapon.sticky_grenade_zm",
+        "position": [
+          20.4001878,
+          2.6416,
+          73.302876
+        ],
+        "yaw": 0.2617993877991494,
+        "zone": "zone.start"
       }
     ],
     "interactions": [
@@ -16473,6 +16515,32 @@
           "weapon": "weapon.mp40_zm",
           "price": 1300,
           "ammo_price": 650
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.lethal.cd6140bb.4b49ab65781726d629aedce2.0",
+        "placement": "placement.lethal.cd6140bb.4b49ab65781726d629aedce2.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.sticky_grenade_zm",
+          "price": 250,
+          "ammo_price": 250
+        },
+        "reach": 2.0,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.lethal.cd6140bb.9751dbf7e2567f5587b8b075.0",
+        "placement": "placement.lethal.cd6140bb.9751dbf7e2567f5587b8b075.0",
+        "action": {
+          "kind": "weapon",
+          "weapon": "weapon.sticky_grenade_zm",
+          "price": 250,
+          "ammo_price": 250
         },
         "reach": 2.0,
         "hold_seconds": 0.0,

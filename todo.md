@@ -137,7 +137,7 @@
 - [x] Add interact input.
 - [x] Add weapon cycle input.
 - [x] Add numbered weapon selection input.
-- [ ] Add lethal equipment input.
+- [x] Add lethal equipment input.
 - [ ] Add tactical equipment input.
 - [ ] Add buildable equipment input.
 - [ ] Add staff secondary mode input.
@@ -438,12 +438,12 @@
 - [x] Add grenade fuse expiration.
 - [x] Add grenade bounce responses.
 - [x] Add explosion damage radius queries.
-- [ ] Add explosion obstruction checks.
+- [x] Add explosion obstruction checks.
 - [x] Add explosion distance falloff.
 - [x] Add explosive self damage.
 - [x] Add fragmentation grenade definitions.
-- [ ] Add Semtex grenade definitions.
-- [ ] Add Semtex attachment on collision.
+- [x] Add Semtex grenade definitions.
+- [x] Add Semtex attachment on collision.
 - [ ] Add Claymore equipment definitions.
 - [ ] Add Claymore placement queries.
 - [ ] Add Claymore trigger volumes.

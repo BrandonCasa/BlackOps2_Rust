@@ -148,12 +148,21 @@ fn interact(
     definition: Res<GameDefinition>,
     query: SpatialQuery,
     targets: Query<(Entity, &Usable, &Transform), Without<Player>>,
-    mut players: Query<(Entity, &Player, &Transform, &Vitality, &mut WeaponInventory)>,
+    mut players: Query<(
+        Entity,
+        &Player,
+        &Transform,
+        &Vitality,
+        &mut WeaponInventory,
+        &mut crate::equipment::GrenadeInventory,
+    )>,
     mut focus: ResMut<InteractionFocus>,
     mut ledger: ResMut<PointLedger>,
     mut session: ResMut<Session>,
 ) {
-    let Ok((player_entity, player, body, vitality, mut inventory)) = players.single_mut() else {
+    let Ok((player_entity, player, body, vitality, mut inventory, mut grenades)) =
+        players.single_mut()
+    else {
         return;
     };
     if !input.use_held {
@@ -225,7 +234,9 @@ fn interact(
         .owned()
         .find(|(_, w)| w.definition == weapon.id)
         .map(|(slot, _)| slot);
-    let cost = if owned.is_some() {
+    let cost = if weapon.throwable.is_some() {
+        *price
+    } else if owned.is_some() {
         ammo_price.unwrap_or(price / 2)
     } else {
         *price
@@ -255,10 +266,16 @@ fn interact(
     focus.latched = true;
     let purchase = ledger.command(cost);
     let result = ledger.accept(&mut session.points, purchase, || {
-        if inventory.action != WeaponAction::Ready {
+        if inventory.action != WeaponAction::Ready || grenades.busy() {
             return Err(InteractionRejection::Busy);
         }
-        if owned.is_some() {
+        if weapon.throwable.is_some() {
+            grenades.receive(weapon).map_err(|e| match e {
+                crate::equipment::EquipmentError::Busy => InteractionRejection::Busy,
+                crate::equipment::EquipmentError::Full => InteractionRejection::FullAmmo,
+                crate::equipment::EquipmentError::Unsupported => InteractionRejection::Unavailable,
+            })?;
+        } else if owned.is_some() {
             if !inventory.refill_weapon(weapon) {
                 return Err(InteractionRejection::FullAmmo);
             }

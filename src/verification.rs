@@ -14,6 +14,7 @@ use std::{path::PathBuf, time::Instant};
 mod arsenal;
 mod performance;
 mod pipelines;
+mod semtex;
 
 #[derive(Resource)]
 pub(crate) struct Verification {
@@ -39,6 +40,8 @@ pub(crate) struct Verification {
     health: bool,
     hit_regions: bool,
     grenades: bool,
+    semtex: bool,
+    semtex_exercised: bool,
     grenade_flash_frame: bool,
     accepted_regions: std::collections::BTreeSet<String>,
     damage_frame: bool,
@@ -56,6 +59,9 @@ impl Plugin for VerificationPlugin {
             pipelines::install(app);
             if app.world().resource::<LaunchOptions>().verify_wall_weapons {
                 arsenal::install(app);
+            }
+            if app.world().resource::<LaunchOptions>().verify_semtex {
+                semtex::install(app);
             }
         }
         app.add_systems(Startup, setup)
@@ -99,11 +105,13 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             reported: 0,
             ads_seen: false,
             recoil_seen: false,
-            wall_weapons: options.verify_wall_weapons,
+            wall_weapons: options.verify_wall_weapons || options.verify_semtex,
             rounds: options.verify_rounds,
             health: options.verify_health,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
+            semtex: options.verify_semtex,
+            semtex_exercised: false,
             grenade_flash_frame: false,
             accepted_regions: Default::default(),
             damage_frame: false,
@@ -766,6 +774,7 @@ fn check(
             && recovery.feedback == 0.
             && health.current() == Some(definition.player_health.maximum);
         let passed = session.round == 1
+            && (!verification.semtex || verification.semtex_exercised)
             && (!verification.grenades
                 || (equipment.thrown >= 1
                     && equipment.cooked_off >= 1
@@ -795,10 +804,12 @@ fn check(
             "continuous_camera_motion": verification.moving_view,
             "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round,
             "hit_regions_exercised":verification.accepted_regions,
+            "semtex_exercised":verification.semtex_exercised,
             "equipment":{"primed":equipment.primed,"thrown":equipment.thrown,"cooked_off":equipment.cooked_off,
                 "flash_frame":verification.grenade_flash_frame,
                 "bounces":equipment.bounces,"detonations":equipment.detonations,"obstructed":equipment.obstructed,
-                "enemy_impacts":equipment.enemy_impacts,"self_impacts":equipment.self_impacts,"events":equipment.events},
+                "enemy_impacts":equipment.enemy_impacts,"self_impacts":equipment.self_impacts,
+                "surface_attachments":equipment.surface_attachments,"actor_attachments":equipment.actor_attachments,"attached_motion":equipment.attached_motion,"events":equipment.events},
             "hit_volumes":{"bound":hit_evidence.bound_volumes,"pose_updates":hit_evidence.pose_updates,"regions":hit_evidence.regions,"hits":hit_evidence.hits},
             "enemy_attack_frame":verification.enemy_attack_frame,"enemy_death_frame":verification.enemy_death_frame,
             "enemy_presentation": {"variants":enemy_evidence.variants,"animations":enemy_evidence.animations,

@@ -229,7 +229,16 @@ fn update(
     if **state == GameState::Playing
         && let Ok(grenades) = grenades.single()
     {
-        value.push_str(&format!("    Frags {}", grenades.count));
+        let label = definition
+            .as_ref()
+            .and_then(|d| {
+                d.content
+                    .weapons
+                    .iter()
+                    .find(|w| w.id == grenades.definition)
+            })
+            .map_or("Grenades", |w| w.name.as_str());
+        value.push_str(&format!("    {} {}", label, grenades.count));
     }
     if text.0 != value {
         text.0 = value;
