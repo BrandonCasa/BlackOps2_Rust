@@ -310,31 +310,41 @@ fn begin_session(
     );
 }
 
-fn combat(
+pub(crate) fn combat(
     time: Res<Time<Fixed>>,
     actions: Res<TickActions>,
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
-    mut players: Query<(Entity, &Player, &Transform, &mut WeaponInventory)>,
+    mut players: Query<(
+        Entity,
+        &Player,
+        &Transform,
+        &mut WeaponInventory,
+        &crate::equipment::GrenadeInventory,
+    )>,
     enemies: crate::hit_regions::RayTargets,
     mut impacts: ResMut<crate::damage::DamageQueue>,
     query: SpatialQuery,
     mut hit_evidence: ResMut<crate::hit_regions::HitEvidence>,
 ) {
     let dt = time.delta_secs();
-    let Ok((entity, player, transform, mut inventory)) = players.single_mut() else {
+    let Ok((entity, player, transform, mut inventory, grenades)) = players.single_mut() else {
         return;
     };
     let emissions = inventory.tick(
         dt,
-        WeaponIntent {
-            pressed: actions.fire,
-            held: actions.fire_held,
-            reload: actions.reload,
-            melee: actions.melee,
-            cycle: actions.cycle_weapon,
-            slot: actions.weapon_slot,
-            ads: actions.ads,
+        if grenades.busy() {
+            WeaponIntent::default()
+        } else {
+            WeaponIntent {
+                pressed: actions.fire,
+                held: actions.fire_held,
+                reload: actions.reload,
+                melee: actions.melee,
+                cycle: actions.cycle_weapon,
+                slot: actions.weapon_slot,
+                ads: actions.ads,
+            }
         },
         &definition.content.weapons,
     );

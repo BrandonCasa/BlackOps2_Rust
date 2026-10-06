@@ -3877,6 +3877,22 @@
             0.0
           ],
           "fuse_seconds": 3.5
+        },
+        "throwable": {
+          "initial": 4,
+          "capacity": 4,
+          "prime_seconds": 0.55,
+          "throw_seconds": 0.365,
+          "fuse_seconds": 3.5,
+          "speed": 23.368,
+          "up_speed": 3.048,
+          "radius": 6.5024,
+          "inner_radius": 0.0,
+          "inner_damage": 300,
+          "outer_damage": 75,
+          "tangent_bounce": 0.7,
+          "normal_bounce": 0.2,
+          "collision_radius": 0.045
         }
       },
       {

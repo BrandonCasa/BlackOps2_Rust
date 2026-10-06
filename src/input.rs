@@ -23,6 +23,7 @@ pub struct GameInput {
     pub melee: bool,
     pub reload: bool,
     pub use_held: bool,
+    pub grenade_held: bool,
     pub look: Vec2,
 }
 
@@ -87,6 +88,7 @@ pub(crate) fn collect(
     input.fire_held = mouse.pressed(MouseButton::Left);
     input.ads = mouse.pressed(MouseButton::Right);
     input.use_held = keys.pressed(KeyCode::KeyF);
+    input.grenade_held = keys.pressed(KeyCode::KeyG);
     for event in wheel.read() {
         input.cycle_weapon |= event.y != 0.;
     }

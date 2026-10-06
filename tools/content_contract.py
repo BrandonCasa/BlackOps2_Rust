@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -157,6 +157,17 @@ def validate_content(content, require):
                     resolve(owner,hit["presentation"],"presentation")
                 require(isinstance(actions,dict) and set(actions)<={"idle","walk","run","sprint","attack","death"},"invalid enemy animation actions")
                 for identity in actions.values(): resolve(owner,identity,"animation")
+            if table == "weapons" and row.get("throwable") is not None:
+                t=row["throwable"]
+                require(isinstance(t,dict) and set(t)==set("initial capacity prime_seconds throw_seconds fuse_seconds speed up_speed radius inner_radius inner_damage outer_damage tangent_bounce normal_bounce collision_radius".split()),"invalid throwable fields")
+                for k in ("initial","capacity","inner_damage","outer_damage"): require(type(t[k]) is int and t[k]>=0,"invalid throwable count/damage")
+                require(0<t["capacity"] and t["initial"]<=t["capacity"] and 0<t["outer_damage"]<=t["inner_damage"],"invalid throwable limits")
+                for k in ("prime_seconds","throw_seconds","fuse_seconds","speed","radius","collision_radius"): number(t[k],True)
+                number(t["up_speed"])
+                number(t["inner_radius"])
+                require(t["inner_radius"]<t["radius"],"invalid explosion radius")
+                for k in ("tangent_bounce","normal_bounce"):
+                    number(t[k]);require(t[k]<=1,"invalid bounce ratio")
             if table == "weapons":
                 resolve(owner, row["upgraded"], "weapon", True)
                 require(row["category"] in ("bullet", "melee", "explosive", "fire", "ice", "lightning", "wind", "environmental", "crush"), "invalid damage category")

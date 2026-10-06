@@ -4,6 +4,7 @@ pub mod assets;
 pub mod damage;
 pub mod economy;
 pub mod enemies;
+pub mod equipment;
 pub mod gameplay;
 pub mod hit_regions;
 pub mod hud;
@@ -88,6 +89,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         player_health::PlayerHealthPlugin,
         enemies::EnemyPlugin,
         hit_regions::HitRegionsPlugin,
+        equipment::EquipmentPlugin,
         interactions::InteractionPlugin,
         presentation::PresentationPlugin,
         hud::HudPlugin,

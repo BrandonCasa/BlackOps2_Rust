@@ -103,6 +103,8 @@ pub struct WeaponDefinition {
     pub animation_actions: BTreeMap<WeaponAnimation, ContentId>,
     #[serde(default)]
     pub mechanics: WeaponMechanics,
+    #[serde(default)]
+    pub throwable: Option<crate::equipment::ThrowableDefinition>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -657,6 +659,12 @@ impl ContentCatalog {
                 m.delivery,
                 WeaponDelivery::Hitscan | WeaponDelivery::Projectile
             );
+            if v.id.0 == "weapon.frag_grenade_zm" {
+                valid(v.throwable.is_some(), "Missing starting grenade tuning")?;
+            }
+            if let Some(throwable) = &v.throwable {
+                valid(throwable.valid(), "Invalid throwable tuning")?;
+            }
             valid(
                 m.ads_translation
                     .iter()

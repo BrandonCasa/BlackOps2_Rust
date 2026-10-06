@@ -84,6 +84,16 @@ fn spawn_player(
         vitality,
         crate::player_health::Recovery::default(),
         inventory,
+        crate::equipment::GrenadeInventory::new(
+            crate::origins::content::WeaponId("weapon.frag_grenade_zm".into()),
+            definition
+                .content
+                .weapons
+                .iter()
+                .find(|w| w.id.0 == "weapon.frag_grenade_zm")
+                .and_then(|w| w.throwable.as_ref())
+                .expect("validated starting grenade"),
+        ),
         SessionEntity,
         Transform::from_translation(Vec3::from_array(definition.spawn) + Vec3::Y * (height * 0.5)),
         Name::new("Player"),

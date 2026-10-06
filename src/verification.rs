@@ -38,6 +38,8 @@ pub(crate) struct Verification {
     rounds: bool,
     health: bool,
     hit_regions: bool,
+    grenades: bool,
+    grenade_flash_frame: bool,
     accepted_regions: std::collections::BTreeSet<String>,
     damage_frame: bool,
     healed_frame: bool,
@@ -101,6 +103,8 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             rounds: options.verify_rounds,
             health: options.verify_health,
             hit_regions: options.verify_hit_regions,
+            grenades: options.verify_grenades,
+            grenade_flash_frame: false,
             accepted_regions: Default::default(),
             damage_frame: false,
             healed_frame: false,
@@ -124,13 +128,19 @@ pub(crate) fn drive(
     vitality: Query<&crate::life::Vitality, With<Player>>,
     definition: Option<Res<GameDefinition>>,
     query: avian3d::prelude::SpatialQuery,
+    equipment: Res<crate::equipment::EquipmentEvidence>,
+    grenades: Query<(&crate::equipment::Grenade, &Transform), Without<Player>>,
+    grenade_inventory: Query<&crate::equipment::GrenadeInventory, With<Player>>,
+    mut grenade_escape: Local<Option<Vec3>>,
 ) {
     let (Some(verification), Some(definition), Ok((entity, player, transform))) =
         (verification, definition, players.single())
     else {
         return;
     };
-    if verification.stage != 0 && !(verification.health && verification.stage == 2) {
+    if verification.stage != 0
+        && !((verification.health || verification.grenades) && verification.stage == 2)
+    {
         if verification.stage != 4 {
             input.clear();
         }
@@ -141,6 +151,72 @@ pub(crate) fn drive(
     } else {
         Vec2::ZERO
     };
+    if verification.grenades && (equipment.detonations == 0 || verification.stage == 2) {
+        input.fire = false;
+        input.fire_held = false;
+        input.ads = false;
+        input.melee = false;
+        input.reload = false;
+        input.grenade_held = verification.stage == 2
+            || (equipment.thrown == 0
+                && grenade_inventory.single().is_ok_and(|i| {
+                    matches!(
+                        i.state,
+                        crate::equipment::ThrowState::Ready
+                            | crate::equipment::ThrowState::Priming { .. }
+                    )
+                }));
+        input.look = Vec2::new(0., player.pitch + 1.5) / definition.tuning.mouse_sensitivity;
+        if let Some((_, pose)) = grenades.iter().next() {
+            let delta = pose.translation
+                - (transform.translation
+                    + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5));
+            let yaw = (-delta.x).atan2(-delta.z);
+            input.look = Vec2::new(
+                -((yaw - player.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                    - std::f32::consts::PI),
+                player.pitch - delta.y.atan2(delta.xz().length()),
+            ) / definition.tuning.mouse_sensitivity;
+        }
+        input.movement = Vec2::ZERO;
+        if verification.stage == 0 && grenades.iter().any(|(g, _)| g.remaining < 2.5) {
+            let escape = grenade_escape.get_or_insert_with(|| {
+                [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z]
+                    .into_iter()
+                    .max_by(|a, b| {
+                        let clear = |dir: Vec3| {
+                            query
+                                .cast_shape(
+                                    &crate::player::capsule(
+                                        definition.tuning.radius,
+                                        player.height,
+                                    ),
+                                    transform.translation,
+                                    Quat::IDENTITY,
+                                    Dir3::new(dir).unwrap(),
+                                    &avian3d::prelude::ShapeCastConfig {
+                                        ignore_origin_penetration: true,
+                                        ..avian3d::prelude::ShapeCastConfig::from_max_distance(8.)
+                                    },
+                                    &avian3d::prelude::SpatialQueryFilter::from_excluded_entities(
+                                        [entity],
+                                    ),
+                                )
+                                .map_or(8., |hit| hit.distance)
+                        };
+                        clear(*a).total_cmp(&clear(*b))
+                    })
+                    .unwrap_or(Vec3::X)
+            });
+            let local = Quat::from_rotation_y(-player.yaw) * *escape;
+            input.movement = Vec2::new(local.x, -local.z);
+        }
+        input.sprint = input.movement.length_squared() > 0.;
+        return;
+    }
+    input.grenade_held = false;
+    *grenade_escape = None;
+    input.sprint = false;
     let origin =
         transform.translation + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5);
     let wanted = [
@@ -288,6 +364,7 @@ fn check(
         Res<crate::rounds::RoundEvidence>,
         Res<crate::player_health::HealthEvidence>,
         Res<crate::hit_regions::HitEvidence>,
+        Res<crate::equipment::EquipmentEvidence>,
     ),
     mut players: Query<
         (
@@ -318,8 +395,16 @@ fn check(
         With<crate::hud::PlayerOverlay>,
     >,
 ) {
-    let (session, history, impacts, enemy_evidence, round_evidence, health_evidence, hit_evidence) =
-        combat;
+    let (
+        session,
+        history,
+        impacts,
+        enemy_evidence,
+        round_evidence,
+        health_evidence,
+        hit_evidence,
+        equipment,
+    ) = combat;
     let Some(mut verification) = verification else {
         return;
     };
@@ -339,6 +424,12 @@ fn check(
         .and_then(|(_, _, _, i, _, _)| i.active())
         .map_or(0, |w| w.magazine);
     if verification.stage == 0 {
+        if verification.grenades && equipment.detonations > 0 && !verification.grenade_flash_frame {
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk(verification.output.join("grenade-blast.png")));
+            verification.grenade_flash_frame = true;
+        }
         if !verification.enemy_attack_frame
             && enemies.iter().any(|(_, z)| {
                 z.action == crate::origins::content::EnemyAnimation::Attack
@@ -411,6 +502,8 @@ fn check(
         let evidence = serde_json::json!({"passed": false, "state": format!("{:?}", **state),
             "round": session.round, "pending": session.pending, "kills": session.kills,
             "shots": session.shots, "ammo": ammo, "load_failure": failure.0,
+            "equipment_events":equipment.events,"player_hits":health_evidence.hits,
+            "player_position":players.iter().next().map(|p|p.2.translation.to_array()),
             "elapsed_seconds": verification.started.elapsed().as_secs()});
         let _ = std::fs::write(
             verification.output.join("failure.json"),
@@ -424,13 +517,18 @@ fn check(
         return;
     }
     if verification.stage == 2 && **state == GameState::GameOver {
-        if verification.health && !verification.death_frame {
+        if (verification.health || verification.grenades) && !verification.death_frame {
             commands
                 .spawn(Screenshot::primary_window())
                 .observe(save_to_disk(
                     verification.output.join("player-game-over.png"),
                 ));
             verification.death_frame = true;
+            return;
+        }
+        if (verification.health || verification.grenades)
+            && !verification.output.join("player-game-over.png").is_file()
+        {
             return;
         }
         commands.write_message(crate::input::RestartGame);
@@ -621,7 +719,7 @@ fn check(
                 verification.playing = 0.;
                 if verification.only_view {
                     verification.stage = 2;
-                    next.set(if verification.health {
+                    next.set(if verification.health || verification.grenades {
                         GameState::Playing
                     } else {
                         GameState::GameOver
@@ -631,7 +729,7 @@ fn check(
         } else {
             verification.stage = 2;
             verification.playing = 0.;
-            next.set(if verification.health {
+            next.set(if verification.health || verification.grenades {
                 GameState::Playing
             } else {
                 GameState::GameOver
@@ -668,6 +766,13 @@ fn check(
             && recovery.feedback == 0.
             && health.current() == Some(definition.player_health.maximum);
         let passed = session.round == 1
+            && (!verification.grenades
+                || (equipment.thrown >= 1
+                    && equipment.cooked_off >= 1
+                    && equipment.bounces > 0
+                    && equipment.enemy_impacts > 0
+                    && equipment.self_impacts > 0
+                    && verification.death_frame))
             && (!verification.hit_regions || verification.accepted_regions.len() == 5)
             && health_exercised
             && restart_health_clear
@@ -690,6 +795,10 @@ fn check(
             "continuous_camera_motion": verification.moving_view,
             "round_two":verification.round_two, "movement":verification.moved, "restart_round":session.round,
             "hit_regions_exercised":verification.accepted_regions,
+            "equipment":{"primed":equipment.primed,"thrown":equipment.thrown,"cooked_off":equipment.cooked_off,
+                "flash_frame":verification.grenade_flash_frame,
+                "bounces":equipment.bounces,"detonations":equipment.detonations,"obstructed":equipment.obstructed,
+                "enemy_impacts":equipment.enemy_impacts,"self_impacts":equipment.self_impacts,"events":equipment.events},
             "hit_volumes":{"bound":hit_evidence.bound_volumes,"pose_updates":hit_evidence.pose_updates,"regions":hit_evidence.regions,"hits":hit_evidence.hits},
             "enemy_attack_frame":verification.enemy_attack_frame,"enemy_death_frame":verification.enemy_death_frame,
             "enemy_presentation": {"variants":enemy_evidence.variants,"animations":enemy_evidence.animations,

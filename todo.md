@@ -431,17 +431,17 @@
 - [x] Add melee recovery timing.
 - [x] Add melee damage attribution.
 - [x] Remove automatic reserve replenishment at round transitions.
-- [ ] Add grenade inventory counts.
-- [ ] Add grenade priming states.
-- [ ] Add grenade cooking timers.
-- [ ] Add grenade throwing trajectories.
-- [ ] Add grenade fuse expiration.
-- [ ] Add grenade bounce responses.
-- [ ] Add explosion damage radius queries.
+- [x] Add grenade inventory counts.
+- [x] Add grenade priming states.
+- [x] Add grenade cooking timers.
+- [x] Add grenade throwing trajectories.
+- [x] Add grenade fuse expiration.
+- [x] Add grenade bounce responses.
+- [x] Add explosion damage radius queries.
 - [ ] Add explosion obstruction checks.
-- [ ] Add explosion distance falloff.
-- [ ] Add explosive self damage.
-- [ ] Add fragmentation grenade definitions.
+- [x] Add explosion distance falloff.
+- [x] Add explosive self damage.
+- [x] Add fragmentation grenade definitions.
 - [ ] Add Semtex grenade definitions.
 - [ ] Add Semtex attachment on collision.
 - [ ] Add Claymore equipment definitions.
@@ -455,7 +455,7 @@
 - [ ] Add Monkey Bomb detonation.
 - [ ] Add tactical equipment replacement.
 - [ ] Add source-defined equipment round replenishment.
-- [ ] Add grenade explosion effects.
+- [x] Add grenade explosion effects.
 - [ ] Add equipment deployment animations.
 - [x] Add typed damage impact events.
 - [x] Add head hit regions.

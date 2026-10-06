@@ -14,12 +14,13 @@ use std::collections::VecDeque;
 #[derive(Clone, Debug)]
 pub enum ImpactSource {
     Weapon(WeaponId),
+    Projectile(WeaponId),
     Enemy(ContentId),
 }
 impl ImpactSource {
     pub fn id(&self) -> &str {
         match self {
-            Self::Weapon(id) => &id.0,
+            Self::Weapon(id) | Self::Projectile(id) => &id.0,
             Self::Enemy(id) => &id.0,
         }
     }
@@ -104,12 +105,15 @@ fn resolve(
             )
         });
         let valid_source = match &impact.source {
-            ImpactSource::Weapon(_) => players.contains(impact.attacker),
+            ImpactSource::Weapon(_) | ImpactSource::Projectile(_) => {
+                players.contains(impact.attacker)
+            }
             ImpactSource::Enemy(id) => enemies
                 .get(impact.attacker)
                 .is_ok_and(|z| z.definition == *id),
         };
-        if !sender_alive || !valid_source {
+        if (!sender_alive && !matches!(impact.source, ImpactSource::Projectile(_))) || !valid_source
+        {
             continue;
         }
         let Ok((mut health, mut recovery)) = targets.get_mut(impact.target) else {

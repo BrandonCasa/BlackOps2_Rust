@@ -174,6 +174,7 @@ fn update(
     inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
     players: Query<&Vitality, With<Player>>,
     focus: Res<crate::interactions::InteractionFocus>,
+    grenades: Query<&crate::equipment::GrenadeInventory, With<Player>>,
     mut text: Query<&mut Text, With<HudText>>,
 ) {
     let Ok(mut text) = text.single_mut() else {
@@ -224,6 +225,11 @@ fn update(
             };
             value.push_str(&format!(" — {reason}"));
         }
+    }
+    if **state == GameState::Playing
+        && let Ok(grenades) = grenades.single()
+    {
+        value.push_str(&format!("    Frags {}", grenades.count));
     }
     if text.0 != value {
         text.0 = value;
