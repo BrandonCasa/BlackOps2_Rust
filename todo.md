@@ -466,10 +466,10 @@
 - [ ] Resolve the nearest valid hit region.
 - [ ] Apply armor absorption before vitality damage.
 - [ ] Add damage immunity intervals.
-- [ ] Add player damage feedback events.
-- [ ] Add health regeneration delay.
+- [x] Add player damage feedback events.
+- [x] Add health regeneration delay.
 - [ ] Add health regeneration rates.
-- [ ] Restart regeneration delay after damage.
+- [x] Restart regeneration delay after damage.
 - [ ] Update maximum health from perk effects.
 - [ ] Add explicit solo self-revive eligibility.
 - [ ] Route lethal damage through current revive eligibility.
@@ -488,7 +488,7 @@
 - [ ] Remove exhausted solo Quick Revive machines.
 - [ ] Prevent repeated death transition events.
 - [ ] Add player death camera behavior.
-- [ ] Route terminal death into game-over state.
+- [x] Route terminal death into game-over state.
 - [x] Emit one attributed enemy death event.
 - [x] Feed kill rewards from attributed death events.
 - [ ] Feed soul collection from attributed death events.
@@ -516,7 +516,7 @@
 - [ ] Add zombie pursuit states.
 - [x] Add zombie attack windup states.
 - [x] Add zombie attack impact timing.
-- [ ] Add zombie attack recovery states.
+- [x] Add zombie attack recovery states.
 - [ ] Cancel attacks after target loss.
 - [x] Cancel attacks after attacker death.
 - [ ] Add barrier-seeking zombie behavior.

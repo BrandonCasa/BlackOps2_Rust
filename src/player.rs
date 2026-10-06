@@ -63,8 +63,12 @@ fn spawn_player(
     {
         let _ = inventory.grant(weapon);
     }
-    let Ok(vitality) = Vitality::human(100, 100, 1, PlayerLethalPolicy::SoloOrLastEligiblePlayer)
-    else {
+    let Ok(vitality) = Vitality::human(
+        definition.player_health.maximum,
+        definition.player_health.maximum,
+        1,
+        PlayerLethalPolicy::SoloOrLastEligiblePlayer,
+    ) else {
         return;
     };
     commands.spawn((
@@ -78,6 +82,7 @@ fn spawn_player(
         },
         capsule(definition.tuning.radius, height),
         vitality,
+        crate::player_health::Recovery::default(),
         inventory,
         SessionEntity,
         Transform::from_translation(Vec3::from_array(definition.spawn) + Vec3::Y * (height * 0.5)),

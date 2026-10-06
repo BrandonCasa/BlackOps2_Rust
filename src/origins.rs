@@ -20,6 +20,7 @@ pub struct GameDefinition {
     pub collision_meshes: usize,
     pub static_model_instances: usize,
     pub content: ContentCatalog,
+    pub player_health: crate::player_health::HealthProfile,
     pub rounds: crate::rounds::RoundProfile,
     #[serde(default)]
     pub tuning: Tuning,
@@ -130,6 +131,11 @@ impl GameDefinition {
             return Err(ContentError::UnsupportedVersion(self.version));
         }
         self.content.validate()?;
+        if !self.player_health.valid() {
+            return Err(ContentError::InvalidDefinition(
+                "Invalid player health profile. Regenerate/import game.json.".into(),
+            ));
+        }
         if !self.rounds.valid() {
             return Err(ContentError::InvalidDefinition(
                 "Invalid round profile. Regenerate/import game.json.".into(),

@@ -36,6 +36,10 @@ pub(crate) struct Verification {
     recoil_seen: bool,
     wall_weapons: bool,
     rounds: bool,
+    health: bool,
+    damage_frame: bool,
+    healed_frame: bool,
+    death_frame: bool,
     melee_frame: bool,
     enemy_attack_frame: bool,
     enemy_death_frame: bool,
@@ -93,6 +97,10 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             recoil_seen: false,
             wall_weapons: options.verify_wall_weapons,
             rounds: options.verify_rounds,
+            health: options.verify_health,
+            damage_frame: false,
+            healed_frame: false,
+            death_frame: false,
             melee_frame: false,
             enemy_attack_frame: false,
             enemy_death_frame: false,
@@ -108,6 +116,8 @@ pub(crate) fn drive(
     inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
     history: Res<crate::damage::CombatHistory>,
     enemy_evidence: Res<crate::enemies::EnemyEvidence>,
+    health_evidence: Res<crate::player_health::HealthEvidence>,
+    vitality: Query<&crate::life::Vitality, With<Player>>,
     definition: Option<Res<GameDefinition>>,
     query: avian3d::prelude::SpatialQuery,
 ) {
@@ -116,7 +126,7 @@ pub(crate) fn drive(
     else {
         return;
     };
-    if verification.stage != 0 {
+    if verification.stage != 0 && !(verification.health && verification.stage == 2) {
         if verification.stage != 4 {
             input.clear();
         }
@@ -140,6 +150,33 @@ pub(crate) fn drive(
             - (transform.translation
                 + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5));
         let yaw = (-delta.x).atan2(-delta.z);
+        if verification.health && (verification.stage == 2 || health_evidence.nonterminal_hits < 2)
+        {
+            input.look = Vec2::new(
+                -((yaw - player.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                    - std::f32::consts::PI),
+                player.pitch - delta.y.atan2(Vec2::new(delta.x, delta.z).length()),
+            ) / definition.tuning.mouse_sensitivity;
+            let wounded = vitality
+                .get(entity)
+                .is_ok_and(|v| v.current() != Some(v.maximum()));
+            input.movement = Vec2::new(
+                0.,
+                if wounded && verification.stage == 0 {
+                    if delta.length() < 4. { -0.7 } else { 0. }
+                } else if delta.length() > 1.25 {
+                    0.4
+                } else {
+                    0.
+                },
+            );
+            input.fire = false;
+            input.fire_held = false;
+            input.ads = false;
+            input.melee = false;
+            input.reload = false;
+            return;
+        }
         if history.melee_kills == 0 && verification.playing >= 1. {
             input.movement = Vec2::new(0., if delta.length() > 1.25 { 0.4 } else { 0. });
         } else if verification.playing >= 1. && delta.length() < 3. {
@@ -198,6 +235,7 @@ fn check(
         Res<crate::damage::DamageQueue>,
         Res<crate::enemies::EnemyEvidence>,
         Res<crate::rounds::RoundEvidence>,
+        Res<crate::player_health::HealthEvidence>,
     ),
     mut players: Query<
         (
@@ -205,6 +243,8 @@ fn check(
             &mut Player,
             &mut Transform,
             &crate::weapons::WeaponInventory,
+            &crate::life::Vitality,
+            &crate::player_health::Recovery,
         ),
         Without<Zombie>,
     >,
@@ -226,14 +266,14 @@ fn check(
         With<crate::hud::PlayerOverlay>,
     >,
 ) {
-    let (session, history, impacts, enemy_evidence, round_evidence) = combat;
+    let (session, history, impacts, enemy_evidence, round_evidence, health_evidence) = combat;
     let Some(mut verification) = verification else {
         return;
     };
     let ammo = players
         .iter()
         .next()
-        .and_then(|(_, _, _, i)| i.active())
+        .and_then(|(_, _, _, i, _, _)| i.active())
         .map_or(0, |w| w.magazine);
     if verification.stage == 0 {
         if !verification.enemy_attack_frame
@@ -261,7 +301,7 @@ fn check(
                 .observe(save_to_disk(verification.output.join("zombie-death.png")));
             verification.enemy_death_frame = true;
         }
-        for (_, _, _, inventory) in &players {
+        for (_, _, _, inventory, _, _) in &players {
             if !verification.melee_frame
                 && matches!(inventory.action,
                 crate::weapons::WeaponAction::Melee { remaining, .. } if remaining < 0.42 && remaining > 0.30)
@@ -321,6 +361,15 @@ fn check(
         return;
     }
     if verification.stage == 2 && **state == GameState::GameOver {
+        if verification.health && !verification.death_frame {
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk(
+                    verification.output.join("player-game-over.png"),
+                ));
+            verification.death_frame = true;
+            return;
+        }
         commands.write_message(crate::input::RestartGame);
         verification.stage = 3;
         return;
@@ -329,11 +378,33 @@ fn check(
         return;
     }
     verification.playing += time.delta_secs();
-    let (Some(definition), Ok((_, mut player, mut transform, _))) =
+    let (Some(definition), Ok((_, mut player, mut transform, _, health, recovery))) =
         (definition, players.single_mut())
     else {
         return;
     };
+    if verification.health && verification.stage == 0 {
+        if !verification.damage_frame
+            && health.current() != Some(health.maximum())
+            && recovery.age < 0.3
+        {
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk(verification.output.join("player-hurt.png")));
+            verification.damage_frame = true;
+        }
+        if !verification.healed_frame
+            && !health_evidence.heals.is_empty()
+            && health.current() == Some(health.maximum())
+        {
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk(
+                    verification.output.join("player-recovered.png"),
+                ));
+            verification.healed_frame = true;
+        }
+    }
     if verification.initial.is_none() {
         verification.initial = Some(transform.translation);
         commands
@@ -381,7 +452,7 @@ fn check(
             "awarded_points":history.awarded_points,"balance":session.points,"kills":session.kills,
             "impacts":history.recent.iter().map(|r| serde_json::json!({
                 "attacker":r.impact.attacker.to_bits(),"target":r.impact.target.to_bits(),
-                "weapon":r.impact.weapon.0,"category":format!("{:?}",r.impact.category),
+                "weapon":r.impact.source.id(),"category":format!("{:?}",r.impact.category),
                 "region":format!("{:?}",r.impact.region),"damage":r.impact.amount,
                 "lethal":r.lethal,"points":r.points,
             })).collect::<Vec<_>>()
@@ -487,13 +558,21 @@ fn check(
                 verification.playing = 0.;
                 if verification.only_view {
                     verification.stage = 2;
-                    next.set(GameState::GameOver);
+                    next.set(if verification.health {
+                        GameState::Playing
+                    } else {
+                        GameState::GameOver
+                    });
                 }
             }
         } else {
             verification.stage = 2;
             verification.playing = 0.;
-            next.set(GameState::GameOver);
+            next.set(if verification.health {
+                GameState::Playing
+            } else {
+                GameState::GameOver
+            });
         }
     }
     if verification.stage == 3 && verification.playing > 0.2 {
@@ -514,7 +593,20 @@ fn check(
                     .count()
                     == 8
                 && round_evidence.budget_consumed_on_failure == 0);
+        let health_exercised = !verification.health
+            || (health_evidence.heals.len() >= 2
+                && health_evidence.nonterminal_hits >= 3
+                && health_evidence.death_events == 1
+                && verification.damage_frame
+                && verification.healed_frame
+                && verification.death_frame);
+        let restart_health_clear = recovery.immunity == 0.
+            && !recovery.critical
+            && recovery.feedback == 0.
+            && health.current() == Some(definition.player_health.maximum);
         let passed = session.round == 1
+            && health_exercised
+            && restart_health_clear
             && rounds_exercised
             && restart_damage_clear
             && surfaces.pending == 0
@@ -538,6 +630,12 @@ fn check(
                 "attached_heads":enemy_evidence.attached_heads,"attacks_started":enemy_evidence.attacks_started,
                 "attack_hits":enemy_evidence.attack_hits,"deaths":enemy_evidence.deaths,
                 "corpses_removed":enemy_evidence.corpses_removed,"bounds_updates":enemy_evidence.bounds_updates},
+            "health_exercised":health_exercised,"restart_health_clear":restart_health_clear,
+            "player_damage_frame":verification.damage_frame,"player_healed_frame":verification.healed_frame,"player_death_frame":verification.death_frame,
+            "player_health":{"hits":health_evidence.hits,"heals":health_evidence.heals,
+                "nonterminal_hits":health_evidence.nonterminal_hits,"feedback_events":health_evidence.feedback_events,
+                "immunity_rejections":health_evidence.immunity_rejections,"terminal_rejections":health_evidence.terminal_rejections,
+                "death_events":health_evidence.death_events},
             "rounds_exercised":rounds_exercised,
             "round_profile":(1..=255).map(|r| serde_json::json!({"round":r,"health":definition.rounds.health(r),
                 "population":definition.rounds.population(r),"spawn_delay":definition.rounds.spawn_delay(r)})).collect::<Vec<_>>(),

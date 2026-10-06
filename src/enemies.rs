@@ -3,7 +3,7 @@ use crate::{
     GameState,
     assets::GameDefinition,
     gameplay::{GameStep, Navigation},
-    life::{LifeState, ResolvedDamage, Vitality},
+    life::{LifeState, Vitality},
     origins::content::{ContentId, EnemyAnimation},
     player::Player,
 };
@@ -108,6 +108,12 @@ impl Plugin for EnemyPlugin {
             .add_systems(
                 FixedUpdate,
                 lifecycle
+                    .in_set(GameStep::EnemyIntent)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                corpses
                     .in_set(GameStep::Zombies)
                     .run_if(in_state(GameState::Playing)),
             )
@@ -141,11 +147,10 @@ impl Plugin for EnemyPlugin {
     }
 }
 fn lifecycle(
-    mut commands: Commands,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     navigation: Res<Navigation>,
-    mut players: Query<(Entity, &Transform, &mut Vitality), (With<Player>, Without<Zombie>)>,
+    players: Query<(Entity, &Transform, &Vitality), (With<Player>, Without<Zombie>)>,
     mut enemies: Query<
         (
             Entity,
@@ -159,10 +164,10 @@ fn lifecycle(
     >,
     slide: MoveAndSlide,
     query: SpatialQuery,
-    mut next: ResMut<NextState<GameState>>,
+    mut impacts: ResMut<crate::damage::DamageQueue>,
     mut evidence: ResMut<EnemyEvidence>,
 ) {
-    let Ok((player_entity, player_transform, mut health)) = players.single_mut() else {
+    let Ok((player_entity, player_transform, health)) = players.single() else {
         return;
     };
     let dt = time.delta_secs();
@@ -176,16 +181,6 @@ fn lifecycle(
             continue;
         };
         if vitality.state() == LifeState::ActorDead {
-            if zombie.action != EnemyAnimation::Death {
-                zombie.transition(EnemyAnimation::Death);
-                commands.entity(entity).insert(ColliderDisabled);
-                evidence.deaths += 1;
-            }
-            zombie.elapsed += dt;
-            if zombie.elapsed >= enemy.death_seconds + enemy.corpse_seconds {
-                commands.entity(entity).despawn();
-                evidence.corpses_removed += 1;
-            }
             continue;
         }
         if ready.is_none() {
@@ -219,13 +214,14 @@ fn lifecycle(
                     && visible(transform.translation, target)
                     && health.state() == LifeState::Standing
                 {
-                    if let Ok(damage) = ResolvedDamage::new(enemy.damage) {
-                        let _ = health.apply(damage);
-                        evidence.attack_hits += 1;
-                    }
-                    if health.state() == LifeState::HumanTerminal {
-                        next.set(GameState::GameOver);
-                    }
+                    impacts.0.push(crate::damage::Impact {
+                        attacker: entity,
+                        target: player_entity,
+                        source: crate::damage::ImpactSource::Enemy(zombie.definition.clone()),
+                        category: crate::origins::content::DamageCategory::Melee,
+                        region: crate::weapons::HitRegion::Torso,
+                        amount: enemy.damage,
+                    });
                 }
             }
             if zombie.elapsed >= enemy.attack_seconds {
@@ -283,6 +279,37 @@ fn lifecycle(
                 }
             };
             zombie.transition(action);
+        }
+    }
+}
+fn corpses(
+    mut commands: Commands,
+    time: Res<Time<Fixed>>,
+    definition: Res<GameDefinition>,
+    mut enemies: Query<(Entity, &mut Zombie, &Vitality)>,
+    mut evidence: ResMut<EnemyEvidence>,
+) {
+    for (entity, mut zombie, vitality) in &mut enemies {
+        if vitality.state() != LifeState::ActorDead {
+            continue;
+        }
+        let Some(enemy) = definition
+            .content
+            .enemies
+            .iter()
+            .find(|e| e.id == zombie.definition)
+        else {
+            continue;
+        };
+        if zombie.action != EnemyAnimation::Death {
+            zombie.transition(EnemyAnimation::Death);
+            commands.entity(entity).insert(ColliderDisabled);
+            evidence.deaths += 1;
+        }
+        zombie.elapsed += time.delta_secs();
+        if zombie.elapsed >= enemy.death_seconds + enemy.corpse_seconds {
+            commands.entity(entity).despawn();
+            evidence.corpses_removed += 1;
         }
     }
 }

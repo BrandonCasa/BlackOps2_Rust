@@ -21,9 +21,9 @@ import subprocess
 import tomllib
 
 try:
-    from .content_contract import validate_content, validate_rounds
+    from .content_contract import validate_content, validate_rounds, validate_player_health
 except ImportError:
-    from content_contract import validate_content, validate_rounds
+    from content_contract import validate_content, validate_rounds, validate_player_health
 
 import numpy as np
 from PIL import Image
@@ -432,7 +432,7 @@ def validate_pack(root, receipt=None, exact=False):
     game = read_json(safe_path(root, "game.json", {".json"}))
     require(set(game) <= {"version", "scene", "collision_scene", "spawn", "yaw", "spawn_points",
                           "waypoints", "survey_views", "source_surfaces", "render_meshes",
-                          "collision_meshes", "static_model_instances", "tuning", "content", "rounds"}, "unknown gameplay configuration")
+                          "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health"}, "unknown gameplay configuration")
     require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "crouch_speed", "gravity",
         "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
         "mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
@@ -441,6 +441,7 @@ def validate_pack(root, receipt=None, exact=False):
     require(isinstance(points, list) and len(points) == 5 and all(type(v) is int and 0 <= v <= 2147483647 for v in points), "invalid combat point tuning")
     require(game.get("version") == 2, "unsupported gameplay version; expected 2, regenerate/import the pack")
     validate_rounds(game.get("rounds"), require)
+    validate_player_health(game.get("player_health"), require)
     dependencies = validate_content(game.get("content"), require)
     documents = {}
     for key, count_key in (("scene", "render_meshes"), ("collision_scene", "collision_meshes")):

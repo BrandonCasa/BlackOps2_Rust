@@ -39,6 +39,7 @@ pub enum LifeStateError {
     MissingTarget,
     NonIncreasingRequestId,
     NotHuman,
+    NotStanding,
     NotDowned,
     StaleEpisode,
     StaleAttempt,
@@ -278,6 +279,22 @@ impl Vitality {
                 })
             }
         }
+    }
+
+    /// Bounded healing changes only a standing human's current health.
+    pub fn regenerate(&mut self, amount: u32) -> Result<u32, LifeStateError> {
+        if !matches!(self.route, DamageRoute::Human { .. }) {
+            return Err(LifeStateError::NotHuman);
+        }
+        if self.state != LifeState::Standing {
+            return Err(LifeStateError::NotStanding);
+        }
+        if amount > MAX_POSITIVE_NATIVE_INTEGER {
+            return Err(LifeStateError::HealthOutOfRange);
+        }
+        let before = self.current;
+        self.current = self.current.saturating_add(amount).min(self.maximum.get());
+        Ok(self.current - before)
     }
 
     pub fn downed_episode(self) -> Option<DownedEpisode> {

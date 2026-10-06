@@ -12,8 +12,10 @@ use bevy::prelude::*;
 pub enum GameStep {
     Movement,
     Interactions,
+    EnemyIntent,
     Combat,
     Damage,
+    PlayerLife,
     Rewards,
     Zombies,
     Rounds,
@@ -150,8 +152,10 @@ impl Plugin for GameplayPlugin {
                 (
                     GameStep::Movement,
                     GameStep::Interactions,
+                    GameStep::EnemyIntent,
                     GameStep::Combat,
                     GameStep::Damage,
+                    GameStep::PlayerLife,
                     GameStep::Rewards,
                     GameStep::Zombies,
                     GameStep::Rounds,
@@ -420,7 +424,7 @@ fn combat(
                 impacts.0.push(crate::damage::Impact {
                     attacker: entity,
                     target: hit.entity,
-                    weapon: weapon_id.clone(),
+                    source: crate::damage::ImpactSource::Weapon(weapon_id.clone()),
                     category: if melee {
                         crate::origins::content::DamageCategory::Melee
                     } else {

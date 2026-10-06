@@ -15,6 +15,7 @@ impl Plugin for HudPlugin {
             setup.after(crate::presentation::first_person_light),
         )
         .add_systems(Update, update)
+        .add_systems(Update, damage_feedback)
         .add_systems(Update, crosshair.run_if(in_state(GameState::Playing)));
     }
 }
@@ -60,6 +61,97 @@ fn setup(
             ..default()
         },
     ));
+    // Reconstructed peripheral red feedback; Bevy UI owns compositing and lifetime.
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100.),
+                height: percent(100.),
+                ..default()
+            },
+            GlobalZIndex(20),
+            PlayerOverlay,
+            UiTargetCamera(camera),
+        ))
+        .with_children(|parent| {
+            for band in 0..12 {
+                let weight = (1. - band as f32 / 12.).powi(2);
+                let horizontal = band as f32 * 9. / 12.;
+                let vertical = band as f32 * 8. / 12.;
+                for node in [
+                    Node {
+                        left: percent(horizontal),
+                        top: px(0.),
+                        width: percent(9. / 12.),
+                        height: percent(100.),
+                        ..default()
+                    },
+                    Node {
+                        right: percent(horizontal),
+                        top: px(0.),
+                        width: percent(9. / 12.),
+                        height: percent(100.),
+                        ..default()
+                    },
+                    Node {
+                        left: px(0.),
+                        top: percent(vertical),
+                        width: percent(100.),
+                        height: percent(8. / 12.),
+                        ..default()
+                    },
+                    Node {
+                        left: px(0.),
+                        bottom: percent(vertical),
+                        width: percent(100.),
+                        height: percent(8. / 12.),
+                        ..default()
+                    },
+                ] {
+                    parent.spawn((
+                        Node {
+                            position_type: PositionType::Absolute,
+                            ..node
+                        },
+                        DamageEdge { weight },
+                        BackgroundColor(Color::NONE),
+                    ));
+                }
+            }
+        });
+}
+#[derive(Component)]
+struct DamageEdge {
+    weight: f32,
+}
+fn damage_feedback(
+    players: Query<(&Vitality, &crate::player_health::Recovery), With<Player>>,
+    definition: Option<Res<crate::assets::GameDefinition>>,
+    state: Res<State<GameState>>,
+    mut edges: Query<(&DamageEdge, &mut BackgroundColor)>,
+) {
+    let alpha = if **state == GameState::Playing {
+        players.single().ok().zip(definition.as_ref()).map_or(
+            0.,
+            |((health, recovery), definition)| {
+                let flash = recovery.feedback
+                    * (1. - recovery.age / definition.player_health.feedback_seconds).max(0.);
+                let critical =
+                    if recovery.critical && health.state() == crate::life::LifeState::Standing {
+                        0.3 + 0.15 * (recovery.age * std::f32::consts::TAU / 0.8).sin()
+                    } else {
+                        0.
+                    };
+                (flash + critical).clamp(0., 0.65)
+            },
+        )
+    } else {
+        0.
+    };
+    for (edge, mut background) in &mut edges {
+        background.0 = Color::srgba(0.45, 0., 0., alpha * edge.weight);
+    }
 }
 fn crosshair(
     inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,

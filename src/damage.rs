@@ -4,7 +4,7 @@ use crate::{
     assets::GameDefinition,
     gameplay::{GameStep, Session, Zombie},
     life::{DamageOutcome, ResolvedDamage, Vitality},
-    origins::content::{DamageCategory, WeaponId},
+    origins::content::{ContentId, DamageCategory, WeaponId},
     player::Player,
     weapons::HitRegion,
 };
@@ -12,10 +12,23 @@ use bevy::prelude::*;
 use std::collections::VecDeque;
 
 #[derive(Clone, Debug)]
+pub enum ImpactSource {
+    Weapon(WeaponId),
+    Enemy(ContentId),
+}
+impl ImpactSource {
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Weapon(id) => &id.0,
+            Self::Enemy(id) => &id.0,
+        }
+    }
+}
+#[derive(Clone, Debug)]
 pub struct Impact {
     pub attacker: Entity,
     pub target: Entity,
-    pub weapon: WeaponId,
+    pub source: ImpactSource,
     pub category: DamageCategory,
     pub region: HitRegion,
     pub amount: u32,
@@ -69,23 +82,86 @@ impl Plugin for DamagePlugin {
 fn resolve(
     mut queue: ResMut<DamageQueue>,
     mut history: ResMut<CombatHistory>,
-    mut targets: Query<&mut Vitality, With<Zombie>>,
-    attackers: Query<(), With<Player>>,
+    mut targets: Query<(&mut Vitality, Option<&mut crate::player_health::Recovery>)>,
+    players: Query<(), With<Player>>,
+    enemies: Query<&Zombie>,
+    definition: Res<GameDefinition>,
+    mut evidence: ResMut<crate::player_health::HealthEvidence>,
+    mut enemy_evidence: ResMut<crate::enemies::EnemyEvidence>,
     mut accepted: MessageWriter<DamageApplied>,
+    mut player_damage: MessageWriter<crate::player_health::PlayerDamage>,
+    mut player_deaths: MessageWriter<crate::player_health::PlayerDeath>,
 ) {
+    // Resolve weapon combat first: a lethal shot cancels that enemy's queued impact.
+    queue
+        .0
+        .sort_by_key(|impact| matches!(impact.source, ImpactSource::Enemy(_)));
     for impact in queue.0.drain(..) {
-        if !attackers.contains(impact.attacker) {
+        let sender_alive = targets.get(impact.attacker).is_ok_and(|(v, _)| {
+            matches!(
+                v.state(),
+                crate::life::LifeState::Standing | crate::life::LifeState::ActorAlive
+            )
+        });
+        let valid_source = match &impact.source {
+            ImpactSource::Weapon(_) => players.contains(impact.attacker),
+            ImpactSource::Enemy(id) => enemies
+                .get(impact.attacker)
+                .is_ok_and(|z| z.definition == *id),
+        };
+        if !sender_alive || !valid_source {
             continue;
         }
-        let Ok(mut health) = targets.get_mut(impact.target) else {
+        let Ok((mut health, mut recovery)) = targets.get_mut(impact.target) else {
             continue;
         };
+        let player = players.contains(impact.target);
+        if player && health.state() != crate::life::LifeState::Standing {
+            evidence.terminal_rejections += 1;
+            continue;
+        }
+        if player && recovery.as_ref().is_some_and(|r| r.immunity > 0.) {
+            evidence.immunity_rejections += 1;
+            continue;
+        }
         let Ok(amount) = ResolvedDamage::new(impact.amount) else {
             continue;
         };
+        let before = health.current().unwrap_or(0);
         let Ok(outcome) = health.apply(amount) else {
             continue;
         };
+        if player {
+            if matches!(outcome, DamageOutcome::Ignored { .. }) {
+                evidence.terminal_rejections += 1;
+                continue;
+            }
+            let terminal = matches!(outcome, DamageOutcome::HumanDied { .. });
+            let after = if terminal {
+                0
+            } else {
+                health.current().unwrap_or(0)
+            };
+            if let Some(recovery) = recovery.as_mut() {
+                recovery.hit(before, after, health.maximum(), &definition.player_health);
+            }
+            if matches!(impact.source, ImpactSource::Enemy(_)) {
+                enemy_evidence.attack_hits += 1;
+            }
+            player_damage.write(crate::player_health::PlayerDamage {
+                impact: impact.clone(),
+                before,
+                after,
+                terminal,
+            });
+            if terminal {
+                player_deaths.write(crate::player_health::PlayerDeath {
+                    target: impact.target,
+                    attacker: impact.attacker,
+                });
+            }
+            continue;
+        }
         let lethal = match outcome {
             DamageOutcome::Hurt { .. } => false,
             DamageOutcome::ActorDied { .. } => true,

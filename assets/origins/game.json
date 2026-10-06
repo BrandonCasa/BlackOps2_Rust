@@ -125275,5 +125275,18 @@
       2.7519523306193436,
       3.608609407724153
     ]
+  },
+  "player_health": {
+    "maximum": 100,
+    "regular_delay": 2.4,
+    "critical_delay": 5.0,
+    "critical_ratio": 0.2,
+    "critical_step_seconds": 0.05,
+    "critical_step_fraction": 0.1,
+    "worthy_damage_ratio": 0.1,
+    "immunity_regular": 0.35,
+    "immunity_critical_enter": 0.5,
+    "immunity_critical_repeat": 0.3,
+    "feedback_seconds": 0.8
   }
 }

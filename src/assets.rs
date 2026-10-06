@@ -18,6 +18,7 @@ pub struct LaunchOptions {
     pub benchmark_combat: bool,
     pub verify_wall_weapons: bool,
     pub verify_rounds: bool,
+    pub verify_health: bool,
     pub uncached_shadows: bool,
     pub error: Option<String>,
 }
@@ -33,15 +34,18 @@ impl LaunchOptions {
                 || argument == "--benchmark-combat"
                 || argument == "--verify-wall-weapons"
                 || argument == "--verify-rounds"
+                || argument == "--verify-health"
             {
                 result.benchmark = argument != "--verify";
                 result.verify = args.next().map(PathBuf::from);
                 result.benchmark_motion = argument == "--benchmark-moving-view";
                 result.benchmark_combat = argument == "--benchmark-combat"
                     || argument == "--verify-wall-weapons"
-                    || argument == "--verify-rounds";
+                    || argument == "--verify-rounds"
+                    || argument == "--verify-health";
                 result.verify_wall_weapons = argument == "--verify-wall-weapons";
                 result.verify_rounds = argument == "--verify-rounds";
+                result.verify_health = argument == "--verify-health";
                 if result.benchmark_combat {
                     result.benchmark_view = Some(8);
                 }

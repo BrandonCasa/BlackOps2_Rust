@@ -312,3 +312,14 @@ def validate_rounds(profile, require):
         and all(v<=1 for v in profile["early_population"])
         and profile["gait_thresholds"][0]<profile["gait_thresholds"][1]
         and all(a<b for a,b in zip(profile["gait_speeds"],profile["gait_speeds"][1:])),"invalid round profile ordering")
+
+
+def validate_player_health(profile, require):
+    scalars = {"regular_delay","critical_delay","critical_ratio","critical_step_seconds","critical_step_fraction",
+        "worthy_damage_ratio","immunity_regular","immunity_critical_enter","immunity_critical_repeat","feedback_seconds"}
+    require(isinstance(profile,dict) and set(profile)==scalars | {"maximum"},"incomplete player health profile")
+    require(type(profile["maximum"]) is int and 0<profile["maximum"]<=2147483647,"invalid player maximum health")
+    for key in scalars:
+        require(type(profile[key]) in (int,float) and math.isfinite(profile[key]) and profile[key]>0,"invalid player health scalar")
+    require(profile["critical_delay"]>=profile["regular_delay"] and all(profile[k]<=1 for k in
+        ["critical_ratio","critical_step_fraction","worthy_damage_ratio"]),"invalid player health thresholds")

@@ -11,6 +11,7 @@ pub mod interactions;
 pub mod life;
 pub mod origins;
 pub mod player;
+pub mod player_health;
 pub mod presentation;
 pub mod rendering;
 pub mod rounds;
@@ -83,6 +84,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         player::PlayerPlugin,
         gameplay::GameplayPlugin,
         damage::DamagePlugin,
+        player_health::PlayerHealthPlugin,
         enemies::EnemyPlugin,
         interactions::InteractionPlugin,
         presentation::PresentationPlugin,
