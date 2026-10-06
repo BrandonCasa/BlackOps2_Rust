@@ -84,13 +84,18 @@ evidence only; no original-game play, capture or process reads. The primary owns
 shared interfaces and integration. Appearance and damage remain paused. Completion
 requires all five locomotion modes and every participating full-map collision
 reference resolved or reproducibly excluded; the existing brush collection alone
-does not meet that condition. Native timing and baseline profile remain pending.
+does not meet that condition. Native command timing and posture hulls are now
+source-qualified; numerical motor rules and a complete executable profile remain pending.
 
 Reviewed host preparation and stationary single-brush integration pass188 workspace
 tests, locked metadata, formatting and strict all-target Clippy; both retained brush
 opt-ins and client input/pacing checks pass separately. Synthetic reconstructed
 window smoke passes with GPU readback. See [integration01](handoffs/movement-integration-01.md).
-The native updater timing/hulls and complete collision families remain under
+The command owner, explicit150ms backlog/66ms substeps and posture hulls are in
+[native02](handoffs/movement-native-02.md). All265 declared model dispositions and
+583 existing model brush references are in [ownership04](handoffs/movement-collision-04.md);
+serialized null providers are not missing geometry. Runtime scene binding, addon
+association, movement solver access and complete collision families remain under
 qualification; there is no executable movement motor or full-map coverage yet.
 
 The reviewed first texture increment and selected opaque material contract are

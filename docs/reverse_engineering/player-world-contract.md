@@ -1,6 +1,7 @@
 # Player collision world: contract and coverage qualification
 
-Movement collision lane 01, 2026-10-05. Retained-file inspection only; no original
+Movement collision lane 01, 2026-10-05, with reviewed model-ledger refinement from
+[ownership lane04](collision-global-ownership.md). Retained-file inspection only; no original
 process reads, execution, input or capture. Contract interpretation is
 **INVESTIGATING**; player/full-map fidelity remains **UNKNOWN**.
 
@@ -72,15 +73,16 @@ All counts below were rechecked from the identity-bound external schemas.
 | --- | ---: | --- |
 | Map BSP and leaves | 4,525 nodes; 4,791 leaves | Source metadata retained; native traversal arithmetic/order and owner admission pending. |
 | Ordinary brushes | 8,417; 17,108 sides; 68,642 vertices | Payload reader and moving narrow phase available; runtime traversal/membership and stationary consumer pending. |
-| Declared cmodels | Every ordinal 0 through 264 (265 total) | Every retained provider is null and candidate says `provider_absent`. All 265 dispositions are UNRESOLVED_MISSING_PROVIDER, none excluded; native global-pool resolution must be investigated. |
+| Declared cmodels | Every ordinal 0 through 264 (265 total) | All serialized provider pointers are null; this is not missing native geometry. Reviewed global-node closure resolves all 583 model brush IDs in schema34. Dispositions: world selector 0, empty leaf 5, 223 brush-only, 13 brush/terrain, 27 terrain-only. Runtime scene binding/transforms and terrain payload remain pending; see ownership lane04. |
 | Root-zero terrain leaves | 214 leaves; 253 AABB references | Every leaf has positive AABB count and nonzero terrain contents. Participating candidates require terrain dispatch/contents qualification, never brush-root exclusion. |
 | Terrain | 67,196 triangles; 18,968 partitions; 51,129 AABB records | Bodies, indexed traversal, edge/walkability rules, contents/material resolution and stationary/moving consumers pending. Render triangles are not a collision replacement. |
 | Static XModels | 10,837 instances | Model collision providers, contents eligibility, transforms and native consumer order pending. |
 | Dynent lists | `[275, 0, 19, 0]` | Definition/model references, runtime pose/activation and collision-list association pending; zero list counts do not exclude the nonzero lists. |
 | Separate box | Explicit box owner; diagnostic map candidate does not reach it | Source-backed exclusion from that diagnostic candidate only; special native selectors remain distinct queries. |
 
-The ordinal range is a compact exhaustive disposition for all 265 declared models,
-not 265 guessed ownership records. No participating family has an exclusion proof.
+The current per-model ledger is in ownership lane04. Ordinal5 has a source-backed
+empty-leaf exclusion for its own model query only. No participating family has a
+whole-family exclusion proof.
 Schema34 stores counts but lacks a family/ownership/transform/activation scene
 manifest. Geometry-reader success cannot satisfy scene completeness.
 
