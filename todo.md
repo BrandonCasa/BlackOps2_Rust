@@ -102,7 +102,7 @@
 - [ ] Reset robot schedules when starting fresh sessions.
 - [ ] Reset tank state when starting fresh sessions.
 - [ ] Reset box placement when starting fresh sessions.
-- [ ] Reset navigation access when starting fresh sessions.
+- [x] Reset navigation access when starting fresh sessions.
 - [ ] Remove session effects during teardown.
 - [ ] Stop session audio during teardown.
 - [ ] Clear pending life commands during teardown.
@@ -493,19 +493,19 @@
 - [x] Feed kill rewards from attributed death events.
 - [ ] Feed soul collection from attributed death events.
 - [ ] Feed drop generation from attributed death events.
-- [ ] Build navigation graphs from prepared map nodes.
-- [ ] Add typed navigation traversal links.
-- [ ] Add zone requirements to navigation links.
-- [ ] Add door requirements to navigation links.
-- [ ] Enable navigation links after zone unlocks.
-- [ ] Disable navigation links behind closed blockers.
-- [ ] Add cached enemy path requests.
-- [ ] Add path replanning after target movement.
-- [ ] Add path replanning after blocker changes.
+- [x] Build navigation graphs from prepared map nodes.
+- [x] Add typed navigation traversal links.
+- [x] Add zone requirements to navigation links.
+- [x] Add door requirements to navigation links.
+- [x] Enable navigation links after zone unlocks.
+- [x] Disable navigation links behind closed blockers.
+- [x] Add cached enemy path requests.
+- [x] Add path replanning after target movement.
+- [x] Add path replanning after blocker changes.
 - [ ] Add stuck enemy detection.
-- [ ] Add reachable fallback destinations.
-- [ ] Add local enemy separation.
-- [ ] Add nearby direct-pursuit queries.
+- [x] Add reachable fallback destinations.
+- [x] Add local enemy separation.
+- [x] Add nearby direct-pursuit queries.
 - [ ] Add enemy climb link execution.
 - [ ] Add enemy landing recovery.
 - [ ] Add enemy rising link execution.
@@ -541,9 +541,9 @@
 - [x] Replace placeholder round population scaling with BO2 profile values.
 - [ ] Add round-dependent zombie speed selection.
 - [x] Add round-dependent spawn pacing.
-- [ ] Add accessible-zone spawn weighting.
-- [ ] Add spawn admission collision checks.
-- [ ] Add offscreen spawn preference.
+- [x] Add accessible-zone spawn weighting.
+- [x] Add spawn admission collision checks.
+- [x] Add offscreen spawn preference.
 - [ ] Preserve pending budget after failed admission.
 - [x] Track ordinary living population separately.
 - [ ] Track special living population separately.

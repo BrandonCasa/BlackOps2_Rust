@@ -469,8 +469,12 @@ pub struct NavigationLink {
     pub to: ContentId,
     pub traversal: Traversal,
     pub connection: Option<ContentId>,
+    #[serde(default)]
+    pub blockers: Vec<ContentId>,
+    #[serde(default)]
+    pub source_animation: Option<String>,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Traversal {
     Walk,
@@ -998,6 +1002,15 @@ impl ContentCatalog {
             r(&v.id.0, &v.from.0, "node")?;
             r(&v.id.0, &v.to.0, "node")?;
             optional(&v.id.0, &v.connection, "connection")?;
+            for id in &v.blockers {
+                r(&v.id.0, &id.0, "connection")?;
+            }
+            valid(
+                v.source_animation
+                    .as_ref()
+                    .is_none_or(|s| !s.is_empty() && s.len() < 128),
+                "Invalid traversal source animation",
+            )?;
         }
         for v in &self.generators {
             r(&v.id.0, &v.placement.0, "placement")?;

@@ -35,6 +35,9 @@ pub struct Zombie {
     pub stunned: f32,
     next_hit: usize,
     lure: Option<Entity>,
+    last_target: Vec3,
+    route_revision: u32,
+    stuck: f32,
 }
 impl Zombie {
     pub fn new(
@@ -55,6 +58,9 @@ impl Zombie {
             stunned: 0.,
             next_hit: 0,
             lure: None,
+            last_target: position,
+            route_revision: u32::MAX,
+            stuck: 0.,
         }
     }
     fn transition(&mut self, action: EnemyAnimation) {
@@ -71,6 +77,12 @@ pub struct EnemyEvidence {
     pub animations: BTreeSet<String>,
     pub attached_heads: u32,
     pub attacks_started: u32,
+    pub replans: u32,
+    pub target_replans: u32,
+    pub blocker_replans: u32,
+    pub direct_pursuits: u32,
+    pub stuck_recoveries: u32,
+    pub separations: u32,
     pub attack_hits: u32,
     pub deaths: u32,
     pub corpses_removed: u32,
@@ -157,7 +169,8 @@ impl Plugin for EnemyPlugin {
 pub(crate) fn lifecycle(
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
-    navigation: Res<Navigation>,
+    mut navigation: ResMut<Navigation>,
+    access: Res<crate::access::ZoneAccess>,
     attractions: Res<crate::lures::Attractions>,
     players: Query<(Entity, &Transform, &Vitality), (With<Player>, Without<Zombie>)>,
     mut enemies: Query<
@@ -180,6 +193,11 @@ pub(crate) fn lifecycle(
         return;
     };
     let dt = time.delta_secs();
+    let positions: Vec<_> = enemies
+        .iter()
+        .filter(|(_, _, _, _, v, _)| v.state() == LifeState::ActorAlive)
+        .map(|(e, _, t, _, _, _)| (e, t.translation))
+        .collect();
     for (entity, mut zombie, mut transform, shape, vitality, ready) in &mut enemies {
         let Some(enemy) = definition
             .content
@@ -260,13 +278,32 @@ pub(crate) fn lifecycle(
             }
         }
         let feet = transform.translation - Vec3::Y * 0.85;
+        if zombie.route_revision != navigation.revision
+            || target.distance_squared(zombie.last_target) > 0.5625
+        {
+            if zombie.route_revision != u32::MAX && zombie.route_revision != navigation.revision {
+                evidence.blocker_replans += 1;
+            }
+            if target.distance_squared(zombie.last_target) > 0.5625 {
+                evidence.target_replans += 1;
+            }
+            zombie.navigation = 0.;
+            zombie.route_revision = navigation.revision;
+            zombie.last_target = target;
+            evidence.replans += 1;
+        }
         zombie.navigation -= dt;
         if zombie.navigation <= 0. {
             zombie.navigation = 0.5;
-            zombie.destination = if visible(transform.translation, target) {
+            zombie.destination = if distance < 4.
+                && (transform.translation.y - target.y).abs() < 0.7
+                && navigation.direct_allowed(feet, target - Vec3::Y * 0.9, &access)
+                && visible(transform.translation, target)
+            {
+                evidence.direct_pursuits += 1;
                 target
             } else {
-                navigation.destination(feet, target - Vec3::Y * 0.9) + Vec3::Y * 0.85
+                navigation.destination(feet, target - Vec3::Y * 0.9, &access) + Vec3::Y * 0.85
             };
         }
         let delta = zombie.destination - transform.translation;
@@ -276,13 +313,32 @@ pub(crate) fn lifecycle(
             && !(lure.is_some() && distance < 0.4);
         zombie.velocity.x = direction.x * zombie.speed * f32::from(moving);
         zombie.velocity.z = direction.z * zombie.speed * f32::from(moving);
+        if moving {
+            let mut separate = Vec3::ZERO;
+            for (other, point) in &positions {
+                if *other == entity {
+                    continue;
+                }
+                let delta = transform.translation - *point;
+                let flat = Vec3::new(delta.x, 0., delta.z);
+                let distance = flat.length();
+                if distance > 0.001 && distance < 0.85 && delta.y.abs() < 1. {
+                    separate += flat / distance * (1. - distance / 0.85);
+                }
+            }
+            if separate.length_squared() > 0.001 {
+                let separate = separate.clamp_length_max(0.65);
+                zombie.velocity += separate;
+                evidence.separations += 1;
+            }
+        }
         zombie.velocity.y = (zombie.velocity.y - definition.tuning.gravity * dt).max(-30.);
         if direction.length_squared() > 0.001 {
             transform.rotation = Quat::from_rotation_y((-direction.z).atan2(direction.x));
         }
         let filter = crate::environment::solids([entity]);
         let support = query.cast_ray(feet + Vec3::Y * 0.1, Dir3::NEG_Y, 0.25, false, &filter);
-        let grounded = support.is_some_and(|h| h.normal.y > 0.65) && zombie.velocity.y <= 0.;
+        let grounded = support.is_some_and(|h| h.normal.y > 0.65);
         let before = transform.translation;
         let result = crate::player::slide_character(
             &slide,
@@ -302,6 +358,18 @@ pub(crate) fn lifecycle(
         zombie.velocity.y = result.projected_velocity.y;
         if moving {
             let speed = transform.translation.xz().distance(before.xz()) / dt;
+            zombie.stuck = if speed < 0.05 { zombie.stuck + dt } else { 0. };
+            if zombie.stuck > 0.8 {
+                zombie.destination = navigation.alternate(
+                    feet,
+                    target - Vec3::Y * 0.9,
+                    zombie.destination - Vec3::Y * 0.85,
+                    &access,
+                ) + Vec3::Y * 0.85;
+                zombie.navigation = 0.5;
+                zombie.stuck = 0.;
+                evidence.stuck_recoveries += 1;
+            }
             let action = if speed < 0.05 {
                 EnemyAnimation::Idle
             } else {

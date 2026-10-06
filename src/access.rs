@@ -18,6 +18,22 @@ use std::collections::BTreeSet;
 #[serde(default, deny_unknown_fields)]
 pub struct AccessDefinition {
     pub doors: Vec<DoorDefinition>,
+    pub volumes: Vec<ZoneVolumeDefinition>,
+    pub spawns: Vec<SpawnDefinition>,
+}
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ZoneVolumeDefinition {
+    pub zone: ZoneId,
+    pub volume: VolumeDefinition,
+}
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpawnDefinition {
+    pub id: String,
+    pub zone: ZoneId,
+    pub position: [f32; 3],
+    pub rising: bool,
 }
 #[derive(Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -40,7 +56,30 @@ pub struct DoorVisual {
 }
 impl AccessDefinition {
     pub fn valid(&self, content: &ContentCatalog) -> bool {
-        self.doors.len() <= 256
+        self.volumes.len() <= 4096
+            && self.volumes.iter().all(|v| {
+                content.zones.iter().any(|z| z.id == v.zone)
+                    && v.volume.position.iter().all(|x| x.is_finite())
+                    && (4..=128).contains(&v.volume.vertices.len())
+                    && v.volume.vertices.iter().flatten().all(|x| x.is_finite())
+                    && Collider::convex_hull(
+                        v.volume
+                            .vertices
+                            .iter()
+                            .copied()
+                            .map(Vec3::from_array)
+                            .collect(),
+                    )
+                    .is_some()
+            })
+            && self.spawns.len() <= 4096
+            && self.spawns.iter().all(|s| {
+                !s.id.is_empty()
+                    && s.id.len() < 128
+                    && s.position.iter().all(|x| x.is_finite())
+                    && content.zones.iter().any(|z| z.id == s.zone)
+            })
+            && self.doors.len() <= 256
             && self
                 .doors
                 .iter()
@@ -154,13 +193,54 @@ fn audio_evidence(
 ) {
     evidence.playing_sounds += sinks.iter().count() as u32;
 }
+#[derive(Resource, Default)]
+pub struct CurrentZone(pub Option<ZoneId>);
+#[derive(Component)]
+struct ZoneSensor {
+    zone: ZoneId,
+}
+fn locate(
+    query: SpatialQuery,
+    players: Query<&Transform, With<Player>>,
+    volumes: Query<(&ZoneSensor, &Transform), Without<Player>>,
+    mut zone: ResMut<CurrentZone>,
+) {
+    let Ok(pose) = players.single() else {
+        zone.0 = None;
+        return;
+    };
+    let filter = SpatialQueryFilter::from_mask(4);
+    zone.0 = query
+        .shape_intersections(
+            &Collider::sphere(0.03),
+            pose.translation,
+            Quat::IDENTITY,
+            &filter,
+        )
+        .into_iter()
+        .filter_map(|e| volumes.get(e).ok())
+        .min_by(|(_, a), (_, b)| {
+            a.translation
+                .distance_squared(pose.translation)
+                .total_cmp(&b.translation.distance_squared(pose.translation))
+        })
+        .map(|(z, _)| z.zone.clone());
+}
 pub struct AccessPlugin;
 impl Plugin for AccessPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ZoneAccess>()
+            .init_resource::<CurrentZone>()
             .init_resource::<DoorEvidence>()
             .add_systems(OnEnter(GameState::Playing), assemble)
             .add_systems(Update, audio_evidence)
+            .add_systems(
+                FixedUpdate,
+                locate
+                    .in_set(GameStep::Movement)
+                    .after(crate::player::move_player)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(
                 FixedUpdate,
                 opening
@@ -177,9 +257,35 @@ fn assemble(
     players: Query<(), With<Player>>,
     mut access: ResMut<ZoneAccess>,
     mut evidence: ResMut<DoorEvidence>,
+    volumes: Query<(), With<ZoneSensor>>,
+    mut zone: ResMut<CurrentZone>,
 ) {
     if !players.is_empty() {
         return;
+    }
+    zone.0 = None;
+    if volumes.is_empty() {
+        for v in &definition.access.volumes {
+            if let Some(shape) = Collider::convex_hull(
+                v.volume
+                    .vertices
+                    .iter()
+                    .copied()
+                    .map(Vec3::from_array)
+                    .collect(),
+            ) {
+                commands.spawn((
+                    ZoneSensor {
+                        zone: v.zone.clone(),
+                    },
+                    RigidBody::Static,
+                    shape,
+                    Sensor,
+                    CollisionLayers::new(4, LayerMask::NONE),
+                    Transform::from_translation(Vec3::from_array(v.volume.position)),
+                ));
+            }
+        }
     }
     *evidence = default();
     *access = default();

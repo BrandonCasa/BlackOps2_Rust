@@ -73,7 +73,7 @@ def prepare(config):
             identity=e['guid'].lower();placement='placement.door.'+identity
             content['placements'].append({'id':placement,'definition':edges[0],'position':coordinate(e['origin']),'yaw':0.,'zone':connections[next(i for i,c in enumerate(connections) if c['id']==edges[0])]['from']})
             content['interactions'].append({'id':'interaction.door.'+identity,'placement':placement,'action':{'kind':'door','connection':edges[0],'price':price},'reach':2.3,'hold_seconds':0.,'hidden_prompt':False})
-    game['access']={'doors':doors}
+    game.setdefault('access',{})['doors']=doors
     (pack/'game.json').write_text(json.dumps(game,indent=2)+'\n')
     receipt={'groups':len(doors),'triggers':len(triggers),'connections':len(connections),'zones':len(zones),'props':sum(len(d['props']) for d in doors),'blocks':sum(len(d['blocks']) for d in doors),
         'script_sha256':hashlib.sha256(script.read_bytes()).hexdigest(),'collision_sha256':hashlib.sha256(table.read_bytes()).hexdigest(),

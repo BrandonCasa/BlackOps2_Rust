@@ -16,6 +16,7 @@ pub mod life;
 pub mod lures;
 pub mod mines;
 pub mod movement;
+pub mod navigation;
 pub mod origins;
 pub mod perk_effects;
 pub mod perks;
@@ -101,6 +102,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
             perk_effects::PerkEffectsPlugin,
             environment::EnvironmentPlugin,
             access::AccessPlugin,
+            navigation::NavigationPlugin,
         ),
         player_health::PlayerHealthPlugin,
         enemies::EnemyPlugin,

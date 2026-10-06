@@ -453,7 +453,7 @@ def validate_pack(root, receipt=None, exact=False):
             require(all(isinstance(v,list) and len(v)==3 and all(type(x) in (int,float) and math.isfinite(x) for x in v) for v in [volume["position"]]+points),"invalid volume vectors")
             require(np.linalg.matrix_rank(np.array(points)-points[0])==3,"flat volume vertices")
     access=game.get("access",{})
-    require(isinstance(access,dict) and set(access)<={"doors"},"unknown access fields")
+    require(isinstance(access,dict) and set(access)<={"doors","volumes","spawns"},"unknown access fields")
     doors=access.get("doors",[]);require(isinstance(doors,list) and len(doors)<=256,"invalid door count")
     content=game.get("content",{});connections={c["id"] for c in content.get("zone_connections",[])}
     sounds={s["id"] for s in content.get("sounds",[]) if not s["looping"]}
@@ -477,6 +477,21 @@ def validate_pack(root, receipt=None, exact=False):
             require(isinstance(v["vertices"],list) and 4<=len(v["vertices"])<=128,"invalid blocker vertices")
             require(all(isinstance(p,list) and len(p)==3 and all(type(x) in (int,float) and math.isfinite(x) for x in p) for p in [v["position"]]+v["vertices"]),"invalid blocker geometry")
             require(np.linalg.matrix_rank(np.array(v["vertices"])-v["vertices"][0])==3,"flat blocker")
+    zones={z["id"] for z in content.get("zones",[])}
+    zone_volumes=access.get("volumes",[]);require(isinstance(zone_volumes,list) and len(zone_volumes)<=4096,"invalid zone volumes")
+    for row in zone_volumes:
+        require(isinstance(row,dict) and set(row)=={"zone","volume"} and row["zone"] in zones,"invalid zone volume identity")
+        v=row["volume"];require(isinstance(v,dict) and set(v)=={"id","position","vertices"},"invalid zone hull")
+        require(isinstance(v["id"],str) and re.fullmatch(r"[A-Za-z0-9_.-]+",v["id"]) and v["id"] not in volume_ids,"invalid zone brush ID");volume_ids.add(v["id"])
+        require(isinstance(v["vertices"],list) and 4<=len(v["vertices"])<=128,"invalid zone points")
+        require(all(isinstance(p,list) and len(p)==3 and all(type(x) in (int,float) and math.isfinite(x) for x in p) for p in [v["position"]]+v["vertices"]),"invalid zone geometry")
+        require(np.linalg.matrix_rank(np.array(v["vertices"])-v["vertices"][0])==3,"flat zone volume")
+    spawn_ids=set();spawns=access.get("spawns",[]);require(isinstance(spawns,list) and len(spawns)<=4096,"invalid spawn count")
+    for row in spawns:
+        require(isinstance(row,dict) and set(row)=={"id","zone","position","rising"},"invalid spawn fields")
+        require(isinstance(row["id"],str) and re.fullmatch(r"[A-Za-z0-9_.-]+",row["id"]) and row["id"] not in spawn_ids,"invalid spawn ID");spawn_ids.add(row["id"])
+        require(row["zone"] in zones and type(row["rising"]) is bool,"invalid spawn zone/kind")
+        require(isinstance(row["position"],list) and len(row["position"])==3 and all(type(v) in (int,float) and math.isfinite(v) for v in row["position"]),"invalid spawn origin")
     mobility = game.get("tuning", {}).get("mobility", {})
     require(isinstance(mobility, dict) and set(mobility) <= {"prone_height","prone_eye","prone_speed","prone_step","acceleration","deceleration","air_acceleration","air_deceleration","stance_seconds","jump_recovery","dive_speed","dive_lift","dive_recovery","fall_minimum","fall_fatal","landing_dip","landing_seconds","walk_bob","sprint_bob","stride","sway_limit","sway_response"}, "unknown mobility tuning")
     require(all(type(v) in (int,float) and math.isfinite(v) and v > 0 for k,v in mobility.items() if k not in ("walk_bob","sprint_bob","stride")),"invalid mobility tuning")

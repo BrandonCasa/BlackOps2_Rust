@@ -16,6 +16,8 @@ struct Coverage {
     center: Vec3,
     aim: Vec3,
     before: usize,
+    initial_links: usize,
+    initial_revision: u32,
     rows: Vec<serde_json::Value>,
 }
 pub fn install(app: &mut App) {
@@ -36,20 +38,29 @@ fn drive(
     mut input: ResMut<GameInput>,
     mut session: ResMut<Session>,
     query: SpatialQuery,
-    mut players: Query<(
-        Entity,
-        &mut Player,
-        &mut Transform,
-        &Vitality,
-        &mut Mobility,
-    )>,
-    enemies: Query<Entity, With<Zombie>>,
+    mut players: Query<
+        (
+            Entity,
+            &mut Player,
+            &mut Transform,
+            &Vitality,
+            &mut Mobility,
+        ),
+        Without<Zombie>,
+    >,
+    enemies: Query<(Entity, &Transform), With<Zombie>>,
     blockers: Query<(Entity, &DoorBlocker)>,
     props: Query<&DoorProp>,
     access: Res<ZoneAccess>,
     focus: Res<InteractionFocus>,
-    evidence: Res<DoorEvidence>,
+    inspection: (
+        Res<DoorEvidence>,
+        ResMut<crate::navigation::Navigation>,
+        Res<crate::access::CurrentZone>,
+        Res<crate::enemies::EnemyEvidence>,
+    ),
 ) {
+    let (evidence, mut nav, current_zone, enemy_evidence) = inspection;
     let (Some(v), Some(game), Ok((owner, mut p, mut pose, health, mut mobility))) =
         (v, game, players.single_mut())
     else {
@@ -60,8 +71,10 @@ fn drive(
     }
     input.clear();
     c.age += time.delta_secs();
-    for e in &enemies {
-        commands.entity(e).despawn();
+    for (e, body) in &enemies {
+        if !v.navigation || c.phase >= 6 || body.translation.distance(pose.translation) < 3. {
+            commands.entity(e).despawn();
+        }
     }
     let mut next = None;
     if c.phase < 6 && c.phase > 0 {
@@ -75,6 +88,19 @@ fn drive(
     }
     match c.phase {
         0 if c.age > 4. => {
+            if v.navigation && c.index == 0 {
+                c.initial_links = nav.active_links(&access);
+                c.initial_revision = nav.revision;
+                let members = current_zone
+                    .0
+                    .as_ref()
+                    .is_some_and(|z| access.reachable.contains(z));
+                c.rows.push(serde_json::json!({"case":"compiled_graph","passed":nav.node_count()==2776 && nav.link_count()==23197 && members,"zone":current_zone.0,"rejected_nodes":nav.rejected_nodes,"rejected_links":nav.rejected_links,"admissions":nav.admissions.len()}));
+                for d in &game.access.doors {
+                    let gate = nav.inspect_gate(&d.connection, &access);
+                    c.rows.push(serde_json::json!({"case":"closed_gate","door":d.connection,"passed":gate.is_some_and(|(_,_,allowed)|!allowed),"found":gate.is_some(),"links":nav.inspect_gate_nodes(&d.connection)}));
+                }
+            }
             c.owner = Some(owner);
             c.before = access.reachable.len();
             let Some(d) = game.access.doors.get(c.index) else {
@@ -219,6 +245,25 @@ fn drive(
             next = Some(0);
         }
         6 => {
+            if v.navigation {
+                for d in &game.access.doors {
+                    let gate = nav.inspect_gate(&d.connection, &access);
+                    let passed = gate.is_some_and(|(from, to, allowed)| {
+                        let point = nav.destination(from, to, &access);
+                        allowed && point.distance(to) < 0.5
+                    });
+                    c.rows.push(serde_json::json!({"case":"opened_route","door":d.connection,"passed":passed}));
+                }
+                let initial = c.initial_links;
+                let epoch = c.initial_revision;
+                let active = nav.active_links(&access);
+                c.rows.push(serde_json::json!({"case":"replan_after_unlocks","passed":active>initial && nav.revision>epoch,"initial_links":initial,"active_links":active,"revision":nav.revision,"graph_changes":nav.graph_changes}));
+                c.rows.push(serde_json::json!({"case":"live_actor_replanning","passed":enemy_evidence.target_replans>0 && enemy_evidence.blocker_replans>0,"target":enemy_evidence.target_replans,"blocker":enemy_evidence.blocker_replans,"direct":enemy_evidence.direct_pursuits,"stuck":enemy_evidence.stuck_recoveries,"separation":enemy_evidence.separations}));
+                let bounded = nav.inspect_cache(&access);
+                let hits = nav.cache_hits;
+                c.rows.push(serde_json::json!({"case":"bounded_route_cache","passed":bounded && hits>0,"cache":nav.cache_len(),"requests":nav.requests,"hits":hits,"fallbacks":nav.fallbacks}));
+            }
+
             let expected = game
                 .access
                 .doors
@@ -239,8 +284,13 @@ fn drive(
         8 if **state == GameState::Playing && c.age > 1. => {
             let old = c.owner;
             c.rows.push(serde_json::json!({"case":"restart","passed":Some(owner)!=old && access.purchases==0 && blockers.iter().count()==game.access.doors.iter().map(|d|d.blocks.len()).sum::<usize>() && props.iter().count()==game.access.doors.iter().map(|d|d.props.len()).sum::<usize>() && evidence.removed==0 && health.current()==Some(100) && session.points==500}));
+            if v.navigation {
+                let initial = c.initial_links;
+                let active = nav.active_links(&access);
+                c.rows.push(serde_json::json!({"case":"navigation_restart","passed":nav.cache_len()==0 && active==initial && nav.graph_changes==1,"cache":nav.cache_len(),"active_links":active,"zone":current_zone.0,"admissions":nav.admissions.len()}));
+            }
             let passed = c.rows.iter().all(|r| r["passed"] == true);
-            let _=std::fs::write(v.output.join("doors.json"),serde_json::json!({"passed":passed,"rows":c.rows,"groups":game.access.doors.len(),"zones":game.content.zones.len()}).to_string());
+            let _=std::fs::write(v.output.join(if v.navigation {"navigation.json"}else{"doors.json"}),serde_json::json!({"passed":passed,"rows":c.rows,"groups":game.access.doors.len(),"zones":game.content.zones.len()}).to_string());
             commands.write_message(if passed {
                 AppExit::Success
             } else {

@@ -64,6 +64,7 @@ pub(crate) struct Verification {
     mobility: bool,
     mud: bool,
     doors: bool,
+    navigation: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
     grenades: bool,
@@ -209,6 +210,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             mobility: options.verify_mobility,
             mud: options.verify_mud,
             doors: options.verify_doors,
+            navigation: options.verify_navigation,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
             grenades: options.verify_grenades,
@@ -495,6 +497,7 @@ fn check(
         Res<crate::hit_regions::HitEvidence>,
         Res<crate::equipment::EquipmentEvidence>,
         Res<crate::presentation::EquipmentPresentationEvidence>,
+        Res<crate::navigation::Navigation>,
     ),
     mut players: Query<
         (
@@ -535,6 +538,7 @@ fn check(
         hit_evidence,
         equipment,
         equipment_presentation,
+        navigation,
     ) = combat;
     let Some(mut verification) = verification else {
         return;
@@ -978,6 +982,8 @@ fn check(
             "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances,
             "survey_views":verification.camera_views.len(), "water_animation_seconds":verification.water_times,
             "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
+        receipt["navigation"] = serde_json::json!({"nodes":navigation.node_count(),"links":navigation.link_count(),"rejected_nodes":navigation.rejected_nodes,"rejected_links":navigation.rejected_links,"requests":navigation.requests,"cache_hits":navigation.cache_hits,"fallbacks":navigation.fallbacks,"admissions":navigation.admissions.len()});
+        receipt["enemy_navigation"] = serde_json::json!({"replans":enemy_evidence.replans,"target_replans":enemy_evidence.target_replans,"blocker_replans":enemy_evidence.blocker_replans,"direct_pursuits":enemy_evidence.direct_pursuits,"stuck_recoveries":enemy_evidence.stuck_recoveries,"separations":enemy_evidence.separations});
         receipt["monkeys_exercised"] = verification.monkeys_exercised.into();
         receipt["equipment_refills_exercised"] = verification.equipment_refills_exercised.into();
         receipt["equipment_presentation"] = serde_json::json!({"phases":equipment_presentation.phases,

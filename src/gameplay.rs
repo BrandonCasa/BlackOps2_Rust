@@ -77,75 +77,13 @@ impl Session {
     }
 }
 
-#[derive(Resource, Default)]
-pub(crate) struct Navigation {
-    points: Vec<Vec3>,
-    edges: Vec<Vec<usize>>,
-    admissions: Vec<Vec3>,
-}
-
-impl Navigation {
-    pub(crate) fn destination(&self, position: Vec3, target: Vec3) -> Vec3 {
-        if self.points.is_empty() {
-            return target;
-        }
-        let nearest = |p: Vec3| {
-            self.points
-                .iter()
-                .enumerate()
-                .min_by(|(_, a), (_, b)| a.distance_squared(p).total_cmp(&b.distance_squared(p)))
-                .map(|(i, _)| i)
-                .unwrap_or(0)
-        };
-        let start = nearest(position);
-        let goal = nearest(target);
-        if start == goal {
-            return target;
-        }
-        let mut cost = vec![f32::INFINITY; self.points.len()];
-        let mut previous = vec![usize::MAX; self.points.len()];
-        let mut open = vec![start];
-        cost[start] = 0.;
-        while !open.is_empty() {
-            let best = (0..open.len())
-                .min_by(|a, b| {
-                    (cost[open[*a]] + self.points[open[*a]].distance(self.points[goal])).total_cmp(
-                        &(cost[open[*b]] + self.points[open[*b]].distance(self.points[goal])),
-                    )
-                })
-                .unwrap_or(0);
-            let node = open.swap_remove(best);
-            if node == goal {
-                break;
-            }
-            for &other in &self.edges[node] {
-                let next_cost = cost[node] + self.points[node].distance(self.points[other]);
-                if next_cost < cost[other] {
-                    cost[other] = next_cost;
-                    previous[other] = node;
-                    if !open.contains(&other) {
-                        open.push(other);
-                    }
-                }
-            }
-        }
-        if previous[goal] == usize::MAX {
-            return self.points[start];
-        }
-        let mut node = goal;
-        while previous[node] != start && previous[node] != usize::MAX {
-            node = previous[node];
-        }
-        self.points[node]
-    }
-}
+pub(crate) use crate::navigation::Navigation;
 
 pub struct GameplayPlugin;
 impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Session>()
             .add_message::<crate::rounds::RoundStarted>()
-            .init_resource::<Navigation>()
             .init_resource::<crate::rounds::Population>()
             .init_resource::<crate::rounds::RoundEvidence>()
             .configure_sets(
@@ -181,8 +119,6 @@ fn begin_session(
     mut history: ResMut<crate::damage::CombatHistory>,
     definition: Res<GameDefinition>,
     players: Query<(), With<Player>>,
-    mut navigation: ResMut<Navigation>,
-    query: SpatialQuery,
 ) {
     if !players.is_empty() {
         return;
@@ -193,122 +129,6 @@ fn begin_session(
         Timer::from_seconds(definition.rounds.first_spawn_seconds, TimerMode::Once);
     impacts.0.clear();
     *history = default();
-    if !navigation.points.is_empty() {
-        return;
-    }
-    let shape = capsule(0.3, 1.7);
-    navigation.points = definition
-        .waypoints
-        .iter()
-        .filter_map(|point| {
-            let point = Vec3::from_array(*point);
-            let floor = query.cast_ray(
-                point + Vec3::Y * 0.1,
-                Dir3::NEG_Y,
-                3.,
-                false,
-                &crate::environment::solids([]),
-            )?;
-            if floor.normal.y < 0.65 {
-                return None;
-            }
-            let feet = point + Vec3::Y * (0.1 - floor.distance + 0.02);
-            query
-                .shape_intersections(
-                    &shape,
-                    feet + Vec3::Y * 0.85,
-                    Quat::IDENTITY,
-                    &crate::environment::solids([]),
-                )
-                .is_empty()
-                .then_some(feet)
-        })
-        .collect();
-    navigation.edges = vec![Vec::new(); navigation.points.len()];
-    for i in 0..navigation.points.len() {
-        let a = navigation.points[i];
-        let mut candidates: Vec<_> = navigation
-            .points
-            .iter()
-            .enumerate()
-            .filter(|(j, b)| i != *j && (a.y - b.y).abs() < 1.2 && a.distance_squared(**b) < 16.)
-            .map(|(j, b)| (j, *b))
-            .collect();
-        candidates.sort_by(|(_, a), (_, b)| {
-            a.distance_squared(navigation.points[i])
-                .total_cmp(&b.distance_squared(navigation.points[i]))
-        });
-        for (j, b) in candidates.into_iter().take(8) {
-            let delta = b - a;
-            if let Ok(direction) = Dir3::new(delta)
-                && query
-                    .cast_shape(
-                        &shape,
-                        a + Vec3::Y * 0.85,
-                        Quat::IDENTITY,
-                        direction,
-                        &ShapeCastConfig {
-                            ignore_origin_penetration: true,
-                            ..ShapeCastConfig::from_max_distance(delta.length())
-                        },
-                        &crate::environment::solids([]),
-                    )
-                    .is_none()
-            {
-                navigation.edges[i].push(j);
-            }
-        }
-    }
-    // Admit enemies on the reachable side of map entries until barrier/climb
-    // behavior exists. Never spawn an enemy into an inaccessible closed zone.
-    let spawn = Vec3::from_array(definition.spawn);
-    if let Some(start) = navigation
-        .points
-        .iter()
-        .enumerate()
-        .min_by(|(_, a), (_, b)| {
-            a.distance_squared(spawn)
-                .total_cmp(&b.distance_squared(spawn))
-        })
-        .map(|(i, _)| i)
-    {
-        let mut reachable = vec![false; navigation.points.len()];
-        reachable[start] = true;
-        let mut work = vec![start];
-        while let Some(node) = work.pop() {
-            for &other in &navigation.edges[node] {
-                if !reachable[other] {
-                    reachable[other] = true;
-                    work.push(other);
-                }
-            }
-        }
-        let eligible: Vec<_> = navigation
-            .points
-            .iter()
-            .enumerate()
-            .filter(|(i, p)| reachable[*i] && p.distance_squared(spawn) > 4.)
-            .map(|(_, p)| *p)
-            .collect();
-        for point in &definition.spawn_points {
-            let entry = Vec3::from_array(*point);
-            if let Some(nearest) = eligible.iter().min_by(|a, b| {
-                a.distance_squared(entry)
-                    .total_cmp(&b.distance_squared(entry))
-            }) && !navigation
-                .admissions
-                .iter()
-                .any(|p| p.distance_squared(*nearest) < 0.5)
-            {
-                navigation.admissions.push(*nearest);
-            }
-        }
-    }
-    info!(
-        "Navigation: {} nodes, {} reachable entry projections",
-        navigation.points.len(),
-        navigation.admissions.len()
-    );
 }
 
 pub(crate) fn combat(
@@ -500,6 +320,7 @@ pub(crate) fn rounds(
     mut population: ResMut<crate::rounds::Population>,
     mut evidence: ResMut<crate::rounds::RoundEvidence>,
     mut started: MessageWriter<crate::rounds::RoundStarted>,
+    players: Query<(&Player, &Transform)>,
 ) {
     use crate::rounds::PopulationKind;
     *population = default();
@@ -555,17 +376,10 @@ pub(crate) fn rounds(
         .filter(|e| e.family == "german")
         .collect();
     let candidate = (|| {
-        let count = if navigation.admissions.is_empty() {
-            definition.spawn_points.len()
-        } else {
-            navigation.admissions.len()
-        };
-        let index = session.spawn_index(count)?;
-        let base = navigation
-            .admissions
-            .get(index)
-            .copied()
-            .unwrap_or_else(|| Vec3::from_array(definition.spawn_points[index]));
+        let (player, body) = players.single().ok()?;
+        let forward = Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z;
+        let admission = navigation.choose_spawn(&mut session, body.translation, forward)?;
+        let base = admission.position;
         let floor = query.cast_ray(
             base + Vec3::Y * 0.1,
             Dir3::NEG_Y,
@@ -576,7 +390,8 @@ pub(crate) fn rounds(
         if floor.normal.y < 0.5 {
             return None;
         }
-        let position = base + Vec3::Y * (0.1 - floor.distance + 0.87);
+        // Preserve capsule clearance already admitted by the map graph.
+        let position = base + Vec3::Y * 0.85;
         let shape = capsule(0.3, 1.7);
         if !query
             .shape_intersections(
@@ -593,9 +408,20 @@ pub(crate) fn rounds(
         let health = Vitality::ordinary_actor(amount, amount).ok()?;
         let enemy = variants.get(session.spawn_cursor % variants.len().max(1))?;
         let gait = profile.gait(session.round, session.random());
-        Some((position, shape, health, enemy.id.clone(), gait))
+        Some((
+            position,
+            shape,
+            health,
+            enemy.id.clone(),
+            gait,
+            admission.source.clone(),
+            admission.zone.clone(),
+            admission.rising,
+        ))
     })();
-    let Some((position, shape, health, identity, gait)) = candidate else {
+    let Some((position, shape, health, identity, gait, spawn_source, spawn_zone, rising)) =
+        candidate
+    else {
         evidence.failed_admissions += 1;
         evidence.budget_consumed_on_failure += u64::from(pending != session.pending);
         return;
@@ -605,7 +431,7 @@ pub(crate) fn rounds(
     }
     if evidence.admitted.len() < 256 {
         evidence.admitted.push(serde_json::json!({"round":session.round,"health":profile.health(session.round),
-            "gait":format!("{gait:?}"),"speed":profile.speed(gait),"time":time.elapsed_secs_f64(),
+            "gait":format!("{gait:?}"),"speed":profile.speed(gait),"time":time.elapsed_secs_f64(),"position":position.to_array(),"spawn_source":spawn_source,"spawn_zone":spawn_zone,"rising_source":rising,
             "spawn_delay":profile.spawn_delay(session.round),"pending_before":pending,"pending_after":session.pending}));
     }
     commands.spawn((
