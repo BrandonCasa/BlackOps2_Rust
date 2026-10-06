@@ -7,3 +7,4 @@ pub mod brush_collection;
 pub mod brush_snapshot;
 pub mod fastfile;
 pub mod geometry_snapshot;
+pub mod terrain_snapshot;

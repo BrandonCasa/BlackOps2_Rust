@@ -46,7 +46,7 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
   existing toolchain unless an actual implementation requirement needs a change.
 - `crates/assets`: bounded fastfile envelope inspection and a safe reader for the
   project-owned geometry snapshot format, external schema28 brush records and
-  bounded schema34 source-keyed brush collections.
+  bounded schema34 source-keyed brush collections and complete terrain exchange v1.
   This is not a complete Rust BO2 decoder.
 - `crates/rendering`: raw diagnostic Mesh preserves source arrays; canonical runtime
   Mesh and textured scenes adapt source `(x,y,z)` to Bevy `(x,z,-y)` through
@@ -87,16 +87,24 @@ reference resolved or reproducibly excluded; the existing brush collection alone
 does not meet that condition. Native command timing and posture hulls are now
 source-qualified; numerical motor rules and a complete executable profile remain pending.
 
-Reviewed host preparation and stationary single-brush integration pass188 workspace
+Reviewed host preparation, stationary single-brush and terrain reader integration pass194 workspace
 tests, locked metadata, formatting and strict all-target Clippy; both retained brush
 opt-ins and client input/pacing checks pass separately. Synthetic reconstructed
-window smoke passes with GPU readback. See [integration01](handoffs/movement-integration-01.md).
+window smoke passes with GPU readback. The external terrain opt-in separately
+admits all declared terrain arrays and map/model leaf references; numerical terrain
+queries remain unimplemented. See [integration01](handoffs/movement-integration-01.md)
+and [terrain integration02](handoffs/movement-integration-02.md).
 The command owner, explicit150ms backlog/66ms substeps and posture hulls are in
 [native02](handoffs/movement-native-02.md). All265 declared model dispositions and
 583 existing model brush references are in [ownership04](handoffs/movement-collision-04.md);
 serialized null providers are not missing geometry. Runtime scene binding, addon
 association, movement solver access and complete collision families remain under
 qualification; there is no executable movement motor or full-map coverage yet.
+The [grounded contract](reverse_engineering/movement-grounded-contract.md) requires
+the receiver/contact solver, beyond classic world traces. [Collision access](reverse_engineering/movement-collision-access.md)
+records its provider/pose gaps. [Baseline parameters](reverse_engineering/movement-baseline-parameters.md)
+qualify C96 movement/sprint modifiers and script movement scale; parameter defaults
+and startup floating-point policy remain unresolved. Timing/SSE kernels are next.
 
 The reviewed first texture increment and selected opaque material contract are
 integrated. All five selected image dependencies resolve; shader equations are
