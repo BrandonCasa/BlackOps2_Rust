@@ -17,6 +17,7 @@ pub(crate) struct VisualProfile {
     pub baked_radiance: f32,
     pub vertex_radiance: f32,
     pub probe_radiance: f32,
+    pub tile_probe_radiance: f32,
     pub instance_probe_fill: f32,
     pub transparent_opacity_scale: f32,
     pub reveal_softness: f32,

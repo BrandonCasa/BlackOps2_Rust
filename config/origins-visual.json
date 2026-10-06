@@ -10,6 +10,7 @@
   "baked_radiance": 90.0,
   "vertex_radiance": 140.0,
   "probe_radiance": 22.0,
+  "tile_probe_radiance": 60.0,
   "instance_probe_fill": 0.035,
   "transparent_opacity_scale": 0.60,
   "reveal_softness": 3.2,

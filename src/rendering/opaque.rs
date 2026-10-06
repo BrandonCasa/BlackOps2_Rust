@@ -718,7 +718,11 @@ pub(super) fn convert(
                 // This replaces the old additive ambient fill on baked surfaces.
                 radiance: Vec4::new(
                     if lightmap_path.is_none() && colors.is_none() {
-                        profile.probe_radiance
+                        if tile {
+                            profile.tile_probe_radiance
+                        } else {
+                            profile.probe_radiance
+                        }
                     } else if colors.is_some() {
                         profile.vertex_radiance
                     } else {

@@ -95,11 +95,13 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     var uv1 = in.uv;
     var uv2 = in.uv;
     let water = (surface.modes.x & 16u) != 0u;
-    if (surface.modes.x & 1u) != 0u {
+    let tile_macro = (surface.modes.x & 1u) != 0u;
+    if tile_macro {
         let mask = textureSample(control_map, control_sampler, in.uv).rg;
         weights = vec3(mask.g,mask.r,0.0)/max(mask.r+mask.g,0.0001);
-        uv0 *= surface.response.w;
-        uv1 = uv0;
+        // Normal 0 describes the whole object's shape at authored UVs.
+        // Normals 1/2 accompany coating/core (color 1/0), respectively.
+        uv1 = in.uv * surface.response.w;
     }
     var slope0 = select(vec2(0.0), normal_slope(textureSample(normal_map, normal_sampler, uv0).rg), (surface.modes.x & 2u) != 0u);
     var slope1 = select(vec2(0.0), normal_slope(textureSample(second_normal, second_normal_sampler, uv1).rg), (surface.modes.x & 4u) != 0u);
@@ -132,6 +134,17 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     }
     var slope = slope0*weights.x+slope1*weights.y+slope2*weights.z;
     var sg = s0*weights.x+s1*weights.y+s2*weights.z;
+    if tile_macro {
+        let coating = select(vec2(0.0),normal_slope(textureSample(second_normal,second_normal_sampler,uv1).rg),(surface.modes.x & 4u) != 0u);
+        let core = select(vec2(0.0),normal_slope(textureSample(third_normal,third_normal_sampler,uv1).rg),(surface.modes.x & 8u) != 0u);
+        // Blend detail slopes onto the unscaled macro normal. The shared diffuse
+        // bake already includes this mask's occlusion, so do not multiply it again.
+        slope = slope0 + core*weights.x + coating*weights.y;
+        s0 = select(vec4(0.5,0.5,0.5,0.36),textureSample(specular_map,specular_sampler,uv1),surface.modes.y != 0u);
+        s1 = select(s0,textureSample(second_specular,second_specular_sampler,uv1),(surface.modes.z & 1u) != 0u);
+        // Specular bindings follow coating/core order, like detail normals.
+        sg = s0*weights.y+s1*weights.x;
+    }
     if water {
         let t = surface.radiance.z;
         let wuv = in.uv*surface.water.z;
