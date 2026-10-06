@@ -143,3 +143,28 @@ Five moderate synthetic gravity inputs yielded impulse bits:
 
 These are independent source-flow fixtures, not original comparison evidence or
 proof of the full landing/air pipeline. No Rust changes were made in this task.
+
+## Eligibility implementation increment (native12)
+
+`bo2-gameplay::movement::jump_eligibility` now implements only2b1cd0's ordered
+integer eligibility gates and current-command bit21 clear on the held branch.
+All raw flags, signed mode/posture, command times/buttons, surface flags, owner
+and optional qualified owner permission are explicit supplied inputs. Sentinel3ff
+bypasses posture rejection and permission access. Earlier rejection leaves the
+current buttons intact; held rejection clears only bit21, including preservation
+of all high button bits. Missing permission is an error only after every earlier
+source gate passes for a nonsentinel owner.
+
+Checked signed subtraction overflow and missing permission are safe-boundary
+errors, distinct from native rejection. The pure value API produces no writes on
+error; a successful result carries the current buttons and authorization/rejection.
+Eligible means the launch gate was reached, not that impulse, events or airborne
+state were applied. There are no profile, FP-policy or ground-normal defaults.
+
+Eight focused Rust tests pass15 independently reconstructed source-flow fixtures
+plus signed499/500 boundaries, ordered overlapping rejection, raw mode/posture,
+sentinel/callback true/false/missing, press/release/press, high-bit preservation
+and overflow/atomic-error cases. Focused locked test, all-target gameplay Clippy
+with warnings denied, owned-file formatting and candidate whitespace/path review
+passed. Source fidelity remains INVESTIGATING; no original comparison occurred.
+See [handoff12](../handoffs/movement-native-12.md) for actual scoped validation.

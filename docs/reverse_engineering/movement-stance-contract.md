@@ -38,7 +38,8 @@ have distinct paths and are excluded from the ordinary baseline.
 
 Target view height204 is signed integer; current208 is f32. Effective classifier
 1a3920 reads the **target**, not raw flags or current height: target11 ->1(prone),
-40 ->2(crouch), other ->0(standing), except target22. Target22 consults state5b8:
+40 ->2(crouch), other ->0(standing), except target22. Target22 loads state5b8 as
+a full signed32-bit dword (1a392f) and uses signed jl against3 (1a3938):
 >=3 ->0;0 ->1; other nonzero ->2. Stage22's ordinary reachability and meaning
 remain unqualified; retain it separately rather than naming a fourth posture.
 Standing target is integer provider31fe6a4, whose value/default is still missing.
@@ -207,3 +208,30 @@ still needs standing target and lowering provider, forced/toggle/environment and
 weapon state binding, animation receiver, alternate clearance and prone pose.
 Full camera, movement motor, other collision families, FP startup and parameter
 registration remain separate tasks; original comparison is absent.
+
+## Integer implementation increment (native13)
+
+`bo2-gameplay::movement::posture_timing` implements target-based `Posture`
+classification, source stage durations and checked active-stage percentage.
+Posture remains independent of life state. Signed special-state negatives are
+nonzero and below3, hence crouching for target22; no byte narrowing or guessed
+meaning for stage22 is introduced. Stage11 duration is600ms; stage40 uses400ms
+for direction0 or200ms for every nonzero direction; other stages use200ms.
+
+The active-stage API returns None for zero timestamp, matching53ebcc's guard
+before arithmetic. This excludes the full owner's new-stage initialization; None
+does not imply the whole posture update is a no-op. A nonzero timestamp uses
+ordered checked signed subtraction then multiplication100, truncating signed
+division by source duration, and clamp0..100. Percent100 returns progress only:
+height/timestamp/mode completion writes remain outside this kernel. Errors leave
+authoritative state unchanged; overflow is rejected before saturation rather than
+claimed to wrap. Inputs are explicit and supply no standing-height defaults.
+
+Seven focused tests passed13 classifier and12 timing source-flow fixtures,
+signed direction/special-state extremes, source boundaries, zero timestamp,
+checked subtraction/multiplication and atomic caller application. A separate
+wide-integer reference checked2,968 bounded progress cases across each percentage
+boundary. Focused locked tests, gameplay all-target Clippy with warnings denied,
+owned formatting and whitespace/path review passed. See
+[handoff13](../handoffs/movement-native-13.md). Float curves, full stance requests,
+clearance/hulls/events and original comparison remain excluded.

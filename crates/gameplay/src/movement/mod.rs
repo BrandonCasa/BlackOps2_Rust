@@ -5,5 +5,7 @@
 //! collision, x87 kernels and camera behavior remain outside this boundary.
 
 pub mod acceleration;
+pub mod jump_eligibility;
+pub mod posture_timing;
 pub mod sprint_budget;
 pub mod timing;
