@@ -122,31 +122,15 @@ measured camera conditions and equivalent reconstructed comparisons remain pendi
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the
    accepted external snapshot instead of restarting asset extraction.
-2. Qualify the separate stationary wrapper and standing-player request boundary,
-   then assemble evidence-backed collision for player movement. Task0036 implements
-   the finite-f32 single moving-brush contract on existing admitted records. The authentic
-   native consumer clips lower XYZ, upper XYZ, then sides; zero-side records retain
-   the axial constraints and stored vertices are not consulted. It uses capsule-like
-   support, an entry-only 0.125 raw-unit allowance, distinct startsolid/allsolid/contact
-   writes and ordered plane ties. Preserve the unusual upper-Z result overwrite.
-   The existing f64 queries remain diagnostic; their arithmetic and tie rules are
-   not the native contract. Equal centered endpoints take an uninvestigated wrapper
-   route and are rejected by the moving-only adapter. See
-   [original contract](reverse_engineering/0024-original-brush-trace-consumer.md).
-   Six retained positive/zero point crossings agree exactly with the independent
-   scalar reconstruction, not native execution. Player dimensions/masks are explicit
-   unknowns; no general box support or world aggregation is claimed.
-   [Task0037](handoffs/0037-original-standing-player-trace-request.md) qualifies
-   three bounds/mask forwarding functions into that builder, but no ordinary
-   standing-player caller or defaults. Resolve a player movement owner/callback
-   and its actual bounds writes before integrating player collision.
-   All 8,417 candidates remain admitted, but static ownership/transforms and all
-   265 absent model providers remain unresolved. Source residuals remain visible
-   (30,706 strict violations, maximum 0.09950868785381317 raw units); the original
-   contact allowance does not repair them or prove producer rounding.
-3. Measure the player hull, collision masks and step/slide rules before integrating
-   movement. Point-segment queries do not establish original player traces.
-   Camera-capture difficulties must not indefinitely block independent gameplay work.
+2. Integrate ordered world/family queries on admitted ownership and payloads.
+   Single moving and stationary brush consumers are implemented. Native02 supplies
+   ordinary posture hulls/masks; native03/access05 identify the separate receiver
+   solver required by the motor. Keep classic traces and that solver distinct.
+   [Coverage ledger](reverse_engineering/player-world-contract.md) tracks remaining
+   traversal, terrain, static XModel, transformed-model and dynent requirements.
+3. Implement qualified numerical increments and explicit command timing while
+   completing source/profile and solver prerequisites. Point-segment diagnostics,
+   synthetic kernels and host tests do not establish a full movement controller.
 4. Continue through one evidenced weapon, zombie, damage/death and round, then
    compare and expand toward the full Origins scope. Keep visible progress and
    behavior comparisons distinct from scaffolding and synthetic correctness.

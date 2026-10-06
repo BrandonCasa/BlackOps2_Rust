@@ -72,10 +72,10 @@ All counts below were rechecked from the identity-bound external schemas.
 | Family/reference set | Declared scope | Disposition and missing qualification |
 | --- | ---: | --- |
 | Map BSP and leaves | 4,525 nodes; 4,791 leaves | Source metadata retained; native traversal arithmetic/order and owner admission pending. |
-| Ordinary brushes | 8,417; 17,108 sides; 68,642 vertices | Payload reader and moving narrow phase available; runtime traversal/membership and stationary consumer pending. |
+| Ordinary brushes | 8,417; 17,108 sides; 68,642 vertices | Payload reader and moving/stationary narrow phases available; runtime traversal/membership remain pending. |
 | Declared cmodels | Every ordinal 0 through 264 (265 total) | All serialized provider pointers are null; this is not missing native geometry. Reviewed global-node closure resolves all 583 model brush IDs in schema34. Dispositions: world selector 0, empty leaf 5, 223 brush-only, 13 brush/terrain, 27 terrain-only. Terrain exchange v1 now admits all declared terrain arrays and embedded model leaves; numerical queries and runtime scene binding/transforms remain pending. See ownership lane04 and [terrain admission](terrain-payload-admission.md). |
 | Root-zero terrain leaves | 214 leaves; 253 AABB references | Every leaf has positive AABB count and nonzero terrain contents. Participating candidates require terrain dispatch/contents qualification, never brush-root exclusion. |
-| Terrain | 67,196 triangles; 18,968 partitions; 51,129 AABB records | Bodies, indexed traversal, edge/walkability rules, contents/material resolution and stationary/moving consumers pending. Render triangles are not a collision replacement. |
+| Terrain | 67,196 triangles; 18,968 partitions; 51,129 AABB records | Complete payload reader and source contract available. Numerical stationary/moving consumers, packed-edge interpretation and query stamps remain pending. Render triangles are not a collision replacement. |
 | Static XModels | 10,837 instances | Model collision providers, contents eligibility, transforms and native consumer order pending. |
 | Dynent lists | `[275, 0, 19, 0]` | Definition/model references, runtime pose/activation and collision-list association pending; zero list counts do not exclude the nonzero lists. |
 | Separate box | Explicit box owner; diagnostic map candidate does not reach it | Source-backed exclusion from that diagnostic candidate only; special native selectors remain distinct queries. |
@@ -96,13 +96,17 @@ revisions. Null provider/pose is an error unless a named source-backed exclusion
 applies. Validate the complete scene and every referenced family before publication;
 failed scene/activation updates preserve the previous usable world.
 
-The numerical movement boundary needs explicit source-space start/end, lower/upper
+The classic trace boundary needs explicit source-space start/end, lower/upper
 extent endpoints, contents mask, exclusion/filter context, incoming result and
 scene revision. Provide distinct stationary clearance and swept query operations;
 do not convert clearance into an epsilon sweep. Return authoritative fraction,
 normal, contents, surface flags, startsolid/allsolid, source family/owner/contact
 identity and any additionally qualified native result fields. Preserve original
 order and scalar precision; do not silently resolve ties by ECS entity order.
+The numerical motor additionally requires the alternate receiver/contact solver
+qualified in [access05](movement-collision-access.md); classic trace operations alone
+do not satisfy that contract. Effective creation remains unresolved in
+[producer06](movement-collision-receiver-producer.md).
 Queries returning missing-provider, missing-pose, unresolved-family, invalid-reference
 or arithmetic errors leave the caller's authoritative state unchanged.
 
