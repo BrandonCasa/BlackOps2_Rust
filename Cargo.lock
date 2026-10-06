@@ -1334,6 +1334,7 @@ dependencies = [
  "bo2-assets",
  "bo2-rendering",
  "image",
+ "sha2",
 ]
 
 [[package]]
@@ -1368,6 +1369,7 @@ dependencies = [
  "bevy",
  "bo2-assets",
  "bo2-core",
+ "naga",
 ]
 
 [[package]]

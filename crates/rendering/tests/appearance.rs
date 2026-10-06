@@ -84,3 +84,23 @@ fn repeated_source_vertices_keep_corner_seams_and_linear_dds() {
         (4, 4)
     );
 }
+
+#[test]
+fn sampler_mip_disabled_nearest_linear_and_clamps_are_explicit() {
+    let disabled = source_sampler(1).unwrap();
+    assert_eq!(disabled.lod_max_clamp, 0.0);
+    assert_eq!(disabled.mipmap_filter, ImageFilterMode::Nearest);
+    let nearest = source_sampler(10).unwrap();
+    assert_eq!(nearest.mipmap_filter, ImageFilterMode::Nearest);
+    assert!(nearest.lod_max_clamp > 0.0);
+    let all_clamps = source_sampler(244).unwrap();
+    assert_eq!(all_clamps.mipmap_filter, ImageFilterMode::Linear);
+    assert_eq!(all_clamps.address_mode_u, ImageAddressMode::ClampToEdge);
+    assert_eq!(all_clamps.address_mode_v, ImageAddressMode::ClampToEdge);
+    assert_eq!(all_clamps.address_mode_w, ImageAddressMode::ClampToEdge);
+    assert_eq!(
+        source_sampler(74).unwrap().address_mode_v,
+        ImageAddressMode::ClampToEdge
+    );
+    assert!(source_sampler(26).is_err());
+}

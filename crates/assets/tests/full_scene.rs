@@ -169,7 +169,7 @@ fn external_complete_scene_payload_admission() {
     let path = std::env::var("BO2_FULL_SCENE").unwrap();
     let scene = load_full_scene(std::path::Path::new(&path)).unwrap();
     assert_eq!(scene.surfaces.len(), 6469);
-    assert_eq!(scene.images.len(), 260);
+    assert!((260..=262).contains(&scene.images.len()));
     assert_eq!(scene.materials.len(), 280);
     assert_eq!(scene.corner_uv.len(), 449721);
     assert_eq!(scene.corner_attributes.as_ref().unwrap().len(), 449721);

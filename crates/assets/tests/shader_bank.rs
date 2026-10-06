@@ -17,6 +17,7 @@ fn fixture() -> ShaderBankManifest {
         version: 1,
         geometry_sha256: "0".repeat(64),
         scene_image_count: 0,
+        vertex_signatures: None,
         shaders: vec![
             shader(ShaderStage::Vertex, 1, "vs.wgsl"),
             shader(ShaderStage::Fragment, 2, "ps.wgsl"),
@@ -139,6 +140,27 @@ fn complete_external_shader_bank_admits_all_families() {
     assert_eq!(bank.shaders.len(), 1113);
     assert_eq!(bank.families.len(), 56);
     assert_eq!(bank.materials.len(), 280);
+    assert_eq!(bank.vertex_signatures.len(), 51);
+    assert_eq!(
+        bank.vertex_signatures
+            .iter()
+            .map(|s| s.inputs.len())
+            .sum::<usize>(),
+        274
+    );
+    for family in &bank.families {
+        for technique in &family.techniques {
+            for pass in &technique.passes {
+                for input in &bank
+                    .signature_for_shader(pass.vertex_shader)
+                    .unwrap()
+                    .inputs
+                {
+                    bo2_assets::vertex_signature::source_for_input(&pass.routing, input).unwrap();
+                }
+            }
+        }
+    }
     assert_eq!(
         bank.families
             .iter()
@@ -147,4 +169,149 @@ fn complete_external_shader_bank_admits_all_families() {
             .sum::<usize>(),
         1404
     );
+}
+
+#[test]
+fn semantic_metadata_is_hash_bound_complete_and_routes_by_identity() {
+    use bo2_assets::{full_scene::SceneImage, vertex_signature::*};
+    let root = std::env::temp_dir().join(format!("bo2-semantic-bank-test-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    for file in ["vs.wgsl", "ps.wgsl"] {
+        std::fs::write(root.join(file), b"synthetic WGSL").unwrap();
+    }
+    let path = root.join("bank.json");
+    let mut m = fixture();
+    m.version = 2;
+    m.families[0].techniques[0].passes[0].routing = vec![[0, 0]];
+    assert_eq!(validate_bank(&m), Err(AppearanceError::Attributes));
+    let signature = ShaderVertexSignature {
+        source_shader_sha256: m.shaders[0].source_sha256.clone(),
+        inputs: vec![SourceVertexInput {
+            semantic_name: "POSITION".into(),
+            semantic_index: 0,
+            register: 0,
+            component_mask: 15,
+            used_mask: 15,
+            component_type: InputComponentType::Float32,
+            system_value: InputSystemValue::None,
+        }],
+    };
+    let save = |m: &mut ShaderBankManifest, s: &[ShaderVertexSignature]| {
+        let bytes = serde_json::to_vec(s).unwrap();
+        std::fs::write(root.join("signature.json"), &bytes).unwrap();
+        m.vertex_signatures = Some(SceneImage {
+            file: "signature.json".into(),
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+        });
+        std::fs::write(&path, serde_json::to_vec(m).unwrap()).unwrap();
+    };
+    save(&mut m, std::slice::from_ref(&signature));
+    let bank = load_shader_bank(&path).unwrap();
+    let input = &bank.signature_for_shader(0).unwrap().inputs[0];
+    assert_eq!(
+        source_for_input(&[[0, 0]], input),
+        Ok(StreamSource::Position)
+    );
+    assert_eq!(
+        source_for_input(&[[0, 0], [1, 0]], input),
+        Err(AppearanceError::Attributes)
+    );
+    assert_eq!(
+        decode_stream_route([9, 11]).unwrap().destination.semantic(),
+        ("TEXCOORD", 6)
+    );
+    assert_eq!(
+        decode_stream_route([11, 0]),
+        Err(AppearanceError::Unsupported)
+    );
+    assert_eq!(
+        decode_stream_route([0, 20]),
+        Err(AppearanceError::Unsupported)
+    );
+    let mut wrong = signature.clone();
+    wrong.inputs[0].register = 1;
+    save(&mut m, &[wrong]);
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Attributes)
+    ));
+    let mut wrong = signature.clone();
+    wrong.inputs[0].component_mask = 7;
+    save(&mut m, &[wrong]);
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Attributes)
+    ));
+    let mut wrong = signature.clone();
+    wrong.inputs[0].used_mask = 16;
+    save(&mut m, &[wrong]);
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Attributes)
+    ));
+    let mut wrong = signature.clone();
+    wrong.inputs[0].semantic_name = "UNKNOWN".into();
+    save(&mut m, &[wrong]);
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Unsupported)
+    ));
+    let mut wrong = signature.clone();
+    wrong.inputs[0].system_value = InputSystemValue::VertexId;
+    save(&mut m, &[wrong]);
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Unsupported)
+    ));
+    let mut wrong = signature.clone();
+    wrong.inputs[0].component_type = InputComponentType::Sint32;
+    save(&mut m, &[wrong]);
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Unsupported)
+    ));
+    let mut wrong = signature.clone();
+    wrong.inputs.push(wrong.inputs[0].clone());
+    save(&mut m, &[wrong]);
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Attributes)
+    ));
+    save(&mut m, &[]);
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Attributes)
+    ));
+    save(&mut m, &[signature.clone(), signature.clone()]);
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Reference)
+    ));
+    save(&mut m, std::slice::from_ref(&signature));
+    std::fs::write(root.join("signature.json"), b"changed").unwrap();
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Identity)
+    ));
+    save(&mut m, std::slice::from_ref(&signature));
+    m.families[0].techniques[0].passes[0].routing.clear();
+    std::fs::write(&path, serde_json::to_vec(&m).unwrap()).unwrap();
+    assert!(matches!(
+        load_shader_bank(&path),
+        Err(AppearanceError::Attributes)
+    ));
+    m.families[0].techniques[0].passes[0].routing = vec![[0, 0], [1, 0]];
+    assert_eq!(validate_bank(&m), Err(AppearanceError::Attributes));
+    m.families[0].techniques[0].passes[0].routing = vec![[0, 20]];
+    assert_eq!(validate_bank(&m), Err(AppearanceError::Unsupported));
+    m.families[0].techniques[0].passes[0].routing.clear();
+    m.version = 1;
+    m.vertex_signatures = None;
+    std::fs::write(&path, serde_json::to_vec(&m).unwrap()).unwrap();
+    let bank = load_shader_bank(&path).unwrap();
+    assert!(matches!(
+        bank.signature_for_shader(0),
+        Err(AppearanceError::Unsupported)
+    ));
+    std::fs::remove_dir_all(root).unwrap();
 }

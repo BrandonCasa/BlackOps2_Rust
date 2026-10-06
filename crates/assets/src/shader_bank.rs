@@ -158,6 +158,8 @@ pub struct ShaderBankManifest {
     pub version: u32,
     pub geometry_sha256: String,
     pub scene_image_count: usize,
+    #[serde(default)]
+    pub vertex_signatures: Option<crate::full_scene::SceneImage>,
     pub shaders: Vec<ShaderDeclaration>,
     pub families: Vec<TechniqueFamily>,
     pub materials: Vec<MaterialContract>,
@@ -165,9 +167,25 @@ pub struct ShaderBankManifest {
 pub struct ShaderBankInput {
     pub geometry_sha256: String,
     pub scene_image_count: usize,
+    pub vertex_signatures: Vec<crate::vertex_signature::ShaderVertexSignature>,
     pub shaders: Vec<ShaderInput>,
     pub families: Vec<TechniqueFamily>,
     pub materials: Vec<MaterialContract>,
+}
+impl ShaderBankInput {
+    pub fn signature_for_shader(
+        &self,
+        index: usize,
+    ) -> Result<&crate::vertex_signature::ShaderVertexSignature, AppearanceError> {
+        let shader = self.shaders.get(index).ok_or(AppearanceError::Reference)?;
+        if shader.declaration.stage != ShaderStage::Vertex {
+            return Err(AppearanceError::Unsupported);
+        }
+        self.vertex_signatures
+            .iter()
+            .find(|s| s.source_shader_sha256 == shader.declaration.source_sha256)
+            .ok_or(AppearanceError::Unsupported)
+    }
 }
 
 fn hash_valid(h: &str) -> bool {
@@ -192,8 +210,17 @@ fn read(path: &Path, cap: u64) -> Result<Vec<u8>, AppearanceError> {
 }
 pub fn validate_bank(m: &ShaderBankManifest) -> Result<(), AppearanceError> {
     use AppearanceError as E;
-    if m.version != 1 {
+    if !matches!(m.version, 1 | 2) {
         return Err(E::Unsupported);
+    }
+    if m.version == 2 && m.vertex_signatures.is_none() {
+        return Err(E::Attributes);
+    }
+    if m.vertex_signatures
+        .as_ref()
+        .is_some_and(|s| !hash_valid(&s.sha256))
+    {
+        return Err(E::Identity);
     }
     if !hash_valid(&m.geometry_sha256) {
         return Err(E::Identity);
@@ -289,6 +316,13 @@ pub fn validate_bank(m: &ShaderBankManifest) -> Result<(), AppearanceError> {
                 }
                 if p.routing.len() > 16 || p.args.len() > 128 {
                     return Err(E::Limit);
+                }
+                let mut destinations = BTreeSet::new();
+                for pair in &p.routing {
+                    let route = crate::vertex_signature::decode_stream_route(*pair)?;
+                    if !destinations.insert(route.destination.semantic()) {
+                        return Err(E::Attributes);
+                    }
                 }
                 for a in &p.args {
                     match a.destination {
@@ -392,6 +426,17 @@ pub fn load_shader_bank(path: &Path) -> Result<ShaderBankInput, AppearanceError>
     let m: ShaderBankManifest = serde_json::from_slice(&read(path, 32 * 1024 * 1024)?)
         .map_err(|_| AppearanceError::Malformed)?;
     validate_bank(&m)?;
+    let vertex_signatures = if let Some(dependency) = &m.vertex_signatures {
+        let bytes =
+            crate::full_scene::identified(root, &dependency.file, &dependency.sha256, 1024 * 1024)?;
+        let signatures =
+            serde_json::from_slice::<Vec<crate::vertex_signature::ShaderVertexSignature>>(&bytes)
+                .map_err(|_| AppearanceError::Malformed)?;
+        crate::vertex_signature::validate_signatures(&signatures, &m.shaders, &m.families)?;
+        signatures
+    } else {
+        Vec::new()
+    };
     let mut shaders = Vec::new();
     let mut retained = 0u64;
     for declaration in m.shaders {
@@ -412,6 +457,7 @@ pub fn load_shader_bank(path: &Path) -> Result<ShaderBankInput, AppearanceError>
     Ok(ShaderBankInput {
         geometry_sha256: m.geometry_sha256,
         scene_image_count: m.scene_image_count,
+        vertex_signatures,
         shaders,
         families: m.families,
         materials: m.materials,

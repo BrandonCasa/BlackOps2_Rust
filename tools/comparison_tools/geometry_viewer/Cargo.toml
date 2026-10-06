@@ -11,3 +11,4 @@ bo2-assets = { path = "../../../crates/assets" }
 bo2-rendering = { path = "../../../crates/rendering" }
 bevy = { workspace = true, features = ["bevy_pbr", "bevy_winit", "keyboard", "x11"] }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
+sha2 = "=0.10.9"

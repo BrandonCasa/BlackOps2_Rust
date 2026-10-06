@@ -57,3 +57,11 @@ pub fn canonical_mesh(snapshot: GeometrySnapshot) -> (Mesh, Vec<SnapshotSurface>
     }
     (mesh, surfaces)
 }
+
+pub mod tech4;
+
+pub mod full_scene;
+
+pub mod original_material;
+pub mod pass_resources;
+pub mod vertex_routes;

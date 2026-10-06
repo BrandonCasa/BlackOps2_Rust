@@ -285,7 +285,12 @@ fn read(path: &Path, cap: u64) -> Result<Vec<u8>, AppearanceError> {
     }
     Ok(bytes)
 }
-fn identified(root: &Path, file: &str, hash: &str, cap: u64) -> Result<Vec<u8>, AppearanceError> {
+pub(crate) fn identified(
+    root: &Path,
+    file: &str,
+    hash: &str,
+    cap: u64,
+) -> Result<Vec<u8>, AppearanceError> {
     if hash.len() != 64
         || !hash
             .bytes()

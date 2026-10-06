@@ -38,8 +38,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod captured_material;
+mod gpu_probe;
 mod interactive;
+mod material_probe;
 mod scene;
+mod texture_scene;
 
 #[derive(Resource)]
 struct ColorPreview(Image);
@@ -54,12 +58,17 @@ struct PreviewTextureProof {
 
 const HELP: &str = "Usage: bo2-geometry-viewer --scene <external-scene.json> (--output <new-external-directory> | --interactive [--frames <64..600>])
 Appearance scene v1 currently isolates one surface: unlit base texture and original corner UVs, linear diagnostic transfer. Full original materials/lighting unsupported; fidelity INVESTIGATING.
+       bo2-geometry-viewer --texture-scene <external-v2-scene.json> (--output <new-external-directory> | --interactive [--frames <64..600>])
+Texture scene is explicitly an unlit first-color-layer diagnostic, not original layered/shaded materials.
 Usage: bo2-geometry-viewer --synthetic --output <new-external-directory>
        bo2-geometry-viewer --snapshot <single-external-snapshot> --output <new-external-directory>
        bo2-geometry-viewer (--synthetic | --snapshot <single-external-snapshot>) --interactive [--frames <64..600>]
        bo2-geometry-viewer (--synthetic | --snapshot <single-external-snapshot>) --interactive-smoke [--frames <64..600>]
        bo2-geometry-viewer --help
        bo2-geometry-viewer --check-gpu
+       bo2-geometry-viewer --material-smoke
+       bo2-geometry-viewer --captured-material <external-v2-scene.json> <external-fixture4462-directory> --output <new-external-directory>
+       bo2-geometry-viewer --captured-translated <external-v2-scene.json> <external-fixture4462-directory> <external-shader-bank.json> --output <new-external-directory>
 
 Finite offscreen GPU diagnostic of project-owned geometry snapshot v1.
 Source Z-up positions adapt to canonical Bevy Y-up: (x,y,z) -> (x,z,-y). Reads one
@@ -90,17 +99,32 @@ still applies. Smoke does not qualify physical keyboard routing or fidelity.
 No original game, original decoder or project AssetLoader.
 Errors report type/stage only. Exit: 0 success/help, 1 diagnostic failure, 2 arguments.";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SceneInput {
+    Raw,
+    Single,
+    TextureDiagnostic,
+}
+
 enum Action {
     Help,
     CheckGpu,
+    MaterialSmoke,
+    CapturedMaterial {
+        scene: OsString,
+        fixture: OsString,
+        bank: Option<OsString>,
+        shadow: bool,
+        output: OsString,
+    },
     Render {
         input: Option<OsString>,
-        scene: bool,
+        scene: SceneInput,
         output: OsString,
     },
     Interactive {
         input: Option<OsString>,
-        scene: bool,
+        scene: SceneInput,
         frames: Option<u32>,
         smoke: bool,
     },
@@ -115,18 +139,53 @@ fn arguments(mut args: impl Iterator<Item = OsString>) -> Result<Action, ()> {
     if first == "--check-gpu" && args.next().is_none() {
         return Ok(Action::CheckGpu);
     }
+    if first == "--material-smoke" && args.next().is_none() {
+        return Ok(Action::MaterialSmoke);
+    }
+    if first == "--captured-material"
+        || first == "--captured-translated"
+        || first == "--captured-shadow"
+    {
+        let scene = args.next().ok_or(())?;
+        let fixture = args.next().ok_or(())?;
+        let bank = if first == "--captured-translated" || first == "--captured-shadow" {
+            Some(args.next().ok_or(())?)
+        } else {
+            None
+        };
+        if args.next().ok_or(())? != "--output" {
+            return Err(());
+        }
+        let output = args.next().ok_or(())?;
+        if args.next().is_some() {
+            return Err(());
+        }
+        return Ok(Action::CapturedMaterial {
+            scene,
+            fixture,
+            bank,
+            shadow: first == "--captured-shadow",
+            output,
+        });
+    }
     let input = if first == "--synthetic" {
         None
-    } else if first == "--snapshot" || first == "--scene" {
+    } else if first == "--snapshot" || first == "--scene" || first == "--texture-scene" {
         Some(args.next().ok_or(())?)
     } else {
         return Err(());
     };
-    let scene = first == "--scene";
+    let scene = if first == "--scene" {
+        SceneInput::Single
+    } else if first == "--texture-scene" {
+        SceneInput::TextureDiagnostic
+    } else {
+        SceneInput::Raw
+    };
     let mode = args.next().ok_or(())?;
     if mode == "--interactive" || mode == "--interactive-smoke" {
         let smoke = mode == "--interactive-smoke";
-        if scene && smoke {
+        if scene != SceneInput::Raw && smoke {
             return Err(());
         }
         let frames = match args.next() {
@@ -174,36 +233,63 @@ fn main() -> ExitCode {
     let result = std::panic::catch_unwind(|| match action {
         Action::Help => writeln!(io::stdout().lock(), "{HELP}").map_err(|e| io_error("stdout", e)),
         Action::CheckGpu => check_gpu(),
+        Action::MaterialSmoke => material_probe::run(),
+        Action::CapturedMaterial {
+            scene,
+            fixture,
+            bank,
+            shadow,
+            output,
+        } if shadow => captured_material::run_shadow(
+            Path::new(&scene),
+            Path::new(&fixture),
+            Path::new(bank.as_ref().ok_or(DiagnosticError::Preservation)?),
+            Path::new(&output),
+        ),
+        Action::CapturedMaterial {
+            scene,
+            fixture,
+            bank,
+            output,
+            ..
+        } => captured_material::run(
+            Path::new(&scene),
+            Path::new(&fixture),
+            bank.as_deref().map(Path::new),
+            Path::new(&output),
+        ),
         Action::Render {
             input,
             scene,
             output,
-        } => {
-            if scene {
-                scene::execute(
-                    Path::new(input.as_ref().ok_or(DiagnosticError::Encoding)?),
-                    Path::new(&output),
-                )
-            } else {
-                execute(input.as_deref(), Path::new(&output))
-            }
-        }
+        } => match scene {
+            SceneInput::Single => scene::execute(
+                Path::new(input.as_ref().ok_or(DiagnosticError::Encoding)?),
+                Path::new(&output),
+            ),
+            SceneInput::TextureDiagnostic => texture_scene::offscreen(
+                Path::new(input.as_ref().ok_or(DiagnosticError::Encoding)?),
+                Path::new(&output),
+            ),
+            SceneInput::Raw => execute(input.as_deref(), Path::new(&output)),
+        },
         Action::Interactive {
             input,
             scene,
             frames,
             smoke,
-        } => {
-            if scene {
-                scene::interactive(
-                    Path::new(input.as_ref().ok_or(DiagnosticError::Encoding)?),
-                    frames,
-                    smoke,
-                )
-            } else {
-                interactive::run(load_geometry(input.as_deref())?, frames, smoke)
-            }
-        }
+        } => match scene {
+            SceneInput::Single => scene::interactive(
+                Path::new(input.as_ref().ok_or(DiagnosticError::Encoding)?),
+                frames,
+                smoke,
+            ),
+            SceneInput::TextureDiagnostic => texture_scene::interactive(
+                Path::new(input.as_ref().ok_or(DiagnosticError::Encoding)?),
+                frames,
+            ),
+            SceneInput::Raw => interactive::run(load_geometry(input.as_deref())?, frames, smoke),
+        },
     })
     .unwrap_or(Err(DiagnosticError::EnginePanic));
     match result {
@@ -694,7 +780,7 @@ mod tests {
                 input: None,
                 frames: None,
                 smoke: false,
-                scene: false
+                scene: SceneInput::Raw
             })
         ));
         assert!(matches!(
@@ -703,7 +789,7 @@ mod tests {
                 input: Some(_),
                 frames: Some(180),
                 smoke: true,
-                scene: false
+                scene: SceneInput::Raw
             })
         ));
         for frames in ["64", "600"] {
@@ -733,11 +819,17 @@ mod tests {
         let parse = |args: &[&str]| arguments(args.iter().map(OsString::from));
         assert!(matches!(
             parse(&["--scene", "scene.json", "--output", "new"]),
-            Ok(Action::Render { scene: true, .. })
+            Ok(Action::Render {
+                scene: SceneInput::Single,
+                ..
+            })
         ));
         assert!(matches!(
             parse(&["--scene", "scene.json", "--interactive"]),
-            Ok(Action::Interactive { scene: true, .. })
+            Ok(Action::Interactive {
+                scene: SceneInput::Single,
+                ..
+            })
         ));
         assert!(parse(&["--scene", "scene.json", "--interactive-smoke"]).is_err());
     }
@@ -753,6 +845,30 @@ mod tests {
             io::ErrorKind::FileTooLarge
         );
         assert_eq!(writer.inner, b"abc");
+    }
+    #[test]
+    fn texture_diagnostic_is_explicit_and_material_probe_takes_no_original_input() {
+        let parse = |args: &[&str]| arguments(args.iter().map(OsString::from));
+        assert!(matches!(
+            parse(&["--texture-scene", "scene.json", "--interactive"]),
+            Ok(Action::Interactive {
+                scene: SceneInput::TextureDiagnostic,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(&["--texture-scene", "scene.json", "--output", "new"]),
+            Ok(Action::Render {
+                scene: SceneInput::TextureDiagnostic,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(&["--material-smoke"]),
+            Ok(Action::MaterialSmoke)
+        ));
+        assert!(parse(&["--material-smoke", "scene.json"]).is_err());
+        assert!(parse(&["--texture-scene", "scene.json", "--interactive-smoke"]).is_err());
     }
     #[test]
     fn error_discards_private_paths_and_raw_messages() {

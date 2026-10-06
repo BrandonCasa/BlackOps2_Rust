@@ -75,18 +75,39 @@ uncertainty and do not invent original behavior to achieve a visible milestone.
 
 ## Immediate implementation direction
 
-The reviewed first texture increment and selected opaque material contract are
-integrated. All five selected image dependencies resolve; shader equations are
-recovered, but packed normal/tangent/lightmap-UV formats, runtime technique
-selection, global bindings and transfer conventions remain unproved. Original
-shaded-scene admission is unsupported. Remaining 6,468 surfaces and complete
-original shading/lighting are unsupported; gray diagnostics remain available.
-See [texture increment](handoffs/materials-0001-textured-surface.md) and
-[material contract](handoffs/materials-0002-opaque-contract.md). The appearance
-worker is stopped; this appearance goal pauses after integration at the user's
-request. Further appearance implementation requires resuming that work.
-An original spawn observation was captured externally through Plutonium LAN;
-measured camera conditions and equivalent reconstructed comparisons remain pending.
+Appearance work is active on `codex/full-scene-materials`. The user authorized
+three concurrent asset, capture and rendering workers for this implementation.
+All 6,469 surfaces, 280 materials and 56 technique sets are inventoried. All 262
+shared images and 1,080 material texture bindings resolve. All seven vertex formats
+and 449,721 corners are admitted; native semantic routing covers 177,318 enabled
+surface/pass uses without unsupported routes. The version-two diagnostic
+loader preserves shared DDS images, packed attributes, UVs, lightmaps and probes;
+the full primary-color GPU preview passes but explicitly identifies unsupported
+layered/no-color materials. It does not establish original scene fidelity.
+
+Original RenderDoc captures qualify packed world formats, source506's exact
+corner bytes, textures, SH constants and native TECH4 draw. Synthetic TECH4 GPU
+response passes. The original sample-zero comparison initially differed at 21
+silhouette pixels; the capture establishes four-sample MSAA. The translated
+original shader pair passes a matching resolve comparison on all 14,826 fully
+covered pixels, maximum channel error1/255 and mean0.003794/255. Partial coverage
+and prior depth occlusion exclude 674 pixels from this bounded response comparison.
+Original depth is GreaterEqual with reversed projection, rather than the earlier
+static-state inference. All 1,113 unique shaders translate through official
+vkd3d and strict Naga into external WGSL, including descriptor remapping.
+The generic Bevy Material bridge and validated shader-bank loader are executable;
+native pass-resource assembly and engine globals remain in progress.
+See [assets](handoffs/full-scene-assets.md),
+[capture](handoffs/full-scene-capture.md),
+[rendering](handoffs/full-scene-rendering.md) and
+[translation](handoffs/full-scene-shader-translation.md).
+The user requested committing and merging the current work on 2026-10-05.
+This integration records tested progress, not full-scene completion. Native GPU
+pipeline census passes all 1,404 references / 1,065 pairs with zero failures.
+Original captured draws cover 43 of 56 families; runtime globals, final post-processing,
+shadow fixture readiness and placement of 100 potential submodel surfaces remain
+unresolved. Full original scene traversal is unverified. Assets and captures remain
+external. See handoffs/main-materials-integration.md for integration checks.
 
 1. Use the existing interactive inspection scene when useful; its free-camera
    axes, speed and projection are diagnostic, not original movement. Reuse the
@@ -120,10 +141,9 @@ measured camera conditions and equivalent reconstructed comparisons remain pendi
    compare and expand toward the full Origins scope. Keep visible progress and
    behavior comparisons distinct from scaffolding and synthetic correctness.
 
-RenderDoc/process-protection work is parked. The static camera fallback established
-no usable camera locator. Reopen either only when a specific gameplay/rendering
-measurement needs it and there is a concrete new route; historical tool-preparation
-work does not itself advance the implemented game.
+RenderDoc capture is now working through pre-start injection into the licensed
+offline original. The capture worker exclusively owns original-game input during
+this appearance task, including user-authorized console positioning and godmode.
 
 ## Restart and pending work
 

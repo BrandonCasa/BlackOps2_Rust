@@ -22,7 +22,8 @@ pub struct MaterialScene {
 }
 pub fn source_sampler(bits: u8) -> Result<ImageSamplerDescriptor, AppearanceError> {
     let f = bits & 7;
-    if !(1..=4).contains(&f) || (bits >> 3) & 3 != 2 {
+    let mip_filter = (bits >> 3) & 3;
+    if !(1..=4).contains(&f) || mip_filter > 2 {
         return Err(AppearanceError::Unsupported);
     }
     let mode = |bit| {
@@ -43,7 +44,12 @@ pub fn source_sampler(bits: u8) -> Result<ImageSamplerDescriptor, AppearanceErro
         address_mode_w: mode(128),
         mag_filter: filter,
         min_filter: filter,
-        mipmap_filter: ImageFilterMode::Linear,
+        mipmap_filter: if mip_filter == 2 {
+            ImageFilterMode::Linear
+        } else {
+            ImageFilterMode::Nearest
+        },
+        lod_max_clamp: if mip_filter == 0 { 0.0 } else { 32.0 },
         anisotropy_clamp: match f {
             3 => 2,
             4 => 4,
