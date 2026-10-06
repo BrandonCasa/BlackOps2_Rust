@@ -249,6 +249,8 @@ pub struct EnemyDefinition {
     pub parts: Vec<ActorPart>,
     #[serde(default)]
     pub animation_actions: BTreeMap<EnemyAnimation, ContentId>,
+    #[serde(default)]
+    pub traversals: BTreeMap<String, EnemyTraversalDefinition>,
     #[serde(default = "default_attack_seconds")]
     pub attack_seconds: f32,
     #[serde(default)]
@@ -293,6 +295,29 @@ pub struct ActorPart {
     pub socket: String,
     pub root_joint: Option<String>,
 }
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnemyTraversalDefinition {
+    pub animation: ContentId,
+    pub seconds: f32,
+    pub motion: Vec<[f32; 4]>,
+}
+impl EnemyTraversalDefinition {
+    pub fn valid(&self) -> bool {
+        self.seconds.is_finite()
+            && (0.1..=30.).contains(&self.seconds)
+            && (2..=4096).contains(&self.motion.len())
+            && self.motion.iter().all(|p| {
+                p.iter().all(|v| v.is_finite()) && p[0] >= 0. && p[0] <= self.seconds + 0.001
+            })
+            && self.motion.windows(2).all(|p| p[0][0] < p[1][0])
+            && self.motion.first().is_some_and(|p| p[0] == 0.)
+            && self
+                .motion
+                .last()
+                .is_some_and(|p| (p[0] - self.seconds).abs() < 0.001)
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EnemyAnimation {
@@ -302,6 +327,8 @@ pub enum EnemyAnimation {
     Sprint,
     Attack,
     Death,
+    Traverse,
+    Landing,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -905,6 +932,13 @@ impl ContentCatalog {
             }
             for clip in v.animation_actions.values() {
                 r(&v.id.0, &clip.0, "animation")?;
+            }
+            for (alias, traversal) in &v.traversals {
+                valid(
+                    !alias.is_empty() && alias.len() < 128 && traversal.valid(),
+                    "Invalid enemy traversal profile",
+                )?;
+                r(&v.id.0, &traversal.animation.0, "animation")?;
             }
         }
         for v in &self.perks {

@@ -18,6 +18,13 @@ struct Coverage {
     before: usize,
     initial_links: usize,
     initial_revision: u32,
+    actor: Option<Entity>,
+    traversal_start: u32,
+    traversal_finish: u32,
+    traversal_blocked_start: u32,
+    climb_capture: bool,
+    landed_at: Option<f32>,
+    landing_seen: bool,
     rows: Vec<serde_json::Value>,
 }
 pub fn install(app: &mut App) {
@@ -48,7 +55,7 @@ fn drive(
         ),
         Without<Zombie>,
     >,
-    enemies: Query<(Entity, &Transform), With<Zombie>>,
+    enemies: Query<(Entity, &Transform, &Zombie), With<Zombie>>,
     blockers: Query<(Entity, &DoorBlocker)>,
     props: Query<&DoorProp>,
     access: Res<ZoneAccess>,
@@ -71,8 +78,10 @@ fn drive(
     }
     input.clear();
     c.age += time.delta_secs();
-    for (e, body) in &enemies {
-        if !v.navigation || c.phase >= 6 || body.translation.distance(pose.translation) < 3. {
+    for (e, body, _) in &enemies {
+        if c.actor != Some(e)
+            && (!v.navigation || c.phase >= 6 || body.translation.distance(pose.translation) < 3.)
+        {
             commands.entity(e).despawn();
         }
     }
@@ -271,11 +280,109 @@ fn drive(
                 .map(|d| d.props.len())
                 .sum::<usize>() as u32;
             c.rows.push(serde_json::json!({"case":"all_groups","passed":access.purchases as usize==game.access.doors.len() && blockers.is_empty() && props.is_empty() && evidence.animated==expected && evidence.sounds==expected && evidence.playing_sounds==expected && access.reachable.len()>3,"purchases":access.purchases,"removed":evidence.removed,"animated":evidence.animated,"sounds":evidence.sounds,"playing_sounds":evidence.playing_sounds}));
+            if v.traversal {
+                if let Some((start, end, alias)) = nav.inspect_traversal(&access) {
+                    let enemy = game
+                        .content
+                        .enemies
+                        .iter()
+                        .find(|e| e.family == "german")
+                        .unwrap();
+                    c.actor = Some(
+                        commands
+                            .spawn((
+                                Zombie::new(
+                                    start + Vec3::Y * 0.85,
+                                    enemy.id.clone(),
+                                    crate::rounds::Gait::Walk,
+                                    enemy.speed,
+                                ),
+                                crate::player::capsule(0.3, 1.7),
+                                crate::life::Vitality::ordinary_actor(150, 150).unwrap(),
+                                crate::rounds::PopulationKind::Ordinary,
+                                crate::gameplay::SessionEntity,
+                                Transform::from_translation(start + Vec3::Y * 0.85),
+                                Visibility::Inherited,
+                            ))
+                            .id(),
+                    );
+                    session.pending = 0;
+                    c.center = end + Vec3::Y * 0.9;
+                    c.aim = start + Vec3::Y * 0.85;
+                    c.traversal_start = enemy_evidence.traversals_started;
+                    c.traversal_finish = enemy_evidence.traversals_finished;
+                    c.traversal_blocked_start = enemy_evidence.traversal_blocked_landings;
+                    c.rows.push(serde_json::json!({"case":"native_climb_selected","passed":true,"alias":alias,"start":start.to_array(),"end":end.to_array()}));
+                    c.phase = 10;
+                    c.age = 0.;
+                    return;
+                }
+                c.rows
+                    .push(serde_json::json!({"case":"native_climb_selected","passed":false}));
+            }
             pose.translation = Vec3::from_array(game.spawn) + Vec3::Y * 30.;
             p.velocity = Vec3::ZERO;
             mobility.airborne = false;
             mobility.peak = pose.translation.y - p.height * 0.5;
             next = Some(7);
+        }
+        10 => {
+            pose.translation = c.center;
+            if enemy_evidence.traversal_blocked_landings > c.traversal_blocked_start {
+                // Occupy the landing first, then clear it without changing the active route.
+                pose.translation += Vec3::Y * 2.;
+            }
+            p.velocity = Vec3::ZERO;
+            let eye = p.eye_height;
+            let aim = enemies
+                .iter()
+                .find(|(e, _, _)| Some(*e) == c.actor)
+                .map_or(c.aim, |(_, body, _)| body.translation + Vec3::Y * 0.3);
+            super::semtex::aim(&mut p, &pose, aim, eye);
+            if !c.climb_capture
+                && enemy_evidence.traversals_started > c.traversal_start
+                && c.age > 1.2
+            {
+                commands
+                    .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
+                    .observe(bevy::render::view::screenshot::save_to_disk(
+                        v.output.join("native-climb.png"),
+                    ));
+                c.climb_capture = true;
+            }
+            let actor_action = enemies
+                .iter()
+                .find(|(e, _, _)| Some(*e) == c.actor)
+                .map(|(_, _, z)| (z.action, z.elapsed));
+            if enemy_evidence.traversals_finished > c.traversal_finish {
+                if c.landed_at.is_none() {
+                    c.landed_at = Some(c.age);
+                }
+                if actor_action.is_some_and(|(a, t)| {
+                    a == crate::origins::content::EnemyAnimation::Landing && t > 0.1
+                }) {
+                    c.landing_seen = true;
+                }
+            }
+            if c.landed_at.is_some_and(|age| c.age - age > 0.6) || c.age > 15. {
+                let passed = enemy_evidence.traversals_started > c.traversal_start
+                    && enemy_evidence.traversals_finished > c.traversal_finish;
+                c.rows.push(serde_json::json!({"case":"native_climb_completed","passed":passed,"started":enemy_evidence.traversals_started,"finished":enemy_evidence.traversals_finished,"blocked_landings":enemy_evidence.traversal_blocked_landings,"rising_finished":enemy_evidence.rising_finished}));
+                let recovered = c.landing_seen
+                    && actor_action.is_some_and(|(a, _)| {
+                        a != crate::origins::content::EnemyAnimation::Landing
+                    });
+                let held = c.landing_seen;
+                c.rows.push(serde_json::json!({"case":"landing_recovery","passed":recovered,"observed_hold":held,"released":actor_action.map(|(a,_)|format!("{a:?}"))}));
+                if let Some(e) = c.actor.take() {
+                    commands.entity(e).despawn();
+                }
+                pose.translation = Vec3::from_array(game.spawn) + Vec3::Y * 30.;
+                p.velocity = Vec3::ZERO;
+                mobility.airborne = false;
+                mobility.peak = pose.translation.y - p.height * 0.5;
+                next = Some(7);
+            }
         }
         7 if **state == GameState::GameOver => {
             commands.write_message(crate::input::RestartGame);
@@ -290,7 +397,7 @@ fn drive(
                 c.rows.push(serde_json::json!({"case":"navigation_restart","passed":nav.cache_len()==0 && active==initial && nav.graph_changes==1,"cache":nav.cache_len(),"active_links":active,"zone":current_zone.0,"admissions":nav.admissions.len()}));
             }
             let passed = c.rows.iter().all(|r| r["passed"] == true);
-            let _=std::fs::write(v.output.join(if v.navigation {"navigation.json"}else{"doors.json"}),serde_json::json!({"passed":passed,"rows":c.rows,"groups":game.access.doors.len(),"zones":game.content.zones.len()}).to_string());
+            let _=std::fs::write(v.output.join(if v.traversal {"traversal.json"}else if v.navigation {"navigation.json"}else{"doors.json"}),serde_json::json!({"passed":passed,"rows":c.rows,"groups":game.access.doors.len(),"zones":game.content.zones.len()}).to_string());
             commands.write_message(if passed {
                 AppExit::Success
             } else {

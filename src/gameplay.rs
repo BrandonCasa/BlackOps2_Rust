@@ -313,7 +313,12 @@ pub(crate) fn rounds(
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
-    enemies: Query<(&Vitality, &crate::rounds::PopulationKind)>,
+    enemies: Query<(
+        &Vitality,
+        &crate::rounds::PopulationKind,
+        &Transform,
+        Option<&Zombie>,
+    )>,
     mut commands: Commands,
     query: SpatialQuery,
     navigation: Res<Navigation>,
@@ -324,7 +329,7 @@ pub(crate) fn rounds(
 ) {
     use crate::rounds::PopulationKind;
     *population = default();
-    for (vitality, kind) in &enemies {
+    for (vitality, kind, _, _) in &enemies {
         if vitality.state() != LifeState::ActorAlive {
             continue;
         }
@@ -392,6 +397,15 @@ pub(crate) fn rounds(
         }
         // Preserve capsule clearance already admitted by the map graph.
         let position = base + Vec3::Y * 0.85;
+        // Noclip traversal still reserves its landing; never admit overlapping risers.
+        if enemies.iter().any(|(health, _, body, zombie)| {
+            let delta = body.translation - position;
+            health.state() == LifeState::ActorAlive
+                && ((delta.xz().length_squared() < 0.5625 && delta.y.abs() < 1.)
+                    || zombie.is_some_and(|z| z.reserves(position)))
+        }) {
+            return None;
+        }
         let shape = capsule(0.3, 1.7);
         if !query
             .shape_intersections(
@@ -434,8 +448,24 @@ pub(crate) fn rounds(
             "gait":format!("{gait:?}"),"speed":profile.speed(gait),"time":time.elapsed_secs_f64(),"position":position.to_array(),"spawn_source":spawn_source,"spawn_zone":spawn_zone,"rising_source":rising,
             "spawn_delay":profile.spawn_delay(session.round),"pending_before":pending,"pending_after":session.pending}));
     }
-    commands.spawn((
-        Zombie::new(position, identity, gait, profile.speed(gait)),
+    let rise = rising
+        .then(|| {
+            definition
+                .content
+                .enemies
+                .iter()
+                .find(|e| e.id == identity)
+                .and_then(|e| e.traversals.get("rise"))
+        })
+        .flatten();
+    let zombie = Zombie::new(position, identity, gait, profile.speed(gait));
+    let zombie = if let Some(profile) = rise {
+        zombie.rising(profile)
+    } else {
+        zombie
+    };
+    let mut actor = commands.spawn((
+        zombie,
         shape,
         health,
         PopulationKind::Ordinary,
@@ -444,4 +474,7 @@ pub(crate) fn rounds(
         Transform::from_translation(position),
         Name::new("Original zombie"),
     ));
+    if rise.is_some() {
+        actor.insert(avian3d::prelude::ColliderDisabled);
+    }
 }

@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation"} if table=="navigation_links" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation"} if table=="navigation_links" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -162,6 +162,14 @@ def validate_content(content, require):
                     resolve(owner,hit["presentation"],"presentation")
                 require(isinstance(actions,dict) and set(actions)<={"idle","walk","run","sprint","attack","death"},"invalid enemy animation actions")
                 for identity in actions.values(): resolve(owner,identity,"animation")
+                profiles=row.get("traversals",{});require(isinstance(profiles,dict),"invalid traversal profiles")
+                for alias,profile in profiles.items():
+                    require(isinstance(alias,str) and 0<len(alias)<128 and isinstance(profile,dict) and set(profile)=={"animation","seconds","motion"},"invalid traversal fields")
+                    resolve(owner,profile["animation"],"animation");number(profile["seconds"],True)
+                    require(.1<=profile["seconds"]<=30,"invalid traversal duration")
+                    motion=profile["motion"];require(isinstance(motion,list) and 2<=len(motion)<=4096,"invalid traversal samples")
+                    require(all(isinstance(p,list) and len(p)==4 and all(type(v) in (int,float) and math.isfinite(v) for v in p) and 0<=p[0]<=profile["seconds"]+.001 for p in motion),"invalid traversal curve")
+                    require(motion[0][0]==0 and abs(motion[-1][0]-profile["seconds"])<.001 and all(a[0]<b[0] for a,b in zip(motion,motion[1:])),"unordered traversal curve")
             if table == "weapons" and row.get("throwable") is not None:
                 t=row["throwable"]
                 require(isinstance(t,dict) and set(t)==set("initial capacity round_award prime_seconds throw_seconds fuse_seconds speed up_speed radius inner_radius inner_damage outer_damage tangent_bounce normal_bounce collision_radius cook_in_hand sticky slot".split()),"invalid throwable fields")

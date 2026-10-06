@@ -18,7 +18,7 @@ except ImportError:
     from xanim import decode
 
 
-def convert(source_path, output, additional_images, clips, in_place=False):
+def convert(source_path, output, additional_images, clips, in_place=False, end_aligned_clips=()):
     source = json.loads(source_path.read_text(encoding="utf-8-sig"))
     document = copy.deepcopy(source)
     output = external(output)
@@ -146,7 +146,8 @@ def convert(source_path, output, additional_images, clips, in_place=False):
                     values *= 0.0254
                     if in_place:
                         # Retain bind offsets; native actor channels carry motion about that pose.
-                        values += np.asarray(document["nodes"][node].get("translation", [0,0,0])) - values[0]
+                        anchor = values[-1] if bone == "j_mainroot" and clip_path.name in end_aligned_clips else values[0]
+                        values += np.asarray(document["nodes"][node].get("translation", [0,0,0])) - anchor
                 elif node in roots:
                     # OAT premultiplies root orientations by a -90-degree X basis.
                     # Parent-relative rotations retain their native local basis.

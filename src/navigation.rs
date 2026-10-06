@@ -23,6 +23,7 @@ struct Node {
 struct Edge {
     to: usize,
     traversal: Traversal,
+    animation: Option<String>,
     blockers: Vec<ContentId>,
     ready: bool,
     cost: f32,
@@ -106,6 +107,24 @@ impl Navigation {
         }).collect();
         serde_json::json!(rows)
     }
+    pub fn inspect_traversal(&mut self, access: &ZoneAccess) -> Option<(Vec3, Vec3, String)> {
+        let mut pairs = Vec::new();
+        for (from, edges) in self.edges.iter().enumerate() {
+            for e in edges {
+                if self.allowed(from, e, access)
+                    && matches!(e.traversal, Traversal::Climb)
+                    && self.nodes[e.to].point.y - self.nodes[from].point.y > 0.7
+                {
+                    pairs.push((self.nodes[from].point, self.nodes[e.to].point));
+                }
+            }
+        }
+        pairs.into_iter().find_map(|(from, to)| {
+            let destination = self.destination(from, to, access);
+            self.traversal(from, destination, access)
+                .filter(|(_, end, _)| end.distance_squared(to) < 0.25)
+        })
+    }
     pub fn inspect_cache(&mut self, access: &ZoneAccess) -> bool {
         let mut pairs = Vec::new();
         'scan: for (from, edges) in self.edges.iter().enumerate() {
@@ -146,7 +165,7 @@ impl Navigation {
     }
     fn allowed(&self, from: usize, e: &Edge, access: &ZoneAccess) -> bool {
         e.ready
-            && matches!(e.traversal, Traversal::Walk)
+            && (matches!(e.traversal, Traversal::Walk) || e.animation.is_some())
             && self.nodes[from].ready
             && self.nodes[e.to].ready
             && access.reachable.contains(&self.nodes[from].zone)
@@ -241,6 +260,28 @@ impl Navigation {
         self.cache.insert((start, goal), (point, fallback));
         self.order.push_back((start, goal));
         point
+    }
+    pub fn traversal(
+        &self,
+        position: Vec3,
+        destination: Vec3,
+        access: &ZoneAccess,
+    ) -> Option<(Vec3, Vec3, String)> {
+        let from = self.nearest(position, access, true)?;
+        if self.nodes[from].point.distance_squared(position) > 0.64 {
+            return None;
+        }
+        self.edges[from].iter().find_map(|edge| {
+            (!matches!(edge.traversal, Traversal::Walk)
+                && self.allowed(from, edge, access)
+                && self.nodes[edge.to].point.distance_squared(destination) < 0.25)
+                .then(|| {
+                    edge.animation
+                        .clone()
+                        .map(|alias| (self.nodes[from].point, self.nodes[edge.to].point, alias))
+                })
+                .flatten()
+        })
     }
     pub fn alternate(&self, position: Vec3, target: Vec3, old: Vec3, access: &ZoneAccess) -> Vec3 {
         self.nearest(position, access, true)
@@ -412,6 +453,7 @@ fn refresh(
             nav.edges[from].push(Edge {
                 to,
                 traversal: source.traversal,
+                animation: source.source_animation.clone(),
                 blockers: requirements,
                 ready,
                 cost: delta.length().max(0.01),

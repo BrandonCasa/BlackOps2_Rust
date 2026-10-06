@@ -38,6 +38,9 @@ pub struct Zombie {
     last_target: Vec3,
     route_revision: u32,
     stuck: f32,
+    traversal: Option<TraversalMotion>,
+    traversal_clip: Option<String>,
+    landing: f32,
 }
 impl Zombie {
     pub fn new(
@@ -61,7 +64,27 @@ impl Zombie {
             last_target: position,
             route_revision: u32::MAX,
             stuck: 0.,
+            traversal: None,
+            traversal_clip: None,
+            landing: 0.,
         }
+    }
+    pub fn reserves(&self, position: Vec3) -> bool {
+        self.traversal.as_ref().is_some_and(|m| {
+            let delta = m.end - position;
+            delta.xz().length_squared() < 0.5625 && delta.y.abs() < 1.
+        })
+    }
+    pub fn rising(mut self, profile: &crate::origins::content::EnemyTraversalDefinition) -> Self {
+        self.traversal = Some(TraversalMotion {
+            start: self.destination,
+            end: self.destination,
+            alias: "rise".into(),
+            rotation: Quat::IDENTITY,
+        });
+        self.traversal_clip = profile.animation.0.rsplit('.').next().map(str::to_owned);
+        self.transition(EnemyAnimation::Traverse);
+        self
     }
     fn transition(&mut self, action: EnemyAnimation) {
         if self.action != action {
@@ -69,6 +92,33 @@ impl Zombie {
             self.elapsed = 0.;
             self.next_hit = 0;
         }
+    }
+}
+struct TraversalMotion {
+    start: Vec3,
+    end: Vec3,
+    alias: String,
+    rotation: Quat,
+}
+impl TraversalMotion {
+    fn position(
+        &self,
+        profile: &crate::origins::content::EnemyTraversalDefinition,
+        elapsed: f32,
+    ) -> Vec3 {
+        let last = profile.motion.last().copied().unwrap_or([0.; 4]);
+        let mut sample = Vec3::new(last[1], last[2], last[3]);
+        for pair in profile.motion.windows(2) {
+            if elapsed <= pair[1][0] {
+                let t = ((elapsed - pair[0][0]) / (pair[1][0] - pair[0][0])).clamp(0., 1.);
+                sample = Vec3::new(pair[0][1], pair[0][2], pair[0][3])
+                    .lerp(Vec3::new(pair[1][1], pair[1][2], pair[1][3]), t);
+                break;
+            }
+        }
+        let finish = self.rotation * Vec3::new(last[1], last[2], last[3]);
+        let fraction = (elapsed / profile.seconds).clamp(0., 1.);
+        self.start + self.rotation * sample + (self.end - self.start - finish) * fraction
     }
 }
 #[derive(Resource, Default)]
@@ -87,6 +137,11 @@ pub struct EnemyEvidence {
     pub deaths: u32,
     pub corpses_removed: u32,
     pub bounds_updates: u64,
+    pub traversals_started: u32,
+    pub traversals_finished: u32,
+    pub traversal_blocked_landings: u32,
+    pub rising_finished: u32,
+    pub adjusted_landings: u32,
 }
 #[derive(Component)]
 struct ActorRig {
@@ -99,6 +154,7 @@ struct ActorRig {
     attached: bool,
     players: Vec<Entity>,
     action: Option<EnemyAnimation>,
+    clip: Option<String>,
 }
 #[derive(Component)]
 struct PartialRoot;
@@ -167,6 +223,7 @@ impl Plugin for EnemyPlugin {
     }
 }
 pub(crate) fn lifecycle(
+    mut commands: Commands,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     mut navigation: ResMut<Navigation>,
@@ -193,7 +250,7 @@ pub(crate) fn lifecycle(
         return;
     };
     let dt = time.delta_secs();
-    let positions: Vec<_> = enemies
+    let mut positions: Vec<_> = enemies
         .iter()
         .filter(|(_, _, _, _, v, _)| v.state() == LifeState::ActorAlive)
         .map(|(e, _, t, _, _, _)| (e, t.translation))
@@ -215,11 +272,79 @@ pub(crate) fn lifecycle(
         }
         if zombie.stunned > 0. {
             zombie.stunned = (zombie.stunned - dt).max(0.);
-            zombie.transition(EnemyAnimation::Idle);
+            if zombie.traversal.is_none() {
+                zombie.transition(EnemyAnimation::Idle);
+            }
             zombie.velocity = Vec3::ZERO;
             continue;
         }
+        if zombie.elapsed == 0. && zombie.traversal.as_ref().is_some_and(|m| m.alias == "rise") {
+            evidence.traversals_started += 1;
+        }
         zombie.elapsed += dt;
+        if let Some(motion) = zombie.traversal.as_ref() {
+            let Some(profile) = enemy.traversals.get(&motion.alias) else {
+                continue;
+            };
+            transform.translation = motion.position(profile, zombie.elapsed);
+            if zombie.elapsed >= profile.seconds {
+                let filter = crate::environment::solids([entity]);
+                let occupied = |p: Vec3| {
+                    positions.iter().any(|(other, point)| {
+                        *other != entity
+                            && (point - p).xz().length_squared() < 0.49
+                            && (point.y - p.y).abs() < 1.
+                    })
+                };
+                let landing = if !occupied(motion.end)
+                    && query
+                        .shape_intersections(shape, motion.end, Quat::IDENTITY, &filter)
+                        .is_empty()
+                {
+                    Some(motion.end)
+                } else if zombie.elapsed > profile.seconds + 0.3 {
+                    nearby_landing(
+                        &query,
+                        shape,
+                        motion.end,
+                        &filter,
+                        &crate::environment::solids([entity, player_entity]),
+                        &navigation,
+                        &access,
+                        &occupied,
+                    )
+                } else {
+                    None
+                };
+                if let Some(landing) = landing {
+                    if landing.distance_squared(motion.end) > 0.01 {
+                        evidence.adjusted_landings += 1;
+                    }
+                    transform.translation = landing;
+                    if let Some((_, point)) = positions.iter_mut().find(|(e, _)| *e == entity) {
+                        *point = landing;
+                    }
+                    if motion.alias == "rise" {
+                        evidence.rising_finished += 1;
+                    }
+                    zombie.traversal = None;
+                    zombie.traversal_clip = None;
+                    zombie.landing = 0.25;
+                    zombie.transition(EnemyAnimation::Landing);
+                    zombie.navigation = 0.;
+                    commands.entity(entity).remove::<ColliderDisabled>();
+                    evidence.traversals_finished += 1;
+                } else {
+                    evidence.traversal_blocked_landings += 1;
+                }
+            }
+            continue;
+        }
+        if zombie.landing > 0. {
+            zombie.landing = (zombie.landing - dt).max(0.);
+            zombie.velocity = Vec3::ZERO;
+            continue;
+        }
         let lure = attractions.0.get(&entity);
         if zombie.lure != lure.map(|l| l.bomb) {
             zombie.lure = lure.map(|l| l.bomb);
@@ -306,6 +431,28 @@ pub(crate) fn lifecycle(
                 navigation.destination(feet, target - Vec3::Y * 0.9, &access) + Vec3::Y * 0.85
             };
         }
+        if let Some((start, end, alias)) =
+            navigation.traversal(feet, zombie.destination - Vec3::Y * 0.85, &access)
+        {
+            if let Some(profile) = enemy.traversals.get(&alias) {
+                let delta = end - start;
+                // Source root forward is +X; authored endpoints set world heading.
+                let rotation = Quat::from_rotation_y((-delta.z).atan2(delta.x));
+                zombie.traversal = Some(TraversalMotion {
+                    start: start + Vec3::Y * 0.85,
+                    end: end + Vec3::Y * 0.85,
+                    alias,
+                    rotation,
+                });
+                zombie.traversal_clip = profile.animation.0.rsplit('.').next().map(str::to_owned);
+                zombie.transition(EnemyAnimation::Traverse);
+                zombie.velocity = Vec3::ZERO;
+                transform.rotation = rotation;
+                commands.entity(entity).insert(ColliderDisabled);
+                evidence.traversals_started += 1;
+                continue;
+            }
+        }
         let delta = zombie.destination - transform.translation;
         let direction = Vec3::new(delta.x, 0., delta.z).normalize_or_zero();
         let moving = !ignored
@@ -382,6 +529,71 @@ pub(crate) fn lifecycle(
             zombie.transition(action);
         }
     }
+}
+fn nearby_landing(
+    query: &SpatialQuery,
+    shape: &Collider,
+    end: Vec3,
+    filter: &SpatialQueryFilter,
+    route_filter: &SpatialQueryFilter,
+    navigation: &Navigation,
+    access: &crate::access::ZoneAccess,
+    occupied: &impl Fn(Vec3) -> bool,
+) -> Option<Vec3> {
+    for radius in [0.75, 1.] {
+        for index in 0..16 {
+            let angle = index as f32 * std::f32::consts::TAU / 16.;
+            let probe = end + Vec3::new(angle.cos() * radius, 0., angle.sin() * radius);
+            let Some(floor) =
+                query.cast_ray(probe - Vec3::Y * 0.35, Dir3::NEG_Y, 1., false, filter)
+            else {
+                continue;
+            };
+            if floor.normal.y < 0.65 {
+                continue;
+            }
+            let base = probe + Vec3::Y * (0.5 - floor.distance + 0.03);
+            if (base.y - end.y).abs() > 0.45 {
+                continue;
+            }
+            for lift in 0..=6 {
+                let candidate = base + Vec3::Y * (lift as f32 * 0.05);
+                if occupied(candidate)
+                    || !navigation.direct_allowed(
+                        end - Vec3::Y * 0.85,
+                        candidate - Vec3::Y * 0.85,
+                        access,
+                    )
+                    || !query
+                        .shape_intersections(shape, candidate, Quat::IDENTITY, filter)
+                        .is_empty()
+                {
+                    continue;
+                }
+                let delta = candidate - end;
+                let Ok(dir) = Dir3::new(delta) else {
+                    continue;
+                };
+                if query
+                    .cast_shape(
+                        shape,
+                        end,
+                        Quat::IDENTITY,
+                        dir,
+                        &ShapeCastConfig {
+                            ignore_origin_penetration: true,
+                            ..ShapeCastConfig::from_max_distance(delta.length())
+                        },
+                        route_filter,
+                    )
+                    .is_none()
+                {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    None
 }
 fn corpses(
     mut commands: Commands,
@@ -470,6 +682,7 @@ fn spawn_actors(
                         attached: body,
                         players: Vec::new(),
                         action: None,
+                        clip: None,
                     },
                     if body {
                         Transform::from_xyz(0., -0.85, 0.)
@@ -698,11 +911,19 @@ fn animate(
         let Some((graph, nodes)) = cache.0.get(&rig.source.id()) else {
             continue;
         };
-        let Some(name) = enemy
-            .animation_actions
-            .get(&zombie.action)
-            .and_then(|id| id.0.rsplit('.').next())
-        else {
+        let name = if zombie.action == EnemyAnimation::Traverse {
+            zombie.traversal_clip.as_deref()
+        } else {
+            enemy
+                .animation_actions
+                .get(&if zombie.action == EnemyAnimation::Landing {
+                    EnemyAnimation::Idle
+                } else {
+                    zombie.action
+                })
+                .and_then(|id| id.0.rsplit('.').next())
+        };
+        let Some(name) = name else {
             continue;
         };
         let Some(&node) = nodes.get(name) else {
@@ -712,7 +933,7 @@ fn animate(
             let Ok(mut player) = players.get_mut(entity) else {
                 continue;
             };
-            if rig.action != Some(zombie.action) {
+            if rig.action != Some(zombie.action) || rig.clip.as_deref() != Some(name) {
                 commands
                     .entity(entity)
                     .insert(AnimationGraphHandle(graph.clone()));
@@ -732,13 +953,14 @@ fn animate(
             if let Some(active) = player.animation_mut(node) {
                 active.seek_to(zombie.elapsed);
             }
-            if **state == GameState::Playing {
+            if **state == GameState::Playing && zombie.stunned <= 0. {
                 player.resume_all();
             } else {
                 player.pause_all();
             }
         }
         rig.action = Some(zombie.action);
+        rig.clip = Some(name.to_owned());
     }
 }
 fn partial_roots(mut roots: Query<&mut Transform, With<PartialRoot>>) {

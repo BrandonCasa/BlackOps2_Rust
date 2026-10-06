@@ -31,6 +31,7 @@ pub struct LaunchOptions {
     pub verify_mud: bool,
     pub verify_doors: bool,
     pub verify_navigation: bool,
+    pub verify_traversal: bool,
     pub verify_hit_regions: bool,
     pub verify_grenades: bool,
     pub verify_semtex: bool,
@@ -64,6 +65,7 @@ impl LaunchOptions {
                 || argument == "--verify-mud"
                 || argument == "--verify-doors"
                 || argument == "--verify-navigation"
+                || argument == "--verify-traversal"
                 || argument == "--verify-health"
                 || argument == "--verify-hit-regions"
                 || argument == "--verify-grenades"
@@ -90,6 +92,7 @@ impl LaunchOptions {
                     || argument == "--verify-mud"
                     || argument == "--verify-doors"
                     || argument == "--verify-navigation"
+                    || argument == "--verify-traversal"
                     || argument == "--verify-health"
                     || argument == "--verify-hit-regions"
                     || argument == "--verify-grenades"
@@ -111,9 +114,12 @@ impl LaunchOptions {
                 result.verify_defensive_perks = argument == "--verify-defensive-perks";
                 result.verify_mobility = argument == "--verify-mobility";
                 result.verify_mud = argument == "--verify-mud";
-                result.verify_doors =
-                    argument == "--verify-doors" || argument == "--verify-navigation";
-                result.verify_navigation = argument == "--verify-navigation";
+                result.verify_doors = argument == "--verify-doors"
+                    || argument == "--verify-navigation"
+                    || argument == "--verify-traversal";
+                result.verify_navigation =
+                    argument == "--verify-navigation" || argument == "--verify-traversal";
+                result.verify_traversal = argument == "--verify-traversal";
                 result.verify_hit_regions = argument == "--verify-hit-regions";
                 result.verify_grenades = argument == "--verify-grenades";
                 result.verify_semtex = argument == "--verify-semtex";

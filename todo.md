@@ -506,10 +506,10 @@
 - [x] Add reachable fallback destinations.
 - [x] Add local enemy separation.
 - [x] Add nearby direct-pursuit queries.
-- [ ] Add enemy climb link execution.
-- [ ] Add enemy landing recovery.
-- [ ] Add enemy rising link execution.
-- [ ] Keep animated traversal synchronized with collider movement.
+- [x] Add enemy climb link execution.
+- [x] Add enemy landing recovery.
+- [x] Add enemy rising link execution.
+- [x] Keep animated traversal synchronized with collider movement.
 - [x] Add zombie idle states.
 - [x] Add zombie walking states.
 - [ ] Add zombie running states.
