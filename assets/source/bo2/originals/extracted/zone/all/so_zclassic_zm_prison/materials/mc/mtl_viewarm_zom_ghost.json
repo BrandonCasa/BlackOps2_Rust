@@ -1,0 +1,334 @@
+{
+    "$schema": "http://openassettools.dev/schema/material.v1.json",
+    "_game": "t6",
+    "_type": "material",
+    "_version": 1,
+    "cameraRegion": "litTrans",
+    "constants": [
+        {
+            "literal": [
+                0.0,
+                3.75,
+                5.0,
+                1.0
+            ],
+            "name": "Inside_Color"
+        },
+        {
+            "literal": [
+                1.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Gloss_Level"
+        },
+        {
+            "literal": [
+                0.30000001192092896,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Inside_Detail_Intensity"
+        },
+        {
+            "literal": [
+                1.090000033378601,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Outside_Detail_Intensity"
+        },
+        {
+            "literal": [
+                3.990000009536743,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Overall_Intensity"
+        },
+        {
+            "literal": [
+                0.5,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Inside_Add_Intensity"
+        },
+        {
+            "literal": [
+                0.7099999785423279,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "__rim_max"
+        },
+        {
+            "literal": [
+                -0.019999999552965164,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "__rim_min"
+        },
+        {
+            "literal": [
+                -0.029999999329447746,
+                0.009999999776482582,
+                0.0,
+                1.0
+            ],
+            "name": "Sparkle_Swatch_1_Speed"
+        },
+        {
+            "literal": [
+                5.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Sparkle_Swatch_1_Scale"
+        },
+        {
+            "literal": [
+                1.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Specular_Level"
+        },
+        {
+            "literal": [
+                0.05000000074505806,
+                0.05000000074505806,
+                0.0,
+                1.0
+            ],
+            "name": "Sparkle_Swatch_2_Speed"
+        },
+        {
+            "literal": [
+                0.5,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Sparkle_Swatch_2_Scale"
+        },
+        {
+            "literal": [
+                0.8899999856948853,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "__inside_hole_min"
+        },
+        {
+            "literal": [
+                -0.3199999928474426,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "__inside_hole_max"
+        },
+        {
+            "literal": [
+                2.5,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Normal_Map_Mapping_Type"
+        },
+        {
+            "literal": [
+                0.5,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Swatches_Mapping_Type"
+        }
+    ],
+    "contents": 1,
+    "gameFlags": [
+        "10"
+    ],
+    "layeredSurfaceTypes": 536870919,
+    "sortKey": 40,
+    "stateBits": [
+        {
+            "alphaTest": "gt0",
+            "blendOpAlpha": "add",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "one",
+            "dstBlendRgb": "invsrcalpha",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "invdestalpha",
+            "srcBlendRgb": "srcalpha"
+        },
+        {
+            "alphaTest": "gt0",
+            "blendOpAlpha": "add",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": true,
+            "dstBlendAlpha": "one",
+            "dstBlendRgb": "invsrcalpha",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "invdestalpha",
+            "srcBlendRgb": "srcalpha"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "disabled",
+            "colorWriteAlpha": false,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "zero",
+            "polygonOffset": "offset2",
+            "polymodeLine": true,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "one",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        }
+    ],
+    "stateBitsEntry": [
+        -1,
+        -1,
+        0,
+        -1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        2,
+        -1,
+        -1,
+        3
+    ],
+    "stateFlags": 21,
+    "surfaceFlags": 7340032,
+    "surfaceTypeBits": 64,
+    "techniqueSet": "mc_sw4_3d_char_ghost2_noscript_954f9few",
+    "textureAtlas": {
+        "columns": 1,
+        "rows": 1
+    },
+    "textures": [
+        {
+            "image": "c_gen_target_edgeeffect2_h",
+            "isMatureContent": false,
+            "name": "Detail_Swatch_2",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "colorMap"
+        },
+        {
+            "image": "c_gen_target_edgeeffect3_h",
+            "isMatureContent": false,
+            "name": "Detail_Swatch_1",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "colorMap"
+        },
+        {
+            "image": "viewarm_n",
+            "isMatureContent": false,
+            "name": "Normal_Map",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "normalMap"
+        },
+        {
+            "image": "sw_radiant_default",
+            "isMatureContent": false,
+            "name": "radiantDiffuseMap",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "colorMap"
+        }
+    ]
+}

@@ -1,13 +1,19 @@
 //! Release preparation data while retaining Bevy's GPU assets and Avian colliders.
 use super::opaque::{self, OpaqueSurfaceStatus, SurfaceLibrary};
 use crate::{GameState, assets::WorldCollider};
-use bevy::{asset::RenderAssetUsages, light::GeneratedEnvironmentMapLight, prelude::*};
+use bevy::{asset::RenderAssetUsages, prelude::*};
 use std::collections::HashSet;
 
 pub(super) struct ResidencyPlugin;
 impl Plugin for ResidencyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Last, release);
+        app.add_systems(
+            PostUpdate,
+            release
+                .after(super::streaming::TextureStreamingSet)
+                .after(super::ray_skin::visibility)
+                .before(bevy::asset::AssetEventSystems),
+        );
     }
 }
 
@@ -15,7 +21,6 @@ fn release(
     mut commands: Commands,
     state: Res<State<GameState>>,
     status: Res<OpaqueSurfaceStatus>,
-    generators: Query<(), With<GeneratedEnvironmentMapLight>>,
     lights: Query<(&GlobalTransform, &PointLight, &ViewVisibility)>,
     cameras: Query<&GlobalTransform, With<super::GameCamera>>,
     colliders: Query<(Entity, &Mesh3d), With<WorldCollider>>,
@@ -27,7 +32,7 @@ fn release(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut finished: Local<bool>,
 ) {
-    if *finished || **state == GameState::Loading || !status.ready() || !generators.is_empty() {
+    if *finished || **state == GameState::Loading || !status.ready() {
         return;
     }
     let Some(ref mut library) = library else {
@@ -51,43 +56,78 @@ fn release(
             camera.translation()
         );
     }
-    let generated_images: HashSet<_> = opaque::release_preparation(library).into_iter().collect();
+    opaque::release_preparation(library);
     let active: HashSet<_> = active_materials
         .iter()
         .map(|material| material.0.id())
         .collect();
     let mut source_materials = 0;
-    for (id, material) in materials.iter_mut() {
-        if !active.contains(&id) && server.get_path(id).is_some() {
+    let source_ids: Vec<_> = materials
+        .iter()
+        .filter_map(|(id, _)| {
+            (!active.contains(&id)
+                && opaque::converted_source(library, id)
+                && server.get_path(id).is_some())
+            .then_some(id)
+        })
+        .collect();
+    for id in source_ids {
+        if let Some(mut material) = materials.get_mut(id) {
             // Converted extended materials already own the textures they use.
-            // Source scene templates must not retain unused duplicate maps.
+            // Only converted world templates have a replacement material.
+            // Inactive actor/weapon templates can spawn later and must retain
+            // their prepared maps even if no instance currently uses them.
             material.base_color_texture = None;
             material.normal_map_texture = None;
             material.metallic_roughness_texture = None;
             material.emissive_texture = None;
             material.occlusion_texture = None;
+            material.clearcoat_texture = None;
             source_materials += 1;
         }
     }
     let mut image_bytes = 0;
     let mut image_count = 0;
-    for (id, image) in images.iter_mut() {
+    let image_ids: Vec<_> = images
+        .iter()
+        .filter_map(|(id, image)| {
+            (server.get_path(id).is_some()
+                && image.data.is_some()
+                && image.asset_usage.contains(RenderAssetUsages::MAIN_WORLD))
+            .then_some(id)
+        })
+        .collect();
+    for id in image_ids {
         // Generated font atlases remain CPU-accessible for new HUD glyphs.
-        if (server.get_path(id).is_some() || generated_images.contains(&id)) && image.data.is_some()
-        {
+        if let Some(mut image) = images.get_mut(id) {
             image_bytes += image.data.as_ref().map_or(0, Vec::len);
             image_count += 1;
+            // Native extraction takes bytes while retaining a small descriptor
+            // and the stable Image ID for later mip promotions.
             image.asset_usage = RenderAssetUsages::RENDER_WORLD;
         }
     }
     let mut mesh_bytes = 0;
     let mut mesh_count = 0;
-    for (id, mesh) in meshes.iter_mut() {
+    // iter_mut emits modification events even for skipped assets. Inspect
+    // metadata immutably so render-only RT providers are never re-extracted.
+    let mesh_ids: Vec<_> = meshes
+        .iter()
+        .filter_map(|(id, mesh)| {
+            (server.get_path(id).is_some()
+                && library.prepared_meshes.contains(&id)
+                && mesh.asset_usage.contains(RenderAssetUsages::MAIN_WORLD)
+                && mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX).is_none()
+                && mesh.try_attributes().is_ok())
+            .then_some(id)
+        })
+        .collect();
+    for id in mesh_ids {
         // Late scene/weapon meshes may already be loaded without having had
         // their surface attributes adapted. Release only completed providers.
-        if server.get_path(id).is_none() || !library.prepared_meshes.contains(&id) {
+        let Some(mut mesh) = meshes.get_mut(id) else {
             continue;
-        }
+        };
         mesh_bytes += mesh.try_attributes().map_or(0, |attributes| {
             attributes
                 .map(|(_, values)| values.get_bytes().len())

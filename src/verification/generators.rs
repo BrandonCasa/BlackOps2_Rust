@@ -8,7 +8,7 @@ use crate::{
 };
 use avian3d::prelude::*;
 #[derive(Resource, Default)]
-struct Coverage {
+pub(super) struct Coverage {
     phase: u8,
     site: usize,
     age: f32,
@@ -20,6 +20,13 @@ struct Coverage {
     progress: f32,
     approaches: Vec<serde_json::Value>,
     abandoned: bool,
+    progress_written_at: Option<Instant>,
+    progress_written_state: Option<(u8, usize, usize)>,
+}
+impl Coverage {
+    pub(super) fn finished(&self) -> bool {
+        self.phase == 10
+    }
 }
 pub fn install(app: &mut App) {
     app.init_resource::<Coverage>().add_systems(
@@ -70,9 +77,12 @@ fn drive(
         commands.write_message(crate::input::RestartGame);
         c.phase = 9;
         c.age = 0.;
+        write_progress(&v, c, &game, &generators, &focus);
         return;
     }
-    if v.started.elapsed().as_secs() > 360 {
+    // Allocation instrumentation can slow a still-advancing fixed-step run.
+    // Bound wall time independently from all original scenario clocks.
+    if v.started.elapsed().as_secs() > 900 {
         c.rows.push(
             serde_json::json!({"case":"timeout","passed":false,"phase":c.phase,"site":c.site}),
         );
@@ -252,7 +262,42 @@ fn drive(
         c.phase += 1;
         c.age = 0.;
     }
-    let _=std::fs::write(v.output.join("generator-progress.json"),serde_json::json!({"phase":c.phase,"site":c.site,"progress":capture.map(|s|s.progress),"rows":c.rows,"defenders":generators.defenders_admitted,"failures":generators.defender_failures,"prompt":focus.prompt,"rejection":format!("{:?}",focus.rejection),"approaches":c.approaches}).to_string());
+    write_progress(&v, c, &game, &generators, &focus);
+}
+/// Keep inspection receipts useful without 60 synchronous JSON writes per
+/// second contaminating the gameplay workload being measured.
+fn write_progress(
+    v: &Verification,
+    c: &mut Coverage,
+    game: &GameDefinition,
+    generators: &Generators,
+    focus: &InteractionFocus,
+) {
+    let state = (c.phase, c.site, c.rows.len());
+    if c.progress_written_state == Some(state)
+        && c.progress_written_at
+            .is_some_and(|at| at.elapsed().as_secs_f32() < 1.)
+    {
+        return;
+    }
+    let capture = game
+        .content
+        .generators
+        .get(c.site)
+        .and_then(|d| generators.sites.get(&d.id));
+    let receipt = serde_json::json!({
+        "phase":c.phase,"site":c.site,"progress":capture.map(|s|s.progress),
+        "elapsed_wall_seconds":v.started.elapsed().as_secs_f64(),
+        "rows":c.rows,"defenders":generators.defenders_admitted,
+        "failures":generators.defender_failures,"prompt":focus.prompt,
+        "rejection":format!("{:?}",focus.rejection),"approaches":c.approaches,
+    });
+    let _ = std::fs::write(
+        v.output.join("generator-progress.json"),
+        receipt.to_string(),
+    );
+    c.progress_written_at = Some(Instant::now());
+    c.progress_written_state = Some(state);
 }
 fn finish(commands: &mut Commands, v: &Verification, c: &Coverage, g: &Generators) {
     let passed = c.rows.len() >= 28 && c.rows.iter().all(|r| r["passed"] == true);

@@ -61,9 +61,13 @@ fn configure(mut support: ResMut<GpuPreprocessingSupport>, requested: Res<Reques
     // instance extraction; changing only PbrPlugin would leave them mismatched.
     support.max_supported_mode = support.min(match requested.0 {
         MeshPreprocessing::Cpu => GpuPreprocessingMode::None,
-        // Keep Bevy visibility/direct batching and move mesh-uniform expansion
-        // to compute. Indirect culling is available as a benchmark comparison.
+        // Diagnostic comparison: keep visibility/direct batching while moving
+        // mesh-uniform expansion to compute.
         MeshPreprocessing::Gpu => GpuPreprocessingMode::PreprocessingOnly,
+        // Native indirect batching is the default on supported devices.
+        // CPU visibility admission bounds the work lists. Native GPU frustum
+        // culling/indirect batching retains the preprocessing/CPU fallback;
+        // matched ordinary workloads rejected two-phase occlusion overhead.
         MeshPreprocessing::GpuCulling => GpuPreprocessingMode::Culling,
     });
 }

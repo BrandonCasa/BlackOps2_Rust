@@ -1,0 +1,177 @@
+{
+    "$schema": "http://openassettools.dev/schema/material.v1.json",
+    "_game": "t6",
+    "_type": "material",
+    "_version": 1,
+    "cameraRegion": "none",
+    "constants": [
+        {
+            "literal": [
+                2.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "VignetteSoftness"
+        },
+        {
+            "literal": [
+                3.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Boost"
+        },
+        {
+            "literal": [
+                0.43157899379730225,
+                0.4978390038013458,
+                0.5,
+                1.0
+            ],
+            "name": "VignetteColor"
+        },
+        {
+            "literal": [
+                2.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "MaskSoftness"
+        },
+        {
+            "literal": [
+                -0.2199999988079071,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "WaveWarpScale"
+        },
+        {
+            "literal": [
+                0.41999998688697815,
+                1.0,
+                0.0,
+                1.0
+            ],
+            "name": "VignetteRadius"
+        },
+        {
+            "literal": [
+                0.20000000298023224,
+                0.800000011920929,
+                0.0,
+                1.0
+            ],
+            "name": "MaskRadius"
+        },
+        {
+            "literal": [
+                -0.4000000059604645,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "ScrollSpeed"
+        }
+    ],
+    "contents": 1,
+    "gameFlags": [],
+    "layeredSurfaceTypes": 536870912,
+    "sortKey": 4,
+    "stateBits": [
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "disabled",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "disabled",
+            "depthWrite": false,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "zero",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        }
+    ],
+    "stateBitsEntry": [
+        -1,
+        -1,
+        0,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1
+    ],
+    "stateFlags": 0,
+    "surfaceFlags": 0,
+    "surfaceTypeBits": 0,
+    "techniqueSet": "sw4_2d_afterlife_alcatraz_2e77988w",
+    "textureAtlas": {
+        "columns": 1,
+        "rows": 1
+    },
+    "textures": [
+        {
+            "image": "zm_afterlife_alcatraz_vignette_noise",
+            "isMatureContent": false,
+            "name": "NoiseMap",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "linear",
+                "mipMap": "disabled"
+            },
+            "semantic": "colorMap"
+        },
+        {
+            "image": "zm_afterlife_alcatraz_vignette_cockup",
+            "isMatureContent": false,
+            "name": "MaskMap",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "linear",
+                "mipMap": "disabled"
+            },
+            "semantic": "colorMap"
+        }
+    ]
+}

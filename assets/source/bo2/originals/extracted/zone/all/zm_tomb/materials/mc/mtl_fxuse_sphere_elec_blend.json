@@ -1,0 +1,273 @@
+{
+    "$schema": "http://openassettools.dev/schema/material.v1.json",
+    "_game": "t6",
+    "_type": "material",
+    "_version": 1,
+    "cameraRegion": "litTrans",
+    "constants": [
+        {
+            "literal": [
+                1.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "hdrAmount"
+        },
+        {
+            "literal": [
+                3.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "AlphaFalloffPower"
+        },
+        {
+            "literal": [
+                1.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "AlphaFalloffBoost"
+        },
+        {
+            "literal": [
+                0.75,
+                0.5,
+                1.0,
+                1.0
+            ],
+            "name": "Color"
+        },
+        {
+            "literal": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "ReflectionAmount"
+        },
+        {
+            "literal": [
+                2.5,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Color2Amount"
+        },
+        {
+            "literal": [
+                0.02500000037252903,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Distortion2Amount"
+        },
+        {
+            "literal": [
+                32.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "FadeFactor"
+        },
+        {
+            "literal": [
+                1.0,
+                1.75,
+                0.0,
+                1.0
+            ],
+            "name": "Distortion2Scale"
+        },
+        {
+            "literal": [
+                -0.5,
+                1.0,
+                0.0,
+                1.0
+            ],
+            "name": "Distortion2Speed"
+        },
+        {
+            "literal": [
+                -0.625,
+                -1.25,
+                0.0,
+                1.0
+            ],
+            "name": "Color2Speed"
+        },
+        {
+            "literal": [
+                3.0,
+                3.0,
+                0.0,
+                1.0
+            ],
+            "name": "Color2Scale"
+        }
+    ],
+    "contents": 1,
+    "gameFlags": [
+        "10"
+    ],
+    "layeredSurfaceTypes": 536870912,
+    "sortKey": 40,
+    "stateBits": [
+        {
+            "alphaTest": "gt0",
+            "blendOpAlpha": "add",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "none",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "one",
+            "dstBlendRgb": "invsrcalpha",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "invdestalpha",
+            "srcBlendRgb": "srcalpha"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "disabled",
+            "colorWriteAlpha": false,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "zero",
+            "polygonOffset": "offset2",
+            "polymodeLine": true,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "none",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "one",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        }
+    ],
+    "stateBitsEntry": [
+        -1,
+        -1,
+        0,
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        -1,
+        -1,
+        2
+    ],
+    "stateFlags": 20,
+    "surfaceFlags": 0,
+    "surfaceTypeBits": 0,
+    "techniqueSet": "mc_sw4_3d_zm_sphere_elec_535e0f02",
+    "textureAtlas": {
+        "columns": 1,
+        "rows": 1
+    },
+    "textures": [
+        {
+            "image": "fxt_electric_tile",
+            "isMatureContent": false,
+            "name": "AlphaMap2",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "linear",
+                "mipMap": "disabled"
+            },
+            "semantic": "colorMap"
+        },
+        {
+            "image": "fxt_electric_tile",
+            "isMatureContent": false,
+            "name": "colorMap2",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "linear",
+                "mipMap": "disabled"
+            },
+            "semantic": "colorMap"
+        },
+        {
+            "image": "sw_radiant_default",
+            "isMatureContent": false,
+            "name": "radiantDiffuseMap",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "colorMap"
+        },
+        {
+            "image": "fxt_fire_tile",
+            "isMatureContent": false,
+            "name": "DistortionMap2",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "colorMap"
+        }
+    ]
+}

@@ -8,7 +8,10 @@ use crate::{
     player::{Player, capsule},
 };
 use avian3d::prelude::*;
-use bevy::prelude::*;
+use bevy::{
+    prelude::*,
+    tasks::{ComputeTaskPool, ParallelSlice},
+};
 use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap, VecDeque},
@@ -400,71 +403,116 @@ fn refresh(
         if nav.warmup < 3 {
             return;
         }
+        let started = std::time::Instant::now();
+        let _geometry = bevy::log::info_span!("navigation_geometry_admission").entered();
         let excluded: Vec<_> = std::iter::once(owner)
             .chain(blockers.iter())
             .chain(actors.iter())
             .collect();
         let filter = crate::environment::solids(excluded);
         let shape = capsule(0.3, 1.7);
-        let mut ids = HashMap::new();
-        for source in &definition.content.navigation_nodes {
-            let point = Vec3::from_array(source.position);
-            let floor = query.cast_ray(point + Vec3::Y * 0.5, Dir3::NEG_Y, 2., false, &filter);
-            let feet = floor.filter(|f| f.normal.y > 0.65).and_then(|f| {
-                let floor = point + Vec3::Y * (0.5 - f.distance + 0.03);
-                // A center ray misses the capsule's uphill side on stairs/slopes.
-                // Keep support within the normal step budget and require full clearance.
-                (0..=6)
-                    .map(|i| floor + Vec3::Y * (i as f32 * 0.05))
-                    .find(|feet| {
-                        query
-                            .shape_intersections(
-                                &shape,
-                                *feet + Vec3::Y * 0.85,
-                                Quat::IDENTITY,
+        // Avian queries read one fixed-step geometry snapshot. Their independent
+        // admission checks can share Bevy's compute pool without moving physics
+        // or gameplay to another frame. ParallelSlice retains authored order.
+        let pool = ComputeTaskPool::get();
+        let admitted = {
+            let _stage = bevy::log::info_span!("navigation_node_admission").entered();
+            definition
+                .content
+                .navigation_nodes
+                .par_chunk_map(pool, 64, |_, sources| {
+                    let _chunk =
+                        bevy::log::info_span!("navigation_node_batch", nodes = sources.len())
+                            .entered();
+                    sources
+                        .iter()
+                        .map(|source| {
+                            let point = Vec3::from_array(source.position);
+                            let floor = query.cast_ray(
+                                point + Vec3::Y * 0.5,
+                                Dir3::NEG_Y,
+                                2.,
+                                false,
                                 &filter,
-                            )
-                            .is_empty()
-                    })
-            });
-            let ready = feet.is_some();
-            ids.insert(source.id.clone(), nav.nodes.len());
-            nav.nodes.push(Node {
-                point: feet.unwrap_or(point),
-                zone: source.zone.clone(),
-                ready,
-            });
-            nav.rejected_nodes += usize::from(!ready);
-        }
+                            );
+                            let feet = floor.filter(|f| f.normal.y > 0.65).and_then(|f| {
+                                let floor = point + Vec3::Y * (0.5 - f.distance + 0.03);
+                                // A center ray misses the capsule's uphill side on
+                                // stairs/slopes. Retain every original support step.
+                                (0..=6)
+                                    .map(|i| floor + Vec3::Y * (i as f32 * 0.05))
+                                    .find(|feet| {
+                                        clear_shape(&query, &shape, *feet + Vec3::Y * 0.85, &filter)
+                                    })
+                            });
+                            Node {
+                                point: feet.unwrap_or(point),
+                                zone: source.zone.clone(),
+                                ready: feet.is_some(),
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+        };
+        nav.nodes = admitted.into_iter().flatten().collect();
+        let rejected = nav.nodes.iter().filter(|node| !node.ready).count();
+        nav.rejected_nodes += rejected;
+        let ids: HashMap<_, _> = definition
+            .content
+            .navigation_nodes
+            .iter()
+            .enumerate()
+            .map(|(index, source)| (source.id.clone(), index))
+            .collect();
         let count = nav.nodes.len();
         nav.edges = vec![Vec::new(); count];
-        for source in &definition.content.navigation_links {
-            let (Some(&from), Some(&to)) = (ids.get(&source.from), ids.get(&source.to)) else {
-                continue;
-            };
-            let delta = nav.nodes[to].point - nav.nodes[from].point;
-            let ready = nav.nodes[from].ready
-                && nav.nodes[to].ready
-                && (!matches!(source.traversal, Traversal::Walk)
-                    || walking_edge(
-                        &query,
-                        &slide,
-                        &shape,
-                        nav.nodes[from].point,
-                        nav.nodes[to].point,
-                        definition.tuning.step_height,
-                        &filter,
-                    ));
-            let mut requirements = source.blockers.clone();
-            requirements.extend(source.connection.iter().cloned());
-            nav.edges[from].push(Edge {
-                to,
-                traversal: source.traversal,
-                animation: source.source_animation.clone(),
-                blockers: requirements,
-                ready,
-                cost: delta.length().max(0.01),
-            });
+        let nodes = &nav.nodes;
+        let admitted = {
+            let _stage = bevy::log::info_span!("navigation_link_admission").entered();
+            definition
+                .content
+                .navigation_links
+                .par_chunk_map(pool, 64, |_, sources| {
+                    let _chunk =
+                        bevy::log::info_span!("navigation_link_batch", links = sources.len())
+                            .entered();
+                    sources
+                        .iter()
+                        .filter_map(|source| {
+                            let (&from, &to) = ids.get(&source.from).zip(ids.get(&source.to))?;
+                            let delta = nodes[to].point - nodes[from].point;
+                            let ready = nodes[from].ready
+                                && nodes[to].ready
+                                && (!matches!(source.traversal, Traversal::Walk)
+                                    || walking_edge(
+                                        &query,
+                                        &slide,
+                                        &shape,
+                                        nodes[from].point,
+                                        nodes[to].point,
+                                        definition.tuning.step_height,
+                                        &filter,
+                                    ));
+                            let mut requirements = source.blockers.clone();
+                            requirements.extend(source.connection.iter().cloned());
+                            Some((
+                                from,
+                                Edge {
+                                    to,
+                                    traversal: source.traversal,
+                                    animation: source.source_animation.clone(),
+                                    blockers: requirements,
+                                    ready,
+                                    cost: delta.length().max(0.01),
+                                },
+                            ))
+                        })
+                        .collect::<Vec<_>>()
+                })
+        };
+        for (from, edge) in admitted.into_iter().flatten() {
+            let ready = edge.ready;
+            nav.edges[from].push(edge);
             nav.rejected_links += usize::from(!ready);
         }
         let mut incoming = vec![Vec::new(); count];
@@ -493,10 +541,13 @@ fn refresh(
             });
         }
         info!(
-            "Native navigation: {} nodes, {} links, {} spawn projections",
+            "Native navigation: {} nodes, {} links, {} spawn projections; {} rejected nodes, {} rejected links; geometry admission in {:.3}s",
             nav.node_count(),
             nav.link_count(),
-            nav.spawns.len()
+            nav.spawns.len(),
+            nav.rejected_nodes,
+            nav.rejected_links,
+            started.elapsed().as_secs_f64(),
         );
     }
     let feet = pose.translation - Vec3::Y * 0.9;
@@ -528,6 +579,7 @@ fn refresh(
         nav.admissions.clear();
         return;
     };
+    let _admissions = bevy::log::info_span!("navigation_spawn_admission").entered();
     let mut reachable = vec![false; nav.nodes.len()];
     let mut work = vec![start];
     reachable[start] = true;
@@ -585,14 +637,12 @@ fn refresh(
                         .map(|i| base + Vec3::Y * (i as f32 * 0.05))
                         .find(|feet| {
                             feet.distance_squared(s.position) <= 100.
-                                && query
-                                    .shape_intersections(
-                                        &admission_shape,
-                                        *feet + Vec3::Y * 0.85,
-                                        Quat::IDENTITY,
-                                        &admission_filter,
-                                    )
-                                    .is_empty()
+                                && clear_shape(
+                                    &query,
+                                    &admission_shape,
+                                    *feet + Vec3::Y * 0.85,
+                                    &admission_filter,
+                                )
                         })
                 })?
             } else {
@@ -601,6 +651,21 @@ fn refresh(
             Some(admission)
         })
         .collect();
+}
+fn clear_shape(
+    query: &SpatialQuery,
+    shape: &Collider,
+    center: Vec3,
+    filter: &SpatialQueryFilter,
+) -> bool {
+    // Clearance is existential: no caller uses the obstructing entity list.
+    // Stop native narrow-phase traversal at its first hit and allocate no list.
+    let mut clear = true;
+    query.shape_intersections_callback(shape, center, Quat::IDENTITY, filter, |_| {
+        clear = false;
+        false
+    });
+    clear
 }
 fn walking_edge(
     query: &SpatialQuery,

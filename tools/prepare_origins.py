@@ -128,8 +128,8 @@ def secondary_attributes(root, manifest, uv, ranges):
 def tile_blend_color(core, surface, control, tiles=4):
     """Bake the shared model tile/macro family to ordinary PBR, retaining raw inputs.
 
-    Red weights the coated surface; green weights exposed core. Their magnitude
-    retains macro occlusion. Tiling is a tunable
+    Red weights the coated surface; green weights exposed core. Normalize these
+    weights so native macro darkness never becomes incident lighting. Tiling is a tunable
     reconstruction, not an attempt to reproduce the native shader constants.
     """
     size = 2048
@@ -138,7 +138,9 @@ def tile_blend_color(core, surface, control, tiles=4):
         return np.tile(tile, (tiles, tiles, 1))[..., :3].astype(np.float32) / 255
     mask = np.asarray(Image.fromarray(control).resize((size, size), Image.Resampling.BILINEAR)).astype(np.float32) / 255
     # Blend diffuse reflectance in linear space, rather than blending sRGB bytes.
-    linear = tiled(surface) ** 2.2 * mask[..., 0:1] + tiled(core) ** 2.2 * mask[..., 1:2]
+    total = mask[..., 0:1] + mask[..., 1:2]
+    coating = np.divide(mask[..., 0:1], total, out=np.zeros_like(total), where=total > 1e-6)
+    linear = tiled(surface) ** 2.2 * coating + tiled(core) ** 2.2 * (1 - coating)
     rgb = (np.maximum(linear, 0) ** (1 / 2.2) * 255).clip(0, 255).astype(np.uint8)
     return np.concatenate((rgb, np.full((size, size, 1), 255, np.uint8)), axis=2)
 
@@ -164,12 +166,16 @@ def tangents(words, signs):
 def converted_pixels(pixels, mode):
     pixels = pixels.copy()
     if mode == "normal":
-        xy = pixels[..., :2].astype(np.float32) / 127.5 - 1
-        pixels[..., 1] = 255 - pixels[..., 1]
-        pixels[..., 2] = (np.sqrt(np.maximum(0, 1 - (xy * xy).sum(axis=2))) * 127.5 + 127.5).astype(np.uint8)
+        try:
+            from .material_textures import canonical_normal
+        except ImportError:
+            from material_textures import canonical_normal
+        normal = canonical_normal(pixels)
+        pixels[..., :3] = np.rint((normal * .5 + .5) * 255).astype(np.uint8)
         pixels[..., 3] = 255
     elif mode == "roughness":
-        pixels[..., 1] = 255 - pixels[..., 3]
+        gloss = pixels[..., 3].astype(np.float32) / 255
+        pixels[..., 1] = np.rint((2 / (np.exp2(13 * gloss) + 2)) ** .25 * 255).astype(np.uint8)
         pixels[..., 2] = 0
         pixels[..., 3] = 255
     return pixels
@@ -316,7 +322,7 @@ class Gltf:
         self.document["textures"].append({"source": image, "sampler": 0})
         return {"index": len(self.document["textures"]) - 1}
 
-    def mesh(self, arrays, material, name, collider=True, lightmap=None, visible=True, lighting=None):
+    def mesh(self, arrays, material, name, collider=True, visible=True):
         attributes = {key: self.accessor(data, kind) for key, data, kind in arrays}
         mesh = len(self.document["meshes"])
         points = next(data for key, data, _ in arrays if key == "POSITION").reshape(-1, 3, 3)
@@ -324,13 +330,8 @@ class Gltf:
         indexes = self.accessor(np.arange(len(points) * 3).reshape(-1, 1), "SCALAR", indices=True)
         self.document["meshes"].append({"name": name, "primitives": [
             {"attributes": attributes, "indices": indexes, "mode": 4, "material": material}]})
-        if lighting:
-            self.document["meshes"][-1]["extras"] = {"lighting": lighting}
         if visible:
-            extras = {"lighting": lighting} if lighting else {}
-            if lightmap:
-                extras["lightmap"] = lightmap
-            self.node(mesh, name, 0, extras=extras)
+            self.node(mesh, name, 0)
         if collider and self.collidable[mesh]:
             self.node(mesh, "collision_" + name, 1)
         return mesh
@@ -448,7 +449,7 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                         Image.fromarray(tile_blend_color(*color_pixels)).save(output / "textures" / filename)
                         textures[key] = gltf.texture("textures/" + filename)
                     material["pbrMetallicRoughness"]["baseColorTexture"] = textures[key]
-                    material["extras"]["surface"]["preparation"] = {"kind": "tile_macro_bake", "tiles": 4}
+                    material["extras"]["surface"]["preparation"] = {"kind": "tile_macro_layers", "tiles": 4}
                 materials[source_index] = len(gltf.document["materials"])
                 gltf.document["materials"].append(material)
             provider = []
@@ -482,10 +483,6 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                                               "static_provider", collider=False, visible=False))
                     state = gltf.document["materials"][materials[primitive["material"]]]["extras"]["surface"]["presentation"]
                     gltf.collidable[provider[-1]] &= state["solid"]
-                    # Expanded glTF corners still need their original LOD vertex identity
-                    # to address each instance's separately retained baked color stream.
-                    gltf.document["meshes"][provider[-1]]["extras"] = {
-                        "lighting_vertices": gltf.accessor(indexes.reshape(-1, 1), "SCALAR", indices=True)}
                     surface_index += 1
                     vertex_base += len(vertices)
             if surface_index != len(surface_data[name]):
@@ -496,19 +493,8 @@ def static_models(gltf, instances_path, model_root, output, world_root):
         matrix[:3, 3] = coordinates(item["origin"])
         if not np.isfinite(matrix).all() or item["scale"] <= 0:
             raise ValueError("invalid static model placement")
-        lighting = {"probe": None if item["probe"] == 255 else item["probe"], "lighting_id": item["lighting_id"]}
-        color_lods = []
-        for source_colors in item["lightmap_colors"]:
-            if source_colors:
-                words = np.asarray(source_colors, dtype=np.uint32)
-                colors = np.stack([(words >> shift & 255) / 255 for shift in (0, 8, 16, 24)], axis=1)
-                color_lods.append(gltf.accessor(colors, "VEC4"))
-            else:
-                color_lods.append(None)
-        if any(value is not None for value in color_lods):
-            lighting["color_lods"] = color_lods
         for mesh in providers[name]:
-            gltf.node(mesh, "static_instance", 0, matrix=matrix.T.flatten().tolist(), extras={"lighting": lighting})
+            gltf.node(mesh, "static_instance", 0, matrix=matrix.T.flatten().tolist(), extras={"static_instance": True})
             # Foliage and hanging cloth are visible decorations, not solid walls.
             if gltf.collidable[mesh] and not any(token in name.lower() for token in ("grass", "foliage", "vine", "cloth", "flag")):
                 gltf.node(mesh, "collision_static", 1, matrix=matrix.T.flatten().tolist())
@@ -563,7 +549,6 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
     normals = unit_vectors(corners["normal"])
     tangent = tangents(corners["tangent"], corners["p"][:, 3])
     color = corners["color"].astype(np.float32) / 255
-    lm_uv = corners["lm"].astype(np.float32) / 65535
     layer_uv, layer3_uv, rotation1, rotation2 = secondary_attributes(root, manifest, uv, surfaces)
     definition = gameplay_definition(entities(external(entity_path)))
     previous_path = output / "game.json"
@@ -637,20 +622,6 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
         if family == "wpc_default":
             pbr.update(baseColorFactor=[0.3,0.3,0.3,1], metallicFactor=0, roughnessFactor=1)
         gltf.document["materials"].append(material)
-    lighting = {"lightmaps": [], "probes": []}
-    for slot in manifest["lightmaps"]:
-        lighting["lightmaps"].append({key: gltf.document["images"][gltf.document["textures"][texture({"image": image})["index"]]["source"]]["uri"]
-                                      for key, image in slot.items() if image is not None})
-    for index, probe in enumerate(manifest["probes"]):
-        faces = []
-        for face, pixels in zip(("px", "nx", "py", "ny", "pz", "nz"), cube_faces(dependency(root, manifest["images"][probe["image"]])), strict=True):
-            uri = f"textures/probe-{index}-{face}.png"
-            Image.fromarray(pixels).save(output / uri)
-            gltf.texture(uri)
-            faces.append(uri)
-        lighting["probes"].append({"faces": faces, "position": coordinates(probe["origin"]).tolist(),
-                                   "mip_bias": probe["mip_bias"], "sh": probe["sh"], "sh_basis": "source_z_up"})
-    gltf.document["extras"] = {"lighting": lighting}
     groups = {}
     shadow_only = 0
     for record, source in zip(surfaces, manifest["surfaces"], strict=True):
@@ -661,46 +632,33 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
             shadow_only += 1
         center = positions[first:first+count].mean(axis=0)
         cell = tuple(np.floor(center / 16).astype(int))
-        lightmap = source.get("lightmap")
-        probe = source.get("probe")
-        if lightmap in (31, 255):
-            lightmap = None
-        if probe == 255:
-            probe = None
-        key = (material, lightmap, probe, cell)
+        key = (material, cell)
         groups.setdefault(key, []).extend(range(first, first+count))
-    for (material, lightmap, probe, cell), indexes in groups.items():
+    for (material, cell), indexes in groups.items():
         # T6's world triangles are clockwise; glTF/Bevy front faces are CCW.
         # Swap corners together (UVs/controls/bases included), preserving normals.
         selection = np.asarray(indexes).reshape(-1, 3)[:, [0, 2, 1]].reshape(-1)
         family = families[material]
-        lightmap_uri = None
-        if lightmap is not None and lightmap < len(manifest["lightmaps"]):
-            slot = manifest["lightmaps"][lightmap]
-            image = slot.get("primary") if slot.get("primary") is not None else slot.get("secondary")
-            if image is not None:
-                texture({"image": image})
-                lightmap_uri = f"textures/image-{image}.png"
         gltf.mesh([("POSITION", positions[selection], "VEC3"), ("NORMAL", normals[selection], "VEC3"),
                    ("TANGENT", tangent[selection], "VEC4"),
-                   ("TEXCOORD_0", uv[selection], "VEC2"), ("TEXCOORD_1", lm_uv[selection], "VEC2"),
+                   ("TEXCOORD_0", uv[selection], "VEC2"),
                    ("COLOR_0", color[selection], "VEC4"),
                    ("_ORIGINS_LAYER_UV", layer_uv[selection], "VEC4"),
                    ("_ORIGINS_LAYER3_UV", layer3_uv[selection], "VEC2"),
                    ("_ORIGINS_ROTATION1", rotation1[selection], "VEC4"),
                    ("_ORIGINS_ROTATION2", rotation2[selection], "VEC4")], material,
                   f"world_{material}_{cell}", collider="water" not in family and "unlit" not in family,
-                  lightmap=lightmap_uri, lighting={"lightmap": lightmap, "probe": probe}, visible="shadowcaster" not in family)
+                  visible="shadowcaster" not in family)
     instance_count, model_count, model_textures = static_models(gltf, instances_path, external(model_root), output, root)
     gltf.save(output)
     definition.update(source_surfaces=len(surfaces), render_meshes=len(gltf.document["scenes"][0]["nodes"]),
                       collision_meshes=len(gltf.document["scenes"][1]["nodes"]), static_model_instances=instance_count)
     (output / "game.json").write_text(json.dumps(definition, indent=2), encoding="utf-8")
     receipt = {"source_surfaces": len(surfaces), "triangles": len(positions)//3,
-               "render_meshes": definition["render_meshes"], "textures": len(cached) + len(lighting["probes"]) * 6,
+               "render_meshes": definition["render_meshes"], "textures": len(cached),
                "shadow_helper_surfaces": shadow_only,
                "approximations": ["Bevy PBR with parameterized layer/material response",
-                                  "tile/macro diffuse bake with reconstructed fourfold tiling", "runtime-calibrated source-basis SH/probes",
+                                  "tile/macro diffuse bake with reconstructed fourfold tiling", "realtime sun and atmosphere, no incident-light bakes",
                                   "unrecovered layer reveal constants use explicit defaults", "smoke proxy omitted in favor of single Bevy fog",
                                   "decoded top mip only", "neutral unresolved editor-default model image",
                                   "nearest path-node zombie admission"],

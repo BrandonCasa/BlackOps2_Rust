@@ -1,0 +1,25 @@
+{
+    "$schema": "http://openassettools.dev/schema/xmodel.v1.json",
+    "_game": "t6",
+    "_type": "xmodel",
+    "_version": 2,
+    "flags": 6815744,
+    "lightingOriginOffset": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.5
+    },
+    "lightingOriginRange": 0.5,
+    "lods": [
+        {
+            "distance": 600.0,
+            "file": "model_export/veh_t6_dlc_zm_quad_piece_brain_lod0.gltf"
+        },
+        {
+            "distance": 2209.18115234375,
+            "file": "model_export/veh_t6_dlc_zm_quad_piece_brain_lod1.gltf"
+        }
+    ],
+    "rootBoneName": "brain_jar_piece_lod0",
+    "type": "rigid"
+}

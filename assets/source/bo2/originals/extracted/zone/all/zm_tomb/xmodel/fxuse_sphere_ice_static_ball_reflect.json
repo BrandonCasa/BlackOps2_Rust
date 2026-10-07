@@ -1,0 +1,21 @@
+{
+    "$schema": "http://openassettools.dev/schema/xmodel.v1.json",
+    "_game": "t6",
+    "_type": "xmodel",
+    "_version": 2,
+    "flags": 6815744,
+    "lightingOriginOffset": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.5
+    },
+    "lightingOriginRange": 0.5,
+    "lods": [
+        {
+            "distance": 4019.200927734375,
+            "file": "model_export/fxuse_sphere_ice_static_ball_reflect_lod0.gltf"
+        }
+    ],
+    "rootBoneName": "fxuse_sphere_tendril",
+    "type": "rigid"
+}

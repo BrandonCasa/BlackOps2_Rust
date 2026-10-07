@@ -1,0 +1,161 @@
+{
+    "$schema": "http://openassettools.dev/schema/material.v1.json",
+    "_game": "t6",
+    "_type": "material",
+    "_version": 1,
+    "cameraRegion": "none",
+    "constants": [
+        {
+            "literal": [
+                1.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "VignetteSoftness"
+        },
+        {
+            "literal": [
+                0.4000000059604645,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Boost"
+        },
+        {
+            "literal": [
+                0.0,
+                0.8999999761581421,
+                0.0,
+                1.0
+            ],
+            "name": "VignetteColor"
+        },
+        {
+            "literal": [
+                0.10000000149011612,
+                0.800000011920929,
+                0.0,
+                1.0
+            ],
+            "name": "VignetteRadius"
+        },
+        {
+            "literal": [
+                0.013000000268220901,
+                0.12999999523162842,
+                0.0,
+                1.0
+            ],
+            "name": "ScrollSpeed2"
+        },
+        {
+            "literal": [
+                0.009999999776482582,
+                0.17000000178813934,
+                0.0,
+                1.0
+            ],
+            "name": "ScrollSpeed1"
+        }
+    ],
+    "contents": 1,
+    "gameFlags": [
+        "1000"
+    ],
+    "layeredSurfaceTypes": 536870912,
+    "sortKey": 40,
+    "stateBits": [
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "add",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "disabled",
+            "depthWrite": false,
+            "dstBlendAlpha": "one",
+            "dstBlendRgb": "one",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "zero",
+            "srcBlendRgb": "one"
+        }
+    ],
+    "stateBitsEntry": [
+        -1,
+        -1,
+        0,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1
+    ],
+    "stateFlags": 0,
+    "surfaceFlags": 0,
+    "surfaceTypeBits": 0,
+    "techniqueSet": "sw4_2d_zombie_perk_vulture_200qwf9j",
+    "textureAtlas": {
+        "columns": 1,
+        "rows": 1
+    },
+    "textures": [
+        {
+            "image": "zm_afterlife_alcatraz_vignette_noise",
+            "isMatureContent": false,
+            "name": "NoiseMap",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "linear",
+                "mipMap": "disabled"
+            },
+            "semantic": "colorMap"
+        },
+        {
+            "image": "zm_al_concrete_bare_g",
+            "isMatureContent": false,
+            "name": "MaskMap",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "linear",
+                "mipMap": "disabled"
+            },
+            "semantic": "colorMap"
+        }
+    ]
+}

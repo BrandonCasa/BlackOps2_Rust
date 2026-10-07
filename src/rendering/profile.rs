@@ -1,5 +1,5 @@
 //! One embedded reconstruction profile. Surface/light colors are sRGB; the
-//! generated HDR sky palette is linear radiance, scaled by sky_nits.
+//! sky uses Bevy's physical scattering and sun illuminance.
 use bevy::prelude::*;
 use serde::Deserialize;
 
@@ -7,6 +7,16 @@ use serde::Deserialize;
 pub(crate) enum Antialiasing {
     Msaa4,
     Smaa,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ColorGrade {
+    pub strength: f32,
+    pub contrast: f32,
+    pub vibrance: f32,
+    pub shadow_tint: [f32; 3],
+    pub highlight_tint: [f32; 3],
 }
 
 #[derive(Resource, Deserialize)]
@@ -20,25 +30,20 @@ pub(crate) struct VisualProfile {
     pub indoor_ev100: f32,
     pub outdoor_ev100: f32,
     pub adaptation_speed: f32,
-    pub baked_radiance: f32,
-    pub vertex_radiance: f32,
-    pub probe_radiance: f32,
-    pub tile_probe_radiance: f32,
-    pub prop_probe_fill: f32,
-    pub instance_probe_fill: f32,
     pub transparent_opacity_scale: f32,
     pub reveal_softness: f32,
     pub post_saturation: f32,
+    pub color_grade: ColorGrade,
     pub comparison_fov_degrees: f32,
     pub antialiasing: Antialiasing,
-    pub reflection_radiance: f32,
-    pub normal_strength: f32,
-    pub tile_normal_strength: f32,
-    pub gloss_exponent: f32,
-    pub specular_f0_scale: f32,
     pub bloom_intensity: f32,
     pub fog_color: [f32; 3],
     pub fog_density: f32,
+    pub fog_base_height: f32,
+    pub fog_height_falloff: f32,
+    pub sky_lighting_hz: f32,
+    pub sun_shadow_map_size: usize,
+    pub sun_shadow_distance: f32,
     pub lantern_color: [f32; 3],
     pub lantern_lumens: f32,
     pub lantern_range: f32,
@@ -51,15 +56,6 @@ pub(crate) struct VisualProfile {
     pub water_normal_strength: f32,
     pub water_uv_scale: f32,
     pub water_velocity: [f32; 4],
-    pub wetness: f32,
-    pub wet_darkening: f32,
-    pub wet_roughness: f32,
-    pub sky_nits: f32,
-    pub sky_upper: [f32; 3],
-    pub sky_horizon: [f32; 3],
-    pub cloud_dark: [f32; 3],
-    pub cloud_bright: [f32; 3],
-    pub sky_sun_direction: [f32; 3],
 }
 
 impl Default for VisualProfile {

@@ -24,10 +24,87 @@ void ContentPrinter::PrintContent() const {
     for (auto* asset : m_zone.m_pools)
         if (asset->m_type == ASSET_TYPE_GFXWORLD && !asset->IsReference())
             world = static_cast<const GfxWorld*>(asset->m_ptr);
+    const bool library = std::getenv("ORIGINS_INCLUDE_ALL_IMAGES") != nullptr;
     if ((!world && !std::getenv("ORIGINS_INCLUDE_ACTOR_IMAGES")) ||
         (world && (world->dpvs.smodelCount > 100000 || !world->dpvs.smodelDrawInsts)))
         throw std::runtime_error("missing or invalid world static instances");
-    const unsigned instance_count = world ? world->dpvs.smodelCount : 0;
+    const unsigned instance_count = world && !library ? world->dpvs.smodelCount : 0;
+    // Material tables for every model/world material, including late actor rigs.
+    // DDS extraction below retains the complete native mip chain unchanged.
+    std::ofstream definitions("material-definitions.json");
+    definitions << std::setprecision(9) << '{';
+    bool first_material = true;
+    for (auto* asset : m_zone.m_pools) {
+        if (asset->m_type != ASSET_TYPE_MATERIAL || asset->IsReference()) continue;
+        const auto* material = static_cast<const Material*>(asset->m_ptr);
+        if (!first_material) definitions << ',';
+        first_material = false;
+        definitions << std::quoted(material->info.name) << ":{\"family\":"
+                    << std::quoted(material->techniqueSet->name) << ",\"textures\":[";
+        for (unsigned k = 0; k < material->textureCount; ++k) {
+            if (k) definitions << ',';
+            const auto& t = material->textureTable[k];
+            if (!t.image) throw std::runtime_error("missing material image");
+            definitions << "{\"semantic\":" << unsigned(t.semantic) << ",\"hash\":" << t.nameHash
+                        << ",\"sampler\":" << unsigned(*reinterpret_cast<const unsigned char*>(&t.samplerState))
+                        << ",\"image\":" << std::quoted(t.image->name) << '}';
+        }
+        definitions << "],\"constants\":[";
+        for (unsigned k = 0; k < material->constantCount; ++k) {
+            if (k) definitions << ',';
+            const auto& c = material->constantTable[k];
+            definitions << "{\"hash\":" << c.nameHash << ",\"value\":[";
+            for (unsigned j = 0; j < 4; ++j) {
+                if (j) definitions << ',';
+                const float value = reinterpret_cast<const float*>(&c.literal)[j];
+                if (!std::isfinite(value)) throw std::runtime_error("non-finite material constant");
+                definitions << value;
+            }
+            definitions << "]}";
+        }
+        definitions << "],\"states\":[";
+        for (unsigned k = 0; k < material->stateBitsCount; ++k) {
+            if (k) definitions << ',';
+            definitions << '[' << material->stateBitsTable[k].loadBits.raw[0] << ','
+                        << material->stateBitsTable[k].loadBits.raw[1] << ']';
+        }
+        definitions << "],\"state_entries\":[";
+        for (unsigned k = 0; k < 36; ++k) {
+            if (k) definitions << ',';
+            definitions << unsigned(static_cast<unsigned char>(material->stateBitsEntry[k]));
+        }
+        definitions << "]}";
+    }
+    definitions << '}';
+    if (!definitions.good()) throw std::runtime_error("material definition write failed");
+    std::ofstream inventory("asset-inventory.json");
+    inventory << "{\"models\":[";
+    bool first_asset = true;
+    for (auto* asset : m_zone.m_pools) {
+        if (asset->m_type != ASSET_TYPE_XMODEL || asset->IsReference()) continue;
+        const auto* model = static_cast<const XModel*>(asset->m_ptr);
+        if (!first_asset) inventory << ',';
+        first_asset = false;
+        inventory << "{\"name\":" << std::quoted(model->name)
+                  << ",\"lods\":" << unsigned(model->numLods) << '}';
+    }
+    inventory << "],\"images\":[";
+    first_asset = true;
+    for (auto* asset : m_zone.m_pools) {
+        if (asset->m_type != ASSET_TYPE_IMAGE || asset->IsReference()) continue;
+        const auto* image = static_cast<const GfxImage*>(asset->m_ptr);
+        if (!first_asset) inventory << ',';
+        first_asset = false;
+        inventory << "{\"name\":" << std::quoted(image->name)
+                  << ",\"name_hash\":" << image->hash
+                  << ",\"data_hash\":" << (image->streamedPartCount ? image->streamedParts[0].hash : 0)
+                  << ",\"width\":" << image->width << ",\"height\":" << image->height
+                  << ",\"depth\":" << image->depth << ",\"mips\":" << unsigned(image->levelCount)
+                  << ",\"map_type\":" << unsigned(image->mapType)
+                  << ",\"semantic\":" << unsigned(image->semantic) << '}';
+    }
+    inventory << "]}";
+    if (!inventory.good()) throw std::runtime_error("asset inventory write failed");
     std::ofstream out("static-instances.json");
     out << std::setprecision(9) << "[";
     std::ofstream surfaces("model-surfaces.json");
@@ -161,7 +238,11 @@ void ContentPrinter::PrintContent() const {
     for (auto* asset : m_zone.m_pools) {
         if (asset->m_type != ASSET_TYPE_IMAGE || asset->IsReference()) continue;
         const auto* image = static_cast<const GfxImage*>(asset->m_ptr);
-        if (!required.contains(image)) continue;
+        if (!required.contains(image) && !std::getenv("ORIGINS_INCLUDE_ALL_IMAGES")) continue;
+        // Generated reflection targets have no authored IWI/load-def payload.
+        // Preserve their declaration in the inventory, without decoding a live
+        // texture handle as if it were an offline load definition.
+        if (library && image->name[0] == '*') continue;
         auto relative = std::filesystem::path(std::string(image->name) + ".dds");
         if (relative.is_absolute()) throw std::runtime_error("absolute image name");
         for (const auto& part : relative)

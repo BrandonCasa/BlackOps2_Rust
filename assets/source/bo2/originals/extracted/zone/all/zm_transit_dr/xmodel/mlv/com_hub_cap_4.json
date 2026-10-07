@@ -1,0 +1,27 @@
+{
+    "$schema": "http://openassettools.dev/schema/xmodel.v1.json",
+    "_game": "t6",
+    "_type": "xmodel",
+    "_version": 2,
+    "collLod": 1,
+    "flags": 2097152,
+    "lightingOriginOffset": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.5
+    },
+    "lightingOriginRange": 0.5,
+    "lods": [
+        {
+            "distance": 300.0,
+            "file": "model_export/mlv/com_hub_cap_4_lod0.gltf"
+        },
+        {
+            "distance": 1500.0,
+            "file": "model_export/mlv/com_hub_cap_4_lod1.gltf"
+        }
+    ],
+    "physPreset": "hub_cap",
+    "rootBoneName": "com_hub_caps_4_lod_0",
+    "type": "rigid"
+}

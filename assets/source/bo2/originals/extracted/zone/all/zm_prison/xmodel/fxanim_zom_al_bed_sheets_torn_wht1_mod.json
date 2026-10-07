@@ -1,0 +1,25 @@
+{
+    "$schema": "http://openassettools.dev/schema/xmodel.v1.json",
+    "_game": "t6",
+    "_type": "xmodel",
+    "_version": 2,
+    "flags": 2097152,
+    "lightingOriginOffset": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.5
+    },
+    "lightingOriginRange": 0.5,
+    "lods": [
+        {
+            "distance": 500.0,
+            "file": "model_export/fxanim_zom_al_bed_sheets_torn_wht1_mod_lod0.gltf"
+        },
+        {
+            "distance": 2000.0,
+            "file": "model_export/fxanim_zom_al_bed_sheets_torn_wht1_mod_lod1.gltf"
+        }
+    ],
+    "rootBoneName": "fxanim_zom_bedsheet_torn_wht1_lod0_mod",
+    "type": "rigid"
+}

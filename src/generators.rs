@@ -9,7 +9,8 @@ use crate::{
     player::Player,
 };
 use bevy::prelude::*;
-use std::collections::{BTreeMap, BTreeSet};
+use bevy::world_serialization::WorldInstanceReady;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Aim at the near side of the authored use volume, ahead of its solid stand.
 pub(crate) fn use_point(origin: Vec3, eye: Vec3, box_size: f32) -> Vec3 {
@@ -115,7 +116,11 @@ pub struct GeneratorVisual {
     sound_state: Option<GeneratorState>,
     sound_clip: usize,
     sound_time: f32,
+    players: Vec<Entity>,
+    recorded_clips: u8,
 }
+#[derive(Resource, Default)]
+struct GeneratorGraphs(HashMap<AssetId<Gltf>, (Handle<AnimationGraph>, Vec<AnimationNodeIndex>)>);
 #[derive(Component)]
 struct GeneratorPlayback;
 #[derive(Component)]
@@ -129,7 +134,9 @@ pub struct GeneratorPlugin;
 impl Plugin for GeneratorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Generators>()
+            .init_resource::<GeneratorGraphs>()
             .add_systems(OnEnter(GameState::Playing), assemble)
+            .add_observer(visual_ready)
             .add_systems(
                 FixedUpdate,
                 defender_intent
@@ -159,9 +166,16 @@ fn defender_intent(
     mut commands: Commands,
     definition: Res<GameDefinition>,
     players: Query<(&Transform, &Vitality), With<Player>>,
-    defenders: Query<(Entity, &GeneratorDefender), Without<Player>>,
+    defenders: Query<
+        (
+            Entity,
+            &GeneratorDefender,
+            Option<&crate::enemies::EnemyGoal>,
+        ),
+        Without<Player>,
+    >,
 ) {
-    for (entity, guard) in &defenders {
+    for (entity, guard, current_goal) in &defenders {
         let Some(d) = definition
             .content
             .generators
@@ -183,18 +197,27 @@ fn defender_intent(
             v.state() == LifeState::Standing
                 && t.translation.distance_squared(origin) < 17.78 * 17.78
         }) {
-            commands
-                .entity(entity)
-                .remove::<crate::enemies::EnemyGoal>();
+            if current_goal.is_some() {
+                commands
+                    .entity(entity)
+                    .remove::<crate::enemies::EnemyGoal>();
+            }
         } else {
             let rotation = Quat::from_rotation_y(p.yaw);
             let offset =
                 rotation * [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z][guard.slot % 4] * 1.3208;
-            commands.entity(entity).insert(crate::enemies::EnemyGoal {
+            let goal = crate::enemies::EnemyGoal {
                 position: origin + offset + Vec3::Y * 0.85,
                 face: origin + Vec3::Y * 0.85,
                 radius: 0.762,
-            });
+            };
+            if current_goal.is_none_or(|current| {
+                current.position != goal.position
+                    || current.face != goal.face
+                    || current.radius != goal.radius
+            }) {
+                commands.entity(entity).insert(goal);
+            }
         }
     }
 }
@@ -366,6 +389,8 @@ fn assemble(
                 sound_state: None,
                 sound_clip: usize::MAX,
                 sound_time: -0.001,
+                players: Vec::new(),
+                recorded_clips: 0,
             },
             WorldAssetRoot(server.load(scene.clone())),
             Transform::from_translation(Vec3::from_array(d.model_position))
@@ -373,6 +398,22 @@ fn assemble(
             Visibility::Inherited,
         ));
     }
+}
+/// Scene ownership gives us a single discovery point. The cached IDs belong to
+/// this session's visual root, so restart naturally retires the entire binding.
+fn visual_ready(
+    event: On<WorldInstanceReady>,
+    mut visuals: Query<&mut GeneratorVisual>,
+    children: Query<&Children>,
+    players: Query<(), With<AnimationPlayer>>,
+) {
+    let Ok(mut visual) = visuals.get_mut(event.entity) else {
+        return;
+    };
+    visual.players = children
+        .iter_descendants(event.entity)
+        .filter(|child| players.contains(*child))
+        .collect();
 }
 fn tick(
     time: Res<Time<Fixed>>,
@@ -458,11 +499,12 @@ fn presentation(
     mut generators: ResMut<Generators>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
+    mut graph_cache: ResMut<GeneratorGraphs>,
     mut visuals: Query<(Entity, &mut GeneratorVisual)>,
-    children: Query<&Children>,
     mut players: Query<(&mut AnimationPlayer, Option<&GeneratorPlayback>)>,
     audio: Query<(Entity, &GeneratorAudio)>,
 ) {
+    let _span = info_span!("generator_presentation").entered();
     for (entity, mut visual) in &mut visuals {
         let Some(d) = definition
             .content
@@ -562,8 +604,11 @@ fn presentation(
             if g.animations.len() != 8 {
                 continue;
             }
-            let (graph, nodes) = AnimationGraph::from_clips(g.animations.clone());
-            visual.graph = Some((graphs.add(graph), nodes));
+            let graph = graph_cache.0.entry(visual.source.id()).or_insert_with(|| {
+                let (graph, nodes) = AnimationGraph::from_clips(g.animations.clone());
+                (graphs.add(graph), nodes)
+            });
+            visual.graph = Some(graph.clone());
             generators.animated += 1;
         }
         let (index, elapsed) = match state {
@@ -613,7 +658,8 @@ fn presentation(
             GeneratorState::Active => (6, age % d.clip_seconds[6]),
             _ => (5, d.clip_seconds[5]),
         };
-        for child in children.iter_descendants(entity) {
+        let mut recorded_clips = visual.recorded_clips;
+        for &child in &visual.players {
             let Ok((mut player, attached)) = players.get_mut(child) else {
                 continue;
             };
@@ -627,24 +673,41 @@ fn presentation(
                 player.stop_all();
                 player.play(node);
             }
-            if let Some(active) = player.animation_mut(node) {
+            if player
+                .animation(node)
+                .is_some_and(|a| a.seek_time() != elapsed)
+                && let Some(active) = player.animation_mut(node)
+            {
                 active.seek_to(elapsed);
             }
             let fluid_node = nodes[fluid];
             for (i, other) in nodes.iter().enumerate().skip(4) {
-                if i != fluid {
+                if i != fluid && player.is_playing_animation(*other) {
                     player.stop(*other);
                 }
             }
             if player.animation(fluid_node).is_none() {
                 player.play(fluid_node);
             }
-            if let Some(active) = player.animation_mut(fluid_node) {
+            if player
+                .animation(fluid_node)
+                .is_some_and(|a| a.seek_time() != fluid_age)
+                && let Some(active) = player.animation_mut(fluid_node)
+            {
                 active.seek_to(fluid_age);
             }
-            player.pause_all();
-            generators.playback.insert(format!("{}:{index}", d.id.0));
-            generators.playback.insert(format!("{}:{fluid}", d.id.0));
+            if !player.all_paused() {
+                player.pause_all();
+            }
+            // At most eight owned strings per generator, rather than two new
+            // strings per player on every presentation frame.
+            for clip in [index, fluid] {
+                if recorded_clips & (1 << clip) == 0 {
+                    generators.playback.insert(format!("{}:{clip}", d.id.0));
+                    recorded_clips |= 1 << clip;
+                }
+            }
         }
+        visual.recorded_clips = recorded_clips;
     }
 }

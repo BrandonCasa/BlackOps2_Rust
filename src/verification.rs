@@ -44,6 +44,7 @@ pub(crate) struct Verification {
     combat: bool,
     only_view: bool,
     moving_view: bool,
+    hands_view: bool,
     started: Instant,
     playing: f32,
     stage: usize,
@@ -208,6 +209,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             combat: options.benchmark_combat,
             only_view: options.benchmark_view.is_some(),
             moving_view: options.benchmark_motion,
+            hands_view: options.benchmark_hands,
             started: Instant::now(),
             playing: 0.,
             stage: 0,
@@ -574,8 +576,14 @@ fn check(
     mut next: ResMut<NextState<GameState>>,
     enemies: Query<(&Transform, &Zombie), Without<Player>>,
     query: avian3d::prelude::SpatialQuery,
-    surfaces: Res<crate::rendering::OpaqueSurfaceStatus>,
-    profile: Res<crate::rendering::profile::VisualProfile>,
+    render_status: (
+        Res<crate::rendering::OpaqueSurfaceStatus>,
+        Res<crate::rendering::TextureStreamingStats>,
+        Res<crate::rendering::profile::VisualProfile>,
+        Res<crate::rendering::StaticGiStats>,
+        Res<crate::rendering::RaySurfaceStats>,
+        Res<crate::rendering::RayContributorStats>,
+    ),
     mut cameras: Query<
         (&Transform, &mut Projection),
         (
@@ -585,10 +593,16 @@ fn check(
         ),
     >,
     mut overlays: Query<
-        (&mut Visibility, Option<&crate::hud::Crosshair>),
+        (
+            &mut Visibility,
+            Option<&crate::hud::Crosshair>,
+            Option<&crate::presentation::ViewModelGroup>,
+        ),
         With<crate::hud::PlayerOverlay>,
     >,
 ) {
+    let mut screenshot = None;
+    let (surfaces, streaming, profile, shared_gi, ray_surfaces, ray_contributors) = render_status;
     let (
         session,
         history,
@@ -652,9 +666,11 @@ fn check(
         .map_or(0, |w| w.magazine);
     if verification.stage == 0 {
         if verification.grenades && equipment.detonations > 0 && !verification.grenade_flash_frame {
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk(verification.output.join("grenade-blast.png")));
+            capture(
+                &mut commands,
+                &mut screenshot,
+                verification.output.join("grenade-blast.png"),
+            );
             verification.grenade_flash_frame = true;
         }
         if !verification.enemy_attack_frame
@@ -664,9 +680,11 @@ fn check(
                     && z.elapsed < 0.75
             })
         {
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk(verification.output.join("zombie-attack.png")));
+            capture(
+                &mut commands,
+                &mut screenshot,
+                verification.output.join("zombie-attack.png"),
+            );
             verification.enemy_attack_frame = true;
         }
         if !verification.enemy_death_frame
@@ -677,9 +695,11 @@ fn check(
                     && z.elapsed < 0.7
             })
         {
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk(verification.output.join("zombie-death.png")));
+            capture(
+                &mut commands,
+                &mut screenshot,
+                verification.output.join("zombie-death.png"),
+            );
             verification.enemy_death_frame = true;
         }
         for (_, _, _, inventory, _, _) in &players {
@@ -687,17 +707,21 @@ fn check(
                 && matches!(inventory.action,
                 crate::weapons::WeaponAction::Melee { remaining, .. } if remaining < 0.42 && remaining > 0.30)
             {
-                commands
-                    .spawn(Screenshot::primary_window())
-                    .observe(save_to_disk(verification.output.join("knife-melee.png")));
+                capture(
+                    &mut commands,
+                    &mut screenshot,
+                    verification.output.join("knife-melee.png"),
+                );
                 verification.melee_frame = true;
             }
             verification.recoil_seen |= inventory.recoil.length_squared() > 0.000001;
             if inventory.ads >= 0.99 && !verification.ads_seen {
                 verification.ads_seen = true;
-                commands
-                    .spawn(Screenshot::primary_window())
-                    .observe(save_to_disk(verification.output.join("ads.png")));
+                capture(
+                    &mut commands,
+                    &mut screenshot,
+                    verification.output.join("ads.png"),
+                );
             }
         }
     }
@@ -712,17 +736,21 @@ fn check(
         verification.playing = 0.;
         next.set(GameState::Paused);
     }
-    for (mut visibility, crosshair) in &mut overlays {
+    for (mut visibility, crosshair, viewmodel) in &mut overlays {
         if crosshair.is_some() && verification.stage != 1 {
             continue;
         }
-        *visibility = if verification.stage == 1 {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        };
+        *visibility =
+            if verification.stage == 1 && !(verification.hands_view && viewmodel.is_some()) {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            };
     }
-    if verification.started.elapsed().as_secs() > if verification.benchmark { 360 } else { 180 }
+    // Allocation-instrumented captures include loading and full combat before
+    // their sampled window. Keep a bounded deadline without discarding a slow
+    // but advancing workload before the round transition and restart receipts.
+    if verification.started.elapsed().as_secs() > if verification.benchmark { 900 } else { 180 }
         || **state == GameState::LoadError
         || (**state == GameState::GameOver && verification.stage == 0)
     {
@@ -745,11 +773,11 @@ fn check(
     }
     if verification.stage == 2 && **state == GameState::GameOver {
         if (verification.health || verification.grenades) && !verification.death_frame {
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk(
-                    verification.output.join("player-game-over.png"),
-                ));
+            capture(
+                &mut commands,
+                &mut screenshot,
+                verification.output.join("player-game-over.png"),
+            );
             verification.death_frame = true;
             return;
         }
@@ -776,28 +804,32 @@ fn check(
             && health.current() != Some(health.maximum())
             && recovery.age < 0.3
         {
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk(verification.output.join("player-hurt.png")));
+            capture(
+                &mut commands,
+                &mut screenshot,
+                verification.output.join("player-hurt.png"),
+            );
             verification.damage_frame = true;
         }
         if !verification.healed_frame
             && !health_evidence.heals.is_empty()
             && health.current() == Some(health.maximum())
         {
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk(
-                    verification.output.join("player-recovered.png"),
-                ));
+            capture(
+                &mut commands,
+                &mut screenshot,
+                verification.output.join("player-recovered.png"),
+            );
             verification.healed_frame = true;
         }
     }
     if verification.initial.is_none() {
         verification.initial = Some(transform.translation);
-        commands
-            .spawn(Screenshot::primary_window())
-            .observe(save_to_disk(verification.output.join("spawn.png")));
+        capture(
+            &mut commands,
+            &mut screenshot,
+            verification.output.join("spawn.png"),
+        );
     }
     verification.moved |= verification
         .initial
@@ -829,9 +861,11 @@ fn check(
                 floor.map(|f| (f.distance, f.normal))
             );
         }
-        commands
-            .spawn(Screenshot::primary_window())
-            .observe(save_to_disk(verification.output.join("playing.png")));
+        capture(
+            &mut commands,
+            &mut screenshot,
+            verification.output.join("playing.png"),
+        );
     }
     if verification.stage == 0 && session.round >= if verification.rounds { 3 } else { 2 } {
         verification.combat_receipt = serde_json::json!({
@@ -856,9 +890,11 @@ fn check(
         }
         verification.playing = 0.;
         next.set(GameState::Paused);
-        commands
-            .spawn(Screenshot::primary_window())
-            .observe(save_to_disk(verification.output.join("round-two.png")));
+        capture(
+            &mut commands,
+            &mut screenshot,
+            verification.output.join("round-two.png"),
+        );
     }
     if verification.stage == 1 && verification.playing > 1. {
         let view = visual_view(verification.survey, &definition, verification.only_view);
@@ -901,13 +937,13 @@ fn check(
                 if verification.reported < 12
                     && verification.playing > 60.4 + verification.reported as f32 * 0.5
                 {
-                    commands
-                        .spawn(Screenshot::primary_window())
-                        .observe(save_to_disk(
-                            verification
-                                .output
-                                .join(format!("rotation-{}.png", verification.reported)),
-                        ));
+                    capture(
+                        &mut commands,
+                        &mut screenshot,
+                        verification
+                            .output
+                            .join(format!("rotation-{}.png", verification.reported)),
+                    );
                     verification.reported += 1;
                 }
             }
@@ -938,13 +974,13 @@ fn check(
                 if water_view {
                     verification.water_times.push(real_time.elapsed_secs());
                 }
-                commands
-                    .spawn(Screenshot::primary_window())
-                    .observe(save_to_disk(
-                        verification
-                            .output
-                            .join(format!("map-{}.png", verification.survey)),
-                    ));
+                capture(
+                    &mut commands,
+                    &mut screenshot,
+                    verification
+                        .output
+                        .join(format!("map-{}.png", verification.survey)),
+                );
                 verification.survey += 1;
                 verification.playing = 0.;
                 if verification.only_view {
@@ -1014,6 +1050,7 @@ fn check(
             && rounds_exercised
             && restart_damage_clear
             && surfaces.pending == 0
+            && streaming.errors == 0
             && if verification.benchmark {
                 (!verification.combat || verification.round_two)
                     && verification.camera_views.len()
@@ -1063,6 +1100,13 @@ fn check(
             "survey_views":verification.camera_views.len(), "water_animation_seconds":verification.water_times,
             "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
         receipt["navigation"] = serde_json::json!({"nodes":navigation.node_count(),"links":navigation.link_count(),"rejected_nodes":navigation.rejected_nodes,"rejected_links":navigation.rejected_links,"requests":navigation.requests,"cache_hits":navigation.cache_hits,"fallbacks":navigation.fallbacks,"admissions":navigation.admissions.len()});
+        receipt["texture_streaming"] =
+            serde_json::to_value(&*streaming).expect("Serializable streaming counters");
+        receipt["shared_lighting"] = serde_json::json!({
+            "ddgi_batches":shared_gi.updates(), "reflection_frames":shared_gi.reflections(),
+            "scene_refreshes": shared_gi.scene_refreshes(),
+            "ray_feedback":&*ray_surfaces, "contributors":&*ray_contributors,
+        });
         receipt["enemy_traversal"] = serde_json::json!({"started":enemy_evidence.traversals_started,"finished":enemy_evidence.traversals_finished,"rising_finished":enemy_evidence.rising_finished,"blocked_landings":enemy_evidence.traversal_blocked_landings,"adjusted_landings":enemy_evidence.adjusted_landings});
         receipt["enemy_navigation"] = serde_json::json!({"replans":enemy_evidence.replans,"target_replans":enemy_evidence.target_replans,"blocker_replans":enemy_evidence.blocker_replans,"direct_pursuits":enemy_evidence.direct_pursuits,"stuck_recoveries":enemy_evidence.stuck_recoveries,"separations":enemy_evidence.separations});
         receipt["monkeys_exercised"] = verification.monkeys_exercised.into();
@@ -1084,6 +1128,14 @@ fn check(
 
 // Additional actual-map views target the supplied spawn-room references and a
 // retained puddle. The repeated water view checks animation at a stationary camera.
+fn capture(commands: &mut Commands, frame: &mut Option<Entity>, path: PathBuf) {
+    // All labels requested during this check observe the same rendered frame.
+    // Share its native capture instead of submitting duplicate window targets,
+    // which Bevy drops before either observer can save the skipped request.
+    let entity = *frame.get_or_insert_with(|| commands.spawn(Screenshot::primary_window()).id());
+    commands.entity(entity).observe(save_to_disk(path));
+}
+
 fn visual_view(
     index: usize,
     definition: &GameDefinition,

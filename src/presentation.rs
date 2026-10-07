@@ -11,12 +11,17 @@ use crate::{
 };
 use bevy::{
     camera::{
-        Exposure, Hdr,
+        CameraOutputMode, Exposure, Hdr,
         visibility::{NoFrustumCulling, RenderLayers},
     },
-    core_pipeline::tonemapping::Tonemapping,
+    core_pipeline::tonemapping::{Tonemapping, TonemappingLuts},
     light::NotShadowCaster,
+    post_process::auto_exposure::{AutoExposure, AutoExposureCompensationCurve},
     prelude::*,
+    render::{
+        render_resource::BlendState,
+        view::{ColorGrading, ColorGradingGlobal},
+    },
     world_serialization::WorldInstanceReady,
 };
 use std::collections::BTreeMap;
@@ -50,7 +55,7 @@ struct FirstPerson {
     weapon: WeaponId,
 }
 #[derive(Component)]
-struct ViewModelGroup {
+pub(crate) struct ViewModelGroup {
     owner: Entity,
 }
 #[derive(Component)]
@@ -119,16 +124,42 @@ impl Plugin for PresentationPlugin {
 }
 pub(crate) fn first_person_light(
     mut commands: Commands,
-    cameras: Query<Entity, With<GameCamera>>,
+    mut cameras: Query<(Entity, &mut Camera), With<GameCamera>>,
     profile: Res<crate::rendering::profile::VisualProfile>,
+    mut curves: ResMut<Assets<AutoExposureCompensationCurve>>,
+    mut images: ResMut<Assets<Image>>,
+    mut luts: ResMut<TonemappingLuts>,
 ) {
-    for camera in &cameras {
+    crate::rendering::grading::install(&mut images, &mut luts, &profile);
+    // Meter the composed linear HDR image once. A roof is not a light meter:
+    // bright ruins must not receive the dark-room exposure boost. Target
+    // photographic middle gray and bound adaptation using the authored EVs.
+    let middle_gray = 0.18_f32.log2();
+    let brighten = (profile.outdoor_ev100 - profile.indoor_ev100).clamp(0., 5.);
+    let compensation = curves.add(
+        AutoExposureCompensationCurve::from_curve(bevy::math::cubic_splines::LinearSpline::new([
+            Vec2::new(-8., -8. + brighten),
+            Vec2::new(middle_gray - brighten, middle_gray),
+            Vec2::new(middle_gray + 1., middle_gray),
+            Vec2::new(8., 7.),
+        ]))
+        .expect("Monotonic exposure compensation curve"),
+    );
+    for (camera, mut world_camera) in &mut cameras {
+        // Both views already compose into the same linear HDR intermediate.
+        // Publish only the completed image; alpha-blending it over an earlier
+        // untonemapped world output makes translucent surfaces reveal that copy.
+        world_camera.output_mode = CameraOutputMode::Skip;
         commands.entity(camera).with_children(|parent| {
-            parent.spawn((
+            let mut final_camera = parent.spawn((
                 Camera3d::default(),
                 Camera {
                     order: 1,
                     clear_color: ClearColorConfig::None,
+                    output_mode: CameraOutputMode::Write {
+                        blend_state: Some(BlendState::REPLACE),
+                        clear_color: ClearColorConfig::None,
+                    },
                     ..default()
                 },
                 Projection::Perspective(PerspectiveProjection {
@@ -140,9 +171,23 @@ pub(crate) fn first_person_light(
                 Transform::default(),
                 Hdr,
                 Exposure {
-                    ev100: profile.indoor_ev100,
+                    ev100: profile.outdoor_ev100,
+                },
+                AutoExposure {
+                    speed_brighten: profile.adaptation_speed,
+                    speed_darken: profile.adaptation_speed,
+                    compensation_curve: compensation.clone(),
+                    ..default()
                 },
                 Tonemapping::AgX,
+                ColorGrading {
+                    global: ColorGradingGlobal {
+                        post_saturation: profile.post_saturation,
+                        ..default()
+                    },
+                    ..default()
+                },
+                crate::rendering::postprocess::bloom(&profile),
                 match profile.antialiasing {
                     crate::rendering::profile::Antialiasing::Msaa4 => Msaa::Sample4,
                     crate::rendering::profile::Antialiasing::Smaa => Msaa::Off,
@@ -151,19 +196,12 @@ pub(crate) fn first_person_light(
                 ViewModelCamera,
                 Name::new("First-person camera"),
             ));
-            parent.spawn((
-                PointLight {
-                    color: Color::srgb(0.70, 0.80, 0.90),
-                    intensity: 25_000.,
-                    range: 3.,
-                    radius: 0.15,
-                    shadow_maps_enabled: false,
-                    ..default()
-                },
-                Transform::from_xyz(-0.3, 0.5, 0.4),
-                RenderLayers::layer(1),
-                Name::new("First-person reconstruction fill"),
-            ));
+            if matches!(
+                profile.antialiasing,
+                crate::rendering::profile::Antialiasing::Smaa
+            ) {
+                final_camera.insert(crate::rendering::postprocess::smaa());
+            }
         });
     }
 }

@@ -4,30 +4,43 @@ use crate::assets::WorldCollider;
 use bevy::{
     camera::primitives::{Aabb, CubemapFrusta, Sphere},
     camera::visibility::{
-        CubemapVisibleEntities, RenderLayers, SetViewVisibility, VisibilitySystems,
+        CubemapVisibleEntities, NoCpuCulling, RenderLayers, SetViewVisibility, VisibilitySystems,
     },
     core_pipeline::schedule::{Core3d, RootNonCameraView},
     ecs::{
         change_detection::Tick,
-        schedule::{ScheduleLabel, SingleThreadedExecutor},
+        schedule::{ConditionWithAccess, ScheduleLabel, SingleThreadedExecutor},
     },
     light::{NotShadowCaster, SimulationLightSystems},
     pbr::{
-        ExtractedDirectionalLight, ExtractedPointLight, LightEntity, Shadow, ShadowView,
-        ViewShadowBindings,
+        BinUnpackingBindGroups, ExtractedDirectionalLight, ExtractedPointLight, LightEntity,
+        MeshInputUniform, MeshUniform, PendingShadowQueues, Shadow, ShadowView,
+        SpecializedShadowMaterialPipelineCache, SpecializedShadowMaterialViewPipelineCache,
+        ViewLightEntities, ViewShadowBindings,
     },
     prelude::*,
     render::{
         Render, RenderApp, RenderSystems,
-        batching::gpu_preprocessing::{GpuPreprocessingMode, GpuPreprocessingSupport},
+        batching::gpu_preprocessing::{
+            BatchedInstanceBuffers, BinUnpackingBuffers, BinUnpackingBuffersKey,
+            GpuPreprocessingMode, GpuPreprocessingSupport,
+        },
+        camera::{DirtySpecializations, ViewPendingQueues},
         extract_resource::{ExtractResource, ExtractResourcePlugin},
+        occlusion_culling::OcclusionCulling,
         render_phase::{BinnedRenderPhase, ViewBinnedRenderPhases},
         render_resource::{CachedPipelineState, PipelineCache, TextureId},
+        renderer::CurrentView,
         sync_world::MainEntity,
-        view::{ExtractedView, NoIndirectDrawing, RetainedViewEntity},
+        view::{
+            ExtractedView, NoIndirectDrawing, RenderExtractedShadowMapVisibleEntities,
+            RenderShadowMapVisibleEntities, RetainedViewEntity,
+            visibility::collect_visible_cpu_culled_entities,
+        },
     },
 };
 use std::{
+    any::TypeId,
     collections::{HashMap, HashSet},
     sync::{
         Arc, Mutex,
@@ -42,8 +55,31 @@ pub(crate) struct ShadowCacheStats {
     allocations: Arc<AtomicU64>,
     caster_changes: Arc<AtomicU64>,
     visibility_reused: Arc<AtomicU64>,
+    render_visibility_reused: Arc<AtomicU64>,
     directional_rendered: Arc<AtomicU64>,
     directional_reused: Arc<AtomicU64>,
+    specialization_runs: Arc<AtomicU64>,
+    specialization_skipped: Arc<AtomicU64>,
+    specialization_protected_views: Arc<AtomicU64>,
+    specialization_protected_entries: Arc<AtomicU64>,
+    specialization_revived_entries: Arc<AtomicU64>,
+    specialization_invalidated_entries: Arc<AtomicU64>,
+    specialization_epoch_resets: Arc<AtomicU64>,
+    indexed_skin_checks: Arc<AtomicU64>,
+    fallback_skin_checks: Arc<AtomicU64>,
+    invalid_skin_poses: Arc<AtomicU64>,
+    raster_influence_masks: Arc<AtomicU64>,
+    refreshed_raster_influence_masks: Arc<AtomicU64>,
+    translucent_skin_checks: Arc<AtomicU64>,
+    late_indirect_runs: Arc<AtomicU64>,
+    late_indirect_skipped: Arc<AtomicU64>,
+    late_indirect_fallbacks: Arc<AtomicU64>,
+    direct_shadow_phase_resets: Arc<AtomicU64>,
+    indirect_stage_runs: [Arc<AtomicU64>; 3],
+    indirect_stage_skipped: [Arc<AtomicU64>; 3],
+    indirect_stage_fallbacks: [Arc<AtomicU64>; 3],
+    removed_directional_roots: Arc<AtomicU64>,
+    restored_directional_children: Arc<AtomicU64>,
 }
 
 impl ShadowCacheStats {
@@ -56,6 +92,35 @@ impl ShadowCacheStats {
             "texture_allocation_changes": self.allocations.load(Ordering::Relaxed),
             "changed_caster_bounds": self.caster_changes.load(Ordering::Relaxed),
             "reused_light_visibility_checks": self.visibility_reused.load(Ordering::Relaxed),
+            "reused_render_light_visibility_lists": self.render_visibility_reused.load(Ordering::Relaxed),
+            "native_specialization_runs": self.specialization_runs.load(Ordering::Relaxed),
+            "native_specialization_skipped_frames": self.specialization_skipped.load(Ordering::Relaxed),
+            "protected_specialization_views": self.specialization_protected_views.load(Ordering::Relaxed),
+            "protected_specialization_entries": self.specialization_protected_entries.load(Ordering::Relaxed),
+            "revived_specialization_entries": self.specialization_revived_entries.load(Ordering::Relaxed),
+            "invalidated_specialization_entries": self.specialization_invalidated_entries.load(Ordering::Relaxed),
+            "specialization_epoch_resets": self.specialization_epoch_resets.load(Ordering::Relaxed),
+            "indexed_skin_pose_checks": self.indexed_skin_checks.load(Ordering::Relaxed),
+            "full_joint_fallback_checks": self.fallback_skin_checks.load(Ordering::Relaxed),
+            "invalid_skin_pose_checks": self.invalid_skin_poses.load(Ordering::Relaxed),
+            "independent_raster_influence_masks": self.raster_influence_masks.load(Ordering::Relaxed),
+            "refreshed_raster_influence_masks": self.refreshed_raster_influence_masks.load(Ordering::Relaxed),
+            "translucent_indexed_skin_pose_checks": self.translucent_skin_checks.load(Ordering::Relaxed),
+            "native_late_indirect_runs": self.late_indirect_runs.load(Ordering::Relaxed),
+            "native_late_indirect_skipped_views": self.late_indirect_skipped.load(Ordering::Relaxed),
+            "native_late_indirect_conservative_fallbacks": self.late_indirect_fallbacks.load(Ordering::Relaxed),
+            "direct_shadow_phase_resets": self.direct_shadow_phase_resets.load(Ordering::Relaxed),
+            "native_indirect_clear_runs": self.indirect_stage_runs[0].load(Ordering::Relaxed),
+            "native_indirect_clear_skipped_views": self.indirect_stage_skipped[0].load(Ordering::Relaxed),
+            "native_indirect_clear_conservative_fallbacks": self.indirect_stage_fallbacks[0].load(Ordering::Relaxed),
+            "native_bin_unpack_runs": self.indirect_stage_runs[1].load(Ordering::Relaxed),
+            "native_bin_unpack_skipped_views": self.indirect_stage_skipped[1].load(Ordering::Relaxed),
+            "native_bin_unpack_conservative_fallbacks": self.indirect_stage_fallbacks[1].load(Ordering::Relaxed),
+            "native_early_indirect_runs": self.indirect_stage_runs[2].load(Ordering::Relaxed),
+            "native_early_indirect_skipped_views": self.indirect_stage_skipped[2].load(Ordering::Relaxed),
+            "native_early_indirect_conservative_fallbacks": self.indirect_stage_fallbacks[2].load(Ordering::Relaxed),
+            "removed_duplicate_directional_roots": self.removed_directional_roots.load(Ordering::Relaxed),
+            "restored_native_directional_children": self.restored_directional_children.load(Ordering::Relaxed),
         })
     }
 }
@@ -63,11 +128,35 @@ impl ShadowCacheStats {
 #[derive(Resource)]
 struct CacheEnabled(bool);
 
+// Inserted only after the native phase has actually been configured. A
+// NoIndirectDrawing tag alone doesn't establish the phase's private mode.
+#[derive(Component)]
+struct DirectShadowPhase(GpuPreprocessingMode);
+
 #[derive(Resource, Default, Clone)]
 struct CompletedLights(Arc<Mutex<HashMap<Entity, (u64, u64)>>>);
 
 #[derive(Resource, Default)]
 struct SuspendedVisibility(Vec<(Entity, CubemapVisibleEntities, Tick)>);
+
+#[derive(Clone, PartialEq)]
+struct PointVisibilityStamp {
+    owner: Entity,
+    epoch: u64,
+    revision: u64,
+    world_from_light: Mat4,
+    range: f32,
+    near_z: f32,
+    layers: RenderLayers,
+    frusta: [[Vec4; 6]; 6],
+    preprocessing: GpuPreprocessingMode,
+}
+
+#[derive(Resource, Default)]
+struct CachedLightVisibility {
+    stamps: HashMap<Entity, PointVisibilityStamp>,
+    suspended: Vec<(Entity, RenderExtractedShadowMapVisibleEntities, Tick)>,
+}
 
 #[derive(Resource, Default, Clone, ExtractResource)]
 struct ShadowRevisions {
@@ -88,6 +177,9 @@ struct Casters(
     HashMap<Entity, Bounds>,
     HashMap<Entity, (Mat4, Option<(Vec3, Vec3)>)>,
     HashMap<Entity, Vec<Mat4>>,
+    // Bind sources are immutable. Raster asset edits require refreshed indexed
+    // influences; missing or invalid current data uses full-joint fallback.
+    HashMap<AssetId<Mesh>, Option<Vec<usize>>>,
 );
 
 #[derive(Clone, PartialEq)]
@@ -102,6 +194,7 @@ struct Stamp {
     range: f32,
     bias: Vec2,
     layers: RenderLayers,
+    preprocessing: GpuPreprocessingMode,
 }
 
 #[derive(Resource, Default)]
@@ -109,10 +202,22 @@ struct CachedShadows {
     texture: Option<(TextureId, TextureId)>,
     // Cache texture-slot ownership, not just light identities: camera culling
     // can remap a cube-array slot to a different light.
-    slots: HashMap<String, Stamp>,
-    pending: Vec<(String, Stamp)>,
+    slots: HashMap<(String, Entity), Stamp>,
+    pending: Vec<((String, Entity), Stamp)>,
     suspended_phases: HashMap<RetainedViewEntity, BinnedRenderPhase<Shadow>>,
     suspended_views: HashMap<Entity, ExtractedView>,
+    // The native phase or its suspended owned value carries this mode. Native
+    // empty phases created while that value is parked are placeholders only.
+    phase_modes: HashMap<RetainedViewEntity, GpuPreprocessingMode>,
+    specialization_epoch: Option<u64>,
+    // Native specialization expires caches for views with no ExtractedView.
+    // Park its owned values only across that system, then return them to Bevy.
+    parked_specializations: HashMap<RetainedViewEntity, ParkedSpecialization>,
+}
+
+struct ParkedSpecialization {
+    pipelines: SpecializedShadowMaterialViewPipelineCache,
+    pending: ViewPendingQueues,
 }
 
 pub(super) struct ShadowCachePlugin;
@@ -143,6 +248,10 @@ impl Plugin for ShadowCachePlugin {
             )
             .add_systems(
                 PostUpdate,
+                culling_changes.after(changes).before(suspend_visibility),
+            )
+            .add_systems(
+                PostUpdate,
                 suspend_visibility
                     .after(SimulationLightSystems::UpdateLightFrusta)
                     .before(bevy::light::check_point_light_mesh_visibility),
@@ -160,11 +269,30 @@ impl Plugin for ShadowCachePlugin {
                 .insert_resource(completed)
                 .insert_resource(CacheEnabled(enabled))
                 .init_resource::<CachedShadows>()
+                .init_resource::<CachedLightVisibility>()
+                .add_systems(
+                    Render,
+                    suspend_render_visibility
+                        .after(RenderSystems::ExtractCommands)
+                        .before(collect_visible_cpu_culled_entities),
+                )
+                .add_systems(
+                    Render,
+                    restore_render_visibility
+                        .after(collect_visible_cpu_culled_entities)
+                        .before(RenderSystems::PrepareMeshes),
+                )
                 .add_systems(
                     Render,
                     select
                         .after(RenderSystems::CreateViews)
                         .before(RenderSystems::Specialize),
+                )
+                .add_systems(
+                    Render,
+                    restore_specializations
+                        .after(RenderSystems::Specialize)
+                        .before(RenderSystems::QueueMeshes),
                 )
                 .add_systems(Render, complete.after(RenderSystems::Render))
                 .edit_schedule(Core3d, |schedule| {
@@ -174,6 +302,239 @@ impl Plugin for ShadowCachePlugin {
                 });
         }
     }
+
+    fn finish(&self, app: &mut App) {
+        let Some(render) = app.get_sub_app_mut(RenderApp) else {
+            return;
+        };
+        // This exclusive native system has no public function path. Pin the
+        // locked engine's diagnostic name, as the Solari integration does.
+        // PBR has finished installing it. Attach before the later Solari
+        // finalizer initializes Render and pipelined cleanup takes RenderApp.
+        render.edit_schedule(Render, |schedule| {
+            let keys: Vec<_> = schedule
+                .graph()
+                .systems
+                .iter()
+                .filter_map(|(key, system, _)| {
+                    format!("{}", system.name())
+                        .contains("bevy_pbr::render::light::specialize_shadows")
+                        .then_some(key)
+                })
+                .collect();
+            assert_eq!(keys.len(), 1, "Pinned shadow specialization contract");
+            schedule
+                .graph_mut()
+                .systems
+                .get_conditions_mut(keys[0])
+                .expect("Native shadow conditions")
+                .push(ConditionWithAccess::new(Box::new(IntoSystem::into_system(
+                    specialization_due,
+                ))));
+        });
+        let gpu_meshes = matches!(
+            render
+                .world()
+                .get_resource::<bevy::pbr::RenderMeshInstances>(),
+            Some(bevy::pbr::RenderMeshInstances::GpuBuilding(_))
+        );
+        render.edit_schedule(Core3d, |schedule| {
+            let keys: Vec<_> = schedule
+                .graph()
+                .systems
+                .iter()
+                .filter_map(|(key, system, _)| {
+                    format!("{}", system.name())
+                        .contains("bevy_pbr::render::gpu_preprocess::late_prepass_build_indirect_parameters")
+                        .then_some(key)
+                })
+                .collect();
+            // Native GPU preprocessing is absent on the explicit CPU path
+            // and devices without compute support. Pin the installed system.
+            assert_eq!(
+                keys.len(),
+                usize::from(gpu_meshes),
+                "Pinned late indirect preprocessing contract"
+            );
+            if let Some(&key) = keys.first() {
+                schedule
+                    .graph_mut()
+                    .systems
+                    .get_conditions_mut(key)
+                    .expect("Native late indirect conditions")
+                    .push(ConditionWithAccess::new(Box::new(IntoSystem::into_system(
+                        late_indirect_due,
+                    ))));
+            }
+            for (stage, name) in [
+                "clear_indirect_parameters_metadata",
+                "unpack_bins",
+                "early_prepass_build_indirect_parameters",
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let native_name = format!("bevy_pbr::render::gpu_preprocess::{name}");
+                let keys: Vec<_> = schedule
+                    .graph()
+                    .systems
+                    .iter()
+                    .filter_map(|(key, system, _)| {
+                        format!("{}", system.name())
+                            .contains(&native_name)
+                            .then_some(key)
+                    })
+                    .collect();
+                assert_eq!(
+                    keys.len(),
+                    usize::from(gpu_meshes),
+                    "Pinned native indirect stage contract: {name}"
+                );
+                if let Some(&key) = keys.first() {
+                    let condition = match stage {
+                        0 => ConditionWithAccess::new(Box::new(IntoSystem::into_system(
+                            indirect_stage_due::<0>,
+                        ))),
+                        1 => ConditionWithAccess::new(Box::new(IntoSystem::into_system(
+                            indirect_stage_due::<1>,
+                        ))),
+                        _ => ConditionWithAccess::new(Box::new(IntoSystem::into_system(
+                            indirect_stage_due::<2>,
+                        ))),
+                    };
+                    schedule
+                        .graph_mut()
+                        .systems
+                        .get_conditions_mut(key)
+                        .expect("Native indirect stage conditions")
+                        .push(condition);
+                }
+            }
+        });
+    }
+}
+
+fn indirect_stage_due<const STAGE: usize>(
+    current: Option<Res<CurrentView>>,
+    views: Query<
+        (
+            Has<NoIndirectDrawing>,
+            Option<&DirectShadowPhase>,
+            Option<&ViewLightEntities>,
+        ),
+        With<ExtractedView>,
+    >,
+    lights: Query<&LightEntity>,
+    stats: Res<ShadowCacheStats>,
+) -> bool {
+    let _span = info_span!("shadow_indirect_stage_due", stage = STAGE).entered();
+    let mut fallback = false;
+    let proven_direct = |direct: bool, phase: Option<&DirectShadowPhase>| {
+        direct && phase.is_some_and(|phase| phase.0 != GpuPreprocessingMode::Culling)
+    };
+    let due = if let Some(current) = current
+        && let Ok((direct, phase, children)) = views.get(current.0)
+    {
+        // These native passes operate on global indirect metadata. Direct
+        // point/spot phases consume none of it, but still need their separate
+        // early_gpu_preprocess pass to expand current mesh uniforms.
+        !proven_direct(direct, phase)
+            || children.is_some_and(|children| {
+                children.lights.iter().any(|child| {
+                    match lights.get(*child) {
+                        Ok(LightEntity::Directional { .. }) => {}
+                        Ok(_) => return false,
+                        Err(_) => {
+                            fallback = true;
+                            return true;
+                        }
+                    }
+                    match views.get(*child) {
+                        Ok((direct, phase, _)) => !proven_direct(direct, phase),
+                        Err(_) => {
+                            fallback = true;
+                            true
+                        }
+                    }
+                })
+            })
+    } else {
+        fallback = true;
+        true
+    };
+    if fallback {
+        stats.indirect_stage_fallbacks[STAGE].fetch_add(1, Ordering::Relaxed);
+    }
+    if due {
+        &stats.indirect_stage_runs[STAGE]
+    } else {
+        &stats.indirect_stage_skipped[STAGE]
+    }
+    .fetch_add(1, Ordering::Relaxed);
+    due
+}
+
+fn late_indirect_due(
+    current: Option<Res<CurrentView>>,
+    views: Query<
+        (
+            Has<OcclusionCulling>,
+            Has<NoIndirectDrawing>,
+            Has<bevy::pbr::SkipGpuPreprocess>,
+            Option<&ViewLightEntities>,
+        ),
+        With<ExtractedView>,
+    >,
+    lights: Query<&LightEntity>,
+    stats: Res<ShadowCacheStats>,
+) -> bool {
+    let _span = info_span!("shadow_late_indirect_due").entered();
+    let mut fallback = false;
+    let due = if let Some(current) = current
+        && let Ok((occlusion, direct, skip, children)) = views.get(current.0)
+    {
+        // Native late preprocessing and shadow drawing both skip ordinary
+        // point faces. Its late parameter builder has only a global query
+        // condition, so an unrelated occlusion camera otherwise enables it.
+        (occlusion && !direct && !skip)
+            || children.is_some_and(|children| {
+                children.lights.iter().any(|child| {
+                    // Match native gather_shadow_cascades_for_view: point and
+                    // spot faces execute their own Core3d schedules.
+                    match lights.get(*child) {
+                        Ok(LightEntity::Directional { .. }) => {}
+                        Ok(_) => return false,
+                        Err(_) => {
+                            fallback = true;
+                            return true;
+                        }
+                    }
+                    match views.get(*child) {
+                        Ok((occlusion, direct, skip, _)) => occlusion && !direct && !skip,
+                        Err(_) => {
+                            fallback = true;
+                            true
+                        }
+                    }
+                })
+            })
+    } else {
+        // Missing current-view contract data must retain native work.
+        fallback = true;
+        true
+    };
+    if fallback {
+        stats
+            .late_indirect_fallbacks
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    if due {
+        &stats.late_indirect_runs
+    } else {
+        &stats.late_indirect_skipped
+    }
+    .fetch_add(1, Ordering::Relaxed);
+    due
 }
 
 fn changes(
@@ -192,13 +553,24 @@ fn changes(
     >,
     lights: Query<(Entity, &GlobalTransform, &PointLight, &CubemapFrusta)>,
     skinned: Query<
-        (Entity, &bevy::mesh::skinning::SkinnedMesh),
+        (
+            Entity,
+            Ref<bevy::mesh::skinning::SkinnedMesh>,
+            &Mesh3d,
+            Option<&MeshMaterial3d<StandardMaterial>>,
+            Option<&MeshMaterial3d<OpaqueMaterial>>,
+        ),
         (
             With<bevy::mesh::skinning::SkinnedMesh>,
             Without<NotShadowCaster>,
         ),
     >,
     joints: Query<&GlobalTransform>,
+    skin_assets: (
+        Res<Assets<Mesh>>,
+        Res<Assets<StandardMaterial>>,
+        Res<Assets<OpaqueMaterial>>,
+    ),
     mut removed_meshes: RemovedComponents<Mesh3d>,
     mut removed_standard: RemovedComponents<MeshMaterial3d<StandardMaterial>>,
     mut removed_surface: RemovedComponents<MeshMaterial3d<OpaqueMaterial>>,
@@ -214,14 +586,90 @@ fn changes(
     let mut dirty = Vec::new();
     // A static skin must not invalidate every lantern merely by existing.
     // Changed joint poses invalidate the affected caster's nearby shadow maps.
-    for (entity, skin) in &skinned {
-        let poses: Vec<_> = skin
-            .joints
-            .iter()
-            .filter_map(|joint| joints.get(*joint).ok().map(GlobalTransform::to_matrix))
-            .collect();
-        let changed = casters.2.get(&entity) != Some(&poses);
-        casters.2.insert(entity, poses);
+    let (mesh_assets, standard_assets, surface_assets) = skin_assets;
+    for (entity, skin, mesh, standard, surface) in &skinned {
+        let Casters(_, _, skin_poses, revised_influences) = &mut *casters;
+        // A material primitive can index only the housing of a shared rig.
+        // Match the original raster asset, never its deformed ray provider.
+        if let std::collections::hash_map::Entry::Vacant(entry) =
+            revised_influences.entry(mesh.0.id())
+            && let Some(mesh) = mesh_assets.get(&mesh.0)
+        {
+            let used_joints = super::ray_skin::Source::indexed_joints(mesh);
+            if used_joints.is_some() {
+                stats.raster_influence_masks.fetch_add(1, Ordering::Relaxed);
+            }
+            // Retry absent/loading assets next frame. Invalid native data
+            // stays conservative until an actual asset edit fixes it.
+            entry.insert(used_joints);
+        }
+        let used_joints = revised_influences
+            .get(&mesh.0.id())
+            .and_then(Option::as_deref);
+        if used_joints.is_some() {
+            &stats.indexed_skin_checks
+        } else {
+            &stats.fallback_skin_checks
+        }
+        .fetch_add(1, Ordering::Relaxed);
+        if used_joints.is_some()
+            && standard
+                .and_then(|material| standard_assets.get(&material.0))
+                .map(|material| material.alpha_mode)
+                .or_else(|| {
+                    surface
+                        .and_then(|material| surface_assets.get(&material.0))
+                        .map(|material| material.base.alpha_mode)
+                })
+                .is_some_and(|mode| {
+                    matches!(
+                        mode,
+                        AlphaMode::Blend
+                            | AlphaMode::Premultiplied
+                            | AlphaMode::Add
+                            | AlphaMode::Multiply
+                    )
+                })
+        {
+            stats
+                .translucent_skin_checks
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        let count = used_joints.map_or(skin.joints.len(), <[usize]>::len);
+        let poses = skin_poses.entry(entity).or_default();
+        let mut changed = skin.is_changed() || poses.len() != count;
+        let mut valid = count > 0;
+        for position in 0..count {
+            let index = used_joints.map_or(position, |joints| joints[position]);
+            let Some(joint) = skin.joints.get(index) else {
+                valid = false;
+                break;
+            };
+            let Ok(transform) = joints.get(*joint) else {
+                valid = false;
+                break;
+            };
+            let matrix = transform.to_matrix();
+            if !matrix.is_finite() {
+                valid = false;
+                break;
+            }
+            if let Some(previous) = poses.get_mut(position) {
+                changed |= *previous != matrix;
+                *previous = matrix;
+            } else {
+                poses.push(matrix);
+            }
+        }
+        if valid {
+            poses.truncate(count);
+        } else {
+            // Missing poses are not proof of an unchanged surface. Clear the
+            // partial snapshot and keep invalidating until it is complete.
+            poses.clear();
+            changed = true;
+            stats.invalid_skin_poses.fetch_add(1, Ordering::Relaxed);
+        }
         if changed && let Some(bounds) = casters.0.get(&entity) {
             dirty.push(*bounds);
         }
@@ -350,23 +798,78 @@ fn asset_changes(
     mut surface_events: MessageReader<AssetEvent<OpaqueMaterial>>,
     mut shader_events: MessageReader<AssetEvent<Shader>>,
     mut image_events: MessageReader<AssetEvent<Image>>,
-    server: Res<AssetServer>,
+    mut inverse_bind_events: MessageReader<
+        AssetEvent<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+    >,
+    materials: Res<Assets<StandardMaterial>>,
+    surfaces: Res<Assets<OpaqueMaterial>>,
+    mesh_assets: Res<Assets<Mesh>>,
     mut revisions: ResMut<ShadowRevisions>,
-    casters: Res<Casters>,
+    mut casters: ResMut<Casters>,
     meshes: Query<(
         &Mesh3d,
         Option<&MeshMaterial3d<StandardMaterial>>,
         Option<&MeshMaterial3d<OpaqueMaterial>>,
     )>,
     lights: Query<(Entity, &GlobalTransform, &PointLight, &CubemapFrusta)>,
+    stats: Res<ShadowCacheStats>,
 ) {
-    // Asset messages are published in Last, before extraction. A material or
+    // Asset messages are published in PostUpdate, before extraction. A material or
     // newly available mesh affects its users, not every lantern in the map.
-    let mut geometry_modified = false;
+    if inverse_bind_events.read().any(|event| {
+        matches!(
+            event,
+            AssetEvent::Modified { .. } | AssetEvent::Removed { .. }
+        )
+    }) {
+        // Joint transforms alone cannot reveal edited inverse bind matrices.
+        // Invalidate immediately and rebuild the pose snapshots next frame.
+        revisions.epoch = revisions.epoch.wrapping_add(1);
+        casters.2.clear();
+    }
+    let mut modified_mesh_ids = HashSet::new();
     let mesh_ids: HashSet<_> = mesh_events
         .read()
         .filter_map(|event| {
-            geometry_modified |= matches!(event, AssetEvent::Modified { .. });
+            match event {
+                AssetEvent::Modified { id } => {
+                    modified_mesh_ids.insert(*id);
+                    if casters.3.contains_key(id) {
+                        // Surface preparation can edit attributes before the
+                        // bind source is admitted in this same frame. Read the
+                        // current raster asset instead of retiring that valid
+                        // source, or trusting old weights after later edits.
+                        let used_joints = mesh_assets
+                            .get(*id)
+                            .and_then(super::ray_skin::Source::indexed_joints);
+                        if used_joints.is_some() {
+                            stats
+                                .refreshed_raster_influence_masks
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                        casters.3.insert(*id, used_joints);
+                    }
+                }
+                AssetEvent::Removed { id } => {
+                    if casters.3.contains_key(id) {
+                        casters.3.insert(*id, None);
+                    }
+                }
+                AssetEvent::Added { id } => {
+                    if casters.3.contains_key(id) {
+                        let used_joints = mesh_assets
+                            .get(*id)
+                            .and_then(super::ray_skin::Source::indexed_joints);
+                        if used_joints.is_some() {
+                            stats
+                                .refreshed_raster_influence_masks
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                        casters.3.insert(*id, used_joints);
+                    }
+                }
+                _ => {}
+            }
             changed_asset_id(event)
         })
         .collect();
@@ -375,7 +878,12 @@ fn asset_changes(
         .filter_map(changed_asset_id)
         .collect();
     let surface_ids: HashSet<_> = surface_events.read().filter_map(changed_asset_id).collect();
-    let dirty: Vec<_> = if mesh_ids.is_empty() && material_ids.is_empty() && surface_ids.is_empty()
+    let image_ids: HashSet<_> = image_events.read().filter_map(changed_asset_id).collect();
+    let mut geometry_modified = false;
+    let dirty: Vec<_> = if mesh_ids.is_empty()
+        && material_ids.is_empty()
+        && surface_ids.is_empty()
+        && image_ids.is_empty()
     {
         Vec::new()
     } else {
@@ -386,10 +894,33 @@ fn asset_changes(
                 let Ok((mesh, standard, surface)) = meshes.get(*entity) else {
                     return None;
                 };
+                // Ray-only pose providers have no raster caster and cannot
+                // invalidate any raster shadow. Growing raster meshes still
+                // require conservative invalidation beyond their old bounds.
+                geometry_modified |= modified_mesh_ids.contains(&mesh.0.id());
+                let coverage_changed = standard
+                    .and_then(|handle| materials.get(&handle.0))
+                    .is_some_and(|material| {
+                        !matches!(material.alpha_mode, AlphaMode::Opaque)
+                            && material
+                                .base_color_texture
+                                .as_ref()
+                                .is_some_and(|image| image_ids.contains(&image.id()))
+                    })
+                    || surface
+                        .and_then(|handle| surfaces.get(&handle.0))
+                        .is_some_and(|surface| {
+                            !matches!(surface.base.alpha_mode, AlphaMode::Opaque)
+                                && surface.extension.ray_textures(&surface.base)[7..11]
+                                    .iter()
+                                    .flatten()
+                                    .any(|image| image_ids.contains(&image.id()))
+                        });
                 (mesh_ids.contains(&mesh.0.id())
                     || standard.is_some_and(|material| material_ids.contains(&material.0.id()))
-                    || surface.is_some_and(|material| surface_ids.contains(&material.0.id())))
-                .then_some(*bounds)
+                    || surface.is_some_and(|material| surface_ids.contains(&material.0.id()))
+                    || coverage_changed)
+                    .then_some(*bounds)
             })
             .collect()
     };
@@ -424,24 +955,9 @@ fn asset_changes(
     if geometry_modified || shader_events.read().filter_map(changed_asset_id).count() > 0 {
         revisions.epoch = revisions.epoch.wrapping_add(1);
     }
-    // Texture edits may change alpha-tested silhouettes. HUD font-atlas edits
-    // have no source path and do not invalidate world shadow maps.
-    let changed_images = image_events
-        .read()
-        .filter(|event| {
-            let id = match event {
-                AssetEvent::Added { id }
-                | AssetEvent::Modified { id }
-                | AssetEvent::Removed { id }
-                | AssetEvent::Unused { id }
-                | AssetEvent::LoadedWithDependencies { id } => *id,
-            };
-            server.get_path(id).is_some()
-        })
-        .count();
-    if changed_images > 0 {
-        revisions.epoch = revisions.epoch.wrapping_add(1);
-    }
+    // Normal/response mip promotions and HUD glyphs cannot change silhouettes.
+    // Coverage edits invalidate their actual users above, using the same light
+    // intersection path as material edits rather than a map-wide epoch.
 }
 
 fn suspend_visibility(world: &mut World) {
@@ -483,6 +999,148 @@ fn suspend_visibility(world: &mut World) {
                 suspended.0.push((entity, visible, tick));
             }
         }
+    });
+}
+
+fn culling_changes(
+    changed: Query<
+        Entity,
+        (
+            Changed<NoCpuCulling>,
+            With<Mesh3d>,
+            Without<NotShadowCaster>,
+        ),
+    >,
+    mut removed: RemovedComponents<NoCpuCulling>,
+    casters: Res<Casters>,
+    mut revisions: ResMut<ShadowRevisions>,
+) {
+    let removed_caster = removed.read().any(|entity| casters.0.contains_key(&entity));
+    if removed_caster || !changed.is_empty() {
+        // Changing CPU/GPU classification changes the native visibility tables
+        // even when a caster's world-space silhouette is unchanged.
+        revisions.epoch = revisions.epoch.wrapping_add(1);
+    }
+}
+
+fn suspend_render_visibility(world: &mut World) {
+    if !world.resource::<CacheEnabled>().0 {
+        return;
+    }
+    let completed = world.resource::<CompletedLights>().clone();
+    let Ok(completed) = completed.0.lock() else {
+        return;
+    };
+    let mut query = world.query::<(
+        Entity,
+        &MainEntity,
+        Option<&ExtractedPointLight>,
+        Has<ExtractedDirectionalLight>,
+        &RenderLayers,
+        &CubemapFrusta,
+        Ref<RenderExtractedShadowMapVisibleEntities>,
+        &RenderShadowMapVisibleEntities,
+    )>();
+    world.resource_scope(|world, mut cache: Mut<CachedLightVisibility>| {
+        let revisions = world.resource::<ShadowRevisions>();
+        let preprocessing = world
+            .resource::<GpuPreprocessingSupport>()
+            .max_supported_mode;
+        let mut live = HashSet::new();
+        let mut eligible = Vec::new();
+        for (entity, owner, light, directional, layers, frusta, extracted, retained) in
+            query.iter(world)
+        {
+            // The main-world point-light inventory also excludes old cube
+            // components left behind if an entity changes its light kind.
+            if directional || !revisions.lights.contains_key(&owner.id()) {
+                continue;
+            }
+            let complete_lists = retained.subviews.len() == 6
+                && extracted.subviews.len() == 6
+                && retained.subviews.iter().all(|(view, entities)| {
+                    view.main_entity == *owner
+                        && view.subview_index < 6
+                        && entities.get::<Mesh3d>().is_some()
+                        && extracted.subviews.contains_key(view)
+                });
+            let Some(light) = light else {
+                // Bevy removes ExtractedPointLight outside the camera, but
+                // keeps both visibility tables. Those dormant tables have no
+                // shadow view and need no sorting/diffing. Re-admission must
+                // always collect current native lists before using a shadow.
+                cache.stamps.remove(&entity);
+                if complete_lists {
+                    eligible.push((entity, extracted.last_changed()));
+                }
+                continue;
+            };
+            // Spot lights share ExtractedPointLight, but their visibility is not
+            // a six-face, camera-independent point-light frustum.
+            if !light.shadow_maps_enabled || light.spot_light_angles.is_some() {
+                continue;
+            }
+            live.insert(entity);
+            let stamp = PointVisibilityStamp {
+                owner: owner.id(),
+                epoch: revisions.epoch,
+                revision: revisions
+                    .lights
+                    .get(&owner.id())
+                    .copied()
+                    .unwrap_or_default(),
+                world_from_light: light.transform.to_matrix(),
+                range: light.range,
+                near_z: light.shadow_map_near_z,
+                layers: layers.clone(),
+                frusta: std::array::from_fn(|face| {
+                    std::array::from_fn(|plane| {
+                        frusta.frusta[face].half_spaces[plane].normal_d().into()
+                    })
+                }),
+                preprocessing,
+            };
+            let reusable = complete_lists
+                && completed.get(&stamp.owner) == Some(&(stamp.epoch, stamp.revision))
+                && cache.stamps.get(&entity) == Some(&stamp);
+            cache.stamps.insert(entity, stamp);
+            if reusable {
+                eligible.push((entity, extracted.last_changed()));
+            }
+        }
+        cache.stamps.retain(|entity, _| live.contains(entity));
+        for (entity, tick) in eligible {
+            if let Some(extracted) = world
+                .entity_mut(entity)
+                .take::<RenderExtractedShadowMapVisibleEntities>()
+            {
+                // Bevy preserves the retained lists when this optional input is
+                // absent, while still clearing its per-frame added/removed lists.
+                // Cameras, sun cascades, dirty lights and GPU-culled entities
+                // continue through their normal native update paths.
+                cache.suspended.push((entity, extracted, tick));
+            }
+        }
+    });
+}
+
+fn restore_render_visibility(world: &mut World) {
+    world.resource_scope(|world, mut cache: Mut<CachedLightVisibility>| {
+        let count = cache.suspended.len();
+        for (entity, extracted, tick) in cache.suspended.drain(..) {
+            if let Ok(mut entity) = world.get_entity_mut(entity) {
+                entity.insert(extracted);
+                if let Some(mut extracted) =
+                    entity.get_mut::<RenderExtractedShadowMapVisibleEntities>()
+                {
+                    extracted.set_last_changed(tick);
+                }
+            }
+        }
+        world
+            .resource::<ShadowCacheStats>()
+            .render_visibility_reused
+            .fetch_add(count as u64, Ordering::Relaxed);
     });
 }
 
@@ -528,6 +1186,7 @@ fn select(
         &ShadowView,
         Option<&ExtractedView>,
         Has<NoIndirectDrawing>,
+        Has<RootNonCameraView>,
     )>,
     lights: Query<(&MainEntity, &ExtractedPointLight, &RenderLayers)>,
     sun: Query<(&MainEntity, &ExtractedDirectionalLight, &RenderLayers)>,
@@ -538,7 +1197,16 @@ fn select(
     stats: Res<ShadowCacheStats>,
     mut phases: ResMut<ViewBinnedRenderPhases<Shadow>>,
     support: Res<GpuPreprocessingSupport>,
+    mut specialized: ResMut<SpecializedShadowMaterialPipelineCache>,
+    mut pending_queues: ResMut<PendingShadowQueues>,
+    mut dirty: ResMut<DirtySpecializations>,
+    mut gpu_buffers: (
+        Option<ResMut<BatchedInstanceBuffers<MeshUniform, MeshInputUniform>>>,
+        Option<ResMut<BinUnpackingBuffers>>,
+        Option<ResMut<BinUnpackingBindGroups>>,
+    ),
 ) {
+    let _span = info_span!("shadow_cache_select").entered();
     cache.pending.clear();
     // First-person overlays have a separate camera and no world shadow casters.
     // Select the world view's allocation; an overlay must not disable caching.
@@ -552,16 +1220,91 @@ fn select(
         bindings.point_light_depth_texture.id(),
         bindings.directional_light_depth_texture.id(),
     );
-    if cache.texture != Some(texture) {
+    let allocation_changed = cache.texture != Some(texture);
+    let invalidate_specializations =
+        allocation_changed || cache.specialization_epoch != Some(revisions.epoch);
+    cache.specialization_epoch = Some(revisions.epoch);
+    if invalidate_specializations {
+        stats
+            .specialization_epoch_resets
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    if allocation_changed {
         cache.texture = Some(texture);
         cache.slots.clear();
+        // A replacement allocation may follow render-device recovery. Native
+        // preparation has already created fresh phases for the live views.
+        cache.suspended_phases.clear();
+        cache.phase_modes.clear();
         stats.allocations.fetch_add(1, Ordering::Relaxed);
     }
-    for (entity, kind, shadow, live_view, no_indirect_drawing) in &views {
+    for (entity, kind, shadow, live_view, no_indirect_drawing, is_root) in &views {
+        // Native directional cascades belong to ViewLightEntities of their
+        // parent camera. An auxiliary root would preprocess and draw the same
+        // cascade again before the parent camera repeats that work.
+        if is_root && matches!(kind, LightEntity::Directional { .. }) {
+            commands.entity(entity).remove::<RootNonCameraView>();
+            stats
+                .removed_directional_roots
+                .fetch_add(1, Ordering::Relaxed);
+        }
         let stored = cache.suspended_views.remove(&entity);
         let Some(view) = live_view.or(stored.as_ref()) else {
             continue;
         };
+        let retained = view.retained_view_entity;
+        let direct_shadow = matches!(kind, LightEntity::Point { .. } | LightEntity::Spot { .. });
+        let mode = support.min(if direct_shadow || no_indirect_drawing {
+            GpuPreprocessingMode::PreprocessingOnly
+        } else {
+            GpuPreprocessingMode::Culling
+        });
+        if direct_shadow {
+            if !no_indirect_drawing {
+                commands.entity(entity).insert(NoIndirectDrawing);
+            }
+            let owns_phase =
+                phases.contains_key(&retained) || cache.suspended_phases.contains_key(&retained);
+            if cache.phase_modes.get(&retained) != Some(&mode) || !owns_phase {
+                // Occupied native preparation clears batches but retains its
+                // original mode. Replace once before queueing to establish a
+                // real direct phase, not merely a NoIndirectDrawing tag.
+                phases.remove(&retained);
+                cache.suspended_phases.remove(&retained);
+                phases.prepare_for_new_frame(retained, mode);
+                cache.phase_modes.insert(retained, mode);
+                commands.entity(entity).insert(DirectShadowPhase(mode));
+                dirty.views.insert(retained);
+                if let Some(old) = specialized.remove(&retained) {
+                    stats
+                        .specialization_invalidated_entries
+                        .fetch_add(old.len() as u64, Ordering::Relaxed);
+                }
+                // Work-item variants don't convert in place either. Purge
+                // only this reset view/phase; native preparation rebuilds its
+                // current offsets and bindings later in the same frame.
+                if let Some(buffers) = gpu_buffers.0.as_deref_mut()
+                    && let Some(phase_buffers) = buffers
+                        .phase_instance_buffers
+                        .get_mut(&TypeId::of::<Shadow>())
+                {
+                    phase_buffers.work_item_buffers.remove(&retained);
+                }
+                let key = BinUnpackingBuffersKey {
+                    phase: TypeId::of::<Shadow>(),
+                    view: retained,
+                };
+                if let Some(buffers) = gpu_buffers.1.as_deref_mut() {
+                    buffers.view_phase_buffers.remove(&key);
+                }
+                if let Some(bind_groups) = gpu_buffers.2.as_deref_mut() {
+                    bind_groups.remove(&key);
+                }
+                stats
+                    .direct_shadow_phase_resets
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        }
         let (owner, revision, range, bias, layers, directional) = match kind {
             LightEntity::Point {
                 light_entity,
@@ -609,10 +1352,27 @@ fn select(
             range,
             bias,
             layers,
+            preprocessing: mode,
         };
+        if invalidate_specializations {
+            if let Some(old) = specialized.remove(&retained) {
+                stats
+                    .specialization_invalidated_entries
+                    .fetch_add(old.len() as u64, Ordering::Relaxed);
+            }
+            // Queueing must revisit every entity too, including entries whose
+            // old material/shader changed while the raster map was suspended.
+            dirty.views.insert(retained);
+        }
+        // Native pass labels repeat across stacked-camera sun cascades.
+        // Retain slot remapping checks and include the camera allocation owner.
+        let slot = (
+            shadow.pass_name.clone(),
+            view.retained_view_entity.auxiliary_entity.id(),
+        );
         // A completed map stays valid while an unrelated pipeline compiles.
         // Dirty maps become reusable only after completion confirms readiness.
-        if enabled.0 && cache.slots.get(&shadow.pass_name) == Some(&stamp) {
+        if enabled.0 && cache.slots.get(&slot) == Some(&stamp) {
             // Bevy still owns lighting, visibility, phase preparation and the map.
             // Only execution of an unchanged cube face is omitted.
             cache.suspended_views.insert(
@@ -639,6 +1399,18 @@ fn select(
                     .entry(view.retained_view_entity)
                     .or_insert(phase);
             }
+            // Native specialization treats missing ExtractedView as expiry.
+            // Protect both its cached pipelines and pending material retries;
+            // restore_specializations returns them after that cleanup.
+            if specialized.contains_key(&retained) || pending_queues.contains_key(&retained) {
+                cache.parked_specializations.insert(
+                    retained,
+                    ParkedSpecialization {
+                        pipelines: specialized.remove(&retained).unwrap_or_default(),
+                        pending: pending_queues.remove(&retained).unwrap_or_default(),
+                    },
+                );
+            }
             if directional {
                 &stats.directional_reused
             } else {
@@ -646,28 +1418,34 @@ fn select(
             }
             .fetch_add(1, Ordering::Relaxed);
         } else {
-            let retained = view.retained_view_entity;
             if let Some(phase) = cache.suspended_phases.remove(&retained) {
+                stats.specialization_revived_entries.fetch_add(
+                    specialized.get(&retained).map_or(0, |view| view.len()) as u64,
+                    Ordering::Relaxed,
+                );
                 phases.insert(retained, phase);
-                // Match Bevy's prepare_lights mode for this view. The phase's
-                // GPU batch layout must survive suspension and dirty-face revival.
-                let mode = support.min(if no_indirect_drawing {
-                    GpuPreprocessingMode::PreprocessingOnly
-                } else {
-                    GpuPreprocessingMode::Culling
-                });
+                // This is the owned configured phase. Discard the native
+                // empty placeholder and retain its mode across revival.
                 phases.prepare_for_new_frame(retained, mode);
             }
-            if live_view.is_none() {
-                if let Some(view) = stored {
-                    commands.entity(entity).insert(view);
-                }
+            if live_view.is_none()
+                && let Some(view) = stored
+            {
+                commands.entity(entity).insert(view);
             }
-            commands
-                .entity(entity)
-                .insert(RootNonCameraView(Core3d.intern()));
-            cache.slots.remove(&shadow.pass_name);
-            cache.pending.push((shadow.pass_name.clone(), stamp));
+            if directional {
+                // Restored ExtractedView/phase is sufficient: native camera
+                // preprocessing and per_view_shadow_pass visit this child.
+                stats
+                    .restored_directional_children
+                    .fetch_add(1, Ordering::Relaxed);
+            } else if !is_root {
+                commands
+                    .entity(entity)
+                    .insert(RootNonCameraView(Core3d.intern()));
+            }
+            cache.slots.remove(&slot);
+            cache.pending.push((slot, stamp));
             if directional {
                 &stats.directional_rendered
             } else {
@@ -681,7 +1459,7 @@ fn select(
         .retain(|entity, _| views.contains(*entity));
     let retained: HashSet<_> = views
         .iter()
-        .filter_map(|(entity, _, _, view, _)| {
+        .filter_map(|(entity, _, _, view, _, _)| {
             view.or(cache.suspended_views.get(&entity))
                 .map(|view| view.retained_view_entity)
         })
@@ -689,6 +1467,167 @@ fn select(
     cache
         .suspended_phases
         .retain(|view, _| retained.contains(view));
+    cache.phase_modes.retain(|view, _| retained.contains(view));
+}
+
+fn restore_specializations(
+    mut cache: ResMut<CachedShadows>,
+    mut specialized: ResMut<SpecializedShadowMaterialPipelineCache>,
+    mut pending_queues: ResMut<PendingShadowQueues>,
+    dirty: Res<DirtySpecializations>,
+    phases: Res<ViewBinnedRenderPhases<Shadow>>,
+    stats: Res<ShadowCacheStats>,
+) {
+    let _span = info_span!("shadow_specialization_cache_restore").entered();
+    let CachedShadows {
+        parked_specializations,
+        suspended_phases,
+        ..
+    } = &mut *cache;
+    // Retain the outer map's capacity across frames; only ownership of its
+    // native per-view values moves, without cloning large specialization maps.
+    for (view, mut parked) in parked_specializations.drain() {
+        let Some(phase) = suspended_phases.get_mut(&view) else {
+            // The owner/view expired; its native allocations expire with it.
+            continue;
+        };
+        // Native preparation swaps these sets on revival. Keep all unfinished
+        // dependencies in current_frame until then, rather than losing a retry
+        // when a view spends multiple frames without specialization.
+        parked
+            .pending
+            .current_frame
+            .extend(std::mem::take(&mut parked.pending.prev_frame));
+        if dirty.must_wipe_specializations_for_view(view) {
+            for entity in parked.pipelines.keys().copied() {
+                phase.remove(entity);
+                parked
+                    .pending
+                    .current_frame
+                    .insert((Entity::PLACEHOLDER, entity));
+            }
+            stats
+                .specialization_invalidated_entries
+                .fetch_add(parked.pipelines.len() as u64, Ordering::Relaxed);
+            parked.pipelines.clear();
+        } else {
+            // Replay the same dirty renderable identities as native Bevy. Old
+            // phase bins must not survive a material type/key or mesh change.
+            // Pending retries make those entries specialize/queue on revival
+            // even after the originating one-frame asset event has expired.
+            for &entity in dirty.iter_to_despecialize() {
+                if parked.pipelines.remove(&entity).is_some() {
+                    phase.remove(entity);
+                    if dirty.changed_renderables.contains(&entity) {
+                        parked
+                            .pending
+                            .current_frame
+                            .insert((Entity::PLACEHOLDER, entity));
+                    }
+                    stats
+                        .specialization_invalidated_entries
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+        parked.pending.current_frame.retain(|(_, entity)| {
+            !dirty.removed_renderables.contains(entity)
+                || dirty.changed_renderables.contains(entity)
+        });
+        stats
+            .specialization_protected_views
+            .fetch_add(1, Ordering::Relaxed);
+        stats
+            .specialization_protected_entries
+            .fetch_add(parked.pipelines.len() as u64, Ordering::Relaxed);
+        specialized.insert(view, parked.pipelines);
+        pending_queues.insert(view, parked.pending);
+    }
+    // Native specialization may be skipped below, so expire pending queues for
+    // actual removed views here too. Suspended maps still own their phases.
+    pending_queues
+        .retain(|view, _| phases.contains_key(view) || cache.suspended_phases.contains_key(view));
+}
+
+fn specialization_due(
+    enabled: Res<CacheEnabled>,
+    dirty: Res<DirtySpecializations>,
+    views: Query<(&LightEntity, &ExtractedView)>,
+    visible: Query<&RenderShadowMapVisibleEntities>,
+    phases: Res<ViewBinnedRenderPhases<Shadow>>,
+    specialized: Res<SpecializedShadowMaterialPipelineCache>,
+    pending: Res<PendingShadowQueues>,
+    stats: Res<ShadowCacheStats>,
+) -> bool {
+    let _span = info_span!("shadow_specialization_due").entered();
+    let due = !enabled.0
+        || views.iter().any(|(light, view)| {
+            let retained = view.retained_view_entity;
+            if !phases.contains_key(&retained) {
+                return false;
+            }
+            if dirty.must_wipe_specializations_for_view(retained) {
+                return true;
+            }
+            let Some(pending) = pending.get(&retained) else {
+                return true;
+            };
+            if !pending.current_frame.is_empty() || !pending.prev_frame.is_empty() {
+                return true;
+            }
+            let (owner, visible_view) = match light {
+                LightEntity::Directional { light_entity, .. } => (*light_entity, retained),
+                LightEntity::Point {
+                    light_entity,
+                    face_index,
+                } => (
+                    *light_entity,
+                    RetainedViewEntity {
+                        auxiliary_entity: MainEntity::from(Entity::PLACEHOLDER),
+                        subview_index: *face_index as u32,
+                        ..retained
+                    },
+                ),
+                LightEntity::Spot { light_entity } => (
+                    *light_entity,
+                    RetainedViewEntity {
+                        auxiliary_entity: MainEntity::from(Entity::PLACEHOLDER),
+                        subview_index: 0,
+                        ..retained
+                    },
+                ),
+            };
+            let Ok(visible) = visible.get(owner) else {
+                return true;
+            };
+            let Some(visible) = visible.subviews.get(&visible_view) else {
+                return true;
+            };
+            let Some(meshes) = visible.get::<Mesh3d>() else {
+                return false;
+            };
+            let Some(pipelines) = specialized.get(&retained) else {
+                return meshes.iter_visible().next().is_some();
+            };
+            // Already-specialized entities can become visible again without
+            // changing their pipeline. Native queue_shadows still runs and
+            // adds/removes bins; skin uniforms and real shadow draws stay live.
+            meshes
+                .added_entities()
+                .iter()
+                .any(|(_, entity)| !pipelines.contains_key(entity))
+                || dirty.iter_to_despecialize().any(|entity| {
+                    pipelines.contains_key(entity)
+                        || meshes.entity_pair_is_visible(Entity::PLACEHOLDER, *entity)
+                })
+        });
+    if due {
+        &stats.specialization_runs
+    } else {
+        &stats.specialization_skipped
+    }
+    .fetch_add(1, Ordering::Relaxed);
+    due
 }
 
 fn complete(

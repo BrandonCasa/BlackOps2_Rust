@@ -1,0 +1,22 @@
+{
+    "$schema": "http://openassettools.dev/schema/xmodel.v1.json",
+    "_game": "t6",
+    "_type": "xmodel",
+    "_version": 2,
+    "collLod": 0,
+    "flags": 2097152,
+    "lightingOriginOffset": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.5
+    },
+    "lightingOriginRange": 0.5,
+    "lods": [
+        {
+            "distance": 3500.0,
+            "file": "model_export/mlv/p6_zm_tm_church_vault_rib_sml_02_lod0.gltf"
+        }
+    ],
+    "rootBoneName": "p6_zm_tm_church_vault_rib_sm_02_lod0",
+    "type": "rigid"
+}

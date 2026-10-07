@@ -13,17 +13,20 @@
 *.a
 *.o
 
-# Licensed originals and raw inspection outputs belong outside the repository.
+# Runtime closure and optional licensed source library are kept separately.
 /assets/*
 !/assets/origins/
 /assets/origins/**
 !/assets/origins/**/
 !/assets/origins/game.json
+!/assets/origins/texture-streaming.json
 !/assets/origins/**/*.gltf
 !/assets/origins/**/*.bin
 !/assets/origins/**/*.png
+!/assets/origins/**/*.dds
 !/assets/origins/**/*.jpg
 !/assets/origins/**/*.jpeg
+!/assets/origins/**/*.dds
 !/assets/origins/**/*.ogg
 !/assets/origins/**/*.ttf
 !/assets/origins/**/*.otf
@@ -95,3 +98,5 @@ Thumbs.db
 !/assets/source/**/*.dds
 !/assets/source/**/*.wav
 !/assets/source/**/*.zip
+# The complete local-only source library includes native formats and exchanges.
+!/assets/source/bo2/**

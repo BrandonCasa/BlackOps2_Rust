@@ -162,7 +162,7 @@ fn wall_ready(
                 let Some(source) = materials.get(&material.0) else {
                     continue;
                 };
-                let source = crate::rendering::with_actor_fill(source);
+                let source = source.clone();
                 let handle = materials.add(source);
                 cache.0.insert(material.0.id(), handle.clone());
                 handle

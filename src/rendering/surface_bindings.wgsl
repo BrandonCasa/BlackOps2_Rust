@@ -1,21 +1,21 @@
 #define_import_path origins::surface_bindings
+#import origins::surface_effect::Effect
+var<private> active_surface_slot: u32;
+fn set_surface_slot(slot: u32) { active_surface_slot = slot; }
+fn current_surface_slot() -> u32 { return active_surface_slot; }
 struct OriginsSurfaceData {
     response: vec4<f32>,
-    radiance: vec4<f32>,
     modes: vec4<u32>,
-    lighting: vec4<f32>,
-    sh_zero: vec4<f32>,
-    sh_one: vec4<f32>,
-    sh_two: vec4<f32>,
     layers: vec4<u32>,
     reveal: vec4<f32>,
     wetness: vec4<f32>,
     water: vec4<f32>,
     velocity: vec4<f32>,
+    effect: Effect,
 }
 struct AnimationClock { elapsed: vec4<f32>, }
 #ifdef BINDLESS
-#import bevy_render::bindless::{bindless_samplers_filtering, bindless_textures_2d, bindless_textures_cube}
+#import bevy_render::bindless::{bindless_samplers_filtering, bindless_textures_2d}
 struct SurfaceIndices {
     parameters: u32,
     normal_map: u32,
@@ -28,10 +28,6 @@ struct SurfaceIndices {
     second_specular_sampler: u32,
     control_map: u32,
     control_sampler: u32,
-    packed_lightmap: u32,
-    lightmap_sampler: u32,
-    reflection_map: u32,
-    reflection_sampler: u32,
     color0: u32,
     color0_sampler: u32,
     color1: u32,
@@ -44,12 +40,11 @@ struct SurfaceIndices {
     third_normal_sampler: u32,
     third_specular: u32,
     third_specular_sampler: u32,
-    instance_lighting: u32,
     animation_clock: u32,
 }
-@group(#{MATERIAL_BIND_GROUP}) @binding(129) var<storage> surface_indices: array<SurfaceIndices>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(130) var<storage> surface_parameters: array<OriginsSurfaceData>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(132) var<storage, read> animation_clocks: binding_array<AnimationClock>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(124) var<storage> surface_indices: array<SurfaceIndices>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(125) var<storage> surface_parameters: array<OriginsSurfaceData>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(126) var<storage, read> animation_clocks: binding_array<AnimationClock>;
 #else
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface_uniform: OriginsSurfaceData;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var normal_map: texture_2d<f32>;
@@ -62,24 +57,19 @@ struct SurfaceIndices {
 @group(#{MATERIAL_BIND_GROUP}) @binding(108) var second_specular_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(109) var control_map: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(110) var control_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(111) var packed_lightmap: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(112) var lightmap_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(113) var reflection_map: texture_cube<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(114) var reflection_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(115) var color0: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(116) var color0_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(117) var color1: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(118) var color1_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(119) var color2: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(120) var color2_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(121) var color3: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(122) var color3_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(123) var third_normal: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(124) var third_normal_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(125) var third_specular: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(126) var third_specular_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(127) var instance_lighting: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(128) var<storage, read> animation_clock: AnimationClock;
+@group(#{MATERIAL_BIND_GROUP}) @binding(111) var color0: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(112) var color0_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(113) var color1: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(114) var color1_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(115) var color2: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(116) var color2_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(117) var color3: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(118) var color3_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(119) var third_normal: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(120) var third_normal_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(121) var third_specular: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(122) var third_specular_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(123) var<storage, read> animation_clock: AnimationClock;
 #endif
 fn parameters_for(slot: u32) -> OriginsSurfaceData {
 #ifdef BINDLESS
@@ -121,13 +111,6 @@ fn sample_control_map(slot: u32, uv: vec2<f32>) -> vec4<f32> {
     return textureSample(bindless_textures_2d[surface_indices[slot].control_map], bindless_samplers_filtering[surface_indices[slot].control_sampler], uv);
 #else
     return textureSample(control_map, control_sampler, uv);
-#endif
-}
-fn sample_packed_lightmap(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-#ifdef BINDLESS
-    return textureSample(bindless_textures_2d[surface_indices[slot].packed_lightmap], bindless_samplers_filtering[surface_indices[slot].lightmap_sampler], uv);
-#else
-    return textureSample(packed_lightmap, lightmap_sampler, uv);
 #endif
 }
 fn sample_color0(slot: u32, uv: vec2<f32>) -> vec4<f32> {
@@ -172,41 +155,20 @@ fn sample_third_specular(slot: u32, uv: vec2<f32>) -> vec4<f32> {
     return textureSample(third_specular, third_specular_sampler, uv);
 #endif
 }
-fn atlas_dimensions(slot: u32) -> vec2<u32> {
-#ifdef BINDLESS
-    return textureDimensions(bindless_textures_2d[surface_indices[slot].packed_lightmap]);
-#else
-    return textureDimensions(packed_lightmap);
-#endif
-}
-fn reflection_levels(slot: u32) -> u32 {
-#ifdef BINDLESS
-    return textureNumLevels(bindless_textures_cube[surface_indices[slot].reflection_map]);
-#else
-    return textureNumLevels(reflection_map);
-#endif
-}
-fn sample_reflection(slot: u32, direction: vec3<f32>, level: f32) -> vec4<f32> {
-#ifdef BINDLESS
-    return textureSampleLevel(bindless_textures_cube[surface_indices[slot].reflection_map], bindless_samplers_filtering[surface_indices[slot].reflection_sampler], direction, level);
-#else
-    return textureSampleLevel(reflection_map, reflection_sampler, direction, level);
-#endif
-}
-fn instance_color(slot: u32, index: u32) -> vec3<f32> {
-#ifdef BINDLESS
-    let width = textureDimensions(bindless_textures_2d[surface_indices[slot].instance_lighting]).x;
-    return textureLoad(bindless_textures_2d[surface_indices[slot].instance_lighting], vec2<i32>(i32(index % width), i32(index / width)), 0).rgb;
-#else
-    let width = textureDimensions(instance_lighting).x;
-    return textureLoad(instance_lighting, vec2<i32>(i32(index % width), i32(index / width)), 0).rgb;
-#endif
-}
-
 fn animation_time(slot: u32) -> f32 {
 #ifdef BINDLESS
     return animation_clocks[surface_indices[slot].animation_clock].elapsed.x;
 #else
     return animation_clock.elapsed.x;
 #endif
+}
+fn diagnostic_mode(slot: u32) -> u32 {
+#ifdef BINDLESS
+    return u32(animation_clocks[surface_indices[slot].animation_clock].elapsed.y);
+#else
+    return u32(animation_clock.elapsed.y);
+#endif
+}
+fn reflection_diagnostic_enabled() -> bool {
+    return diagnostic_mode(current_surface_slot()) == 6u;
 }

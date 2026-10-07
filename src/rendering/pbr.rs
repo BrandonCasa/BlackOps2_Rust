@@ -1,0 +1,376 @@
+//! Prepared PBR maps use Bevy's loaders and StandardMaterial, including actor rigs.
+use bevy::{
+    asset::{AssetId, LoadState, uuid_handle},
+    gltf::GltfMaterialExtras,
+    image::{
+        ImageAddressMode, ImageFilterMode, ImageLoaderSettings, ImageSampler,
+        ImageSamplerDescriptor,
+    },
+    pbr::{ExtendedMaterial, MaterialExtension},
+    prelude::*,
+    render::render_resource::AsBindGroup,
+    shader::{Shader, ShaderRef},
+};
+use serde::Deserialize;
+use std::collections::HashMap;
+
+#[derive(Clone, Deserialize)]
+pub(super) struct PreparedTexture {
+    pub uri: String,
+    pub role: String,
+    pub layer: u64,
+    pub color_space: String,
+    pub sampler: u8,
+}
+
+#[derive(Component)]
+pub(crate) struct PbrReady;
+
+#[derive(Component)]
+pub(super) struct PendingMaterialVisibility(Visibility);
+
+#[derive(Resource, Default)]
+pub(super) struct MaterialDiagnostic(pub u32);
+
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub(super) struct DiagnosticExtension {
+    #[uniform(100)]
+    parameters: Vec4,
+}
+
+impl MaterialExtension for DiagnosticExtension {
+    fn fragment_shader() -> ShaderRef {
+        DIAGNOSTIC_SHADER.into()
+    }
+}
+
+pub(super) type DiagnosticMaterial = ExtendedMaterial<StandardMaterial, DiagnosticExtension>;
+const DIAGNOSTIC_SHADER: Handle<Shader> = uuid_handle!("1aa8e217-dae4-4976-9e40-f625773e9a20");
+const DIAGNOSTIC_BINDINGS: Handle<Shader> = uuid_handle!("604f94e4-d362-448b-bd18-5eb2d912ad20");
+const DIAGNOSTIC_LIGHTING: Handle<Shader> = uuid_handle!("ab5c9d0c-e0fa-4f55-81f8-2929d20a8415");
+
+pub(super) fn diagnostic_shaders(shaders: &mut Assets<Shader>, engine: &str) {
+    let hook = "    indirect_light += environment_light.diffuse * diffuse_occlusion;";
+    assert!(
+        engine.contains(hook),
+        "Pinned Bevy material diagnostic hook changed"
+    );
+    let lighting = engine.replacen("#define_import_path bevy_pbr::pbr_functions",
+        "#define_import_path origins::diagnostic_lighting\n#import origins::diagnostic_bindings::material_diagnostic_mode", 1)
+        .replacen(hook, "    if material_diagnostic_mode() == 6u { return vec4(environment_light.specular * specular_occlusion * view_bindings::view.exposure, 1.0); }\n    indirect_light += environment_light.diffuse * diffuse_occlusion;", 1);
+    for (handle, source, path) in [
+        (
+            DIAGNOSTIC_SHADER,
+            include_str!("diagnostic.wgsl").to_owned(),
+            "origins::material_diagnostic",
+        ),
+        (
+            DIAGNOSTIC_BINDINGS,
+            include_str!("diagnostic_bindings.wgsl").to_owned(),
+            "origins::diagnostic_bindings",
+        ),
+        (
+            DIAGNOSTIC_LIGHTING,
+            lighting,
+            "origins::diagnostic_lighting",
+        ),
+    ] {
+        shaders
+            .insert(handle.id(), Shader::from_wgsl(source, path))
+            .expect("Valid shader UUID");
+    }
+}
+
+#[derive(Component)]
+pub(super) struct OriginalMaterial(Handle<StandardMaterial>);
+
+pub(super) fn diagnostics(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    options: Res<crate::assets::LaunchOptions>,
+    mut mode: ResMut<MaterialDiagnostic>,
+    sources: Res<Assets<StandardMaterial>>,
+    mut diagnostic_materials: ResMut<Assets<DiagnosticMaterial>>,
+    ordinary: Query<
+        (
+            Entity,
+            &MeshMaterial3d<StandardMaterial>,
+            &GltfMaterialExtras,
+        ),
+        (With<PbrReady>, Without<crate::assets::WorldCollider>),
+    >,
+    active: Query<(
+        Entity,
+        &OriginalMaterial,
+        &MeshMaterial3d<DiagnosticMaterial>,
+    )>,
+    mut cache: Local<HashMap<AssetId<StandardMaterial>, Handle<DiagnosticMaterial>>>,
+) {
+    let requested = if options.material_debug != 0 {
+        options.material_debug
+    } else if keys.just_pressed(KeyCode::F11) {
+        (mode.0 + 1) % 7
+    } else {
+        mode.0
+    };
+    if requested != mode.0 {
+        mode.0 = requested;
+        info!(
+            "Material diagnostic: {} (0 lit, 1 identity, 2 roughness, 3 metal, 4 normal, 5 coverage, 6 reflection)",
+            mode.0
+        );
+    }
+    for (entity, original, handle) in &active {
+        if mode.0 == 0 {
+            commands
+                .entity(entity)
+                .remove::<(MeshMaterial3d<DiagnosticMaterial>, OriginalMaterial)>()
+                .insert(MeshMaterial3d(original.0.clone()));
+        } else if let Some(mut material) = diagnostic_materials.get_mut(&handle.0)
+            && material.extension.parameters.x != mode.0 as f32
+        {
+            material.extension.parameters.x = mode.0 as f32;
+        }
+    }
+    if mode.0 == 0 {
+        return;
+    }
+    for (entity, original, extras) in &ordinary {
+        let Some(source) = sources.get(&original.0) else {
+            continue;
+        };
+        let handle = cache.entry(original.0.id()).or_insert_with(|| {
+            let identity: serde_json::Value =
+                serde_json::from_str(&extras.value).unwrap_or_default();
+            let name = identity["surface"]["identity"]
+                .as_str()
+                .unwrap_or(&extras.value);
+            let hash = name.bytes().fold(2166136261u32, |value, byte| {
+                (value ^ byte as u32).wrapping_mul(16777619)
+            });
+            diagnostic_materials.add(DiagnosticMaterial {
+                base: source.clone(),
+                extension: DiagnosticExtension {
+                    parameters: Vec4::new(mode.0 as f32, (hash % 65535) as f32, 0., 0.),
+                },
+            })
+        });
+        // A cached material can have been used in an earlier diagnostic mode.
+        if let Some(mut material) = diagnostic_materials.get_mut(&*handle) {
+            material.extension.parameters.x = mode.0 as f32;
+        }
+        commands
+            .entity(entity)
+            .remove::<MeshMaterial3d<StandardMaterial>>()
+            .insert((
+                OriginalMaterial(original.0.clone()),
+                MeshMaterial3d(handle.clone()),
+            ));
+    }
+}
+
+pub(super) fn load(server: &AssetServer, texture: &PreparedTexture) -> Handle<Image> {
+    let srgb = texture.color_space == "srgb";
+    let native = texture.sampler;
+    server
+        .load_builder()
+        .with_settings(move |settings: &mut ImageLoaderSettings| {
+            settings.is_srgb = srgb;
+            let point = native & 7 == 1;
+            // Point/no-mip samplers are authored data contracts. Filtered
+            // materials use trilinear 16x anisotropy even when the legacy
+            // renderer selected nearest mip transitions: anisotropic filtering
+            // requires all three filters to be linear in wgpu.
+            let filtered_mips = !point && native & 24 != 0;
+            settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                address_mode_u: if native & 32 != 0 {
+                    ImageAddressMode::ClampToEdge
+                } else {
+                    ImageAddressMode::Repeat
+                },
+                address_mode_v: if native & 64 != 0 {
+                    ImageAddressMode::ClampToEdge
+                } else {
+                    ImageAddressMode::Repeat
+                },
+                mag_filter: if point {
+                    ImageFilterMode::Nearest
+                } else {
+                    ImageFilterMode::Linear
+                },
+                min_filter: if point {
+                    ImageFilterMode::Nearest
+                } else {
+                    ImageFilterMode::Linear
+                },
+                mipmap_filter: if filtered_mips {
+                    ImageFilterMode::Linear
+                } else {
+                    ImageFilterMode::Nearest
+                },
+                lod_max_clamp: if native & 24 == 0 { 0. } else { 32. },
+                anisotropy_clamp: if filtered_mips { 16 } else { 1 },
+                ..ImageSamplerDescriptor::linear()
+            });
+        })
+        .load(texture.uri.clone())
+}
+
+type PreparedHandles = HashMap<AssetId<StandardMaterial>, Vec<(PreparedTexture, Handle<Image>)>>;
+
+pub(super) fn prepare(
+    mut commands: Commands,
+    entities: Query<
+        (
+            Entity,
+            &MeshMaterial3d<StandardMaterial>,
+            &GltfMaterialExtras,
+            Option<&Visibility>,
+            Option<&PendingMaterialVisibility>,
+            Has<bevy::mesh::skinning::SkinnedMesh>,
+        ),
+        Without<PbrReady>,
+    >,
+    server: Res<AssetServer>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut pending: Local<PreparedHandles>,
+    mut prepared: Local<HashMap<AssetId<StandardMaterial>, bool>>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<crate::GameState>>,
+    profile: Res<super::profile::VisualProfile>,
+    mut library: Option<ResMut<super::opaque::SurfaceLibrary>>,
+) {
+    for (entity, handle, extras, visibility, pending_visibility, skinned) in &entities {
+        if let Some(hidden) = prepared.get(&handle.0.id()) {
+            // Materials are shared, but visibility belongs to each scene
+            // instance, including rigs spawned after initial preparation.
+            if *hidden {
+                commands.entity(entity).insert(Visibility::Hidden);
+            } else if let Some(original) = pending_visibility {
+                commands.entity(entity).insert(original.0);
+            }
+            commands
+                .entity(entity)
+                .remove::<PendingMaterialVisibility>()
+                .insert(PbrReady);
+            continue;
+        }
+        let channels = pending.entry(handle.0.id()).or_insert_with(|| {
+            let value: serde_json::Value = serde_json::from_str(&extras.value).unwrap_or_default();
+            if value["surface"]["version"] != 2 {
+                return Vec::new();
+            }
+            serde_json::from_value::<Vec<PreparedTexture>>(value["surface"]["channels"].clone())
+                .expect("Validated PBR channel metadata")
+                .into_iter()
+                .map(|texture| {
+                    let image = load(&server, &texture);
+                    (texture, image)
+                })
+                .collect()
+        });
+        for (texture, image) in channels.iter() {
+            if let Some(LoadState::Failed(error)) = server.get_load_state(image.id()) {
+                failure.0 = format!("Prepared material texture {}: {error}", texture.uri);
+                error!("{}", failure.0);
+                next.set(crate::GameState::LoadError);
+                return;
+            }
+        }
+        if channels
+            .iter()
+            .any(|(_, handle)| !server.is_loaded_with_dependencies(handle.id()))
+        {
+            // Late rigs can become scene-ready before their external prepared
+            // maps. Preserve the primitive's authored visibility while its
+            // initial texture-less glTF material is being completed.
+            if skinned
+                && pending_visibility.is_none()
+                && let Some(visibility) = visibility
+            {
+                commands
+                    .entity(entity)
+                    .insert((PendingMaterialVisibility(*visibility), Visibility::Hidden));
+            }
+            continue;
+        }
+        let Some(mut material) = materials.get_mut(&handle.0) else {
+            continue;
+        };
+        let channel = |role: &str| {
+            channels
+                .iter()
+                .find(|(t, _)| t.role == role && t.layer == 0)
+                .map(|(_, h)| h.clone())
+        };
+        let value: serde_json::Value = serde_json::from_str(&extras.value).unwrap_or_default();
+        if let Some(ref mut library) = library {
+            super::opaque::register_prepared(library, &value["surface"], channels);
+        }
+        material.unlit |= value["surface"]["family"].as_str() == Some("unlit");
+        if !channels.is_empty() {
+            material.base_color_texture = channel("color");
+            material.normal_map_texture = channel("normal");
+            material.metallic_roughness_texture = channel("response");
+            material.occlusion_texture = channel("response");
+            material.emissive_texture = channel("emissive");
+            if material.metallic_roughness_texture.is_some() {
+                material.perceptual_roughness = 1.;
+                material.metallic = 1.;
+            }
+            material.reflectance = 0.5;
+            material.clearcoat_texture = channel("coating");
+            material.clearcoat = if material.clearcoat_texture.is_some() {
+                1.
+            } else {
+                0.
+            };
+            material.clearcoat_perceptual_roughness = value["surface"]["coating_roughness"]
+                .as_f64()
+                .unwrap_or(0.12) as f32;
+            material.flip_normal_map_y = false;
+        }
+        let state = &value["surface"]["presentation"];
+        if !state.is_null() {
+            material.fog_enabled = state["fog"].as_bool().unwrap_or(true);
+            material.double_sided = state["cull"].as_str() == Some("none");
+            material.cull_mode = match state["cull"].as_str() {
+                Some("none") => None,
+                Some("front") => Some(bevy::render::render_resource::Face::Front),
+                _ => Some(bevy::render::render_resource::Face::Back),
+            };
+            material.alpha_mode = match state["alpha"].as_str() {
+                Some("mask") => AlphaMode::Mask(state["cutoff"].as_f64().unwrap_or(0.5) as f32),
+                Some("blend") => AlphaMode::Blend,
+                // Prepared DDS color is straight albedo. StandardMaterial's
+                // premultiplied mode leaves the newly lit radiance unchanged,
+                // so alpha blending supplies the required coverage weighting.
+                Some("premultiplied") if !channels.is_empty() => AlphaMode::Blend,
+                Some("premultiplied") => AlphaMode::Premultiplied,
+                Some("add") => AlphaMode::Add,
+                Some("multiply") => AlphaMode::Multiply,
+                _ => AlphaMode::Opaque,
+            };
+            if state["emissive"].as_bool() == Some(true) {
+                material.emissive_texture = channel("emissive").or_else(|| channel("color"));
+                material.emissive = LinearRgba::WHITE * profile.emissive_nits;
+                material.emissive_exposure_weight = 1.;
+            }
+            if state["visible"].as_bool() == Some(false) {
+                commands.entity(entity).insert(Visibility::Hidden);
+            } else if let Some(original) = pending_visibility {
+                commands.entity(entity).insert(original.0);
+            }
+        } else if let Some(original) = pending_visibility {
+            commands.entity(entity).insert(original.0);
+        }
+        // Prepared materials retain the maps; completed requests need not
+        // keep another strong owner of every texture and its source metadata.
+        pending.remove(&handle.0.id());
+        prepared.insert(handle.0.id(), state["visible"].as_bool() == Some(false));
+        commands
+            .entity(entity)
+            .remove::<PendingMaterialVisibility>()
+            .insert(PbrReady);
+    }
+}

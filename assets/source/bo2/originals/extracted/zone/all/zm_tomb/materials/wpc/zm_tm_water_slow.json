@@ -1,0 +1,233 @@
+{
+    "$schema": "http://openassettools.dev/schema/material.v1.json",
+    "_game": "t6",
+    "_type": "material",
+    "_version": 1,
+    "cameraRegion": "litOpaque",
+    "constants": [
+        {
+            "literal": [
+                1.0,
+                -4.371138828673793e-08,
+                -0.866025447845459,
+                -0.49999991059303284
+            ],
+            "name": "waterHiNormalScroll"
+        },
+        {
+            "literal": [
+                0.10000000149011612,
+                0.07500000298023224,
+                0.05000000074505806,
+                0.05000000074505806
+            ],
+            "name": "waterNormalScrollSpeed"
+        },
+        {
+            "literal": [
+                1.0,
+                -4.371138828673793e-08,
+                0.0,
+                1.0
+            ],
+            "name": "waterLoNormalScroll"
+        },
+        {
+            "literal": [
+                0.1599999964237213,
+                -0.07999999821186066,
+                0.05999999865889549,
+                -0.029999999329447746
+            ],
+            "name": "waterNormalScale"
+        },
+        {
+            "literal": [
+                1562.5,
+                24.786832809448242,
+                0.31839999556541443,
+                0.3125
+            ],
+            "name": "waterControlVar1"
+        },
+        {
+            "literal": [
+                4998.0,
+                130.19644165039063,
+                0.020400000736117363,
+                0.9796000123023987
+            ],
+            "name": "waterControlVar0"
+        },
+        {
+            "literal": [
+                0.07828831672668457,
+                0.06464067101478577,
+                0.03532784804701805,
+                0.8500000238418579
+            ],
+            "name": "waterColorN"
+        },
+        {
+            "literal": [
+                0.12216231226921082,
+                0.5829879641532898,
+                0.9411760568618774,
+                -9.999999747378752e-05
+            ],
+            "name": "waterColorF"
+        },
+        {
+            "literal": [
+                0.15377958118915558,
+                0.1258736550807953,
+                0.06657932698726654,
+                0.8500000238418579
+            ],
+            "name": "waterColorS"
+        },
+        {
+            "literal": [
+                0.015625,
+                0.0078125,
+                0.02083333395421505,
+                0.02083333395421505
+            ],
+            "name": "waterNormalPositionScale"
+        }
+    ],
+    "contents": 1,
+    "gameFlags": [
+        "2",
+        "NO_MARKS",
+        "10",
+        "200",
+        "400"
+    ],
+    "layeredSurfaceTypes": 536870926,
+    "sortKey": 16,
+    "stateBits": [
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "disabled",
+            "colorWriteAlpha": false,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": true,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "zero",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "disabled",
+            "colorWriteAlpha": false,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "zero",
+            "polygonOffset": "offset2",
+            "polymodeLine": true,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": true,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "one",
+            "polygonOffset": "offset1",
+            "polymodeLine": false,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        }
+    ],
+    "stateBitsEntry": [
+        -1,
+        -1,
+        0,
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        -1,
+        -1,
+        2
+    ],
+    "stateFlags": 25,
+    "surfaceFlags": 15075360,
+    "surfaceTypeBits": 8192,
+    "techniqueSet": "wpc_cod7water_we876z2f",
+    "textureAtlas": {
+        "columns": 1,
+        "rows": 1
+    },
+    "textures": [
+        {
+            "image": "water_pool_mp_la_n",
+            "isMatureContent": false,
+            "name": "normalMap01",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "normalMap"
+        },
+        {
+            "image": "water_ocean_mp_dockside_n",
+            "isMatureContent": false,
+            "name": "normalMap00",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "normalMap"
+        }
+    ]
+}

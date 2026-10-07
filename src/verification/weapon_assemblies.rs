@@ -119,7 +119,7 @@ fn world_ready(
         if let Ok(material) = meshes.get(entity)
             && let Some(source) = materials.get(&material.0)
         {
-            let filled = crate::rendering::with_actor_fill(source);
+            let filled = source.clone();
             commands
                 .entity(entity)
                 .insert(MeshMaterial3d(materials.add(filled)));

@@ -1,0 +1,207 @@
+{
+    "$schema": "http://openassettools.dev/schema/material.v1.json",
+    "_game": "t6",
+    "_type": "material",
+    "_version": 1,
+    "cameraRegion": "emissiveOpaque",
+    "constants": [
+        {
+            "literal": [
+                0.0,
+                0.0,
+                0.5,
+                0.5
+            ],
+            "name": "cloudsUVMad1"
+        },
+        {
+            "literal": [
+                0.0,
+                0.0,
+                0.5,
+                0.5
+            ],
+            "name": "cloudsUVMad2"
+        },
+        {
+            "literal": [
+                0.0002500000118743628,
+                0.0002500000118743628,
+                0.10000000149011612,
+                0.10000000149011612
+            ],
+            "name": "cloudsUVMul1"
+        },
+        {
+            "literal": [
+                0.0002500000118743628,
+                0.0002500000118743628,
+                1.52587890625e-05,
+                1.52587890625e-05
+            ],
+            "name": "cloudsUVMul2"
+        },
+        {
+            "literal": [
+                1.0,
+                0.800000011920929,
+                1.0,
+                1.0
+            ],
+            "name": "skyColorParms"
+        },
+        {
+            "literal": [
+                6000.0,
+                500.0,
+                0.0,
+                0.0
+            ],
+            "name": "cloudsHeights"
+        },
+        {
+            "literal": [
+                1.0,
+                1.0,
+                0.0,
+                0.0
+            ],
+            "name": "skyBoxCloudWeights"
+        },
+        {
+            "literal": [
+                -6.103515625e-05,
+                1.6103515625,
+                -0.0002500000118743628,
+                4.074999809265137
+            ],
+            "name": "cloudsFeather"
+        },
+        {
+            "literal": [
+                0.7071067094802856,
+                -0.7071068286895752,
+                -0.7071067094802856,
+                8000.0
+            ],
+            "name": "skyBoxRotationSize"
+        }
+    ],
+    "contents": 4,
+    "gameFlags": [
+        "NO_MARKS"
+    ],
+    "layeredSurfaceTypes": 536870912,
+    "sortKey": 4,
+    "stateBits": [
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "disabled",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": true,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "zero",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "disabled",
+            "colorWriteAlpha": false,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "zero",
+            "polygonOffset": "offset2",
+            "polymodeLine": true,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": true,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "one",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        }
+    ],
+    "stateBitsEntry": [
+        -1,
+        -1,
+        0,
+        0,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        -1,
+        -1,
+        2
+    ],
+    "stateFlags": 25,
+    "surfaceFlags": 393264,
+    "surfaceTypeBits": 0,
+    "techniqueSet": "mc_skycubemaphdr_1f117w7u",
+    "textureAtlas": {
+        "columns": 1,
+        "rows": 1
+    },
+    "textures": [
+        {
+            "image": "skybox_zm_alcatraz_ft",
+            "isMatureContent": false,
+            "name": "colorMap",
+            "samplerState": {
+                "clampU": true,
+                "clampV": true,
+                "clampW": true,
+                "filter": "linear",
+                "mipMap": "disabled"
+            },
+            "semantic": "colorMap"
+        }
+    ]
+}

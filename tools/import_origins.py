@@ -9,33 +9,48 @@ Add --check to validate an existing import against its external source.
 Only the deliberately limited glTF profile emitted by prepare_origins is supported.
 """
 import argparse
+from functools import lru_cache
 import hashlib
 import io
 import json
 import math
+import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
 import struct
 import subprocess
+import tempfile
 import tomllib
 
 try:
     from .content_contract import validate_content, validate_rounds, validate_player_health
+    from .texture_streaming import validate as validate_texture_streaming
 except ImportError:
     from content_contract import validate_content, validate_rounds, validate_player_health
+    from texture_streaming import validate as validate_texture_streaming
 
 import numpy as np
 from PIL import Image
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 POINTER = b"version https://git-lfs.github.com/spec/v1"
-RUNTIME_SUFFIXES = {".json", ".gltf", ".bin", ".png", ".jpg", ".jpeg", ".ogg", ".ttf", ".otf"}
+RUNTIME_SUFFIXES = {".json", ".gltf", ".bin", ".png", ".dds", ".jpg", ".jpeg", ".ogg", ".ttf", ".otf"}
 
 
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+@lru_cache(maxsize=65536)
+def dds_layout(path, modified, size):
+    # Shared actor/world maps are inspected once per immutable file revision.
+    try:
+        from .material_textures import inspect_dds
+    except ImportError:
+        from material_textures import inspect_dds
+    return inspect_dds(read_bytes(path))
 
 
 def natural(value, label, minimum=0):
@@ -101,7 +116,7 @@ def read_json(path):
     return value
 
 
-def validate_gltf(root, relative, files):
+def validate_gltf(root, relative, files, *, allow_native_transforms=False):
     path = safe_path(root, relative, {".gltf"})
     document = read_json(path)
     files.add(relative)
@@ -194,24 +209,7 @@ def validate_gltf(root, relative, files):
         if "sampler" in texture:
             ref(document.get("samplers", []), texture["sampler"], "sampler")
     extras = document.get("extras", {})
-    require(set(extras) <= {"lighting"}, "unsupported document extras")
-    lighting = extras.get("lighting", {"lightmaps": [], "probes": []})
-    require(set(lighting) == {"lightmaps", "probes"}, "invalid lighting metadata")
-    for slot in lighting["lightmaps"]:
-        require(set(slot) <= {"primary", "secondary"}, "invalid lightmap metadata")
-        for uri in slot.values():
-            decode_png(dependency(uri, ".png"))
-    for probe in lighting["probes"]:
-        require(set(probe) == {"faces", "position", "mip_bias", "sh", "sh_basis"}, "invalid probe metadata")
-        require(len(probe["faces"]) == 6 and len(set(probe["faces"])) == 6, "missing cube faces")
-        require(len(probe["position"]) == 3 and len(probe["sh"]) == 12 and probe["sh_basis"] == "source_z_up", "invalid probe coefficients")
-        dimensions = set()
-        for uri in probe["faces"]:
-            image_path = dependency(uri, ".png")
-            decode_png(image_path)
-            with Image.open(image_path) as pixels:
-                dimensions.add(pixels.size)
-        require(len(dimensions) == 1 and next(iter(dimensions))[0] == next(iter(dimensions))[1], "invalid cube face dimensions")
+    require(not extras, "document lighting is retired; prepare a realtime pack")
 
     def material_refs(value):
         for key, item in value.items():
@@ -233,7 +231,11 @@ def validate_gltf(root, relative, files):
         require(set(metadata) <= {"surface"}, "unsupported material extras")
         if "surface" in metadata:
             surface = metadata["surface"]
-            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation", "presentation", "layers"}, "invalid surface metadata")
+            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation", "presentation", "layers", "effect", "version", "physical_class", "coating_roughness", "provenance"}, "invalid surface metadata")
+            require(surface.get("version") == 2, "prepare version-2 PBR materials before runtime import")
+            if surface["version"] == 2:
+                require(surface["physical_class"] in {"concrete", "stone", "mud", "wood", "fabric", "skin", "glass", "painted_metal", "rust", "metal", "water", "unclassified"}, "invalid physical material class")
+                require(isinstance(surface["coating_roughness"], (int, float)) and 0 <= surface["coating_roughness"] <= 1, "invalid coating roughness")
             if "presentation" in surface:
                 state = surface["presentation"]
                 require(set(state) == {"alpha", "cutoff", "cull", "emissive", "fog", "visible", "wettable", "lamp", "solid"}, "invalid presentation metadata")
@@ -247,42 +249,69 @@ def validate_gltf(root, relative, files):
                 require(layout["controls"] == "vertex_color_gb" and layout["uvs"] == "secondary_half" and layout["normal_basis"] == "secondary_signed_rgba", "unsupported layer controls")
                 require(len(layout["reveal"]) == 2 and all(len(x) == 2 and all(isinstance(v, (int, float)) and math.isfinite(v) for v in x) for x in layout["reveal"]), "invalid blend parameters")
             if "preparation" in surface:
-                require(surface["family"] == "tile_blend" and surface["preparation"] == {"kind": "tile_macro_bake", "tiles": 4}, "invalid material preparation")
+                require(surface["family"] == "tile_blend" and surface["preparation"] == {"kind": "tile_macro_layers", "tiles": 4}, "invalid material preparation")
+            if "effect" in surface:
+                def effect_number(value):
+                    return type(value) in (int, float) and math.isfinite(value) and abs(value) <= np.finfo(np.float32).max
+                effect = surface["effect"]
+                effect_family = surface["provenance"]["source_family"]
+                require(surface["family"] == "unlit" and "unlit_3layer_nofog_" in effect_family and "zfeather" not in effect_family, "unsupported effect family")
+                require(set(effect) == {"kind", "layers", "coverage_layers", "hdr", "falloff", "reflection", "gloss"} and effect["kind"] == "native_unlit_3layer", "invalid effect metadata")
+                require(len(effect["layers"]) == 3 and len(effect["coverage_layers"]) == 3 and all(type(v) is int and 0 <= v < 3 for v in effect["coverage_layers"]), "invalid effect layers")
+                require(len(effect["falloff"]) == 2 and all(effect_number(v) and v >= 0 for v in [effect["hdr"], effect["reflection"], effect["gloss"], *effect["falloff"]]), "invalid effect response")
+                for layer in effect["layers"]:
+                    require(set(layer) == {"scale", "origin", "offset", "scroll", "rotation", "alpha", "depth"}, "invalid effect layer")
+                    require(all(len(layer[k]) == 2 and all(effect_number(v) for v in layer[k]) for k in ("scale", "origin", "offset", "scroll", "rotation")), "invalid effect UV transform")
+                    # These are native coverage multipliers, not normalized
+                    # opacity. The retained spawn glow uses Layer1Alpha=1.5;
+                    # the shader saturates the final accumulated coverage only.
+                    require(all(effect_number(layer[k]) for k in ("alpha", "depth")) and layer["alpha"] >= 0, "invalid effect coverage/depth")
+                require(all(("color", i) in {(c["role"], c["layer"]) for c in surface["channels"]} for i in range(3)), "missing effect color binding")
             require(surface["identity"] == material.get("name") and isinstance(surface["family"], str), "invalid material identity")
-            layers = {}
+            bindings = set()
             for channel in surface["channels"]:
-                require({"role", "layer", "texture", "channels"} <= set(channel)
-                        <= {"role", "layer", "texture", "channels", "approximation"}, "invalid raw channel metadata")
-                if "approximation" in channel:
-                    require(channel["approximation"] == "neutral placeholder for unresolved editor-default image", "unknown texture approximation")
+                binding = (channel.get("role"), channel.get("layer"))
+                require(binding not in bindings, "duplicate material channel/layer")
+                bindings.add(binding)
+                try:
+                    from .material_textures import inspect_dds
+                except ImportError:
+                    from material_textures import inspect_dds
+                require(set(channel) == {"uri", "role", "color_space", "format", "width", "height", "mip_count", "layer", "channels", "sampler"}, "invalid PBR texture metadata")
+                require(type(channel["sampler"]) is int and 0 <= channel["sampler"] <= 255, "invalid native sampler bits")
                 role = channel["role"]
-                require(role in ("color", "normal", "specular_gloss", "auxiliary", "emissive"), "invalid channel role")
-                require(0 <= channel["layer"] <= 31 and channel["layer"] >= layers.get(role, 0), "unordered material layers")
-                layers[role] = channel["layer"] + 1
-                ref(document.get("textures", []), channel["texture"], "raw texture")
-                require(channel["channels"] == ("rgb:specular,a:gloss" if role == "specular_gloss" else "rgba"), "invalid channel interpretation")
+                require(role in {"color", "normal", "response", "control", "emissive", "coating"}, "invalid PBR role")
+                require(channel["channels"] == {"color": "rgb:base_color,a:coverage",
+                    "normal": "rg:unit_normal_xy", "response": "r:occlusion,g:perceptual_roughness,b:metallic,a:coating",
+                    "control": "rg:core_coating_weights", "emissive": "rgb:emissive,a:unused", "coating": "r:coating"}[role], "invalid PBR channel interpretation")
+                require(type(channel["layer"]) is int and 0 <= channel["layer"] <= 31, "invalid PBR layer")
+                require(channel["color_space"] == ("srgb" if role in {"color", "emissive"} else "linear"), "PBR color-space mismatch")
+                uri = channel["uri"]
+                texture = safe_path(root, uri, {".dds"})
+                files.add(uri)
+                stat = texture.stat()
+                dds = dds_layout(texture, stat.st_mtime_ns, stat.st_size)
+                expected_formats = {"BC7_UNORM_SRGB": 99, "BC7_UNORM": 98, "BC5_UNORM": 83,
+                                    "BC4_UNORM": 80, "R8G8B8A8_UNORM_SRGB": 29, "R8G8B8A8_UNORM": 28}
+                require(channel["format"] in expected_formats and dds["dxgi"] == expected_formats[channel["format"]], "PBR DDS format mismatch")
+                allowed = {"normal": {83, 28}, "coating": {80, 28}}.get(role,
+                    {99, 29} if role in {"color", "emissive"} else {98, 28})
+                require(dds["dxgi"] in allowed, "PBR role/format mismatch")
+                require((dds["width"], dds["height"], len(dds["mips"])) == (channel["width"], channel["height"], channel["mip_count"]), "PBR DDS layout mismatch")
+                require(len(dds["mips"]) == max(dds["width"], dds["height"]).bit_length(), "incomplete PBR mip chain")
+                require((role in {"color", "emissive"}) == (dds["dxgi"] in {29, 99}), "PBR DDS transfer mismatch")
             if "preparation" in surface:
-                colors = [c["texture"] for c in surface["channels"] if c["role"] == "color"]
-                require(len(colors) == 3 and material["pbrMetallicRoughness"]["baseColorTexture"]["index"] not in colors,
-                        "tile/macro material must use a derived diffuse texture, retaining all source layers")
+                bindings = {(c["role"], c["layer"]) for c in surface["channels"]}
+                require({("color", 0), ("color", 1), ("control", 2)} <= bindings, "tile material lacks intrinsic layers/control")
     for mesh in document.get("meshes", []):
         require(set(mesh) <= {"name", "primitives", "extras"} and mesh["primitives"], "unsupported or empty mesh")
         metadata = mesh.get("extras", {})
-        require(set(metadata) <= {"lighting", "lighting_vertices"}, "unsupported mesh extras")
-        if "lighting" in metadata:
-            assignment = metadata["lighting"]
-            require(set(assignment) == {"lightmap", "probe"}, "invalid mesh lighting assignment")
-            for key, table in (("lightmap", "lightmaps"), ("probe", "probes")):
-                if assignment[key] is not None:
-                    ref(lighting[table], assignment[key], key)
+        require(not metadata, "baked mesh lighting is retired")
         for primitive in mesh["primitives"]:
             require(set(primitive) <= {"attributes", "indices", "mode", "material"}, "unsupported primitive")
             require(primitive.get("mode", 4) == 4, "non-triangle primitive")
             position = ref(arrays, primitive["attributes"]["POSITION"], "position accessor")
             require(position.shape[1] == 3, "invalid position accessor")
-            if "lighting_vertices" in metadata:
-                mapping = ref(arrays, metadata["lighting_vertices"], "instance lighting vertex mapping")
-                require(mapping.shape[1] == 1 and mapping.dtype.kind == "u" and len(mapping) == len(position), "invalid instance lighting vertex mapping")
             for index in primitive["attributes"].values():
                 require(len(ref(arrays, index, "attribute accessor")) == len(position), "attribute count mismatch")
             for semantic, index in primitive["attributes"].items():
@@ -325,23 +354,19 @@ def validate_gltf(root, relative, files):
             if key in node:
                 require(len(node[key]) == width and all(type(x) in (int, float) for x in node[key]), "invalid transform")
         extras = node.get("extras", {})
-        require(set(extras) <= {"lightmap", "lighting"}, "unsupported node extras")
-        if extras.get("lightmap"):
-            decode_png(dependency(extras["lightmap"], ".png"))
-        if "lighting" in extras:
-            assignment = extras["lighting"]
-            require(set(assignment) <= {"lightmap", "probe", "lighting_id", "color_lods"}, "invalid lighting assignment")
-            for key, table in (("lightmap", "lightmaps"), ("probe", "probes")):
-                if assignment.get(key) is not None:
-                    ref(lighting[table], assignment[key], key)
-            if "lighting_id" in assignment:
-                natural(assignment["lighting_id"], "lighting id")
-            if "color_lods" in assignment:
-                require(len(assignment["color_lods"]) == 4, "invalid instance lighting LODs")
-                for index in assignment["color_lods"]:
-                    if index is not None:
-                        values = ref(arrays, index, "instance lightmap colors")
-                        require(values.shape[1] == 4 and ((values >= 0) & (values <= 1)).all(), "invalid instance lighting colors")
+        allowed_extras = {"static_instance"}
+        if allow_native_transforms:
+            # Optional source-library exchanges retain source joint arithmetic;
+            # these fields are never accepted by the production runtime pack.
+            allowed_extras.update({"origins_native_rotation", "origins_native_translation"})
+            for key, width in (("origins_native_rotation", 4), ("origins_native_translation", 3)):
+                if key in extras:
+                    require(isinstance(extras[key], list) and len(extras[key]) == width
+                            and all(type(v) in (int, float) and math.isfinite(v) for v in extras[key]),
+                            "invalid retained native joint transform")
+        require(set(extras) <= allowed_extras, "baked node lighting is retired")
+        if "static_instance" in extras:
+            require(extras["static_instance"] is True, "invalid static instance marker")
         for child in node.get("children", []):
             ref(nodes, child, "child node")
     skins = document.get("skins", [])
@@ -656,6 +681,8 @@ def validate_pack(root, receipt=None, exact=False):
         require(pngs == receipt["textures"] + receipt["model_textures"], "texture receipt count mismatch")
         require(sum(name.endswith(".png") and PurePosixPath(name).name.startswith("model-") for name in map_files)
                 == receipt["model_textures"], "model texture receipt count mismatch")
+    streaming = validate_texture_streaming(root)
+    files.update(streaming)
     if exact:
         actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
         require(actual == files, f"unexpected or missing runtime files: {sorted(actual ^ files)}")
@@ -690,27 +717,6 @@ def reconcile_sources(config, receipt, documents):
     require(len({item["model"] for item in instances}) == receipt["model_providers"], "source provider receipt mismatch")
     model_root = external(settings.get("models", root / "game-prepare/models"))
     render_doc = documents[next(iter(documents))][0]
-    if render_doc.get("extras", {}).get("lighting"):
-        inventory = json.loads((scene.parent / "inventory.private.json").read_text(encoding="utf-8-sig"))
-        require([m["name"] for m in render_doc["materials"][:len(manifest["materials"])]]
-                == [m["name"] for m in inventory["materials"]], "world material identity differs from source")
-        expected = {}
-        for surface_index, source in enumerate(manifest["surfaces"]):
-            _, count = struct.unpack_from("<QQ", raw, 64 + vertices * 12 + indices * 4 + surface_index * 48)
-            key = (source["material"], None if source.get("lightmap") in (31, 255) else source.get("lightmap"),
-                   None if source.get("probe") == 255 else source.get("probe"))
-            expected[key] = expected.get(key, 0) + count // 3
-        actual = {}
-        for index, mesh in enumerate(render_doc["meshes"]):
-            if not mesh.get("name", "").startswith("world_"):
-                continue
-            primitive = mesh["primitives"][0]
-            material = primitive["material"]
-            require("lighting" in mesh.get("extras", {}), "world mesh lost its lighting assignment")
-            assignment = mesh["extras"]["lighting"]
-            key = (material, assignment.get("lightmap"), assignment.get("probe"))
-            actual[key] = actual.get(key, 0) + render_doc["accessors"][primitive["indices"]]["count"] // 3
-        require(actual == expected, "world material/lightmap/probe partition differs from source")
     nodes = [n for n in render_doc["nodes"] if n.get("name") == "static_instance"]
     providers = {}
     cursor = 0
@@ -731,13 +737,7 @@ def reconcile_sources(config, receipt, documents):
         matrix[:3, 3] = np.asarray(item["origin"])[[0, 2, 1]] * [0.0254, 0.0254, -0.0254]
         require(all(np.allclose(n["matrix"], matrix.T.flatten(), rtol=1e-7, atol=1e-7) for n in placed),
                 "model placement transform differs from source")
-        if "probe" in item:
-            for node in placed:
-                assignment = node.get("extras", {}).get("lighting", {})
-                require(assignment.get("probe") == (None if item["probe"] == 255 else item["probe"])
-                        and assignment.get("lighting_id") == item["lighting_id"], "model lighting assignment differs from source")
-                require([index is not None for index in assignment.get("color_lods", [None] * 4)]
-                        == [bool(colors) for colors in item["lightmap_colors"]], "model lightmap-color assignment differs from source")
+        require(all(n.get("extras", {}).get("static_instance") is True for n in placed), "static instance marker lost")
         cursor += len(shared)
     require(cursor == len(nodes), "extra model placements")
     all_meshes = [mesh for group in providers.values() for mesh in group]
@@ -755,25 +755,44 @@ def import_pack(source, destination, receipt, check=False, validated_hashes=None
     if not check:
         if destination.exists():
             existing = {p.relative_to(destination).as_posix() for p in destination.rglob("*") if p.is_file()}
-            require(existing <= hashes.keys(), "destination contains unrelated files; refusing to replace them")
+            retired = existing - hashes.keys()
+            if retired:
+                # Replace only a complete previously validated runtime closure.
+                # Arbitrary/unrelated files still fail exact validation before deletion.
+                _, _, previous = validate_pack(destination, None, exact=True)
+                require(existing == previous.keys(), "destination contains unrelated files")
+                for name in retired:
+                    safe_path(destination, name, RUNTIME_SUFFIXES).unlink()
         for name in hashes:
             target = safe_path(destination, name, RUNTIME_SUFFIXES)
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(safe_path(source, name, RUNTIME_SUFFIXES), target)
+            if not target.is_file() or hashlib.sha256(read_bytes(target)).hexdigest() != hashes[name]:
+                # Replace only this checkout's directory entry. In-place writes
+                # would mutate another qualified checkout sharing a hardlink.
+                descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.import-", dir=target.parent)
+                os.close(descriptor)
+                try:
+                    shutil.copyfile(safe_path(source, name, RUNTIME_SUFFIXES), temporary)
+                    os.replace(temporary, target)
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
     _, _, imported = validate_pack(destination, receipt, exact=True)
     require(imported == hashes, "imported file hashes differ from source")
     require(all(hashlib.sha256(read_bytes(source / name)).hexdigest() == digest for name, digest in hashes.items()),
             "source changed during import")
     return {"runtime_files": len(hashes), "png_textures": sum(n.endswith(".png") for n in hashes),
+            "dds_textures": sum(n.endswith(".dds") for n in hashes),
             "runtime_bytes": sum((destination / n).stat().st_size for n in hashes), "sha256": hashes}
 
 
-def check_index(destination, hashes):
+def check_index(destination, hashes, ordinary=None):
     """Inspect every staged candidate, its attributes, pointer bytes and local LFS object."""
     def git(*args, data=None):
         return subprocess.run(["git", *args], input=data, cwd=WORKSPACE,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True).stdout
     prefix = destination.relative_to(WORKSPACE).as_posix() + "/"
+    ordinary = {name for name in ("game.json", "texture-streaming.json") if name in hashes} if ordinary is None else set(ordinary)
     entries = {}
     for entry in git("ls-files", "--stage", "-z", "--", prefix).split(b"\0"):
         if not entry:
@@ -796,15 +815,16 @@ def check_index(destination, hashes):
              if line.startswith("LocalMediaDir=")]
     require(len(media) == 1 and Path(media[0]).is_absolute(), "cannot resolve Git LFS storage")
     lfs_root = Path(media[0])
+    verified = set()
     for name, oid in entries.items():
         header = batch.readline().decode().split()
         require(header[:2] == [oid, "blob"], "invalid staged object")
         raw = batch.read(int(header[2]))
         require(batch.read(1) == b"\n", "invalid Git batch response")
         actual_attrs = attrs[prefix + name]
-        if name == "game.json":
-            require(actual_attrs["filter"] == "unspecified" and actual_attrs["text"] == "unset",
-                    "game.json must retain ordinary Git bytes")
+        if name in ordinary:
+            require(actual_attrs["filter"] in {"unspecified", "unset"} and actual_attrs["text"] == "unset",
+                    "metadata must retain ordinary Git bytes")
             require(hashlib.sha256(raw).hexdigest() == hashes[name], "staged configuration hash mismatch")
         else:
             require(actual_attrs == {"filter": "lfs", "diff": "lfs", "merge": "lfs", "text": "unset"},
@@ -814,9 +834,12 @@ def check_index(destination, hashes):
             require(raw == expected, "staged LFS pointer differs from validated source")
             digest = hashes[name]
             local = lfs_root / digest[:2] / digest[2:4] / digest
-            payload = read_bytes(local)
-            require(len(payload) == size and hashlib.sha256(payload).hexdigest() == digest, "local LFS object corrupt")
-    return {"staged_files": len(entries), "lfs_pointers": len(entries) - 1, "ordinary_git_files": 1}
+            if digest not in verified:
+                with local.open("rb") as stream:
+                    require(local.stat().st_size == size and hashlib.file_digest(stream, "sha256").hexdigest() == digest,
+                            "local LFS object corrupt")
+                verified.add(digest)
+    return {"staged_files": len(entries), "lfs_pointers": len(entries) - len(ordinary), "ordinary_git_files": len(ordinary)}
 
 
 def main():
@@ -828,9 +851,10 @@ def main():
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
     source = external(config["game"]["asset_pack"])
-    receipt = read_json(source / "preparation.json")
-    _, documents, hashes = validate_pack(source, receipt)
-    reconcile_sources(config, receipt, documents)
+    receipt = read_json(source / "preparation.json") if (source / "preparation.json").exists() else None
+    _, documents, hashes = validate_pack(source, receipt, exact=receipt is None)
+    if receipt is not None:
+        reconcile_sources(config, receipt, documents)
     result = import_pack(source, WORKSPACE / "assets/origins", receipt, args.check or args.check_index, hashes)
     if args.check_index:
         result.update(check_index(WORKSPACE / "assets/origins", result["sha256"]))

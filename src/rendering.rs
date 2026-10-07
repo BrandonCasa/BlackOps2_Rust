@@ -4,41 +4,48 @@ use crate::{
     player::Player,
 };
 use bevy::{
-    asset::RenderAssetUsages,
     camera::visibility::NoFrustumCulling,
     camera::{Exposure, Hdr, primitives::Aabb},
-    core_pipeline::tonemapping::Tonemapping,
-    gltf::{GltfExtras, GltfMaterialName},
+    core_pipeline::{prepass::DepthPrepass, tonemapping::Tonemapping},
+    gltf::GltfMaterialName,
     light::NotShadowCaster,
-    pbr::Lightmap,
-    post_process::bloom::Bloom,
     prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
-    render::view::{ColorGrading, ColorGradingGlobal},
 };
-use std::collections::HashMap;
-mod mipmaps;
+pub(crate) mod grading;
+mod lighting_inspection;
 mod opaque;
+mod pbr;
+pub(crate) mod postprocess;
 mod preprocessing;
 pub(crate) mod profile;
+mod ray_skin;
+mod ray_surface;
+mod readback_shutdown;
 mod residency;
 mod shadow_cache;
+mod shadows;
 mod sky;
-mod static_probes;
+mod sky_lighting;
+mod static_gi;
+mod streaming;
 pub(crate) use opaque::OpaqueSurfaceStatus;
 pub(crate) use opaque::{LAYER_UV, LAYER3_UV, ROTATION1, ROTATION2};
+pub(crate) use pbr::PbrReady;
 pub(crate) use preprocessing::PreprocessingStatus;
+pub(crate) use ray_skin::RayContributorStats;
+pub(crate) use ray_surface::RaySurfaceStats;
 pub(crate) use shadow_cache::ShadowCacheStats;
+pub(crate) use static_gi::StaticGiStats;
+pub(crate) use streaming::{TextureStreamingStats, TextureStreams};
 
 #[derive(Component)]
 pub struct GameCamera;
 
 #[derive(Component)]
-struct PendingLightmap(Handle<Image>);
-#[derive(Component)]
 struct SurfaceReady;
 #[derive(Component)]
 pub(crate) struct DynamicSurface;
+
 #[derive(Component)]
 struct LanternLight;
 
@@ -46,31 +53,40 @@ pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<opaque::OpaqueMaterial>::default())
-            .add_plugins(static_probes::StaticProbePlugin)
+            .add_plugins(bevy::post_process::auto_exposure::AutoExposurePlugin)
+            .add_plugins(MaterialPlugin::<pbr::DiagnosticMaterial>::default())
             .add_plugins(preprocessing::PreprocessingPlugin)
+            .add_plugins(streaming::TextureStreamingPlugin)
             .add_plugins((shadow_cache::ShadowCachePlugin, residency::ResidencyPlugin))
             .init_resource::<profile::VisualProfile>()
+            .add_plugins(sky_lighting::SkyLightingPlugin)
+            .add_plugins(static_gi::StaticGiPlugin)
+            .add_plugins(lighting_inspection::LightingInspectionPlugin)
+            .add_plugins(readback_shutdown::ReadbackShutdownPlugin)
             .init_resource::<OpaqueSurfaceStatus>()
+            .init_resource::<pbr::MaterialDiagnostic>()
             .add_systems(Startup, (setup, opaque::initialize))
             .add_systems(PostStartup, sky::setup)
             .add_systems(Startup, cpu_clusters)
             .add_systems(
+                PostUpdate,
+                shadows::stabilize
+                    .after(bevy::light::cascade::build_directional_light_cascades)
+                    .before(bevy::light::SimulationLightSystems::UpdateLightFrusta),
+            )
+            .add_systems(
                 Update,
                 (
                     camera_follow,
-                    opaque::probes,
-                    opaque::baked_lighting,
-                    mipmaps::prepare.before(opaque::convert),
-                    (
-                        lightmaps,
-                        surfaces,
-                        opaque::convert.run_if(resource_exists::<opaque::BakedLightingReady>),
-                        decode_lightmaps,
-                    )
-                        .chain(),
-                    opaque::animate_water.after(opaque::convert),
-                    exposure.after(camera_follow),
+                    sky::viewmodel_environment,
+                    shadows::prepare.before(opaque::prepare_shaders),
+                    opaque::prepare_shaders,
+                    (pbr::prepare, surfaces, opaque::convert).chain(),
                 ),
+            )
+            .add_systems(
+                PostUpdate,
+                (pbr::diagnostics, opaque::animate_water).chain(),
             );
     }
 }
@@ -83,21 +99,33 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
     commands.insert_resource(bevy::light::PointLightShadowMap {
         size: profile.lantern_shadow_map_size,
     });
+    commands.insert_resource(bevy::light::DirectionalLightShadowMap {
+        size: profile.sun_shadow_map_size,
+    });
     commands.insert_resource(ClearColor(profile::color(profile.fog_color)));
     commands.insert_resource(GlobalAmbientLight {
         color: profile::color(profile.ambient_color),
         brightness: profile.ambient_brightness,
         affects_lightmapped_meshes: false,
-        ..default()
     });
     commands.spawn((
         DirectionalLight {
             illuminance: profile.sun_illuminance,
             color: profile::color(profile.sun_color),
-            affects_lightmapped_mesh_diffuse: false,
+            affects_lightmapped_mesh_diffuse: true,
+            soft_shadow_size: Some(0.00465),
+            contact_shadows_enabled: true,
             shadow_maps_enabled: true,
             ..default()
         },
+        bevy::light::VolumetricLight,
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
+        bevy::light::CascadeShadowConfigBuilder {
+            maximum_distance: profile.sun_shadow_distance,
+            first_cascade_far_bound: 12.,
+            ..default()
+        }
+        .build(),
         Transform::from_rotation(Quat::from_euler(
             EulerRot::XYZ,
             profile.sun_rotation[0],
@@ -109,39 +137,24 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
     let mut camera = commands.spawn((
         Camera3d::default(),
         GameCamera,
+        // Preserve native depth for AO. GPU frustum culling and indirect
+        // batching retain CPU visibility admission. Two-phase occlusion
+        // regressed the matched ordinary executable and stays disabled.
+        DepthPrepass,
         Transform::from_xyz(0., 2., 0.),
         Hdr,
         Exposure {
-            ev100: profile.indoor_ev100,
+            ev100: profile.outdoor_ev100,
         },
-        Tonemapping::AgX,
-        ColorGrading {
-            global: ColorGradingGlobal {
-                post_saturation: profile.post_saturation,
-                ..default()
-            },
-            ..default()
-        },
-        Bloom {
-            intensity: profile.bloom_intensity,
-            ..default()
-        },
+        // Stacked views share this HDR target. The final overlay camera owns
+        // tone mapping, grading, bloom and antialiasing after compositing.
+        Tonemapping::None,
         match profile.antialiasing {
             profile::Antialiasing::Msaa4 => Msaa::Sample4,
             profile::Antialiasing::Smaa => Msaa::Off,
         },
-        DistanceFog {
-            color: profile::color(profile.fog_color),
-            falloff: FogFalloff::Exponential {
-                density: profile.fog_density,
-            },
-            ..default()
-        },
     ));
     camera.insert(bevy::audio::SpatialListener::new(0.2));
-    if matches!(profile.antialiasing, profile::Antialiasing::Smaa) {
-        camera.insert(bevy::anti_alias::smaa::Smaa::default());
-    }
 }
 
 fn camera_follow(
@@ -204,94 +217,6 @@ fn camera_follow(
     }
 }
 
-fn lightmaps(
-    mut commands: Commands,
-    extras: Query<(Entity, &GltfExtras), Added<GltfExtras>>,
-    children: Query<&Children>,
-    meshes: Query<(), (With<Mesh3d>, Without<WorldCollider>)>,
-    server: Res<AssetServer>,
-) {
-    for (entity, extras) in &extras {
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&extras.value)
-            && let Some(path) = value.get("lightmap").and_then(|v| v.as_str())
-        {
-            let handle = server.load(path.to_string());
-            for child in std::iter::once(entity).chain(children.iter_descendants(entity)) {
-                if meshes.contains(child) {
-                    commands
-                        .entity(child)
-                        .insert(PendingLightmap(handle.clone()));
-                }
-            }
-        }
-    }
-}
-
-fn decode_lightmaps(
-    mut commands: Commands,
-    pending: Query<(Entity, &PendingLightmap)>,
-    mut images: ResMut<Assets<Image>>,
-    mut cache: Local<HashMap<AssetId<Image>, Handle<Image>>>,
-) {
-    for (entity, pending) in &pending {
-        let id = pending.0.id();
-        let handle = if let Some(handle) = cache.get(&id) {
-            handle.clone()
-        } else {
-            let Some(source) = images.get(&pending.0) else {
-                continue;
-            };
-            let size = source.texture_descriptor.size;
-            let Some(raw) = source.data.as_ref() else {
-                continue;
-            };
-            if size.height % 3 != 0 || raw.len() != size.width as usize * size.height as usize * 4 {
-                warn!("Unsupported Origins packed lightmap layout");
-                commands.entity(entity).remove::<PendingLightmap>();
-                continue;
-            }
-            let height = size.height / 3;
-            let band = size.width as usize * height as usize * 4;
-            let mut pixels = Vec::with_capacity(band);
-            for (ambient, directional) in raw[..band]
-                .chunks_exact(4)
-                .zip(raw[band..band * 2].chunks_exact(4))
-            {
-                // Original atlas: RGB/alpha ambient, RGB/alpha directional, then direction.
-                // A diffuse average replaces the native per-fragment directional response.
-                for channel in 0..3 {
-                    let irradiance = ambient[channel] as f32 / ambient[3].max(1) as f32
-                        + 0.35 * directional[channel] as f32 / directional[3].max(1) as f32;
-                    pixels.push((irradiance / 4. * 255.).clamp(0., 255.) as u8);
-                }
-                pixels.push(255);
-            }
-            let image = Image::new(
-                Extent3d {
-                    width: size.width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                pixels,
-                TextureFormat::Rgba8Unorm,
-                RenderAssetUsages::default(),
-            );
-            let handle = images.add(image);
-            cache.insert(id, handle.clone());
-            handle
-        };
-        commands
-            .entity(entity)
-            .remove::<PendingLightmap>()
-            .insert(Lightmap {
-                image: handle,
-                uv_rect: Rect::new(0., 0., 1., 1.),
-                bicubic_sampling: true,
-            });
-    }
-}
-
 fn surfaces(
     mut commands: Commands,
     surfaces: Query<
@@ -300,11 +225,13 @@ fn surfaces(
             &MeshMaterial3d<StandardMaterial>,
             &GltfMaterialName,
             &Aabb,
+            Has<bevy::mesh::skinning::SkinnedMesh>,
         ),
         (
             Without<SurfaceReady>,
             Without<WorldCollider>,
             Without<DynamicSurface>,
+            With<PbrReady>,
         ),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -316,13 +243,18 @@ fn surfaces(
         Or<(
             With<crate::barriers::BoardVisual>,
             With<crate::generators::GeneratorVisual>,
+            With<crate::enemies::Zombie>,
+            With<crate::equipment::Grenade>,
+            With<crate::mines::PlantedMine>,
+            With<crate::presentation::ViewModelGroup>,
         )>,
     >,
 ) {
     let Some(library) = library else { return };
-    for (entity, handle, name, bounds) in &surfaces {
+    for (entity, handle, name, bounds, skinned) in &surfaces {
         let mut ancestor = Some(entity);
-        let mut dynamic = false;
+        // Animated providers retain Bevy's native skinning and PBR shader.
+        let mut dynamic = skinned;
         while let Some(e) = ancestor {
             if boards.contains(e) {
                 dynamic = true;
@@ -332,6 +264,9 @@ fn surfaces(
         }
         if dynamic {
             commands.entity(entity).insert(DynamicSurface);
+            if opaque::requires_extension(&library, &name.0) {
+                commands.entity(entity).insert(SurfaceReady);
+            }
             continue;
         }
         let Some(mut material) = materials.get_mut(&handle.0) else {
@@ -377,10 +312,12 @@ fn surfaces(
                         range: profile.lantern_range,
                         radius: 0.12,
                         shadow_maps_enabled: true,
+                        soft_shadows_enabled: true,
                         ..default()
                     },
                     Transform::from_translation(Vec3::from(bounds.center)),
                     LanternLight,
+                    bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
                     // Keep cube-array ownership stable across camera rotation.
                     // Bevy still clusters the finite-range contribution per fragment.
                     NoFrustumCulling,
@@ -390,41 +327,4 @@ fn surfaces(
         }
         commands.entity(entity).insert(SurfaceReady);
     }
-}
-
-fn exposure(
-    mut cameras: Query<(&Transform, &mut Exposure), With<GameCamera>>,
-    players: Query<Entity, With<Player>>,
-    query: avian3d::prelude::SpatialQuery,
-    time: Res<Time>,
-    profile: Res<profile::VisualProfile>,
-) {
-    let (Ok((camera, mut exposure)), Ok(player)) = (cameras.single_mut(), players.single()) else {
-        return;
-    };
-    let covered = query
-        .cast_ray(
-            camera.translation + Vec3::Y * 0.1,
-            Dir3::Y,
-            20.,
-            true,
-            &crate::environment::solids([player]),
-        )
-        .is_some();
-    let target = if covered {
-        profile.indoor_ev100
-    } else {
-        profile.outdoor_ev100
-    };
-    exposure.ev100 +=
-        (target - exposure.ev100) * (1. - (-time.delta_secs() * profile.adaptation_speed).exp());
-}
-
-/// Reconstruct native dynamic-object probe fill while retaining direct lights and normals.
-pub(crate) fn with_actor_fill(source: &StandardMaterial) -> StandardMaterial {
-    let mut material = source.clone();
-    material.emissive_texture = material.base_color_texture.clone();
-    material.emissive = LinearRgba::rgb(90., 90., 90.);
-    material.emissive_exposure_weight = 1.;
-    material
 }

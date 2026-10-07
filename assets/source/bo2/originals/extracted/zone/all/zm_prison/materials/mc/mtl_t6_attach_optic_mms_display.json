@@ -1,0 +1,386 @@
+{
+    "$schema": "http://openassettools.dev/schema/material.v1.json",
+    "_game": "t6",
+    "_type": "material",
+    "_version": 1,
+    "cameraRegion": "emissiveTrans",
+    "constants": [
+        {
+            "literal": [
+                1.25,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "hdrAmount"
+        },
+        {
+            "literal": [
+                0.607142984867096,
+                0.7857139706611633,
+                1.0,
+                1.0
+            ],
+            "name": "EnemiesColor"
+        },
+        {
+            "literal": [
+                0.5,
+                0.5,
+                0.0,
+                1.0
+            ],
+            "name": "ScatterSize"
+        },
+        {
+            "literal": [
+                2.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Player_Lookup_Scale"
+        },
+        {
+            "literal": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "SceneNoise"
+        },
+        {
+            "literal": [
+                1.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Edge_Color_Multiplier"
+        },
+        {
+            "literal": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Min_Player_Intensity"
+        },
+        {
+            "literal": [
+                2.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Outline_Lookup_Scale"
+        },
+        {
+            "literal": [
+                1.100000023841858,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "PulseTime"
+        },
+        {
+            "literal": [
+                0.607142984867096,
+                0.6892859935760498,
+                1.0,
+                1.0
+            ],
+            "name": "PulseColor"
+        },
+        {
+            "literal": [
+                1.5,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Pulse_Color_Multiplier"
+        },
+        {
+            "literal": [
+                1000.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "MaxDepth"
+        },
+        {
+            "literal": [
+                3.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Pulse_Lookup_Scale"
+        },
+        {
+            "literal": [
+                100.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "EdgeIntensity"
+        },
+        {
+            "literal": [
+                0.75,
+                0.7914289832115173,
+                1.0,
+                1.0
+            ],
+            "name": "EdgeColor"
+        },
+        {
+            "literal": [
+                7.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "Player_Color_Multiplier"
+        },
+        {
+            "literal": [
+                10.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "EdgeMinDist"
+        },
+        {
+            "literal": [
+                1250.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "MaxPulseDepth"
+        },
+        {
+            "literal": [
+                1000.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "EdgeMaxDist"
+        },
+        {
+            "literal": [
+                1.5,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "PulseInterval"
+        },
+        {
+            "literal": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "ScatterAmount"
+        },
+        {
+            "literal": [
+                0.699999988079071,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "BackgroundNoise"
+        },
+        {
+            "literal": [
+                0.5714290142059326,
+                0.5714290142059326,
+                0.5714290142059326,
+                1.0
+            ],
+            "name": "BackgroundColor"
+        },
+        {
+            "literal": [
+                0.2199999988079071,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "EdgeSize"
+        },
+        {
+            "literal": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "LineNoise"
+        },
+        {
+            "literal": [
+                60.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "name": "MinDepth"
+        }
+    ],
+    "contents": 1,
+    "gameFlags": [
+        "1000"
+    ],
+    "layeredSurfaceTypes": 536870912,
+    "sortKey": 56,
+    "stateBits": [
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "add",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "one",
+            "dstBlendRgb": "one",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "zero",
+            "srcBlendRgb": "one"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "disabled",
+            "colorWriteAlpha": false,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "zero",
+            "polygonOffset": "offset2",
+            "polymodeLine": true,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "one",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        }
+    ],
+    "stateBitsEntry": [
+        -1,
+        -1,
+        0,
+        0,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        -1,
+        -1,
+        2
+    ],
+    "stateFlags": 21,
+    "surfaceFlags": 0,
+    "surfaceTypeBits": 0,
+    "techniqueSet": "mc_sw4_3d_sonar_attachment_lens2_78904485",
+    "textureAtlas": {
+        "columns": 1,
+        "rows": 1
+    },
+    "textures": [
+        {
+            "image": "noise2",
+            "isMatureContent": false,
+            "name": "Static_Noise_Map",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "colorMap"
+        },
+        {
+            "image": "sw_radiant_default",
+            "isMatureContent": false,
+            "name": "radiantDiffuseMap",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "colorMap"
+        },
+        {
+            "image": "~sonar_attachment_lookup_puls~4187f661",
+            "isMatureContent": false,
+            "name": "Lookup",
+            "samplerState": {
+                "clampU": true,
+                "clampV": true,
+                "clampW": true,
+                "filter": "linear",
+                "mipMap": "disabled"
+            },
+            "semantic": "colorMap"
+        }
+    ]
+}

@@ -1,0 +1,26 @@
+{
+    "$schema": "http://openassettools.dev/schema/xmodel.v1.json",
+    "_game": "t6",
+    "_type": "xmodel",
+    "_version": 2,
+    "collLod": 1,
+    "flags": 2621440,
+    "lightingOriginOffset": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.5
+    },
+    "lightingOriginRange": 0.5,
+    "lods": [
+        {
+            "distance": 40000.0,
+            "file": "model_export/mlv/veh_t6_civ_movingtrk_cab_dead_lod0.gltf"
+        },
+        {
+            "distance": 40054.8515625,
+            "file": "model_export/mlv/veh_t6_civ_movingtrk_cab_dead_lod1.gltf"
+        }
+    ],
+    "rootBoneName": "tag_origin",
+    "type": "rigid"
+}

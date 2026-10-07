@@ -1,0 +1,21 @@
+{
+    "$schema": "http://openassettools.dev/schema/xmodel.v1.json",
+    "_game": "t6",
+    "_type": "xmodel",
+    "_version": 2,
+    "flags": 2621440,
+    "lightingOriginOffset": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.5
+    },
+    "lightingOriginRange": 0.5,
+    "lods": [
+        {
+            "distance": 1304.4945068359375,
+            "file": "model_export/p_int_surgical_bonesaw_lod0.gltf"
+        }
+    ],
+    "rootBoneName": "p_jun_surgical_bonesaw",
+    "type": "rigid"
+}

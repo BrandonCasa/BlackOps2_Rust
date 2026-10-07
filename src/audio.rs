@@ -1,13 +1,15 @@
 //! Bounded Bevy playback of prepared source aliases; no gameplay RNG consumption.
 use crate::{GameState, assets::GameDefinition, gameplay::SessionEntity, origins::ContentId};
 use bevy::{
-    audio::{AudioSinkPlayback, PlaybackMode, SpatialScale, Volume},
+    audio::{AddAudioSource, AudioSinkPlayback, PlaybackMode, SpatialScale, Volume},
     prelude::*,
     transform::helper::TransformHelper,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
+mod decoded;
 mod gameplay;
+pub(crate) use decoded::AudioDecodeStats;
 pub(crate) use gameplay::voice;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -268,9 +270,13 @@ impl Plugin for GameAudioPlugin {
             .init_resource::<AudioEvidence>()
             .init_resource::<Subtitle>()
             .init_resource::<Mixer>()
+            .init_resource::<decoded::ClipCache>()
+            .init_resource::<AudioDecodeStats>()
+            .add_audio_source::<decoded::DecodedClip>()
+            .init_asset_loader::<decoded::DecodedClipLoader>()
             .add_systems(
                 Update,
-                (settings, play, subtitles)
+                (settings, decoded::maintain, play, subtitles)
                     .chain()
                     .after(crate::input::pause_and_restart)
                     .in_set(AudioPlayback),
@@ -331,6 +337,8 @@ fn play(
     mut mixer: ResMut<Mixer>,
     mut evidence: ResMut<AudioEvidence>,
     mut subtitle: ResMut<Subtitle>,
+    mut clips: ResMut<decoded::ClipCache>,
+    mut decode_stats: ResMut<AudioDecodeStats>,
 ) {
     let Some(game) = game else {
         return;
@@ -495,7 +503,6 @@ fn play(
                 gain,
                 started: mixer.clock,
             },
-            AudioPlayer::new(server.load(sound.path.clone())),
             PlaybackSettings {
                 mode: if looping {
                     PlaybackMode::Loop
@@ -512,6 +519,17 @@ fn play(
             },
             Transform::from_translation(position),
         ));
+        if let Some(clip) = clips.clip(&server, &sound.path, alias.seconds, &mut decode_stats) {
+            commands
+                .entity(entity)
+                .insert(AudioPlayer::<decoded::DecodedClip>(clip));
+        } else {
+            commands
+                .entity(entity)
+                .insert(AudioPlayer::<AudioSource>::new(
+                    server.load(sound.path.clone()),
+                ));
+        }
         if character_speech {
             voice.push((entity, alias.priority));
         }

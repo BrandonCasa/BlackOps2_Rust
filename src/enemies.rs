@@ -169,6 +169,7 @@ struct ActorRig {
     ready: bool,
     attached: bool,
     players: Vec<Entity>,
+    sockets: HashMap<String, Entity>,
     action: Option<EnemyAnimation>,
     clip: Option<String>,
 }
@@ -183,8 +184,6 @@ struct HasActor;
 #[derive(Component)]
 struct ActorLit;
 #[derive(Resource, Default)]
-struct ActorMaterials(HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>);
-#[derive(Resource, Default)]
 struct Graphs(
     HashMap<AssetId<Gltf>, (Handle<AnimationGraph>, BTreeMap<String, AnimationNodeIndex>)>,
 );
@@ -196,7 +195,6 @@ impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Graphs>()
             .init_resource::<EnemyEvidence>()
-            .init_resource::<ActorMaterials>()
             .add_systems(
                 FixedUpdate,
                 lifecycle
@@ -823,6 +821,7 @@ fn spawn_actors(
                         ready: false,
                         attached: body,
                         players: Vec::new(),
+                        sockets: HashMap::new(),
                         action: None,
                         clip: None,
                     },
@@ -897,6 +896,13 @@ fn ready(
             });
     }
     for child in children.iter_descendants(event.entity) {
+        if rig.socket.is_none()
+            && let Ok(name) = names.get(child)
+        {
+            // Preserve the first matching native descendant, just as the
+            // attachment lookup did, but discover it once when the scene is ready.
+            rig.sockets.entry(name.to_string()).or_insert(child);
+        }
         if players.contains(child) {
             rig.players.push(child);
         }
@@ -941,65 +947,48 @@ fn graphs(
 fn attach_parts(
     mut commands: Commands,
     mut rigs: Query<(Entity, &mut ActorRig)>,
-    children: Query<&Children>,
-    names: Query<&Name>,
     mut evidence: ResMut<EnemyEvidence>,
 ) {
-    let sockets: Vec<_> = rigs
+    let _span = info_span!("enemy_attachment_lifecycle").entered();
+    let attachments: Vec<_> = rigs
         .iter()
-        .filter(|(_, r)| r.socket.is_none() && r.ready)
-        .flat_map(|(root, r)| {
-            children
-                .iter_descendants(root)
-                .filter_map(|e| names.get(e).ok().map(|n| (r.owner, n.to_string(), e)))
-                .collect::<Vec<_>>()
+        .filter(|(_, rig)| !rig.attached && rig.ready)
+        .filter_map(|(entity, rig)| {
+            let socket = rig.socket.as_ref()?;
+            let parent = rigs.iter().find_map(|(_, body)| {
+                (body.owner == rig.owner && body.socket.is_none() && body.ready)
+                    .then(|| body.sockets.get(socket).copied())
+                    .flatten()
+            })?;
+            Some((entity, parent))
         })
         .collect();
-    for (entity, mut rig) in &mut rigs {
-        if rig.attached || !rig.ready {
-            continue;
-        }
-        let Some(socket) = rig.socket.as_ref() else {
+    for (entity, parent) in attachments {
+        let Ok((_, mut rig)) = rigs.get_mut(entity) else {
             continue;
         };
-        if let Some((_, _, parent)) = sockets
-            .iter()
-            .find(|(owner, n, _)| *owner == rig.owner && n == socket)
-        {
-            commands.entity(*parent).add_child(entity);
-            commands.entity(entity).insert((
-                Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
-                Visibility::Inherited,
-            ));
-            rig.attached = true;
-            evidence.attached_heads += 1;
-        }
+        commands.entity(parent).add_child(entity);
+        commands.entity(entity).insert((
+            Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+            Visibility::Inherited,
+        ));
+        rig.attached = true;
+        evidence.attached_heads += 1;
     }
 }
 fn light_materials(
     mut commands: Commands,
-    mut cache: ResMut<ActorMaterials>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     meshes: Query<
-        (Entity, &MeshMaterial3d<StandardMaterial>),
-        (With<ActorMesh>, Without<ActorLit>),
+        Entity,
+        (
+            With<ActorMesh>,
+            Without<ActorLit>,
+            With<crate::rendering::PbrReady>,
+        ),
     >,
 ) {
-    for (entity, material) in &meshes {
-        let handle = if let Some(handle) = cache.0.get(&material.0.id()) {
-            handle.clone()
-        } else {
-            let Some(source) = materials.get(&material.0) else {
-                continue;
-            };
-            let source = crate::rendering::with_actor_fill(source);
-            let handle = materials.add(source);
-            cache.0.insert(material.0.id(), handle.clone());
-            handle
-        };
-        commands
-            .entity(entity)
-            .insert((MeshMaterial3d(handle), ActorLit));
+    for entity in &meshes {
+        commands.entity(entity).insert(ActorLit);
     }
 }
 fn admit_ready(
@@ -1074,11 +1063,12 @@ fn animate(
         let Some(&node) = nodes.get(name) else {
             continue;
         };
+        let changed = rig.action != Some(zombie.action) || rig.clip.as_deref() != Some(name);
         for &entity in &rig.players {
             let Ok(mut player) = players.get_mut(entity) else {
                 continue;
             };
-            if rig.action != Some(zombie.action) || rig.clip.as_deref() != Some(name) {
+            if changed {
                 commands
                     .entity(entity)
                     .insert(AnimationGraphHandle(graph.clone()));
@@ -1095,23 +1085,39 @@ fn animate(
                 }
                 evidence.animations.insert(format!("{:?}", zombie.action));
             }
-            if let Some(active) = player.animation_mut(node) {
+            if player
+                .animation(node)
+                .is_some_and(|active| active.seek_time() != zombie.elapsed)
+                && let Some(active) = player.animation_mut(node)
+            {
                 active.seek_to(zombie.elapsed);
             }
             if **state == GameState::Playing && zombie.stunned <= 0. {
-                player.resume_all();
-            } else {
+                if player
+                    .playing_animations()
+                    .any(|(_, active)| active.is_paused())
+                {
+                    player.resume_all();
+                }
+            } else if !player.all_paused() {
                 player.pause_all();
             }
         }
-        rig.action = Some(zombie.action);
-        rig.clip = Some(name.to_owned());
+        if changed {
+            rig.action = Some(zombie.action);
+            rig.clip = Some(name.to_owned());
+        }
     }
 }
 fn partial_roots(mut roots: Query<&mut Transform, With<PartialRoot>>) {
     for mut transform in &mut roots {
-        transform.translation = Vec3::ZERO;
-        transform.rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+        if transform.translation != Vec3::ZERO {
+            transform.translation = Vec3::ZERO;
+        }
+        let rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+        if transform.rotation != rotation {
+            transform.rotation = rotation;
+        }
     }
 }
 fn animated_bounds(

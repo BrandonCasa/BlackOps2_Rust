@@ -3,38 +3,26 @@
     forward_io::{VertexOutput, FragmentOutput},
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{main_pass_post_lighting_processing, calculate_tbn_mikktspace, alpha_discard},
-    lighting::F_AB,
     mesh_view_bindings::view,
-    pbr_types::{STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS},
+    pbr_types::{STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_UNLIT_BIT},
 }
-#import origins::baked_lighting::apply_pbr_lighting
+#import origins::surface_lighting::apply_pbr_lighting
 
-#import origins::surface_bindings::{OriginsSurfaceData, animation_time, parameters_for, atlas_dimensions, reflection_levels, sample_reflection, sample_normal_map, sample_second_normal, sample_specular_map, sample_second_specular, sample_control_map, sample_packed_lightmap, sample_color0, sample_color1, sample_color2, sample_color3, sample_third_normal, sample_third_specular}
+#import origins::surface_bindings::{OriginsSurfaceData, animation_time, diagnostic_mode, set_surface_slot, parameters_for, sample_normal_map, sample_second_normal, sample_specular_map, sample_second_specular, sample_control_map, sample_color0, sample_color1, sample_color2, sample_color3, sample_third_normal, sample_third_specular}
 #import bevy_pbr::mesh_bindings::mesh
+#import origins::surface_effect::{effect_uv, effect_color}
+
+fn effect_sample(slot: u32, layer: u32, uv: vec2<f32>) -> vec4<f32> {
+    if layer == 0u { return sample_color0(slot,uv); }
+    if layer == 1u { return sample_color1(slot,uv); }
+    return sample_color2(slot,uv);
+}
 
 fn normal_slope(sampled: vec2<f32>, strength: f32) -> vec2<f32> {
-    // Raw BC5 source slope convention, with DirectX Y reversed for glTF tangents.
-    return (sampled * 4.015748 - 2.015748) * vec2(1.0, -1.0) * strength;
-}
-
-fn source_basis(direction: vec3<f32>) -> vec3<f32> {
-    // Preparation uses (x,z,-y); SH and cube faces retain source Z-up.
-    return vec3(direction.x, -direction.z, direction.y);
-}
-
-fn probe_diffuse(normal: vec3<f32>, surface: OriginsSurfaceData) -> vec3<f32> {
-    let n = source_basis(normal);
-    let k = dot(surface.sh_two, vec4(n.z*n.x, n.y*n.z, n.x*n.y, n.x*n.x-n.y*n.y))
-        + dot(surface.sh_one, vec4(n, 1.0)) + surface.sh_zero.w*n.z*n.z;
-    return max(surface.sh_zero.rgb * k, vec3(0.0));
-}
-
-fn atlas_sample(slot: u32, uv: vec2<f32>, band: f32) -> vec4<f32> {
-    // Clamp within each band to avoid bilinear bleeding into its neighbour.
-    let dimensions = vec2<f32>(atlas_dimensions(slot));
-    let inset = vec2(0.5) / vec2(dimensions.x, dimensions.y / 3.0);
-    let w = clamp(uv, inset, vec2(1.0) - inset);
-    return sample_packed_lightmap(slot, vec2(w.x, (w.y+band)/3.0));
+    // Offline preparation has already decoded native slopes and changed Y.
+    let xy = sampled * 2.0 - 1.0;
+    let z = sqrt(max(1.0-dot(xy,xy),0.0001));
+    return xy/max(z,0.01)*strength;
 }
 
 fn reveal(control: f32, alpha: f32, parameters: vec2<f32>) -> f32 {
@@ -55,17 +43,17 @@ fn layer_color(base: vec3<f32>, overlay: vec4<f32>, weight: f32, operation: u32)
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     @location(8) layer_uv: vec4<f32>, @location(9) layer3_uv: vec2<f32>,
-    @location(10) rotation1: vec4<f32>, @location(11) rotation2: vec4<f32>,
-    @location(12) baked_color: vec3<f32>) -> FragmentOutput {
+    @location(10) rotation1: vec4<f32>, @location(11) rotation2: vec4<f32>) -> FragmentOutput {
     #ifdef BINDLESS
     let slot = mesh[in.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
 #else
     let slot = 0u;
 #endif
     let surface = parameters_for(slot);
+    set_surface_slot(slot);
     var standard = in;
     let layered = surface.layers.x > 1u;
-    if layered { standard.color = vec4(1.0); }
+    standard.color = vec4(1.0); // Authored vertex G/B remain layer controls only.
     var pbr = pbr_input_from_standard_material(standard, is_front);
     if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
         pbr.material.base_color.a *= surface.wetness.w;
@@ -78,18 +66,22 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     let tile_macro = (surface.modes.x & 1u) != 0u;
     if tile_macro {
         let mask = sample_control_map(slot, in.uv).rg;
-        weights = vec3(mask.g,mask.r,0.0)/max(mask.r+mask.g,0.0001);
+        weights = select(vec3(1.0,0.0,0.0),vec3(mask.g,mask.r,0.0)/max(mask.r+mask.g,0.0001),mask.r+mask.g > 0.0001);
         // Normal 0 describes the whole object's shape at authored UVs.
         // Normals 1/2 accompany coating/core (color 1/0), respectively.
         uv1 = in.uv * surface.response.w;
+        // Control magnitudes used to include macro darkness. Only normalized
+        // material coverage survives; scene illumination is evaluated now.
+        pbr.material.base_color = vec4(sample_color0(slot, uv1).rgb*weights.x + sample_color1(slot, uv1).rgb*weights.y, 1.0);
     }
     var slope0 = select(vec2(0.0), normal_slope(sample_normal_map(slot, uv0).rg, surface.response.x), (surface.modes.x & 2u) != 0u);
     var slope1 = select(vec2(0.0), normal_slope(sample_second_normal(slot, uv1).rg, surface.response.x), (surface.modes.x & 4u) != 0u);
     var slope2 = vec2(0.0);
-    var s0 = select(vec4(0.5,0.5,0.5,0.36), sample_specular_map(slot, uv0), surface.modes.y != 0u);
+    var s0 = select(vec4(1.0,0.8,0.0,0.0), sample_specular_map(slot, uv0), surface.modes.y != 0u);
     var s1 = select(s0, sample_second_specular(slot, uv1), (surface.modes.z & 1u) != 0u);
     var s2 = s0;
-    if layered {
+    let effect = (surface.modes.x & 32u) != 0u;
+    if layered && !effect {
         uv1 = layer_uv.xy;
         uv2 = layer_uv.zw;
         let c0 = sample_color0(slot, uv0);
@@ -120,10 +112,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     if tile_macro {
         let coating = select(vec2(0.0),normal_slope(sample_second_normal(slot, uv1).rg, surface.response.x),(surface.modes.x & 4u) != 0u);
         let core = select(vec2(0.0),normal_slope(sample_third_normal(slot, uv1).rg, surface.response.x),(surface.modes.x & 8u) != 0u);
-        // Blend detail slopes onto the unscaled macro normal. The shared diffuse
-        // bake already includes this mask's occlusion, so do not multiply it again.
+        // Blend detail slopes onto the unscaled macro normal.
         slope = slope0 + core*weights.x + coating*weights.y;
-        s0 = select(vec4(0.5,0.5,0.5,0.36),sample_specular_map(slot, uv1),surface.modes.y != 0u);
+        s0 = select(vec4(1.0,0.8,0.0,0.0),sample_specular_map(slot, uv1),surface.modes.y != 0u);
         s1 = select(s0,sample_second_specular(slot, uv1),(surface.modes.z & 1u) != 0u);
         // Specular bindings follow coating/core order, like detail normals.
         sg = s0*weights.y+s1*weights.x;
@@ -134,53 +125,64 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         let a = normal_slope(sample_normal_map(slot, wuv+t*surface.velocity.xy).rg, surface.response.x);
         let b = normal_slope(sample_second_normal(slot, wuv*1.37+t*surface.velocity.zw).rg, surface.response.x);
         slope = (a+b)*surface.water.x;
-        sg = vec4(vec3(sqrt(0.02/surface.response.z)),1.0-surface.water.y*surface.water.y);
+        sg = vec4(1.0,surface.water.y,0.0,0.0);
         // Transparent tint approximates shallow refraction; no opaque scene copy.
         pbr.material.base_color.a = surface.water.w;
+    }
+    if effect {
+        let normal = normalize(pbr.world_normal);
+        let tangent = normalize(in.world_tangent.xyz);
+        let bitangent = cross(normal,tangent)*in.world_tangent.w;
+        let facing = max(dot(pbr.V,normal),0.0);
+        let parallax = -vec2(dot(pbr.V,tangent),dot(pbr.V,bitangent))/max(facing,0.001);
+        var samples: array<vec4<f32>,3>;
+        var coverage = vec3(0.0);
+        for (var layer = 0u; layer < 3u; layer++) {
+            let uv = effect_uv(in.uv,layer,surface.effect,animation_time(slot),parallax);
+            samples[layer] = effect_sample(slot,layer,uv);
+            coverage[layer] = effect_sample(slot,surface.effect.coverage_layers[layer],uv).a;
+        }
+        let resolved = effect_color(samples,coverage,surface.effect,facing);
+        pbr.material.base_color = vec4(resolved.rgb*in.color.rgb,resolved.a*in.color.a);
+        // Opaque source effects write full coverage; blended variants retain
+        // their native accumulated alpha and source blend/cull disposition.
+        if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == 0u {
+            pbr.material.base_color.a = 1.0;
+        }
     }
 #ifdef VERTEX_TANGENTS
     let tbn = calculate_tbn_mikktspace(pbr.world_normal, in.world_tangent);
     pbr.N = normalize(tbn * vec3(slope, 1.0));
 #endif
-    var f0 = clamp(sg.rgb*sg.rgb*surface.response.z,vec3(0.0),vec3(0.16));
-    let patches = 0.65+0.35*sin(in.world_position.x*0.71+sin(in.world_position.z*0.39));
-    let wet = surface.wetness.x * smoothstep(0.35,0.85,pbr.world_normal.y) * patches;
-    pbr.material.base_color = vec4(pbr.material.base_color.rgb*(1.0-wet*surface.wetness.y),pbr.material.base_color.a);
-    f0 = mix(f0,vec3(0.04),wet);
-    pbr.material.reflectance = sqrt(f0/0.16);
-    pbr.material.perceptual_roughness = mix(pow(clamp(1.0-sg.a,0.0,1.0),surface.response.y),surface.wetness.z,wet);
+    pbr.material.reflectance = select(vec3(0.5),vec3(sqrt(0.02/0.16)),water);
+    pbr.material.perceptual_roughness = clamp(sg.g,0.089,1.0);
+    pbr.material.metallic = clamp(sg.b,0.0,1.0);
+    pbr.material.clearcoat = clamp(sg.a,0.0,1.0);
+    pbr.material.clearcoat_perceptual_roughness = surface.response.y;
+    pbr.clearcoat_N = pbr.world_normal;
     pbr.material.base_color = alpha_discard(pbr.material,pbr.material.base_color);
-    if surface.modes.w == 1u {
-#ifdef VERTEX_UVS_B
-        let ambient = atlas_sample(slot, in.uv_b, 0.0);
-        let directional = atlas_sample(slot, in.uv_b, 1.0);
-        let direction = atlas_sample(slot, in.uv_b, 2.0).rgb*2.0-1.0;
-        let world_direction = vec3(direction.x, direction.z, -direction.y);
-        pbr.lightmap_light = (ambient.rgb/max(ambient.a, 1.0/255.0)
-            + directional.rgb/max(directional.a, 1.0/255.0)*clamp(dot(world_direction,pbr.N),0.0,1.0))*surface.radiance.x;
-#endif
-    } else if surface.modes.w == 2u {
-        // Probe-only props have no retained local bake. A bounded share of the
-        // probe's spherical mean reconstructs indirect bounce in dark SH lobes.
-        // Atlas/vertex lighting and tile calibration retain their authored path.
-        pbr.lightmap_light = max(probe_diffuse(pbr.N, surface), surface.lighting.rgb)*surface.radiance.x;
-    } else if surface.modes.w == 3u {
-        // Interpolated retained instance irradiance; alpha is not surface opacity.
-        pbr.lightmap_light = (baked_color + probe_diffuse(pbr.N, surface)*surface.radiance.w)*surface.radiance.x;
-    }
     var out: FragmentOutput;
-    out.color = apply_pbr_lighting(pbr);
-    if surface.lighting.w > 0.0 {
-        let roughness = pbr.material.perceptual_roughness;
-        let r = reflect(-pbr.V,pbr.N);
-        let source = source_basis(r);
-        // Retained DDS faces already use source sampling axes. Unlike a cube
-        // authored for Bevy's world basis, this requires no additional Z flip.
-        let radiance = sample_reflection(slot,
-            source, roughness*f32(reflection_levels(slot)-1u)).rgb;
-        let fab = F_AB(roughness, max(dot(pbr.N,pbr.V),0.0001));
-        let reflection_weight = (f0*fab.x + fab.y)*pbr.specular_occlusion;
-        out.color = vec4(out.color.rgb + radiance*reflection_weight*surface.radiance.y*view.exposure, out.color.a);
+    if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
+        out.color = pbr.material.base_color;
+    } else {
+        out.color = apply_pbr_lighting(pbr);
+    }
+    // The diagnostic adapter isolates the same realtime IBL used by Bevy.
+    let view_mode = diagnostic_mode(slot);
+    if view_mode == 6u {
+        if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
+            out.color = vec4(0.0,0.0,0.0,1.0);
+        }
+        return out;
+    }
+    if view_mode != 0u {
+        var debug = vec3(pbr.material.perceptual_roughness);
+        if view_mode == 1u { debug = fract(vec3(surface.response.z)*vec3(0.618034,0.414214,0.732051)); }
+        if view_mode == 3u { debug = vec3(pbr.material.metallic); }
+        if view_mode == 4u { debug = pbr.N*0.5+0.5; }
+        if view_mode == 5u { debug = vec3(pbr.material.base_color.a); }
+        out.color = vec4(debug,1.0);
+        return out;
     }
     out.color = main_pass_post_lighting_processing(pbr, out.color);
     // Source ONE/INV_SRC_ALPHA describes the blend state, not premultiplied DDS

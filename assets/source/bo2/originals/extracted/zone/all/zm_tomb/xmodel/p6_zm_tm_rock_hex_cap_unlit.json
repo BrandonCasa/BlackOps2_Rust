@@ -1,0 +1,21 @@
+{
+    "$schema": "http://openassettools.dev/schema/xmodel.v1.json",
+    "_game": "t6",
+    "_type": "xmodel",
+    "_version": 2,
+    "collLod": 0,
+    "flags": 6291456,
+    "lightingOriginOffset": {
+        "x": 0.5,
+        "y": 0.5,
+        "z": 1.0
+    },
+    "lightingOriginRange": 0.5,
+    "lods": [
+        {
+            "distance": 2000.0,
+            "file": "model_export/p6_zm_tm_rock_hex_cap_unlit_lod0.gltf"
+        }
+    ],
+    "type": "rigid"
+}

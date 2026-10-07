@@ -1,0 +1,306 @@
+{
+    "$schema": "http://openassettools.dev/schema/material.v1.json",
+    "_game": "t6",
+    "_type": "material",
+    "_version": 1,
+    "cameraRegion": "litOpaque",
+    "constants": [
+        {
+            "literal": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "name": "customReflectionProbeScale"
+        },
+        {
+            "literal": [
+                0.0001220703125,
+                0.0001220703125,
+                0.0,
+                0.0
+            ],
+            "name": "shoreUVcontrol"
+        },
+        {
+            "literal": [
+                198.0,
+                3198.0,
+                0.020332245156168938,
+                0.9796677827835083
+            ],
+            "name": "controlVar0"
+        },
+        {
+            "literal": [
+                50.0,
+                800.0,
+                0.009999999776482582,
+                0.05000000074505806
+            ],
+            "name": "controlVar1"
+        },
+        {
+            "literal": [
+                0.08176060020923615,
+                0.0840991958975792,
+                0.06788498908281326,
+                -4.1202267311746255e-05
+            ],
+            "name": "waterColorShallow"
+        },
+        {
+            "literal": [
+                -0.067141592502594,
+                -0.049330856651067734,
+                -0.03697609528899193,
+                0.6180340051651001
+            ],
+            "name": "waterColorDeepDelta"
+        },
+        {
+            "literal": [
+                0.03333333507180214,
+                1.0,
+                0.05000000074505806,
+                0.20000000298023224
+            ],
+            "name": "normalUVscroll_0123"
+        },
+        {
+            "literal": [
+                0.013333333656191826,
+                0.013333333656191826,
+                -0.6427876949310303,
+                -0.7660443782806396
+            ],
+            "name": "normalUVcontrol3"
+        },
+        {
+            "literal": [
+                0.0024999999441206455,
+                0.0024999999441206455,
+                0.6427875757217407,
+                -0.7660444974899292
+            ],
+            "name": "normalUVcontrol2"
+        },
+        {
+            "literal": [
+                0.0009765625,
+                0.0009765625,
+                0.34202006459236145,
+                -0.9396926760673523
+            ],
+            "name": "normalUVcontrol0"
+        },
+        {
+            "literal": [
+                0.4000000059604645,
+                -0.20000000298023224,
+                0.4000000059604645,
+                -0.20000000298023224
+            ],
+            "name": "normalScaleLoHi"
+        },
+        {
+            "literal": [
+                0.29613810777664185,
+                0.3762623369693756,
+                0.49102121591567993,
+                1.0
+            ],
+            "name": "customLightmapShadowColor"
+        },
+        {
+            "literal": [
+                0.027434078976511955,
+                0.031488578766584396,
+                0.02096206694841385,
+                1.0
+            ],
+            "name": "waterColorShallowScatter"
+        },
+        {
+            "literal": [
+                -0.025588026270270348,
+                -0.028637029230594635,
+                -0.01858675666153431,
+                1.0
+            ],
+            "name": "waterColorDeepScatterDelta"
+        }
+    ],
+    "contents": 32,
+    "gameFlags": [
+        "NO_MARKS",
+        "10",
+        "200"
+    ],
+    "layeredSurfaceTypes": 536870932,
+    "sortKey": 4,
+    "stateBits": [
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "disabled",
+            "colorWriteAlpha": false,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": true,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "zero",
+            "polygonOffset": "offset0",
+            "polymodeLine": false,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "disabled",
+            "colorWriteAlpha": false,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": false,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "zero",
+            "polygonOffset": "offset2",
+            "polymodeLine": true,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        },
+        {
+            "alphaTest": "disabled",
+            "blendOpAlpha": "disabled",
+            "blendOpRgb": "add",
+            "colorWriteAlpha": true,
+            "colorWriteRgb": true,
+            "cullFace": "back",
+            "depthTest": "less_equal",
+            "depthWrite": true,
+            "dstBlendAlpha": "zero",
+            "dstBlendRgb": "one",
+            "polygonOffset": "offset1",
+            "polymodeLine": false,
+            "srcBlendAlpha": "one",
+            "srcBlendRgb": "one"
+        }
+    ],
+    "stateBitsEntry": [
+        -1,
+        -1,
+        0,
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        -1,
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        -1,
+        -1,
+        2
+    ],
+    "stateFlags": 25,
+    "surfaceFlags": 21366816,
+    "surfaceTypeBits": 524288,
+    "techniqueSet": "wpc_cod7watershore_11j54j72",
+    "textureAtlas": {
+        "columns": 1,
+        "rows": 1
+    },
+    "textures": [
+        {
+            "image": "water_ocean_mp_dockside_n",
+            "isMatureContent": false,
+            "name": "normalMapLo",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "normalMap"
+        },
+        {
+            "image": "water_ocean_mp_dockside_small_n",
+            "isMatureContent": false,
+            "name": "normalMapHi",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "normalMap"
+        },
+        {
+            "image": "~$white-r&global_white_16x16-~f9f6c88a",
+            "isMatureContent": false,
+            "name": "controlMap",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "color14Map"
+        },
+        {
+            "image": "water_ocean_mp_dockside_shore",
+            "isMatureContent": false,
+            "name": "shoreMap",
+            "samplerState": {
+                "clampU": false,
+                "clampV": false,
+                "clampW": false,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "colorMap"
+        },
+        {
+            "image": "skybox_zm_alcatraz_water_ft",
+            "isMatureContent": false,
+            "name": "customReflectionMap",
+            "samplerState": {
+                "clampU": true,
+                "clampV": true,
+                "clampW": true,
+                "filter": "aniso4x",
+                "mipMap": "linear"
+            },
+            "semantic": "colorMap"
+        }
+    ]
+}

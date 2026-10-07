@@ -18,7 +18,7 @@ except ImportError:
     from xanim import decode
 
 
-def convert(source_path, output, additional_images, clips, in_place=False, end_aligned_clips=(), board_delta=False, translation_offsets=None, native_translations=None):
+def convert(source_path, output, additional_images, clips, in_place=False, end_aligned_clips=(), board_delta=False, translation_offsets=None, native_translations=None, prepare_images=True):
     source = json.loads(source_path.read_text(encoding="utf-8-sig"))
     document = copy.deepcopy(source)
     output = external(output)
@@ -85,6 +85,8 @@ def convert(source_path, output, additional_images, clips, in_place=False, end_a
     normal_images = {document["textures"][m["normalTexture"]["index"]]["source"]
                      for m in document.get("materials", []) if "normalTexture" in m}
     for index, image in enumerate(document.get("images", [])):
+        if not prepare_images:
+            continue  # The library cooker reads native bindings before removing DDS glTF image references.
         path = (source_path.parent / image["uri"]).resolve()
         # Only the recovered model export tree supplies texture input.
         model_root = source_path.parent.parent.resolve()

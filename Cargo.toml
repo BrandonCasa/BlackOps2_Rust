@@ -11,14 +11,21 @@ members = ["."]
 resolver = "3"
 
 [features]
-profile-tracy = ["bevy/trace_tracy", "bevy/debug"]
+profile-tracy = ["bevy/trace_tracy", "bevy/debug", "dep:tracy-client"]
+profile-tracy-memory = ["profile-tracy", "bevy/trace_tracy_memory"]
 profile-chrome = ["bevy/trace_chrome", "bevy/debug"]
 
 [dependencies]
-bevy = { version = "=0.19.1", default-features = false, features = ["std", "async_executor", "multi_threaded", "bevy_asset", "bevy_scene", "bevy_gltf", "bevy_animation", "gltf_animation", "bevy_audio", "vorbis", "jpeg", "bevy_pbr", "bevy_post_process", "bevy_anti_alias", "smaa_luts", "bevy_winit", "bevy_state", "bevy_ui", "bevy_ui_render", "bevy_text", "default_font", "keyboard", "mouse", "png", "tonemapping_luts", "bevy_log", "bevy_mikktspace", "reflect_auto_register", "zstd_rust"] }
+# Native Solari schedule integration needs system names in ordinary releases.
+# This preserves diagnostic names; tracing remains an optional profiling feature.
+bevy = { version = "=0.19.1", default-features = false, features = ["std", "debug", "async_executor", "multi_threaded", "bevy_asset", "bevy_scene", "bevy_gltf", "bevy_animation", "gltf_animation", "bevy_audio", "vorbis", "jpeg", "dds", "bevy_pbr", "bevy_solari", "pbr_multi_layer_material_textures", "experimental_pbr_pcss", "bevy_post_process", "bevy_anti_alias", "smaa_luts", "bevy_winit", "bevy_state", "bevy_ui", "bevy_ui_render", "bevy_text", "default_font", "keyboard", "mouse", "png", "tonemapping_luts", "bevy_log", "bevy_mikktspace", "reflect_auto_register", "zstd_rust"] }
 avian3d = { version = "=0.7.0", default-features = false, features = ["3d", "f32", "parry-f32", "collider-from-mesh", "enhanced-determinism"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
+# Restrict the native profiler to loopback even when launched outside our driver.
+# Feature unification configures Bevy's existing Tracy client; shipping builds
+# retain no listener and profiling needs no Windows Firewall access prompt.
+tracy-client = { version = "=0.18.5", default-features = false, features = ["only-localhost"], optional = true }
 
 [profile.dev]
 opt-level = 1

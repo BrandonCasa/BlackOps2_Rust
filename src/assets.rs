@@ -12,18 +12,20 @@ use crate::GameState;
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub enum MeshPreprocessing {
     Cpu,
-    #[default]
     Gpu,
+    #[default]
     GpuCulling,
 }
 
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
+    pub material_debug: u32,
     pub verify: Option<PathBuf>,
     pub benchmark: bool,
     pub benchmark_view: Option<usize>,
     pub benchmark_motion: bool,
     pub benchmark_combat: bool,
+    pub benchmark_hands: bool,
     pub verify_wall_weapons: bool,
     pub verify_weapon_assemblies: bool,
     pub verify_ads: bool,
@@ -60,6 +62,32 @@ impl LaunchOptions {
     pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
         let mut result = Self::default();
         if let Some(argument) = args.next() {
+            if argument == "--material-debug"
+                || argument == "--material-debug-combat"
+                || argument == "--material-debug-hands"
+            {
+                result.benchmark = true;
+                result.benchmark_combat = argument == "--material-debug-combat";
+                result.benchmark_hands = argument == "--material-debug-hands";
+                result.verify = args.next().map(PathBuf::from);
+                result.material_debug = args
+                    .next()
+                    .and_then(|v| v.to_str()?.parse().ok())
+                    .unwrap_or(0);
+                result.benchmark_view = if result.benchmark_combat {
+                    Some(8)
+                } else {
+                    args.next().and_then(|v| v.to_str()?.parse().ok())
+                };
+                if result.verify.is_none()
+                    || !(u32::from(!result.benchmark_hands)..=6).contains(&result.material_debug)
+                    || !result.benchmark_view.is_some_and(|view| view < 15)
+                    || args.next().is_some()
+                {
+                    result.error = Some("Usage: origins --material-debug external-output-folder mode[1..6] view[0..14], or --material-debug-combat external-output-folder mode[1..6]".into());
+                }
+                return result;
+            }
             if argument == "--verify"
                 || argument == "--benchmark"
                 || argument == "--benchmark-view"
@@ -166,20 +194,29 @@ impl LaunchOptions {
                     }
                 }
             }
+            let mut preprocessing_override = false;
             for remaining in args.by_ref() {
                 if result.benchmark && remaining == "--uncached-shadows" && !result.uncached_shadows
                 {
                     result.uncached_shadows = true;
                 } else if result.benchmark
                     && remaining == "--cpu-preprocessing"
-                    && result.mesh_preprocessing == MeshPreprocessing::Gpu
+                    && !preprocessing_override
                 {
                     result.mesh_preprocessing = MeshPreprocessing::Cpu;
+                    preprocessing_override = true;
+                } else if result.benchmark
+                    && remaining == "--direct-preprocessing"
+                    && !preprocessing_override
+                {
+                    result.mesh_preprocessing = MeshPreprocessing::Gpu;
+                    preprocessing_override = true;
                 } else if result.benchmark
                     && remaining == "--gpu-culling"
-                    && result.mesh_preprocessing == MeshPreprocessing::Gpu
+                    && !preprocessing_override
                 {
                     result.mesh_preprocessing = MeshPreprocessing::GpuCulling;
+                    preprocessing_override = true;
                 } else {
                     result.error = Some("Unexpected or repeated launch argument".into());
                 }
@@ -235,7 +272,7 @@ pub struct LoadFailure(pub String);
 
 pub use crate::origins::{GameDefinition, Tuning};
 #[derive(Component)]
-struct MapRoot {
+pub(crate) struct MapRoot {
     collision: bool,
 }
 #[derive(Component)]
@@ -288,9 +325,8 @@ fn begin_load(
                 commands.spawn((
                     WorldAssetRoot(handle.clone()),
                     MapRoot { collision },
-                    // Reveal render geometry only after material/lightmap assembly.
-                    // Switching lightmap layouts on already queued scene instances can
-                    // otherwise leave a transient stale Bevy pipeline specialization.
+                    // Reveal geometry after canonical textures and extended
+                    // material layouts have finished their scene assembly.
                     Visibility::Hidden,
                 ));
                 handles.push(handle);
@@ -364,6 +400,7 @@ fn finish_load(
     mut commands: Commands,
     roots: Query<(Entity, &MapRoot)>,
     surfaces: Res<crate::rendering::OpaqueSurfaceStatus>,
+    streams: Res<crate::rendering::TextureStreams>,
     loading: Option<ResMut<Loading>>,
     definition: Option<Res<GameDefinition>>,
     config: Res<LoadConfiguration>,
@@ -403,7 +440,7 @@ fn finish_load(
             next.set(GameState::LoadError);
             return;
         }
-        if !surfaces.ready() {
+        if !surfaces.ready() || !streams.ready() {
             return;
         }
         if loading

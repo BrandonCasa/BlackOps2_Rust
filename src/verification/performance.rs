@@ -13,6 +13,7 @@ pub(super) struct Samples {
     view: Option<usize>,
     shadow_lights: BTreeMap<usize, (usize, usize)>,
     combat: Vec<f64>,
+    load_seconds: Option<f64>,
 }
 
 pub(super) fn record(
@@ -28,13 +29,26 @@ pub(super) fn record(
     state: Res<State<crate::GameState>>,
     profile: Res<crate::rendering::profile::VisualProfile>,
     preprocessing: Res<crate::rendering::PreprocessingStatus>,
+    images: Res<Assets<Image>>,
+    generators: Option<Res<super::generators::Coverage>>,
+    shared_lighting: (
+        Res<crate::rendering::StaticGiStats>,
+        Res<crate::rendering::RayContributorStats>,
+        Res<crate::rendering::RaySurfaceStats>,
+        Res<crate::audio::AudioDecodeStats>,
+    ),
 ) {
+    let (shared_gi, contributors, ray_feedback, audio_decode) = shared_lighting;
     let Some(verification) = verification else {
         return;
     };
-    if (!options.benchmark || options.benchmark_combat)
-        && verification.stage == 0
-        && verification.playing >= 2.
+    if samples.load_seconds.is_none() && **state == crate::GameState::Playing {
+        samples.load_seconds = Some(verification.started.elapsed().as_secs_f64());
+    }
+    if (options.verify_generators
+        || (!options.benchmark || options.benchmark_combat)
+            && verification.stage == 0
+            && verification.playing >= 2.)
         && **state == crate::GameState::Playing
     {
         let _zone = bevy::log::info_span!("benchmark_sample", view = 15).entered();
@@ -54,11 +68,11 @@ pub(super) fn record(
         && (4.0..sample_end).contains(&verification.playing)
     {
         let _zone = bevy::log::info_span!("benchmark_sample", view = verification.survey).entered();
-        samples
-            .frames
-            .entry(verification.survey)
-            .or_default()
-            .push(time.delta_secs_f64() * 1000.);
+        let frames = samples.frames.entry(verification.survey).or_default();
+        if frames.is_empty() {
+            info!("Benchmark sampling ready: view {}", verification.survey);
+        }
+        frames.push(time.delta_secs_f64() * 1000.);
         let count = lights
             .iter()
             .filter(|light| light.shadow_maps_enabled)
@@ -90,7 +104,12 @@ pub(super) fn record(
                 .push(measurement.value);
         }
     }
-    if matches!(verification.stage, 2 | 3) && !samples.written {
+    if (matches!(verification.stage, 2 | 3)
+        || generators
+            .as_ref()
+            .is_some_and(|coverage| coverage.finished()))
+        && !samples.written
+    {
         let views: BTreeMap<_, _> = samples
             .frames
             .iter()
@@ -107,14 +126,23 @@ pub(super) fn record(
             "adapter": adapter.as_ref().map(|info| format!("{:?}", info.0)),
             "vsync": !options.benchmark, "sample_virtual_seconds_per_view": [4.,sample_end],
             "continuous_window_updates": options.benchmark,
+            "winit_continuous": options.verify.is_some(),
+            "initial_load_wall_seconds": samples.load_seconds,
+            "loaded_image_cpu_payload_bytes": images.iter().filter_map(|(_, image)| image.data.as_ref()).map(Vec::len).sum::<usize>(),
             "antialiasing": profile.antialiasing,
             "lantern_shadow_map_size": profile.lantern_shadow_map_size,
             "continuous_camera_motion": verification.moving_view,
             "profile_tracy": cfg!(feature="profile-tracy"), "profile_chrome": cfg!(feature="profile-chrome"),
+            "workload": if options.verify_generators { "generator lifecycle including restart" } else if options.benchmark_combat { "combat" } else { "render survey" },
             "views": views, "render_passes": passes, "frame_ms": samples.frames,
             "shadowed_point_lights_min_max": samples.shadow_lights,
             "shadow_cache_enabled": !options.uncached_shadows,
             "shadow_cache": shadows.report(),
+            "shared_lighting_scene_refreshes": shared_gi.scene_refreshes(),
+            "shared_lighting": { "ddgi_batches": shared_gi.updates(), "reflection_frames": shared_gi.reflections() },
+            "ray_contributors": &*contributors,
+            "ray_feedback": &*ray_feedback,
+            "audio_decode": &*audio_decode,
             "mesh_preprocessing": preprocessing.report(),
             "combat": if samples.combat.is_empty() { serde_json::Value::Null } else { summary(&samples.combat, true) },
         });

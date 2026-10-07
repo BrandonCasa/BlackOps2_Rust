@@ -1,110 +1,117 @@
-//! A practical storm sky, generated into a standard Bevy Skybox cube.
-//! No captured image or additional rendering pipeline is involved.
+//! Physical Rayleigh/Mie sky and height fog through Bevy's atmosphere and volume passes.
 use super::{GameCamera, profile::VisualProfile};
 use bevy::{
     asset::RenderAssetUsages,
-    core_pipeline::Skybox,
     image::{ImageSampler, ImageSamplerDescriptor},
-    prelude::*,
-    render::render_resource::{
-        Extent3d, TextureDimension, TextureFormat, TextureViewDescriptor, TextureViewDimension,
+    light::{
+        Atmosphere, AtmosphereEnvironmentMapLight, FogVolume, VolumetricFog,
+        atmosphere::ScatteringMedium,
     },
+    pbr::{
+        AtmosphereSettings, ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel,
+    },
+    prelude::*,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
-
-fn noise(p: Vec3) -> f32 {
-    let cell = p.floor();
-    let f = p - cell;
-    let u = f * f * (Vec3::splat(3.) - 2. * f);
-    let hash = |x: f32, y: f32, z: f32| {
-        let n = (cell.x + x) * 127.1 + (cell.y + y) * 311.7 + (cell.z + z) * 74.7;
-        (n.sin() * 43758.547).fract().abs()
-    };
-    let mix = |a: f32, b: f32, t: f32| a + (b - a) * t;
-    mix(
-        mix(
-            mix(hash(0., 0., 0.), hash(1., 0., 0.), u.x),
-            mix(hash(0., 1., 0.), hash(1., 1., 0.), u.x),
-            u.y,
-        ),
-        mix(
-            mix(hash(0., 0., 1.), hash(1., 0., 1.), u.x),
-            mix(hash(0., 1., 1.), hash(1., 1., 1.), u.x),
-            u.y,
-        ),
-        u.z,
-    )
-}
 
 pub(super) fn setup(
     mut commands: Commands,
     cameras: Query<Entity, With<GameCamera>>,
+    mut media: ResMut<Assets<ScatteringMedium>>,
     mut images: ResMut<Assets<Image>>,
     profile: Res<VisualProfile>,
 ) {
     let Ok(camera) = cameras.single() else { return };
-    const SIZE: u32 = 128;
-    let mut image = Image::new_fill(
-        Extent3d {
-            width: SIZE,
-            height: SIZE,
-            depth_or_array_layers: 6,
+    let atmosphere = Atmosphere::earth(media.add(ScatteringMedium::earth(256, 256)));
+    // Native Origins geometry extends to -58.84 m. Put the planet surface
+    // below it: negative level coordinates must not put the camera underground.
+    let center = GlobalTransform::from_translation(Vec3::Y * (-atmosphere.inner_radius - 64.));
+    commands.spawn((atmosphere, center, Name::new("Rayleigh and Mie atmosphere")));
+    commands.entity(camera).insert((
+        AtmosphereSettings::default(),
+        AtmosphereEnvironmentMapLight::default(),
+        ScreenSpaceAmbientOcclusion {
+            quality_level: ScreenSpaceAmbientOcclusionQualityLevel::Ultra,
+            ..default()
         },
-        TextureDimension::D2,
-        &[0; 8],
-        TextureFormat::Rgba16Float,
-        RenderAssetUsages::default(),
+        VolumetricFog {
+            ambient_color: super::profile::color(profile.fog_color),
+            ambient_intensity: 0.15,
+            step_count: 64,
+            jitter: 0.,
+        },
+    ));
+    // One smoothly sampled volume implements rho(y)=exp(-k*(y-base)).
+    // The engine evaluates it against current-frame directional shadows.
+    const BOTTOM: f32 = -32.;
+    const TOP: f32 = 96.;
+    const HEIGHT: u32 = 256;
+    let mut density = Image::new_fill(
+        Extent3d {
+            width: 1,
+            height: HEIGHT,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D3,
+        &[0; 2],
+        TextureFormat::R16Float,
+        RenderAssetUsages::RENDER_WORLD,
     );
-    let sun = Vec3::from_array(profile.sky_sun_direction).normalize();
-    for face in 0..6 {
-        for y in 0..SIZE {
-            for x in 0..SIZE {
-                let u = (x as f32 + 0.5) / SIZE as f32 * 2. - 1.;
-                let v = (y as f32 + 0.5) / SIZE as f32 * 2. - 1.;
-                let d = match face {
-                    0 => Vec3::new(1., -v, -u),
-                    1 => Vec3::new(-1., -v, u),
-                    2 => Vec3::new(u, 1., v),
-                    3 => Vec3::new(u, -1., -v),
-                    4 => Vec3::new(u, -v, 1.),
-                    _ => Vec3::new(-u, -v, -1.),
-                }
-                .normalize();
-                let mut clouds = 0.;
-                let mut frequency = 3.;
-                let mut amplitude = 0.55;
-                for _ in 0..5 {
-                    clouds += noise(d * frequency + Vec3::splat(12.)) * amplitude;
-                    frequency *= 2.;
-                    amplitude *= 0.5;
-                }
-                let horizon = (1. - d.y.max(0.)).powf(4.);
-                let cloud = ((clouds - 0.3) * 2.2).clamp(0., 1.);
-                let clear = Vec3::from_array(profile.sky_upper)
-                    .lerp(Vec3::from_array(profile.sky_horizon), horizon);
-                let detail = ((clouds - 0.32) * 3.5).clamp(0., 1.);
-                let detail = detail * detail * (3. - 2. * detail);
-                let overcast = Vec3::from_array(profile.cloud_dark)
-                    .lerp(Vec3::from_array(profile.cloud_bright), detail);
-                let glow = d.dot(sun).max(0.).powf(48.) * (1. - cloud * 0.7);
-                let disk = ((d.dot(sun) - 0.9985) / 0.0015).clamp(0., 1.) * (1. - cloud * 0.8);
-                let color = (clear.lerp(overcast, cloud)
-                    + Vec3::new(0.8, 0.85, 0.9) * glow
-                    + Vec3::splat(disk * 2.))
-                    * profile.sky_nits;
-                image
-                    .set_color_at_3d(x, y, face, Color::linear_rgb(color.x, color.y, color.z))
-                    .expect("Sky cube pixel");
-            }
+    for index in 0..HEIGHT {
+        let y = BOTTOM + (index as f32 + 0.5) / HEIGHT as f32 * (TOP - BOTTOM);
+        let value = (-profile.fog_height_falloff * (y - profile.fog_base_height))
+            .exp()
+            .min(8.);
+        density
+            .set_color_at_3d(0, index, 0, Color::linear_rgb(value, value, value))
+            .expect("Height fog density has a valid float format and coordinates");
+    }
+    density.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor::linear());
+    commands.spawn((
+        FogVolume {
+            density_texture: Some(images.add(density)),
+            density_factor: profile.fog_density,
+            fog_color: super::profile::color(profile.fog_color),
+            absorption: 0.02,
+            scattering: 0.98,
+            scattering_asymmetry: 0.65,
+            ..default()
+        },
+        Transform::from_xyz(0., (TOP + BOTTOM) * 0.5, 0.).with_scale(Vec3::new(
+            1600.,
+            TOP - BOTTOM,
+            1600.,
+        )),
+        Name::new("Exponential height fog"),
+    ));
+}
+
+pub(super) fn viewmodel_environment(
+    mut commands: Commands,
+    world: Query<(&bevy::light::EnvironmentMapLight, &bevy::camera::Exposure), With<GameCamera>>,
+    local: Query<&bevy::light::EnvironmentMapLight, With<super::static_gi::LocalReflection>>,
+    mut cameras: Query<
+        (
+            Entity,
+            Option<&bevy::light::EnvironmentMapLight>,
+            &mut bevy::camera::Exposure,
+        ),
+        (
+            With<crate::presentation::ViewModelCamera>,
+            Without<GameCamera>,
+        ),
+    >,
+) {
+    let Ok((environment, exposure)) = world.single() else {
+        return;
+    };
+    let environment = local.single().unwrap_or(environment);
+    for (entity, current, mut view_exposure) in &mut cameras {
+        if view_exposure.ev100 != exposure.ev100 {
+            view_exposure.ev100 = exposure.ev100;
+        }
+        if current.is_none_or(|current| current.specular_map != environment.specular_map) {
+            commands.entity(entity).insert(environment.clone());
         }
     }
-    image.texture_view_descriptor = Some(TextureViewDescriptor {
-        dimension: Some(TextureViewDimension::Cube),
-        ..default()
-    });
-    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor::linear());
-    commands.entity(camera).insert(Skybox {
-        image: Some(images.add(image)),
-        brightness: 1.,
-        rotation: Quat::IDENTITY,
-    });
 }

@@ -51,6 +51,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     let benchmark = options.benchmark;
     let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
     let ads_capture = options.verify_ads;
+    let verification_enabled = options.verify.is_some();
     app.insert_resource(options);
     app.add_plugins(
         DefaultPlugins
@@ -62,6 +63,14 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
             })
             .set(bevy::pbr::PbrPlugin {
                 use_gpu_instance_buffer_builder: gpu_preprocessing,
+                ..default()
+            })
+            .set(bevy::render::RenderPlugin {
+                render_creation: bevy::render::settings::RenderCreation::Automatic({
+                    let mut settings = bevy::render::settings::WgpuSettings::default();
+                    settings.features |= bevy::solari::SolariPlugins::required_wgpu_features();
+                    Box::new(settings)
+                }),
                 ..default()
             })
             .set(
@@ -133,9 +142,8 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     if benchmark && !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     }
-    if benchmark {
-        // Unfocused reactive updates otherwise throttle the native benchmark,
-        // independently of VSync and the renderer's actual throughput.
+    if benchmark || verification_enabled {
+        // Keep actual-window profiling independent of focus throttling.
         app.insert_resource(bevy::winit::WinitSettings::continuous());
     }
     app

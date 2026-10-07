@@ -1,7 +1,5 @@
 #import "embedded://bevy_pbr/render/mesh.wgsl"::vertex as bevy_vertex
 #import bevy_pbr::forward_io::{Vertex, VertexOutput}
-#import origins::surface_bindings::instance_color
-#import bevy_pbr::mesh_bindings::mesh
 struct SurfaceVertex {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
@@ -10,9 +8,18 @@ struct SurfaceVertex {
 #ifdef ORIGINS_UV_B
     @location(3) uv_b: vec2<f32>,
 #endif
+#ifdef ORIGINS_TANGENT
     @location(4) tangent: vec4<f32>,
+#endif
 #ifdef ORIGINS_COLOR
     @location(5) color: vec4<f32>,
+#endif
+#ifdef SKINNED
+    @location(6) joint_indices: vec4<u32>,
+    @location(7) joint_weights: vec4<f32>,
+#endif
+#ifdef MORPH_TARGETS
+    @builtin(vertex_index) index: u32,
 #endif
 #ifdef ORIGINS_LAYER_UV
     @location(8) layer_uv: vec4<f32>,
@@ -25,9 +32,6 @@ struct SurfaceVertex {
 #endif
 #ifdef ORIGINS_ROTATION2
     @location(11) rotation2: vec4<f32>,
-#endif
-#ifdef ORIGINS_LIGHTING_VERTEX
-    @location(12) lighting_vertex: f32,
 #endif
 }
 struct SurfaceOutput {
@@ -48,7 +52,6 @@ struct SurfaceOutput {
     @location(9) layer3_uv: vec2<f32>,
     @location(10) rotation1: vec4<f32>,
     @location(11) rotation2: vec4<f32>,
-    @location(12) baked_color: vec3<f32>,
 }
 @vertex
 fn vertex(input: SurfaceVertex) -> SurfaceOutput {
@@ -62,11 +65,22 @@ fn vertex(input: SurfaceVertex) -> SurfaceOutput {
 #else
     standard.uv_b = vec2(0.0);
 #endif
+#ifdef ORIGINS_TANGENT
     standard.tangent = input.tangent;
+#else
+    standard.tangent = vec4(1.0, 0.0, 0.0, 1.0);
+#endif
 #ifdef ORIGINS_COLOR
     standard.color = input.color;
 #else
     standard.color = vec4(1.0);
+#endif
+#ifdef SKINNED
+    standard.joint_indices = input.joint_indices;
+    standard.joint_weights = input.joint_weights;
+#endif
+#ifdef MORPH_TARGETS
+    standard.index = input.index;
 #endif
     let base = bevy_vertex(standard);
     var out: SurfaceOutput;
@@ -102,16 +116,6 @@ fn vertex(input: SurfaceVertex) -> SurfaceOutput {
     out.rotation2 = input.rotation2;
 #else
     out.rotation2 = vec4(1.0, 0.0, 0.0, 1.0);
-#endif
-#ifdef BINDLESS
-    let slot = mesh[input.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
-#else
-    let slot = 0u;
-#endif
-#ifdef ORIGINS_LIGHTING_VERTEX
-    out.baked_color = instance_color(slot, u32(input.lighting_vertex));
-#else
-    out.baked_color = instance_color(slot, 0u);
 #endif
     return out;
 }

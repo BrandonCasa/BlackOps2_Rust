@@ -1,0 +1,34 @@
+{
+    "$schema": "http://openassettools.dev/schema/xmodel.v1.json",
+    "_game": "t6",
+    "_type": "xmodel",
+    "_version": 2,
+    "collLod": 3,
+    "flags": 2097152,
+    "lightingOriginOffset": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.5
+    },
+    "lightingOriginRange": 0.5,
+    "lods": [
+        {
+            "distance": 300.0,
+            "file": "model_export/p6_asphalt_chunk_freeway_med_01_lod0.gltf"
+        },
+        {
+            "distance": 600.0,
+            "file": "model_export/p6_asphalt_chunk_freeway_med_01_lod1.gltf"
+        },
+        {
+            "distance": 1200.0,
+            "file": "model_export/p6_asphalt_chunk_freeway_med_01_lod2.gltf"
+        },
+        {
+            "distance": 2400.0,
+            "file": "model_export/p6_asphalt_chunk_freeway_med_01_lod3.gltf"
+        }
+    ],
+    "rootBoneName": "p6_asphalt_chunk_freeway_med_01_lod0",
+    "type": "rigid"
+}

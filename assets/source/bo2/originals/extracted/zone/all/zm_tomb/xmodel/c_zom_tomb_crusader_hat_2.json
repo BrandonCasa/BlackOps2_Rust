@@ -1,0 +1,34 @@
+{
+    "$schema": "http://openassettools.dev/schema/xmodel.v1.json",
+    "_game": "t6",
+    "_type": "xmodel",
+    "_version": 2,
+    "flags": 2621440,
+    "lightingOriginOffset": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.5
+    },
+    "lightingOriginRange": 0.5,
+    "lods": [
+        {
+            "distance": 300.0,
+            "file": "model_export/c_zom_tomb_crusader_hat_2_lod0.gltf"
+        },
+        {
+            "distance": 600.0,
+            "file": "model_export/c_zom_tomb_crusader_hat_2_lod1.gltf"
+        },
+        {
+            "distance": 900.0,
+            "file": "model_export/c_zom_tomb_crusader_hat_2_lod2.gltf"
+        },
+        {
+            "distance": 2442.72412109375,
+            "file": "model_export/c_zom_tomb_crusader_hat_2_lod3.gltf"
+        }
+    ],
+    "physPreset": "gib",
+    "rootBoneName": "j_head",
+    "type": "rigid"
+}

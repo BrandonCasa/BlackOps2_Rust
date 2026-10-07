@@ -60,6 +60,10 @@
 - [x] Convert sound aliases into runtime sound definitions.
 - [ ] Convert original effect definitions into runtime effect definitions.
 - [ ] Export original HUD graphics into runtime textures.
+- [ ] Inventory the complete world, actor, weapon, prop, effect and UI texture library for maps that visibly benefit from higher resolution, including the 115 prepared 4x candidates.
+- [ ] Use the new offline upscale system to generate, inspect and adopt higher-resolution versions of every qualifying texture while preserving alpha, material channels, normal conventions and source provenance.
+- [ ] Assemble and validate the upgraded runtime pack with complete mip chains, correct per-map texel dimensions, anisotropic filtering and shared stable texture-streaming identities.
+- [ ] Qualify the upgraded texture pack in the actual game and compare CPU, GPU and process RAM costs against the currently validated pack before accepting it.
 - [x] Export original localized strings into runtime definitions.
 - [ ] Convert loading footage into timed image frames.
 - [ ] Convert ending footage into timed image frames.
