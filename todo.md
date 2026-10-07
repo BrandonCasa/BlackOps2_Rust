@@ -248,6 +248,20 @@
 - [x] Remove global shadow invalidation caused by skinned actors.
 - [x] Exclude first-person rigs from world shadow casting.
 - [x] Preserve lantern shadow allocation during actor animation.
+- [ ] Reduce the nearest DDGI cascade spacing from two meters to one meter while retaining the existing probe count, outer cascades and lighting settings.
+- [ ] Enable self-shadow casting for visible first-person arms, weapons, attachments and equipment without admitting them into world shadows or the reflection ray scene.
+- [ ] Separate world and first-person sun caster lists within the existing camera-owned cascades.
+- [ ] Add persistent first-person lantern counterparts linked to the original world lights.
+- [ ] Synchronize first-person lantern settings and remove counterparts when their source lights disappear.
+- [ ] Separate world and first-person lantern receiver layers without doubling illumination in either view.
+- [ ] Combine world occluders and visible first-person casters in first-person lantern shadow maps.
+- [ ] Exclude first-person lantern counterparts from DDGI, reflection lighting, volumetrics and source-light accounting.
+- [ ] Track current and previous caster layers through shadow-cache visibility changes, layer changes and removals.
+- [ ] Separate world and first-person sun cache revisions so viewmodel animation refreshes only the overlay cascades.
+- [ ] Restrict lantern shadow-face invalidation to intersecting casters belonging to each map while retaining indexed-joint pose reuse.
+- [ ] Track shadow texture allocation ownership per view while retaining native phase modes, specialization caches and slot-remapping invalidation.
+- [ ] Match shadow-driven texture mip requests to each shadow map's caster layers.
+- [ ] Synchronize both filtered scene reflection handles and lighting settings on the first-person camera without redundant component writes or another reflection capture.
 - [x] Retain skeleton data required for animation playback.
 - [ ] Release unused prepared actor CPU resources.
 - [x] Share actor meshes across enemy instances.
