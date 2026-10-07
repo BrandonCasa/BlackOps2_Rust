@@ -98,8 +98,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         let c3 = sample_color3(slot, layer3_uv);
         // Authored vertex G/B control consecutive overlays. Alpha is the retained
         // texture reveal/macro mask, sampled as data by the sRGB texture's alpha.
-        let w1 = reveal(in.color.g,c1.a,surface.reveal.xy);
-        let w2 = select(0.0,reveal(in.color.b,c2.a,surface.reveal.zw),surface.layers.x > 2u);
+        // Reveal controls coverage, but cannot replace texture opacity. Blood,
+        // grime and other overlays retain their soft alpha even at full paint.
+        // The same effective coverage blends their normal/specular response.
+        let w1 = reveal(in.color.g,c1.a,surface.reveal.xy)*clamp(c1.a,0.0,1.0);
+        let w2 = select(0.0,reveal(in.color.b,c2.a,surface.reveal.zw)*clamp(c2.a,0.0,1.0),surface.layers.x > 2u);
         var albedo = layer_color(c0.rgb,c1,w1,surface.layers.y);
         if surface.layers.x > 2u { albedo = layer_color(albedo,c2,w2,surface.layers.z); }
         if surface.layers.x > 3u { albedo = layer_color(albedo,c3,c3.a,surface.layers.w); }

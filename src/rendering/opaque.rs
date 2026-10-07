@@ -960,6 +960,12 @@ pub(super) fn convert(
                 mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, vec![[0., 0.]; count]);
             }
             let count = mesh.count_vertices();
+            // glTF vertex colors are optional. The surface adapter requires
+            // them, so uncolored meshes use the neutral multiplicative tint.
+            // Preserve authored colors and alpha on meshes that supply them.
+            if mesh.attribute(Mesh::ATTRIBUTE_COLOR).is_none() {
+                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.; 4]; count]);
+            }
             if mesh.attribute(LIGHTING_VERTEX).is_none() {
                 let values = lighting_vertices
                     .cloned()
