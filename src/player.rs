@@ -39,7 +39,11 @@ impl Plugin for PlayerPlugin {
             .init_resource::<crate::movement::MovementEvidence>()
             .add_message::<crate::movement::Landing>()
             .add_systems(OnEnter(GameState::Playing), spawn_player)
-            .add_systems(PreUpdate, look.after(crate::verification::drive))
+            .add_systems(
+                PreUpdate,
+                look.after(crate::input::collect)
+                    .after(crate::verification::drive),
+            )
             .add_systems(
                 FixedUpdate,
                 move_player
@@ -123,6 +127,7 @@ pub fn capsule(radius: f32, height: f32) -> Collider {
 pub(crate) fn look(
     mut input: ResMut<GameInput>,
     definition: Option<Res<GameDefinition>>,
+    settings: Res<crate::input::ControlSettings>,
     mut players: Query<(&mut Player, &crate::weapons::WeaponInventory)>,
     state: Res<State<GameState>>,
 ) {
@@ -133,11 +138,12 @@ pub(crate) fn look(
     let (Some(definition), Ok((mut player, inventory))) = (definition, players.single_mut()) else {
         return;
     };
-    let sensitivity = definition.tuning.mouse_sensitivity
-        + (definition.tuning.ads_mouse_sensitivity - definition.tuning.mouse_sensitivity)
-            * inventory.ads;
+    let hip_sensitivity = definition.tuning.mouse_sensitivity * settings.sensitivity;
+    let ads_sensitivity = definition.tuning.ads_mouse_sensitivity * settings.ads_sensitivity;
+    let sensitivity = hip_sensitivity + (ads_sensitivity - hip_sensitivity) * inventory.ads;
     player.yaw -= input.look.x * sensitivity;
-    player.pitch = (player.pitch - input.look.y * sensitivity).clamp(-1.5, 1.5);
+    let vertical = if settings.invert_mouse_y { -1. } else { 1. };
+    player.pitch = (player.pitch - input.look.y * sensitivity * vertical).clamp(-1.5, 1.5);
     input.look = Vec2::ZERO;
 }
 

@@ -232,12 +232,21 @@ fn update(
     tactical: Query<&crate::equipment::TacticalInventory, With<Player>>,
     perks: Query<&crate::solo_revive::PerkInventory, With<Player>>,
     audio: Res<crate::audio::AudioSettings>,
-    mut text: Query<&mut Text, With<HudText>>,
+    mut text: Query<(&mut Text, &mut Node), With<HudText>>,
     generators: Res<crate::generators::Generators>,
+    settings: Res<crate::input::ControlSettings>,
 ) {
-    let Ok(mut text) = text.single_mut() else {
+    let Ok((mut text, mut node)) = text.single_mut() else {
         return;
     };
+    let left = if **state == GameState::Paused {
+        percent(45.)
+    } else {
+        px(22.)
+    };
+    if node.left != left {
+        node.left = left;
+    }
     let health = players
         .single()
         .map(|v| v.current().unwrap_or(0))
@@ -253,8 +262,12 @@ fn update(
     let mut value = match **state {
         GameState::Loading => "Loading Origins…".into(),
         GameState::LoadError => format!("Unable to load Origins\n{}", failure.0),
-        GameState::Paused => "Paused — Escape or click to resume\nWASD move | mouse look | Shift sprint | Space jump | Ctrl crouch\nLeft click fire | right click aim | V melee | R reload | Q/wheel cycle | 1–3 weapon slots".into(),
-        GameState::GameOver => format!("Game over — Round {}\nPress R to restart", session.round),
+        GameState::Paused => String::new(),
+        GameState::GameOver => format!(
+            "Game over — Round {}\nPress {} to restart",
+            session.round,
+            settings.label(crate::input::Action::Restart)
+        ),
         GameState::Playing => format!(
             "Round {}    Health {}    Points {}\n{}    Ammo {}/{}{}",
             session.round,
@@ -263,7 +276,11 @@ fn update(
             weapon.map_or("", |w| w.name.as_str()),
             ammo,
             reserve,
-            if inventory.is_some_and(|i| matches!(i.action, crate::weapons::WeaponAction::Reloading { .. } | crate::weapons::WeaponAction::ShellReload { .. })) {
+            if inventory.is_some_and(|i| matches!(
+                i.action,
+                crate::weapons::WeaponAction::Reloading { .. }
+                    | crate::weapons::WeaponAction::ShellReload { .. }
+            )) {
                 "  Reloading"
             } else {
                 ""
@@ -360,8 +377,13 @@ fn update(
         }
     }
     if **state == GameState::Paused {
-        value.push_str("\nG grenade | T tactical | 4 Claymore");
-        value.push_str(&format!("\nAudio: F6 Master {:.0}% | F7 Music {:.0}% | F8 Effects {:.0}% | F9 Voice {:.0}%\nShift + key lowers volume | F10 Captions {}",audio.master*100.,audio.music*100.,audio.effects*100.,audio.dialogue*100.,if audio.subtitles{"On"}else{"Off"}));
+        value.push_str(&format!(
+            "\n{} grenade | {} tactical | {} Claymore",
+            settings.label(crate::input::Action::Lethal),
+            settings.label(crate::input::Action::Tactical),
+            settings.label(crate::input::Action::Mine)
+        ));
+        value.push_str(&format!("\nF6 Master {:.0}% | F7 Music {:.0}%\nF8 Effects {:.0}% | F9 Voice {:.0}%\nShift + key lowers volume\nF10 Captions {}",audio.master*100.,audio.music*100.,audio.effects*100.,audio.dialogue*100.,if audio.subtitles{"On"}else{"Off"}));
     }
     if text.0 != value {
         text.0 = value;
@@ -377,8 +399,7 @@ fn subtitle_feedback(
     mut labels: Query<&mut Text, With<SubtitleText>>,
 ) {
     for mut text in &mut labels {
-        text.0 = if settings.subtitles && matches!(**state, GameState::Playing | GameState::Paused)
-        {
+        text.0 = if settings.subtitles && **state == GameState::Playing {
             subtitle.text.clone()
         } else {
             String::new()

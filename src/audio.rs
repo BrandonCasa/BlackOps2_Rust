@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
     transform::helper::TransformHelper,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 mod decoded;
 mod gameplay;
@@ -117,7 +117,8 @@ impl AudioDefinition {
             })
     }
 }
-#[derive(Resource)]
+#[derive(Resource, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct AudioSettings {
     pub master: f32,
     pub effects: f32,

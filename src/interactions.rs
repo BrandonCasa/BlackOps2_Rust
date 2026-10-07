@@ -175,6 +175,7 @@ pub(crate) fn interact(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
     input: Res<GameInput>,
+    settings: Res<crate::input::ControlSettings>,
     definition: Res<GameDefinition>,
     query: SpatialQuery,
     targets: Query<(Entity, &Usable, &Transform), Without<Player>>,
@@ -199,6 +200,7 @@ pub(crate) fn interact(
     windows: Query<(Entity, &crate::barriers::BarrierBlocker)>,
     mut generators: ResMut<crate::generators::Generators>,
 ) {
+    let use_key = settings.label(crate::input::Action::Interact);
     let Ok((
         player_entity,
         player,
@@ -294,7 +296,7 @@ pub(crate) fn interact(
             "Generator capture in progress".into()
         } else {
             format!(
-                "Press F to activate Generator {} [Cost: {}]",
+                "Press {use_key} to activate Generator {} [Cost: {}]",
                 d.number, d.price
             )
         };
@@ -328,7 +330,7 @@ pub(crate) fn interact(
         return;
     }
     if let InteractionAction::Barrier { barrier } = &usable.source.action {
-        focus.prompt = "Hold F to rebuild barrier".into();
+        focus.prompt = format!("Hold {use_key} to rebuild barrier");
         if !input.use_held {
             return;
         }
@@ -367,7 +369,7 @@ pub(crate) fn interact(
             String::new()
         } else {
             format!(
-                "Press F to {} [Cost: {}]",
+                "Press {use_key} to {} [Cost: {}]",
                 if debris { "clear debris" } else { "open door" },
                 price
             )
@@ -428,7 +430,7 @@ pub(crate) fn interact(
             focus.prompt.clear();
             return;
         }
-        focus.prompt = format!("Press F to buy {} [{}]", perk.name, perk.price);
+        focus.prompt = format!("Press {use_key} to buy {} [{}]", perk.name, perk.price);
         if !input.use_held || focus.latched {
             return;
         }
@@ -498,7 +500,7 @@ pub(crate) fn interact(
         String::new()
     } else {
         format!(
-            "{} F to buy {}{} [{}]",
+            "{} {use_key} to buy {}{} [{}]",
             if usable.source.hold_seconds > 0. {
                 "Hold"
             } else {

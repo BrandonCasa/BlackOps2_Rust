@@ -39,8 +39,8 @@ $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $repor
 $runs = [Collections.Generic.List[object]]::new()
 foreach ($workload in $Workloads) {
     for ($index = 1; $index -le $Repeats; $index++) {
-        while (Get-Process -Name origins -ErrorAction SilentlyContinue) {
-            Write-Output 'Shared validation slot occupied; waiting'
+        while (Get-Process -Name origins, cargo, rustc -ErrorAction SilentlyContinue) {
+            Write-Output 'Game or compiler active; waiting for release measurement resources'
             Start-Sleep -Seconds 10
         }
         $runFolder = Join-Path $report "$workload-$index"
@@ -54,9 +54,13 @@ foreach ($workload in $Workloads) {
         $ram = [Collections.Generic.List[object]]::new()
         $timer = [Diagnostics.Stopwatch]::StartNew()
         $collision = $false
+        $buildInterference = $false
         try {
             while (-not $owned.HasExited) {
                 $others = Get-Process -Name origins -ErrorAction SilentlyContinue | Where-Object Id -ne $owned.Id
+                if (Get-Process -Name cargo, rustc -ErrorAction SilentlyContinue) {
+                    $buildInterference = $true
+                }
                 if ($others -or $timer.Elapsed.TotalSeconds -gt 960) {
                     $collision = [bool]$others
                     # The Process object is the owned launch, never another chat's process.
@@ -74,9 +78,13 @@ foreach ($workload in $Workloads) {
             if ($owned.ExitCode -ne 0) { throw "Benchmark exited $($owned.ExitCode); inspect $runFolder" }
         } finally {
             $ram | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $runFolder 'process-memory.json')
-            [ordered]@{ pid = $owned.Id; elapsed_seconds = $timer.Elapsed.TotalSeconds; collision = $collision } |
+            [ordered]@{ pid = $owned.Id; elapsed_seconds = $timer.Elapsed.TotalSeconds;
+                collision = $collision; build_interference = $buildInterference } |
                 ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runFolder 'launch.json')
             $owned.Dispose()
+        }
+        if ($buildInterference) {
+            throw "Concurrent compilation invalidated the release comparison; preserve $runFolder and repeat after builds are free"
         }
         $result = Get-Content -LiteralPath (Join-Path $runFolder 'performance.json') -Raw | ConvertFrom-Json
         if (-not $result.passed -or $result.profile_tracy -or $result.profile_chrome -or

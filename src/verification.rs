@@ -16,6 +16,7 @@ mod arsenal;
 mod audio;
 mod barriers;
 mod claymores;
+mod controls;
 mod defensive_perks;
 mod doors;
 mod equipment_presentation;
@@ -107,6 +108,11 @@ impl Plugin for VerificationPlugin {
         if app.world().resource::<LaunchOptions>().release_benchmark {
             pipelines::install(app);
             release_performance::install(app);
+            return;
+        }
+        if app.world().resource::<LaunchOptions>().verify_controls {
+            pipelines::install(app);
+            controls::install(app);
             return;
         }
         if app.world().resource::<LaunchOptions>().verify.is_some() {

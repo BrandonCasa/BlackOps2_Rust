@@ -118,21 +118,21 @@
 - [ ] Assign an original character when starting solo sessions.
 - [ ] Randomize ordinary session seeds.
 - [ ] Preserve deterministic seeds for existing verification launches.
-- [ ] Replace physical-key checks with named gameplay actions.
-- [ ] Add remappable keyboard bindings.
-- [ ] Add remappable mouse button bindings.
-- [ ] Persist keyboard bindings in local settings.
-- [ ] Persist mouse bindings in local settings.
+- [x] Replace physical-key checks with named gameplay actions.
+- [x] Add remappable keyboard bindings.
+- [x] Add remappable mouse button bindings.
+- [x] Persist keyboard bindings in local settings.
+- [x] Persist mouse bindings in local settings.
 - [x] Aggregate raw mouse deltas once per rendered frame.
 - [x] Apply mouse sensitivity once to aggregated deltas.
 - [x] Update camera look independently of fixed gameplay ticks.
 - [x] Remove per-event gameplay work from mouse handling.
 - [x] Add separate ADS mouse sensitivity.
-- [ ] Add mouse inversion settings.
+- [x] Add mouse inversion settings.
 - [x] Clear accumulated mouse motion after focus loss.
 - [x] Clear held actions after focus loss.
-- [ ] Preserve pressed action edges between fixed ticks.
-- [ ] Preserve released action edges between fixed ticks.
+- [x] Preserve pressed action edges between fixed ticks.
+- [x] Preserve released action edges between fixed ticks.
 - [x] Add held fire input.
 - [x] Add held ADS input.
 - [x] Bind right mouse to aiming.
@@ -146,13 +146,13 @@
 - [ ] Add buildable equipment input.
 - [ ] Add staff secondary mode input.
 - [ ] Add scoreboard input.
-- [ ] Add hold-or-toggle ADS settings.
-- [ ] Add hold-or-toggle crouch settings.
-- [ ] Add hold-or-toggle sprint settings.
-- [ ] Add mouse-driven menu focus.
-- [ ] Add keyboard-driven menu focus.
-- [ ] Restore cursor capture when gameplay resumes.
-- [ ] Release cursor capture when menus open.
+- [x] Add hold-or-toggle ADS settings.
+- [x] Add hold-or-toggle crouch settings.
+- [x] Add hold-or-toggle sprint settings.
+- [x] Add mouse-driven menu focus.
+- [x] Add keyboard-driven menu focus.
+- [x] Restore cursor capture when gameplay resumes.
+- [x] Release cursor capture when menus open.
 - [x] Add player movement acceleration.
 - [x] Add player movement deceleration.
 - [x] Add sprint stamina.
@@ -199,7 +199,7 @@
 - [ ] Cancel interactions when players become downed.
 - [x] Prevent duplicate interaction execution.
 - [x] Resolve prompts from interaction state.
-- [ ] Resolve prompt keys from current bindings.
+- [x] Resolve prompt keys from current bindings.
 - [ ] Suppress prompts for original hidden interactions.
 - [x] Add typed interaction rejection reasons.
 - [x] Add point transaction commands.
@@ -1204,8 +1204,8 @@
 - [ ] Add loading presentation state.
 - [ ] Add loading cinematic playback.
 - [ ] Add loading cinematic skip input.
-- [ ] Add pause menu buttons.
-- [ ] Add resume menu action.
+- [x] Add pause menu buttons.
+- [x] Add resume menu action.
 - [ ] Add restart menu action.
 - [ ] Add quit-to-menu action.
 - [ ] Add exit-application action.
@@ -1218,12 +1218,12 @@
 - [ ] Add bounded cinematic frame preloading.
 - [ ] Release cinematic frames after playback.
 - [ ] Route ending completion into the final scoreboard.
-- [ ] Add settings menu navigation.
-- [ ] Add mouse sensitivity controls.
-- [ ] Add ADS sensitivity controls.
+- [x] Add settings menu navigation.
+- [x] Add mouse sensitivity controls.
+- [x] Add ADS sensitivity controls.
 - [ ] Add field-of-view controls.
-- [ ] Add key remapping controls.
-- [ ] Add mouse remapping controls.
+- [x] Add key remapping controls.
+- [x] Add mouse remapping controls.
 - [ ] Add fullscreen controls.
 - [ ] Add resolution controls.
 - [ ] Add VSync controls.
@@ -1234,9 +1234,9 @@
 - [x] Add effects volume controls.
 - [x] Add dialogue volume controls.
 - [x] Add music volume controls.
-- [ ] Persist settings outside the runtime pack.
-- [ ] Load persisted settings at application startup.
-- [ ] Restore defaults from settings menus.
+- [x] Persist settings outside the runtime pack.
+- [x] Load persisted settings at application startup.
+- [x] Restore defaults from settings menus.
 - [ ] Apply graphics settings through Bevy resources.
 - [x] Apply audio settings to active playback.
 - [ ] Add visible content loading error recovery.

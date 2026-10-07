@@ -8,6 +8,99 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions},
 };
+use std::collections::HashSet;
+mod bindings;
+pub(crate) mod menu;
+pub mod settings;
+pub use bindings::{Action, Binding, ControlSettings, PressMode};
+
+#[derive(Clone, Copy, Default, Debug)]
+pub struct ActionState {
+    pub held: bool,
+    pub pressed: bool,
+    pub released: bool,
+    toggled: bool,
+}
+/// Edges survive rendered frames until the complete fixed gameplay tick finishes.
+#[derive(Resource)]
+pub struct Actions {
+    states: [ActionState; Action::ALL.len()],
+    physical: HashSet<Binding>,
+    suppressed: HashSet<Binding>,
+    settings: ControlSettings,
+}
+impl Default for Actions {
+    fn default() -> Self {
+        Self {
+            states: [ActionState::default(); Action::ALL.len()],
+            physical: default(),
+            suppressed: default(),
+            settings: ControlSettings::default(),
+        }
+    }
+}
+impl Actions {
+    pub fn state(&self, action: Action) -> ActionState {
+        self.states[action as usize]
+    }
+    fn active(&self, action: Action) -> bool {
+        let state = self.state(action);
+        if self.settings.mode(action) == PressMode::Toggle {
+            state.toggled
+        } else {
+            state.held || state.pressed
+        }
+    }
+    fn transition(&mut self, action: Action, held: bool) {
+        let state = &mut self.states[action as usize];
+        if held != state.held {
+            if held {
+                state.pressed = true;
+                state.toggled = !state.toggled;
+            } else {
+                state.released = true;
+            }
+            state.held = held;
+        }
+    }
+    fn event(&mut self, binding: Binding, pressed: bool) {
+        if pressed && self.suppressed.contains(&binding) {
+            return;
+        }
+        if pressed {
+            self.physical.insert(binding);
+        } else {
+            self.physical.remove(&binding);
+            self.suppressed.remove(&binding);
+        }
+        for action in Action::ALL {
+            let held = self.settings.bindings[&action]
+                .iter()
+                .any(|b| self.physical.contains(b));
+            self.transition(action, held);
+        }
+    }
+    fn reset(
+        &mut self,
+        keys: &ButtonInput<KeyCode>,
+        mouse: &ButtonInput<MouseButton>,
+        preserve_posture: bool,
+    ) {
+        let posture = [Action::Aim, Action::Crouch].map(|a| self.state(a).toggled);
+        self.states.fill(ActionState::default());
+        if preserve_posture {
+            for (action, toggled) in [Action::Aim, Action::Crouch].into_iter().zip(posture) {
+                self.states[action as usize].toggled = toggled;
+            }
+        }
+        self.physical.clear();
+        self.suppressed = keys
+            .get_pressed()
+            .map(|key| Binding::Key(*key))
+            .chain(mouse.get_pressed().map(|b| Binding::Mouse(*b)))
+            .collect();
+    }
+}
 
 #[derive(Resource, Default)]
 pub struct GameInput {
@@ -49,10 +142,33 @@ pub struct GameInputPlugin;
 pub struct RestartGame;
 impl Plugin for GameInputPlugin {
     fn build(&self, app: &mut App) {
+        // Verification has its own local settings file and never changes the user's controls.
+        let options = app.world().resource::<crate::assets::LaunchOptions>();
+        let path = options
+            .verify
+            .as_ref()
+            .map(|root| root.join("settings.json"))
+            .or_else(settings::local_path);
+        let (settings, store) = settings::SettingsStore::load(path);
+        if let Some(error) = &store.error {
+            warn!("{error}");
+        }
+        app.insert_resource(settings)
+            .insert_resource(store)
+            .init_resource::<Actions>();
         app.init_resource::<GameInput>()
             .add_message::<RestartGame>()
             .add_systems(PreUpdate, collect.after(InputSystems))
-            .add_systems(Update, pause_and_restart);
+            .add_systems(Update, pause_and_restart)
+            .add_systems(
+                FixedUpdate,
+                finish_tick
+                    .after(crate::gameplay::GameStep::Rounds)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(Startup, settings::apply_audio)
+            .add_systems(Last, (settings::capture_audio, settings::save).chain());
+        menu::install(app);
     }
 }
 
@@ -66,61 +182,121 @@ pub(crate) fn collect(
     windows: Query<(&Window, &CursorOptions)>,
     state: Res<State<GameState>>,
     options: Res<crate::assets::LaunchOptions>,
+    settings: Res<ControlSettings>,
+    mut actions: ResMut<Actions>,
     mut input: ResMut<GameInput>,
 ) {
     let active = **state == GameState::Playing
-        && (options.verify.is_some()
+        && ((options.verify.is_some() && !options.verify_controls)
             || windows.iter().any(|(window, cursor)| {
                 window.focused && cursor.grab_mode != CursorGrabMode::None
             }));
-    if !active {
+    let mappings_changed = settings.bindings != actions.settings.bindings
+        || settings.aim_mode != actions.settings.aim_mode
+        || settings.crouch_mode != actions.settings.crouch_mode
+        || settings.sprint_mode != actions.settings.sprint_mode;
+    if !active || mappings_changed {
         input.clear();
+        actions.settings = settings.clone();
+        actions.reset(
+            &keys,
+            &mouse,
+            !mappings_changed && matches!(**state, GameState::Playing | GameState::Paused),
+        );
         key_events.clear();
         mouse_events.clear();
         motion.clear();
         wheel.clear();
         return;
     }
+    if *settings != actions.settings {
+        actions.settings = settings.clone();
+    }
+    // Process each transition, including a complete tap within one rendered frame.
+    for event in key_events.read().filter(|e| !e.repeat) {
+        actions.event(Binding::Key(event.key_code), event.state.is_pressed());
+    }
+    for event in mouse_events.read() {
+        actions.event(Binding::Mouse(event.button), event.state.is_pressed());
+    }
+    for event in wheel.read().filter(|e| e.y != 0.) {
+        let binding = if event.y > 0. {
+            Binding::WheelUp
+        } else {
+            Binding::WheelDown
+        };
+        actions.event(binding, true);
+        actions.event(binding, false);
+    }
+    // Reconcile missed OS releases without manufacturing presses after focus loss.
+    let stale = actions
+        .physical
+        .iter()
+        .copied()
+        .filter(|b| !b.held(&keys, &mouse))
+        .collect::<Vec<_>>();
+    for binding in stale {
+        actions.event(binding, false);
+    }
+    actions.suppressed.retain(|b| b.held(&keys, &mouse));
+    use Action::*;
     input.movement = Vec2::new(
-        (keys.pressed(KeyCode::KeyD) as i8 - keys.pressed(KeyCode::KeyA) as i8) as f32,
-        (keys.pressed(KeyCode::KeyW) as i8 - keys.pressed(KeyCode::KeyS) as i8) as f32,
+        (actions.state(Right).held as i8 - actions.state(Left).held as i8) as f32,
+        (actions.state(Forward).held as i8 - actions.state(Backward).held as i8) as f32,
     )
     .clamp_length_max(1.);
-    input.sprint = keys.pressed(KeyCode::ShiftLeft);
-    input.crouch = keys.pressed(KeyCode::ControlLeft);
-    input.fire_held = mouse.pressed(MouseButton::Left);
-    input.ads = mouse.pressed(MouseButton::Right);
-    input.use_held = keys.pressed(KeyCode::KeyF);
-    input.grenade_held = keys.pressed(KeyCode::KeyG);
-    input.mine_held = keys.pressed(KeyCode::Digit4);
-    input.tactical_held = keys.pressed(KeyCode::KeyT);
-    for event in wheel.read() {
-        input.cycle_weapon |= event.y != 0.;
-    }
-    for event in key_events
-        .read()
-        .filter(|e| e.state.is_pressed() && !e.repeat)
-    {
-        match event.key_code {
-            KeyCode::Space => input.jump = true,
-            KeyCode::KeyZ => input.prone = true,
-            KeyCode::KeyR => input.reload = true,
-            KeyCode::KeyV => input.melee = true,
-            KeyCode::KeyQ => input.cycle_weapon = true,
-            KeyCode::Digit1 => input.weapon_slot = Some(0),
-            KeyCode::Digit2 => input.weapon_slot = Some(1),
-            KeyCode::Digit3 => input.weapon_slot = Some(2),
-            _ => {}
-        }
-    }
-    for event in mouse_events.read().filter(|e| e.state.is_pressed()) {
-        match event.button {
-            MouseButton::Left => input.fire = true,
-            _ => {}
+    input.sprint = actions.active(Sprint);
+    input.crouch = actions.active(Crouch);
+    input.fire_held = actions.active(Fire);
+    input.ads = actions.active(Aim);
+    input.use_held = actions.active(Interact);
+    input.grenade_held = actions.active(Lethal);
+    input.mine_held = actions.active(Mine);
+    input.tactical_held = actions.active(Tactical);
+    input.jump |= actions.state(Jump).pressed;
+    input.prone |= actions.state(Prone).pressed;
+    input.fire |= actions.state(Fire).pressed;
+    input.reload |= actions.state(Reload).pressed;
+    input.melee |= actions.state(Melee).pressed;
+    input.cycle_weapon |= actions.state(CycleWeapon).pressed;
+    for (slot, action) in [WeaponOne, WeaponTwo, WeaponThree].into_iter().enumerate() {
+        if actions.state(action).pressed {
+            input.weapon_slot = Some(slot);
         }
     }
     for event in motion.read() {
         input.look += event.delta;
+    }
+}
+
+fn finish_tick(mut actions: ResMut<Actions>, mut input: ResMut<GameInput>) {
+    let input = &mut *input;
+    // A quick tap must reach the equipment systems for one tick, then release.
+    for (action, held) in [
+        (Action::Fire, &mut input.fire_held),
+        (Action::Interact, &mut input.use_held),
+        (Action::Lethal, &mut input.grenade_held),
+        (Action::Tactical, &mut input.tactical_held),
+        (Action::Mine, &mut input.mine_held),
+    ] {
+        let state = actions.state(action);
+        if state.pressed && !state.held {
+            *held = false;
+        }
+    }
+    for (action, held) in [
+        (Action::Aim, &mut input.ads),
+        (Action::Sprint, &mut input.sprint),
+        (Action::Crouch, &mut input.crouch),
+    ] {
+        let state = actions.state(action);
+        if actions.settings.mode(action) == PressMode::Hold && state.pressed && !state.held {
+            *held = false;
+        }
+    }
+    for state in &mut actions.states {
+        state.pressed = false;
+        state.released = false;
     }
 }
 
@@ -133,25 +309,32 @@ pub(crate) fn pause_and_restart(
     mut commands: Commands,
     session: Query<Entity, With<crate::gameplay::SessionEntity>>,
     options: Res<crate::assets::LaunchOptions>,
+    settings: Res<ControlSettings>,
+    menu: Res<menu::ControlMenu>,
     mut restart: MessageReader<RestartGame>,
     mut life_queue: ResMut<crate::life::LifeCommandQueue>,
     mut life_results: ResMut<crate::life::LifeCommandResults>,
 ) {
-    if keys.just_pressed(KeyCode::Escape) {
+    if menu.capturing.is_none()
+        && !menu.handled_input
+        && (keys.just_pressed(KeyCode::Escape)
+            || settings.just_pressed(Action::Pause, &keys, &mouse))
+    {
         match **state {
             GameState::Playing => next.set(GameState::Paused),
             GameState::Paused => next.set(GameState::Playing),
             _ => {}
         }
     }
-    if options.verify.is_none()
+    if (options.verify.is_none() || options.verify_controls)
         && **state == GameState::Playing
         && cursors.iter().any(|(w, _)| !w.focused)
     {
         next.set(GameState::Paused);
     }
     if **state == GameState::GameOver
-        && (keys.just_pressed(KeyCode::KeyR) || restart.read().next().is_some())
+        && (settings.just_pressed(Action::Restart, &keys, &mouse)
+            || restart.read().next().is_some())
     {
         for entity in &session {
             life_queue.retire_pending_target(entity);
@@ -161,15 +344,19 @@ pub(crate) fn pause_and_restart(
         next.set(GameState::Playing);
     }
     for (window, mut cursor) in &mut cursors {
-        let capture = options.verify.is_none() && window.focused && **state == GameState::Playing;
-        cursor.grab_mode = if capture {
+        let capture = (options.verify.is_none() || options.verify_controls)
+            && window.focused
+            && **state == GameState::Playing;
+        let grab_mode = if capture {
             CursorGrabMode::Locked
         } else {
             CursorGrabMode::None
         };
-        cursor.visible = !capture;
-    }
-    if **state == GameState::Paused && mouse.just_pressed(MouseButton::Left) {
-        next.set(GameState::Playing);
+        if cursor.grab_mode != grab_mode {
+            cursor.grab_mode = grab_mode;
+        }
+        if cursor.visible == capture {
+            cursor.visible = !capture;
+        }
     }
 }

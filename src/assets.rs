@@ -21,6 +21,7 @@ pub enum MeshPreprocessing {
 pub struct LaunchOptions {
     pub material_debug: u32,
     pub verify: Option<PathBuf>,
+    pub verify_controls: bool,
     pub benchmark: bool,
     pub release_benchmark: bool,
     pub benchmark_view: Option<usize>,
@@ -71,6 +72,15 @@ impl LaunchOptions {
                 result.verify = args.next().map(PathBuf::from);
                 if result.verify.is_none() || args.next().is_some() {
                     result.error = Some("Usage: origins --release-benchmark-moving|--release-benchmark-combat external-output-folder".into());
+                }
+                return result;
+            }
+            if argument == "--verify-controls" {
+                result.verify_controls = true;
+                result.verify = args.next().map(PathBuf::from);
+                if result.verify.is_none() || args.next().is_some() {
+                    result.error =
+                        Some("Usage: origins --verify-controls external-output-folder".into());
                 }
                 return result;
             }
