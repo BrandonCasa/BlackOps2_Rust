@@ -8,10 +8,7 @@ use crate::{
     player::Player,
 };
 use avian3d::prelude::*;
-use bevy::{
-    audio::{PlaybackMode, Volume},
-    prelude::*,
-};
+use bevy::prelude::*;
 use std::collections::BTreeSet;
 
 #[derive(Clone, Default, serde::Deserialize)]
@@ -344,7 +341,6 @@ fn opening(
     definition: Res<GameDefinition>,
     blockers: Query<(Entity, &DoorBlocker)>,
     mut props: Query<(Entity, &mut DoorProp, &mut Transform)>,
-    server: Res<AssetServer>,
     mut evidence: ResMut<DoorEvidence>,
 ) {
     for (entity, block) in &blockers {
@@ -367,24 +363,9 @@ fn opening(
         };
         if prop.age == 0. {
             // One bounded emitter per authored leaf, matching native door_move sound placement.
-            if let Some(sound) = definition
-                .content
-                .sounds
-                .iter()
-                .find(|s| s.id == door.sound)
-            {
-                commands.spawn((
-                    SessionEntity,
-                    DoorAudio,
-                    AudioPlayer::new(server.load(sound.path.clone())),
-                    PlaybackSettings {
-                        mode: PlaybackMode::Despawn,
-                        volume: Volume::Linear(sound.volume),
-                        spatial: true,
-                        ..default()
-                    },
-                    Transform::from_translation(prop.start),
-                ));
+            if let Some(alias) = definition.audio.bindings.get(&door.sound.0) {
+                let entity = crate::audio::emit(&mut commands, alias.clone(), prop.start, None);
+                commands.entity(entity).insert(DoorAudio);
                 evidence.sounds += 1;
             }
         }

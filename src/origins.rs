@@ -28,6 +28,8 @@ pub struct GameDefinition {
     #[serde(default)]
     pub access: crate::access::AccessDefinition,
     #[serde(default)]
+    pub audio: crate::audio::AudioDefinition,
+    #[serde(default)]
     pub tuning: Tuning,
 }
 
@@ -146,6 +148,11 @@ impl GameDefinition {
             return Err(ContentError::UnsupportedVersion(self.version));
         }
         self.content.validate()?;
+        if !self.audio.valid(self) {
+            return Err(ContentError::InvalidDefinition(
+                "Invalid audio aliases or bindings.".into(),
+            ));
+        }
         if !self.solo_revive.valid(self) {
             return Err(ContentError::InvalidDefinition(
                 "Invalid solo revive profile.".into(),

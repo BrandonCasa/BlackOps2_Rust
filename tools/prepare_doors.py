@@ -1,7 +1,6 @@
 """Prepare native solo door groups, collision hulls and zone adjacency."""
 import hashlib,json,math,re
 import numpy as np
-import soundfile as sf
 from prepare_gameplay_content import external
 from prepare_origins import entities
 from prepare_actors import convert
@@ -43,17 +42,7 @@ def prepare(config):
         identity='presentation.door.'+model;props[model]=identity
         content['presentations'][:]=[x for x in content['presentations'] if x['id']!=identity]
         content['presentations'].append({'id':identity,'scene':'props/'+relative+'#Scene0','animations':[],'sounds':[]})
-    # Deterministic mechanical/stone cues are explicit reconstructions, not native audio.
-    (pack/'audio').mkdir(exist_ok=True);rate=24000
-    for name in ('bunker','debris'):
-        t=np.arange(rate)/rate;rng=np.random.default_rng(2606)
-        noise=rng.normal(0,.15,len(t));noise=np.convolve(noise,np.ones(9)/9,'same')
-        wave=(noise+(.05*np.sin(2*np.pi*(75*t+30*t*t))))*np.sin(np.pi*t)**.5
-        if name=='debris':wave*=np.exp(-4*t)
-        relative='audio/door-'+name+'.ogg';sf.write(pack/relative,wave,rate,format='OGG',subtype='VORBIS')
-        identity='sound.door.'+name
-        content['sounds'][:]=[x for x in content['sounds'] if x['id']!=identity]
-        content['sounds'].append({'id':identity,'path':relative,'volume':.7,'pitch':[1.,1.],'distance':16.,'looping':False})
+    # Native aliases are prepared centrally; never regenerate substitute audio.
     groups={};triggers=[e for e in records if e.get('targetname') in ('zombie_door','zombie_debris')]
     for e in triggers:groups.setdefault(e['target'],[]).append(e)
     doors=[]
@@ -75,7 +64,9 @@ def prepare(config):
             content['interactions'].append({'id':'interaction.door.'+identity,'placement':placement,'action':{'kind':'door','connection':edges[0],'price':price},'reach':2.3,'hold_seconds':0.,'hidden_prompt':False})
     game.setdefault('access',{})['doors']=doors
     (pack/'game.json').write_text(json.dumps(game,indent=2)+'\n')
+    from prepare_audio import prepare as prepare_audio
+    prepare_audio(config)
     receipt={'groups':len(doors),'triggers':len(triggers),'connections':len(connections),'zones':len(zones),'props':sum(len(d['props']) for d in doors),'blocks':sum(len(d['blocks']) for d in doors),
         'script_sha256':hashlib.sha256(script.read_bytes()).hexdigest(),'collision_sha256':hashlib.sha256(table.read_bytes()).hexdigest(),
-        'approximation':'Opening sounds reconstructed; native models, placements, collision brush planes, solo prices, slide vector and adjacency retained. Tank/quest flags remain closed until their systems implement them.'}
+        'approximation':'Debris uses native rock-fall sounds; native models, placements, collision brush planes, solo prices, slide vector and adjacency retained. Tank/quest flags remain closed until their systems implement them.'}
     (inspection/'solo-content/doors-preparation.json').write_text(json.dumps(receipt,indent=2));print(receipt)

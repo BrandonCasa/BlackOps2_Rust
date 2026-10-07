@@ -19,6 +19,7 @@ impl Plugin for HudPlugin {
         .add_systems(Update, update)
         .add_systems(Update, damage_feedback)
         .add_systems(Update, revive_feedback)
+        .add_systems(Update, subtitle_feedback)
         .add_systems(Update, crosshair.run_if(in_state(GameState::Playing)));
     }
 }
@@ -61,6 +62,25 @@ fn setup(
             position_type: PositionType::Absolute,
             left: percent(49.5),
             top: percent(48.),
+            ..default()
+        },
+    ));
+    commands.spawn((
+        Text::new(""),
+        SubtitleText,
+        PlayerOverlay,
+        UiTargetCamera(camera),
+        TextFont {
+            font_size: FontSize::Px(20.),
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        TextLayout::justify(Justify::Center),
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(0.),
+            bottom: px(120.),
+            width: percent(100.),
             ..default()
         },
     ));
@@ -208,6 +228,7 @@ fn update(
     mines: Query<&crate::mines::MineInventory, With<Player>>,
     tactical: Query<&crate::equipment::TacticalInventory, With<Player>>,
     perks: Query<&crate::solo_revive::PerkInventory, With<Player>>,
+    audio: Res<crate::audio::AudioSettings>,
     mut text: Query<&mut Text, With<HudText>>,
     generators: Res<crate::generators::Generators>,
 ) {
@@ -337,9 +358,28 @@ fn update(
     }
     if **state == GameState::Paused {
         value.push_str("\nG grenade | T tactical | 4 Claymore");
+        value.push_str(&format!("\nAudio: F6 Master {:.0}% | F7 Music {:.0}% | F8 Effects {:.0}% | F9 Voice {:.0}%\nShift + key lowers volume | F10 Captions {}",audio.master*100.,audio.music*100.,audio.effects*100.,audio.dialogue*100.,if audio.subtitles{"On"}else{"Off"}));
     }
     if text.0 != value {
         text.0 = value;
+    }
+}
+
+#[derive(Component)]
+struct SubtitleText;
+fn subtitle_feedback(
+    settings: Res<crate::audio::AudioSettings>,
+    subtitle: Res<crate::audio::Subtitle>,
+    state: Res<State<GameState>>,
+    mut labels: Query<&mut Text, With<SubtitleText>>,
+) {
+    for mut text in &mut labels {
+        text.0 = if settings.subtitles && matches!(**state, GameState::Playing | GameState::Paused)
+        {
+            subtitle.text.clone()
+        } else {
+            String::new()
+        };
     }
 }
 

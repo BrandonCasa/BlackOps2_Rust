@@ -287,7 +287,8 @@ fn scene_ready(
     event: On<WorldInstanceReady>,
     roots: Query<&MapRoot>,
     children: Query<&Children>,
-    mesh_entities: Query<&Mesh3d>,
+    mesh_entities: Query<(&Mesh3d, Option<&bevy::gltf::GltfMaterialName>)>,
+    definition: Res<GameDefinition>,
     meshes: Res<Assets<Mesh>>,
     mut loading: ResMut<Loading>,
     mut commands: Commands,
@@ -300,16 +301,24 @@ fn scene_ready(
     };
     if root.collision {
         for entity in children.iter_descendants(event.entity) {
-            if let Ok(mesh) = mesh_entities.get(entity) {
+            if let Ok((mesh, material)) = mesh_entities.get(entity) {
                 let collider = cache.get(&mesh.0.id()).cloned().or_else(|| {
                     let collider = meshes.get(&mesh.0).and_then(Collider::trimesh_from_mesh)?;
                     cache.insert(mesh.0.id(), collider.clone());
                     Some(collider)
                 });
                 if let Some(collider) = collider {
-                    commands
-                        .entity(entity)
-                        .insert((RigidBody::Static, collider, WorldCollider));
+                    commands.entity(entity).insert((
+                        RigidBody::Static,
+                        collider,
+                        WorldCollider,
+                        crate::audio::SurfaceSound(
+                            material
+                                .and_then(|m| definition.audio.surfaces.get(&m.0))
+                                .cloned()
+                                .unwrap_or_else(|| "default".into()),
+                        ),
+                    ));
                     loading.colliders += 1;
                 } else {
                     error!("Could not build collision for {:?}", mesh.0.path());

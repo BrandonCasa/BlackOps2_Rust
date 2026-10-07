@@ -341,6 +341,10 @@ def validate_content(content, require):
                     number(board['destroy_seconds'])
                     require(board['destroy_seconds'] < board['tear_seconds'], 'invalid board destruction notetrack')
                     for key in ('grab_clip','tear_clip'): require(isinstance(board[key],str) and board[key], 'invalid board tear alias')
+                    for key,seconds in [('grab_motion',board['grab_seconds']),('tear_motion',board['tear_seconds'])]:
+                        motion=board[key];require(isinstance(motion,list) and 2<=len(motion)<=4096,'invalid tear samples')
+                        require(all(isinstance(p,list) and len(p)==4 and all(type(v) in (int,float) and math.isfinite(v) for v in p) and 0<=p[0]<=seconds+.001 for p in motion),'invalid tear motion')
+                        require(motion[0][0]==0 and abs(motion[-1][0]-seconds)<.001 and all(a[0]<b[0] for a,b in zip(motion,motion[1:])),'unordered tear motion')
             elif table == "navigation_links":
                 resolve(owner, row["from"], "node")
                 resolve(owner, row["to"], "node")

@@ -719,6 +719,7 @@ def main():
     parser.add_argument("--prepare-traversals", action="store_true", help="prepare native negotiation/rising clips and root-motion profiles")
     parser.add_argument("--prepare-barriers", action="store_true", help="prepare native wood windows, boards and tear timing")
     parser.add_argument("--prepare-generators", action="store_true", help="prepare original generator pumps and capture configuration")
+    parser.add_argument("--prepare-audio", action="store_true", help="extract native sound banks and prepare aliases/bindings for current gameplay")
     parser.add_argument("--prepare-navigation", action="store_true", help="prepare recovered native navigation, zone volumes and spawn identities")
     parser.add_argument("--prepare-enemies", action="store_true", help="prepare intact native zombie rigs and lifecycle tuning")
     parser.add_argument("--prepare-hit-regions", action="store_true", help="bind anatomical hit volumes to prepared original zombie joints")
@@ -729,6 +730,10 @@ def main():
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
     if args.prepare_generators:
         from prepare_generators import prepare
+        prepare(config)
+        return
+    if args.prepare_audio:
+        from prepare_audio import prepare
         prepare(config)
         return
     if args.prepare_barriers:
@@ -784,7 +789,7 @@ def main():
         definition = gameplay_definition(entities(external(entities_path)))
         if previous.get("version") == 2:
             definition["content"] = previous["content"]
-        for key in ("source_surfaces", "render_meshes", "collision_meshes", "static_model_instances", "survey_views", "tuning", "environment", "access", "rounds", "player_health", "solo_revive"):
+        for key in ("source_surfaces", "render_meshes", "collision_meshes", "static_model_instances", "survey_views", "tuning", "environment", "access", "rounds", "player_health", "solo_revive", "audio"):
             if key in previous:
                 definition[key] = previous[key]
         (output / "game.json").write_text(json.dumps(definition, indent=2) + "\n", encoding="utf-8")

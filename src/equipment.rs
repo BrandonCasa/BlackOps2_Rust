@@ -477,6 +477,7 @@ fn flight(
     mut grenades: Query<(Entity, &mut Grenade, &mut Transform)>,
     targets: Query<(&Vitality, &Transform, Option<&Player>), Without<Grenade>>,
     poses: Query<(&Transform, &GlobalTransform, Option<&ChildOf>), Without<Grenade>>,
+    surfaces: Query<&crate::audio::SurfaceSound>,
     query: SpatialQuery,
     mut blasts: ResMut<BlastQueue>,
     mut lures: ResMut<crate::lures::LureEvidence>,
@@ -535,6 +536,26 @@ fn flight(
                     let normal = hit.normal1;
                     transform.translation += direction.as_vec3() * hit.distance.max(0.);
                     transform.translation += normal * 0.003;
+                    let surface = surfaces.get(hit.entity).map_or(
+                        if targets.contains(hit.entity) {
+                            "flesh"
+                        } else {
+                            "default"
+                        },
+                        |s| s.0.as_str(),
+                    );
+                    let alias = format!(
+                        "{}_{}",
+                        if tuning.sticky {
+                            "wpn_sticky_gren_bounce"
+                        } else if weapon.lure.is_some() {
+                            "zmb_monkey_land"
+                        } else {
+                            "wpn_grenade_bounce"
+                        },
+                        surface
+                    );
+                    crate::audio::emit(&mut commands, alias, transform.translation, None);
                     if tuning.sticky {
                         transform.rotation = Quat::from_rotation_arc(Vec3::Y, normal);
                         grenade.motion = if let Ok((local, global, parent)) = poses.get(hit.entity)
@@ -625,6 +646,7 @@ fn blast_lifetime(
 
 pub(crate) fn resolve_blasts(
     mut commands: Commands,
+    game: Res<GameDefinition>,
     mut queue: ResMut<BlastQueue>,
     query: SpatialQuery,
     targets: Query<(Entity, &Vitality, &Transform, Option<&Player>)>,
@@ -635,6 +657,13 @@ pub(crate) fn resolve_blasts(
 ) {
     for blast in queue.0.drain(..) {
         let center = blast.center;
+        crate::audio::binding(
+            &mut commands,
+            &game,
+            &format!("{}.explode", blast.definition.0),
+            center,
+            None,
+        );
         // Movement colliders are disabled during native traversal/rising, but
         // living actors remain combat targets. Cover still uses live geometry.
         for (target, vitality, pose, player) in &targets {

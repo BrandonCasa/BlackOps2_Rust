@@ -12,6 +12,7 @@ One Cargo package, `origins`, produces one executable. `src/lib.rs` composes plu
 | gameplay | Session, pistol/melee, population, pursuit, attacks and rounds |
 | origins | Map content contract and one tunable gameplay profile |
 | hud | Bevy UI and temporary weapon presentation |
+| audio | Prepared native aliases and animation notes, bounded Bevy sinks, channel controls and session sound ownership |
 | verification | Opt-in driver and screenshots of the real application |
 | tools | Offline preparation/import and validated release packaging of assets/origins |
 

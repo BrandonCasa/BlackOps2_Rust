@@ -432,7 +432,34 @@ def validate_pack(root, receipt=None, exact=False):
     game = read_json(safe_path(root, "game.json", {".json"}))
     require(set(game) <= {"version", "scene", "collision_scene", "spawn", "yaw", "spawn_points",
                           "waypoints", "survey_views", "source_surfaces", "render_meshes",
-                          "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health", "solo_revive", "environment", "access"}, "unknown gameplay configuration")
+                          "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health", "solo_revive", "environment", "access", "audio"}, "unknown gameplay configuration")
+    audio=game.get('audio',{})
+    require(isinstance(audio,dict) and set(audio)<={'aliases','bindings','timelines','emitters','character','surfaces'},'unknown audio configuration')
+    aliases=audio.get('aliases',{});sounds_by_id={s['id']:s for s in game.get('content',{}).get('sounds',[])}
+    require(isinstance(aliases,dict) and len(aliases)<=8192,'invalid audio aliases')
+    require(type(audio.get('character',0)) is int and 0<=audio.get('character',0)<4,'invalid voice character')
+    for name,a in aliases.items():
+        require(isinstance(name,str) and name and set(a)=={'sounds','spatial','channel','subtitle','limit','priority','seconds','secondary'},'invalid audio alias fields')
+        require(a['secondary'] is None or a['secondary'] in aliases,'missing secondary audio')
+        require(a['sounds'] and all(s in sounds_by_id for s in a['sounds']),'missing audio variant')
+        require(type(a['spatial']) is bool and a['channel'] in ('effects','music','ambience','dialogue') and isinstance(a['subtitle'],str),'invalid audio routing')
+        require(type(a['limit']) is int and 1<=a['limit']<=32 and type(a['priority']) is int and a['priority']>=0,'invalid audio admission')
+        require(type(a['seconds']) in (int,float) and math.isfinite(a['seconds']) and a['seconds']>0,'invalid audio duration')
+    for name in aliases:
+        seen=set();current=name
+        while current is not None:
+            require(current not in seen,'cyclic secondary audio');seen.add(current)
+            current=aliases[current]['secondary']
+    require(isinstance(audio.get('surfaces',{}),dict) and all(s in ('mud','dirt','wood','metal','brick','concrete','rock','gravel','grass','water','default') for s in audio.get('surfaces',{}).values()),'invalid audio surfaces')
+    require(all(n in aliases for n in audio.get('bindings',{}).values()),'missing sound binding')
+    animations={a['id']:a for a in game.get('content',{}).get('animations',[])}
+    for key,notes in audio.get('timelines',{}).items():
+        require(key in animations and isinstance(notes,list),'missing audio animation')
+        for n in notes:
+            require(set(n)=={'seconds','alias'} and n['alias'] in aliases and type(n['seconds']) in (int,float) and math.isfinite(n['seconds']) and 0<=n['seconds']<=max(a['seconds'] for a in animations[key]['notifications'])+.001,'invalid animation audio note')
+    require(len(audio.get('emitters',[]))<=4096,'too many ambient emitters')
+    for e in audio.get('emitters',[]):
+        require(set(e)=={'alias','position'} and e['alias'] in aliases and len(e['position'])==3 and all(type(v) in (int,float) and math.isfinite(v) for v in e['position']),'invalid ambient emitter')
     require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "sprint_seconds", "sprint_minimum", "sprint_recovery_rate", "sprint_recovery_delay", "crouch_speed", "gravity",
         "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
         "mouse_sensitivity", "ads_mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
@@ -739,9 +766,12 @@ def check_index(destination, hashes):
     for name, key, value in zip(attributes[0:-1:3], attributes[1:-1:3], attributes[2:-1:3]):
         attrs.setdefault(name, {})[key] = value
     batch = io.BytesIO(git("cat-file", "--batch", data="".join(oid + "\n" for oid in entries.values()).encode()))
-    lfs_root = Path(git("rev-parse", "--git-path", "lfs/objects").decode().strip())
-    if not lfs_root.is_absolute():
-        lfs_root = WORKSPACE / lfs_root
+    # Linked worktrees share LFS storage; --git-path points at the worktree's
+    # private Git directory and also ignores configured lfs.storage overrides.
+    media = [line.removeprefix("LocalMediaDir=") for line in git("lfs", "env").decode().splitlines()
+             if line.startswith("LocalMediaDir=")]
+    require(len(media) == 1 and Path(media[0]).is_absolute(), "cannot resolve Git LFS storage")
+    lfs_root = Path(media[0])
     for name, oid in entries.items():
         header = batch.readline().decode().split()
         require(header[:2] == [oid, "blob"], "invalid staged object")

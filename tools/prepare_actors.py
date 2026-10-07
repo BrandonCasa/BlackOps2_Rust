@@ -18,7 +18,7 @@ except ImportError:
     from xanim import decode
 
 
-def convert(source_path, output, additional_images, clips, in_place=False, end_aligned_clips=()):
+def convert(source_path, output, additional_images, clips, in_place=False, end_aligned_clips=(), board_delta=False):
     source = json.loads(source_path.read_text(encoding="utf-8-sig"))
     document = copy.deepcopy(source)
     output = external(output)
@@ -128,7 +128,17 @@ def convert(source_path, output, additional_images, clips, in_place=False, end_a
 
     for clip_path in clips:
         clip = decode(clip_path.read_bytes())
+        if clip['delta'] and np.max(np.abs(clip['delta']['translation'][1])) > 0.01 and not in_place and not board_delta:
+            raise ValueError(f'unconsumed native root motion: {clip_path.name}; preserve the curve or declare gameplay-owned in-place playback')
         samplers, channels = [], []
+        if board_delta:
+            if len(roots) != 1 or not clip['delta']:
+                raise ValueError('board animation requires one root and native delta')
+            times, values = clip['delta']['translation']
+            values = values[:, [0, 2, 1]] * [.0254, .0254, -.0254]
+            channels.append({'sampler': len(samplers), 'target': {'node': next(iter(roots)), 'path': 'translation'}})
+            samplers.append({'input': animation_accessor(times.reshape(-1, 1), 'SCALAR'),
+                             'output': animation_accessor(values, 'VEC3'), 'interpolation': 'LINEAR'})
         for bone, tracks in clip["tracks"].items():
             if in_place and bone == "tag_sync":
                 continue  # Authoring synchronization marker is not an actor pose joint.
@@ -230,7 +240,7 @@ def prepare(config):
         if missing_clips:
             raise ValueError(f"Missing recovered animations for {name}: {missing_clips}")
         clips = [animation_source / clip for clip in clip_names]
-        relative, notifications = convert(source_models.get(name, models / "model_export" / (name + "_lod0.gltf")), pack / "actors", image_root, clips)
+        relative, notifications = convert(source_models.get(name, models / "model_export" / (name + "_lod0.gltf")), pack / "actors", image_root, clips, in_place="german" in name)
         identity = "actor." + name
         presentations[:] = [p for p in presentations if p["id"] != identity]
         animation_definitions[:] = [a for a in animation_definitions if a["skeleton"] != identity]

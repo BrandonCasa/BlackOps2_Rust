@@ -22,6 +22,7 @@ struct Coverage {
     ingress_attempt: u8,
     jump_peak: f32,
     blocked_capture: bool,
+    slats: std::collections::BTreeSet<usize>,
 }
 pub fn install(app: &mut App) {
     app.init_resource::<Coverage>().add_systems(
@@ -160,6 +161,20 @@ fn drive(
             advance = Some(1);
         }
         1 => {
+            if let Some(boards) = boards {
+                for (index, board) in boards.iter().enumerate() {
+                    if matches!(board,BoardState::Pulling(_,age)|BoardState::Opening(age) if *age>0.04 && *age<0.3)
+                        && c.slats.insert(index)
+                    {
+                        commands
+                            .spawn(Screenshot::primary_window())
+                            .observe(save_to_disk(
+                                v.output
+                                    .join(format!("native-board-pull-{}.png", index + 1)),
+                            ));
+                    }
+                }
+            }
             if !c.captured
                 && enemies.iter().any(|(e, _, z)| {
                     Some(e) == c.actor
@@ -185,7 +200,8 @@ fn drive(
                 })
             {
                 let captured = c.captured;
-                c.rows.push(serde_json::json!({"case":"native_tearing_and_entry","passed":boards.is_some_and(|b|b.iter().all(|b|*b==BoardState::Missing)) && captured,"destroyed":barriers.destroyed,"entries":barriers.entries,"sounds":barriers.playing_sounds}));
+                let individual_slats = c.slats.len();
+                c.rows.push(serde_json::json!({"case":"native_tearing_and_entry","passed":boards.is_some_and(|b|b.iter().all(|b|*b==BoardState::Missing)) && captured && individual_slats==6,"destroyed":barriers.destroyed,"entries":barriers.entries,"sounds":barriers.playing_sounds,"individual_slats":individual_slats}));
                 if let Some(e) = c.actor.take() {
                     commands.entity(e).despawn();
                 }

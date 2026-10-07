@@ -347,6 +347,8 @@ pub(crate) fn interact(
         if focus.progress >= usable.source.hold_seconds {
             focus.progress = 0.;
             if barriers.repair(barrier) {
+                crate::audio::emit(&mut commands, "zmb_boards_float", origin, None);
+                crate::audio::emit(&mut commands, "zmb_repair_boards", origin, None);
                 focus.accepted += 1;
                 focus.rejection = None;
             }
@@ -538,6 +540,25 @@ pub(crate) fn interact(
     focus.rejection = match result {
         Ok(()) => {
             focus.accepted += 1;
+            crate::audio::binding(
+                &mut commands,
+                &definition,
+                &format!(
+                    "{}.{}",
+                    weapon.id.0,
+                    if owned.is_some() { "ammo" } else { "purchase" }
+                ),
+                body.translation,
+                None,
+            );
+            crate::audio::emit(&mut commands, "zmb_cha_ching", body.translation, None);
+            crate::audio::voice(
+                &mut commands,
+                &definition,
+                "generic_wall_buy",
+                body.translation,
+                session.kills,
+            );
             None
         }
         Err(PurchaseError::InsufficientPoints) => Some(InteractionRejection::InsufficientPoints),

@@ -47,9 +47,9 @@ pub struct DamageReceipt {
 #[derive(Message, Clone, Debug)]
 pub struct EnemyDeath(pub DamageReceipt);
 #[derive(Message, Clone, Debug)]
-struct DamageApplied {
-    impact: Impact,
-    lethal: bool,
+pub(crate) struct DamageApplied {
+    pub(crate) impact: Impact,
+    pub(crate) lethal: bool,
 }
 #[derive(Resource, Default)]
 pub struct DamageQueue(pub Vec<Impact>);

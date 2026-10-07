@@ -35,11 +35,34 @@ pub struct BoardDefinition {
     pub destroy_seconds: f32,
     pub grab_clip: String,
     pub tear_clip: String,
+    pub grab_motion: Vec<[f32; 4]>,
+    pub tear_motion: Vec<[f32; 4]>,
+}
+impl BoardDefinition {
+    pub fn valid_motion(&self) -> bool {
+        [
+            (&self.grab_motion, self.grab_seconds),
+            (&self.tear_motion, self.tear_seconds),
+        ]
+        .into_iter()
+        .all(|(motion, seconds)| {
+            (2..=4096).contains(&motion.len())
+                && motion.iter().all(|p| {
+                    p.iter().all(|x| x.is_finite()) && p[0] >= 0. && p[0] <= seconds + 0.001
+                })
+                && motion.first().is_some_and(|p| p[0] == 0.)
+                && motion
+                    .last()
+                    .is_some_and(|p| (p[0] - seconds).abs() < 0.001)
+                && motion.windows(2).all(|p| p[0][0] < p[1][0])
+        })
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BoardState {
     Closed,
     Reserved(Entity),
+    Pulling(Entity, f32),
     Opening(f32),
     Missing,
     Closing(f32),
@@ -77,8 +100,12 @@ impl Barriers {
     }
     pub fn obstructed(&self, id: &ContentId) -> bool {
         self.windows.get(id).is_some_and(|b| {
-            b.iter()
-                .any(|b| matches!(b, BoardState::Closed | BoardState::Reserved(_)))
+            b.iter().any(|b| {
+                matches!(
+                    b,
+                    BoardState::Closed | BoardState::Reserved(_) | BoardState::Pulling(_, _)
+                )
+            })
         })
     }
     pub fn claim(&mut self, id: &ContentId, owner: Entity) -> Option<usize> {
@@ -95,18 +122,27 @@ impl Barriers {
         let Some(b) = self.windows.get_mut(id).and_then(|b| b.get_mut(index)) else {
             return false;
         };
-        if *b != BoardState::Reserved(owner) {
-            return false;
-        }
-        *b = BoardState::Opening(0.);
+        let age = match *b {
+            BoardState::Reserved(e) if e == owner => 0.,
+            BoardState::Pulling(e, age) if e == owner => age,
+            _ => return false,
+        };
+        *b = BoardState::Opening(age);
         self.destroyed += 1;
         true
+    }
+    pub fn begin_pull(&mut self, id: &ContentId, index: usize, owner: Entity) {
+        if let Some(b) = self.windows.get_mut(id).and_then(|b| b.get_mut(index))
+            && *b == BoardState::Reserved(owner)
+        {
+            *b = BoardState::Pulling(owner, 0.);
+        }
     }
     pub fn release(&mut self, owner: Entity) {
         self.owners.retain(|_, e| *e != owner);
         for boards in self.windows.values_mut() {
             for b in boards {
-                if *b == BoardState::Reserved(owner) {
+                if matches!(*b,BoardState::Reserved(e)|BoardState::Pulling(e,_) if e==owner) {
                     *b = BoardState::Closed;
                 }
             }
@@ -228,21 +264,14 @@ fn assemble(
 }
 pub fn sound(
     commands: &mut Commands,
-    server: &AssetServer,
+    _server: &AssetServer,
     definition: &GameDefinition,
     id: &ContentId,
     position: Vec3,
 ) {
-    if let Some(s) = definition.content.sounds.iter().find(|s| s.id == *id) {
-        commands.spawn((
-            SessionEntity,
-            WoodAudio,
-            AudioPlayer::new(server.load(s.path.clone())),
-            PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_volume(bevy::audio::Volume::Linear(s.volume)),
-            Transform::from_translation(position),
-        ));
+    if let Some(alias) = definition.audio.bindings.get(&id.0) {
+        let entity = crate::audio::emit(commands, alias.clone(), position, None);
+        commands.entity(entity).insert(WoodAudio);
     }
 }
 fn audio_evidence(
@@ -300,6 +329,9 @@ fn tick(
                         BoardState::Opening(age)
                     };
                 }
+                BoardState::Pulling(owner, age) => {
+                    *b = BoardState::Pulling(owner, age + time.delta_secs())
+                }
                 BoardState::Closing(age) => {
                     let age = age + time.delta_secs();
                     *b = if age >= d.boards[i].repair_seconds {
@@ -312,9 +344,12 @@ fn tick(
                 _ => {}
             }
         }
-        let obstructed = boards
-            .iter()
-            .any(|b| matches!(b, BoardState::Closed | BoardState::Reserved(_)));
+        let obstructed = boards.iter().any(|b| {
+            matches!(
+                b,
+                BoardState::Closed | BoardState::Reserved(_) | BoardState::Pulling(_, _)
+            )
+        });
         for (e, b, disabled) in &blockers {
             if b.0 != d.id {
                 continue;
@@ -401,7 +436,7 @@ fn animate(
             continue;
         };
         let (node, elapsed) = match state {
-            BoardState::Opening(age) => (*pull, age),
+            BoardState::Opening(age) | BoardState::Pulling(_, age) => (*pull, age),
             BoardState::Closing(age) => (*repair, age),
             _ => (*repair, d.boards[visual.index].repair_seconds),
         };

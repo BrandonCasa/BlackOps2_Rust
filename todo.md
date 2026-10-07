@@ -55,9 +55,9 @@
 - [ ] Generate missing combat clips for recovered rigs.
 - [ ] Generate missing interaction clips for recovered rigs.
 - [x] Export animation notification timings into content definitions.
-- [ ] Extend asset preparation with sound bank extraction.
-- [ ] Convert extracted sounds into prepared OGG assets.
-- [ ] Convert sound aliases into runtime sound definitions.
+- [x] Extend asset preparation with sound bank extraction.
+- [x] Convert extracted sounds into prepared OGG assets.
+- [x] Convert sound aliases into runtime sound definitions.
 - [ ] Convert original effect definitions into runtime effect definitions.
 - [ ] Export original HUD graphics into runtime textures.
 - [x] Export original localized strings into runtime definitions.
@@ -104,13 +104,13 @@
 - [ ] Reset box placement when starting fresh sessions.
 - [x] Reset navigation access when starting fresh sessions.
 - [ ] Remove session effects during teardown.
-- [ ] Stop session audio during teardown.
+- [x] Stop session audio during teardown.
 - [ ] Clear pending life commands during teardown.
 - [ ] Clear pending interaction commands during teardown.
 - [ ] Preserve session state when resuming pause.
 - [ ] Pause gameplay timers with session simulation.
 - [ ] Pause animation playback during session pause.
-- [ ] Pause gameplay audio during session pause.
+- [x] Pause gameplay audio during session pause.
 - [ ] Assign an original character when starting solo sessions.
 - [ ] Randomize ordinary session seeds.
 - [ ] Preserve deterministic seeds for existing verification launches.
@@ -424,8 +424,8 @@
 - [ ] Add shell ejection effects.
 - [ ] Add surface impact effects.
 - [ ] Add blood impact effects.
-- [ ] Add weapon firing audio events.
-- [ ] Add weapon reload audio events.
+- [x] Add weapon firing audio events.
+- [x] Add weapon reload audio events.
 - [x] Add melee reach queries.
 - [x] Add melee attack timing.
 - [x] Add melee recovery timing.
@@ -1101,41 +1101,41 @@
 - [ ] Add free Magna Collider drone-seal progress.
 - [ ] Spawn free Magna Collider after collecting required seals.
 - [ ] Add free Magna Collider pickup interaction.
-- [ ] Add spatial audio listener to the game camera.
-- [ ] Add reusable positional sound emitters.
-- [ ] Add sound distance attenuation.
-- [ ] Add source-defined sound pitch variation.
-- [ ] Add surface-specific player footsteps.
-- [ ] Add zombie footstep sounds.
-- [ ] Add zombie vocalizations.
+- [x] Add spatial audio listener to the game camera.
+- [x] Add reusable positional sound emitters.
+- [x] Add sound distance attenuation.
+- [x] Add source-defined sound pitch variation.
+- [x] Add surface-specific player footsteps.
+- [x] Add zombie footstep sounds.
+- [x] Add zombie vocalizations.
 - [ ] Add Panzersoldat vocalizations.
 - [ ] Add generator defender vocalizations.
-- [ ] Add weapon-specific shot sound bindings.
-- [ ] Add weapon-specific reload sound bindings.
-- [ ] Add equipment-specific sound bindings.
-- [ ] Add perk machine music loops.
+- [x] Add weapon-specific shot sound bindings.
+- [x] Add weapon-specific reload sound bindings.
+- [x] Add equipment-specific sound bindings.
+- [x] Add perk machine music loops.
 - [ ] Add box music playback.
 - [ ] Add portal spatial sounds.
 - [ ] Add tank engine sound following.
 - [ ] Add robot interior sound ambience.
-- [ ] Add character-specific dialogue banks.
-- [ ] Add character dialogue event selection.
-- [ ] Add dialogue repetition cooldowns.
-- [ ] Add dialogue playback priorities.
+- [x] Add character-specific dialogue banks.
+- [x] Add character dialogue event selection.
+- [x] Add dialogue repetition cooldowns.
+- [x] Add dialogue playback priorities.
 - [ ] Add Samantha round announcements.
 - [ ] Add Samantha powerup announcements.
 - [ ] Add Samantha quest announcements.
-- [ ] Add source-defined ambient emitters.
-- [ ] Add combat music triggers.
-- [ ] Add music channel transitions.
-- [ ] Bound concurrent sound playback.
-- [ ] Stop looping emitters after their owners disappear.
-- [ ] Add subtitle event presentation.
-- [ ] Add subtitle visibility settings.
+- [x] Add source-defined ambient emitters.
+- [x] Add combat music triggers.
+- [x] Add music channel transitions.
+- [x] Bound concurrent sound playback.
+- [x] Stop looping emitters after their owners disappear.
+- [x] Add subtitle event presentation.
+- [x] Add subtitle visibility settings.
 - [ ] Replace temporary HUD text with original-style UI.
 - [ ] Remove the visible numeric health display.
 - [ ] Add player damage vignette.
-- [ ] Add low-health audio feedback.
+- [x] Add low-health audio feedback.
 - [ ] Add original round indicator.
 - [ ] Add original points indicator.
 - [ ] Add animated point award feedback.
@@ -1202,18 +1202,18 @@
 - [ ] Add frame limit controls.
 - [ ] Add anti-aliasing controls.
 - [ ] Add supported graphics quality controls.
-- [ ] Add master volume controls.
-- [ ] Add effects volume controls.
-- [ ] Add dialogue volume controls.
-- [ ] Add music volume controls.
+- [x] Add master volume controls.
+- [x] Add effects volume controls.
+- [x] Add dialogue volume controls.
+- [x] Add music volume controls.
 - [ ] Persist settings outside the runtime pack.
 - [ ] Load persisted settings at application startup.
 - [ ] Restore defaults from settings menus.
 - [ ] Apply graphics settings through Bevy resources.
-- [ ] Apply audio settings to active playback.
+- [x] Apply audio settings to active playback.
 - [ ] Add visible content loading error recovery.
 - [ ] Package newly referenced runtime asset types.
 - [ ] Copy prepared cinematic dependencies during packaging.
-- [ ] Copy prepared audio dependencies during packaging.
+- [x] Copy prepared audio dependencies during packaging.
 - [ ] Preserve executable-relative discovery for expanded runtime packs.
 - [ ] Adapt the existing window driver to the new gameplay interfaces.

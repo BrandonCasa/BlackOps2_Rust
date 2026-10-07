@@ -1069,6 +1069,7 @@ impl ContentCatalog {
                         && !b.tear_clip.is_empty(),
                     "Invalid barrier animation timing",
                 )?;
+                valid(b.valid_motion(), "Invalid barrier animation timing")?;
             }
         }
         for v in &self.navigation_nodes {

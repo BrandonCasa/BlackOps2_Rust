@@ -2,6 +2,7 @@
 
 pub mod access;
 pub mod assets;
+pub mod audio;
 pub mod barriers;
 pub mod damage;
 pub mod economy;
@@ -107,6 +108,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
             navigation::NavigationPlugin,
             barriers::BarrierPlugin,
             generators::GeneratorPlugin,
+            audio::GameAudioPlugin,
         ),
         player_health::PlayerHealthPlugin,
         enemies::EnemyPlugin,

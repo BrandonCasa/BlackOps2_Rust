@@ -132,6 +132,7 @@ fn begin_session(
 }
 
 pub(crate) fn combat(
+    mut commands: Commands,
     time: Res<Time<Fixed>>,
     actions: Res<TickActions>,
     definition: Res<GameDefinition>,
@@ -222,6 +223,22 @@ pub(crate) fn combat(
             }
             WeaponEmission::Shot(id) => {
                 session.shots += 1;
+                if inventory.active().is_some_and(|w| w.magazine == 1) {
+                    crate::audio::voice(
+                        &mut commands,
+                        &definition,
+                        "ammo_low",
+                        origin,
+                        session.shots,
+                    );
+                }
+                crate::audio::binding(
+                    &mut commands,
+                    &definition,
+                    &format!("{}.shot", id.0),
+                    origin,
+                    None,
+                );
                 let Some(weapon) = definition.content.weapons.iter().find(|w| w.id == id) else {
                     continue;
                 };

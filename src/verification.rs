@@ -12,6 +12,7 @@ use bevy::{
 };
 use std::{path::PathBuf, time::Instant};
 mod arsenal;
+mod audio;
 mod barriers;
 mod claymores;
 mod defensive_perks;
@@ -99,6 +100,7 @@ impl Plugin for VerificationPlugin {
             if app.world().resource::<LaunchOptions>().verify_generators {
                 generators::install(app);
             }
+            audio::install(app);
             pipelines::install(app);
             if app.world().resource::<LaunchOptions>().verify_barriers {
                 barriers::install(app);

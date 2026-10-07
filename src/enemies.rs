@@ -312,7 +312,36 @@ pub(crate) fn lifecycle(
                 continue;
             };
             let board = &window.boards[tear.board];
+            if let Some(placement) = definition
+                .content
+                .placements
+                .iter()
+                .find(|p| p.id == window.placement)
+            {
+                let motion = if tear.pulling {
+                    &board.tear_motion
+                } else {
+                    &board.grab_motion
+                };
+                let mut sample = motion.last().copied().unwrap_or([0.; 4]);
+                for pair in motion.windows(2) {
+                    if zombie.elapsed <= pair[1][0] {
+                        let t = ((zombie.elapsed - pair[0][0]) / (pair[1][0] - pair[0][0]))
+                            .clamp(0., 1.);
+                        for axis in 1..4 {
+                            sample[axis] = pair[0][axis] + (pair[1][axis] - pair[0][axis]) * t;
+                        }
+                        break;
+                    }
+                }
+                // Native aligned clips include the authoring origin's floor offset.
+                transform.translation = Vec3::from_array(placement.position)
+                    + Vec3::Y * 0.85
+                    + Quat::from_rotation_y(placement.yaw)
+                        * Vec3::new(sample[1], sample[2], sample[3]);
+            }
             if !tear.pulling && zombie.elapsed >= board.grab_seconds {
+                barriers.begin_pull(&tear.barrier, tear.board, entity);
                 zombie.tear.as_mut().unwrap().pulling = true;
                 zombie.elapsed = 0.;
                 zombie.traversal_clip = Some(board.tear_clip.clone());
@@ -526,6 +555,20 @@ pub(crate) fn lifecycle(
                         zombie.transition(EnemyAnimation::Tear);
                         let delta = end - start;
                         transform.rotation = Quat::from_rotation_y((-delta.z).atan2(delta.x));
+                        // Source aligned tear clips and board delta curves share this origin.
+                        if let Some(placement) = definition
+                            .content
+                            .placements
+                            .iter()
+                            .find(|p| p.id == window.placement)
+                        {
+                            let sample = window.boards[board].grab_motion[0];
+                            transform.translation = Vec3::from_array(placement.position)
+                                + Vec3::Y * 0.85
+                                + Quat::from_rotation_y(placement.yaw)
+                                    * Vec3::new(sample[1], sample[2], sample[3]);
+                            transform.rotation = Quat::from_rotation_y(placement.yaw);
+                        }
                     } else {
                         zombie.transition(EnemyAnimation::Idle);
                     }
