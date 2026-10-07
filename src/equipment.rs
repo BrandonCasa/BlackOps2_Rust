@@ -21,6 +21,7 @@ pub struct ThrowableDefinition {
     pub round_award: u32,
     pub prime_seconds: f32,
     pub throw_seconds: f32,
+    pub release_delay: f32,
     pub fuse_seconds: f32,
     pub speed: f32,
     pub up_speed: f32,
@@ -58,6 +59,9 @@ impl ThrowableDefinition {
             .iter()
             .all(|v| v.is_finite() && *v > 0.)
             && self.up_speed.is_finite()
+            && self.release_delay.is_finite()
+            && self.release_delay >= 0.
+            && self.release_delay < self.throw_seconds
             && self.inner_radius.is_finite()
             && self.inner_radius >= 0.
             && self.inner_radius < self.radius
@@ -75,6 +79,10 @@ pub enum ThrowState {
     },
     Cooking {
         remaining: f32,
+    },
+    Releasing {
+        remaining: f32,
+        fuse: f32,
     },
     Recovery {
         remaining: f32,
@@ -372,14 +380,17 @@ pub(crate) fn throw_input(
                         launch = Some((0., true));
                         evidence.cooked_off += 1;
                     } else if !held {
-                        launch = Some((
-                            if tuning.cook_in_hand {
+                        inventory.state = ThrowState::Releasing {
+                            remaining: tuning.release_delay,
+                            fuse: if tuning.cook_in_hand {
                                 remaining - dt
                             } else {
-                                tuning.fuse_seconds
+                                remaining
                             },
-                            false,
-                        ));
+                        };
+                        evidence.record(serde_json::json!({"event":"release_started",
+                            "weapon":weapon.id.0,"release_delay":tuning.release_delay,
+                            "throw_seconds":tuning.throw_seconds}));
                     } else {
                         inventory.state = ThrowState::Cooking {
                             remaining: if tuning.cook_in_hand {
@@ -387,6 +398,20 @@ pub(crate) fn throw_input(
                             } else {
                                 remaining
                             },
+                        };
+                    }
+                }
+                ThrowState::Releasing { remaining, fuse } => {
+                    let fuse = if tuning.cook_in_hand { fuse - dt } else { fuse };
+                    if tuning.cook_in_hand && fuse <= 0. {
+                        launch = Some((0., true));
+                        evidence.cooked_off += 1;
+                    } else if remaining <= dt {
+                        launch = Some((fuse, false));
+                    } else {
+                        inventory.state = ThrowState::Releasing {
+                            remaining: remaining - dt,
+                            fuse,
                         };
                     }
                 }
@@ -462,10 +487,11 @@ pub(crate) fn throw_input(
                     });
                 }
                 inventory.state = ThrowState::Recovery {
-                    remaining: tuning.throw_seconds,
+                    remaining: tuning.throw_seconds
+                        - if cooked { 0. } else { tuning.release_delay },
                 };
                 evidence.thrown += u32::from(!cooked);
-                evidence.record(serde_json::json!({"event":"launch","weapon":weapon.id.0,"cooked":cooked,"fuse":fuse,"position":position.to_array(),"velocity":velocity.to_array(),"count":inventory.count}));
+                evidence.record(serde_json::json!({"event":"launch","weapon":weapon.id.0,"cooked":cooked,"fuse":fuse,"release_delay":tuning.release_delay,"position":position.to_array(),"velocity":velocity.to_array(),"count":inventory.count}));
             }
         }
     }

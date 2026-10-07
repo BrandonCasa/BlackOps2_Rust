@@ -54,6 +54,7 @@ struct Rig {
     owner: Entity,
     weapon: WeaponId,
     phase: Option<WeaponAnimation>,
+    playback: Option<WeaponAnimation>,
     tracked: Vec<(Entity, Option<(Vec3, Quat)>)>,
     sampled_phase: Option<WeaponAnimation>,
     source: Handle<Gltf>,
@@ -267,6 +268,7 @@ fn spawn_viewmodels(
                             owner,
                             weapon: weapon.id.clone(),
                             phase: None,
+                            playback: None,
                             tracked: Vec::new(),
                             sampled_phase: None,
                             source,
@@ -527,6 +529,7 @@ fn animate(
             }
             rig.sequence = None;
             rig.phase = None;
+            rig.playback = None;
             rig.sampled_phase = None;
             continue;
         }
@@ -549,7 +552,7 @@ fn animate(
         let Some(graph) = rig.graph.clone() else {
             continue;
         };
-        let action = selected.as_ref().map_or_else(
+        let mut action = selected.as_ref().map_or_else(
             || match inventory.signal {
                 WeaponSignal::Equip => WeaponAnimation::Equip,
                 WeaponSignal::Unequip => WeaponAnimation::Unequip,
@@ -564,6 +567,24 @@ fn animate(
             },
             |s| s.action,
         );
+        // fireTime gates the next shot, not the lifetime of a single-shot pose.
+        // Keep sampling the native clip tail until a new action interrupts it.
+        if selected.is_none() && action == WeaponAnimation::Idle {
+            let fire_duration = weapon
+                .animation_actions
+                .get(&WeaponAnimation::Fire)
+                .and_then(|id| id.0.rsplit('.').next())
+                .and_then(|name| gltfs.get(&rig.source)?.named_animations.get(name))
+                .and_then(|handle| clips.get(handle))
+                .map(|clip| clip.duration());
+            if inventory
+                .shot_elapsed()
+                .zip(fire_duration)
+                .is_some_and(|(elapsed, duration)| elapsed < duration)
+            {
+                action = WeaponAnimation::Fire;
+            }
+        }
         let animation_weapon = if action == WeaponAnimation::Melee && rig.arms {
             definition
                 .content
@@ -574,9 +595,18 @@ fn animate(
         } else {
             weapon
         };
+        // A primed throwable holds the last pull-pin pose. Its native idle is
+        // the unprimed pose; replaying it resets the hands and replaces the pin.
+        let holding_throwable =
+            selected.is_some() && action == WeaponAnimation::Idle && weapon.throwable.is_some();
+        let clip_action = if holding_throwable {
+            WeaponAnimation::Prime
+        } else {
+            action
+        };
         let clip = animation_weapon
             .animation_actions
-            .get(&action)
+            .get(&clip_action)
             .or_else(|| weapon.animation_actions.get(&WeaponAnimation::Idle));
         let name = clip.and_then(|id| id.0.rsplit('.').next());
         let Some(node) = name.and_then(|name| rig.nodes.get(name)).copied() else {
@@ -585,11 +615,24 @@ fn animate(
         if rig.players.is_empty() {
             continue;
         }
+        let native_clip = name
+            .and_then(|name| gltfs.get(&rig.source)?.named_animations.get(name))
+            .and_then(|handle| clips.get(handle));
+        let melee = definition
+            .content
+            .weapons
+            .iter()
+            .find(|w| w.id.0 == "weapon.knife_zm")
+            .unwrap_or(weapon);
         for &entity in &rig.players {
             let Ok(mut player) = players.get_mut(entity) else {
                 continue;
             };
-            if rig.sequence != Some(inventory.sequence)
+            let finishing_shot = selected.is_none()
+                && action == WeaponAnimation::Fire
+                && inventory.signal == WeaponSignal::Idle;
+            if (rig.sequence != Some(inventory.sequence) && !finishing_shot)
+                || rig.playback != Some(action)
                 || rig.phase != selected.as_ref().map(|s| s.action)
             {
                 commands
@@ -599,16 +642,6 @@ fn animate(
                 let active = player.play(node);
                 if action == WeaponAnimation::Idle {
                     active.repeat();
-                } else if action == WeaponAnimation::Melee && rig.arms {
-                    let duration = animation_weapon.mechanics.melee_seconds[1]
-                        .max(animation_weapon.mechanics.melee_seconds[0]);
-                    if let Some(clip) = name
-                        .and_then(|name| gltfs.get(&rig.source)?.named_animations.get(name))
-                        .and_then(|handle| clips.get(handle))
-                        && duration > 0.
-                    {
-                        active.set_speed(clip.duration() / duration);
-                    }
                 }
                 if selected.is_some() {
                     evidence.phases.insert(format!(
@@ -619,22 +652,41 @@ fn animate(
                 }
                 // Action timers remain authoritative; pause preserves the current pose.
             }
-            if let Some((duration, remaining)) = selected
-                .as_ref()
-                .and_then(|s| s.timing)
-                .or_else(|| inventory.reload_timing(weapon))
-                && let Some(clip) = name
-                    .and_then(|name| gltfs.get(&rig.source)?.named_animations.get(name))
-                    .and_then(|h| clips.get(h))
+            let timing = holding_throwable
+                .then_some((1., 0.))
+                .or_else(|| selected.as_ref().and_then(|s| s.timing))
+                .or_else(|| inventory.presentation_timing(weapon, melee));
+            let seek = native_clip.and_then(|clip| {
+                if let Some((duration, remaining)) = timing {
+                    Some(
+                        ((duration - remaining).max(0.) / duration * clip.duration())
+                            .min(clip.duration()),
+                    )
+                } else if selected.is_none() && action == WeaponAnimation::Fire {
+                    inventory.shot_elapsed().map(|age| age.min(clip.duration()))
+                } else {
+                    None
+                }
+            });
+            if let Some(seek) = seek
                 && let Some(active) = player.animation_mut(node)
             {
                 active.set_speed(0.);
-                active.set_seek_time(
-                    ((duration - remaining).max(0.) / duration * clip.duration())
-                        .min(clip.duration()),
+                active.set_seek_time(seek);
+                let key = format!(
+                    "{}:{action:?}:{}",
+                    rig.weapon.0,
+                    if rig.arms { "arms" } else { "model" }
                 );
+                let clock = evidence.clocks.entry(key).or_default();
+                clock[0] = native_clip.map_or(0., |clip| clip.duration());
+                clock[1] = clock[1].max(seek);
+                clock[2] += 1.;
             }
-            if **state == GameState::Playing {
+            // Bevy wraps seek_time == duration even at speed zero. Paused
+            // players still evaluate their curves, without advancing/wrapping
+            // the gameplay-owned clock or losing its terminal held pose.
+            if **state == GameState::Playing && seek.is_none() {
                 player.resume_all();
             } else {
                 player.pause_all();
@@ -642,5 +694,6 @@ fn animate(
         }
         rig.sequence = Some(inventory.sequence);
         rig.phase = selected.as_ref().map(|s| s.action);
+        rig.playback = Some(action);
     }
 }
