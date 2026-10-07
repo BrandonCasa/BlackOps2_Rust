@@ -67,6 +67,12 @@ wait until the slot is free. Never run more than one validation at a time. If
 another chat starts a run while yours is active, stop only your own run and wait;
 never interrupt another chat's process.
 Review diffs and make coherent local commits. Never push unless requested.
+Every commit message must include a clear summary and a detailed body explaining
+what changed, why the change was needed, and how it was implemented. Describe
+the affected systems or files, the resulting behavior, and relevant validation
+results or skipped checks. Apply this requirement to all commits, including
+documentation-only, merge, revert and squash commits; vague summaries or lists
+of filenames alone are insufficient.
 Do not install replacement toolchains when the existing Cargo is available.
 
 ## Current handoff
