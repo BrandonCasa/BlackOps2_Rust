@@ -25,6 +25,10 @@ pub(crate) mod offhand;
 pub use offhand::EquipmentPresentationEvidence;
 pub(crate) use offhand::selection as equipment_selection;
 pub struct PresentationPlugin;
+// Shared camera-space calibration against the supplied Mauser hip-fire view.
+// Weapon-specific grips and offsets remain authored by their original rigs.
+const VIEWMODEL_FOV_DEGREES: f32 = 65.;
+const VIEWMODEL_ORIGIN: Vec3 = Vec3::new(0., 0.025, 0.);
 #[derive(Component)]
 pub(crate) struct ViewModelCamera;
 #[derive(Component)]
@@ -34,6 +38,8 @@ struct AimingJoint {
     translation: Vec3,
     rotation: Quat,
 }
+#[derive(Component)]
+struct RigRestPose(Transform);
 #[derive(Component)]
 struct FirstPerson {
     owner: Entity,
@@ -78,6 +84,10 @@ impl Plugin for PresentationPlugin {
             .add_systems(Startup, first_person_light.after(crate::rendering::setup))
             .add_systems(
                 PostUpdate,
+                clear_aim_pose.before(bevy::app::AnimationSystems),
+            )
+            .add_systems(
+                PostUpdate,
                 aim_pose
                     .after(bevy::app::AnimationSystems)
                     .before(bevy::transform::TransformSystems::Propagate),
@@ -107,7 +117,7 @@ pub(crate) fn first_person_light(
                     ..default()
                 },
                 Projection::Perspective(PerspectiveProjection {
-                    fov: 65_f32.to_radians(),
+                    fov: VIEWMODEL_FOV_DEGREES.to_radians(),
                     near: 0.01,
                     far: 4.,
                     ..default()
@@ -173,7 +183,7 @@ fn spawn_viewmodels(
                         ViewModelGroup { owner },
                         SessionEntity,
                         PlayerOverlay,
-                        Transform::default(),
+                        Transform::from_translation(VIEWMODEL_ORIGIN),
                         Visibility::Inherited,
                     ))
                     .id();
@@ -334,6 +344,7 @@ fn rig_ready(
     players: Query<(), With<AnimationPlayer>>,
     meshes: Query<(), With<Mesh3d>>,
     names: Query<&Name>,
+    poses: Query<&Transform>,
 ) {
     let Ok(mut rig) = rigs.get_mut(event.entity) else {
         return;
@@ -353,6 +364,9 @@ fn rig_ready(
             });
         }
         if names.contains(child) {
+            if let Ok(pose) = poses.get(child) {
+                commands.entity(child).insert(RigRestPose(*pose));
+            }
             rig.tracked.push((child, None));
         }
         if players.contains(child) {
@@ -370,6 +384,27 @@ fn rig_ready(
         "First-person scene ready: {} animation players",
         rig.players.len()
     );
+}
+// Sparse clips omit channels that stay at their authored baseline. Bevy leaves
+// those channels untouched, so a melee lunge otherwise survives into idle.
+// Reset before sampling, then apply ADS once afterwards. Pausing retains the
+// sampled native pose and only removes/reapplies our previous ADS modifier.
+fn clear_aim_pose(
+    state: Res<State<GameState>>,
+    mut bones: Query<(&mut Transform, &RigRestPose, Option<&mut AimingJoint>)>,
+) {
+    for (mut pose, rest, joint) in &mut bones {
+        if **state == GameState::Playing {
+            *pose = rest.0;
+        } else if let Some(joint) = joint.as_ref() {
+            pose.translation -= joint.translation;
+            pose.rotation *= joint.rotation.inverse();
+        }
+        if let Some(mut joint) = joint {
+            joint.translation = Vec3::ZERO;
+            joint.rotation = Quat::IDENTITY;
+        }
+    }
 }
 fn aim_pose(
     definition: Option<Res<GameDefinition>>,
@@ -405,10 +440,6 @@ fn aim_pose(
         } else {
             0.
         };
-        if !pose.is_changed() {
-            pose.translation -= joint.translation;
-            pose.rotation *= joint.rotation.inverse();
-        }
         joint.translation = Vec3::from_array(weapon.mechanics.ads_translation) * ads;
         joint.rotation = Quat::IDENTITY.slerp(Quat::from_array(weapon.mechanics.ads_rotation), ads);
         pose.translation += joint.translation;
@@ -422,7 +453,9 @@ fn aim_pose(
         }
         for mut projection in &mut cameras {
             if let Projection::Perspective(p) = &mut *projection {
-                p.fov = (65. + (weapon.mechanics.ads_fov - 65.) * ads).to_radians();
+                // ADS changes the world lens; native joint offsets align the
+                // sights without also magnifying the hands in the overlay lens.
+                p.fov = VIEWMODEL_FOV_DEGREES.to_radians();
             }
         }
     }

@@ -473,7 +473,7 @@ pub(crate) fn drive(
                 + (definition.tuning.ads_mouse_sensitivity - definition.tuning.mouse_sensitivity)
                     * inventory.ads;
             input.look *= definition.tuning.mouse_sensitivity / sensitivity;
-            input.ads = verification.playing >= 1.;
+            input.ads = !verification.ads_seen && verification.playing >= 1.;
         }
         let origin =
             transform.translation + Vec3::Y * (definition.tuning.eye_height - player.height * 0.5);
