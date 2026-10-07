@@ -422,14 +422,16 @@ fn play(
             commands.entity(entity).despawn();
             continue;
         };
-        if alias.spatial && listener.distance(request.position) > sound.distance {
+        let looping = request.looping || sound.looping;
+        // Persistent emitters remain admitted so approaching their owner restores
+        // audibility without restarting the loop on every distant frame.
+        if alias.spatial && !looping && listener.distance(request.position) > sound.distance {
             commands.entity(entity).despawn();
             evidence.rejected += 1;
             continue;
         }
         let fraction = ((mixer.sequence >> 16) & 65535) as f32 / 65535.;
         let speed = sound.pitch[0] + (sound.pitch[1] - sound.pitch[0]) * fraction;
-        let looping = request.looping || sound.looping;
         let gain = settings.gain(alias.channel);
         commands.entity(entity).remove::<SoundRequest>().insert((
             PlayingSound {

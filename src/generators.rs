@@ -112,6 +112,9 @@ pub struct GeneratorVisual {
     id: ContentId,
     source: Handle<Gltf>,
     graph: Option<(Handle<AnimationGraph>, Vec<AnimationNodeIndex>)>,
+    sound_state: Option<GeneratorState>,
+    sound_clip: usize,
+    sound_time: f32,
 }
 #[derive(Component)]
 struct GeneratorPlayback;
@@ -149,20 +152,7 @@ impl Plugin for GeneratorPlugin {
             .add_systems(
                 Update,
                 (presentation, audio_evidence).run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(Update, pause_audio);
-    }
-}
-fn pause_audio(
-    state: Res<State<GameState>>,
-    sinks: Query<&bevy::audio::SpatialAudioSink, With<GeneratorAudio>>,
-) {
-    for sink in &sinks {
-        if **state == GameState::Playing {
-            sink.play();
-        } else {
-            sink.pause();
-        }
+            );
     }
 }
 fn defender_intent(
@@ -373,6 +363,9 @@ fn assemble(
                 id: d.id.clone(),
                 source: server.load(scene.split('#').next().unwrap_or(scene).to_owned()),
                 graph: None,
+                sound_state: None,
+                sound_clip: usize::MAX,
+                sound_time: -0.001,
             },
             WorldAssetRoot(server.load(scene.clone())),
             Transform::from_translation(Vec3::from_array(d.model_position))
@@ -462,7 +455,6 @@ fn audio_evidence(
 fn presentation(
     mut commands: Commands,
     definition: Res<GameDefinition>,
-    server: Res<AssetServer>,
     mut generators: ResMut<Generators>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
@@ -504,17 +496,68 @@ fn presentation(
         }
         if !found
             && let Some(id) = desired
-            && let Some(s) = definition.content.sounds.iter().find(|s| s.id == *id)
+            && let Some(alias) = definition.audio.bindings.get(&id.0)
         {
-            commands.spawn((
-                SessionEntity,
-                GeneratorAudio(d.id.clone(), id.clone()),
-                AudioPlayer::new(server.load(s.path.clone())),
-                PlaybackSettings::LOOP
-                    .with_spatial(true)
-                    .with_volume(bevy::audio::Volume::Linear(s.volume)),
-                Transform::from_translation(Vec3::from_array(d.model_position)),
-            ));
+            let sound = crate::audio::emit_loop(
+                &mut commands,
+                alias.clone(),
+                Vec3::from_array(d.model_position),
+                Some(entity),
+            );
+            commands
+                .entity(sound)
+                .insert(GeneratorAudio(d.id.clone(), id.clone()));
+        }
+        if visual.sound_state != Some(state) {
+            let position = Vec3::from_array(d.model_position);
+            match state {
+                GeneratorState::Capturing => {
+                    crate::audio::emit(
+                        &mut commands,
+                        "zmb_capturezone_donut_start",
+                        position,
+                        Some(entity),
+                    );
+                    crate::audio::voice(
+                        &mut commands,
+                        &definition,
+                        "capture_zones",
+                        position,
+                        u32::from(d.number),
+                    );
+                }
+                GeneratorState::Active => {
+                    crate::audio::emit(
+                        &mut commands,
+                        "zmb_capturezone_success",
+                        position,
+                        Some(entity),
+                    );
+                    crate::audio::emit(
+                        &mut commands,
+                        format!("mus_event_generator_{}", d.number),
+                        position,
+                        None,
+                    );
+                    crate::audio::emit(
+                        &mut commands,
+                        "zmb_capturezone_donut_stop",
+                        position,
+                        Some(entity),
+                    );
+                }
+                GeneratorState::Disabled => {
+                    crate::audio::emit(
+                        &mut commands,
+                        "zmb_capturezone_donut_stop",
+                        position,
+                        Some(entity),
+                    );
+                }
+                _ => {}
+            }
+            visual.sound_state = Some(state);
+            visual.sound_clip = usize::MAX;
         }
         if visual.graph.is_none() {
             let Some(g) = gltfs.get(&visual.source) else {
@@ -527,14 +570,47 @@ fn presentation(
             visual.graph = Some((graphs.add(graph), nodes));
             generators.animated += 1;
         }
-        let Some((graph, nodes)) = &visual.graph else {
-            continue;
-        };
         let (index, elapsed) = match state {
             GeneratorState::Capturing if age < d.clip_seconds[0] => (0, age),
             GeneratorState::Capturing | GeneratorState::Active => (1, age % d.clip_seconds[1]),
             GeneratorState::Disabled if age < d.clip_seconds[3] => (3, age),
             _ => (2, age % d.clip_seconds[2]),
+        };
+        // Read the same pump timeline once per visual root, independent of rig
+        // child count. Wraps and state transitions start a new notification range.
+        if matches!(state, GeneratorState::Capturing | GeneratorState::Active)
+            || (state == GeneratorState::Disabled && age < d.clip_seconds[3])
+        {
+            let previous = if visual.sound_clip != index || elapsed < visual.sound_time {
+                -0.001
+            } else {
+                visual.sound_time
+            };
+            if let Some(presentation) = definition
+                .content
+                .presentations
+                .iter()
+                .find(|p| p.id == d.presentation)
+                && let Some(animation) = presentation.animations.get(index)
+                && let Some(notes) = definition.audio.timelines.get(&animation.0)
+            {
+                for note in notes
+                    .iter()
+                    .filter(|n| n.seconds > previous && n.seconds <= elapsed)
+                {
+                    crate::audio::emit(
+                        &mut commands,
+                        note.alias.clone(),
+                        Vec3::from_array(d.model_position),
+                        Some(entity),
+                    );
+                }
+            }
+            visual.sound_clip = index;
+            visual.sound_time = elapsed;
+        }
+        let Some((graph, nodes)) = &visual.graph else {
+            continue;
         };
         // Native pump and vat tracks are disjoint; Bevy blends their two layers.
         let (fluid, fluid_age) = match state {

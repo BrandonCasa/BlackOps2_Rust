@@ -336743,72 +336743,6 @@
     ],
     "sounds": [
       {
-        "id": "sound.door.bunker",
-        "path": "audio/native/6e4fc92c0213b964cb3b463b-mono.ogg",
-        "volume": 0.1778279410038923,
-        "pitch": [
-          1.0,
-          1.0
-        ],
-        "distance": 45.085,
-        "looping": false
-      },
-      {
-        "id": "sound.door.debris",
-        "path": "audio/native/332f9320d41dc2b6e4980c17-mono.ogg",
-        "volume": 0.14125375446227545,
-        "pitch": [
-          0.9715319411536059,
-          1.029302236643492
-        ],
-        "distance": 11.43,
-        "looping": false
-      },
-      {
-        "id": "sound.barrier.repair",
-        "path": "audio/native/666588da223811f699c3a664-mono.ogg",
-        "volume": 0.22387211385683395,
-        "pitch": [
-          0.9715319411536059,
-          1.029302236643492
-        ],
-        "distance": 25.4,
-        "looping": false
-      },
-      {
-        "id": "sound.barrier.break",
-        "path": "audio/native/ba1d50095bc25028d51c981d-mono.ogg",
-        "volume": 0.251188643150958,
-        "pitch": [
-          0.9715319411536059,
-          1.029302236643492
-        ],
-        "distance": 127.0,
-        "looping": false
-      },
-      {
-        "id": "sound.generator.capture",
-        "path": "audio/generator-capture.ogg",
-        "volume": 0.8,
-        "pitch": [
-          1.0,
-          1.0
-        ],
-        "distance": 18.0,
-        "looping": true
-      },
-      {
-        "id": "sound.generator.active",
-        "path": "audio/generator-active.ogg",
-        "volume": 0.8,
-        "pitch": [
-          1.0,
-          1.0
-        ],
-        "distance": 18.0,
-        "looping": true
-      },
-      {
         "id": "sound.native.amb_cave_wind.0",
         "path": "audio/native/eda9117d7b2b0f5e82bda70d-mono.ogg",
         "volume": 0.05011872336272722,
@@ -354112,6 +354046,72 @@
         "looping": false
       },
       {
+        "id": "sound.native.mus_event_generator_1.0",
+        "path": "audio/native/a67e645bab799e6facb0a4b0-stereo.ogg",
+        "volume": 0.1,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.mus_event_generator_2.0",
+        "path": "audio/native/4173df17d8ec73084b2ea749-stereo.ogg",
+        "volume": 0.1,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.mus_event_generator_3.0",
+        "path": "audio/native/6e6bb4859657d77164ba575c-stereo.ogg",
+        "volume": 0.1,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.mus_event_generator_4.0",
+        "path": "audio/native/163bf6c6bcec88bf7ddf13b5-stereo.ogg",
+        "volume": 0.1,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.mus_event_generator_5.0",
+        "path": "audio/native/9bc3bf4680f59a1265178402-stereo.ogg",
+        "volume": 0.1,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.mus_event_generator_6.0",
+        "path": "audio/native/497e3bd7cf7cfce54628c104-stereo.ogg",
+        "volume": 0.1,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 127.0,
+        "looping": false
+      },
+      {
         "id": "sound.native.mus_perks_jugganog_jingle.0",
         "path": "audio/native/cd8682e4e0aae9ddf5abf66e-mono.ogg",
         "volume": 0.15848931924611134,
@@ -354477,6 +354477,17 @@
       {
         "id": "sound.native.vox_plr_0_ammo_out_4.0",
         "path": "audio/native/809db6bca3991454e758fab5-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_capture_zones_0.0",
+        "path": "audio/native/202c1e9702fd341d296467fc-mono.ogg",
         "volume": 0.1778279410038923,
         "pitch": [
           1.0,
@@ -355278,6 +355289,17 @@
         "looping": false
       },
       {
+        "id": "sound.native.vox_plr_1_capture_zones_0.0",
+        "path": "audio/native/a3aa8e276714fdca7ba50d72-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 40.64,
+        "looping": false
+      },
+      {
         "id": "sound.native.vox_plr_1_end_round_1_3_0.0",
         "path": "audio/native/0a6241cdafc002bf513c9cfe-mono.ogg",
         "volume": 0.1778279410038923,
@@ -355971,6 +355993,17 @@
         "looping": false
       },
       {
+        "id": "sound.native.vox_plr_2_capture_zones_0.0",
+        "path": "audio/native/7387a06f7dfcaa3bb67ac443-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 40.64,
+        "looping": false
+      },
+      {
         "id": "sound.native.vox_plr_2_end_round_1_7_0.0",
         "path": "audio/native/ee34b643664f1bd83a3c6445-mono.ogg",
         "volume": 0.1778279410038923,
@@ -356600,6 +356633,17 @@
       {
         "id": "sound.native.vox_plr_3_ammo_out_4.0",
         "path": "audio/native/5c26ed3de72387419e6d5b1d-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_capture_zones_0.0",
+        "path": "audio/native/976f64123a6526caf6068516-mono.ogg",
         "volume": 0.1778279410038923,
         "pitch": [
           1.0,
@@ -362527,6 +362571,171 @@
         "looping": false
       },
       {
+        "id": "sound.native.zmb_capturezone_donut_start.0",
+        "path": "audio/native/d05a9242343a8eb955522612-mono.ogg",
+        "volume": 0.028183829312644536,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 22.224999999999998,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_capturezone_donut_stop.0",
+        "path": "audio/native/60f4f4752be0f56204654040-mono.ogg",
+        "volume": 0.028183829312644536,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 22.224999999999998,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_capturezone_generator_alarm.0",
+        "path": "audio/native/dee5e97efaba7e90e587d5cd-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 12.7,
+        "looping": true
+      },
+      {
+        "id": "sound.native.zmb_capturezone_generator_piston_down.0",
+        "path": "audio/native/f41b88830988dbbc20ea5a10-mono.ogg",
+        "volume": 0.0446683592150963,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 11.43,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_capturezone_generator_piston_start.0",
+        "path": "audio/native/719eb228c3940bfb0934cdd3-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 19.05,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_capturezone_generator_piston_stop.0",
+        "path": "audio/native/e1e46ba57caadeeeceddf1df-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 19.05,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_capturezone_generator_piston_up.0",
+        "path": "audio/native/d9e938e65486edad371bd4ff-mono.ogg",
+        "volume": 0.0446683592150963,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 11.43,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_capturezone_losing.0",
+        "path": "audio/native/c572cc534e52687daf938a36-mono.ogg",
+        "volume": 0.14125375446227545,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 127.0,
+        "looping": true
+      },
+      {
+        "id": "sound.native.zmb_capturezone_portal_loop.0",
+        "path": "audio/native/b461cb866e3ed611a6d379d6-mono.ogg",
+        "volume": 0.0223872113856834,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 6.984999999999999,
+        "looping": true
+      },
+      {
+        "id": "sound.native.zmb_capturezone_portal_start.0",
+        "path": "audio/native/b5499060bb029a9df4e089b8-mono.ogg",
+        "volume": 0.03548133892335755,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 6.984999999999999,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_capturezone_portal_stop.0",
+        "path": "audio/native/a9b6e0cef9528a9b9f40d77e-mono.ogg",
+        "volume": 0.03548133892335755,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 6.984999999999999,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_capturezone_rise.0",
+        "path": "audio/native/2342294597719dee9adc3b98-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 9.525,
+        "looping": true
+      },
+      {
+        "id": "sound.native.zmb_capturezone_success.0",
+        "path": "audio/native/e6e886dc60fc57b000b9dc3a-mono.ogg",
+        "volume": 0.28183829312644537,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 31.75,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_capturezone_vat_loop.0",
+        "path": "audio/native/32ff852c9ead02d9c4e30309-mono.ogg",
+        "volume": 0.028183829312644536,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 6.35,
+        "looping": true
+      },
+      {
+        "id": "sound.native.zmb_capturezone_zombie_loop.0",
+        "path": "audio/native/e29141bd99e03d48b5684734-mono.ogg",
+        "volume": 0.039810717055349734,
+        "pitch": [
+          1.3348398541700344,
+          1.5874010519681994
+        ],
+        "distance": 15.875,
+        "looping": true
+      },
+      {
         "id": "sound.native.zmb_cha_ching.0",
         "path": "audio/native/d3e6d677d30e19533bfc391f-mono.ogg",
         "volume": 0.35481338923357547,
@@ -363132,6 +363341,413 @@
         "looping": false
       },
       {
+        "id": "sound.native.zmb_vocals_capzomb_ambience.0",
+        "path": "audio/native/3cd4db06af1ebeff5402b7b0-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_ambience.1",
+        "path": "audio/native/8c613ae347bd6e4d2ec283da-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_ambience.2",
+        "path": "audio/native/9c447e63f9744c281cffe662-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_ambience.3",
+        "path": "audio/native/1a77a6ea32b7f01a9c8b64bf-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_ambience_loud.0",
+        "path": "audio/native/3cd4db06af1ebeff5402b7b0-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_ambience_loud.1",
+        "path": "audio/native/8c613ae347bd6e4d2ec283da-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_ambience_loud.2",
+        "path": "audio/native/9c447e63f9744c281cffe662-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_ambience_loud.3",
+        "path": "audio/native/1a77a6ea32b7f01a9c8b64bf-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_attack.0",
+        "path": "audio/native/2fd9fcb4cda95810443da9ca-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 12.7,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_attack.1",
+        "path": "audio/native/1d1232b2032814c5bbac5015-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 12.7,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_attack.2",
+        "path": "audio/native/68bc8206f6daffa80d7bc0ce-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 12.7,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_behind.0",
+        "path": "audio/native/f7453669052a7b0725f03129-mono.ogg",
+        "volume": 0.1,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 6.35,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_behind.1",
+        "path": "audio/native/391da010cbacc1fbc3d7102c-mono.ogg",
+        "volume": 0.1,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 6.35,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_behind.2",
+        "path": "audio/native/c7c6afee752dd42849eebfd9-mono.ogg",
+        "volume": 0.1,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 6.35,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_crawler.0",
+        "path": "audio/native/b470429c0c1678b3178f40f1-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_crawler.1",
+        "path": "audio/native/aa0417cd40b83ce53c46418d-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_crawler.2",
+        "path": "audio/native/e86b5fb51281f0bca1d2710a-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_crawler.3",
+        "path": "audio/native/e245fe3ed5838c95faf26083-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_crawler.4",
+        "path": "audio/native/f212772bb20dc5cc46efd8ab-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_crawler_loud.0",
+        "path": "audio/native/b470429c0c1678b3178f40f1-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_crawler_loud.1",
+        "path": "audio/native/aa0417cd40b83ce53c46418d-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_crawler_loud.2",
+        "path": "audio/native/e86b5fb51281f0bca1d2710a-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_crawler_loud.3",
+        "path": "audio/native/e245fe3ed5838c95faf26083-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_crawler_loud.4",
+        "path": "audio/native/f212772bb20dc5cc46efd8ab-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_death.0",
+        "path": "audio/native/10222eea43dc4f4faa7e5278-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 12.7,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_spawn.0",
+        "path": "audio/native/aa572ab8ef5b107a1181aeda-mono.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 19.05,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_zombie_spawn.0",
+        "path": "audio/native/0b66b5811466ec8c8524e6d3-mono.ogg",
+        "volume": 0.251188643150958,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 25.4,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_zombie_spawn.1",
+        "path": "audio/native/0347163661b6336f187adbf1-mono.ogg",
+        "volume": 0.251188643150958,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 25.4,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_spawn_nosecond.0",
+        "path": "audio/native/aa572ab8ef5b107a1181aeda-mono.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 19.05,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_sprint.0",
+        "path": "audio/native/3cd4db06af1ebeff5402b7b0-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_sprint.1",
+        "path": "audio/native/8c613ae347bd6e4d2ec283da-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_sprint.2",
+        "path": "audio/native/9c447e63f9744c281cffe662-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_sprint.3",
+        "path": "audio/native/1a77a6ea32b7f01a9c8b64bf-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 38.1,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_sprint_loud.0",
+        "path": "audio/native/3cd4db06af1ebeff5402b7b0-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_sprint_loud.1",
+        "path": "audio/native/8c613ae347bd6e4d2ec283da-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_sprint_loud.2",
+        "path": "audio/native/9c447e63f9744c281cffe662-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_vocals_capzomb_sprint_loud.3",
+        "path": "audio/native/1a77a6ea32b7f01a9c8b64bf-mono.ogg",
+        "volume": 0.07943282347242814,
+        "pitch": [
+          1.0,
+          1.2968395546510096
+        ],
+        "distance": 82.55,
+        "looping": false
+      },
+      {
         "id": "sound.native.zmb_vocals_zombie_ambience.0",
         "path": "audio/native/4ccecdcf375109061344c64b-mono.ogg",
         "volume": 0.039810717055349734,
@@ -363669,6 +364285,72 @@
         ],
         "distance": 12.7,
         "looping": false
+      },
+      {
+        "id": "sound.barrier.repair",
+        "path": "audio/native/666588da223811f699c3a664-mono.ogg",
+        "volume": 0.22387211385683395,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 25.4,
+        "looping": false
+      },
+      {
+        "id": "sound.barrier.break",
+        "path": "audio/native/ba1d50095bc25028d51c981d-mono.ogg",
+        "volume": 0.251188643150958,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.door.bunker",
+        "path": "audio/native/6e4fc92c0213b964cb3b463b-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 45.085,
+        "looping": false
+      },
+      {
+        "id": "sound.door.debris",
+        "path": "audio/native/332f9320d41dc2b6e4980c17-mono.ogg",
+        "volume": 0.14125375446227545,
+        "pitch": [
+          0.9715319411536059,
+          1.029302236643492
+        ],
+        "distance": 11.43,
+        "looping": false
+      },
+      {
+        "id": "sound.generator.capture",
+        "path": "audio/native/2342294597719dee9adc3b98-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 9.525,
+        "looping": true
+      },
+      {
+        "id": "sound.generator.active",
+        "path": "audio/native/32ff852c9ead02d9c4e30309-mono.ogg",
+        "volume": 0.028183829312644536,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 6.35,
+        "looping": true
       }
     ],
     "animations": [
@@ -532152,6 +532834,78 @@
         "priority": 70,
         "seconds": 0.25314583333333335
       },
+      "mus_event_generator_1": {
+        "sounds": [
+          "sound.native.mus_event_generator_1.0"
+        ],
+        "spatial": false,
+        "channel": "music",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 13.958333333333334
+      },
+      "mus_event_generator_2": {
+        "sounds": [
+          "sound.native.mus_event_generator_2.0"
+        ],
+        "spatial": false,
+        "channel": "music",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 14.708333333333334
+      },
+      "mus_event_generator_3": {
+        "sounds": [
+          "sound.native.mus_event_generator_3.0"
+        ],
+        "spatial": false,
+        "channel": "music",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 15.066666666666666
+      },
+      "mus_event_generator_4": {
+        "sounds": [
+          "sound.native.mus_event_generator_4.0"
+        ],
+        "spatial": false,
+        "channel": "music",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 14.65
+      },
+      "mus_event_generator_5": {
+        "sounds": [
+          "sound.native.mus_event_generator_5.0"
+        ],
+        "spatial": false,
+        "channel": "music",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 15.65
+      },
+      "mus_event_generator_6": {
+        "sounds": [
+          "sound.native.mus_event_generator_6.0"
+        ],
+        "spatial": false,
+        "channel": "music",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 58.8
+      },
       "mus_perks_jugganog_jingle": {
         "sounds": [
           "sound.native.mus_perks_jugganog_jingle.0"
@@ -532482,6 +533236,18 @@
         "limit": 1,
         "priority": 90,
         "seconds": 2.0395208333333334
+      },
+      "vox_plr_0_capture_zones_0": {
+        "sounds": [
+          "sound.native.vox_plr_0_capture_zones_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.917333333333333
       },
       "vox_plr_0_during_round_1_0": {
         "sounds": [
@@ -533248,6 +534014,18 @@
         "priority": 90,
         "seconds": 2.7066458333333334
       },
+      "vox_plr_1_capture_zones_0": {
+        "sounds": [
+          "sound.native.vox_plr_1_capture_zones_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.570333333333333
+      },
       "vox_plr_1_end_round_1_3_0": {
         "sounds": [
           "sound.native.vox_plr_1_end_round_1_3_0.0"
@@ -533982,6 +534760,18 @@
         "priority": 90,
         "seconds": 2.821083333333333
       },
+      "vox_plr_2_capture_zones_0": {
+        "sounds": [
+          "sound.native.vox_plr_2_capture_zones_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 9.267416666666668
+      },
       "vox_plr_2_end_round_1_7_0": {
         "sounds": [
           "sound.native.vox_plr_2_end_round_1_7_0.0"
@@ -534677,6 +535467,18 @@
         "limit": 1,
         "priority": 90,
         "seconds": 2.8040833333333333
+      },
+      "vox_plr_3_capture_zones_0": {
+        "sounds": [
+          "sound.native.vox_plr_3_capture_zones_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.668875
       },
       "vox_plr_3_end_round_1_2_0": {
         "sounds": [
@@ -538901,6 +539703,186 @@
         "priority": 50,
         "seconds": 1.3017083333333332
       },
+      "zmb_capturezone_donut_start": {
+        "sounds": [
+          "sound.native.zmb_capturezone_donut_start.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 6,
+        "priority": 50,
+        "seconds": 1.392
+      },
+      "zmb_capturezone_donut_stop": {
+        "sounds": [
+          "sound.native.zmb_capturezone_donut_stop.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 6,
+        "priority": 50,
+        "seconds": 1.8186666666666667
+      },
+      "zmb_capturezone_generator_alarm": {
+        "sounds": [
+          "sound.native.zmb_capturezone_generator_alarm.0"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 0.5135208333333333
+      },
+      "zmb_capturezone_generator_piston_down": {
+        "sounds": [
+          "sound.native.zmb_capturezone_generator_piston_down.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 6,
+        "priority": 60,
+        "seconds": 0.4313125
+      },
+      "zmb_capturezone_generator_piston_start": {
+        "sounds": [
+          "sound.native.zmb_capturezone_generator_piston_start.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 6,
+        "priority": 60,
+        "seconds": 3.2160625
+      },
+      "zmb_capturezone_generator_piston_stop": {
+        "sounds": [
+          "sound.native.zmb_capturezone_generator_piston_stop.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 6,
+        "priority": 60,
+        "seconds": 4.545708333333334
+      },
+      "zmb_capturezone_generator_piston_up": {
+        "sounds": [
+          "sound.native.zmb_capturezone_generator_piston_up.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 6,
+        "priority": 60,
+        "seconds": 0.5943125
+      },
+      "zmb_capturezone_losing": {
+        "sounds": [
+          "sound.native.zmb_capturezone_losing.0"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 5.4321875
+      },
+      "zmb_capturezone_portal_loop": {
+        "sounds": [
+          "sound.native.zmb_capturezone_portal_loop.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 7,
+        "priority": 70,
+        "seconds": 2.847770833333333
+      },
+      "zmb_capturezone_portal_start": {
+        "sounds": [
+          "sound.native.zmb_capturezone_portal_start.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 6,
+        "priority": 70,
+        "seconds": 2.881375
+      },
+      "zmb_capturezone_portal_stop": {
+        "sounds": [
+          "sound.native.zmb_capturezone_portal_stop.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 6,
+        "priority": 70,
+        "seconds": 3.8145
+      },
+      "zmb_capturezone_rise": {
+        "sounds": [
+          "sound.native.zmb_capturezone_rise.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 7,
+        "priority": 70,
+        "seconds": 8.7391875
+      },
+      "zmb_capturezone_success": {
+        "sounds": [
+          "sound.native.zmb_capturezone_success.0"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 3.202625
+      },
+      "zmb_capturezone_vat_loop": {
+        "sounds": [
+          "sound.native.zmb_capturezone_vat_loop.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 7,
+        "priority": 60,
+        "seconds": 6.208
+      },
+      "zmb_capturezone_zombie_loop": {
+        "sounds": [
+          "sound.native.zmb_capturezone_zombie_loop.0"
+        ],
+        "spatial": true,
+        "channel": "ambience",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 4,
+        "priority": 50,
+        "seconds": 6.109791666666666
+      },
       "zmb_cha_ching": {
         "sounds": [
           "sound.native.zmb_cha_ching.0"
@@ -539461,6 +540443,175 @@
         "limit": 4,
         "priority": 50,
         "seconds": 3.4531875
+      },
+      "zmb_vocals_capzomb_ambience": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_ambience.0",
+          "sound.native.zmb_vocals_capzomb_ambience.1",
+          "sound.native.zmb_vocals_capzomb_ambience.2",
+          "sound.native.zmb_vocals_capzomb_ambience.3"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 3,
+        "priority": 60,
+        "seconds": 2.1600625
+      },
+      "zmb_vocals_capzomb_ambience_loud": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_ambience_loud.0",
+          "sound.native.zmb_vocals_capzomb_ambience_loud.1",
+          "sound.native.zmb_vocals_capzomb_ambience_loud.2",
+          "sound.native.zmb_vocals_capzomb_ambience_loud.3"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 3,
+        "priority": 60,
+        "seconds": 2.1600625
+      },
+      "zmb_vocals_capzomb_attack": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_attack.0",
+          "sound.native.zmb_vocals_capzomb_attack.1",
+          "sound.native.zmb_vocals_capzomb_attack.2"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 5,
+        "priority": 90,
+        "seconds": 0.9620208333333333
+      },
+      "zmb_vocals_capzomb_behind": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_behind.0",
+          "sound.native.zmb_vocals_capzomb_behind.1",
+          "sound.native.zmb_vocals_capzomb_behind.2"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 2,
+        "priority": 90,
+        "seconds": 0.83675
+      },
+      "zmb_vocals_capzomb_crawler": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_crawler.0",
+          "sound.native.zmb_vocals_capzomb_crawler.1",
+          "sound.native.zmb_vocals_capzomb_crawler.2",
+          "sound.native.zmb_vocals_capzomb_crawler.3",
+          "sound.native.zmb_vocals_capzomb_crawler.4"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 3,
+        "priority": 60,
+        "seconds": 1.3228125
+      },
+      "zmb_vocals_capzomb_crawler_loud": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_crawler_loud.0",
+          "sound.native.zmb_vocals_capzomb_crawler_loud.1",
+          "sound.native.zmb_vocals_capzomb_crawler_loud.2",
+          "sound.native.zmb_vocals_capzomb_crawler_loud.3",
+          "sound.native.zmb_vocals_capzomb_crawler_loud.4"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 3,
+        "priority": 60,
+        "seconds": 1.3228125
+      },
+      "zmb_vocals_capzomb_death": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_death.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 6,
+        "priority": 60,
+        "seconds": 1.9073333333333333
+      },
+      "zmb_zombie_spawn": {
+        "sounds": [
+          "sound.native.zmb_zombie_spawn.0",
+          "sound.native.zmb_zombie_spawn.1"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 3,
+        "priority": 60,
+        "seconds": 3.256625
+      },
+      "zmb_vocals_capzomb_spawn": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_spawn.0"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": "zmb_zombie_spawn",
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 2.8568333333333333
+      },
+      "zmb_vocals_capzomb_spawn_nosecond": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_spawn_nosecond.0"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 2.8568333333333333
+      },
+      "zmb_vocals_capzomb_sprint": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_sprint.0",
+          "sound.native.zmb_vocals_capzomb_sprint.1",
+          "sound.native.zmb_vocals_capzomb_sprint.2",
+          "sound.native.zmb_vocals_capzomb_sprint.3"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 3,
+        "priority": 60,
+        "seconds": 2.1600625
+      },
+      "zmb_vocals_capzomb_sprint_loud": {
+        "sounds": [
+          "sound.native.zmb_vocals_capzomb_sprint_loud.0",
+          "sound.native.zmb_vocals_capzomb_sprint_loud.1",
+          "sound.native.zmb_vocals_capzomb_sprint_loud.2",
+          "sound.native.zmb_vocals_capzomb_sprint_loud.3"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 3,
+        "priority": 60,
+        "seconds": 2.1600625
       },
       "zmb_vocals_zombie_ambience": {
         "sounds": [
@@ -540213,7 +541364,9 @@
       "sound.barrier.repair": "zmb_board_slam",
       "sound.barrier.break": "zmb_break_boards",
       "sound.door.bunker": "zmb_pneumatic_door",
-      "sound.door.debris": "amb_rock_fall"
+      "sound.door.debris": "amb_rock_fall",
+      "sound.generator.capture": "zmb_capturezone_rise",
+      "sound.generator.active": "zmb_capturezone_vat_loop"
     },
     "timelines": {
       "animation.c_zom_dempsey_viewhands.viewmodel_870mcs_reload_in": [
@@ -550167,7 +551320,87 @@
           "alias": "zmb_attack_whoosh"
         }
       ],
-      "animation.c_zom_tomb_german_head3.ai_zombie_traverse_v1": []
+      "animation.c_zom_tomb_german_head3.ai_zombie_traverse_v1": [],
+      "animation.generator.fxanim_zom_tomb_generator_start_anim": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "zmb_capturezone_generator_piston_start"
+        },
+        {
+          "seconds": 0.4,
+          "alias": "zmb_capturezone_generator_piston_down"
+        },
+        {
+          "seconds": 0.7333333333333333,
+          "alias": "zmb_capturezone_generator_piston_up"
+        },
+        {
+          "seconds": 1.1333333333333333,
+          "alias": "zmb_capturezone_generator_piston_down"
+        },
+        {
+          "seconds": 1.4,
+          "alias": "zmb_capturezone_generator_piston_up"
+        },
+        {
+          "seconds": 1.7,
+          "alias": "zmb_capturezone_generator_piston_down"
+        },
+        {
+          "seconds": 1.9333333333333333,
+          "alias": "zmb_capturezone_generator_piston_up"
+        }
+      ],
+      "animation.generator.fxanim_zom_tomb_generator_up_idle_anim": [
+        {
+          "seconds": 0.26666666666666666,
+          "alias": "zmb_capturezone_generator_piston_down"
+        },
+        {
+          "seconds": 0.5,
+          "alias": "zmb_capturezone_generator_piston_up"
+        },
+        {
+          "seconds": 0.8,
+          "alias": "zmb_capturezone_generator_piston_down"
+        },
+        {
+          "seconds": 1.0333333333333334,
+          "alias": "zmb_capturezone_generator_piston_up"
+        }
+      ],
+      "animation.generator.fxanim_zom_tomb_generator_down_idle_anim": [
+        {
+          "seconds": 0.6,
+          "alias": "zmb_capturezone_generator_piston_down"
+        },
+        {
+          "seconds": 1.0333333333333334,
+          "alias": "zmb_capturezone_generator_piston_up"
+        }
+      ],
+      "animation.generator.fxanim_zom_tomb_generator_end_anim": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "zmb_capturezone_generator_piston_stop"
+        },
+        {
+          "seconds": 0.5,
+          "alias": "zmb_capturezone_generator_piston_down"
+        },
+        {
+          "seconds": 1.1333333333333333,
+          "alias": "zmb_capturezone_generator_piston_up"
+        },
+        {
+          "seconds": 2.1666666666666665,
+          "alias": "zmb_capturezone_generator_piston_down"
+        },
+        {
+          "seconds": 3.0,
+          "alias": "zmb_capturezone_generator_piston_up"
+        }
+      ]
     },
     "emitters": [
       {

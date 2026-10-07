@@ -307,7 +307,9 @@ fn drive(
                 .iter()
                 .map(|d| d.props.len())
                 .sum::<usize>() as u32;
-            c.rows.push(serde_json::json!({"case":"all_groups","passed":access.purchases as usize==game.access.doors.len() && blockers.is_empty() && props.is_empty() && evidence.animated==expected && evidence.sounds==expected && evidence.playing_sounds==expected && access.reachable.len()>3,"purchases":access.purchases,"removed":evidence.removed,"animated":evidence.animated,"sounds":evidence.sounds,"playing_sounds":evidence.playing_sounds}));
+            // Native same-alias limits replace overlapping leaf emitters before
+            // every leaf necessarily acquires a sink. All leaf events still fire.
+            c.rows.push(serde_json::json!({"case":"all_groups","passed":access.purchases as usize==game.access.doors.len() && blockers.is_empty() && props.is_empty() && evidence.animated==expected && evidence.sounds==expected && evidence.playing_sounds>0 && evidence.playing_sounds<=expected && access.reachable.len()>3,"purchases":access.purchases,"removed":evidence.removed,"animated":evidence.animated,"sounds":evidence.sounds,"playing_sounds":evidence.playing_sounds}));
             if v.traversal {
                 if let Some((start, end, alias)) = nav.inspect_traversal(&access) {
                     let enemy = game

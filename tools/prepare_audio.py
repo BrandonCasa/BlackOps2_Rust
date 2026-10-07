@@ -157,6 +157,9 @@ def prepare(config):
     wanted.update(n for n in rows if n.startswith(('fly_prone_','wpn_grenade_bounce_','wpn_sticky_gren_bounce_','zmb_monkey_land_')))
     wanted.update(n for n in rows if re.match(r'mus_perks_.*_(jingle|sting)$',n))
     wanted.add('mus_zombie_game_over')
+    if content.get('generators'):
+        wanted.update(n for n in rows if n.startswith(('zmb_capturezone_', 'zmb_vocals_capzomb_', 'mus_event_generator_')))
+        wanted.update(n for n in rows if re.match(r'vox_plr_[0-3]_capture_zones_', n))
     dialogue_events=('ammo_low','ammo_out','kill_headshot','kill_close','kill_explo','generic_wall_buy','exert_pain_low','exert_pain_high','heal_revived','perk_jugga','perk_mule','perk_revive','perk_speed','perk_stamine','during_round_1','end_round_1')
     wanted.update(n for n in rows if any(re.match(r'vox_plr_[0-3]_'+e+r'_',n) for e in dialogue_events))
     recovered=json.loads((base/'solo-content/recovered-gameplay.json').read_text())
@@ -186,13 +189,16 @@ def prepare(config):
     bindings={key:value for key,value in bindings.items() if value in aliases}
     timelines={key:[n for n in notes if n['alias'] in aliases] for key,notes in timelines.items()}
     # Replace every previously generated current-game cue with native recordings.
-    for old,new in {'sound.barrier.repair':'zmb_board_slam','sound.barrier.break':'zmb_break_boards','sound.door.bunker':'zmb_pneumatic_door','sound.door.debris':'amb_rock_fall'}.items():
+    replacements = {'sound.barrier.repair':'zmb_board_slam','sound.barrier.break':'zmb_break_boards','sound.door.bunker':'zmb_pneumatic_door','sound.door.debris':'amb_rock_fall'}
+    if content.get('generators'):
+        replacements.update({'sound.generator.capture':'zmb_capturezone_rise', 'sound.generator.active':'zmb_capturezone_vat_loop'})
+    for old,new in replacements.items():
         if new not in aliases:
             raise ValueError(f'required replacement alias missing: {new}')
         original=next(s for s in content['sounds'] if s['id']==aliases[new]['sounds'][0])
         content['sounds'][:]=[s for s in content['sounds'] if s['id']!=old]
         content['sounds'].append(dict(original,id=old))
-    bindings.update({old:new for old,new in {'sound.barrier.repair':'zmb_board_slam','sound.barrier.break':'zmb_break_boards','sound.door.bunker':'zmb_pneumatic_door','sound.door.debris':'amb_rock_fall'}.items()})
+    bindings.update(replacements)
     collision=json.loads((pack/game['collision_scene'].split('#')[0]).read_text())
     surfaces={}
     for material in collision.get('materials',[]):

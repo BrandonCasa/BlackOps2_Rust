@@ -2,7 +2,6 @@
 import json
 import math
 import numpy as np
-import soundfile as sf
 from PIL import Image
 from prepare_actors import convert
 from prepare_gameplay_content import external
@@ -85,19 +84,14 @@ def prepare(config):
                                 'emergence': holes, 'clip_seconds': [decode((source / n).read_bytes())['duration'] for n in CLIPS],
                                 'capture_sound': 'sound.generator.capture', 'active_sound': 'sound.generator.active'})
     assert len(c['generators']) == 6
-    rate = 24000
-    for name, frequency in (('capture', 78.), ('active', 54.)):
-        t = np.arange(rate * 2) / rate
-        wave = (.06 * np.sin(2 * np.pi * frequency * t) + .025 * np.sin(2 * np.pi * frequency * 2 * t)) * (1 + .25 * np.sin(2 * np.pi * 3 * t))
-        path = 'audio/generator-' + name + '.ogg'
-        sf.write(pack / path, wave, rate, format='OGG', subtype='VORBIS')
-        sid = 'sound.generator.' + name
-        c['sounds'][:] = [s for s in c['sounds'] if s['id'] != sid]
-        c['sounds'].append({'id': sid, 'path': path, 'volume': .8, 'pitch': [1., 1.], 'distance': 18., 'looping': True})
     (pack / 'game.json').write_text(json.dumps(game, indent=2) + '\n')
+    # Current-game audio is prepared from licensed native banks, including the
+    # generator definition's required loop references and pump notifications.
+    from prepare_audio import prepare as prepare_audio
+    prepare_audio(config)
     report = {'generators': 6, 'native_clips': CLIPS, 'emergence_points': 24,
               'material_alpha': alpha,
               'source': 'zm_tomb_capture_zones.gsc and authored map entities',
-              'approximations': 'Nearest classified navigation zone; synthesized mechanical audio; use reach follows native trigger box extent.'}
+              'approximations': 'Nearest classified navigation zone; native audio uses reconstructed mixer attenuation; use reach follows native trigger box extent.'}
     (base / 'solo-content/generators-preparation.json').write_text(json.dumps(report, indent=2))
     print(report)

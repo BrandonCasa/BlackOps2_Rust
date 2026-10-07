@@ -212,13 +212,28 @@ fn actors(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
     mut state: ResMut<AudioState>,
-    zombies: Query<(Entity, &crate::enemies::Zombie, &Transform, &Vitality)>,
+    zombies: Query<(
+        Entity,
+        &crate::enemies::Zombie,
+        &Transform,
+        &Vitality,
+        Option<&crate::generators::GeneratorDefender>,
+    )>,
     query: SpatialQuery,
     surfaces: Query<&SurfaceSound>,
 ) {
     state.actors.retain(|e, _| zombies.contains(*e));
-    for (owner, zombie, pose, health) in &zombies {
+    for (owner, zombie, pose, health, defender) in &zombies {
+        let new_actor = !state.actors.contains_key(&owner);
         let clock = state.actors.entry(owner).or_default();
+        if new_actor && defender.is_some() {
+            emit(
+                &mut commands,
+                "zmb_vocals_capzomb_spawn",
+                pose.translation,
+                Some(owner),
+            );
+        }
         if health.state() != LifeState::ActorAlive {
             continue;
         }
@@ -258,7 +273,11 @@ fn actors(
                 );
             }
             let alias = match zombie.action {
-                EnemyAnimation::Attack => Some("zmb_vocals_zombie_attack"),
+                EnemyAnimation::Attack => Some(if defender.is_some() {
+                    "zmb_vocals_capzomb_attack"
+                } else {
+                    "zmb_vocals_zombie_attack"
+                }),
                 EnemyAnimation::Tear => Some("zmb_vocals_zombie_teardown"),
                 _ => None,
             };
@@ -272,10 +291,11 @@ fn actors(
         if clock.vocal <= 0. {
             emit(
                 &mut commands,
-                if zombie.action == EnemyAnimation::Sprint {
-                    "zmb_vocals_zombie_sprint"
-                } else {
-                    "zmb_vocals_zombie_ambience"
+                match (defender.is_some(), zombie.action == EnemyAnimation::Sprint) {
+                    (true, true) => "zmb_vocals_capzomb_sprint",
+                    (true, false) => "zmb_vocals_capzomb_ambience",
+                    (false, true) => "zmb_vocals_zombie_sprint",
+                    (false, false) => "zmb_vocals_zombie_ambience",
                 },
                 pose.translation,
                 Some(owner),
@@ -504,6 +524,7 @@ fn feedback(
     mut damages: MessageReader<crate::player_health::PlayerDamage>,
     mut applied: MessageReader<crate::damage::DamageApplied>,
     poses: Query<&Transform>,
+    defenders: Query<(), With<crate::generators::GeneratorDefender>>,
     players: Query<(&crate::movement::SprintState, &Player), With<Player>>,
     query: SpatialQuery,
     surfaces: Query<&SurfaceSound>,
@@ -546,7 +567,16 @@ fn feedback(
         let position = poses
             .get(receipt.impact.target)
             .map_or(Vec3::ZERO, |p| p.translation);
-        emit(&mut commands, "zmb_vocals_zombie_death", position, None);
+        emit(
+            &mut commands,
+            if defenders.contains(receipt.impact.target) {
+                "zmb_vocals_capzomb_death"
+            } else {
+                "zmb_vocals_zombie_death"
+            },
+            position,
+            None,
+        );
         let event = if receipt.impact.region == crate::weapons::HitRegion::Head {
             Some("kill_headshot")
         } else if matches!(

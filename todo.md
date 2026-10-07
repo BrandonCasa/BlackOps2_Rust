@@ -1109,7 +1109,7 @@
 - [x] Add zombie footstep sounds.
 - [x] Add zombie vocalizations.
 - [ ] Add Panzersoldat vocalizations.
-- [ ] Add generator defender vocalizations.
+- [x] Add generator defender vocalizations.
 - [x] Add weapon-specific shot sound bindings.
 - [x] Add weapon-specific reload sound bindings.
 - [x] Add equipment-specific sound bindings.
