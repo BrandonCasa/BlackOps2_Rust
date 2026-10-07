@@ -213,7 +213,11 @@ fn main(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_index
             let second = first + 1u;
             let b = gi_oct_direction((vec2(f32(second % 16u), f32(second / 16u)) + 0.5) / 16.0 * 2.0 - 1.0);
             let moments = vec4(distance_moments(a), distance_moments(b));
-            result = select(moments, mix(moments, result, 0.9), history);
+            // Admit newly nearer occluders immediately. Keeping a bright-room
+            // distance for ten updates leaks while doors/actors block a probe.
+            let a_history = select(0.0, 0.9, history && moments.x >= result.x);
+            let b_history = select(0.0, 0.9, history && moments.z >= result.z);
+            result = vec4(mix(moments.xy, result.xy, a_history), mix(moments.zw, result.zw, b_history));
         } else if index == 192u { result = vec4(vec3<f32>(probe.xyz), f32(probe_active)); }
         else if index == 193u { result = vec4(relocated, f32(moved)); }
         updates[group.x * 208u + index] = result;

@@ -12,7 +12,39 @@ use bevy::{
     },
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    shader::Shader,
 };
+
+// Atmosphere's aerial LUT assumes an unobstructed planetary medium. Applying
+// it over indoor geometry adds unshadowed sky-colored haze on top of our
+// shadowed height medium. Keep Bevy's physical sky and its environment input;
+// finite scene rays have one participating medium, the native FogVolume.
+pub(super) fn prepare(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
+    if *done {
+        return;
+    }
+    let Some((id, source)) = shaders.iter().find_map(|(id, shader)| {
+        let source = shader.source.as_str();
+        source
+            .contains("fn main(in: FullscreenVertexOutput) -> RenderSkyOutput")
+            .then(|| (id, source.to_owned()))
+    }) else {
+        return;
+    };
+    let start = "        let t = ndc_to_camera_dist(vec3(uv_to_ndc(in.uv), depth));";
+    let end = "    // exposure compensation";
+    let (before, tail) = source
+        .split_once(start)
+        .expect("Pinned aerial perspective branch");
+    let (_, after) = tail.split_once(end).expect("Pinned atmosphere exposure");
+    let source = format!(
+        "{before}        inscattering = vec3(0.0);\n        transmittance = vec3(1.0);\n    }}\n\n{end}{after}"
+    );
+    shaders
+        .insert(id, Shader::from_wgsl(source, "origins::scene_sky"))
+        .expect("Native sky shader");
+    *done = true;
+}
 
 pub(super) fn setup(
     mut commands: Commands,
@@ -36,7 +68,10 @@ pub(super) fn setup(
         },
         VolumetricFog {
             ambient_color: super::profile::color(profile.fog_color),
-            ambient_intensity: 0.15,
+            // Constant sky scatter has no world visibility and fills enclosed
+            // rooms with gray light. The sun's shadowed volume path supplies
+            // actual illumination; the physical medium/height density remain.
+            ambient_intensity: 0.0,
             step_count: 64,
             jitter: 0.,
         },

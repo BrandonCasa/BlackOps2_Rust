@@ -569,6 +569,57 @@ fn shaders(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
     }) else {
         return;
     };
+    let Some((environment_id, environment)) = shaders.iter().find_map(|(id, shader)| {
+        (shader.import_path == ShaderImport::Custom("bevy_pbr::environment_map".into()))
+            .then(|| (id, shader.source.as_str().to_owned()))
+    }) else {
+        return;
+    };
+    let Some((ambient_id, ambient)) = shaders.iter().find_map(|(id, shader)| {
+        (shader.import_path == ShaderImport::Custom("bevy_pbr::ambient".into()))
+            .then(|| (id, shader.source.as_str().to_owned()))
+    }) else {
+        return;
+    };
+    // A modest neutral readability floor illuminates material diffuse color
+    // through Bevy's BRDF and AO. It must not create a uniform specular veil:
+    // specular illumination comes from the visibility-traced scene cube.
+    let ambient_hook = "(diffuse_ambient + specular_ambient * specular_occlusion)";
+    assert_eq!(
+        ambient.matches(ambient_hook).count(),
+        1,
+        "Pinned ambient BRDF"
+    );
+    shaders
+        .insert(
+            ambient_id,
+            Shader::from_wgsl(
+                ambient.replacen(ambient_hook, "diffuse_ambient", 1),
+                "origins::diffuse_fill",
+            ),
+        )
+        .expect("Native ambient shader");
+    // The sky is an input to visibility-tested transport, never a fallback that
+    // bypasses the scene. Bevy's clustered probe list can be empty (including
+    // layer-one receivers) or a distant receiver can leave the local box. Use
+    // the same current scene cube for that remainder. Retain native GGX
+    // filtering, BRDF energy, and parallax correction inside the probe bounds.
+    let hook = "            query_result.weight = 1.0 - total_weight;";
+    assert_eq!(
+        environment.matches(hook).count(),
+        1,
+        "Pinned environment fallback"
+    );
+    let environment = environment.replacen(hook, &format!(
+        "{hook}\n            if light_probes.reflection_probe_count > 0 {{\n                let scene = light_probes.reflection_probes[0];\n                if scene.cubemap_index >= 0 {{\n                    query_result.texture_index = scene.cubemap_index;\n                    query_result.intensity = scene.intensity;\n                    query_result.light_from_world = transpose_affine_matrix(scene.light_from_world_transposed);\n                    query_result.flags = scene.flags & ~LIGHT_PROBE_FLAG_PARALLAX_CORRECT;\n                }}\n            }}"), 1)
+        .replacen("#import bevy_pbr::light_probe::{light_probe_iterator_new, light_probe_iterator_next}",
+            "#import bevy_pbr::light_probe::{light_probe_iterator_new, light_probe_iterator_next, transpose_affine_matrix}", 1);
+    shaders
+        .insert(
+            environment_id,
+            Shader::from_wgsl(environment, "origins::scene_environment"),
+        )
+        .expect("Native environment shader");
     shaders
         .insert(
             SAMPLING.id(),

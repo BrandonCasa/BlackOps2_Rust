@@ -79,6 +79,7 @@ impl Plugin for GameRenderingPlugin {
                 (
                     camera_follow,
                     sky::viewmodel_environment,
+                    sky::prepare,
                     shadows::prepare.before(opaque::prepare_shaders),
                     opaque::prepare_shaders,
                     (pbr::prepare, surfaces, opaque::convert).chain(),
@@ -311,6 +312,10 @@ fn surfaces(
                         intensity: profile.lantern_lumens,
                         range: profile.lantern_range,
                         radius: 0.12,
+                        // Native defaults displace receivers eight centimeters
+                        // toward a lamp, enough to cross this map's thin walls.
+                        shadow_depth_bias: 0.005,
+                        shadow_normal_bias: 0.3,
                         shadow_maps_enabled: true,
                         soft_shadows_enabled: true,
                         ..default()

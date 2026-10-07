@@ -1,10 +1,10 @@
 {
   "ambient_color": [
-    0.56,
-    0.64,
-    0.7
+    1.0,
+    1.0,
+    1.0
   ],
-  "ambient_brightness": 0.0,
+  "ambient_brightness": 80.0,
   "sun_color": [
     1.0,
     0.97,
@@ -26,16 +26,16 @@
     "strength": 0.85,
     "contrast": 1.12,
     "vibrance": 1.16,
-    "shadow_tint": [0.96, 0.99, 1.04],
+    "shadow_tint": [1.0, 1.0, 1.0],
     "highlight_tint": [1.04, 1.015, 0.965]
   },
   "comparison_fov_degrees": 55.0,
   "antialiasing": "Smaa",
   "bloom_intensity": 0.14,
   "fog_color": [
-    0.32,
-    0.4,
-    0.46
+    0.38,
+    0.38,
+    0.38
   ],
   "fog_density": 0.003,
   "lantern_color": [

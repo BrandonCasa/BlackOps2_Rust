@@ -1174,6 +1174,29 @@ fn visual_view(
         // The ordinary survey still ends at local view 6.
         7 if only_view => Some((Vec3::new(72.0, -9.0, -130.0), 3.75, 0.1)),
         8 if only_view => Some((Vec3::new(-7.5, 1.8, -4.0), 1.92, -0.28)),
+        // The reported thin-wall leak is beside the original Quick Revive
+        // placement. Reuse the survey's settling/capture path at its real pose.
+        9 if only_view => {
+            let placement = definition
+                .content
+                .placements
+                .iter()
+                .find(|placement| placement.id.0 == "placement.quick_revive")?;
+            let machine = Vec3::from_array(placement.position);
+            let rotation = Quat::from_rotation_y(placement.yaw);
+            let position = machine
+                + rotation * Vec3::new(0., definition.tuning.standing_height * 0.5 + 0.02, 2.2);
+            let target = machine + Vec3::Y + rotation * Vec3::new(0., 0., 0.8);
+            let delta = target
+                - (position
+                    + Vec3::Y
+                        * (definition.tuning.eye_height - definition.tuning.standing_height * 0.5));
+            Some((
+                position,
+                (-delta.x).atan2(-delta.z),
+                (delta.y / delta.length()).asin(),
+            ))
+        }
         _ => None,
     }
 }

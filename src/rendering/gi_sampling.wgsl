@@ -64,6 +64,7 @@ fn sample_gi_field(field: texture_3d<f32>, unit_position: vec3<f32>, normal: vec
     let origin = vec3<i32>(round(center / spacing)) - grid / 2;
     var total = vec3(0.0);
     var weight_sum = 0.0;
+    var support_sum = 0.0;
     for (var corner = 0u; corner < 8u; corner++) {
         let bit = vec3<i32>(i32(corner & 1u), i32((corner >> 1u) & 1u), i32((corner >> 2u) & 1u));
         let cell = base + bit;
@@ -80,15 +81,23 @@ fn sample_gi_field(field: texture_3d<f32>, unit_position: vec3<f32>, normal: vec
         let chebyshev = variance / max(variance + difference * difference, 0.000001);
         let visibility = select(1.0, chebyshev * chebyshev * chebyshev, distance > moments.x);
         let wrap = (dot(normal, -direction) + 1.0) * 0.5;
-        var weight = (wrap * wrap + 0.2) * max(0.05, visibility);
-        if weight < 0.2 { weight *= weight * weight / 0.04; }
         let trilinear = max(vec3(0.001), select(1.0 - fraction, fraction, bit != vec3(0)));
+        let support = (wrap * wrap + 0.2) * trilinear.x * trilinear.y * trilinear.z;
+        support_sum += support;
+        // A blocked probe is not ambient light. The SDK's visibility floor is
+        // a fallback for missing probes; normalizing only that floor lets an
+        // entirely occluded neighborhood illuminate the other side of a wall.
+        var weight = (wrap * wrap + 0.2) * visibility;
+        if weight < 0.2 { weight *= weight * weight / 0.04; }
         weight *= trilinear.x * trilinear.y * trilinear.z;
         let encoded = gi_direction_sample(field, cell, normal, false).rgb;
         total += pow(max(encoded, vec3(0.0)), vec3(2.5)) * weight;
         weight_sum += weight;
     }
     let irradiance = total / max(weight_sum, 0.000001);
+    let confidence = smoothstep(0.01, 0.2, weight_sum / max(support_sum, 0.000001));
     // Bevy expects diffuse incident irradiance divided by pi.
-    return GiSample(irradiance * irradiance * 2.0, weight_sum);
+    // Keep initialized support separate from visibility: black fine probes
+    // must retain ownership instead of falling back to bright coarse probes.
+    return GiSample(irradiance * irradiance * 2.0 * confidence, support_sum);
 }
