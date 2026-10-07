@@ -9,6 +9,7 @@ pub mod enemies;
 pub mod environment;
 pub mod equipment;
 pub mod gameplay;
+pub mod generators;
 pub mod hit_regions;
 pub mod hud;
 pub mod input;
@@ -105,6 +106,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
             access::AccessPlugin,
             navigation::NavigationPlugin,
             barriers::BarrierPlugin,
+            generators::GeneratorPlugin,
         ),
         player_health::PlayerHealthPlugin,
         enemies::EnemyPlugin,

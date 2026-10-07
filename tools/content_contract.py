@@ -17,7 +17,7 @@ TABLES = {
     "zone_connections": ("connection", "id from to initially_open"),
     "navigation_nodes": ("node", "id position zone"),
     "navigation_links": ("link", "id from to traversal connection"),
-    "generators": ("generator", "id placement zones price capture_seconds radius"),
+    "generators": ("generator", "id placement zones price capture_seconds radius number decay_seconds shutdown_seconds recovery_seconds presentation model_position emergence clip_seconds capture_sound active_sound"),
     "robot_routes": ("route", "id points speed cooldown presentation"),
     "tank_routes": ("route", "id points speed cooldown presentation"),
     "weather": ("weather", "id duration snow sound"),
@@ -351,6 +351,15 @@ def validate_content(content, require):
             elif table == "generators":
                 resolve(owner, row["placement"], "placement")
                 identities(owner, row["zones"], "zone")
+                resolve(owner, row['presentation'], 'presentation')
+                for key in ('capture_sound','active_sound'): resolve(owner,row[key],'sound')
+                require(isinstance(row['number'],int) and 1 <= row['number'] <= 6,'invalid generator number')
+                vector(row['model_position'])
+                require(len(row['emergence']) == 4,'invalid generator emergence closure')
+                for p in row['emergence']: vector(p)
+                require(len(row['clip_seconds']) == 8,'incomplete generator animation clocks')
+                for value in row['clip_seconds']: number(value,True)
+                for key in ('decay_seconds','shutdown_seconds','recovery_seconds'): number(row[key],True)
             elif table in ("robot_routes", "tank_routes"):
                 require(isinstance(row["points"], list) and len(row["points"]) >= 2, "incomplete route")
                 for point in row["points"]:

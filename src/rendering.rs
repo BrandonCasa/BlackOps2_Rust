@@ -307,7 +307,13 @@ fn surfaces(
     library: Option<Res<opaque::SurfaceLibrary>>,
     profile: Res<profile::VisualProfile>,
     parents: Query<&ChildOf>,
-    boards: Query<(), With<crate::barriers::BoardVisual>>,
+    boards: Query<
+        (),
+        Or<(
+            With<crate::barriers::BoardVisual>,
+            With<crate::generators::GeneratorVisual>,
+        )>,
+    >,
 ) {
     let Some(library) = library else { return };
     for (entity, handle, name, bounds) in &surfaces {

@@ -19,6 +19,7 @@ mod doors;
 mod equipment_presentation;
 mod equipment_refills;
 mod firing_perks;
+mod generators;
 mod health_recovery;
 mod mobility;
 mod monkeys;
@@ -68,6 +69,7 @@ pub(crate) struct Verification {
     navigation: bool,
     traversal: bool,
     barriers: bool,
+    generators: bool,
     admission_snapshot: bool,
     health_recovery_exercised: bool,
     hit_regions: bool,
@@ -94,6 +96,9 @@ pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
+            if app.world().resource::<LaunchOptions>().verify_generators {
+                generators::install(app);
+            }
             pipelines::install(app);
             if app.world().resource::<LaunchOptions>().verify_barriers {
                 barriers::install(app);
@@ -220,6 +225,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             navigation: options.verify_navigation,
             traversal: options.verify_traversal,
             barriers: options.verify_barriers,
+            generators: options.verify_generators,
             admission_snapshot: false,
             health_recovery_exercised: false,
             hit_regions: options.verify_hit_regions,
@@ -275,6 +281,7 @@ pub(crate) fn drive(
         || verification.mud
         || verification.doors
         || verification.barriers
+        || verification.generators
     {
         return;
     }
@@ -444,7 +451,13 @@ pub(crate) fn drive(
             input.reload = false;
             return;
         }
-        if history.melee_kills == 0 && verification.playing >= 1. {
+        let empty = inventories.single().is_ok_and(|inventory| {
+            inventory.active().is_some_and(|w| w.magazine == 0)
+                && inventory
+                    .definition(&definition.content.weapons)
+                    .is_some_and(|w| inventory.reserve(w) == 0)
+        });
+        if (history.melee_kills == 0 || empty) && verification.playing >= 1. {
             input.movement = Vec2::new(0., if delta.length() > 1.25 { 0.4 } else { 0. });
         } else if verification.playing >= 1. && delta.length() < 3. {
             input.movement = Vec2::new(0., -0.7);
@@ -488,6 +501,15 @@ pub(crate) fn drive(
             .ok()
             .and_then(|i| i.active())
             .is_some_and(|w| w.magazine == 0);
+    } else if verification.stage == 0
+        && let Some(initial) = verification.initial
+    {
+        // Leave a cleared entrance so its minimum spawn clearance can recover.
+        let delta = initial - transform.translation;
+        if delta.xz().length_squared() > 1. {
+            let local = Quat::from_rotation_y(-player.yaw) * delta.normalize_or_zero();
+            input.movement = Vec2::new(local.x, -local.z).clamp_length_max(0.5);
+        }
     }
 }
 fn check(
@@ -569,6 +591,7 @@ fn check(
         || verification.mud
         || verification.doors
         || verification.barriers
+        || verification.generators
     {
         return;
     }

@@ -718,6 +718,7 @@ def main():
     parser.add_argument("--prepare-arsenal", action="store_true", help="convert native weapon tuning/localization into the external runtime pack")
     parser.add_argument("--prepare-traversals", action="store_true", help="prepare native negotiation/rising clips and root-motion profiles")
     parser.add_argument("--prepare-barriers", action="store_true", help="prepare native wood windows, boards and tear timing")
+    parser.add_argument("--prepare-generators", action="store_true", help="prepare original generator pumps and capture configuration")
     parser.add_argument("--prepare-navigation", action="store_true", help="prepare recovered native navigation, zone volumes and spawn identities")
     parser.add_argument("--prepare-enemies", action="store_true", help="prepare intact native zombie rigs and lifecycle tuning")
     parser.add_argument("--prepare-hit-regions", action="store_true", help="bind anatomical hit volumes to prepared original zombie joints")
@@ -726,6 +727,10 @@ def main():
     parser.add_argument("--prepare-player-health", action="store_true", help="recover standing player regeneration and immunity")
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
+    if args.prepare_generators:
+        from prepare_generators import prepare
+        prepare(config)
+        return
     if args.prepare_barriers:
         from prepare_barriers import prepare
         prepare(config)

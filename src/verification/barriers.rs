@@ -19,6 +19,9 @@ struct Coverage {
     window: Option<crate::origins::ContentId>,
     rows: Vec<serde_json::Value>,
     captured: bool,
+    ingress_attempt: u8,
+    jump_peak: f32,
+    blocked_capture: bool,
 }
 pub fn install(app: &mut App) {
     app.init_resource::<Coverage>().add_systems(
@@ -89,7 +92,7 @@ fn drive(
     let Ok((owner, mut p, mut pose, health, mut mobility)) = players.single_mut() else {
         return;
     };
-    if c.phase < 12 {
+    if c.phase < 12 || c.phase == 20 {
         session.pending = 6;
         session.spawn_timer = Timer::from_seconds(1000., TimerMode::Once);
         for (e, _, _) in &enemies {
@@ -189,20 +192,58 @@ fn drive(
                 commands
                     .spawn(Screenshot::primary_window())
                     .observe(save_to_disk(v.output.join("open-window.png")));
-                advance = Some(2);
+                advance = Some(20);
+            }
+        }
+        20 => {
+            let origin = c.aim - Vec3::Y * 0.7;
+            let inward = (c.center - origin).with_y(0.).normalize();
+            let tangent = Vec3::new(-inward.z, 0., inward.x);
+            let mode = c.ingress_attempt / 3;
+            let lane = f32::from(c.ingress_attempt % 3) - 1.;
+            if c.age <= time.delta_secs() * 1.5 {
+                pose.translation = c.center + tangent * lane * 0.8;
+                p.velocity = Vec3::ZERO;
+                mobility.airborne = false;
+                c.jump_peak = pose.translation.y;
+            }
+            let eye = p.eye_height;
+            let aim = pose.translation - inward * 4.;
+            super::semtex::aim(&mut p, &pose, aim, eye);
+            if c.age > 0.4 {
+                input.movement = Vec2::Y;
+                input.sprint = mode == 1;
+                input.crouch = mode == 2;
+                input.jump = mode == 1 && (c.age % 0.8) < time.delta_secs() * 1.5;
+            }
+            c.jump_peak = c.jump_peak.max(pose.translation.y);
+            if mode == 1 && lane == 0. && c.age > 2.3 && !c.blocked_capture {
+                commands
+                    .spawn(Screenshot::primary_window())
+                    .observe(save_to_disk(v.output.join("player-window-blocked.png")));
+                c.blocked_capture = true;
+            }
+            if c.age > 3. {
+                let signed = (pose.translation - origin).dot(inward);
+                let jumped = mode != 1 || c.jump_peak > c.center.y + 0.15;
+                let attempt = c.ingress_attempt;
+                let mode_name = ["walk", "sprint_jump", "crouch"][usize::from(mode)];
+                c.rows.push(serde_json::json!({"case":"player_ingress_rejected","attempt":attempt,"mode":mode_name,"lane":lane,"passed":signed>2.4 && jumped,"interior_distance":signed,"jumped":jumped}));
+                c.ingress_attempt += 1;
+                c.age = 0.;
+                if c.ingress_attempt == 9 {
+                    // Keep the actual safe-side endpoint rather than warping
+                    // to a ground probe beside the sandbags.
+                    c.center =
+                        pose.translation + Vec3::Y * (game.tuning.standing_height - p.height) * 0.5;
+                    pose.translation = c.center;
+                    p.velocity = Vec3::ZERO;
+                    mobility.airborne = false;
+                    advance = Some(2);
+                }
             }
         }
         2 => {
-            if c.age > 0.25 && c.age < 0.4 {
-                let origin = c.aim - Vec3::Y * 0.7;
-                let inward = (c.center - origin).xz().normalize();
-                if let Some(center) = [1.5, 1.8, 2.1, 2.25].into_iter().find_map(|distance| {
-                    let probe = origin + Vec3::new(inward.x, 0., inward.y) * distance;
-                    super::semtex::standing(&query, owner, probe, p.height, game.tuning.radius)
-                }) {
-                    c.center = center;
-                }
-            }
             input.use_held = c.age > 0.4;
             if c.age > 0.8 {
                 let center = c.center;

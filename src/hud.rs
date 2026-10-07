@@ -209,6 +209,7 @@ fn update(
     tactical: Query<&crate::equipment::TacticalInventory, With<Player>>,
     perks: Query<&crate::solo_revive::PerkInventory, With<Player>>,
     mut text: Query<&mut Text, With<HudText>>,
+    generators: Res<crate::generators::Generators>,
 ) {
     let Ok(mut text) = text.single_mut() else {
         return;
@@ -257,6 +258,30 @@ fn update(
                 _ => "Unavailable",
             };
             value.push_str(&format!(" — {reason}"));
+        }
+    }
+    if **state == GameState::Playing
+        && let Some(game) = &definition
+    {
+        let sites = game
+            .content
+            .generators
+            .iter()
+            .filter_map(|d| {
+                generators.sites.get(&d.id).map(|s| {
+                    let label = match s.state {
+                        crate::generators::GeneratorState::Active => "ON".to_owned(),
+                        crate::generators::GeneratorState::Capturing => {
+                            format!("{}%", (s.progress * 100.) as u32)
+                        }
+                        _ => "OFF".to_owned(),
+                    };
+                    format!("{}:{}", d.number, label)
+                })
+            })
+            .collect::<Vec<_>>();
+        if !sites.is_empty() {
+            value.push_str(&format!("\nGenerators {}", sites.join("  ")));
         }
     }
     if **state == GameState::Playing

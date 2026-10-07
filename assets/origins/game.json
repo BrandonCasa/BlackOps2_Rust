@@ -95829,6 +95829,72 @@
         ],
         "yaw": 5.563620963167364e-08,
         "zone": "zone.start_b"
+      },
+      {
+        "id": "placement.generator.generator_start_bunker",
+        "definition": "generator.generator_start_bunker",
+        "position": [
+          55.0926,
+          -7.3914,
+          -121.5136
+        ],
+        "yaw": 4.71238898038469,
+        "zone": "zone.start_b"
+      },
+      {
+        "id": "placement.generator.generator_tank_trench",
+        "definition": "generator.generator_tank_trench",
+        "position": [
+          -8.928099999999999,
+          -7.1754999999999995,
+          -87.5792
+        ],
+        "yaw": 1.5707963267948966,
+        "zone": "zone.bunker_4a"
+      },
+      {
+        "id": "placement.generator.generator_mid_trench",
+        "definition": "generator.generator_mid_trench",
+        "position": [
+          13.3604,
+          -2.7051,
+          -59.436
+        ],
+        "yaw": 1.5707963267948966,
+        "zone": "zone.bunker_3a"
+      },
+      {
+        "id": "placement.generator.generator_nml_right",
+        "definition": "generator.generator_nml_right",
+        "position": [
+          60.1472,
+          3.3401,
+          -6.096
+        ],
+        "yaw": 4.71238898038469,
+        "zone": "zone.nml_11"
+      },
+      {
+        "id": "placement.generator.generator_nml_left",
+        "definition": "generator.generator_nml_left",
+        "position": [
+          -66.7004,
+          6.438899999999999,
+          -4.4704
+        ],
+        "yaw": 1.7484533913553992e-07,
+        "zone": "zone.nml_farm"
+      },
+      {
+        "id": "placement.generator.generator_church",
+        "definition": "generator.generator_church",
+        "position": [
+          24.384,
+          7.8994,
+          94.28479999999999
+        ],
+        "yaw": 1.5707963267948966,
+        "zone": "zone.village_3a"
       }
     ],
     "interactions": [
@@ -96472,6 +96538,72 @@
         },
         "reach": 2.392934,
         "hold_seconds": 1.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.generator.generator_start_bunker",
+        "placement": "placement.generator.generator_start_bunker",
+        "action": {
+          "kind": "generator",
+          "generator": "generator.generator_start_bunker"
+        },
+        "reach": 3.2512,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.generator.generator_tank_trench",
+        "placement": "placement.generator.generator_tank_trench",
+        "action": {
+          "kind": "generator",
+          "generator": "generator.generator_tank_trench"
+        },
+        "reach": 3.2512,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.generator.generator_mid_trench",
+        "placement": "placement.generator.generator_mid_trench",
+        "action": {
+          "kind": "generator",
+          "generator": "generator.generator_mid_trench"
+        },
+        "reach": 3.2512,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.generator.generator_nml_right",
+        "placement": "placement.generator.generator_nml_right",
+        "action": {
+          "kind": "generator",
+          "generator": "generator.generator_nml_right"
+        },
+        "reach": 3.2512,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.generator.generator_nml_left",
+        "placement": "placement.generator.generator_nml_left",
+        "action": {
+          "kind": "generator",
+          "generator": "generator.generator_nml_left"
+        },
+        "reach": 3.2512,
+        "hold_seconds": 0.0,
+        "hidden_prompt": false
+      },
+      {
+        "id": "interaction.generator.generator_church",
+        "placement": "placement.generator.generator_church",
+        "action": {
+          "kind": "generator",
+          "generator": "generator.generator_church"
+        },
+        "reach": 3.2512,
+        "hold_seconds": 0.0,
         "hidden_prompt": false
       }
     ],
@@ -331824,7 +331956,332 @@
         "source_animation": "zm_jump_down_96"
       }
     ],
-    "generators": [],
+    "generators": [
+      {
+        "id": "generator.generator_start_bunker",
+        "placement": "placement.generator.generator_start_bunker",
+        "zones": [
+          "zone.start_b"
+        ],
+        "number": 1,
+        "price": 200,
+        "capture_seconds": 12.0,
+        "radius": 5.588,
+        "decay_seconds": 20.0,
+        "shutdown_seconds": 40.0,
+        "recovery_seconds": 10.0,
+        "presentation": "presentation.generator.pump",
+        "model_position": [
+          55.0926,
+          -7.6708,
+          -121.5136
+        ],
+        "emergence": [
+          [
+            64.1096,
+            -9.4488,
+            -138.5824
+          ],
+          [
+            74.422,
+            -9.652,
+            -132.68959999999998
+          ],
+          [
+            63.398399999999995,
+            -8.026399999999999,
+            -114.1095
+          ],
+          [
+            49.784,
+            -7.8232,
+            -127.9144
+          ]
+        ],
+        "clip_seconds": [
+          1.9666666666666666,
+          1.0666666666666667,
+          1.0666666666666667,
+          3.3666666666666667,
+          0.3333333333333333,
+          0.3,
+          1.6666666666666667,
+          1.0
+        ],
+        "capture_sound": "sound.generator.capture",
+        "active_sound": "sound.generator.active"
+      },
+      {
+        "id": "generator.generator_tank_trench",
+        "placement": "placement.generator.generator_tank_trench",
+        "zones": [
+          "zone.bunker_4a"
+        ],
+        "number": 2,
+        "price": 200,
+        "capture_seconds": 12.0,
+        "radius": 5.588,
+        "decay_seconds": 20.0,
+        "shutdown_seconds": 40.0,
+        "recovery_seconds": 10.0,
+        "presentation": "presentation.generator.pump",
+        "model_position": [
+          -8.9408,
+          -7.4676,
+          -87.5792
+        ],
+        "emergence": [
+          [
+            -2.892044,
+            -7.5184,
+            -92.403168
+          ],
+          [
+            -22.3266,
+            -7.6708,
+            -87.52839999999999
+          ],
+          [
+            6.5024,
+            -4.064,
+            -95.7072
+          ],
+          [
+            -18.465799999999998,
+            -4.4196,
+            -94.74199999999999
+          ]
+        ],
+        "clip_seconds": [
+          1.9666666666666666,
+          1.0666666666666667,
+          1.0666666666666667,
+          3.3666666666666667,
+          0.3333333333333333,
+          0.3,
+          1.6666666666666667,
+          1.0
+        ],
+        "capture_sound": "sound.generator.capture",
+        "active_sound": "sound.generator.active"
+      },
+      {
+        "id": "generator.generator_mid_trench",
+        "placement": "placement.generator.generator_mid_trench",
+        "zones": [
+          "zone.bunker_3a"
+        ],
+        "number": 3,
+        "price": 200,
+        "capture_seconds": 12.0,
+        "radius": 5.588,
+        "decay_seconds": 20.0,
+        "shutdown_seconds": 40.0,
+        "recovery_seconds": 10.0,
+        "presentation": "presentation.generator.pump",
+        "model_position": [
+          13.3604,
+          -3.1496,
+          -59.436
+        ],
+        "emergence": [
+          [
+            9.5504,
+            -6.1213999999999995,
+            -67.8688
+          ],
+          [
+            22.5552,
+            -4.3434,
+            -81.8896
+          ],
+          [
+            27.6606,
+            -3.2512,
+            -62.5856
+          ],
+          [
+            7.572501999999999,
+            -3.2512,
+            -55.261255999999996
+          ]
+        ],
+        "clip_seconds": [
+          1.9666666666666666,
+          1.0666666666666667,
+          1.0666666666666667,
+          3.3666666666666667,
+          0.3333333333333333,
+          0.3,
+          1.6666666666666667,
+          1.0
+        ],
+        "capture_sound": "sound.generator.capture",
+        "active_sound": "sound.generator.active"
+      },
+      {
+        "id": "generator.generator_nml_right",
+        "placement": "placement.generator.generator_nml_right",
+        "zones": [
+          "zone.nml_11"
+        ],
+        "number": 4,
+        "price": 200,
+        "capture_seconds": 12.0,
+        "radius": 5.588,
+        "decay_seconds": 20.0,
+        "shutdown_seconds": 40.0,
+        "recovery_seconds": 10.0,
+        "presentation": "presentation.generator.pump",
+        "model_position": [
+          60.1472,
+          2.9972,
+          -6.096
+        ],
+        "emergence": [
+          [
+            60.833,
+            3.3655,
+            -15.4178
+          ],
+          [
+            59.1947,
+            3.5179,
+            4.2926
+          ],
+          [
+            78.8416,
+            4.5466,
+            -3.4543999999999997
+          ],
+          [
+            48.757332,
+            3.2639,
+            1.6377920000000001
+          ]
+        ],
+        "clip_seconds": [
+          1.9666666666666666,
+          1.0666666666666667,
+          1.0666666666666667,
+          3.3666666666666667,
+          0.3333333333333333,
+          0.3,
+          1.6666666666666667,
+          1.0
+        ],
+        "capture_sound": "sound.generator.capture",
+        "active_sound": "sound.generator.active"
+      },
+      {
+        "id": "generator.generator_nml_left",
+        "placement": "placement.generator.generator_nml_left",
+        "zones": [
+          "zone.nml_farm"
+        ],
+        "number": 5,
+        "price": 200,
+        "capture_seconds": 12.0,
+        "radius": 5.588,
+        "decay_seconds": 20.0,
+        "shutdown_seconds": 40.0,
+        "recovery_seconds": 10.0,
+        "presentation": "presentation.generator.pump",
+        "model_position": [
+          -66.7004,
+          5.9563,
+          -4.4704
+        ],
+        "emergence": [
+          [
+            -71.706486,
+            5.207,
+            -15.643859999999998
+          ],
+          [
+            -76.489052,
+            5.8674,
+            -0.087122
+          ],
+          [
+            -55.327549999999995,
+            5.3594,
+            -8.376411999999998
+          ],
+          [
+            -60.62091,
+            5.892799999999999,
+            3.2298639999999996
+          ]
+        ],
+        "clip_seconds": [
+          1.9666666666666666,
+          1.0666666666666667,
+          1.0666666666666667,
+          3.3666666666666667,
+          0.3333333333333333,
+          0.3,
+          1.6666666666666667,
+          1.0
+        ],
+        "capture_sound": "sound.generator.capture",
+        "active_sound": "sound.generator.active"
+      },
+      {
+        "id": "generator.generator_church",
+        "placement": "placement.generator.generator_church",
+        "zones": [
+          "zone.village_3a"
+        ],
+        "number": 6,
+        "price": 200,
+        "capture_seconds": 12.0,
+        "radius": 5.588,
+        "decay_seconds": 20.0,
+        "shutdown_seconds": 40.0,
+        "recovery_seconds": 10.0,
+        "presentation": "presentation.generator.pump",
+        "model_position": [
+          24.384,
+          7.7216,
+          94.28479999999999
+        ],
+        "emergence": [
+          [
+            32.858202,
+            6.2992,
+            82.375502
+          ],
+          [
+            18.15084,
+            7.62,
+            99.70592199999999
+          ],
+          [
+            31.647892,
+            7.6708,
+            96.763586
+          ],
+          [
+            24.384,
+            6.756399999999999,
+            79.40039999999999
+          ]
+        ],
+        "clip_seconds": [
+          1.9666666666666666,
+          1.0666666666666667,
+          1.0666666666666667,
+          3.3666666666666667,
+          0.3333333333333333,
+          0.3,
+          1.6666666666666667,
+          1.0
+        ],
+        "capture_sound": "sound.generator.capture",
+        "active_sound": "sound.generator.active"
+      }
+    ],
     "robot_routes": [],
     "tank_routes": [],
     "weather": [],
@@ -336267,6 +336724,21 @@
           "animation.barrier.o_zombie_board_6_pull"
         ],
         "sounds": []
+      },
+      {
+        "id": "presentation.generator.pump",
+        "scene": "props/fxanim_zom_tomb_generator_pump_mod_lod0.gltf#Scene0",
+        "animations": [
+          "animation.generator.fxanim_zom_tomb_generator_start_anim",
+          "animation.generator.fxanim_zom_tomb_generator_up_idle_anim",
+          "animation.generator.fxanim_zom_tomb_generator_down_idle_anim",
+          "animation.generator.fxanim_zom_tomb_generator_end_anim",
+          "animation.generator.fxanim_zom_tomb_generator_fluid_up_anim",
+          "animation.generator.fxanim_zom_tomb_generator_fluid_down_anim",
+          "animation.generator.fxanim_zom_tomb_generator_fluid_rotate_up_anim",
+          "animation.generator.fxanim_zom_tomb_generator_fluid_rotate_down_anim"
+        ],
+        "sounds": []
       }
     ],
     "sounds": [
@@ -336313,6 +336785,28 @@
         ],
         "distance": 12.0,
         "looping": false
+      },
+      {
+        "id": "sound.generator.capture",
+        "path": "audio/generator-capture.ogg",
+        "volume": 0.8,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 18.0,
+        "looping": true
+      },
+      {
+        "id": "sound.generator.active",
+        "path": "audio/generator-active.ogg",
+        "volume": 0.8,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance": 18.0,
+        "looping": true
       }
     ],
     "animations": [
@@ -393948,6 +394442,166 @@
           },
           {
             "seconds": 1.4666666666666666,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_start_anim",
+        "path": "props/fxanim_zom_tomb_generator_pump_mod_lod0.gltf#Animation0",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_start"
+          },
+          {
+            "seconds": 0.4,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 0.7333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 1.1333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 1.4,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 1.7,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 1.9666666666666666,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_up_idle_anim",
+        "path": "props/fxanim_zom_tomb_generator_pump_mod_lod0.gltf#Animation1",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 0.26666666666666666,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 0.8,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 1.0333333333333334,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 1.0666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_down_idle_anim",
+        "path": "props/fxanim_zom_tomb_generator_pump_mod_lod0.gltf#Animation2",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 0.6,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 1.0333333333333334,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 1.0666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_end_anim",
+        "path": "props/fxanim_zom_tomb_generator_pump_mod_lod0.gltf#Animation3",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_stop"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 1.1333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 2.1666666666666665,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 3.0,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 3.3666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_fluid_up_anim",
+        "path": "props/fxanim_zom_tomb_generator_pump_mod_lod0.gltf#Animation4",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 0.3333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_fluid_down_anim",
+        "path": "props/fxanim_zom_tomb_generator_pump_mod_lod0.gltf#Animation5",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 0.3,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_fluid_rotate_up_anim",
+        "path": "props/fxanim_zom_tomb_generator_pump_mod_lod0.gltf#Animation6",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 1.6666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_fluid_rotate_down_anim",
+        "path": "props/fxanim_zom_tomb_generator_pump_mod_lod0.gltf#Animation7",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 1.0,
             "event": "end"
           }
         ]

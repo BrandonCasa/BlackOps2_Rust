@@ -17,6 +17,14 @@ use bevy::{
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+/// A positional objective uses the same navigation and attack lifecycle as pursuit.
+#[derive(Component)]
+pub struct EnemyGoal {
+    pub position: Vec3,
+    pub face: Vec3,
+    pub radius: f32,
+}
+
 #[derive(Component)]
 #[require(
     RigidBody::Kinematic,
@@ -255,6 +263,7 @@ pub(crate) fn lifecycle(
     mut evidence: ResMut<EnemyEvidence>,
     mut barriers: ResMut<crate::barriers::Barriers>,
     server: Res<AssetServer>,
+    goals: Query<&EnemyGoal>,
 ) {
     let Ok((player_entity, player_transform, health)) = players.single() else {
         return;
@@ -401,14 +410,18 @@ pub(crate) fn lifecycle(
             zombie.navigation = 0.;
             zombie.transition(EnemyAnimation::Idle);
         }
-        let ignored = lure.is_none() && health.state() != LifeState::Standing;
+        let goal = lure.is_none().then(|| goals.get(entity).ok()).flatten();
+        let ignored = lure.is_none() && goal.is_none() && health.state() != LifeState::Standing;
         if ignored {
             zombie.transition(EnemyAnimation::Idle);
         }
         let target = if ignored {
             transform.translation
         } else {
-            lure.map_or(player_transform.translation, |l| l.position)
+            lure.map_or_else(
+                || goal.map_or(player_transform.translation, |g| g.position),
+                |l| l.position,
+            )
         };
         let filter = crate::environment::solids([entity, player_entity]);
         let visible = |from: Vec3, to: Vec3| {
@@ -423,18 +436,23 @@ pub(crate) fn lifecycle(
         if lure.is_none()
             && !ignored
             && zombie.action != EnemyAnimation::Attack
-            && distance < 1.65
+            && distance < goal.map_or(1.65, |g| g.radius)
             && visible(transform.translation, target)
         {
             zombie.transition(EnemyAnimation::Attack);
             evidence.attacks_started += 1;
         }
         if zombie.action == EnemyAnimation::Attack {
+            if let Some(goal) = goal {
+                let facing = goal.face - transform.translation;
+                transform.rotation = Quat::from_rotation_y((-facing.z).atan2(facing.x));
+            }
             while zombie.next_hit < enemy.attack_hits.len()
                 && zombie.elapsed >= enemy.attack_hits[zombie.next_hit]
             {
                 zombie.next_hit += 1;
-                if distance < 1.5
+                if goal.is_none()
+                    && distance < 1.5
                     && visible(transform.translation, target)
                     && health.state() == LifeState::Standing
                 {

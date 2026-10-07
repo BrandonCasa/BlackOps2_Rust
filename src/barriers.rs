@@ -116,6 +116,8 @@ impl Barriers {
 #[derive(Component)]
 pub struct BarrierBlocker(pub ContentId);
 #[derive(Component)]
+pub struct PlayerIngressBlocker;
+#[derive(Component)]
 pub struct BoardVisual {
     id: ContentId,
     index: usize,
@@ -175,6 +177,28 @@ fn assemble(
             RigidBody::Static,
             Collider::cuboid(0.16, 1.5, 1.8),
             Transform::from_translation(origin + Vec3::Y * 0.75).with_rotation(rotation),
+        ));
+        // Reconstructed player clip spans the window and its sandbag shoulders.
+        // Its top exceeds a full jump and its bottom closes the crouch/step path;
+        // the stacked bunker entrances retain their separate floor clearance.
+        // Board destruction never disables this actor-specific boundary.
+        let interior = definition
+            .content
+            .navigation_nodes
+            .iter()
+            .find(|n| n.id == d.exit)
+            .map(|n| Vec3::from_array(n.position))
+            .expect("validated barrier exit");
+        // The authored board pivot sits inside the exterior pocket. Seal its
+        // playable-side mouth at the native landing point.
+        let clip_origin = interior;
+        commands.spawn((
+            SessionEntity,
+            PlayerIngressBlocker,
+            RigidBody::Static,
+            CollisionLayers::new(crate::environment::PLAYER_INGRESS_LAYER, LayerMask::NONE),
+            Collider::cuboid(0.2, 4.2, 3.2),
+            Transform::from_translation(clip_origin + Vec3::Y * 1.1).with_rotation(rotation),
         ));
         for (index, b) in d.boards.iter().enumerate() {
             let Some(scene) = definition

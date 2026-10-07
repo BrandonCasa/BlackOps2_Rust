@@ -547,7 +547,7 @@
 - [ ] Preserve pending budget after failed admission.
 - [x] Track ordinary living population separately.
 - [ ] Track special living population separately.
-- [ ] Track generator defender population separately.
+- [x] Track generator defender population separately.
 - [ ] Add population admission caps.
 - [ ] Add source-defined zombie replacement rules.
 - [ ] Preserve replacement enemy health.
@@ -584,10 +584,10 @@
 - [ ] Add Panzersoldat jetpack effects.
 - [ ] Add Panzersoldat flame effects.
 - [ ] Add Panzersoldat claw effects.
-- [ ] Add generator defender spawning.
+- [x] Add generator defender spawning.
 - [ ] Add generator defender capture-zone targeting.
 - [ ] Add generator defender attack behavior.
-- [ ] Add generator defender death cleanup.
+- [x] Add generator defender death cleanup.
 - [ ] Add generator attacker route selection.
 - [ ] Add generator attacker shutdown behavior.
 - [ ] Add generator attacker progression between generators.
@@ -607,17 +607,17 @@
 - [x] Add barrier-specific repair sounds.
 - [ ] Add unopened-zone player access restrictions.
 - [ ] Replace static duplicates of dynamic gameplay objects.
-- [ ] Add generator inactive states.
-- [ ] Add generator activation purchases.
-- [ ] Add generator capture progress.
-- [ ] Add generator capture defender admission.
-- [ ] Pause capture when players leave capture volumes.
-- [ ] Add generator contestation state.
-- [ ] Resume uncontested generator capture.
-- [ ] Add generator capture completion rewards.
-- [ ] Add generator active states.
+- [x] Add generator inactive states.
+- [x] Add generator activation purchases.
+- [x] Add generator capture progress.
+- [x] Add generator capture defender admission.
+- [x] Pause capture when players leave capture volumes.
+- [x] Add generator contestation state.
+- [x] Resume uncontested generator capture.
+- [x] Add generator capture completion rewards.
+- [x] Add generator active states.
 - [ ] Add generator shutdown progress.
-- [ ] Add generator disabled states.
+- [x] Add generator disabled states.
 - [ ] Add generator recapture interactions.
 - [ ] Add local power availability.
 - [ ] Connect perk machines to local generator power.
@@ -628,16 +628,16 @@
 - [ ] Add generator attack wave completion rewards.
 - [ ] Add generator one initial reward behavior.
 - [ ] Add generator six Fire Staff part reward.
-- [ ] Bind generator one to its original placement.
-- [ ] Bind generator two to its original placement.
-- [ ] Bind generator three to its original placement.
-- [ ] Bind generator four to its original placement.
-- [ ] Bind generator five to its original placement.
-- [ ] Bind generator six to its original placement.
-- [ ] Add generator startup animations.
-- [ ] Add generator running animations.
-- [ ] Add generator shutdown animations.
-- [ ] Add generator capture sound loops.
+- [x] Bind generator one to its original placement.
+- [x] Bind generator two to its original placement.
+- [x] Bind generator three to its original placement.
+- [x] Bind generator four to its original placement.
+- [x] Bind generator five to its original placement.
+- [x] Bind generator six to its original placement.
+- [x] Add generator startup animations.
+- [x] Add generator running animations.
+- [x] Add generator shutdown animations.
+- [x] Add generator capture sound loops.
 - [x] Add owned perk state.
 - [ ] Add default perk purchase limits.
 - [ ] Add earned perk purchase slots.

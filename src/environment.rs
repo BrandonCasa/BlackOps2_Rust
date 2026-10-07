@@ -60,6 +60,12 @@ impl EnvironmentDefinition {
 pub fn solids(excluded: impl IntoIterator<Item = Entity>) -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(LayerMask::DEFAULT).with_excluded_entities(excluded)
 }
+/// Zombie ingress clips stop the player capsule without obstructing actors,
+/// projectiles, repair targeting or navigation queries.
+pub const PLAYER_INGRESS_LAYER: u32 = 4;
+pub fn player_solids(excluded: impl IntoIterator<Item = Entity>) -> SpatialQueryFilter {
+    SpatialQueryFilter::from_mask(1u32 | PLAYER_INGRESS_LAYER).with_excluded_entities(excluded)
+}
 #[derive(Component)]
 pub struct MudVolume(pub String);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

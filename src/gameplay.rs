@@ -326,6 +326,7 @@ pub(crate) fn rounds(
     mut evidence: ResMut<crate::rounds::RoundEvidence>,
     mut started: MessageWriter<crate::rounds::RoundStarted>,
     players: Query<(&Player, &Transform)>,
+    generators: Res<crate::generators::Generators>,
 ) {
     use crate::rounds::PopulationKind;
     *population = default();
@@ -365,7 +366,9 @@ pub(crate) fn rounds(
     if session.pending == 0 || !session.spawn_timer.is_finished() {
         return;
     }
-    if population.ordinary >= profile.ordinary_cap as usize
+    let reserve = if generators.busy() { 4 } else { 0 };
+    if population.ordinary
+        >= (profile.ordinary_cap as usize).min((profile.actor_cap as usize).saturating_sub(reserve))
         || population.total() >= profile.actor_cap as usize
     {
         evidence.cap_waits += 1;

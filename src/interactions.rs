@@ -143,6 +143,7 @@ fn wall_ready(
             With<Usable>,
             With<crate::access::DoorProp>,
             With<crate::barriers::BoardVisual>,
+            With<crate::generators::GeneratorVisual>,
         )>,
     >,
     children: Query<&Children>,
@@ -196,6 +197,7 @@ pub(crate) fn interact(
     blockers: Query<(Entity, &crate::access::DoorBlocker)>,
     mut barriers: ResMut<crate::barriers::Barriers>,
     windows: Query<(Entity, &crate::barriers::BarrierBlocker)>,
+    mut generators: ResMut<crate::generators::Generators>,
 ) {
     let Ok((
         player_entity,
@@ -232,11 +234,20 @@ pub(crate) fn interact(
     let candidate = targets
         .iter()
         .filter_map(|(entity, usable, transform)| {
+            if matches!(&usable.source.action, InteractionAction::Generator { generator } if !generators.available(generator)) { return None; }
             if matches!(&usable.source.action, InteractionAction::Barrier { barrier } if !barriers.repairable(barrier)) {return None;}
             if matches!(&usable.source.action, InteractionAction::Door { connection, .. } if access.opened(connection)) { return None; }
             if matches!(&usable.source.action, InteractionAction::Perk { perk } if *perk == definition.solo_revive.perk)
                 && (perks.solo_charges > 0 || perks.solo_purchases >= definition.solo_revive.maximum_purchases) { return None; }
-            let endpoint = if matches!(usable.source.action, InteractionAction::Barrier { .. }) {transform.translation + Vec3::Y * 0.7} else if matches!(usable.source.action, InteractionAction::Perk { .. }) { transform.translation + Vec3::Y + transform.rotation * Vec3::new(0., 0., 0.8) } else { transform.translation };
+            if matches!(usable.source.action, InteractionAction::Generator { .. }) && origin.distance(transform.translation+Vec3::Y*usable.source.reach*0.5)>usable.source.reach {return None;}
+            let endpoint = if let InteractionAction::Barrier { barrier } = &usable.source.action {
+                let d = definition.content.barriers.iter().find(|d| d.id == *barrier)?;
+                let exit = definition.content.navigation_nodes.iter().find(|n| n.id == d.exit)?;
+                // Reconstructed use-volume front keeps repairs reachable from
+                // the playable side of the permanent zombie-ingress boundary.
+                let inward = (Vec3::from_array(exit.position) - transform.translation).with_y(0.).normalize_or_zero();
+                transform.translation + inward * 0.8 + Vec3::Y * 0.7
+            } else if matches!(usable.source.action, InteractionAction::Generator { .. }) {crate::generators::use_point(transform.translation,origin,usable.source.reach)} else if matches!(usable.source.action, InteractionAction::Perk { .. }) { transform.translation + Vec3::Y + transform.rotation * Vec3::new(0., 0., 0.8) } else { transform.translation };
             let filter = if let InteractionAction::Door { connection, .. } = &usable.source.action {
                 crate::environment::solids(std::iter::once(player_entity).chain(blockers.iter().filter(|(_,b)|b.0==*connection).map(|(e,_)|e)))
             } else if let InteractionAction::Barrier { barrier }=&usable.source.action {
@@ -270,6 +281,52 @@ pub(crate) fn interact(
         focus.rejection = None;
     }
     focus.target = Some(entity);
+    if let InteractionAction::Generator { generator } = &usable.source.action {
+        let Some(d) = definition
+            .content
+            .generators
+            .iter()
+            .find(|d| d.id == *generator)
+        else {
+            return;
+        };
+        focus.prompt = if generators.busy() {
+            "Generator capture in progress".into()
+        } else {
+            format!(
+                "Press F to activate Generator {} [Cost: {}]",
+                d.number, d.price
+            )
+        };
+        if !input.use_held || focus.latched {
+            return;
+        }
+        focus.latched = true;
+        let purchase = ledger.command(d.price);
+        let result = ledger.accept(&mut session.points, purchase, || {
+            if inventory.action != WeaponAction::Ready
+                || grenades.busy()
+                || mines.busy()
+                || tactical.busy()
+                || drinking.is_some()
+            {
+                return Err(InteractionRejection::Busy);
+            }
+            generators.activate(generator, player_entity)
+        });
+        focus.rejection = match result {
+            Ok(()) => {
+                focus.accepted += 1;
+                None
+            }
+            Err(PurchaseError::InsufficientPoints) => {
+                Some(InteractionRejection::InsufficientPoints)
+            }
+            Err(PurchaseError::Duplicate) => Some(InteractionRejection::Duplicate),
+            Err(PurchaseError::Rejected(reason)) => Some(reason),
+        };
+        return;
+    }
     if let InteractionAction::Barrier { barrier } = &usable.source.action {
         focus.prompt = "Hold F to rebuild barrier".into();
         if !input.use_held {

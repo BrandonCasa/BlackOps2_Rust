@@ -523,6 +523,16 @@ pub struct GeneratorDefinition {
     pub price: u32,
     pub capture_seconds: f32,
     pub radius: f32,
+    pub number: u8,
+    pub decay_seconds: f32,
+    pub shutdown_seconds: f32,
+    pub recovery_seconds: f32,
+    pub presentation: ContentId,
+    pub model_position: [f32; 3],
+    pub emergence: Vec<[f32; 3]>,
+    pub clip_seconds: [f32; 8],
+    pub capture_sound: ContentId,
+    pub active_sound: ContentId,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1084,11 +1094,23 @@ impl ContentCatalog {
         }
         for v in &self.generators {
             r(&v.id.0, &v.placement.0, "placement")?;
+            r(&v.id.0, &v.presentation.0, "presentation")?;
+            r(&v.id.0, &v.capture_sound.0, "sound")?;
+            r(&v.id.0, &v.active_sound.0, "sound")?;
             for z in &v.zones {
                 r(&v.id.0, &z.0, "zone")?;
             }
             valid(
-                positive(v.capture_seconds) && positive(v.radius),
+                positive(v.capture_seconds)
+                    && positive(v.radius)
+                    && (1..=6).contains(&v.number)
+                    && positive(v.decay_seconds)
+                    && positive(v.shutdown_seconds)
+                    && positive(v.recovery_seconds)
+                    && v.model_position.iter().all(|v| v.is_finite())
+                    && v.emergence.len() == 4
+                    && v.emergence.iter().flatten().all(|v| v.is_finite())
+                    && v.clip_seconds.iter().all(|v| positive(*v)),
                 "Invalid generator parameters",
             )?;
         }

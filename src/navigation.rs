@@ -188,6 +188,12 @@ impl Navigation {
                     && access.reachable.contains(&self.nodes[b].zone)
             })
     }
+    /// Fit an authored emergence point onto an admitted, reachable native node.
+    pub fn project_emergence(&self, source: Vec3, access: &ZoneAccess) -> Option<Vec3> {
+        let node = self.nearest(source, access, true)?;
+        let p = self.nodes[node].point;
+        (p.distance_squared(source) <= 100.).then_some(p)
+    }
     pub fn destination(&mut self, position: Vec3, target: Vec3, access: &ZoneAccess) -> Vec3 {
         self.requests += 1;
         let Some((start, goal)) = self

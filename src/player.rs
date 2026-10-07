@@ -218,7 +218,7 @@ pub fn move_player(
     let mut collider = collider.clone();
     let tuning = &definition.tuning;
     let dt = time.delta_secs();
-    let filter = crate::environment::solids([entity]);
+    let filter = crate::environment::player_solids([entity]);
     let m = &tuning.mobility;
     mobility.recovery = (mobility.recovery - dt).max(0.);
     mobility.jump_recovery = (mobility.jump_recovery - dt).max(0.);
