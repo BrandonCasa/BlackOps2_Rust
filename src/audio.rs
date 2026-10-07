@@ -1,8 +1,9 @@
 //! Bounded Bevy playback of prepared source aliases; no gameplay RNG consumption.
 use crate::{GameState, assets::GameDefinition, gameplay::SessionEntity, origins::ContentId};
 use bevy::{
-    audio::{AudioSinkPlayback, PlaybackMode, Volume},
+    audio::{AudioSinkPlayback, PlaybackMode, SpatialScale, Volume},
     prelude::*,
+    transform::helper::TransformHelper,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -152,6 +153,7 @@ pub struct AudioEvidence {
     pub paused: u32,
     pub resumed: u32,
     pub owner_stops: u32,
+    pub frozen_tails: u32,
     pub events: BTreeMap<String, u32>,
     pub sinks: BTreeMap<String, u32>,
 }
@@ -169,75 +171,91 @@ struct Mixer {
     voice_cooldown: f32,
     last_voice: BTreeMap<String, f32>,
 }
+/// Attachment is explicit: world events keep their location; entity events follow
+/// the current local-to-world transform while preserving their authored offset.
+#[derive(Clone, Copy, Debug)]
+pub enum SoundSource {
+    World(Vec3),
+    Entity { entity: Entity, offset: Vec3 },
+}
+impl SoundSource {
+    pub fn attached(entity: Entity) -> Self {
+        Self::Entity {
+            entity,
+            offset: Vec3::ZERO,
+        }
+    }
+    fn position(self, transforms: &TransformHelper) -> Option<Vec3> {
+        match self {
+            Self::World(position) => Some(position),
+            Self::Entity { entity, offset } => transforms
+                .compute_global_transform(entity)
+                .ok()
+                .map(|pose| pose.transform_point(offset)),
+        }
+    }
+}
 #[derive(Component)]
 pub struct SoundRequest {
     alias: String,
-    position: Vec3,
-    owner: Option<Entity>,
+    source: SoundSource,
     looping: bool,
 }
-/// Event requests are admitted together by the mixer, including pending command spawns.
-pub fn emit(
-    commands: &mut Commands,
-    alias: impl Into<String>,
-    position: Vec3,
-    owner: Option<Entity>,
-) -> Entity {
+/// Event requests are admitted together, including pending command spawns.
+pub fn emit(commands: &mut Commands, alias: impl Into<String>, source: SoundSource) -> Entity {
     commands
         .spawn((
             SessionEntity,
             SoundRequest {
                 alias: alias.into(),
-                position,
-                owner,
+                source,
                 looping: false,
             },
         ))
         .id()
 }
-pub fn emit_loop(
-    commands: &mut Commands,
-    alias: impl Into<String>,
-    position: Vec3,
-    owner: Option<Entity>,
-) -> Entity {
+pub fn emit_loop(commands: &mut Commands, alias: impl Into<String>, source: SoundSource) -> Entity {
     commands
         .spawn((
             SessionEntity,
             SoundRequest {
                 alias: alias.into(),
-                position,
-                owner,
+                source,
                 looping: true,
             },
         ))
         .id()
 }
-pub fn binding(
-    commands: &mut Commands,
-    game: &GameDefinition,
-    key: &str,
-    position: Vec3,
-    owner: Option<Entity>,
-) {
+pub fn binding(commands: &mut Commands, game: &GameDefinition, key: &str, source: SoundSource) {
     if let Some(alias) = game.audio.bindings.get(key) {
-        emit(commands, alias.clone(), position, owner);
+        emit(commands, alias.clone(), source);
     }
 }
 #[derive(Component)]
-struct PlayingSound {
-    alias: String,
-    channel: Channel,
-    owner: Option<Entity>,
-    looping: bool,
-    base: f32,
-    distance: f32,
+pub(crate) struct PlayingSound {
+    pub(crate) alias: String,
+    pub(crate) channel: Channel,
+    pub(crate) source: SoundSource,
+    pub(crate) looping: bool,
+    pub(crate) base: f32,
+    pub(crate) distance_min: f32,
+    pub(crate) distance: f32,
     priority: u32,
     gain: f32,
     started: f32,
 }
+/// Native distance endpoints, with a reconstructed linear curve between them.
+pub(crate) fn attenuation(distance: f32, minimum: f32, maximum: f32) -> f32 {
+    if distance >= maximum {
+        0.
+    } else if distance <= minimum {
+        1.
+    } else {
+        (maximum - distance) / (maximum - minimum)
+    }
+}
 #[derive(Component)]
-struct RetiringSound;
+pub(crate) struct RetiringSound;
 fn speech(alias: &str) -> bool {
     alias.starts_with("vox_plr_") || alias.starts_with("vox_sam_")
 }
@@ -252,8 +270,16 @@ impl Plugin for GameAudioPlugin {
             .init_resource::<Mixer>()
             .add_systems(
                 Update,
-                (settings, play, maintain, subtitles)
+                (settings, play, subtitles)
                     .chain()
+                    .after(crate::input::pause_and_restart)
+                    .in_set(AudioPlayback),
+            )
+            .add_systems(
+                PostUpdate,
+                maintain
+                    .after(bevy::app::AnimationSystems)
+                    .before(bevy::transform::TransformSystems::Propagate)
                     .in_set(AudioPlayback),
             )
             .add_systems(OnEnter(GameState::GameOver), (stop, game_over).chain())
@@ -299,7 +325,8 @@ fn play(
     time: Res<Time>,
     requests: Query<(Entity, &SoundRequest)>,
     playing: Query<(Entity, &PlayingSound)>,
-    camera: Query<&GlobalTransform, With<crate::rendering::GameCamera>>,
+    camera: Query<Entity, With<crate::rendering::GameCamera>>,
+    transforms: TransformHelper,
     mut mixer: ResMut<Mixer>,
     mut evidence: ResMut<AudioEvidence>,
     mut subtitle: ResMut<Subtitle>,
@@ -309,7 +336,7 @@ fn play(
     };
     if **state != GameState::Playing && **state != GameState::GameOver {
         for (e, _) in &requests {
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
         return;
     }
@@ -317,7 +344,9 @@ fn play(
     mixer.clock += time.delta_secs();
     let listener = camera
         .single()
-        .map_or(Vec3::ZERO, GlobalTransform::translation);
+        .ok()
+        .and_then(|e| transforms.compute_global_transform(e).ok())
+        .map_or(Vec3::ZERO, |t| t.translation());
     let mut counts = BTreeMap::<String, usize>::new();
     let mut live = BTreeMap::<String, Vec<(Entity, f32)>>::new();
     let mut count = 0;
@@ -334,26 +363,26 @@ fn play(
     }
     for (entity, request) in &requests {
         if **state == GameState::GameOver && request.alias != "mus_zombie_game_over" {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
             continue;
         }
         evidence.requested += 1;
         let Some(alias) = game.audio.aliases.get(&request.alias) else {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
             evidence.rejected += 1;
             continue;
         };
         if alias.channel == Channel::Music && request.alias.starts_with("mus_zombie_") {
             for (e, s) in &playing {
                 if s.alias.starts_with("mus_zombie_") {
-                    commands.entity(e).insert(RetiringSound);
+                    commands.entity(e).try_insert(RetiringSound);
                 }
             }
         }
         let concurrent = *counts.get(&request.alias).unwrap_or(&0);
         let character_speech = alias.channel == Channel::Dialogue && speech(&request.alias);
-        if count >= 64 || (concurrent >= alias.limit && character_speech) {
-            commands.entity(entity).despawn();
+        if concurrent >= alias.limit && character_speech {
+            commands.entity(entity).try_despawn();
             evidence.rejected += 1;
             continue;
         }
@@ -367,10 +396,15 @@ fn play(
                     .min_by(|(_, a), (_, b)| a.1.total_cmp(&b.1))
             {
                 let (old, _) = entries.remove(index);
-                commands.entity(old).despawn();
+                commands.entity(old).try_despawn();
                 count -= 1;
                 *counts.get_mut(&request.alias).unwrap() -= 1;
             }
+        }
+        if count >= 64 {
+            commands.entity(entity).try_despawn();
+            evidence.rejected += 1;
+            continue;
         }
         if character_speech {
             let now = mixer.clock;
@@ -382,12 +416,12 @@ fn play(
                 || (mixer.voice_cooldown > 0. && alias.priority < 100)
                 || voice.iter().any(|(_, p)| *p >= alias.priority)
             {
-                commands.entity(entity).despawn();
+                commands.entity(entity).try_despawn();
                 evidence.rejected += 1;
                 continue;
             }
             for (e, _) in voice.drain(..) {
-                commands.entity(e).despawn();
+                commands.entity(e).try_despawn();
             }
             mixer.last_voice.insert(request.alias.clone(), now);
             mixer.voice_cooldown = 8.;
@@ -419,27 +453,42 @@ fn play(
             .iter()
             .find(|s| s.id == alias.sounds[choice])
         else {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
+            continue;
+        };
+        let Some(position) = request.source.position(&transforms) else {
+            commands.entity(entity).try_despawn();
+            evidence.rejected += 1;
             continue;
         };
         let looping = request.looping || sound.looping;
         // Persistent emitters remain admitted so approaching their owner restores
         // audibility without restarting the loop on every distant frame.
-        if alias.spatial && !looping && listener.distance(request.position) > sound.distance {
-            commands.entity(entity).despawn();
+        if alias.spatial && !looping && listener.distance(position) > sound.distance {
+            commands.entity(entity).try_despawn();
             evidence.rejected += 1;
             continue;
         }
         let fraction = ((mixer.sequence >> 16) & 65535) as f32 / 65535.;
         let speed = sound.pitch[0] + (sound.pitch[1] - sound.pitch[0]) * fraction;
-        let gain = settings.gain(alias.channel);
+        let gain = settings.gain(alias.channel)
+            * if alias.spatial {
+                attenuation(
+                    listener.distance(position),
+                    sound.distance_min,
+                    sound.distance,
+                )
+            } else {
+                1.
+            };
         commands.entity(entity).remove::<SoundRequest>().insert((
             PlayingSound {
                 alias: request.alias.clone(),
                 channel: alias.channel,
-                owner: request.owner,
+                source: request.source,
                 looping,
                 base: sound.volume,
+                distance_min: sound.distance_min,
                 distance: sound.distance,
                 priority: alias.priority,
                 gain,
@@ -453,11 +502,14 @@ fn play(
                     PlaybackMode::Despawn
                 },
                 spatial: alias.spatial,
+                // Scale both ears and emitter identically: retain panning but keep
+                // Rodio distances below one throughout the audible radius.
+                spatial_scale: Some(SpatialScale::new(1. / (sound.distance + 0.2))),
                 speed,
                 volume: Volume::Linear(sound.volume * gain),
                 ..default()
             },
-            Transform::from_translation(request.position),
+            Transform::from_translation(position),
         ));
         if character_speech {
             voice.push((entity, alias.priority));
@@ -470,12 +522,7 @@ fn play(
         evidence.started += 1;
         *evidence.events.entry(request.alias.clone()).or_default() += 1;
         if let Some(secondary) = &alias.secondary {
-            emit(
-                &mut commands,
-                secondary.clone(),
-                request.position,
-                request.owner,
-            );
+            emit(&mut commands, secondary.clone(), request.source);
         }
     }
     evidence.peak = evidence.peak.max(count);
@@ -485,64 +532,80 @@ fn maintain(
     state: Res<State<GameState>>,
     settings: Res<AudioSettings>,
     time: Res<Time>,
-    owners: Query<&GlobalTransform, Without<PlayingSound>>,
-    camera: Query<&GlobalTransform, With<crate::rendering::GameCamera>>,
-    mut sounds: Query<(
-        Entity,
-        &mut PlayingSound,
-        &mut Transform,
-        Option<&mut AudioSink>,
-        Option<&mut SpatialAudioSink>,
-        &mut PlaybackSettings,
-        Option<&RetiringSound>,
+    camera: Query<Entity, With<crate::rendering::GameCamera>>,
+    mut queries: ParamSet<(
+        TransformHelper,
+        Query<(
+            Entity,
+            &mut PlayingSound,
+            &mut Transform,
+            Option<&mut AudioSink>,
+            Option<&mut SpatialAudioSink>,
+            &mut PlaybackSettings,
+            Option<&RetiringSound>,
+        )>,
     )>,
     mut evidence: ResMut<AudioEvidence>,
     mut heard: Local<BTreeSet<Entity>>,
 ) {
+    let sources: Vec<_> = queries
+        .p1()
+        .iter()
+        .map(|(e, s, ..)| (e, s.source))
+        .collect();
+    let transforms = queries.p0();
     let listener = camera
         .single()
-        .map_or(Vec3::ZERO, GlobalTransform::translation);
+        .ok()
+        .and_then(|e| transforms.compute_global_transform(e).ok())
+        .map_or(Vec3::ZERO, |t| t.translation());
+    let positions: BTreeMap<_, _> = sources
+        .into_iter()
+        .map(|(e, source)| (e, source.position(&transforms)))
+        .collect();
+    let mut sounds = queries.p1();
     heard.retain(|e| sounds.contains(*e));
     for (entity, mut sound, mut pose, regular, spatial, mut playback, retiring) in &mut sounds {
         playback.paused = **state == GameState::Paused;
-        if let Some(owner) = sound.owner {
-            if let Ok(owner) = owners.get(owner) {
-                pose.translation = owner.translation();
-            } else if sound.looping {
-                commands.entity(entity).despawn();
-                evidence.owner_stops += 1;
-                continue;
-            }
+        if let Some(position) = positions[&entity] {
+            pose.translation = position;
+        } else if sound.looping {
+            commands.entity(entity).try_despawn();
+            evidence.owner_stops += 1;
+            continue;
+        } else {
+            // The owner retired. Keep a one-shot tail at its last valid position.
+            sound.source = SoundSource::World(pose.translation);
+            evidence.frozen_tails += 1;
         }
-        if regular.is_some() || spatial.is_some() {
-            if heard.insert(entity) {
-                *evidence.sinks.entry(sound.alias.clone()).or_default() += 1;
-            }
+        if (regular.is_some() || spatial.is_some()) && heard.insert(entity) {
+            *evidence.sinks.entry(sound.alias.clone()).or_default() += 1;
         }
-        let distance = listener.distance(pose.translation);
-        // Explicit bounded linear distance falloff complements Bevy stereo localization.
-        let attenuation = if spatial.is_some() {
-            (1. - distance / sound.distance).clamp(0., 1.)
+        let falloff = if playback.spatial {
+            attenuation(
+                listener.distance(pose.translation),
+                sound.distance_min,
+                sound.distance,
+            )
         } else {
             1.
         };
-        let target = if retiring.is_some() {
-            0.
-        } else {
-            settings.gain(sound.channel) * attenuation
-        };
-        if **state == GameState::Paused {
-            if retiring.is_none() {
-                sound.gain = target;
+        let target = settings.gain(sound.channel) * falloff;
+        // Distance changes are immediate, including pending sinks. Only an
+        // explicitly retiring music tail fades, never world attenuation.
+        if retiring.is_some() {
+            if **state != GameState::Paused {
+                sound.gain *= (1. - time.delta_secs() * 5.).max(0.);
             }
         } else {
-            sound.gain += (target - sound.gain) * (time.delta_secs() * 5.).min(1.);
+            sound.gain = target;
         }
         if retiring.is_some() && sound.gain < 0.002 {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
             continue;
         }
         let volume = Volume::Linear(sound.base * sound.gain);
+        playback.volume = volume;
         for sink in regular
             .into_iter()
             .map(|s| s.into_inner() as &mut dyn AudioSinkPlayback)
@@ -571,14 +634,18 @@ fn stop(
     mut subtitle: ResMut<Subtitle>,
 ) {
     for e in &sounds {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     *mixer = Mixer::default();
     *subtitle = Subtitle::default();
 }
 fn game_over(mut commands: Commands, game: Option<Res<GameDefinition>>) {
     if game.is_some_and(|g| g.audio.aliases.contains_key("mus_zombie_game_over")) {
-        emit(&mut commands, "mus_zombie_game_over", Vec3::ZERO, None);
+        emit(
+            &mut commands,
+            "mus_zombie_game_over",
+            SoundSource::World(Vec3::ZERO),
+        );
     }
 }
 fn subtitles(state: Res<State<GameState>>, time: Res<Time>, mut subtitle: ResMut<Subtitle>) {

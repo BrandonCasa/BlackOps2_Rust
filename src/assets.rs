@@ -32,6 +32,7 @@ pub struct LaunchOptions {
     pub verify_doors: bool,
     pub verify_navigation: bool,
     pub verify_traversal: bool,
+    pub verify_audio: bool,
     pub verify_barriers: bool,
     pub verify_generators: bool,
     pub verify_hit_regions: bool,
@@ -68,6 +69,7 @@ impl LaunchOptions {
                 || argument == "--verify-doors"
                 || argument == "--verify-navigation"
                 || argument == "--verify-traversal"
+                || argument == "--verify-audio"
                 || argument == "--verify-barriers"
                 || argument == "--verify-generators"
                 || argument == "--verify-health"
@@ -97,6 +99,7 @@ impl LaunchOptions {
                     || argument == "--verify-doors"
                     || argument == "--verify-navigation"
                     || argument == "--verify-traversal"
+                    || argument == "--verify-audio"
                     || argument == "--verify-barriers"
                     || argument == "--verify-generators"
                     || argument == "--verify-health"
@@ -126,6 +129,7 @@ impl LaunchOptions {
                 result.verify_navigation =
                     argument == "--verify-navigation" || argument == "--verify-traversal";
                 result.verify_traversal = argument == "--verify-traversal";
+                result.verify_audio = argument == "--verify-audio";
                 result.verify_barriers = argument == "--verify-barriers";
                 result.verify_generators = argument == "--verify-generators";
                 result.verify_hit_regions = argument == "--verify-hit-regions";

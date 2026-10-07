@@ -73,6 +73,7 @@ fn drive(
     >,
     enemies: Query<(Entity, &Transform, &Zombie), Without<Player>>,
     barriers: Res<Barriers>,
+    audio: Res<crate::audio::AudioEvidence>,
     focus: Res<InteractionFocus>,
     mut next: ResMut<NextState<GameState>>,
 ) {
@@ -310,7 +311,7 @@ fn drive(
         9 => {
             input.use_held = true;
             if barriers.repaired == 12 {
-                c.rows.push(serde_json::json!({"case":"repairs_beyond_reward_cap","passed":barriers.awarded==40 && barriers.reward_counter==120}));
+                c.rows.push(serde_json::json!({"case":"repairs_beyond_reward_cap","passed":barriers.awarded==40 && barriers.reward_counter==120 && audio.events.get("zmb_cha_ching").copied().unwrap_or(0)==4}));
                 session.round = 2;
                 c.actor = Some(actor(&mut commands, &game, c.spawn));
                 advance = Some(10);
@@ -325,7 +326,7 @@ fn drive(
         11 => {
             input.use_held = true;
             if barriers.repaired == 18 && barriers.playing_sounds == barriers.sounds {
-                c.rows.push(serde_json::json!({"case":"new_round_reward_reset","passed":barriers.awarded==100 && barriers.reward_counter==60 && barriers.playing_sounds==barriers.sounds,"awarded":barriers.awarded,"counter":barriers.reward_counter,"sounds":barriers.sounds,"playing_sounds":barriers.playing_sounds}));
+                c.rows.push(serde_json::json!({"case":"new_round_reward_reset","passed":barriers.awarded==100 && barriers.reward_counter==60 && audio.events.get("zmb_cha_ching").copied().unwrap_or(0)==10 && barriers.playing_sounds==barriers.sounds,"awarded":barriers.awarded,"counter":barriers.reward_counter,"sounds":barriers.sounds,"playing_sounds":barriers.playing_sounds}));
                 next.set(GameState::GameOver);
                 advance = Some(12);
             }

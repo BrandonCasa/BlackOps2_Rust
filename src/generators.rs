@@ -501,8 +501,7 @@ fn presentation(
             let sound = crate::audio::emit_loop(
                 &mut commands,
                 alias.clone(),
-                Vec3::from_array(d.model_position),
-                Some(entity),
+                crate::audio::SoundSource::attached(entity),
             );
             commands
                 .entity(sound)
@@ -515,43 +514,40 @@ fn presentation(
                     crate::audio::emit(
                         &mut commands,
                         "zmb_capturezone_donut_start",
-                        position,
-                        Some(entity),
+                        crate::audio::SoundSource::attached(entity),
                     );
-                    crate::audio::voice(
-                        &mut commands,
-                        &definition,
-                        "capture_zones",
-                        position,
-                        u32::from(d.number),
-                    );
+                    if let Some(speaker) = site.purchaser {
+                        crate::audio::voice(
+                            &mut commands,
+                            &definition,
+                            "capture_zones",
+                            speaker,
+                            u32::from(d.number),
+                        );
+                    }
                 }
                 GeneratorState::Active => {
                     crate::audio::emit(
                         &mut commands,
                         "zmb_capturezone_success",
-                        position,
-                        Some(entity),
+                        crate::audio::SoundSource::attached(entity),
                     );
                     crate::audio::emit(
                         &mut commands,
                         format!("mus_event_generator_{}", d.number),
-                        position,
-                        None,
+                        crate::audio::SoundSource::World(position),
                     );
                     crate::audio::emit(
                         &mut commands,
                         "zmb_capturezone_donut_stop",
-                        position,
-                        Some(entity),
+                        crate::audio::SoundSource::attached(entity),
                     );
                 }
                 GeneratorState::Disabled => {
                     crate::audio::emit(
                         &mut commands,
                         "zmb_capturezone_donut_stop",
-                        position,
-                        Some(entity),
+                        crate::audio::SoundSource::attached(entity),
                     );
                 }
                 _ => {}
@@ -601,8 +597,7 @@ fn presentation(
                     crate::audio::emit(
                         &mut commands,
                         note.alias.clone(),
-                        Vec3::from_array(d.model_position),
-                        Some(entity),
+                        crate::audio::SoundSource::attached(entity),
                     );
                 }
             }

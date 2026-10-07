@@ -228,7 +228,7 @@ pub(crate) fn combat(
                         &mut commands,
                         &definition,
                         "ammo_low",
-                        origin,
+                        entity,
                         session.shots,
                     );
                 }
@@ -236,8 +236,10 @@ pub(crate) fn combat(
                     &mut commands,
                     &definition,
                     &format!("{}.shot", id.0),
-                    origin,
-                    None,
+                    crate::audio::SoundSource::Entity {
+                        entity,
+                        offset: Vec3::Y * (player.eye_height - player.height * 0.5),
+                    },
                 );
                 let Some(weapon) = definition.content.weapons.iter().find(|w| w.id == id) else {
                     continue;

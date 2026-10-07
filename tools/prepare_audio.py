@@ -136,6 +136,7 @@ def prepare(config):
             sid = f'sound.native.{name}.{index}'
             content['sounds'].append({'id':sid,'path':relative,'volume':min(1.,10**((float(row['VolMax'])-100)/20)),
                 'pitch':[2**(float(row['PitchMin'])/1200),2**(float(row['PitchMax'])/1200)],
+                'distance_min':0. if name.startswith('mus_perks_') and name.endswith('_jingle') else max(0.,float(row['DistMin'])*.0254),
                 'distance':10. if name.startswith('mus_perks_') and name.endswith('_jingle') else max(.1,float(row['DistMaxDry'])*.0254),'looping':row['Looping']=='looping'})
             choices.append(sid)
         if not choices:
@@ -207,7 +208,7 @@ def prepare(config):
     game['audio']={'aliases':aliases,'bindings':bindings,'timelines':timelines,'emitters':[e for e in emitters if e['alias'] in aliases],'character':0,'surfaces':surfaces}
     (pack/'game.json').write_text(json.dumps(game,indent=2)+'\n')
     report={'aliases':len(aliases),'samples':len(samples),'bindings':len(bindings),'timelines':len(timelines),'emitters':len(game['audio']['emitters']),'missing':missing,'missing_aliases':sorted(wanted-aliases.keys()),'provenance':provenance,'promoted_primary_layers':promoted,
-        'approximations':['Linear attenuation and variant choice reconstruct native acoustic curves/weights.','Collision material names classify footsteps offline; exact native physics surface flags remain unrecovered.','Rain follows the current static rainy sky; dynamic weather gameplay is pending.','Perk machines use a bounded ten-meter music radius.','Native alias subtitles are empty; event captions do not invent speech transcripts.','Debris uses native rock-fall samples; script sound-family indirection remains unrecovered.']}
+        'approximations':['Native distance endpoints are retained; linear attenuation between endpoints and variant choice reconstruct acoustic curves/weights.','Collision material names classify footsteps offline; exact native physics surface flags remain unrecovered.','Rain follows the current static rainy sky; dynamic weather gameplay is pending.','Perk machines use a bounded ten-meter music radius.','Native alias subtitles are empty; event captions do not invent speech transcripts.','Debris uses native rock-fall samples; script sound-family indirection remains unrecovered.']}
     (base/'audio-recovery/preparation.json').write_text(json.dumps(report,indent=2)+'\n')
     print({k:v for k,v in report.items() if k not in ('provenance','missing')},'missing samples',len(missing))
 

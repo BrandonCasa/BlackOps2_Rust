@@ -346,9 +346,10 @@ pub(crate) fn interact(
         focus.progress += time.delta_secs();
         if focus.progress >= usable.source.hold_seconds {
             focus.progress = 0.;
-            if barriers.repair(barrier) {
-                crate::audio::emit(&mut commands, "zmb_boards_float", origin, None);
-                crate::audio::emit(&mut commands, "zmb_repair_boards", origin, None);
+            if let Some(index) = barriers.repair(barrier, player_entity) {
+                let source = barriers.source(&definition, barrier, index);
+                crate::audio::emit(&mut commands, "zmb_boards_float", source);
+                crate::audio::emit(&mut commands, "zmb_repair_boards", source);
                 focus.accepted += 1;
                 focus.rejection = None;
             }
@@ -387,6 +388,24 @@ pub(crate) fn interact(
                 .map_err(|()| InteractionRejection::Unavailable)
         }) {
             Ok(()) => {
+                let position = if debris {
+                    targets
+                        .get(entity)
+                        .map_or(origin, |(_, _, pose)| pose.translation)
+                } else {
+                    definition
+                        .access
+                        .doors
+                        .iter()
+                        .find(|d| d.connection == *connection)
+                        .and_then(|d| d.props.first())
+                        .map_or(origin, |p| Vec3::from_array(p.position))
+                };
+                crate::audio::emit(
+                    &mut commands,
+                    "zmb_cha_ching",
+                    crate::audio::SoundSource::World(position),
+                );
                 focus.accepted += 1;
                 focus.rejection = None;
                 focus.prompt.clear();
@@ -548,15 +567,18 @@ pub(crate) fn interact(
                     weapon.id.0,
                     if owned.is_some() { "ammo" } else { "purchase" }
                 ),
-                body.translation,
-                None,
+                crate::audio::SoundSource::attached(player_entity),
             );
-            crate::audio::emit(&mut commands, "zmb_cha_ching", body.translation, None);
+            crate::audio::emit(
+                &mut commands,
+                "zmb_cha_ching",
+                crate::audio::SoundSource::attached(player_entity),
+            );
             crate::audio::voice(
                 &mut commands,
                 &definition,
                 "generic_wall_buy",
-                body.translation,
+                player_entity,
                 session.kills,
             );
             None

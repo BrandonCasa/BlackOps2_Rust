@@ -51,7 +51,7 @@ pub(crate) fn voice(
     commands: &mut Commands,
     game: &GameDefinition,
     event: &str,
-    position: Vec3,
+    speaker: Entity,
     index: u32,
 ) {
     let prefix = format!("vox_plr_{}_{}", game.audio.character, event);
@@ -65,8 +65,7 @@ pub(crate) fn voice(
         emit(
             commands,
             choices[index as usize % choices.len()].clone(),
-            position,
-            None,
+            SoundSource::attached(speaker),
         );
     }
 }
@@ -78,7 +77,6 @@ fn actions(
     players: Query<
         (
             Entity,
-            &Transform,
             &WeaponInventory,
             &crate::equipment::GrenadeInventory,
             &crate::equipment::TacticalInventory,
@@ -89,7 +87,7 @@ fn actions(
     >,
 ) {
     state.actions.retain(|e, _| players.contains(*e));
-    for (owner, pose, inventory, lethal, tactical, mines, drinking) in &players {
+    for (owner, inventory, lethal, tactical, mines, drinking) in &players {
         let selected = drinking
             .map(|d| d.selection())
             .or_else(|| crate::presentation::offhand::selection(lethal, tactical, mines, &game));
@@ -161,8 +159,7 @@ fn actions(
                     &mut commands,
                     &game,
                     &format!("{}.{}", weapon.id.0, event),
-                    pose.translation,
-                    None,
+                    SoundSource::attached(owner),
                 );
             }
             if inventory.signal == WeaponSignal::DryFire && selected.is_none() {
@@ -170,16 +167,9 @@ fn actions(
                     &mut commands,
                     &game,
                     &format!("{}.dry_fire", weapon.id.0),
-                    pose.translation,
-                    None,
+                    SoundSource::attached(owner),
                 );
-                voice(
-                    &mut commands,
-                    &game,
-                    "ammo_out",
-                    pose.translation,
-                    sequence as u32,
-                );
+                voice(&mut commands, &game, "ammo_out", owner, sequence as u32);
             }
         }
         let native_duration = game
@@ -202,7 +192,11 @@ fn actions(
                 .iter()
                 .filter(|n| n.seconds > clock.sampled && n.seconds <= sampled)
             {
-                emit(&mut commands, note.alias.clone(), pose.translation, None);
+                emit(
+                    &mut commands,
+                    note.alias.clone(),
+                    SoundSource::attached(owner),
+                );
             }
         }
         clock.sampled = sampled;
@@ -230,8 +224,7 @@ fn actors(
             emit(
                 &mut commands,
                 "zmb_vocals_capzomb_spawn",
-                pose.translation,
-                Some(owner),
+                SoundSource::attached(owner),
             );
         }
         if health.state() != LifeState::ActorAlive {
@@ -258,8 +251,7 @@ fn actors(
                 emit(
                     &mut commands,
                     format!("fly_step_{gait}_npc_{surface}"),
-                    pose.translation,
-                    Some(owner),
+                    SoundSource::attached(owner),
                 );
             }
         }
@@ -268,8 +260,7 @@ fn actors(
                 emit(
                     &mut commands,
                     "zmb_attack_whoosh",
-                    pose.translation,
-                    Some(owner),
+                    SoundSource::attached(owner),
                 );
             }
             let alias = match zombie.action {
@@ -282,7 +273,7 @@ fn actors(
                 _ => None,
             };
             if let Some(alias) = alias {
-                emit(&mut commands, alias, pose.translation, Some(owner));
+                emit(&mut commands, alias, SoundSource::attached(owner));
             }
         }
         clock.action = Some(zombie.action);
@@ -297,8 +288,7 @@ fn actors(
                     (false, true) => "zmb_vocals_zombie_sprint",
                     (false, false) => "zmb_vocals_zombie_ambience",
                 },
-                pose.translation,
-                Some(owner),
+                SoundSource::attached(owner),
             );
             clock.vocal = 4. + (owner.to_bits() % 37) as f32 * 0.1;
         }
@@ -331,7 +321,7 @@ fn world(
     if state.player != Some(player) {
         for entity in state.loops.values() {
             if exists.contains(*entity) {
-                commands.entity(*entity).despawn();
+                commands.entity(*entity).try_despawn();
             }
         }
         *state = AudioState {
@@ -355,49 +345,63 @@ fn world(
                 format!("fly_prone_{surface}_plr")
             };
             if game.audio.aliases.contains_key(&alias) {
-                emit(&mut commands, alias, position, None);
+                emit(&mut commands, alias, SoundSource::attached(player));
             }
         }
     } else {
         state.crawl_distance = 0.;
     }
-    let mut wanted = BTreeMap::<String, (String, Vec3, Option<Entity>)>::new();
+    let mut wanted = BTreeMap::<String, (String, SoundSource)>::new();
     let critical = recovery.critical || health.state() == LifeState::Downed;
     if critical {
         wanted.insert(
             "player.critical".into(),
-            ("chr_breathing_hurt".into(), position, Some(player)),
+            ("chr_breathing_hurt".into(), SoundSource::attached(player)),
         );
         if !state.critical {
-            emit(&mut commands, "chr_breathing_hurt_start", position, None);
+            emit(
+                &mut commands,
+                "chr_breathing_hurt_start",
+                SoundSource::attached(player),
+            );
         }
     } else if state.critical {
-        emit(&mut commands, "chr_breathing_better", position, None);
+        emit(
+            &mut commands,
+            "chr_breathing_better",
+            SoundSource::attached(player),
+        );
     }
     state.critical = critical;
     let downed = health.state() == LifeState::Downed;
     if state.downed && !downed {
-        emit(&mut commands, "chr_revive_gasp", position, None);
-        voice(
+        emit(
             &mut commands,
-            &game,
-            "heal_revived",
-            position,
-            session.kills,
+            "chr_revive_gasp",
+            SoundSource::attached(player),
         );
+        voice(&mut commands, &game, "heal_revived", player, session.kills);
     }
     state.downed = downed;
     if state.round != session.round {
-        emit(&mut commands, "mus_zombie_round_start", position, None);
+        emit(
+            &mut commands,
+            "mus_zombie_round_start",
+            SoundSource::World(position),
+        );
         state.round = session.round;
         if session.round == 1 {
-            voice(&mut commands, &game, "during_round_1", position, 0);
+            voice(&mut commands, &game, "during_round_1", player, 0);
         }
     }
     if session.intermission.is_some() && !state.intermission {
-        emit(&mut commands, "mus_zombie_round_over", position, None);
+        emit(
+            &mut commands,
+            "mus_zombie_round_over",
+            SoundSource::World(position),
+        );
         if session.round == 1 {
-            voice(&mut commands, &game, "end_round_1", position, session.round);
+            voice(&mut commands, &game, "end_round_1", player, session.round);
         }
     }
     state.intermission = session.intermission.is_some();
@@ -412,8 +416,7 @@ fn world(
             emit(
                 &mut commands,
                 format!("mus_perks_{native}_sting"),
-                position,
-                None,
+                SoundSource::World(position),
             );
             let event = match native {
                 "jugganog" => Some("perk_jugga"),
@@ -424,7 +427,7 @@ fn world(
                 _ => None,
             };
             if let Some(event) = event {
-                voice(&mut commands, &game, event, position, 0);
+                voice(&mut commands, &game, event, player, 0);
             }
         }
     }
@@ -449,54 +452,49 @@ fn world(
             continue;
         };
         let p = Vec3::from_array(placement.position);
-        if p.distance(position) < 10. {
-            wanted.insert(
-                placement.id.0.clone(),
-                (format!("mus_perks_{native}_jingle"), p, None),
-            );
-        }
+        wanted.insert(
+            placement.id.0.clone(),
+            (format!("mus_perks_{native}_jingle"), SoundSource::World(p)),
+        );
     }
     for (i, emitter) in game.audio.emitters.iter().enumerate() {
         let p = Vec3::from_array(emitter.position);
-        let range = game
-            .audio
-            .aliases
-            .get(&emitter.alias)
-            .and_then(|a| a.sounds.first())
-            .and_then(|id| game.content.sounds.iter().find(|s| s.id == *id))
-            .map_or(20., |s| s.distance);
-        if p.distance(position) < range {
-            wanted.insert(format!("ambient.{i}"), (emitter.alias.clone(), p, None));
-        }
+        wanted.insert(
+            format!("ambient.{i}"),
+            (emitter.alias.clone(), SoundSource::World(p)),
+        );
     }
     // Current procedural sky is rainy throughout: source outdoor rain bed follows it.
     wanted.insert(
         "weather".into(),
-        ("amb_weather_2d_rain_outdoor".into(), position, None),
+        (
+            "amb_weather_2d_rain_outdoor".into(),
+            SoundSource::attached(player),
+        ),
     );
-    for (e, bomb, p) in &bombs {
+    for (e, bomb, _) in &bombs {
         if bomb.lure_active {
             wanted.insert(
                 format!("monkey.{e:?}"),
-                ("zmb_monkey_song".into(), p.translation, Some(e)),
+                ("zmb_monkey_song".into(), SoundSource::attached(e)),
             );
         } else if bomb.definition.0 == "weapon.sticky_grenade_zm" {
             wanted.insert(
                 format!("semtex.{e:?}"),
-                ("wpn_semtex_charge".into(), p.translation, Some(e)),
+                ("wpn_semtex_charge".into(), SoundSource::attached(e)),
             );
         }
     }
     state.loops.retain(|key, e| {
         let keep = wanted.contains_key(key) && exists.contains(*e);
         if !keep && exists.contains(*e) {
-            commands.entity(*e).despawn();
+            commands.entity(*e).try_despawn();
         }
         keep
     });
-    for (key, (alias, p, owner)) in wanted {
+    for (key, (alias, source)) in wanted {
         if !state.loops.contains_key(&key) && game.audio.aliases.contains_key(&alias) {
-            let entity = emit_loop(&mut commands, alias, p, owner);
+            let entity = emit_loop(&mut commands, alias, source);
             state.loops.insert(key, entity);
         }
     }
@@ -525,10 +523,13 @@ fn feedback(
     mut applied: MessageReader<crate::damage::DamageApplied>,
     poses: Query<&Transform>,
     defenders: Query<(), With<crate::generators::GeneratorDefender>>,
-    players: Query<(&crate::movement::SprintState, &Player), With<Player>>,
+    players: Query<(Entity, &crate::movement::SprintState, &Player), With<Player>>,
     query: SpatialQuery,
     surfaces: Query<&SurfaceSound>,
 ) {
+    let Ok((player, _, _)) = players.single() else {
+        return;
+    };
     for damage in applied.read() {
         if matches!(
             damage.impact.category,
@@ -539,8 +540,7 @@ fn feedback(
                 &mut commands,
                 &game,
                 "weapon.knife_zm.hit",
-                pose.translation,
-                None,
+                SoundSource::World(pose.translation),
             );
         }
     }
@@ -549,9 +549,9 @@ fn feedback(
             crate::environment::FootstepSurface::Mud => "mud",
             _ => ground_surface(&query, &surfaces, step.position + Vec3::Y * 0.25),
         };
-        let gait = if players.get(step.owner).is_ok_and(|(s, _)| s.sprinting) {
+        let gait = if players.get(step.owner).is_ok_and(|(_, s, _)| s.sprinting) {
             "sprint"
-        } else if players.get(step.owner).is_ok_and(|(_, p)| p.crouched) {
+        } else if players.get(step.owner).is_ok_and(|(_, _, p)| p.crouched) {
             "crouch_walk"
         } else {
             "walk"
@@ -559,14 +559,15 @@ fn feedback(
         emit(
             &mut commands,
             format!("fly_step_{gait}_plr_{surface}"),
-            step.position,
-            None,
+            SoundSource::Entity {
+                entity: step.owner,
+                offset: players
+                    .get(step.owner)
+                    .map_or(Vec3::ZERO, |(_, _, body)| Vec3::NEG_Y * body.height * 0.5),
+            },
         );
     }
     for crate::damage::EnemyDeath(receipt) in deaths.read() {
-        let position = poses
-            .get(receipt.impact.target)
-            .map_or(Vec3::ZERO, |p| p.translation);
         emit(
             &mut commands,
             if defenders.contains(receipt.impact.target) {
@@ -574,8 +575,7 @@ fn feedback(
             } else {
                 "zmb_vocals_zombie_death"
             },
-            position,
-            None,
+            SoundSource::attached(receipt.impact.target),
         );
         let event = if receipt.impact.region == crate::weapons::HitRegion::Head {
             Some("kill_headshot")
@@ -593,11 +593,11 @@ fn feedback(
             None
         };
         if let Some(event) = event {
-            voice(&mut commands, &game, event, position, session.kills);
+            voice(&mut commands, &game, event, player, session.kills);
         }
     }
     for damage in damages.read() {
-        if let Ok(pose) = poses.get(damage.impact.target) {
+        if damage.impact.target == player {
             voice(
                 &mut commands,
                 &game,
@@ -606,7 +606,7 @@ fn feedback(
                 } else {
                     "exert_pain_low"
                 },
-                pose.translation,
+                player,
                 session.shots,
             );
         }

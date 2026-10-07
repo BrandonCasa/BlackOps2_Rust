@@ -77,6 +77,7 @@ fn drive(
     focus: Res<InteractionFocus>,
     inspection: (
         Res<DoorEvidence>,
+        Res<crate::audio::AudioEvidence>,
         ResMut<crate::navigation::Navigation>,
         Res<crate::access::CurrentZone>,
         Res<crate::enemies::EnemyEvidence>,
@@ -88,6 +89,7 @@ fn drive(
 ) {
     let (
         evidence,
+        audio,
         mut nav,
         current_zone,
         enemy_evidence,
@@ -223,7 +225,7 @@ fn drive(
             if c.age > 0.2 {
                 let d = &game.access.doors[c.index];
                 let index = c.index;
-                c.rows.push(serde_json::json!({"case":"insufficient_funds","index":index,"passed":session.points==0 && !access.opened(&d.connection) && focus.rejection==Some(InteractionRejection::InsufficientPoints)}));
+                c.rows.push(serde_json::json!({"case":"insufficient_funds","index":index,"passed":audio.events.get("zmb_cha_ching").copied().unwrap_or(0)==index as u32 && session.points==0 && !access.opened(&d.connection) && focus.rejection==Some(InteractionRejection::InsufficientPoints)}));
                 next = Some(2);
             }
         }
@@ -261,12 +263,14 @@ fn drive(
                     })
                     .unwrap();
                 let index = c.index;
-                let passed = session.points == 10000 - price
+                let passed = audio.events.get("zmb_cha_ching").copied().unwrap_or(0)
+                    == index as u32 + 1
+                    && session.points == 10000 - price
                     && d.connections.iter().all(|id| access.opened(id))
                     && blockers.iter().all(|(_, b)| b.0 != d.connection)
                     && props.iter().all(|p| p.connection != d.connection)
                     && access.reachable.len() >= c.before;
-                c.rows.push(serde_json::json!({"case":"group_purchase","index":index,"passed":passed,"price":price,"points":session.points,"reachable":access.reachable.len(),"all_edges":d.connections.len()}));
+                c.rows.push(serde_json::json!({"case":"group_purchase","index":index,"passed":passed,"price":price,"points":session.points,"reachable":access.reachable.len(),"all_edges":d.connections.len(),"buy_cues":audio.events.get("zmb_cha_ching").copied().unwrap_or(0)}));
                 if c.index == 0 || c.index == 4 {
                     commands
                         .spawn(Screenshot::primary_window())
@@ -309,7 +313,7 @@ fn drive(
                 .sum::<usize>() as u32;
             // Native same-alias limits replace overlapping leaf emitters before
             // every leaf necessarily acquires a sink. All leaf events still fire.
-            c.rows.push(serde_json::json!({"case":"all_groups","passed":access.purchases as usize==game.access.doors.len() && blockers.is_empty() && props.is_empty() && evidence.animated==expected && evidence.sounds==expected && evidence.playing_sounds>0 && evidence.playing_sounds<=expected && access.reachable.len()>3,"purchases":access.purchases,"removed":evidence.removed,"animated":evidence.animated,"sounds":evidence.sounds,"playing_sounds":evidence.playing_sounds}));
+            c.rows.push(serde_json::json!({"case":"all_groups","passed":access.purchases as usize==game.access.doors.len() && blockers.is_empty() && props.is_empty() && evidence.animated==expected && evidence.sounds==expected && evidence.playing_sounds>0 && evidence.playing_sounds<=expected && access.reachable.len()>3,"purchases":access.purchases,"buy_cues":audio.events.get("zmb_cha_ching"),"removed":evidence.removed,"animated":evidence.animated,"sounds":evidence.sounds,"playing_sounds":evidence.playing_sounds}));
             if v.traversal {
                 if let Some((start, end, alias)) = nav.inspect_traversal(&access) {
                     let enemy = game
