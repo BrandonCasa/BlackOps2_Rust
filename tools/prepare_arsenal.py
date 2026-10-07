@@ -9,9 +9,11 @@ from pathlib import Path
 try:
     from .prepare_gameplay_content import external
     from .xanim import decode
+    from .prepare_ads import optics
 except ImportError:
     from prepare_gameplay_content import external
     from xanim import decode
+    from prepare_ads import optics
 
 ACTIONS = {
     "idle_empty": "emptyIdleAnim", "last_shot": "lastShotAnim", "rechamber": "rechamberAnim",
@@ -36,6 +38,50 @@ def localized_strings(directory):
                 key = json.loads(key)
             result[key] = json.loads(value)
     return result
+
+
+def ads_pose(fields, inspection):
+    """Retain the authored torso trajectory in its parent-local native basis."""
+    import numpy as np
+    clips = inspection / "solo-content/source/xanim"
+    idle_path, ads_path = [clips / fields.get(k, "") for k in ("idleAnim", "adsUpAnim")]
+    if not idle_path.is_file() or not ads_path.is_file():
+        return []
+    idle = decode(idle_path.read_bytes())["tracks"].get("tag_torso", {})
+    clip = decode(ads_path.read_bytes())
+    torso = clip["tracks"].get("tag_torso", {})
+    if "translation" not in torso or "rotation" not in torso:
+        return []
+    translation, rotation = torso["translation"], torso["rotation"]
+    base_t = idle.get("translation", translation)[1][0]
+    base_q = idle.get("rotation", rotation)[1][0]
+    result = []
+    for time in sorted(set([0., clip["duration"], *translation[0], *rotation[0]])):
+        t = np.asarray([np.interp(time, translation[0], translation[1][:, i]) for i in range(3)])
+        q = np.asarray([np.interp(time, rotation[0], rotation[1][:, i]) for i in range(4)])
+        q /= np.linalg.norm(q)
+        vector = base_q[3] * q[:3] - q[3] * base_q[:3] - np.cross(base_q[:3], q[:3])
+        delta_q = np.asarray([*vector, base_q[3] * q[3] + np.dot(base_q[:3], q[:3])])
+        delta_q /= np.linalg.norm(delta_q)
+        result.append({"fraction": float(time / clip["duration"]),
+                       "translation": ((t - base_t) * .0254).tolist(), "rotation": delta_q.tolist()})
+    return result
+
+
+def prepare_ads(config):
+    """Refresh only ADS metadata in an already assembled external runtime pack."""
+    inspection = external(config["assets"]["inspection_output"])
+    source = json.loads((inspection / "solo-content/recovered-gameplay.json").read_text())
+    fields = {"weapon." + w["source"]: w["fields"] for w in source["weapons"]}
+    pack = external(config["game"]["asset_pack"])
+    game = json.loads((pack / "game.json").read_text(encoding="utf-8-sig"))
+    for weapon in game["content"]["weapons"]:
+        f = fields[weapon["id"]]
+        m = weapon["mechanics"]
+        m["ads_zoom_fraction"] = [min(1., max(0., float(f[k] if f.get(k) is not None else 1.))) for k in ("adsZoomInFrac", "adsZoomOutFrac")]
+        m["ads_pose"] = ads_pose(f, inspection)
+        m["ads_sight"] = optics(f, pack, m["ads_pose"], weapon["id"].removeprefix("weapon."))
+    (pack / "game.json").write_text(json.dumps(game, indent=2) + "\n", encoding="utf-8")
 
 
 def prepare(config):
@@ -132,6 +178,9 @@ def prepare(config):
                 # BO2 authored horizontal FOV uses its reference 4:3 aspect.
                 "ads_fov": max(1., math.degrees(2 * math.atan(math.tan(math.radians(max(1., min(179., number("adsZoomFov1", 50.)))) / 2) * 0.75))),
                 "ads_seconds": [positive("adsTransInTime", 0.2), positive("adsTransOutTime", 0.2)],
+                "ads_zoom_fraction": [min(1., max(0., number(k, 1.))) for k in ("adsZoomInFrac", "adsZoomOutFrac")],
+                "ads_pose": ads_pose(f, inspection),
+                "ads_sight": optics(f, pack, ads_pose(f, inspection), name),
                 "ads_enabled": f.get("aimDownSight") == "1",
                 "ads_translation": ads_translation, "ads_rotation": ads_rotation,
                 "burst_delay": number("burstFireDelay"),

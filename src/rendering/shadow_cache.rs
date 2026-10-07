@@ -18,13 +18,13 @@ use bevy::{
     },
     prelude::*,
     render::{
-        Render, RenderApp, RenderStartup, RenderSystems,
+        Render, RenderApp, RenderSystems,
         batching::gpu_preprocessing::{GpuPreprocessingMode, GpuPreprocessingSupport},
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_phase::{BinnedRenderPhase, ViewBinnedRenderPhases},
         render_resource::{CachedPipelineState, PipelineCache, TextureId},
         sync_world::MainEntity,
-        view::{ExtractedView, RetainedViewEntity},
+        view::{ExtractedView, NoIndirectDrawing, RetainedViewEntity},
     },
 };
 use std::{
@@ -159,12 +159,6 @@ impl Plugin for ShadowCachePlugin {
                 .insert_resource(stats)
                 .insert_resource(completed)
                 .insert_resource(CacheEnabled(enabled))
-                .add_systems(
-                    RenderStartup,
-                    cpu_preprocessing
-                        .after(bevy::render::init_gpu_resource::<GpuPreprocessingSupport>)
-                        .before(bevy::pbr::MeshPipelineSystems),
-                )
                 .init_resource::<CachedShadows>()
                 .add_systems(
                     Render,
@@ -180,11 +174,6 @@ impl Plugin for ShadowCachePlugin {
                 });
         }
     }
-}
-
-fn cpu_preprocessing(mut support: ResMut<GpuPreprocessingSupport>) {
-    // CPU instance buffers require direct CPU phase batches.
-    support.max_supported_mode = GpuPreprocessingMode::None;
 }
 
 fn changes(
@@ -533,7 +522,13 @@ fn pipelines_ready(cache: &PipelineCache) -> bool {
 
 fn select(
     mut commands: Commands,
-    views: Query<(Entity, &LightEntity, &ShadowView, Option<&ExtractedView>)>,
+    views: Query<(
+        Entity,
+        &LightEntity,
+        &ShadowView,
+        Option<&ExtractedView>,
+        Has<NoIndirectDrawing>,
+    )>,
     lights: Query<(&MainEntity, &ExtractedPointLight, &RenderLayers)>,
     sun: Query<(&MainEntity, &ExtractedDirectionalLight, &RenderLayers)>,
     bindings: Query<(&ViewShadowBindings, Option<&RenderLayers>)>,
@@ -542,6 +537,7 @@ fn select(
     enabled: Res<CacheEnabled>,
     stats: Res<ShadowCacheStats>,
     mut phases: ResMut<ViewBinnedRenderPhases<Shadow>>,
+    support: Res<GpuPreprocessingSupport>,
 ) {
     cache.pending.clear();
     // First-person overlays have a separate camera and no world shadow casters.
@@ -561,7 +557,7 @@ fn select(
         cache.slots.clear();
         stats.allocations.fetch_add(1, Ordering::Relaxed);
     }
-    for (entity, kind, shadow, live_view) in &views {
+    for (entity, kind, shadow, live_view, no_indirect_drawing) in &views {
         let stored = cache.suspended_views.remove(&entity);
         let Some(view) = live_view.or(stored.as_ref()) else {
             continue;
@@ -653,7 +649,14 @@ fn select(
             let retained = view.retained_view_entity;
             if let Some(phase) = cache.suspended_phases.remove(&retained) {
                 phases.insert(retained, phase);
-                phases.prepare_for_new_frame(retained, GpuPreprocessingMode::None);
+                // Match Bevy's prepare_lights mode for this view. The phase's
+                // GPU batch layout must survive suspension and dirty-face revival.
+                let mode = support.min(if no_indirect_drawing {
+                    GpuPreprocessingMode::PreprocessingOnly
+                } else {
+                    GpuPreprocessingMode::Culling
+                });
+                phases.prepare_for_new_frame(retained, mode);
             }
             if live_view.is_none() {
                 if let Some(view) = stored {
@@ -678,7 +681,7 @@ fn select(
         .retain(|entity, _| views.contains(*entity));
     let retained: HashSet<_> = views
         .iter()
-        .filter_map(|(entity, _, _, view)| {
+        .filter_map(|(entity, _, _, view, _)| {
             view.or(cache.suspended_views.get(&entity))
                 .map(|view| view.retained_view_entity)
         })

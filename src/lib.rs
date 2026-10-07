@@ -49,12 +49,14 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     let configuration = assets::AssetPack::discover();
     let mut app = App::new();
     let benchmark = options.benchmark;
+    let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
+    let ads_capture = options.verify_ads;
     app.add_plugins(
         DefaultPlugins
             .build()
             .disable::<bevy::anti_alias::AntiAliasPlugin>()
             .set(bevy::pbr::PbrPlugin {
-                use_gpu_instance_buffer_builder: false,
+                use_gpu_instance_buffer_builder: gpu_preprocessing,
                 ..default()
             })
             .set(
@@ -67,7 +69,12 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Origins".into(),
-                    resolution: (1280, 720).into(),
+                    resolution: if ads_capture {
+                        bevy::window::WindowResolution::new(1920, 1080)
+                            .with_scale_factor_override(1.)
+                    } else {
+                        (1280, 720).into()
+                    },
                     present_mode: if benchmark {
                         bevy::window::PresentMode::AutoNoVsync
                     } else {
@@ -121,6 +128,11 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     ));
     if benchmark && !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    }
+    if benchmark {
+        // Unfocused reactive updates otherwise throttle the native benchmark,
+        // independently of VSync and the renderer's actual throughput.
+        app.insert_resource(bevy::winit::WinitSettings::continuous());
     }
     app
 }

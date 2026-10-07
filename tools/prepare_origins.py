@@ -718,6 +718,7 @@ def main():
     parser.add_argument("--prepare-weapon-assemblies", action="store_true", help="assemble every native weapon and attachment with authored bind poses")
     parser.add_argument("--recover-weapon-skeletons", action="store_true", help="recover native translation baselines with the patched external OAT exporter")
     parser.add_argument("--prepare-arsenal", action="store_true", help="convert native weapon tuning/localization into the external runtime pack")
+    parser.add_argument("--prepare-ads", action="store_true", help="refresh native ADS curves and optical metadata in an assembled external pack")
     parser.add_argument("--prepare-traversals", action="store_true", help="prepare native negotiation/rising clips and root-motion profiles")
     parser.add_argument("--prepare-barriers", action="store_true", help="prepare native wood windows, boards and tear timing")
     parser.add_argument("--prepare-generators", action="store_true", help="prepare original generator pumps and capture configuration")
@@ -781,6 +782,10 @@ def main():
     if args.prepare_arsenal:
         from prepare_arsenal import prepare as prepare_arsenal
         prepare_arsenal(config)
+        return
+    if args.prepare_ads:
+        from prepare_arsenal import prepare_ads
+        prepare_ads(config)
         return
     if args.prepare_actors:
         from prepare_actors import prepare as prepare_actors

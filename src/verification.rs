@@ -11,6 +11,7 @@ use bevy::{
     render::view::screenshot::{Screenshot, save_to_disk},
 };
 use std::{path::PathBuf, time::Instant};
+mod ads;
 mod arsenal;
 mod audio;
 mod barriers;
@@ -56,6 +57,7 @@ pub(crate) struct Verification {
     recoil_seen: bool,
     wall_weapons: bool,
     weapon_assemblies: bool,
+    ads: bool,
     rounds: bool,
     health: bool,
     solo_revive: bool,
@@ -106,6 +108,9 @@ impl Plugin for VerificationPlugin {
                 .verify_weapon_assemblies
             {
                 weapon_assemblies::install(app);
+            }
+            if app.world().resource::<LaunchOptions>().verify_ads {
+                ads::install(app);
             }
             if app.world().resource::<LaunchOptions>().verify_generators {
                 generators::install(app);
@@ -220,6 +225,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
                 || options.verify_monkeys
                 || options.verify_equipment_refills,
             weapon_assemblies: options.verify_weapon_assemblies,
+            ads: options.verify_ads,
             equipment_refills: options.verify_equipment_refills,
             equipment_refills_exercised: false,
             rounds: options.verify_rounds,
@@ -287,7 +293,8 @@ pub(crate) fn drive(
     if verification.weapon_assemblies {
         return;
     }
-    if verification.solo_revive
+    if verification.ads
+        || verification.solo_revive
         || verification.perk_health
         || verification.speed_cola
         || verification.stamin_up
@@ -599,6 +606,7 @@ fn check(
         return;
     };
     if verification.weapon_assemblies
+        || verification.ads
         || verification.solo_revive
         || verification.perk_health
         || verification.speed_cola

@@ -9,6 +9,14 @@ use bevy::{
 
 use crate::GameState;
 
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum MeshPreprocessing {
+    Cpu,
+    #[default]
+    Gpu,
+    GpuCulling,
+}
+
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
     pub verify: Option<PathBuf>,
@@ -18,6 +26,7 @@ pub struct LaunchOptions {
     pub benchmark_combat: bool,
     pub verify_wall_weapons: bool,
     pub verify_weapon_assemblies: bool,
+    pub verify_ads: bool,
     pub verify_rounds: bool,
     pub verify_health: bool,
     pub verify_solo_revive: bool,
@@ -43,6 +52,7 @@ pub struct LaunchOptions {
     pub verify_monkeys: bool,
     pub verify_equipment_refills: bool,
     pub uncached_shadows: bool,
+    pub mesh_preprocessing: MeshPreprocessing,
     pub error: Option<String>,
 }
 
@@ -57,6 +67,7 @@ impl LaunchOptions {
                 || argument == "--benchmark-combat"
                 || argument == "--verify-wall-weapons"
                 || argument == "--verify-weapon-assemblies"
+                || argument == "--verify-ads"
                 || argument == "--verify-rounds"
                 || argument == "--verify-solo-bleedout"
                 || argument == "--verify-solo-revive"
@@ -113,6 +124,7 @@ impl LaunchOptions {
                     || argument == "--verify-semtex";
                 result.verify_wall_weapons = argument == "--verify-wall-weapons";
                 result.verify_weapon_assemblies = argument == "--verify-weapon-assemblies";
+                result.verify_ads = argument == "--verify-ads";
                 result.verify_rounds = argument == "--verify-rounds";
                 result.verify_health = argument == "--verify-health";
                 result.verify_solo_revive =
@@ -154,15 +166,25 @@ impl LaunchOptions {
                     }
                 }
             }
-            let remaining = args.next();
-            if result.benchmark
-                && remaining.as_deref() == Some(std::ffi::OsStr::new("--uncached-shadows"))
-            {
-                result.uncached_shadows = true;
-            } else if remaining.is_some() {
-                result.error = Some("Unexpected launch argument".into());
+            for remaining in args.by_ref() {
+                if result.benchmark && remaining == "--uncached-shadows" && !result.uncached_shadows
+                {
+                    result.uncached_shadows = true;
+                } else if result.benchmark
+                    && remaining == "--cpu-preprocessing"
+                    && result.mesh_preprocessing == MeshPreprocessing::Gpu
+                {
+                    result.mesh_preprocessing = MeshPreprocessing::Cpu;
+                } else if result.benchmark
+                    && remaining == "--gpu-culling"
+                    && result.mesh_preprocessing == MeshPreprocessing::Gpu
+                {
+                    result.mesh_preprocessing = MeshPreprocessing::GpuCulling;
+                } else {
+                    result.error = Some("Unexpected or repeated launch argument".into());
+                }
             }
-            if result.verify.is_none() || args.next().is_some() {
+            if result.verify.is_none() {
                 result.error =
                     Some("Usage: origins [--verify|--benchmark external-output-folder] or [--benchmark-view|--benchmark-moving-view external-output-folder index]".into());
             }

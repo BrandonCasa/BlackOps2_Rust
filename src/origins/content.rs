@@ -181,6 +181,9 @@ pub struct WeaponMechanics {
     pub spread: [f32; 4],
     pub ads_fov: f32,
     pub ads_seconds: [f32; 2],
+    pub ads_zoom_fraction: [f32; 2],
+    pub ads_pose: Vec<AdsPoseSample>,
+    pub ads_sight: Option<AdsSight>,
     pub ads_enabled: bool,
     pub ads_translation: [f32; 3],
     pub ads_rotation: [f32; 4],
@@ -219,6 +222,9 @@ impl Default for WeaponMechanics {
             spread: [3., 2., 1., 0.],
             ads_fov: 50.,
             ads_seconds: [0.2, 0.2],
+            ads_zoom_fraction: [1., 1.],
+            ads_pose: Vec::new(),
+            ads_sight: None,
             ads_enabled: true,
             ads_translation: [0.; 3],
             ads_rotation: [0., 0., 0., 1.],
@@ -241,6 +247,20 @@ impl Default for WeaponMechanics {
             fuse_seconds: 4.,
         }
     }
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdsPoseSample {
+    pub fraction: f32,
+    pub translation: [f32; 3],
+    pub rotation: [f32; 4],
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdsSight {
+    pub joint: String,
+    pub point: [f32; 3],
+    pub rotation: [f32; 4],
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -872,6 +892,32 @@ impl ContentCatalog {
                     && m.recoil_yaw[0] <= m.recoil_yaw[1]
                     && positive(m.recoil_recovery)
                     && (1. ..=179.).contains(&m.ads_fov)
+                    && m.ads_zoom_fraction
+                        .iter()
+                        .all(|v| v.is_finite() && (0. ..=1.).contains(v))
+                    && (m.ads_pose.is_empty()
+                        || (m.ads_pose.len() >= 2
+                            && m.ads_pose.len() <= 256
+                            && m.ads_pose.first().is_some_and(|p| p.fraction == 0.)
+                            && m.ads_pose.last().is_some_and(|p| p.fraction == 1.)
+                            && m.ads_pose.windows(2).all(|p| p[0].fraction < p[1].fraction)))
+                    && m.ads_pose.iter().all(|p| {
+                        p.fraction.is_finite()
+                            && p.translation
+                                .iter()
+                                .chain(p.rotation.iter())
+                                .all(|v| v.is_finite())
+                            && (p.rotation.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
+                    })
+                    && m.ads_sight.as_ref().is_none_or(|s| {
+                        matches!(s.joint.as_str(), "j_gun" | "tag_sights")
+                            && s.point
+                                .iter()
+                                .chain(s.rotation.iter())
+                                .all(|v| v.is_finite())
+                            && (s.rotation.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
+                            && s.rotation[3].abs() >= (1_f32.to_radians()).cos()
+                    })
                     && m.ads_seconds
                         .iter()
                         .chain(m.movement.iter())

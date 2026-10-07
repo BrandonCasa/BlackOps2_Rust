@@ -57,6 +57,8 @@ pub struct WeaponInventory {
     // Shot presentation can outlive the minimum interval before another shot.
     shot_elapsed: Option<f32>,
     pub ads: f32,
+    // Native CG tracks the last endpoint to choose zoom-in versus zoom-out.
+    ads_leaving: bool,
     pub recoil: Vec2,
     pending: WeaponIntent,
     reload_duration_scale: f32,
@@ -76,6 +78,7 @@ impl Default for WeaponInventory {
             signal: WeaponSignal::Idle,
             shot_elapsed: None,
             ads: 0.,
+            ads_leaving: false,
             recoil: Vec2::ZERO,
             pending: WeaponIntent::default(),
             reload_duration_scale: 1.,
@@ -173,6 +176,24 @@ pub fn spread_direction(rotation: Quat, degrees: f32, seed: u64) -> Dir3 {
 }
 
 impl WeaponInventory {
+    pub fn ads_zoom(&self, mechanics: &crate::origins::content::WeaponMechanics) -> f32 {
+        let fraction = mechanics.ads_zoom_fraction[usize::from(self.ads_leaving)];
+        if fraction <= 0. {
+            return if self.ads >= 1. { 1. } else { 0. };
+        }
+        ((self.ads - (1. - fraction)) / fraction).clamp(0., 1.)
+    }
+    pub fn ads_fov(
+        &self,
+        hip_vertical: f32,
+        mechanics: &crate::origins::content::WeaponMechanics,
+    ) -> f32 {
+        // CG interpolates reference horizontal degrees before aspect scaling.
+        let horizontal = |vertical: f32| 2. * (vertical.to_radians() * 0.5).tan().atan2(0.75);
+        let hip = horizontal(hip_vertical);
+        let aimed = horizontal(mechanics.ads_fov);
+        2. * (((hip + (aimed - hip) * self.ads_zoom(mechanics)) * 0.5).tan() * 0.75).atan()
+    }
     pub fn set_reload_duration_scale(&mut self, scale: f32) {
         if scale.is_finite() && scale > 0. && scale <= 1. {
             self.reload_duration_scale = scale;
@@ -538,6 +559,11 @@ impl WeaponInventory {
             intent.ads && definition.mechanics.ads_enabled && self.action == WeaponAction::Ready;
         let target = if aiming { 1. } else { 0. };
         let step = dt / definition.mechanics.ads_seconds[if aiming { 0 } else { 1 }];
+        if self.ads == 0. {
+            self.ads_leaving = false;
+        } else if self.ads == 1. {
+            self.ads_leaving = true;
+        }
         self.ads = if self.ads < target {
             (self.ads + step).min(target)
         } else {

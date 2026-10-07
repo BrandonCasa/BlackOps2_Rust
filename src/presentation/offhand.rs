@@ -168,12 +168,14 @@ pub(super) fn select_visible(
             let target = (-delta * 0.6).clamp(
                 Vec2::splat(-tuning.sway_limit),
                 Vec2::splat(tuning.sway_limit),
-            ) * (1. - primary.ads * 0.75);
+            );
             motion.sway = motion.sway.lerp(
                 target,
                 1. - (-tuning.sway_response * time.delta_secs()).exp(),
             );
-            sway = motion.sway;
+            // BG_CalculateWeaponPosition (008ed6c0/008ed300) removes this
+            // look-lag contribution by half ADS, rather than retaining 25%.
+            sway = motion.sway * (1. - primary.ads * 2.).max(0.);
         }
         for (view, mut visibility, mut pose) in &mut views {
             if view.owner == owner {
