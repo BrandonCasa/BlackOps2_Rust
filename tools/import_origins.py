@@ -345,6 +345,27 @@ def validate_gltf(root, relative, files):
         for child in node.get("children", []):
             ref(nodes, child, "child node")
     skins = document.get("skins", [])
+    assembly_globals = None
+    if document.get("asset", {}).get("generator") == "Origins native weapon assembly":
+        assembly_globals = {}
+        def joint_matrix(node):
+            if "matrix" in node:
+                return np.asarray(node["matrix"]).reshape(4,4).T
+            x,y,z,w = node.get("rotation", [0,0,0,1])
+            result = np.eye(4)
+            result[:3,:3] = [[1-2*(y*y+z*z),2*(x*y-z*w),2*(x*z+y*w)],
+                [2*(x*y+z*w),1-2*(x*x+z*z),2*(y*z-x*w)],
+                [2*(x*z-y*w),2*(y*z+x*w),1-2*(x*x+y*y)]]
+            result[:3,:3] *= np.asarray(node.get("scale",[1,1,1]))
+            result[:3,3] = node.get("translation",[0,0,0])
+            return result
+        def assembled_node(index, parent):
+            require(index not in assembly_globals, "multiply parented assembly node")
+            assembly_globals[index] = parent @ joint_matrix(nodes[index])
+            for child in nodes[index].get("children",[]):
+                assembled_node(child,assembly_globals[index])
+        for index in document["scenes"][document.get("scene",0)]["nodes"]:
+            assembled_node(index,np.eye(4))
     for skin in skins:
         require(set(skin) <= {"name", "joints", "skeleton", "inverseBindMatrices"}, "unsupported skin feature")
         joints = skin.get("joints", [])
@@ -360,6 +381,9 @@ def validate_gltf(root, relative, files):
             matrices = ref(arrays, matrix_index, "inverse bind matrices")
             accessor = document["accessors"][matrix_index]
             require(accessor["type"] == "MAT4" and accessor["componentType"] == 5126 and len(matrices) == len(joints), "invalid inverse bind matrix layout")
+            if assembly_globals is not None:
+                require(all(j in assembly_globals and np.allclose(assembly_globals[j] @ matrix.reshape(4,4).T,np.eye(4),atol=2e-5)
+                            for j,matrix in zip(joints,matrices)), "assembled weapon bind pose mismatch")
     for node in nodes:
         if "skin" in node:
             skin = ref(skins, node["skin"], "node skin")

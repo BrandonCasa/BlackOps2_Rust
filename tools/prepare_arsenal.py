@@ -14,6 +14,7 @@ except ImportError:
     from xanim import decode
 
 ACTIONS = {
+    "idle_empty": "emptyIdleAnim", "last_shot": "lastShotAnim", "rechamber": "rechamberAnim",
     "prime": "holdFireAnim",
     "idle": "idleAnim", "fire": "fireAnim", "reload": "reloadAnim", "reload_empty": "reloadEmptyAnim",
     "reload_start": "reloadStartAnim", "reload_end": "reloadEndAnim", "equip": "raiseAnim",

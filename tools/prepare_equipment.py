@@ -10,8 +10,10 @@ def prepare_prime_clips(content, rows, inspection, pack):
     equipment=[w for w in content["weapons"] if w["id"] in (
         "weapon.frag_grenade_zm","weapon.sticky_grenade_zm","weapon.cymbal_monkey_zm","weapon.claymore_zm")]
     primes={rows[w["id"]]["fields"]["holdFireAnim"] for w in equipment}
-    # Reconstructed camera framing; native joint tracks and attachment sockets stay intact.
-    for w in equipment: w["view_offset"]=[0.,.14,-.15]
+    # Viewhand shoulders are authored behind the eye. Moving the rig forward
+    # exposes the open sleeve during release; use the shared native camera origin.
+    for w in equipment:
+        w["view_offset"] = [0.,0.,0.]
     models={rows[w["id"]]["fields"]["gunModel"]:{rows[w["id"]]["fields"]["holdFireAnim"]} for w in equipment}
     models.update({"c_zom_"+name+"_viewhands":primes for name in ("dempsey","nikolai","richtofen","takeo")})
     for model,extra in models.items():
@@ -64,6 +66,7 @@ def prepare(config):
             "round_award":0 if f["offhandSlot"]=="Tactical grenade" else 2,
             "initial":int(f["startAmmo"]), "capacity":int(f["maxAmmo"]),
             "prime_seconds":float(f["holdFireTime"]), "throw_seconds":float(f["fireTime"]),
+            "release_delay":float(f["fireDelay"]),
             "fuse_seconds":float(f["fuseTime"]), "speed":float(f["projectileSpeed"])*.0254,
             "up_speed":float(f["projectileSpeedRelativeUp"])*.0254,
             "radius":float(f["explosionRadius"])*.0254,

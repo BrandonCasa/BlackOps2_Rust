@@ -18,7 +18,7 @@ except ImportError:
     from xanim import decode
 
 
-def convert(source_path, output, additional_images, clips, in_place=False, end_aligned_clips=(), board_delta=False):
+def convert(source_path, output, additional_images, clips, in_place=False, end_aligned_clips=(), board_delta=False, translation_offsets=None, native_translations=None):
     source = json.loads(source_path.read_text(encoding="utf-8-sig"))
     document = copy.deepcopy(source)
     output = external(output)
@@ -147,13 +147,20 @@ def convert(source_path, output, additional_images, clips, in_place=False, end_a
             node = by_name[bone]
             for target, (times, source_values) in tracks.items():
                 values = source_values.copy()
-                if in_place and not clip["channel_presence"][bone][target]:
+                if not clip["channel_presence"][bone][target]:
                     bind = document["nodes"][node].get(target, [0,0,0] if target=="translation" else [0,0,0,1])
                     values = np.repeat(np.asarray(bind).reshape(1,-1),len(values),axis=0)
                 elif target == "translation":
+                    # XModel.trans supplies the native translation baseline.
+                    # Arms generally store zero; weapon parts retain offsets.
+                    # OAT glTF rest locals are rebuilt from baseMat instead.
+                    if native_translations and bone in native_translations:
+                        values += np.asarray(native_translations[bone])
                     if node in roots:
                         values = values[:, [0, 2, 1]] * [1, 1, -1]
                     values *= 0.0254
+                    if translation_offsets and bone in translation_offsets:
+                        values += np.asarray(translation_offsets[bone]) * 0.0254
                     if in_place:
                         # Retain bind offsets; native actor channels carry motion about that pose.
                         anchor = values[-1] if bone == "j_mainroot" and clip_path.name in end_aligned_clips else values[0]
@@ -175,7 +182,7 @@ def convert(source_path, output, additional_images, clips, in_place=False, end_a
     if animations:
         document["animations"] = animations
     document["buffers"] = [{"byteLength": len(binary), "uri": name + ".bin"}]
-    document["asset"]["generator"] = "Origins recovered skeletal preparation"
+    document["asset"]["generator"] = ("Origins native weapon assembly" if any(n.get("name") == "weapon_assembly" for n in document["nodes"]) else "Origins recovered skeletal preparation")
     (output / (name + ".bin")).write_bytes(binary)
     (output / (name + ".gltf")).write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
     return name + ".gltf", notifications

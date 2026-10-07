@@ -94,6 +94,8 @@ pub struct WeaponDefinition {
     pub upgraded: Option<WeaponId>,
     pub presentation: Option<ContentId>,
     #[serde(default)]
+    pub ads_presentation: Option<ContentId>,
+    #[serde(default)]
     pub pickup: Option<ContentId>,
     #[serde(default)]
     pub ammo_group: Option<ContentId>,
@@ -117,6 +119,9 @@ pub struct WeaponDefinition {
 #[serde(rename_all = "snake_case")]
 pub enum WeaponAnimation {
     Idle,
+    IdleEmpty,
+    LastShot,
+    Rechamber,
     Prime,
     Fire,
     Reload,
@@ -898,6 +903,7 @@ impl ContentCatalog {
                 r(&v.id.0, &id.0, "weapon")?;
             }
             optional(&v.id.0, &v.presentation, "presentation")?;
+            optional(&v.id.0, &v.ads_presentation, "presentation")?;
             optional(&v.id.0, &v.pickup, "presentation")?;
             optional(&v.id.0, &v.ammo_group, "definition")?;
             for id in v.animation_actions.values() {

@@ -103,20 +103,9 @@ fn actions(
         let Some(weapon) = game.content.weapons.iter().find(|w| w.id == *id) else {
             continue;
         };
-        let action = selected.as_ref().map_or_else(
-            || match inventory.signal {
-                WeaponSignal::Equip => WeaponAnimation::Equip,
-                WeaponSignal::Unequip => WeaponAnimation::Unequip,
-                WeaponSignal::Fire => WeaponAnimation::Fire,
-                WeaponSignal::Reload => WeaponAnimation::Reload,
-                WeaponSignal::ReloadEmpty => WeaponAnimation::ReloadEmpty,
-                WeaponSignal::ShellInsert => WeaponAnimation::Reload,
-                WeaponSignal::ReloadStart => WeaponAnimation::ReloadStart,
-                WeaponSignal::ReloadEnd => WeaponAnimation::ReloadEnd,
-                WeaponSignal::Melee => WeaponAnimation::Melee,
-                _ => WeaponAnimation::Idle,
-            },
-            |s| s.action,
+        let (action, shot_seek) = selected.as_ref().map_or_else(
+            || crate::presentation::primary_action(inventory, weapon, &game),
+            |s| (s.action, None),
         );
         let animation_weapon = if action == WeaponAnimation::Melee {
             game.content
@@ -139,10 +128,13 @@ fn actions(
         let timing = selected
             .as_ref()
             .and_then(|s| s.timing)
-            .or_else(|| inventory.reload_timing(weapon));
+            .or_else(|| inventory.presentation_timing(weapon, animation_weapon));
         let backwards =
             timing.is_some_and(|(duration, remaining)| duration - remaining + 0.001 < clock.age);
-        let changed = clock.key != clip.0 || clock.sequence != sequence || backwards;
+        let finishing_shot =
+            selected.is_none() && shot_seek.is_some() && inventory.signal == WeaponSignal::Idle;
+        let changed =
+            clock.key != clip.0 || (clock.sequence != sequence && !finishing_shot) || backwards;
         if changed {
             clock.key = clip.0.clone();
             clock.sequence = sequence;
@@ -192,6 +184,9 @@ fn actions(
         let sampled = if let Some((duration, remaining)) = timing {
             clock.age = (duration - remaining).max(0.);
             clock.age / duration * native_duration
+        } else if selected.is_none() && shot_seek.is_some() {
+            clock.age = shot_seek.unwrap_or(0.);
+            clock.age.min(native_duration)
         } else {
             clock.age += time.delta_secs();
             clock.age
@@ -206,6 +201,7 @@ fn actions(
             }
         }
         clock.sampled = sampled;
+        clock.sequence = sequence;
     }
 }
 fn actors(

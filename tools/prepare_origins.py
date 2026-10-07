@@ -715,6 +715,8 @@ def main():
     parser.add_argument("--content-only", action="store_true", help="regenerate game.json from map entities, preserving prepared geometry coverage")
     parser.add_argument("--recover-gameplay-content", action="store_true", help="recover patch-resolved weapon/attachment definitions and map entities externally")
     parser.add_argument("--prepare-actors", action="store_true", help="convert recovered starter skeletal actors into the external runtime pack")
+    parser.add_argument("--prepare-weapon-assemblies", action="store_true", help="assemble every native weapon and attachment with authored bind poses")
+    parser.add_argument("--recover-weapon-skeletons", action="store_true", help="recover native translation baselines with the patched external OAT exporter")
     parser.add_argument("--prepare-arsenal", action="store_true", help="convert native weapon tuning/localization into the external runtime pack")
     parser.add_argument("--prepare-traversals", action="store_true", help="prepare native negotiation/rising clips and root-motion profiles")
     parser.add_argument("--prepare-barriers", action="store_true", help="prepare native wood windows, boards and tear timing")
@@ -728,6 +730,14 @@ def main():
     parser.add_argument("--prepare-player-health", action="store_true", help="recover standing player regeneration and immunity")
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
+    if args.recover_weapon_skeletons:
+        from recover_weapon_skeletons import prepare
+        prepare(config)
+        return
+    if args.prepare_weapon_assemblies:
+        from prepare_weapon_assemblies import prepare
+        prepare(config)
+        return
     if args.prepare_generators:
         from prepare_generators import prepare
         prepare(config)

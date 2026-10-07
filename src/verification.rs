@@ -33,6 +33,7 @@ mod semtex;
 mod solo_revive;
 mod speed_cola;
 mod stamin_up;
+mod weapon_assemblies;
 
 #[derive(Resource)]
 pub(crate) struct Verification {
@@ -54,6 +55,7 @@ pub(crate) struct Verification {
     ads_seen: bool,
     recoil_seen: bool,
     wall_weapons: bool,
+    weapon_assemblies: bool,
     rounds: bool,
     health: bool,
     solo_revive: bool,
@@ -97,6 +99,13 @@ pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
+            if app
+                .world()
+                .resource::<LaunchOptions>()
+                .verify_weapon_assemblies
+            {
+                weapon_assemblies::install(app);
+            }
             if app.world().resource::<LaunchOptions>().verify_generators {
                 generators::install(app);
             }
@@ -209,6 +218,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
                 || options.verify_claymores
                 || options.verify_monkeys
                 || options.verify_equipment_refills,
+            weapon_assemblies: options.verify_weapon_assemblies,
             equipment_refills: options.verify_equipment_refills,
             equipment_refills_exercised: false,
             rounds: options.verify_rounds,
@@ -272,6 +282,9 @@ pub(crate) fn drive(
     else {
         return;
     };
+    if verification.weapon_assemblies {
+        return;
+    }
     if verification.solo_revive
         || verification.perk_health
         || verification.speed_cola
@@ -582,7 +595,8 @@ fn check(
     let Some(mut verification) = verification else {
         return;
     };
-    if verification.solo_revive
+    if verification.weapon_assemblies
+        || verification.solo_revive
         || verification.perk_health
         || verification.speed_cola
         || verification.stamin_up
@@ -1041,7 +1055,7 @@ fn check(
         receipt["monkeys_exercised"] = verification.monkeys_exercised.into();
         receipt["equipment_refills_exercised"] = verification.equipment_refills_exercised.into();
         receipt["equipment_presentation"] = serde_json::json!({"phases":equipment_presentation.phases,
-            "motion":equipment_presentation.motion,"frames":equipment_presentation.frames,"phase_frames":equipment_presentation.phase_frames,"views":equipment_presentation.views});
+            "motion":equipment_presentation.motion,"frames":equipment_presentation.frames,"phase_frames":equipment_presentation.phase_frames,"views":equipment_presentation.views,"clocks":equipment_presentation.clocks,"sampled_clocks":equipment_presentation.sampled_clocks});
         let _ = std::fs::write(
             verification.output.join("verification.json"),
             receipt.to_string(),

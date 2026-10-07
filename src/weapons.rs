@@ -54,6 +54,8 @@ pub struct WeaponInventory {
     burst: u32,
     pub sequence: u64,
     pub signal: WeaponSignal,
+    // Shot presentation can outlive the minimum interval before another shot.
+    shot_elapsed: Option<f32>,
     pub ads: f32,
     pub recoil: Vec2,
     pending: WeaponIntent,
@@ -72,6 +74,7 @@ impl Default for WeaponInventory {
             burst: 0,
             sequence: 0,
             signal: WeaponSignal::Idle,
+            shot_elapsed: None,
             ads: 0.,
             recoil: Vec2::ZERO,
             pending: WeaponIntent::default(),
@@ -82,6 +85,7 @@ impl Default for WeaponInventory {
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WeaponSignal {
+    Prime,
     #[default]
     Idle,
     Equip,
@@ -202,6 +206,40 @@ impl WeaponInventory {
             _ => None,
         }
         .filter(|(duration, _)| *duration > 0.)
+    }
+    pub fn shot_elapsed(&self) -> Option<f32> {
+        self.shot_elapsed
+    }
+    /// Controlled catalog poses use the same clock without simulating acquisition
+    /// or unsupported weapon mechanics (for example staff charge delivery).
+    pub(crate) fn survey_shot_pose(&mut self, elapsed: f32, empty: bool) {
+        self.shot_elapsed = Some(elapsed);
+        self.signal = WeaponSignal::Fire;
+        if let Some(weapon) = &mut self.slots[self.active] {
+            weapon.magazine = if empty { 0 } else { 2 };
+        }
+    }
+    pub fn presentation_timing(
+        &self,
+        definition: &WeaponDefinition,
+        melee: &WeaponDefinition,
+    ) -> Option<(f32, f32)> {
+        self.reload_timing(definition).or_else(|| {
+            match self.action {
+                WeaponAction::Equipping { remaining } => {
+                    Some((definition.mechanics.equip_seconds, remaining))
+                }
+                WeaponAction::Unequipping { remaining, .. } => {
+                    Some((definition.mechanics.unequip_seconds, remaining))
+                }
+                WeaponAction::Melee { remaining, .. } => Some((
+                    melee.mechanics.melee_seconds[1].max(melee.mechanics.melee_seconds[0]),
+                    remaining,
+                )),
+                _ => None,
+            }
+            .filter(|(duration, _)| *duration > 0.)
+        })
     }
     pub fn active(&self) -> Option<&OwnedWeapon> {
         self.slots[self.active].as_ref()
@@ -395,6 +433,7 @@ impl WeaponInventory {
         Ok(slot)
     }
     pub fn cancel_action(&mut self) {
+        self.shot_elapsed = None;
         self.action = WeaponAction::Ready;
         self.burst = 0;
         self.pending = WeaponIntent::default();
@@ -411,6 +450,11 @@ impl WeaponInventory {
         self.recoil = self.recoil.clamp(Vec2::splat(-0.4), Vec2::splat(0.4));
     }
     fn emit(&mut self, signal: WeaponSignal) {
+        if signal == WeaponSignal::Fire {
+            self.shot_elapsed = Some(0.);
+        } else if signal != WeaponSignal::Idle {
+            self.shot_elapsed = None;
+        }
         self.signal = signal;
         self.sequence = self.sequence.wrapping_add(1);
     }
@@ -461,6 +505,9 @@ impl WeaponInventory {
         definitions: &[WeaponDefinition],
     ) -> Vec<WeaponEmission> {
         let mut emissions = Vec::new();
+        if let Some(elapsed) = &mut self.shot_elapsed {
+            *elapsed = (*elapsed + dt).min(60.);
+        }
         let reload_dt = dt / self.reload_duration_scale;
         if self.action == WeaponAction::Ready {
             intent.pressed |= self.pending.pressed;

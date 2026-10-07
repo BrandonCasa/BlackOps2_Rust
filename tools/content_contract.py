@@ -64,7 +64,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation"} if table=="navigation_links" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation"} if table=="navigation_links" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -171,13 +171,15 @@ def validate_content(content, require):
                     require(motion[0][0]==0 and abs(motion[-1][0]-profile["seconds"])<.001 and all(a[0]<b[0] for a,b in zip(motion,motion[1:])),"unordered traversal curve")
             if table == "weapons" and row.get("throwable") is not None:
                 t=row["throwable"]
-                require(isinstance(t,dict) and set(t)==set("initial capacity round_award prime_seconds throw_seconds fuse_seconds speed up_speed radius inner_radius inner_damage outer_damage tangent_bounce normal_bounce collision_radius cook_in_hand sticky slot".split()),"invalid throwable fields")
+                require(isinstance(t,dict) and set(t)==set("initial capacity round_award prime_seconds throw_seconds release_delay fuse_seconds speed up_speed radius inner_radius inner_damage outer_damage tangent_bounce normal_bounce collision_radius cook_in_hand sticky slot".split()),"invalid throwable fields")
                 require(type(t["round_award"]) is int and 0<=t["round_award"]<=t["capacity"],"invalid round equipment award")
                 require(t["slot"] in ("lethal","tactical"),"invalid throwable slot")
                 for k in ("cook_in_hand","sticky"): require(type(t[k]) is bool,"invalid throwable behavior")
                 for k in ("initial","capacity","inner_damage","outer_damage"): require(type(t[k]) is int and t[k]>=0,"invalid throwable count/damage")
                 require(0<t["capacity"] and t["initial"]<=t["capacity"] and 0<t["outer_damage"]<=t["inner_damage"],"invalid throwable limits")
                 for k in ("prime_seconds","throw_seconds","fuse_seconds","speed","radius","collision_radius"): number(t[k],True)
+                number(t["release_delay"])
+                require(0 <= t["release_delay"] < t["throw_seconds"], "invalid throwable release delay")
                 number(t["up_speed"])
                 number(t["inner_radius"])
                 require(t["inner_radius"]<t["radius"],"invalid explosion radius")
@@ -191,6 +193,7 @@ def validate_content(content, require):
                     require(type(lure["capacity"]) is int and lure["capacity"]>0 and lure["spacing"]<lure["range"],"invalid attraction capacity")
                     require(row.get("throwable",{}).get("slot")=="tactical","lure requires tactical equipment")
                     resolve(owner,lure["animation"],"animation")
+                    require(any(a["id"] == lure["animation"] and a["skeleton"] == row.get("pickup") for a in content["animations"]), "lure animation does not belong to its world assembly")
                 if row.get("mine") is not None:
                     m=row["mine"]
                     require(isinstance(m,dict) and set(m)==set("stock limit place_seconds recovery_seconds trigger_radius trigger_cos minimum_forward alert_seconds unsafe_seconds radius inner_damage outer_damage blast_cos presentation".split()),"invalid mine fields")
@@ -202,9 +205,10 @@ def validate_content(content, require):
                 resolve(owner, row["upgraded"], "weapon", True)
                 require(row["category"] in ("bullet", "melee", "explosive", "fire", "ice", "lightning", "wind", "environmental", "crush"), "invalid damage category")
                 resolve(owner, row.get("pickup"), "presentation", True)
+                resolve(owner, row.get("ads_presentation"), "presentation", True)
                 resolve(owner, row.get("ammo_group"), "definition", True)
                 actions = row.get("animation_actions", {})
-                require(isinstance(actions, dict) and set(actions) <= {"idle", "prime", "fire", "reload", "reload_empty", "reload_start", "reload_end", "equip", "unequip", "melee", "ads_enter", "ads_leave", "sprint_enter", "sprint_loop", "sprint_leave", "prone_enter", "prone_loop", "prone_leave", "dive_enter", "dive_loop", "dive_leave"}, "invalid weapon animation actions")
+                require(isinstance(actions, dict) and set(actions) <= {"idle", "idle_empty", "last_shot", "rechamber", "prime", "fire", "reload", "reload_empty", "reload_start", "reload_end", "equip", "unequip", "melee", "ads_enter", "ads_leave", "sprint_enter", "sprint_loop", "sprint_leave", "prone_enter", "prone_loop", "prone_leave", "dive_enter", "dive_loop", "dive_leave"}, "invalid weapon animation actions")
                 if row.get("throwable") is not None or row.get("mine") is not None:
                     require({"prime", "idle", "fire"} <= set(actions), "missing equipment deployment animation")
                 for identity in actions.values():
