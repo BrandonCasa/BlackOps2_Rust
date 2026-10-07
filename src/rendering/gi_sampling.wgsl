@@ -47,7 +47,12 @@ fn gi_direction_sample(field: texture_3d<f32>, cell: vec3<i32>, direction: vec3<
         if visibility {
             let packed = gi_read(field, cell, 64u + index / 2u);
             value = vec4(select(packed.xy, packed.zw, (index & 1u) != 0u), 0.0, 0.0);
-        } else { value = gi_read(field, cell, index); }
+        } else {
+            let encoded = gi_read(field, cell, index);
+            // Decode before either directional or spatial interpolation. Mixing
+            // gamma/square-root RGB darkens colored transport and changes hue.
+            value = vec4(pow(max(encoded.rgb, vec3(0.0)), vec3(5.0)), encoded.a);
+        }
         let weight = select(1.0 - alpha, alpha, bit != vec2(0));
         result += value * weight.x * weight.y;
     }
@@ -90,8 +95,8 @@ fn sample_gi_field(field: texture_3d<f32>, unit_position: vec3<f32>, normal: vec
         var weight = (wrap * wrap + 0.2) * visibility;
         if weight < 0.2 { weight *= weight * weight / 0.04; }
         weight *= trilinear.x * trilinear.y * trilinear.z;
-        let encoded = gi_direction_sample(field, cell, normal, false).rgb;
-        total += pow(max(encoded, vec3(0.0)), vec3(2.5)) * weight;
+        let linear = gi_direction_sample(field, cell, normal, false).rgb;
+        total += linear * weight;
         weight_sum += weight;
     }
     let irradiance = total / max(weight_sum, 0.000001);
@@ -99,5 +104,5 @@ fn sample_gi_field(field: texture_3d<f32>, unit_position: vec3<f32>, normal: vec
     // Bevy expects diffuse incident irradiance divided by pi.
     // Keep initialized support separate from visibility: black fine probes
     // must retain ownership instead of falling back to bright coarse probes.
-    return GiSample(irradiance * irradiance * 2.0 * confidence, support_sum);
+    return GiSample(irradiance * 2.0 * confidence, support_sum);
 }

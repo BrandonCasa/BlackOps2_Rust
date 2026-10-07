@@ -61,6 +61,47 @@ fn rotated_direction(direction: vec3<f32>, seed: u32) -> vec3<f32> {
 fn visible(origin: vec3<f32>, direction: vec3<f32>, distance: f32) -> bool {
     return trace_surface(origin, direction, 0.01, distance, 0.0).kind == RAY_QUERY_INTERSECTION_NONE;
 }
+fn direct_irradiance(origin: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    // Incident E/pi stays linear RGB: never replace the source's color with
+    // luminance or a neutral bounce tint.
+    var incident = vec3(0.0);
+    for (var light_index = 0u; light_index < arrayLength(&directional_lights); light_index++) {
+        let light = directional_lights[light_index];
+        let cosine = max(0.0, dot(normal, light.direction_to_light));
+        if cosine > 0.0 && visible(origin, light.direction_to_light, 2000.0) {
+            incident += light.luminance * light.inverse_pdf * (cosine / 3.14159265);
+        }
+    }
+    let local_lamps = lamp_range(origin);
+    for (var light_index = 0u; light_index < local_lamps.y; light_index++) {
+        let light = lamps[lamp_id(local_lamps, light_index)];
+        let delta = light.position_range.xyz - origin;
+        let length_squared = dot(delta, delta);
+        if length_squared >= light.position_range.w * light.position_range.w { continue; }
+        let light_distance = sqrt(max(length_squared, 0.0001));
+        let light_direction = delta / light_distance;
+        let cosine = max(0.0, dot(normal, light_direction));
+        if cosine > 0.0 && visible(origin, light_direction, max(0.01, light_distance - light.radiance_radius.w)) {
+            let ratio = light_distance / light.position_range.w;
+            let falloff = max(0.0, 1.0 - ratio * ratio * ratio * ratio);
+            incident += light.radiance_radius.rgb * cosine * falloff * falloff
+                / (3.14159265 * max(length_squared, light.radiance_radius.w * light.radiance_radius.w));
+        }
+    }
+    return incident;
+}
+fn diffuse_direction(normal: vec3<f32>, geometric_normal: vec3<f32>, seed: u32) -> vec3<f32> {
+    let helper = select(vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), abs(normal.y) > 0.9);
+    let tangent = normalize(cross(helper, normal));
+    let bitangent = cross(normal, tangent);
+    let radius_squared = gi_random(seed);
+    let phi = gi_random(seed ^ 0x9e3779b9u) * 6.28318531;
+    let disk = sqrt(radius_squared) * vec2(cos(phi), sin(phi));
+    let direction = tangent * disk.x + bitangent * disk.y + normal * sqrt(1.0 - radius_squared);
+    // Fold extreme mapped-normal directions back above the actual triangle.
+    // The geometric offset and this hemisphere guard retain thin-wall blocking.
+    return normalize(direction - 2.0 * min(dot(direction, geometric_normal), 0.0) * geometric_normal);
+}
 fn distance_moments(direction: vec3<f32>) -> vec2<f32> {
     var sum = vec2(0.0); var weights = 0.0;
     for (var ray = 32u; ray < 96u; ray++) {
@@ -81,11 +122,11 @@ fn main(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_index
     let old_offset = gi_read(previous, probe.xyz, 193u).xyz;
     let offset = select(vec3(0.0), old_offset, retained);
     let position = (vec3<f32>(probe.xyz) + 0.5 + offset) * spacing;
-    let max_distance = spacing * 32.0;
+    let max_distance = spacing * 64.0;
     if lane < 32u {
         let direction = sphere_direction(lane, 32u);
         let ray = trace_surface(position, direction, 0.01, max_distance, 0.0625);
-        var distance = 32.0;
+        var distance = 64.0;
         if ray.kind != RAY_QUERY_INTERSECTION_NONE {
             distance = ray.t / spacing;
             if !surface_double_sided(ray) && !ray.front_face { distance *= -0.2; }
@@ -95,8 +136,8 @@ fn main(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_index
     }
     workgroupBarrier();
     if lane == 0u {
-        var backfaces = 0u; var nearest_back = 32.0;
-        var nearest_front = 32.0; var farthest_front = 0.0;
+        var backfaces = 0u; var nearest_back = 64.0;
+        var nearest_front = 64.0; var farthest_front = 0.0;
         var back_index = 0u; var front_index = 0u; var far_index = 0u;
         var nearby = false;
         for (var ray = 0u; ray < 32u; ray++) {
@@ -133,51 +174,46 @@ fn main(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_index
     let seed = constants.grid_generation.w
         ^ (u32(probe.x) * 73856093u) ^ (u32(probe.y) * 19349663u) ^ (u32(probe.z) * 83492791u);
     let direction = rotated_direction(sphere_direction(lane, 64u), seed);
-    var radiance = vec3(0.0); var distance = 32.0;
+    var radiance = vec3(0.0); var distance = 64.0;
     if probe_active != 0u {
-        let ray = trace_surface(position, direction, 0.01, max_distance, 0.0625);
-        if ray.kind == RAY_QUERY_INTERSECTION_NONE {
-            radiance = textureSampleLevel(sky, sky_sampler, direction * vec3(1.0, 1.0, -1.0), 0.0).rgb;
-        } else {
-            distance = ray.t / spacing;
+        var path_origin = position;
+        var path_direction = direction;
+        var throughput = vec3(1.0);
+        // Four actual diffuse surface bounces carry light around corners in a
+        // single update. Only the last hit reads the persistent field, adding
+        // the remaining recursive tail once rather than double-counting it.
+        for (var bounce = 0u; bounce < 4u; bounce++) {
+            let ray = trace_surface(path_origin, path_direction, 0.01, max_distance, 0.0625);
+            if ray.kind == RAY_QUERY_INTERSECTION_NONE {
+                radiance += throughput * textureSampleLevel(sky, sky_sampler, path_direction * vec3(1.0, 1.0, -1.0), 0.0).rgb;
+                break;
+            }
+            if bounce == 0u { distance = ray.t / spacing; }
             let surface = resolve_surface(ray, ray.t * 0.0625);
             let hit = surface.resolved;
             let geometry_normal = hit.geometric_world_normal;
             if !surface.double_sided && !ray.front_face {
-                distance *= -0.2;
-            } else {
-                let origin = hit.world_position + geometry_normal * 0.02;
-                var incident = vec3(0.0);
-                for (var light_index = 0u; light_index < arrayLength(&directional_lights); light_index++) {
-                    let light = directional_lights[light_index];
-                    let cosine = max(0.0, dot(hit.world_normal, light.direction_to_light));
-                    if cosine > 0.0 && visible(origin, light.direction_to_light, 2000.0) {
-                        incident += light.luminance * light.inverse_pdf * (cosine / 3.14159265);
-                    }
-                }
-                let local_lamps = lamp_range(origin);
-                for (var light_index = 0u; light_index < local_lamps.y; light_index++) {
-                    let light = lamps[lamp_id(local_lamps,light_index)];
-                    let delta = light.position_range.xyz - origin;
-                    let length_squared = dot(delta, delta);
-                    if length_squared < light.position_range.w * light.position_range.w {
-                        let light_distance = sqrt(max(length_squared, 0.0001));
-                        let light_direction = delta / light_distance;
-                        let cosine = max(0.0, dot(hit.world_normal, light_direction));
-                        if cosine > 0.0 && visible(origin, light_direction, max(0.01, light_distance - light.radiance_radius.w)) {
-                            let ratio = light_distance / light.position_range.w;
-                            let falloff = max(0.0, 1.0 - ratio * ratio * ratio * ratio);
-                            incident += light.radiance_radius.rgb * cosine * falloff * falloff
-                                / (3.14159265 * max(length_squared, light.radiance_radius.w * light.radiance_radius.w));
-                        }
-                    }
-                }
+                if bounce == 0u { distance *= -0.2; }
+                break;
+            }
+            let origin = hit.world_position + geometry_normal * 0.02;
+            radiance += throughput * hit.material.emissive;
+            // Cosine-weighted continuation cancels the Lambertian cosine/pi
+            // against its PDF. Retain each channel's material reflectance.
+            let reflectance = clamp(hit.material.base_color, vec3(0.0), vec3(1.0))
+                * (1.0 - hit.material.metallic) * (1.0 - 0.04 * surface.coating) * surface.occlusion;
+            throughput *= reflectance;
+            radiance += throughput * direct_irradiance(origin, hit.world_normal);
+            if bounce == 3u {
                 let unit_position = (origin - constants.center_spacing.xyz) / (vec3<f32>(constants.grid_generation.xyz) * spacing);
                 if all(abs(unit_position) <= vec3(0.5)) {
-                    incident += sample_gi_field(previous, unit_position, hit.world_normal, spacing, constants.center_spacing.xyz).irradiance;
+                    radiance += throughput * sample_gi_field(previous, unit_position, hit.world_normal, spacing, constants.center_spacing.xyz).irradiance;
                 }
-                radiance = hit.material.emissive + hit.material.base_color * (1.0 - hit.material.metallic) * (1.0 - 0.04 * surface.coating) * surface.occlusion * incident;
+                break;
             }
+            if all(throughput == vec3(0.0)) { break; }
+            path_origin = origin;
+            path_direction = diffuse_direction(hit.world_normal, geometry_normal, seed ^ (lane * 0x85ebca6bu) ^ ((bounce + 1u) * 0xc2b2ae35u));
         }
     }
     radiances[lane] = radiance;
@@ -196,7 +232,7 @@ fn main(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_index
                 sum += radiances[ray] * weight; weights += weight;
             }
             let encoded = pow(max(sum / (2.0 * max(weights, 0.000000064)), vec3(0.0)), vec3(0.2));
-            var hysteresis = select(0.0, 0.9, history);
+            var hysteresis = select(0.0, 0.75, history);
             if max(result.x - encoded.x, max(result.y - encoded.y, result.z - encoded.z)) > 0.25 {
                 hysteresis = max(0.0, hysteresis - 0.75);
             }

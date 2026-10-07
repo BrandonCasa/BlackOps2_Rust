@@ -137,6 +137,8 @@ fn sample(
         return;
     };
     let mut values = Vec::new();
+    let mut rgb_sum = [0.0f64; 3];
+    let mut rgb_peak = [0.0f32; 3];
     let mut nonfinite = 0usize;
     for (index, texel) in event.data.chunks_exact(8).enumerate() {
         if tag.field {
@@ -166,6 +168,10 @@ fn sample(
             rgb = rgb.map(|v| v.powi(5) * 2.);
         }
         if rgb.iter().all(|value| value.is_finite()) {
+            for channel in 0..3 {
+                rgb_sum[channel] += f64::from(rgb[channel]);
+                rgb_peak[channel] = rgb_peak[channel].max(rgb[channel]);
+            }
             values.push(rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722);
         } else {
             nonfinite += 1;
@@ -174,6 +180,7 @@ fn sample(
     values.sort_by(f32::total_cmp);
     let count = values.len();
     let data = serde_json::json!({"samples":count,"nonfinite":nonfinite,"mean_radiance":values.iter().sum::<f32>() / count.max(1) as f32,
+        "mean_rgb":rgb_sum.map(|v| v / count.max(1) as f64),"peak_rgb":rgb_peak,
         "median_radiance":values.get(count / 2),"p99_radiance":values.get(count.saturating_sub(1) * 99 / 100),"max_radiance":values.last(),
         "ddgi_probe_batches":gi.updates(),
         "quantity":if tag.field { "diffuse_irradiance_over_pi" } else { "environment_radiance" }});
