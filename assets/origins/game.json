@@ -1882,8 +1882,8 @@
         },
         "view_offset": [
           0.0,
-          0.14,
-          -0.15
+          0.0,
+          0.0
         ]
       },
       {
@@ -1993,6 +1993,7 @@
           "capacity": 3,
           "prime_seconds": 1.9,
           "throw_seconds": 0.7,
+          "release_delay": 0.15,
           "fuse_seconds": 8.0,
           "speed": 20.32,
           "up_speed": 0.0,
@@ -2014,8 +2015,8 @@
         },
         "view_offset": [
           0.0,
-          0.14,
-          -0.15
+          0.0,
+          0.0
         ]
       },
       {
@@ -3940,6 +3941,7 @@
           "capacity": 4,
           "prime_seconds": 0.55,
           "throw_seconds": 0.365,
+          "release_delay": 0.12,
           "fuse_seconds": 3.5,
           "speed": 23.368,
           "up_speed": 3.048,
@@ -3955,8 +3957,8 @@
         },
         "view_offset": [
           0.0,
-          0.14,
-          -0.15
+          0.0,
+          0.0
         ]
       },
       {
@@ -11517,6 +11519,7 @@
           "capacity": 4,
           "prime_seconds": 0.6,
           "throw_seconds": 0.36,
+          "release_delay": 0.13,
           "fuse_seconds": 2.0,
           "speed": 23.368,
           "up_speed": 3.048,
@@ -11532,8 +11535,8 @@
         },
         "view_offset": [
           0.0,
-          0.14,
-          -0.15
+          0.0,
+          0.0
         ]
       },
       {

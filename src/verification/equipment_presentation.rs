@@ -56,21 +56,25 @@ fn capture(
     else {
         return;
     };
-    if selection
+    let progress = selection
         .timing
-        .is_some_and(|(duration, remaining)| duration - remaining < duration * 0.35)
-    {
-        return;
-    }
-    let key = format!("{}:{:?}", selection.weapon.0, selection.action);
-    if !equipment.phases.contains(&(key.clone() + ":arms"))
-        || !equipment.phases.contains(&(key.clone() + ":model"))
+        .map(|(duration, remaining)| ((duration - remaining) / duration).clamp(0., 1.));
+    let checkpoint = match progress {
+        Some(p) if p < 0.35 => return,
+        Some(p) if p >= 0.9 => "-90",
+        Some(p) if p >= 0.65 => "-65",
+        _ => "",
+    };
+    let phase = format!("{}:{:?}", selection.weapon.0, selection.action);
+    let key = phase.clone() + checkpoint;
+    if !equipment.phases.contains(&(phase.clone() + ":arms"))
+        || !equipment.phases.contains(&(phase + ":model"))
         || !captured.0.insert(key)
     {
         return;
     }
     let name = format!(
-        "equipment-{}-{:?}.png",
+        "equipment-{}-{:?}{checkpoint}.png",
         selection.weapon.0, selection.action
     );
     commands

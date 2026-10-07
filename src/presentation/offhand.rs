@@ -38,6 +38,9 @@ pub struct EquipmentPresentationEvidence {
     pub frames: u32,
     pub phase_frames: BTreeMap<String, u32>,
     pub views: BTreeMap<String, serde_json::Value>,
+    // Native clip duration, greatest sampled time, and sample count.
+    pub clocks: BTreeMap<String, [f32; 3]>,
+    pub sampled_clocks: BTreeMap<String, f32>,
 }
 pub(crate) struct Selection {
     pub(crate) weapon: WeaponId,
@@ -88,6 +91,13 @@ pub(crate) fn selection(
                 Some((profile.prime_seconds, remaining)),
             ),
             ThrowState::Cooking { .. } => (WeaponAnimation::Idle, None),
+            ThrowState::Releasing { remaining, .. } => (
+                WeaponAnimation::Fire,
+                Some((
+                    profile.throw_seconds,
+                    profile.throw_seconds - profile.release_delay + remaining,
+                )),
+            ),
             ThrowState::Recovery { remaining } => (
                 WeaponAnimation::Fire,
                 Some((profile.throw_seconds, remaining)),
@@ -191,13 +201,14 @@ pub(super) fn record_motion(
     state: Res<State<GameState>>,
     mut rigs: Query<&mut Rig>,
     poses: Query<&Transform>,
+    players: Query<&AnimationPlayer>,
     mut evidence: ResMut<EquipmentPresentationEvidence>,
 ) {
     if **state != GameState::Playing {
         return;
     }
     for mut rig in &mut rigs {
-        let Some(phase) = rig.phase else {
+        let Some(phase) = rig.playback else {
             continue;
         };
         let key = format!(
@@ -206,6 +217,14 @@ pub(super) fn record_motion(
             if rig.arms { "arms" } else { "model" }
         );
         *evidence.phase_frames.entry(key.clone()).or_default() += 1;
+        for entity in &rig.players {
+            if let Ok(player) = players.get(*entity) {
+                for (_, active) in player.playing_animations() {
+                    let sampled = evidence.sampled_clocks.entry(key.clone()).or_default();
+                    *sampled = sampled.max(active.seek_time());
+                }
+            }
+        }
         if rig.sampled_phase != Some(phase) {
             for (_, sample) in &mut rig.tracked {
                 *sample = None;

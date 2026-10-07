@@ -171,13 +171,15 @@ def validate_content(content, require):
                     require(motion[0][0]==0 and abs(motion[-1][0]-profile["seconds"])<.001 and all(a[0]<b[0] for a,b in zip(motion,motion[1:])),"unordered traversal curve")
             if table == "weapons" and row.get("throwable") is not None:
                 t=row["throwable"]
-                require(isinstance(t,dict) and set(t)==set("initial capacity round_award prime_seconds throw_seconds fuse_seconds speed up_speed radius inner_radius inner_damage outer_damage tangent_bounce normal_bounce collision_radius cook_in_hand sticky slot".split()),"invalid throwable fields")
+                require(isinstance(t,dict) and set(t)==set("initial capacity round_award prime_seconds throw_seconds release_delay fuse_seconds speed up_speed radius inner_radius inner_damage outer_damage tangent_bounce normal_bounce collision_radius cook_in_hand sticky slot".split()),"invalid throwable fields")
                 require(type(t["round_award"]) is int and 0<=t["round_award"]<=t["capacity"],"invalid round equipment award")
                 require(t["slot"] in ("lethal","tactical"),"invalid throwable slot")
                 for k in ("cook_in_hand","sticky"): require(type(t[k]) is bool,"invalid throwable behavior")
                 for k in ("initial","capacity","inner_damage","outer_damage"): require(type(t[k]) is int and t[k]>=0,"invalid throwable count/damage")
                 require(0<t["capacity"] and t["initial"]<=t["capacity"] and 0<t["outer_damage"]<=t["inner_damage"],"invalid throwable limits")
                 for k in ("prime_seconds","throw_seconds","fuse_seconds","speed","radius","collision_radius"): number(t[k],True)
+                number(t["release_delay"])
+                require(0 <= t["release_delay"] < t["throw_seconds"], "invalid throwable release delay")
                 number(t["up_speed"])
                 number(t["inner_radius"])
                 require(t["inner_radius"]<t["radius"],"invalid explosion radius")
