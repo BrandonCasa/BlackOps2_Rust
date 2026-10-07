@@ -25,6 +25,7 @@ pub struct LaunchOptions {
     pub benchmark_motion: bool,
     pub benchmark_combat: bool,
     pub verify_wall_weapons: bool,
+    pub verify_ads: bool,
     pub verify_rounds: bool,
     pub verify_health: bool,
     pub verify_solo_revive: bool,
@@ -64,6 +65,7 @@ impl LaunchOptions {
                 || argument == "--benchmark-moving-view"
                 || argument == "--benchmark-combat"
                 || argument == "--verify-wall-weapons"
+                || argument == "--verify-ads"
                 || argument == "--verify-rounds"
                 || argument == "--verify-solo-bleedout"
                 || argument == "--verify-solo-revive"
@@ -119,6 +121,7 @@ impl LaunchOptions {
                     || argument == "--verify-claymores"
                     || argument == "--verify-semtex";
                 result.verify_wall_weapons = argument == "--verify-wall-weapons";
+                result.verify_ads = argument == "--verify-ads";
                 result.verify_rounds = argument == "--verify-rounds";
                 result.verify_health = argument == "--verify-health";
                 result.verify_solo_revive =

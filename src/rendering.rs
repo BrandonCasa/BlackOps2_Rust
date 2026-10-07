@@ -196,10 +196,11 @@ fn camera_follow(
     if **state == GameState::Playing
         && let Projection::Perspective(perspective) = &mut *projection
     {
-        let ads_fov = inventory
+        perspective.fov = inventory
             .definition(&definition.content.weapons)
-            .map_or(55., |w| w.mechanics.ads_fov);
-        perspective.fov = (55. + (ads_fov - 55.) * inventory.ads).to_radians();
+            .map_or(55_f32.to_radians(), |w| {
+                inventory.ads_fov(55., &w.mechanics)
+            });
     }
 }
 

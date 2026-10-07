@@ -279,6 +279,7 @@ impl Plugin for GameAudioPlugin {
                 PostUpdate,
                 maintain
                     .after(bevy::app::AnimationSystems)
+                    .after(crate::presentation::CameraPose)
                     .before(bevy::transform::TransformSystems::Propagate)
                     .in_set(AudioPlayback),
             )

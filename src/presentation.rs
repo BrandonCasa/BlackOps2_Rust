@@ -25,8 +25,10 @@ pub(crate) mod offhand;
 pub use offhand::EquipmentPresentationEvidence;
 pub(crate) use offhand::selection as equipment_selection;
 pub struct PresentationPlugin;
-// Shared camera-space calibration against the supplied Mauser hip-fire view.
-// Weapon-specific grips and offsets remain authored by their original rigs.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct CameraPose;
+// Retained hip framing is a reconstruction. Native CG positioning (00533090)
+// removes its FOV correction at full ADS; the hip origin bias fades out too.
 const VIEWMODEL_FOV_DEGREES: f32 = 65.;
 const VIEWMODEL_ORIGIN: Vec3 = Vec3::new(0., 0.025, 0.);
 #[derive(Component)]
@@ -50,9 +52,9 @@ struct ViewModelGroup {
     owner: Entity,
 }
 #[derive(Component)]
-struct Rig {
+pub(crate) struct Rig {
     owner: Entity,
-    weapon: WeaponId,
+    pub(crate) weapon: WeaponId,
     phase: Option<WeaponAnimation>,
     playback: Option<WeaponAnimation>,
     tracked: Vec<(Entity, Option<(Vec3, Quat)>)>,
@@ -62,10 +64,10 @@ struct Rig {
     nodes: BTreeMap<String, AnimationNodeIndex>,
     players: Vec<Entity>,
     sequence: Option<u64>,
-    arms: bool,
-    attached: bool,
-    ready: bool,
-    knife: bool,
+    pub(crate) arms: bool,
+    pub(crate) attached: bool,
+    pub(crate) ready: bool,
+    pub(crate) knife: bool,
 }
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
@@ -91,12 +93,20 @@ impl Plugin for PresentationPlugin {
                 PostUpdate,
                 aim_pose
                     .after(bevy::app::AnimationSystems)
+                    .before(bevy::camera::CameraUpdateSystems)
+                    .before(bevy::transform::TransformSystems::Propagate),
+            )
+            .add_systems(
+                PostUpdate,
+                camera_pose
+                    .in_set(CameraPose)
+                    .after(aim_pose)
                     .before(bevy::transform::TransformSystems::Propagate),
             )
             .add_systems(
                 PostUpdate,
                 offhand::record_motion
-                    .after(aim_pose)
+                    .after(camera_pose)
                     .before(bevy::transform::TransformSystems::Propagate),
             )
             .add_systems(Last, offhand::record_visibility)
@@ -442,8 +452,23 @@ fn aim_pose(
         } else {
             0.
         };
-        joint.translation = Vec3::from_array(weapon.mechanics.ads_translation) * ads;
-        joint.rotation = Quat::IDENTITY.slerp(Quat::from_array(weapon.mechanics.ads_rotation), ads);
+        if let Some(pair) = weapon
+            .mechanics
+            .ads_pose
+            .windows(2)
+            .find(|p| ads <= p[1].fraction)
+        {
+            let t =
+                ((ads - pair[0].fraction) / (pair[1].fraction - pair[0].fraction)).clamp(0., 1.);
+            joint.translation = Vec3::from_array(pair[0].translation)
+                .lerp(Vec3::from_array(pair[1].translation), t);
+            joint.rotation =
+                Quat::from_array(pair[0].rotation).slerp(Quat::from_array(pair[1].rotation), t);
+        } else {
+            joint.translation = Vec3::from_array(weapon.mechanics.ads_translation) * ads;
+            joint.rotation =
+                Quat::IDENTITY.slerp(Quat::from_array(weapon.mechanics.ads_rotation), ads);
+        }
         pose.translation += joint.translation;
         pose.rotation *= joint.rotation;
         let visible = equipment
@@ -455,9 +480,119 @@ fn aim_pose(
         }
         for mut projection in &mut cameras {
             if let Projection::Perspective(p) = &mut *projection {
-                // ADS changes the world lens; native joint offsets align the
-                // sights without also magnifying the hands in the overlay lens.
-                p.fov = VIEWMODEL_FOV_DEGREES.to_radians();
+                // CG_CalcFov (004a0890/004a10a0): weapon zoom fractions and
+                // reference 4:3 horizontal FOV. Keep the reconstructed hip lens.
+                p.fov = if equipment.is_none() {
+                    inventory.ads_fov(VIEWMODEL_FOV_DEGREES, &weapon.mechanics)
+                } else {
+                    VIEWMODEL_FOV_DEGREES.to_radians()
+                };
+            }
+        }
+    }
+}
+// CG camera-tag composition (004a0730): the weapon is assembled in the base
+// view frame, then tag_camera supplies the animated eye. Undo that eye motion
+// on the model parent so it is not applied to both the eye and the weapon.
+fn camera_pose(
+    state: Res<State<GameState>>,
+    rigs: Query<(Entity, &Rig)>,
+    names: Query<(Entity, &Name)>,
+    inventories: offhand::Inventories,
+    definition: Option<Res<GameDefinition>>,
+    mut poses: ParamSet<(
+        Query<(&Transform, Option<&ChildOf>)>,
+        Query<(&mut Transform, Option<&ViewModelGroup>, Option<&GameCamera>)>,
+    )>,
+) {
+    if !matches!(
+        **state,
+        GameState::Playing | GameState::Paused | GameState::GameOver
+    ) {
+        return;
+    }
+    let Some(definition) = definition else {
+        return;
+    };
+    let mut eyes = Vec::new();
+    for (root, rig) in &rigs {
+        if !rig.arms || rig.knife || !rig.ready {
+            continue;
+        }
+        let Ok((inventory, lethal, tactical, mines, drinking)) = inventories.get(rig.owner) else {
+            continue;
+        };
+        let selected = drinking
+            .map(|d| d.selection())
+            .or_else(|| offhand::selection(lethal, tactical, mines, &definition));
+        let visible = selected
+            .as_ref()
+            .map(|s| &s.weapon)
+            .or_else(|| inventory.active().map(|w| &w.definition));
+        if visible != Some(&rig.weapon) {
+            continue;
+        }
+        for (entity, name) in &names {
+            if name.as_str() != "tag_camera" {
+                continue;
+            }
+            let mut cursor = entity;
+            let mut local = Mat4::IDENTITY;
+            let transforms = poses.p0();
+            while cursor != root {
+                if rigs.contains(cursor) {
+                    break; // Attached model tags do not supply the hand rig's eye.
+                }
+                let Ok((pose, Some(parent))) = transforms.get(cursor) else {
+                    break;
+                };
+                local = pose.to_matrix() * local;
+                cursor = parent.parent();
+            }
+            if cursor != root {
+                continue;
+            }
+            let basis = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+            let (_, rotation, translation) = local.to_scale_rotation_translation();
+            let eye = Transform {
+                translation: basis * translation,
+                rotation: basis
+                    * rotation
+                    * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)
+                    * basis.inverse(),
+                ..default()
+            };
+            eyes.push((
+                rig.owner,
+                eye,
+                if selected.is_none() {
+                    inventory.ads
+                } else {
+                    0.
+                },
+                definition
+                    .content
+                    .weapons
+                    .iter()
+                    .find(|w| w.id == rig.weapon)
+                    .and_then(|w| w.mechanics.ads_sight.as_ref())
+                    .map_or(Quat::IDENTITY, |s| Quat::from_array(s.rotation)),
+            ));
+        }
+    }
+    for (owner, eye, ads, calibration) in eyes {
+        let inverse = Transform::from_matrix(eye.to_matrix().inverse());
+        for (mut pose, group, camera) in &mut poses.p1() {
+            if camera.is_some() {
+                *pose = pose.mul_transform(eye);
+            } else if group.is_some_and(|g| g.owner == owner) {
+                // Bounded reconstruction derived from the authored front post.
+                // Rotate about the eye so calibration is independent of FOV/depth.
+                *pose = inverse
+                    .mul_transform(Transform::from_rotation(
+                        Quat::IDENTITY.slerp(calibration, ads),
+                    ))
+                    .mul_transform(Transform::from_translation(VIEWMODEL_ORIGIN * (1. - ads)));
             }
         }
     }

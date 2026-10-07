@@ -11,6 +11,7 @@ use bevy::{
     render::view::screenshot::{Screenshot, save_to_disk},
 };
 use std::{path::PathBuf, time::Instant};
+mod ads;
 mod arsenal;
 mod audio;
 mod barriers;
@@ -54,6 +55,7 @@ pub(crate) struct Verification {
     ads_seen: bool,
     recoil_seen: bool,
     wall_weapons: bool,
+    ads: bool,
     rounds: bool,
     health: bool,
     solo_revive: bool,
@@ -98,6 +100,9 @@ pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         if app.world().resource::<LaunchOptions>().verify.is_some() {
+            if app.world().resource::<LaunchOptions>().verify_ads {
+                ads::install(app);
+            }
             if app.world().resource::<LaunchOptions>().verify_generators {
                 generators::install(app);
             }
@@ -210,6 +215,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
                 || options.verify_claymores
                 || options.verify_monkeys
                 || options.verify_equipment_refills,
+            ads: options.verify_ads,
             equipment_refills: options.verify_equipment_refills,
             equipment_refills_exercised: false,
             rounds: options.verify_rounds,
@@ -274,7 +280,8 @@ pub(crate) fn drive(
     else {
         return;
     };
-    if verification.solo_revive
+    if verification.ads
+        || verification.solo_revive
         || verification.perk_health
         || verification.speed_cola
         || verification.stamin_up
@@ -585,7 +592,8 @@ fn check(
     let Some(mut verification) = verification else {
         return;
     };
-    if verification.solo_revive
+    if verification.ads
+        || verification.solo_revive
         || verification.perk_health
         || verification.speed_cola
         || verification.stamin_up

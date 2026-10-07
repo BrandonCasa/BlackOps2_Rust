@@ -217,6 +217,7 @@ def validate_content(content, require):
                     m = row["mechanics"]
                     required_fields = "delivery fire starting_reserve minimum_damage damage_range hit_multipliers pellets penetration recoil_pitch recoil_yaw recoil_recovery spread ads_fov ads_seconds ads_enabled ads_translation ads_rotation burst_delay movement empty_reload shell_reload shell_seconds equip_seconds unequip_seconds dual_wield projectile_speed projectile_lifetime explosion_radius explosion_damage melee_seconds fuse_seconds".split()
                     required_fields += ["reload_start_seconds", "reload_start_insert", "reload_end_seconds"]
+                    required_fields += ["ads_zoom_fraction", "ads_pose", "ads_sight"]
                     require(isinstance(m, dict) and set(m) == set(required_fields), "invalid weapon mechanics fields")
                     for key in ("reload_start_seconds", "reload_start_insert", "reload_end_seconds"):
                         number(m[key])
@@ -230,7 +231,7 @@ def validate_content(content, require):
                     for key in ("starting_reserve", "minimum_damage", "pellets"):
                         natural(m[key], key == "pellets")
                     require(m["starting_reserve"] <= row["reserve"] and m["pellets"] <= 64, "invalid weapon ammunition/pellets")
-                    for key, width in (("damage_range", 2), ("hit_multipliers", 5), ("recoil_pitch", 2), ("recoil_yaw", 2), ("spread", 4), ("ads_seconds", 2), ("movement", 2), ("explosion_damage", 2), ("melee_seconds", 2)):
+                    for key, width in (("damage_range", 2), ("hit_multipliers", 5), ("recoil_pitch", 2), ("recoil_yaw", 2), ("spread", 4), ("ads_seconds", 2), ("ads_zoom_fraction", 2), ("movement", 2), ("explosion_damage", 2), ("melee_seconds", 2)):
                         require(isinstance(m[key], list) and len(m[key]) == width, "invalid weapon vector")
                         for value in m[key]:
                             if key in ("recoil_pitch", "recoil_yaw"):
@@ -245,6 +246,21 @@ def validate_content(content, require):
                     for key in ("recoil_recovery", "empty_reload", "shell_seconds", "equip_seconds", "unequip_seconds", "projectile_lifetime", "ads_fov"):
                         number(m[key], True)
                     require(1 <= m["ads_fov"] <= 179, "invalid ADS FOV")
+                    require(all(0 <= v <= 1 for v in m["ads_zoom_fraction"]), "invalid ADS zoom fractions")
+                    curve = m["ads_pose"]
+                    require(isinstance(curve, list) and len(curve) <= 256, "invalid ADS curve")
+                    for sample in curve:
+                        require(isinstance(sample, dict) and set(sample) == {"fraction", "translation", "rotation"}, "invalid ADS sample")
+                        number(sample["fraction"])
+                        vector(sample["translation"])
+                        require(isinstance(sample["rotation"], list) and len(sample["rotation"]) == 4 and all(type(v) in (int, float) and math.isfinite(v) for v in sample["rotation"]) and abs(sum(v*v for v in sample["rotation"]) - 1) < .002, "invalid ADS sample rotation")
+                    require(not curve or (len(curve) >= 2 and curve[0]["fraction"] == 0 and curve[-1]["fraction"] == 1 and all(a["fraction"] < b["fraction"] for a, b in zip(curve, curve[1:]))), "invalid ADS curve timeline")
+                    sight = m["ads_sight"]
+                    if sight is not None:
+                        require(isinstance(sight, dict) and set(sight) == {"joint", "point", "rotation"} and sight["joint"] in ("j_gun", "tag_sights"), "invalid ADS sight")
+                        vector(sight["point"])
+                        q = sight["rotation"]
+                        require(isinstance(q, list) and len(q) == 4 and all(type(v) in (int, float) and math.isfinite(v) for v in q) and abs(sum(v*v for v in q) - 1) < .002 and abs(q[3]) >= math.cos(math.radians(1)), "unbounded ADS optical calibration")
                     require(type(m["shell_reload"]) is bool and type(m["dual_wield"]) is bool, "invalid weapon flags")
                     require(type(m["ads_enabled"]) is bool, "invalid ADS flag")
                     vector(m["ads_translation"])
