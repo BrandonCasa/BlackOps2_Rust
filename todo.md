@@ -1245,3 +1245,4 @@
 - [x] Copy prepared audio dependencies during packaging.
 - [ ] Preserve executable-relative discovery for expanded runtime packs.
 - [ ] Adapt the existing window driver to the new gameplay interfaces.
+- [ ] Fix light leaking for all rendering effects.
