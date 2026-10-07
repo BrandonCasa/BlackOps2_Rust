@@ -7,6 +7,8 @@ use crate::{
     movement::Mobility,
 };
 use avian3d::prelude::*;
+#[derive(Component)]
+struct ControlledMine;
 #[derive(Resource, Default)]
 struct Coverage {
     phase: u8,
@@ -25,6 +27,10 @@ struct Coverage {
     climb_capture: bool,
     landed_at: Option<f32>,
     landing_seen: bool,
+    traversal_blast: Option<u32>,
+    traversal_hit: bool,
+    combat_case: usize,
+    combat_before: Option<usize>,
     rows: Vec<serde_json::Value>,
 }
 pub fn install(app: &mut App) {
@@ -55,7 +61,16 @@ fn drive(
         ),
         Without<Zombie>,
     >,
-    enemies: Query<(Entity, &Transform, &Zombie), With<Zombie>>,
+    enemies: Query<
+        (
+            Entity,
+            &Transform,
+            &Zombie,
+            &Vitality,
+            Option<&ColliderDisabled>,
+        ),
+        With<Zombie>,
+    >,
     blockers: Query<(Entity, &DoorBlocker)>,
     props: Query<&DoorProp>,
     access: Res<ZoneAccess>,
@@ -65,9 +80,22 @@ fn drive(
         ResMut<crate::navigation::Navigation>,
         Res<crate::access::CurrentZone>,
         Res<crate::enemies::EnemyEvidence>,
+        ResMut<crate::equipment::BlastQueue>,
+        Res<crate::damage::CombatHistory>,
+        Res<crate::mines::MineEvidence>,
+        Query<Entity, With<ControlledMine>>,
     ),
 ) {
-    let (evidence, mut nav, current_zone, enemy_evidence) = inspection;
+    let (
+        evidence,
+        mut nav,
+        current_zone,
+        enemy_evidence,
+        mut blasts,
+        history,
+        mine_evidence,
+        controlled_mines,
+    ) = inspection;
     let (Some(v), Some(game), Ok((owner, mut p, mut pose, health, mut mobility))) =
         (v, game, players.single_mut())
     else {
@@ -78,7 +106,7 @@ fn drive(
     }
     input.clear();
     c.age += time.delta_secs();
-    for (e, body, _) in &enemies {
+    for (e, body, _, _, _) in &enemies {
         if c.actor != Some(e)
             && (!v.navigation || c.phase >= 6 || body.translation.distance(pose.translation) < 3.)
         {
@@ -336,8 +364,8 @@ fn drive(
             let eye = p.eye_height;
             let aim = enemies
                 .iter()
-                .find(|(e, _, _)| Some(*e) == c.actor)
-                .map_or(c.aim, |(_, body, _)| body.translation + Vec3::Y * 0.3);
+                .find(|(e, _, _, _, _)| Some(*e) == c.actor)
+                .map_or(c.aim, |(_, body, _, _, _)| body.translation + Vec3::Y * 0.3);
             super::semtex::aim(&mut p, &pose, aim, eye);
             if !c.climb_capture
                 && enemy_evidence.traversals_started > c.traversal_start
@@ -352,8 +380,33 @@ fn drive(
             }
             let actor_action = enemies
                 .iter()
-                .find(|(e, _, _)| Some(*e) == c.actor)
-                .map(|(_, _, z)| (z.action, z.elapsed));
+                .find(|(e, _, _, _, _)| Some(*e) == c.actor)
+                .map(|(_, _, z, _, _)| (z.action, z.elapsed));
+            if let Some((entity, body, z, vitality, disabled)) =
+                enemies.iter().find(|(e, _, _, _, _)| Some(*e) == c.actor)
+            {
+                if c.traversal_blast.is_none()
+                    && disabled.is_some()
+                    && z.action == crate::origins::EnemyAnimation::Traverse
+                {
+                    c.traversal_blast = vitality.current();
+                    blasts
+                        .0
+                        .push(combat_blast(owner, body.translation, 0.5, 10));
+                } else if !c.traversal_hit
+                    && let Some(before) = c.traversal_blast
+                    && vitality.current() == Some(before - 10)
+                {
+                    let attributed = history.recent.iter().any(|r| {
+                        r.impact.target == entity
+                            && r.impact.attacker == owner
+                            && r.impact.source.id() == "weapon.frag_grenade_zm"
+                            && r.impact.amount == 10
+                    });
+                    c.rows.push(serde_json::json!({"case":"traversing_blast_damage","passed":attributed,"before":before,"after":vitality.current()}));
+                    c.traversal_hit = attributed;
+                }
+            }
             if enemy_evidence.traversals_finished > c.traversal_finish {
                 if c.landed_at.is_none() {
                     c.landed_at = Some(c.age);
@@ -374,14 +427,256 @@ fn drive(
                     });
                 let held = c.landing_seen;
                 c.rows.push(serde_json::json!({"case":"landing_recovery","passed":recovered,"observed_hold":held,"released":actor_action.map(|(a,_)|format!("{a:?}"))}));
+                let observed = c.traversal_hit;
+                c.rows.push(
+                    serde_json::json!({"case":"traversing_blast_observed","passed":observed}),
+                );
                 if let Some(e) = c.actor.take() {
                     commands.entity(e).despawn();
                 }
-                pose.translation = Vec3::from_array(game.spawn) + Vec3::Y * 30.;
-                p.velocity = Vec3::ZERO;
-                mobility.airborne = false;
-                mobility.peak = pose.translation.y - p.height * 0.5;
-                next = Some(7);
+                next = Some(11);
+            }
+        }
+        11 => {
+            let enemy = game
+                .content
+                .enemies
+                .iter()
+                .find(|e| e.family == "german" && e.traversals.contains_key("rise"))
+                .unwrap();
+            let point = c.aim;
+            let mut zombie = Zombie::new(
+                point,
+                enemy.id.clone(),
+                crate::rounds::Gait::Walk,
+                enemy.speed,
+            )
+            .rising(&enemy.traversals["rise"]);
+            // Hold the native rising pose while checking geometric boundaries.
+            zombie.stunned = 100.;
+            c.actor = Some(
+                commands
+                    .spawn((
+                        zombie,
+                        crate::player::capsule(0.3, 1.7),
+                        Vitality::ordinary_actor(150, 150).unwrap(),
+                        ColliderDisabled,
+                        crate::rounds::PopulationKind::Ordinary,
+                        crate::gameplay::SessionEntity,
+                        Transform::from_translation(point),
+                        Visibility::Inherited,
+                    ))
+                    .id(),
+            );
+            c.combat_case = 0;
+            next = Some(12);
+        }
+        12 => {
+            pose.translation = c.center + Vec3::Y * 2.;
+            p.velocity = Vec3::ZERO;
+            if let Some(actor) = c.actor
+                && let Ok((_, body, z, vitality, disabled)) = enemies.get(actor)
+            {
+                let receipts = history
+                    .recent
+                    .iter()
+                    .filter(|r| {
+                        r.impact.target == actor && r.impact.source.id() == "weapon.frag_grenade_zm"
+                    })
+                    .count();
+                if let Some(before) = c.combat_before {
+                    if c.age > 0.15 {
+                        let expected_hit = c.combat_case == 0 || c.combat_case == 3;
+                        let passed = receipts == before + usize::from(expected_hit)
+                            && (c.combat_case != 0
+                                || (vitality.current() == Some(140)
+                                    && disabled.is_some()
+                                    && z.action == crate::origins::EnemyAnimation::Traverse));
+                        let names = [
+                            "rising_blast_damage",
+                            "outside_blast_radius",
+                            "blast_cover",
+                            "lethal_blast",
+                            "dead_blast_excluded",
+                        ];
+                        let name = names[c.combat_case];
+                        c.rows.push(serde_json::json!({"case":name,"passed":passed,"receipts_before":before,"receipts_after":receipts,"health":vitality.current()}));
+                        c.combat_case += 1;
+                        c.combat_before = None;
+                        c.age = 0.;
+                        if c.combat_case == 5 {
+                            commands.entity(actor).despawn();
+                            c.actor = None;
+                            next = Some(13);
+                        }
+                    }
+                } else {
+                    let point = body.translation;
+                    let request = match c.combat_case {
+                        0 => Some(combat_blast(owner, point, 0.5, 10)),
+                        1 => Some(combat_blast(owner, point + Vec3::X * 2., 0.1, 10)),
+                        2 => [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z, Vec3::Y]
+                            .into_iter()
+                            .find_map(|axis| {
+                                let hit = query.cast_ray(
+                                    point,
+                                    Dir3::new(axis).unwrap(),
+                                    8.,
+                                    true,
+                                    &crate::environment::solids([actor, owner]),
+                                )?;
+                                let center = point + axis * (hit.distance + 0.3);
+                                Some(combat_blast(owner, center, hit.distance + 1., 10))
+                            }),
+                        3 => Some(combat_blast(owner, point, 0.5, 200)),
+                        _ => Some(combat_blast(owner, point, 0.5, 10)),
+                    };
+                    if let Some(request) = request {
+                        blasts.0.push(request);
+                        c.combat_before = Some(receipts);
+                        c.age = 0.;
+                    }
+                }
+            }
+        }
+        13 => {
+            // A native rising actor is kept collision-disabled in the real map.
+            // Check the same trigger cylinder, cone and cover before admission.
+            let enemy = game
+                .content
+                .enemies
+                .iter()
+                .find(|e| e.family == "german")
+                .unwrap();
+            let point = c.aim;
+            let mut zombie = Zombie::new(
+                point,
+                enemy.id.clone(),
+                crate::rounds::Gait::Walk,
+                enemy.speed,
+            )
+            .rising(&enemy.traversals["rise"]);
+            zombie.stunned = 100.;
+            c.actor = Some(
+                commands
+                    .spawn((
+                        zombie,
+                        crate::player::capsule(0.3, 1.7),
+                        Vitality::ordinary_actor(150, 150).unwrap(),
+                        ColliderDisabled,
+                        crate::gameplay::SessionEntity,
+                        Transform::from_translation(point),
+                        Visibility::Inherited,
+                    ))
+                    .id(),
+            );
+            c.combat_case = 0;
+            c.combat_before = None;
+            next = Some(14);
+        }
+        14 => {
+            pose.translation = c.center + Vec3::Y * 2.;
+            p.velocity = Vec3::ZERO;
+            if let Some(actor) = c.actor
+                && let Ok((_, body, _, _, _)) = enemies.get(actor)
+            {
+                if let Some(before) = c.combat_before {
+                    if c.age > 0.15 {
+                        let passed = mine_evidence.triggered as usize
+                            == before + usize::from(c.combat_case == 4);
+                        let names = [
+                            "claymore_radius_excluded",
+                            "claymore_height_excluded",
+                            "claymore_cone_excluded",
+                            "claymore_cover_excluded",
+                            "claymore_disabled_actor_trigger",
+                        ];
+                        let name = names[c.combat_case];
+                        c.rows.push(serde_json::json!({"case":name,"passed":passed,"triggers_before":before,"triggers_after":mine_evidence.triggered}));
+                        if c.combat_case == 3 {
+                            commands
+                                .entity(actor)
+                                .insert(Transform::from_translation(c.aim));
+                        }
+                        c.combat_before = None;
+                        c.combat_case += 1;
+                        c.age = 0.;
+                        // Retire each controlled trap before checking another boundary.
+                        for entity in &controlled_mines {
+                            commands.entity(entity).despawn();
+                        }
+                        if c.combat_case == 5 {
+                            commands.entity(actor).despawn();
+                            c.actor = None;
+                            pose.translation = Vec3::from_array(game.spawn) + Vec3::Y * 30.;
+                            mobility.airborne = false;
+                            mobility.peak = pose.translation.y - p.height * 0.5;
+                            next = Some(7);
+                        }
+                    }
+                } else {
+                    let profile = game
+                        .content
+                        .weapons
+                        .iter()
+                        .find(|w| w.id.0 == "weapon.claymore_zm")
+                        .unwrap()
+                        .mine
+                        .as_ref()
+                        .unwrap();
+                    let mut point = body.translation;
+                    let mut center = match c.combat_case {
+                        0 => point + Vec3::Z * (profile.trigger_radius + 1.),
+                        1 => point + Vec3::Z * 1.5 - Vec3::Y * 4.,
+                        2 => point - Vec3::Z * 1.5,
+                        _ => point + Vec3::Z * 1.5,
+                    };
+                    if c.combat_case == 3 {
+                        if let Some(hit) = [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z]
+                            .into_iter()
+                            .find_map(|axis| {
+                                query
+                                    .cast_ray(
+                                        point,
+                                        Dir3::new(axis).unwrap(),
+                                        8.,
+                                        true,
+                                        &crate::environment::solids([actor, owner]),
+                                    )
+                                    .map(|h| (axis, h.distance))
+                            })
+                        {
+                            point += hit.0 * (hit.1 - 0.8);
+                            commands
+                                .entity(actor)
+                                .insert(Transform::from_translation(point));
+                            center = point + hit.0;
+                        } else {
+                            c.rows.push(serde_json::json!({"case":"claymore_cover_geometry","passed":false}));
+                            commands.write_message(AppExit::error());
+                            return;
+                        }
+                    }
+                    let toward = (point - center).normalize();
+                    commands.spawn((
+                        crate::gameplay::SessionEntity,
+                        ControlledMine,
+                        crate::mines::PlantedMine {
+                            owner,
+                            definition: crate::origins::WeaponId("weapon.claymore_zm".into()),
+                            countdown: None,
+                            unsafe_plant: false,
+                        },
+                        Transform::from_translation(center).with_rotation(Quat::from_rotation_arc(
+                            Vec3::NEG_Z,
+                            if c.combat_case == 2 { -toward } else { toward },
+                        )),
+                        Visibility::Hidden,
+                    ));
+                    c.combat_before = Some(mine_evidence.triggered as usize);
+                    c.age = 0.;
+                }
+                let _ = std::fs::write(v.output.join("doors-progress.json"), serde_json::json!({"phase":c.phase,"index":c.index,"combat_case":c.combat_case,"rows":c.rows}).to_string());
             }
         }
         7 if **state == GameState::GameOver => {
@@ -420,5 +715,23 @@ fn drive(
         );
         c.phase = phase;
         c.age = 0.;
+    }
+}
+
+fn combat_blast(
+    owner: Entity,
+    center: Vec3,
+    radius: f32,
+    amount: u32,
+) -> crate::equipment::BlastRequest {
+    crate::equipment::BlastRequest {
+        owner,
+        definition: crate::origins::WeaponId("weapon.frag_grenade_zm".into()),
+        center,
+        radius,
+        inner_radius: 0.,
+        inner_damage: amount,
+        outer_damage: amount,
+        direction: None,
     }
 }
