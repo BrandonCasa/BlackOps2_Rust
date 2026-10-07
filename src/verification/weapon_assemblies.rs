@@ -22,6 +22,7 @@ struct Survey {
     world_fitted: bool,
     world_captured: bool,
     restarting: bool,
+    capture_pending: Option<(f32, bool)>,
 }
 #[derive(Component)]
 struct WorldPreview;
@@ -50,7 +51,12 @@ pub fn install(app: &mut App) {
             PreUpdate,
             drive.after(super::drive).before(crate::player::look),
         )
-        .add_systems(Update, hold_shot.before(crate::presentation::animate))
+        .add_systems(
+            Update,
+            hold_shot
+                .before(crate::presentation::PresentationAnimation)
+                .before(crate::audio::AudioPlayback),
+        )
         .add_observer(world_ready);
 }
 fn hold_shot(
@@ -94,7 +100,8 @@ fn world_ready(
     mut commands: Commands,
     roots: Query<(), With<WorldPreview>>,
     children: Query<&Children>,
-    meshes: Query<(), With<Mesh3d>>,
+    meshes: Query<&MeshMaterial3d<StandardMaterial>, With<Mesh3d>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if !roots.contains(event.entity) {
         return;
@@ -108,6 +115,15 @@ fn world_ready(
             bevy::camera::visibility::RenderLayers::layer(1),
             bevy::light::NotShadowCaster,
         ));
+        // Match the production wall-pickup material preparation.
+        if let Ok(material) = meshes.get(entity)
+            && let Some(source) = materials.get(&material.0)
+        {
+            let filled = crate::rendering::with_actor_fill(source);
+            commands
+                .entity(entity)
+                .insert(MeshMaterial3d(materials.add(filled)));
+        }
     }
 }
 fn drive(
@@ -223,6 +239,20 @@ fn drive(
         .iter()
         .find(|w| w.id == survey.catalog[survey.cursor])
         .unwrap();
+    if let Some((until, moving)) = survey.capture_pending {
+        if survey.age < until {
+            return;
+        }
+        survey.capture_pending = None;
+        if moving && survey.sample < 2 {
+            survey.sample += 1;
+        } else {
+            survey.phase += 1;
+            survey.begun = false;
+            survey.age = 0.;
+        }
+        return;
+    }
     if survey.phase == POSES.len() {
         if let Some(scene) = weapon
             .pickup
@@ -387,13 +417,9 @@ fn drive(
                 .spawn(Screenshot::primary_window())
                 .observe(save_to_disk(v.output.join(&name)));
             survey.rows.push(serde_json::json!({"weapon":weapon.id.0,"phase":label,"fraction":fraction,"image":name,"visible":visible,"view":view}));
-            if moving && survey.sample < 2 {
-                survey.sample += 1;
-            } else {
-                survey.phase += 1;
-                survey.begun = false;
-                survey.age = 0.;
-            }
+            // Preserve this action/sample until the requested screenshot has
+            // passed through extraction and readback.
+            survey.capture_pending = Some((survey.age + 0.12, moving));
         }
     }
 }

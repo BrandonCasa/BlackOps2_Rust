@@ -613,6 +613,8 @@ pub struct SoundDefinition {
     pub volume: f32,
     pub pitch: [f32; 2],
     pub distance: f32,
+    #[serde(default)]
+    pub distance_min: f32,
     pub looping: bool,
 }
 #[derive(Clone, Deserialize)]
@@ -1193,7 +1195,9 @@ impl ContentCatalog {
                     && positive(v.pitch[0])
                     && v.pitch[1].is_finite()
                     && v.pitch[1] >= v.pitch[0]
-                    && positive(v.distance),
+                    && positive(v.distance)
+                    && nonnegative(v.distance_min)
+                    && v.distance_min <= v.distance,
                 "Invalid sound tuning",
             )?;
         }

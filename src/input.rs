@@ -124,7 +124,7 @@ pub(crate) fn collect(
     }
 }
 
-fn pause_and_restart(
+pub(crate) fn pause_and_restart(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     state: Res<State<GameState>>,

@@ -216,7 +216,11 @@ fn discharge(
         if limit == 0 {
             continue;
         }
-        crate::audio::emit(&mut commands, "zmb_cherry_explode", pose.translation, None);
+        crate::audio::emit(
+            &mut commands,
+            "zmb_cherry_explode",
+            crate::audio::SoundSource::World(pose.translation),
+        );
         let mesh = visual
             .mesh
             .get_or_insert_with(|| meshes.add(Sphere::new(0.05).mesh().ico(1).unwrap()))
@@ -368,7 +372,11 @@ fn land(
                 if landing.height < dive.minimum_drop {
                     continue;
                 }
-                crate::audio::emit(&mut commands, "zmb_phdflop_explo", landing.position, None);
+                crate::audio::emit(
+                    &mut commands,
+                    "zmb_phdflop_explo",
+                    crate::audio::SoundSource::World(landing.position),
+                );
                 blasts.0.push(crate::equipment::BlastRequest {
                     owner: landing.owner,
                     definition: drink.bottle.clone(),

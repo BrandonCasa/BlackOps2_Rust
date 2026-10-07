@@ -581,7 +581,11 @@ fn flight(
                         },
                         surface
                     );
-                    crate::audio::emit(&mut commands, alias, transform.translation, None);
+                    crate::audio::emit(
+                        &mut commands,
+                        alias,
+                        crate::audio::SoundSource::World(transform.translation),
+                    );
                     if tuning.sticky {
                         transform.rotation = Quat::from_rotation_arc(Vec3::Y, normal);
                         grenade.motion = if let Ok((local, global, parent)) = poses.get(hit.entity)
@@ -687,8 +691,7 @@ pub(crate) fn resolve_blasts(
             &mut commands,
             &game,
             &format!("{}.explode", blast.definition.0),
-            center,
-            None,
+            crate::audio::SoundSource::World(center),
         );
         // Movement colliders are disabled during native traversal/rising, but
         // living actors remain combat targets. Cover still uses live geometry.

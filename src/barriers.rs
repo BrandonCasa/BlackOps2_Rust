@@ -79,6 +79,8 @@ pub struct Barriers {
     pub awarded: u32,
     pub reward_counter: u32,
     owners: BTreeMap<ContentId, Entity>,
+    repairers: BTreeMap<(ContentId, usize), Entity>,
+    anchors: BTreeMap<(ContentId, usize), Entity>,
     round: u32,
 }
 impl Barriers {
@@ -87,16 +89,33 @@ impl Barriers {
             .get(id)
             .is_some_and(|b| b.contains(&BoardState::Missing))
     }
-    pub fn repair(&mut self, id: &ContentId) -> bool {
-        let Some(board) = self
-            .windows
-            .get_mut(id)
-            .and_then(|b| b.iter_mut().find(|b| **b == BoardState::Missing))
-        else {
-            return false;
-        };
-        *board = BoardState::Closing(0.);
-        true
+    pub fn repair(&mut self, id: &ContentId, repairer: Entity) -> Option<usize> {
+        let boards = self.windows.get_mut(id)?;
+        let index = boards.iter().position(|b| *b == BoardState::Missing)?;
+        boards[index] = BoardState::Closing(0.);
+        self.repairers.insert((id.clone(), index), repairer);
+        Some(index)
+    }
+    pub fn source(
+        &self,
+        game: &GameDefinition,
+        id: &ContentId,
+        index: usize,
+    ) -> crate::audio::SoundSource {
+        self.anchors
+            .get(&(id.clone(), index))
+            .copied()
+            .map(crate::audio::SoundSource::attached)
+            .unwrap_or_else(|| {
+                let position = game
+                    .content
+                    .barriers
+                    .iter()
+                    .find(|d| d.id == *id)
+                    .and_then(|d| game.content.placements.iter().find(|p| p.id == d.placement))
+                    .map_or(Vec3::ZERO, |p| Vec3::from_array(p.position));
+                crate::audio::SoundSource::World(position)
+            })
     }
     pub fn obstructed(&self, id: &ContentId) -> bool {
         self.windows.get(id).is_some_and(|b| {
@@ -270,7 +289,11 @@ pub fn sound(
     position: Vec3,
 ) {
     if let Some(alias) = definition.audio.bindings.get(&id.0) {
-        let entity = crate::audio::emit(commands, alias.clone(), position, None);
+        let entity = crate::audio::emit(
+            commands,
+            alias.clone(),
+            crate::audio::SoundSource::World(position),
+        );
         commands.entity(entity).insert(WoodAudio);
     }
 }
@@ -284,7 +307,6 @@ fn tick(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
-    server: Res<AssetServer>,
     mut barriers: ResMut<Barriers>,
     mut session: ResMut<Session>,
     blockers: Query<(Entity, &BarrierBlocker, Option<&ColliderDisabled>)>,
@@ -311,7 +333,7 @@ fn tick(
         let Some(boards) = barriers.windows.get_mut(&d.id) else {
             continue;
         };
-        let mut repaired = 0;
+        let mut repaired = Vec::new();
         for (i, b) in boards.iter_mut().enumerate() {
             match *b {
                 BoardState::Reserved(owner)
@@ -335,7 +357,7 @@ fn tick(
                 BoardState::Closing(age) => {
                     let age = age + time.delta_secs();
                     *b = if age >= d.boards[i].repair_seconds {
-                        repaired += 1;
+                        repaired.push(i);
                         BoardState::Closed
                     } else {
                         BoardState::Closing(age)
@@ -361,26 +383,25 @@ fn tick(
                 commands.entity(e).insert(ColliderDisabled);
             }
         }
-        for _ in 0..repaired {
+        for index in repaired {
+            let repairer = barriers.repairers.remove(&(d.id.clone(), index));
             barriers.repaired += 1;
             barriers.reward_counter = barriers.reward_counter.saturating_add(10);
             if barriers.reward_counter < session.round.saturating_mul(50).min(500) {
                 session.points = session.points.saturating_add(10);
                 barriers.awarded += 10;
+                if let Some(repairer) = repairer {
+                    crate::audio::emit(
+                        &mut commands,
+                        "zmb_cha_ching",
+                        crate::audio::SoundSource::attached(repairer),
+                    );
+                }
             }
-            if let Some(p) = definition
-                .content
-                .placements
-                .iter()
-                .find(|p| p.id == d.placement)
-            {
-                sound(
-                    &mut commands,
-                    &server,
-                    &definition,
-                    &d.repair_sound,
-                    Vec3::from_array(p.position),
-                );
+            if let Some(alias) = definition.audio.bindings.get(&d.repair_sound.0) {
+                let source = barriers.source(&definition, &d.id, index);
+                let sound = crate::audio::emit(&mut commands, alias.clone(), source);
+                commands.entity(sound).insert(WoodAudio);
                 barriers.sounds += 1;
             }
         }
@@ -394,6 +415,7 @@ fn animate(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut boards: Query<(Entity, &mut BoardVisual, &mut Visibility)>,
     children: Query<&Children>,
+    names: Query<&Name>,
     mut players: Query<(&mut AnimationPlayer, Option<&BoardPlayback>)>,
 ) {
     let Some(definition) = definition else {
@@ -441,6 +463,14 @@ fn animate(
             _ => (*repair, d.boards[visual.index].repair_seconds),
         };
         for child in children.iter_descendants(entity) {
+            if names
+                .get(child)
+                .is_ok_and(|name| name.as_str() == "tag_animate")
+            {
+                barriers
+                    .anchors
+                    .insert((visual.id.clone(), visual.index), child);
+            }
             let Ok((mut player, attached)) = players.get_mut(child) else {
                 continue;
             };

@@ -364,7 +364,13 @@ fn opening(
         if prop.age == 0. {
             // One bounded emitter per authored leaf, matching native door_move sound placement.
             if let Some(alias) = definition.audio.bindings.get(&door.sound.0) {
-                let entity = crate::audio::emit(&mut commands, alias.clone(), prop.start, None);
+                let source = if door.debris {
+                    // Debris retires in this fixed step; its impact remains in place.
+                    crate::audio::SoundSource::World(prop.start)
+                } else {
+                    crate::audio::SoundSource::attached(entity)
+                };
+                let entity = crate::audio::emit(&mut commands, alias.clone(), source);
                 commands.entity(entity).insert(DoorAudio);
                 evidence.sounds += 1;
             }

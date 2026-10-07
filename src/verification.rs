@@ -71,6 +71,7 @@ pub(crate) struct Verification {
     doors: bool,
     navigation: bool,
     traversal: bool,
+    audio: bool,
     barriers: bool,
     generators: bool,
     admission_snapshot: bool,
@@ -236,6 +237,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             doors: options.verify_doors,
             navigation: options.verify_navigation,
             traversal: options.verify_traversal,
+            audio: options.verify_audio,
             barriers: options.verify_barriers,
             generators: options.verify_generators,
             admission_snapshot: false,
@@ -295,6 +297,7 @@ pub(crate) fn drive(
         || verification.mobility
         || verification.mud
         || verification.doors
+        || verification.audio
         || verification.barriers
         || verification.generators
     {
@@ -606,6 +609,7 @@ fn check(
         || verification.mobility
         || verification.mud
         || verification.doors
+        || verification.audio
         || verification.barriers
         || verification.generators
     {

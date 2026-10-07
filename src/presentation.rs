@@ -25,6 +25,8 @@ pub(crate) mod offhand;
 pub use offhand::EquipmentPresentationEvidence;
 pub(crate) use offhand::selection as equipment_selection;
 pub struct PresentationPlugin;
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct PresentationAnimation;
 // Shared camera-space calibration against the supplied Mauser hip-fire view.
 // Weapon-specific grips and offsets remain authored by their original rigs.
 const VIEWMODEL_FOV_DEGREES: f32 = 65.;
@@ -81,7 +83,8 @@ impl Plugin for PresentationPlugin {
                     offhand::select_visible,
                     animate,
                 )
-                    .chain(),
+                    .chain()
+                    .in_set(PresentationAnimation),
             )
             .add_systems(Startup, first_person_light.after(crate::rendering::setup))
             .add_systems(
@@ -572,7 +575,7 @@ pub(crate) fn primary_action(
     }
     (action, None)
 }
-pub(crate) fn animate(
+fn animate(
     mut commands: Commands,
     state: Res<State<GameState>>,
     definition: Option<Res<GameDefinition>>,
