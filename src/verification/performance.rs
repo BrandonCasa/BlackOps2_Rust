@@ -159,7 +159,7 @@ pub(super) fn record(
     }
 }
 
-fn summary(values: &[f64], frames: bool) -> serde_json::Value {
+pub(super) fn summary(values: &[f64], frames: bool) -> serde_json::Value {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let mean = values.iter().sum::<f64>() / values.len() as f64;

@@ -22,6 +22,7 @@ pub struct LaunchOptions {
     pub material_debug: u32,
     pub verify: Option<PathBuf>,
     pub benchmark: bool,
+    pub release_benchmark: bool,
     pub benchmark_view: Option<usize>,
     pub benchmark_motion: bool,
     pub benchmark_combat: bool,
@@ -62,6 +63,17 @@ impl LaunchOptions {
     pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
         let mut result = Self::default();
         if let Some(argument) = args.next() {
+            if argument == "--release-benchmark-moving" || argument == "--release-benchmark-combat"
+            {
+                result.benchmark = true;
+                result.release_benchmark = true;
+                result.benchmark_combat = argument == "--release-benchmark-combat";
+                result.verify = args.next().map(PathBuf::from);
+                if result.verify.is_none() || args.next().is_some() {
+                    result.error = Some("Usage: origins --release-benchmark-moving|--release-benchmark-combat external-output-folder".into());
+                }
+                return result;
+            }
             if argument == "--material-debug"
                 || argument == "--material-debug-combat"
                 || argument == "--material-debug-hands"

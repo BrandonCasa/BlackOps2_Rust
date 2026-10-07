@@ -30,6 +30,7 @@ mod mule_kick;
 mod performance;
 mod perk_health;
 mod pipelines;
+mod release_performance;
 pub(crate) use pipelines::error_layer;
 mod semtex;
 mod solo_revive;
@@ -103,6 +104,11 @@ pub(crate) struct Verification {
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
+        if app.world().resource::<LaunchOptions>().release_benchmark {
+            pipelines::install(app);
+            release_performance::install(app);
+            return;
+        }
         if app.world().resource::<LaunchOptions>().verify.is_some() {
             if app
                 .world()

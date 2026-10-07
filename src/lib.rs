@@ -49,6 +49,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     let configuration = assets::AssetPack::discover();
     let mut app = App::new();
     let benchmark = options.benchmark;
+    let release_benchmark = options.release_benchmark;
     let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
     let ads_capture = options.verify_ads;
     let verification_enabled = options.verify.is_some();
@@ -140,7 +141,10 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    if benchmark && !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
+    if benchmark
+        && !release_benchmark
+        && !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>()
+    {
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     }
     if benchmark || verification_enabled {

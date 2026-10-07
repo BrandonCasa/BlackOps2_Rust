@@ -64,7 +64,9 @@ impl<S: Subscriber> Layer<S> for MaterialErrors {
         // descriptor. These engine errors otherwise leave missing draws while
         // the cached-shader inspection still reports success.
         if *metadata.level() != bevy::log::Level::ERROR
-            || !metadata.target().starts_with("bevy_pbr::")
+            || !(metadata.target().starts_with("bevy_pbr::")
+                || metadata.target().starts_with("bevy_render::")
+                || metadata.target().starts_with("bevy_shader::"))
         {
             return;
         }
@@ -83,6 +85,15 @@ pub(super) fn install(app: &mut App) {
     app.init_resource::<PipelineFailures>()
         .add_systems(Update, fail);
     let failures = app.world().resource::<PipelineFailures>().clone();
+    // Release frame measurements retain error reporting without walking the
+    // entire pipeline cache on every render frame.
+    if app
+        .world()
+        .resource::<crate::assets::LaunchOptions>()
+        .release_benchmark
+    {
+        return;
+    }
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
         render
             .insert_resource(failures)
