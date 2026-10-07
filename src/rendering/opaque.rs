@@ -248,17 +248,40 @@ impl MaterialExtension for OpaqueSurface {
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
             Mesh::ATTRIBUTE_NORMAL.at_shader_location(1),
             Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
-            Mesh::ATTRIBUTE_UV_1.at_shader_location(3),
             Mesh::ATTRIBUTE_TANGENT.at_shader_location(4),
-            Mesh::ATTRIBUTE_COLOR.at_shader_location(5),
         ];
-        attributes.extend([
-            LAYER_UV.at_shader_location(8),
-            LAYER3_UV.at_shader_location(9),
-            ROTATION1.at_shader_location(10),
-            ROTATION2.at_shader_location(11),
-            LIGHTING_VERTEX.at_shader_location(12),
-        ]);
+        // Late scenes can specialize against the previous uploaded layout while
+        // conversion adds neutral attributes to their CPU mesh. Request only
+        // actual GPU inputs; the shader supplies the same defaults in that gap.
+        for (attribute, location, define) in [
+            (Mesh::ATTRIBUTE_UV_1, 3, "ORIGINS_UV_B"),
+            (Mesh::ATTRIBUTE_COLOR, 5, "ORIGINS_COLOR"),
+            (LAYER_UV, 8, "ORIGINS_LAYER_UV"),
+            (LAYER3_UV, 9, "ORIGINS_LAYER3_UV"),
+            (ROTATION1, 10, "ORIGINS_ROTATION1"),
+            (ROTATION2, 11, "ORIGINS_ROTATION2"),
+            (LIGHTING_VERTEX, 12, "ORIGINS_LIGHTING_VERTEX"),
+        ] {
+            if layout.0.contains(attribute) {
+                attributes.push(attribute.at_shader_location(location));
+                descriptor.vertex.shader_defs.push(define.into());
+            } else {
+                debug!("Surface vertex input {define} uses its neutral default");
+            }
+        }
+        // Keep Bevy's intermediate/output structs and our fragment interface
+        // stable even when the corresponding vertex input uses a default.
+        for (attribute, define) in [
+            (Mesh::ATTRIBUTE_UV_1, "VERTEX_UVS_B"),
+            (Mesh::ATTRIBUTE_COLOR, "VERTEX_COLORS"),
+        ] {
+            if !layout.0.contains(attribute) {
+                descriptor.vertex.shader_defs.push(define.into());
+                if let Some(fragment) = descriptor.fragment.as_mut() {
+                    fragment.shader_defs.push(define.into());
+                }
+            }
+        }
         descriptor.vertex.buffers = vec![layout.0.get_layout(&attributes)?];
         Ok(())
     }

@@ -51,10 +51,15 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     let benchmark = options.benchmark;
     let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
     let ads_capture = options.verify_ads;
+    app.insert_resource(options);
     app.add_plugins(
         DefaultPlugins
             .build()
             .disable::<bevy::anti_alias::AntiAliasPlugin>()
+            .set(bevy::log::LogPlugin {
+                custom_layer: verification::error_layer,
+                ..default()
+            })
             .set(bevy::pbr::PbrPlugin {
                 use_gpu_instance_buffer_builder: gpu_preprocessing,
                 ..default()
@@ -97,7 +102,6 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     .init_state::<GameState>()
     .insert_resource(Time::<Fixed>::from_hz(60.0))
     .insert_resource(assets::LoadConfiguration(configuration))
-    .insert_resource(options)
     .add_plugins((
         assets::GameAssetsPlugin,
         input::GameInputPlugin,

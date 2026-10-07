@@ -30,6 +30,7 @@ mod mule_kick;
 mod performance;
 mod perk_health;
 mod pipelines;
+pub(crate) use pipelines::error_layer;
 mod semtex;
 mod solo_revive;
 mod speed_cola;
