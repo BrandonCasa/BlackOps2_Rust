@@ -117,6 +117,10 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
             soft_shadow_size: Some(0.00465),
             contact_shadows_enabled: true,
             shadow_maps_enabled: true,
+            // Bound receiver displacement below this map's thin occluders;
+            // the PCSS path separately compensates its texel footprint.
+            shadow_depth_bias: 0.002,
+            shadow_normal_bias: 0.25,
             ..default()
         },
         bevy::light::VolumetricLight,

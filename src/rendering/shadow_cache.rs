@@ -1372,7 +1372,11 @@ fn select(
         );
         // A completed map stays valid while an unrelated pipeline compiles.
         // Dirty maps become reusable only after completion confirms readiness.
-        if enabled.0 && cache.slots.get(&slot) == Some(&stamp) {
+        // Directional cascades consume camera-owned visibility and shared GPU
+        // batching state. Suspending their views produced incomplete occlusion
+        // even after requeueing every caster. Keep Bevy's current-frame cascade
+        // passes; camera-independent lantern faces retain qualified reuse.
+        if enabled.0 && !directional && cache.slots.get(&slot) == Some(&stamp) {
             // Bevy still owns lighting, visibility, phase preparation and the map.
             // Only execution of an unchanged cube face is omitted.
             cache.suspended_views.insert(

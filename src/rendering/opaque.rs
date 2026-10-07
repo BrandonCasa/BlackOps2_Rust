@@ -5,7 +5,10 @@ use bevy::{
     asset::uuid_handle,
     gltf::{GltfExtras, GltfMaterialName},
     mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef, VertexAttributeValues},
-    pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline},
+    pbr::{
+        ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+        MeshPipelineKey,
+    },
     prelude::*,
     render::render_resource::{
         AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
@@ -282,11 +285,27 @@ impl MaterialExtension for OpaqueSurface {
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         layout: &MeshVertexBufferLayoutRef,
-        _key: MaterialExtensionKey<Self>,
+        key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         // Bevy's shadow/depth prepass uses its own locations (including color at 7).
         // Only the forward adapter needs the additional authored layer attributes.
         if descriptor.vertex.shader != VERTEX_SHADER {
+            // Native shadow keys specify the light projection; camera prepass
+            // keys do not. Include alpha-tested casters without changing their
+            // discard shader or the camera's authored backface culling.
+            let light_projection = key
+                .mesh_key
+                .intersection(MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS);
+            let shadow_view = key.mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS)
+                && (key
+                    .mesh_key
+                    .contains(MeshPipelineKey::UNCLIPPED_DEPTH_ORTHO)
+                    || light_projection == MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE);
+            if shadow_view {
+                // Room-facing wall/ceiling sheets must also block light coming
+                // from their back. Match the ray scene's two-sided visibility.
+                descriptor.primitive.cull_mode = None;
+            }
             return Ok(());
         }
         let mut attributes = vec![
