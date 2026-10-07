@@ -19,6 +19,7 @@ use bevy::{
 use std::collections::HashMap;
 mod mipmaps;
 mod opaque;
+mod preprocessing;
 pub(crate) mod profile;
 mod residency;
 mod shadow_cache;
@@ -26,6 +27,7 @@ mod sky;
 mod static_probes;
 pub(crate) use opaque::OpaqueSurfaceStatus;
 pub(crate) use opaque::{LAYER_UV, LAYER3_UV, ROTATION1, ROTATION2};
+pub(crate) use preprocessing::PreprocessingStatus;
 pub(crate) use shadow_cache::ShadowCacheStats;
 
 #[derive(Component)]
@@ -45,6 +47,7 @@ impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<opaque::OpaqueMaterial>::default())
             .add_plugins(static_probes::StaticProbePlugin)
+            .add_plugins(preprocessing::PreprocessingPlugin)
             .add_plugins((shadow_cache::ShadowCachePlugin, residency::ResidencyPlugin))
             .init_resource::<profile::VisualProfile>()
             .init_resource::<OpaqueSurfaceStatus>()

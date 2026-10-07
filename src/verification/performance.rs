@@ -27,6 +27,7 @@ pub(super) fn record(
     shadows: Res<crate::rendering::ShadowCacheStats>,
     state: Res<State<crate::GameState>>,
     profile: Res<crate::rendering::profile::VisualProfile>,
+    preprocessing: Res<crate::rendering::PreprocessingStatus>,
 ) {
     let Some(verification) = verification else {
         return;
@@ -105,6 +106,7 @@ pub(super) fn record(
             "logical_resolution": windows.single().ok().map(|window| [window.resolution.width(), window.resolution.height()]),
             "adapter": adapter.as_ref().map(|info| format!("{:?}", info.0)),
             "vsync": !options.benchmark, "sample_virtual_seconds_per_view": [4.,sample_end],
+            "continuous_window_updates": options.benchmark,
             "antialiasing": profile.antialiasing,
             "lantern_shadow_map_size": profile.lantern_shadow_map_size,
             "continuous_camera_motion": verification.moving_view,
@@ -113,6 +115,7 @@ pub(super) fn record(
             "shadowed_point_lights_min_max": samples.shadow_lights,
             "shadow_cache_enabled": !options.uncached_shadows,
             "shadow_cache": shadows.report(),
+            "mesh_preprocessing": preprocessing.report(),
             "combat": if samples.combat.is_empty() { serde_json::Value::Null } else { summary(&samples.combat, true) },
         });
         match std::fs::write(

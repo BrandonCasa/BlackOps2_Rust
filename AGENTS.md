@@ -61,6 +61,11 @@ cargo fmt --all -- --check
 
 Exercise the real game window and distinguish compiled, tested, rendered and
 played behavior. Do not claim original equivalence from asset integrity checks.
+Share one actual-game validation slot across all chats and worktrees. Before
+launching any validation or benchmark, check for active `origins.exe` runs and
+wait until the slot is free. Never run more than one validation at a time. If
+another chat starts a run while yours is active, stop only your own run and wait;
+never interrupt another chat's process.
 Review diffs and make coherent local commits. Never push unless requested.
 Do not install replacement toolchains when the existing Cargo is available.
 
