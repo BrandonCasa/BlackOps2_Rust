@@ -4,7 +4,7 @@
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{main_pass_post_lighting_processing, calculate_tbn_mikktspace, alpha_discard},
     mesh_view_bindings::view,
-    pbr_types::{STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_UNLIT_BIT},
+    pbr_types::{STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_DOUBLE_SIDED_BIT},
 }
 #import origins::surface_lighting::apply_pbr_lighting
 
@@ -18,10 +18,10 @@ fn effect_sample(slot: u32, layer: u32, uv: vec2<f32>) -> vec4<f32> {
     return sample_color2(slot,uv);
 }
 
-fn normal_slope(sampled: vec2<f32>, strength: f32) -> vec2<f32> {
+fn normal_slope(sampled: vec4<f32>, strength: f32, two_component: bool) -> vec2<f32> {
     // Offline preparation has already decoded native slopes and changed Y.
-    let xy = sampled * 2.0 - 1.0;
-    let z = sqrt(max(1.0-dot(xy,xy),0.0001));
+    let xy = sampled.rg * 2.0 - 1.0;
+    let z = select(sqrt(max(1.0-dot(xy,xy),0.0001)), sampled.b*2.0-1.0, !two_component);
     return xy/max(z,0.01)*strength;
 }
 
@@ -55,6 +55,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     let layered = surface.layers.x > 1u;
     standard.color = vec4(1.0); // Authored vertex G/B remain layer controls only.
     var pbr = pbr_input_from_standard_material(standard, is_front);
+    let face_sign = select(1.0, -1.0, !is_front && (pbr.material.flags & STANDARD_MATERIAL_FLAGS_DOUBLE_SIDED_BIT) != 0u);
+    // Bevy conditionally flips its prepared normal when no base normal map is
+    // bound. Our layered map uses the original interpolated frame, then orients
+    // the entire resolved normal once, independently of that base shader flag.
+    pbr.world_normal = in.world_normal * face_sign;
+    pbr.N = normalize(pbr.world_normal);
     if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
         pbr.material.base_color.a *= surface.wetness.w;
     }
@@ -74,8 +80,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         // material coverage survives; scene illumination is evaluated now.
         pbr.material.base_color = vec4(sample_color0(slot, uv1).rgb*weights.x + sample_color1(slot, uv1).rgb*weights.y, 1.0);
     }
-    var slope0 = select(vec2(0.0), normal_slope(sample_normal_map(slot, uv0).rg, surface.response.x), (surface.modes.x & 2u) != 0u);
-    var slope1 = select(vec2(0.0), normal_slope(sample_second_normal(slot, uv1).rg, surface.response.x), (surface.modes.x & 4u) != 0u);
+    var slope0 = select(vec2(0.0), normal_slope(sample_normal_map(slot, uv0), surface.response.x, (surface.modes.w & 1u) != 0u), (surface.modes.x & 2u) != 0u);
+    var slope1 = select(vec2(0.0), normal_slope(sample_second_normal(slot, uv1), surface.response.x, (surface.modes.w & 2u) != 0u), (surface.modes.x & 4u) != 0u);
     var slope2 = vec2(0.0);
     var s0 = select(vec4(1.0,0.8,0.0,0.0), sample_specular_map(slot, uv0), surface.modes.y != 0u);
     var s1 = select(s0, sample_second_specular(slot, uv1), (surface.modes.z & 1u) != 0u);
@@ -102,28 +108,29 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         let response1 = select(0.0,w1,surface.layers.y == 1u);
         let response2 = select(0.0,w2,surface.layers.z == 1u);
         weights = vec3((1.0-response1)*(1.0-response2),response1*(1.0-response2),response2);
-        slope1 = select(slope0,orient(normal_slope(sample_second_normal(slot, uv1).rg, surface.response.x),rotation1),(surface.modes.x & 4u) != 0u);
-        slope2 = select(slope0,orient(normal_slope(sample_third_normal(slot, uv2).rg, surface.response.x),rotation2),(surface.modes.x & 8u) != 0u);
+        slope1 = select(slope0,orient(normal_slope(sample_second_normal(slot, uv1), surface.response.x, (surface.modes.w & 2u) != 0u),rotation1),(surface.modes.x & 4u) != 0u);
+        slope2 = select(slope0,orient(normal_slope(sample_third_normal(slot, uv2), surface.response.x, (surface.modes.w & 4u) != 0u),rotation2),(surface.modes.x & 8u) != 0u);
         s1 = select(s0,sample_second_specular(slot, uv1),(surface.modes.z & 1u) != 0u);
         s2 = select(s0,sample_third_specular(slot, uv2),(surface.modes.z & 2u) != 0u);
     }
     var slope = slope0*weights.x+slope1*weights.y+slope2*weights.z;
     var sg = s0*weights.x+s1*weights.y+s2*weights.z;
     if tile_macro {
-        let coating = select(vec2(0.0),normal_slope(sample_second_normal(slot, uv1).rg, surface.response.x),(surface.modes.x & 4u) != 0u);
-        let core = select(vec2(0.0),normal_slope(sample_third_normal(slot, uv1).rg, surface.response.x),(surface.modes.x & 8u) != 0u);
+        let coating = select(vec2(0.0),normal_slope(sample_second_normal(slot, uv1), surface.response.x, (surface.modes.w & 2u) != 0u),(surface.modes.x & 4u) != 0u);
+        let core = select(vec2(0.0),normal_slope(sample_third_normal(slot, uv1), surface.response.x, (surface.modes.w & 4u) != 0u),(surface.modes.x & 8u) != 0u);
         // Blend detail slopes onto the unscaled macro normal.
         slope = slope0 + core*weights.x + coating*weights.y;
         s0 = select(vec4(1.0,0.8,0.0,0.0),sample_specular_map(slot, uv1),surface.modes.y != 0u);
         s1 = select(s0,sample_second_specular(slot, uv1),(surface.modes.z & 1u) != 0u);
-        // Specular bindings follow coating/core order, like detail normals.
-        sg = s0*weights.y+s1*weights.x;
+        // Prepared response layers follow color layers (core/coating); their
+        // normals retain the separate macro/coating/core native binding order.
+        sg = s0*weights.x+s1*weights.y;
     }
     if water {
         let t = animation_time(slot);
         let wuv = in.uv*surface.water.z;
-        let a = normal_slope(sample_normal_map(slot, wuv+t*surface.velocity.xy).rg, surface.response.x);
-        let b = normal_slope(sample_second_normal(slot, wuv*1.37+t*surface.velocity.zw).rg, surface.response.x);
+        let a = normal_slope(sample_normal_map(slot, wuv+t*surface.velocity.xy), surface.response.x, (surface.modes.w & 1u) != 0u);
+        let b = normal_slope(sample_second_normal(slot, wuv*1.37+t*surface.velocity.zw), surface.response.x, (surface.modes.w & 2u) != 0u);
         slope = (a+b)*surface.water.x;
         sg = vec4(1.0,surface.water.y,0.0,0.0);
         // Transparent tint approximates shallow refraction; no opaque scene copy.
@@ -151,15 +158,15 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         }
     }
 #ifdef VERTEX_TANGENTS
-    let tbn = calculate_tbn_mikktspace(pbr.world_normal, in.world_tangent);
-    pbr.N = normalize(tbn * vec3(slope, 1.0));
+    let tbn = calculate_tbn_mikktspace(in.world_normal, in.world_tangent);
+    pbr.N = normalize(tbn * vec3(slope, 1.0)) * face_sign;
 #endif
     pbr.material.reflectance = select(vec3(0.5),vec3(sqrt(0.02/0.16)),water);
     pbr.material.perceptual_roughness = clamp(sg.g,0.089,1.0);
     pbr.material.metallic = clamp(sg.b,0.0,1.0);
     pbr.material.clearcoat = clamp(sg.a,0.0,1.0);
     pbr.material.clearcoat_perceptual_roughness = surface.response.y;
-    pbr.clearcoat_N = pbr.world_normal;
+    pbr.clearcoat_N = normalize(pbr.world_normal);
     pbr.material.base_color = alpha_discard(pbr.material,pbr.material.base_color);
     var out: FragmentOutput;
     if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
@@ -169,7 +176,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     }
     // The diagnostic adapter isolates the same realtime IBL used by Bevy.
     let view_mode = diagnostic_mode(slot);
-    if view_mode == 6u {
+    if view_mode == 6u || view_mode >= 8u {
         if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
             out.color = vec4(0.0,0.0,0.0,1.0);
         }
@@ -180,6 +187,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         if view_mode == 1u { debug = fract(vec3(surface.response.z)*vec3(0.618034,0.414214,0.732051)); }
         if view_mode == 3u { debug = vec3(pbr.material.metallic); }
         if view_mode == 4u { debug = pbr.N*0.5+0.5; }
+        if view_mode == 7u { debug = normalize(pbr.world_normal)*0.5+0.5; }
         if view_mode == 5u { debug = vec3(pbr.material.base_color.a); }
         out.color = vec4(debug,1.0);
         return out;

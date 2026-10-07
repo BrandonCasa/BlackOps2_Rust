@@ -172,3 +172,5 @@ fn diagnostic_mode(slot: u32) -> u32 {
 fn reflection_diagnostic_enabled() -> bool {
     return diagnostic_mode(current_surface_slot()) == 6u;
 }
+
+fn surface_diagnostic_mode() -> u32 { return diagnostic_mode(current_surface_slot()); }

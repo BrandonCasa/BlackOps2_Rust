@@ -482,6 +482,12 @@ def prepare(config, source_pack=None, write_catalog=False):
     cooker.compress()
     for path, doc in documents:
         path.write_text(json.dumps(doc, separators=(",", ":")) + "\n")
+    try:
+        from .surface_frames import repair_document
+    except ImportError:
+        from surface_frames import repair_document
+    for path, _ in documents:
+        repair_document(output, path, catalog)
     # Remove only copied, now-unreferenced images inside this external destination.
     kept = set(cooker.entries)
     game = json.loads((output / "game.json").read_text())

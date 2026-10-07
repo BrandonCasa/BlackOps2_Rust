@@ -87,7 +87,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
                         bevy::window::WindowResolution::new(1920, 1080)
                             .with_scale_factor_override(1.)
                     } else {
-                        (1280, 720).into()
+                        bevy::window::WindowResolution::new(1920, 1080)
                     },
                     present_mode: if benchmark {
                         bevy::window::PresentMode::AutoNoVsync
@@ -109,6 +109,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     .add_plugins(bevy::anti_alias::smaa::SmaaPlugin)
     .add_plugins(avian3d::prelude::PhysicsPlugins::default())
     .init_state::<GameState>()
+    .add_systems(Startup, initial_physical_resolution)
     .insert_resource(Time::<Fixed>::from_hz(60.0))
     .insert_resource(assets::LoadConfiguration(configuration))
     .add_plugins((
@@ -147,4 +148,14 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         app.insert_resource(bevy::winit::WinitSettings::continuous());
     }
     app
+}
+
+fn initial_physical_resolution(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>) {
+    // Winit initially interprets the requested size as logical pixels. Resize
+    // after creation, when the native DPI is known, without overriding UI scaling.
+    if let Ok(mut window) = windows.single_mut()
+        && (window.physical_width(), window.physical_height()) != (1920, 1080)
+    {
+        window.resolution.set_physical_resolution(1920, 1080);
+    }
 }

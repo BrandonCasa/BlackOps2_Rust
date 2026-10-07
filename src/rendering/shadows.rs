@@ -67,10 +67,10 @@ pub(super) fn prepare(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>
         "Pinned directional PCSS call"
     );
     let corrected_shadows = shadows
-        .replacen("sample_shadow_map, sample_shadow_map_pcss,", "sample_shadow_map, sample_shadow_map_pcss, sample_directional_shadow_map_pcss,", 1)
+        .replacen("sample_shadow_map, sample_shadow_map_pcss,", "sample_shadow_map, sample_shadow_map_pcss, sample_directional_shadow_map_pcss, directional_receiver_gradient,", 1)
         .replacen("return sample_shadow_map_pcss(\n            light_local.xy,", "return sample_directional_shadow_map_pcss(\n            light_local.xy,", 1)
         .replacen(original,
-        "            texel_size,\n            (*light).soft_shadow_size,\n            1.0 / length(vec3((*cascade).clip_from_world[0].z, (*cascade).clip_from_world[1].z, (*cascade).clip_from_world[2].z)),\n            (*light).cascades[(*light).num_cascades - 1u].far_bound,\n            vec2(dot(normalize(vec3((*cascade).clip_from_world[0].x, (*cascade).clip_from_world[1].x, (*cascade).clip_from_world[2].x)), frag_position.xyz), dot(normalize(vec3((*cascade).clip_from_world[0].y, (*cascade).clip_from_world[1].y, (*cascade).clip_from_world[2].y)), frag_position.xyz)),\n        );", 1);
+        "            texel_size,\n            (*light).soft_shadow_size,\n            1.0 / length(vec3((*cascade).clip_from_world[0].z, (*cascade).clip_from_world[1].z, (*cascade).clip_from_world[2].z)),\n            (*light).cascades[(*light).num_cascades - 1u].far_bound,\n            vec2(dot(normalize(vec3((*cascade).clip_from_world[0].x, (*cascade).clip_from_world[1].x, (*cascade).clip_from_world[2].x)), frag_position.xyz), dot(normalize(vec3((*cascade).clip_from_world[0].y, (*cascade).clip_from_world[1].y, (*cascade).clip_from_world[2].y)), frag_position.xyz)),\n            directional_receiver_gradient((*cascade).clip_from_world, surface_normal),\n        );", 1);
     shaders
         .insert(
             sampling_id,

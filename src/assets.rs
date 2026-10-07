@@ -80,11 +80,11 @@ impl LaunchOptions {
                     args.next().and_then(|v| v.to_str()?.parse().ok())
                 };
                 if result.verify.is_none()
-                    || !(u32::from(!result.benchmark_hands)..=6).contains(&result.material_debug)
+                    || !(u32::from(!result.benchmark_hands)..=11).contains(&result.material_debug)
                     || !result.benchmark_view.is_some_and(|view| view < 15)
                     || args.next().is_some()
                 {
-                    result.error = Some("Usage: origins --material-debug external-output-folder mode[1..6] view[0..14], or --material-debug-combat external-output-folder mode[1..6]".into());
+                    result.error = Some("Usage: origins --material-debug external-output-folder mode[1..11] view[0..14], or --material-debug-combat external-output-folder mode[1..11]".into());
                 }
                 return result;
             }

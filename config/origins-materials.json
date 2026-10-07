@@ -4265,6 +4265,7 @@
     },
     "mc/zm_tm_trim_concrete_broken": {
       "class": "concrete",
+      "reconstruct_surface_frame": true,
       "layer_classes": [
         "concrete"
       ],

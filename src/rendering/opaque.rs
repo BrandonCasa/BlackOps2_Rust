@@ -43,7 +43,7 @@ pub(super) fn prepare_shaders(
     let lighting = source
         .replacen(
             "#define_import_path bevy_pbr::pbr_functions",
-            "#define_import_path origins::surface_lighting\n#import origins::surface_bindings::reflection_diagnostic_enabled",
+            "#define_import_path origins::surface_lighting\n#import origins::surface_bindings::{reflection_diagnostic_enabled, surface_diagnostic_mode}",
             1,
         )
         .replacen(
@@ -51,6 +51,7 @@ pub(super) fn prepare_shaders(
             "    if reflection_diagnostic_enabled() { return vec4(environment_light.specular * specular_occlusion * view_bindings::view.exposure, 1.0); }\n    indirect_light += environment_light.diffuse * diffuse_occlusion;",
             1,
         );
+    let lighting = super::pbr::lighting_diagnostics(lighting, "surface_diagnostic_mode");
     shaders
         .insert(
             LIGHTING_SHADER.id(),
@@ -626,6 +627,7 @@ pub(super) fn convert(
     standard: Res<Assets<StandardMaterial>>,
     mut materials: ResMut<Assets<OpaqueMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    images: Res<Assets<Image>>,
     mut status: ResMut<OpaqueSurfaceStatus>,
     profile: Res<VisualProfile>,
 ) {
@@ -657,6 +659,15 @@ pub(super) fn convert(
                 |role: &str, layer| definition.channels.get(&(role.to_string(), layer)).cloned();
             let tile = definition.family == "tile_blend" && definition.tiles > 1.;
             let water = definition.family == "water";
+            let mut normal_encodings = 0;
+            for layer in 0..3 {
+                if let Some(handle) = channel("normal", layer)
+                    && let Some(image) = images.get(&handle)
+                {
+                    normal_encodings |=
+                        super::pbr::NormalEncoding::for_image(image).flag(layer as u32);
+                }
+            }
             let parameters = SurfaceParameters {
                 // Canonical maps already include family normal strength and roughness cooking.
                 response: Vec4::new(1., 0.12, definition.identity_hash, definition.tiles),
@@ -671,7 +682,7 @@ pub(super) fn convert(
                     channel("response", 0).is_some() as u32,
                     channel("response", 1).is_some() as u32
                         | ((channel("response", 2).is_some() as u32) << 1),
-                    0,
+                    normal_encodings,
                 ),
                 layers: definition.layers,
                 reveal: definition.reveal

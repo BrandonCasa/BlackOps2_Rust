@@ -23,6 +23,32 @@ pub(super) struct PreparedTexture {
     pub sampler: u8,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum NormalEncoding {
+    Rgb,
+    Rg,
+}
+
+impl NormalEncoding {
+    pub(super) fn for_image(image: &Image) -> Self {
+        use bevy::render::render_resource::TextureFormat;
+        match image.texture_descriptor.format {
+            TextureFormat::Rg8Unorm
+            | TextureFormat::Rg16Unorm
+            | TextureFormat::Bc5RgUnorm
+            | TextureFormat::EacRg11Unorm => Self::Rg,
+            _ => Self::Rgb,
+        }
+    }
+
+    pub(super) fn flag(self, layer: u32) -> u32 {
+        match self {
+            Self::Rgb => 0,
+            Self::Rg => 1 << layer,
+        }
+    }
+}
+
 #[derive(Component)]
 pub(crate) struct PbrReady;
 
@@ -49,6 +75,19 @@ const DIAGNOSTIC_SHADER: Handle<Shader> = uuid_handle!("1aa8e217-dae4-4976-9e40-
 const DIAGNOSTIC_BINDINGS: Handle<Shader> = uuid_handle!("604f94e4-d362-448b-bd18-5eb2d912ad20");
 const DIAGNOSTIC_LIGHTING: Handle<Shader> = uuid_handle!("ab5c9d0c-e0fa-4f55-81f8-2929d20a8415");
 
+pub(super) fn lighting_diagnostics(source: String, mode: &str) -> String {
+    let source = source
+        .replacen("    var direct_light: vec3<f32> = vec3<f32>(0.0);",
+            "    var origins_sun = vec3(0.0);\n    var origins_shadow = 1.0;\n    var direct_light: vec3<f32> = vec3<f32>(0.0);", 1)
+        .replacen("#ifdef DIRECTIONAL_LIGHT_SHADOW_MAP_DEBUG_CASCADES",
+            &format!("        if {mode}() == 9u {{ origins_sun += light_contrib * shadow; }}\n        if {mode}() == 10u {{ origins_shadow = min(origins_shadow, shadow); }}\n#ifdef DIRECTIONAL_LIGHT_SHADOW_MAP_DEBUG_CASCADES"), 1);
+    source
+        .replacen("    // Total light", &format!(
+            "    if {mode}() == 8u {{ return vec4(emissive_light, 1.0); }}\n    if {mode}() == 9u {{ return vec4(origins_sun * view_bindings::view.exposure, 1.0); }}\n    if {mode}() == 10u {{ return vec4(vec3(origins_shadow), 1.0); }}\n    if {mode}() == 11u {{ return vec4(indirect_light * view_bindings::view.exposure, 1.0); }}\n    // Total light"), 1)
+        .replacen("    indirect_light += environment_light.specular * specular_occlusion;",
+            &format!("    if {mode}() != 11u {{ indirect_light += environment_light.specular * specular_occlusion; }}"), 1)
+}
+
 pub(super) fn diagnostic_shaders(shaders: &mut Assets<Shader>, engine: &str) {
     let hook = "    indirect_light += environment_light.diffuse * diffuse_occlusion;";
     assert!(
@@ -58,6 +97,7 @@ pub(super) fn diagnostic_shaders(shaders: &mut Assets<Shader>, engine: &str) {
     let lighting = engine.replacen("#define_import_path bevy_pbr::pbr_functions",
         "#define_import_path origins::diagnostic_lighting\n#import origins::diagnostic_bindings::material_diagnostic_mode", 1)
         .replacen(hook, "    if material_diagnostic_mode() == 6u { return vec4(environment_light.specular * specular_occlusion * view_bindings::view.exposure, 1.0); }\n    indirect_light += environment_light.diffuse * diffuse_occlusion;", 1);
+    let lighting = lighting_diagnostics(lighting, "material_diagnostic_mode");
     for (handle, source, path) in [
         (
             DIAGNOSTIC_SHADER,
@@ -109,14 +149,14 @@ pub(super) fn diagnostics(
     let requested = if options.material_debug != 0 {
         options.material_debug
     } else if keys.just_pressed(KeyCode::F11) {
-        (mode.0 + 1) % 7
+        (mode.0 + 1) % 12
     } else {
         mode.0
     };
     if requested != mode.0 {
         mode.0 = requested;
         info!(
-            "Material diagnostic: {} (0 lit, 1 identity, 2 roughness, 3 metal, 4 normal, 5 coverage, 6 reflection)",
+            "Material diagnostic: {} (0 lit, 1 identity, 2 roughness, 3 metal, 4 normal, 5 coverage, 6 reflection, 7 geometry normal, 8 emission, 9 sun, 10 shadow, 11 indirect diffuse)",
             mode.0
         );
     }
@@ -307,13 +347,16 @@ pub(super) fn prepare(
         if let Some(ref mut library) = library {
             super::opaque::register_prepared(library, &value["surface"], channels);
         }
-        material.unlit |= value["surface"]["family"].as_str() == Some("unlit");
+        if value["surface"]["version"] == 2 {
+            material.unlit = value["surface"]["family"].as_str() == Some("unlit");
+            material.emissive = LinearRgba::BLACK;
+            material.emissive_texture = None;
+        }
         if !channels.is_empty() {
             material.base_color_texture = channel("color");
             material.normal_map_texture = channel("normal");
             material.metallic_roughness_texture = channel("response");
             material.occlusion_texture = channel("response");
-            material.emissive_texture = channel("emissive");
             if material.metallic_roughness_texture.is_some() {
                 material.perceptual_roughness = 1.;
                 material.metallic = 1.;

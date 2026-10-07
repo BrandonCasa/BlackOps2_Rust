@@ -297,6 +297,7 @@ impl Registry {
         &mut self,
         base: &StandardMaterial,
         extension: Option<&opaque::OpaqueSurface>,
+        images: &Assets<Image>,
         data: &mut Data,
     ) -> u32 {
         let first_handles = extension.map_or_else(
@@ -342,6 +343,13 @@ impl Registry {
                 id
             });
         }
+        let normal_encoding = base
+            .normal_map_texture
+            .as_ref()
+            .and_then(|handle| images.get(handle))
+            .map_or(0, |image| {
+                super::pbr::NormalEncoding::for_image(image).flag(0)
+            });
         let surface = extension.map_or(
             opaque::SurfaceParameters {
                 response: Vec4::new(1., base.clearcoat_perceptual_roughness, 0., 1.),
@@ -349,7 +357,7 @@ impl Registry {
                     u32::from(ids[0] != NONE) * 2 | (u32::from(base.unlit) << 6),
                     u32::from(ids[3] != NONE),
                     0,
-                    0,
+                    normal_encoding,
                 ),
                 layers: UVec4::ONE,
                 reveal: Vec4::ZERO,

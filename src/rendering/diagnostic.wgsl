@@ -12,7 +12,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> FragmentOut
     pbr.material.base_color = alpha_discard(pbr.material, pbr.material.base_color);
     let view_mode = material_diagnostic_mode();
     var out: FragmentOutput;
-    if view_mode == 6u {
+    if view_mode == 6u || view_mode >= 8u {
         out.color = apply_pbr_lighting(pbr);
         return out;
     }
@@ -20,6 +20,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> FragmentOut
     if view_mode == 1u { color = fract(vec3(material_diagnostic_identity())*vec3(0.618034,0.414214,0.732051)); }
     if view_mode == 3u { color = vec3(pbr.material.metallic); }
     if view_mode == 4u { color = pbr.N*0.5+0.5; }
+    if view_mode == 7u { color = normalize(pbr.world_normal)*0.5+0.5; }
     if view_mode == 5u { color = vec3(pbr.material.base_color.a); }
     out.color = vec4(color, 1.0);
     return out;

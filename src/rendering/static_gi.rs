@@ -627,6 +627,7 @@ fn proxies(
     first_person: Query<(), With<crate::presentation::ViewModelGroup>>,
     mut skin_sources: ResMut<super::ray_skin::Sources>,
     opaque: Res<Assets<OpaqueMaterial>>,
+    images: Res<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut cache: ResMut<TraceMeshes>,
@@ -741,7 +742,7 @@ fn proxies(
             material_cache
                 .entry(standard.0.id())
                 .or_insert_with(|| {
-                    let id = registry.material(&material, None, &mut data);
+                    let id = registry.material(&material, None, &images, &mut data);
                     // Companion metadata owns the complete authored material.
                     // Native carrier maps would retain duplicate views and
                     // unnecessarily tie TLAS refreshes to their residency.
@@ -759,8 +760,12 @@ fn proxies(
                 .entry(key)
                 .or_insert_with(|| {
                     let original = opaque.get(key).expect("Loaded extended material");
-                    let id =
-                        registry.material(&original.base, Some(&original.extension), &mut data);
+                    let id = registry.material(
+                        &original.base,
+                        Some(&original.extension),
+                        &images,
+                        &mut data,
+                    );
                     materials.add(StandardMaterial {
                         reflectance: -(id as f32 + 1.),
                         emissive: material.emissive,

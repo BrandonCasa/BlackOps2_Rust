@@ -1,6 +1,8 @@
 use crate::{GameState, assets::LoadFailure, gameplay::Session, life::Vitality, player::Player};
 use bevy::prelude::*;
 
+mod performance;
+
 #[derive(Component)]
 struct HudText;
 #[derive(Component)]
@@ -12,15 +14,16 @@ pub(crate) struct PlayerOverlay;
 pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Startup,
-            setup.after(crate::presentation::first_person_light),
-        )
-        .add_systems(Update, update)
-        .add_systems(Update, damage_feedback)
-        .add_systems(Update, revive_feedback)
-        .add_systems(Update, subtitle_feedback)
-        .add_systems(Update, crosshair.run_if(in_state(GameState::Playing)));
+        app.add_plugins(performance::PerformanceOverlayPlugin)
+            .add_systems(
+                Startup,
+                setup.after(crate::presentation::first_person_light),
+            )
+            .add_systems(Update, update)
+            .add_systems(Update, damage_feedback)
+            .add_systems(Update, revive_feedback)
+            .add_systems(Update, subtitle_feedback)
+            .add_systems(Update, crosshair.run_if(in_state(GameState::Playing)));
     }
 }
 fn setup(

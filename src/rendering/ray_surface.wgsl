@@ -46,13 +46,14 @@ fn sampled(m: Material, index: u32, uv: vec2<f32>, footprint: f32, gradients: ma
     // automatically account for a streamed tail or a newly promoted view.
     return textureSampleGrad(maps[id],map_samplers[id],uv,dx,dy);
 }
-fn slope(sampled_normal: vec4<f32>, strength: f32) -> vec2<f32> {
+fn slope(sampled_normal: vec4<f32>, strength: f32, two_component: bool) -> vec2<f32> {
     let xy = sampled_normal.rg * 2.0 - 1.0;
-    return xy / max(sqrt(max(1.0 - dot(xy, xy), 0.0001)), 0.01) * strength;
+    let z = select(sqrt(max(1.0-dot(xy,xy),0.0001)), sampled_normal.b*2.0-1.0, !two_component);
+    return xy / max(z, 0.01) * strength;
 }
 fn normal_map(m: Material, index: u32, uv: vec2<f32>, footprint: f32, density: mat2x2<f32>, enabled: bool) -> vec2<f32> {
     if !enabled { return vec2(0.0); }
-    return slope(sampled(m,index,uv,footprint,density,vec4(0.5,0.5,1.0,1.0)),m.surface.response.x);
+    return slope(sampled(m,index,uv,footprint,density,vec4(0.5,0.5,1.0,1.0)),m.surface.response.x,(m.surface.modes.w & (1u << index)) != 0u);
 }
 fn response_map(m: Material, index: u32, uv: vec2<f32>, footprint: f32, density: mat2x2<f32>, enabled: bool, fallback: vec4<f32>) -> vec4<f32> {
     if !enabled { return fallback; }
@@ -181,7 +182,7 @@ fn resolve_surface(ray: SurfaceRay, footprint: f32) -> Hit {
         normal = n0+core*weights.x+coating*weights.y;
         s0 = response_map(m,3u,uv1,footprint,density1,p.modes.y != 0u,vec4(1.0,0.8,0.0,0.0));
         s1 = response_map(m,4u,uv1,footprint,density1,(p.modes.z & 1u) != 0u,s0);
-        response = s0*weights.y+s1*weights.x;
+        response = s0*weights.x+s1*weights.y;
     }
     var coating_roughness = p.response.y;
     if m.alpha.y == 0.0 {
@@ -203,7 +204,7 @@ fn resolve_surface(ray: SurfaceRay, footprint: f32) -> Hit {
     let normal_matrix = cofactors*determinant_sign;
     // Match Bevy/MikkTSpace: normalize each transformed vertex, then interpolate
     // without fragment normalization or Gram-Schmidt before applying the map.
-    var N = normalize_or(normal_matrix*v[0].normal,face_normal)*b.x
+    let N = normalize_or(normal_matrix*v[0].normal,face_normal)*b.x
         + normalize_or(normal_matrix*v[1].normal,face_normal)*b.y
         + normalize_or(normal_matrix*v[2].normal,face_normal)*b.z;
     let T = normalize_or(linear*v[0].tangent.xyz,vec3(1.0,0.0,0.0))*b.x
@@ -211,14 +212,15 @@ fn resolve_surface(ray: SurfaceRay, footprint: f32) -> Hit {
         + normalize_or(linear*v[2].tangent.xyz,vec3(1.0,0.0,0.0))*b.z;
     let double_sided = m.alpha.w != 0.0;
     var geometric_normal = face_normal;
-    if double_sided && !ray.front_face { N = -N; geometric_normal = -geometric_normal; }
+    let face_sign = select(1.0,-1.0,double_sided && !ray.front_face);
+    geometric_normal *= face_sign;
     let handedness = sign(v[0].tangent.w)*determinant_sign;
     let B = cross(N,T)*handedness;
     let position = world[0]*b.x+world[1]*b.y+world[2]*b.z;
     let roughness = clamp(response.g,0.089,1.0);
     var emissive = m.emissive.rgb*sampled(m,11u,uv0,footprint,density0,vec4(1.0)).rgb;
     if (p.modes.x & 32u) != 0u {
-        let facing = max(dot(-ray.direction,normalize_or(N,geometric_normal)),0.0);
+        let facing = max(dot(-ray.direction,normalize_or(N*face_sign,geometric_normal)),0.0);
         let parallax = -vec2(dot(-ray.direction,T),dot(-ray.direction,B))/max(facing,0.001);
         var samples: array<vec4<f32>,3>;
         var coverage = vec3(0.0);
@@ -240,7 +242,7 @@ fn resolve_surface(ray: SurfaceRay, footprint: f32) -> Hit {
         metallic = 0.0;
         response.a = 0.0;
     }
-    let resolved = ResolvedRayHitFull(position,position,normalize_or(T*normal.x+B*normal.y+N,geometric_normal),geometric_normal,
+    let resolved = ResolvedRayHitFull(position,position,normalize_or((T*normal.x+B*normal.y+N)*face_sign,geometric_normal),geometric_normal,
         vec4(T,handedness),uv0,length(cross(world[1]-world[0],world[2]-world[0]))*0.5,
         geometry_ids[ray.instance_index].triangle_count,
         ResolvedMaterial(albedo.rgb,emissive,reflectance,roughness,roughness*roughness,metallic));
