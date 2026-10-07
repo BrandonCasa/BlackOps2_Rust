@@ -248,6 +248,16 @@
 - [x] Remove global shadow invalidation caused by skinned actors.
 - [x] Exclude first-person rigs from world shadow casting.
 - [x] Preserve lantern shadow allocation during actor animation.
+- [ ] Inject original world lantern radiance into the shared DDGI field.
+- [ ] Apply lantern attenuation and world occlusion to DDGI ray hits.
+- [ ] Propagate lantern state changes through bounded DDGI probe refreshes.
+- [ ] Preserve authored emissive texture channels and intensities in DDGI material bindings.
+- [ ] Sample emissive textures at DDGI ray hits using shared streaming mip selection.
+- [ ] Accumulate emissive surface radiance into shared DDGI irradiance without duplicating direct lighting.
+- [ ] Cull irrelevant lantern contributions and prioritize probes near visible emissive surfaces.
+- [ ] Amortize lantern and emissive DDGI updates within the existing probe and ray budgets.
+- [ ] Tune combined DDGI overhead toward five FPS loss against matched baseline gameplay workloads.
+- [ ] Cap combined lantern and emissive DDGI regression at ten FPS through adaptive update budgets.
 - [ ] Reduce the nearest DDGI cascade spacing from two meters to one meter while retaining the existing probe count, outer cascades and lighting settings.
 - [ ] Enable self-shadow casting for visible first-person arms, weapons, attachments and equipment without admitting them into world shadows or the reflection ray scene.
 - [ ] Separate world and first-person sun caster lists within the existing camera-owned cascades.
