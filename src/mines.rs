@@ -267,7 +267,7 @@ fn place(
         {
             inventory.placing = true;
             inventory.remaining = profile.place_seconds;
-            weapon.action = crate::weapons::WeaponAction::Ready;
+            weapon.cancel_action();
         }
     }
 }
@@ -277,7 +277,7 @@ fn detect(
     definition: Res<GameDefinition>,
     query: SpatialQuery,
     mut mines: Query<(Entity, &mut PlantedMine, &Transform)>,
-    targets: Query<(&Vitality, &Transform), Without<PlantedMine>>,
+    targets: Query<(Entity, &Vitality, &Transform, &Collider), Without<PlantedMine>>,
     mut blasts: ResMut<crate::equipment::BlastQueue>,
     mut evidence: ResMut<MineEvidence>,
 ) {
@@ -311,16 +311,24 @@ fn detect(
             }
             continue;
         }
-        for target in query.shape_intersections(
-            &Collider::cylinder(profile.trigger_radius, 4.8768),
-            pose.translation,
-            Quat::IDENTITY,
-            &crate::environment::solids([mine.owner]),
-        ) {
-            let Ok((life, target_pose)) = targets.get(target) else {
-                continue;
-            };
+        let trigger = Collider::cylinder(profile.trigger_radius, 4.8768);
+        // Direct geometry queries retain actors whose movement colliders are
+        // disabled for traversal, without widening the authored trigger volume.
+        for (target, life, target_pose, collider) in &targets {
             if life.state() != LifeState::ActorAlive {
+                continue;
+            }
+            if target == mine.owner
+                || !avian3d::collision::collider::contact_query::intersection_test(
+                    &trigger,
+                    pose.translation,
+                    Quat::IDENTITY,
+                    collider,
+                    target_pose.translation,
+                    target_pose.rotation,
+                )
+                .unwrap_or(false)
+            {
                 continue;
             }
             let delta = target_pose.translation - pose.translation;

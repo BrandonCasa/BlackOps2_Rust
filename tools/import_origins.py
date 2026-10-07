@@ -435,8 +435,12 @@ def validate_pack(root, receipt=None, exact=False):
                           "collision_meshes", "static_model_instances", "tuning", "content", "rounds", "player_health", "solo_revive", "environment", "access"}, "unknown gameplay configuration")
     require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "sprint_seconds", "sprint_minimum", "sprint_recovery_rate", "sprint_recovery_delay", "crouch_speed", "gravity",
         "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
-        "mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
+        "mouse_sensitivity", "ads_mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
         "reload_seconds", "zombie_damage", "zombie_speed", "combat_points", "mobility"}, "unknown gameplay tuning")
+    if "ads_mouse_sensitivity" in game.get("tuning", {}):
+        value = game["tuning"]["ads_mouse_sensitivity"]
+        require(type(value) in (int, float) and math.isfinite(value) and value > 0,
+                "invalid ADS mouse sensitivity")
     environment = game.get("environment", {})
     require(isinstance(environment,dict) and set(environment)<={"mud"},"unknown environment fields")
     mud = environment.get("mud")

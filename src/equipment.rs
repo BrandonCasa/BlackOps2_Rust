@@ -627,7 +627,7 @@ pub(crate) fn resolve_blasts(
     mut commands: Commands,
     mut queue: ResMut<BlastQueue>,
     query: SpatialQuery,
-    targets: Query<(&Vitality, &Transform, Option<&Player>)>,
+    targets: Query<(Entity, &Vitality, &Transform, Option<&Player>)>,
     mut impacts: ResMut<crate::damage::DamageQueue>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -635,15 +635,9 @@ pub(crate) fn resolve_blasts(
 ) {
     for blast in queue.0.drain(..) {
         let center = blast.center;
-        for target in query.shape_intersections(
-            &Collider::sphere(blast.radius),
-            center,
-            Quat::IDENTITY,
-            &crate::environment::solids([]),
-        ) {
-            let Ok((vitality, pose, player)) = targets.get(target) else {
-                continue;
-            };
+        // Movement colliders are disabled during native traversal/rising, but
+        // living actors remain combat targets. Cover still uses live geometry.
+        for (target, vitality, pose, player) in &targets {
             if !matches!(
                 vitality.state(),
                 LifeState::Standing | LifeState::ActorAlive

@@ -1,26 +1,26 @@
 TASK:
-Fix missing Vertex_Color material specialization errors and missing blood/overlay opacity in one final local commit.
+Merge the five reviewed fixes from 3cf5db8 into main, preserving generator/rendering milestones and the other chat's uncommitted viewmodel work.
 
 STATUS:
-COMPLETE for this bounded rendering hotfix. The larger goal remains PAUSED at the user's request; 415 of 1,219 tasks are checked, 804 remain.
+COMPLETE for this integration. The larger TODO goal remains PAUSED at the user's explicit request: 415 of 1,219 tasks checked, 804 remaining.
 
 FINDINGS:
-The custom forward adapter requests RGBA vertex colors unconditionally, while glTF colors are optional. Pack audit found 385 uncolored primitives across 116 files; ordinary standard-material paths already tolerate these. The layered surface shader treated overlay alpha only as a reveal threshold, allowing fractional opacity to saturate at fully painted vertices. All twelve blood-material combinations use that shared path; their original textures contain fractional alpha (blood-smear maximum 215/255), not missing texture data.
+Code/tool changes merge automatically onto d26d394. Only this shared handoff required reconciliation. The other chat's unstaged src/presentation.rs and src/verification.rs belong to its pending final pose/framing fix and are excluded from the merge commit.
 
 EVIDENCE:
-External inspection/solo-content/window-vertex-colors-01/verification.json passed the vertex-color fix with zero Vertex_Color errors. Window-vertex-colors-alpha-02/verification.json passed the final combined build: six kills, Round 2, fifteen rendered map views and restart; stdout/stderr contain zero ERROR entries. Settled playing.png was inspected against the earlier view: wall blood and floor stains retain soft opacity instead of solid patches. The initial spawn screenshot caught shader warm-up and was not used as appearance evidence. Both game processes exited.
+Main's existing generator and vertex-color/overlay-opacity commits remain ancestors. The fix commit restores traversal/rising explosive and Claymore targeting, cancels pending primary bursts during placement, retains required gameplay profiles during content-only preparation, moves equipment animation validation into the weapon branch and admits finite positive ADS sensitivity. External review evidence remains in C:/Users/brand/Downloads/code-review-findings/fix-validation-01 and findings.md.
 
 CHANGES:
-Mesh preparation inserts white RGBA only when ATTRIBUTE_COLOR is absent, preserving authored vertex colors and alpha. Both reveal-controlled overlay coverages multiply texture alpha before blend/multiply/add albedo composition and normal/specular response mixing. The fourth overlay already uses texture-alpha coverage. All 164 layered materials, including twelve blood combinations, share the corrected path. Base walls stay opaque; prepared textures and runtime asset bytes are unchanged.
+Integrate the five fixes and their existing actual-window driver extensions. Preserve generator schema validation/preparation support and all existing main runtime assets/rendering changes. Reconcile this one current record with the paused project state and review validation limits. Preserve the other chat's two uncommitted files byte-for-byte.
 
 VALIDATION:
-Locked metadata, release workspace build, fmt check and diff review passed. The actual final game window compiled its shaders and completed the normal driver with zero logged errors. Staged runtime integrity still passes 1,734 files, 1,733 LFS pointers and ordinary Git game.json. No unit tests, suites, fixtures or Clippy. Twenty tracked Markdown files. One final local commit; no push.
+Merge diff/source review and whitespace checks only; no builds, tests or game windows were started during integration, honoring the user's stop-testing instruction. Before integration, the fix worktree passed locked metadata, isolated release build, formatting and complete 1,726-file asset integrity; retained rounds/player_health/solo_revive values matched exactly. Traversal -02 passed 66 actual-window checks, including attribution, cover/radius/dead exclusions, disabled-actor Claymore geometry/cone/cover checks and restart. Claymores -02/-03 passed B23R 15-to-14 ammunition, unchanged 14 ammunition/16 shots during deployment and fresh firing afterward. Main's earlier rendering hotfix separately passed normal combat/Round 2/fifteen views/restart with zero rendering errors and retained its 1,734-file runtime closure. These are separate pre-merge qualifications, not a combined validation pass. No unit tests, suites, fixtures or Clippy. Twenty tracked Markdown files.
 
 UNRESOLVED:
-Native reveal parameters, source radiance and unrelated actor cutout appearance remain approximations or unfinished. Appearance inspection covered settled representative stains and the existing fifteen-view survey; it does not claim pixel equivalence or an exhaustive manual inspection of every decal placement.
+Review driver repairs addressed missing cover setup, narrower blast-cone admission and failed retreat clearance. The final corrected Claymore driver compiled, but its last two launches failed before combat with GPU DeviceLost/invalid-buffer errors. GPU usage was 13,399/16,376 MiB while other Origins processes were running; causation was not established. Final corrected Claymore and separate normal combat/Round 2/restart checks for the fix batch remain incomplete because the user stopped further tests. Native pixel equivalence, remaining actor cutout appearance and sustained survival remain unqualified. The other chat's pose-validation window separately passed normal combat/ADS/Round 2/fifteen views/restart using a pre-merge executable; this does not qualify the combined changes.
 
 RECOMMENDED NEXT WORK:
-Remain paused until the user resumes the larger implementation goal.
+Notify the main chat that integration is finished so it can complete its requested final pose-fix commit and replace this handoff while retaining integration/validation limits. Keep the larger goal paused until the user resumes it. Run combined validation only when the user authorizes it again.
 
 SCOPE NOT IMPLEMENTED:
-No additional gameplay TODOs, shader warm-up/loading redesign, native pixel matching or unrelated rendering repairs. The 804 unchecked tasks remain required when resumed.
+No additional gameplay TODOs or rendering repairs in this merge. All 804 unchecked tasks remain required. No original source assets were modified, other game processes interrupted or commits pushed.

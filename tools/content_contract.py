@@ -147,8 +147,6 @@ def validate_content(content, require):
                     require(isinstance(part["socket"],str) and part["socket"], "invalid actor socket")
                     require(part["root_joint"] is None or isinstance(part["root_joint"],str), "invalid partial rig root")
                 actions = row.get("animation_actions", {})
-                if row.get("throwable") is not None or row.get("mine") is not None:
-                    require({"prime", "idle", "fire"} <= set(actions), "missing equipment deployment animation")
                 region_ids = set()
                 regions = row.get("hit_regions", [])
                 require(isinstance(regions,list), "invalid hit regions")
@@ -207,6 +205,8 @@ def validate_content(content, require):
                 resolve(owner, row.get("ammo_group"), "definition", True)
                 actions = row.get("animation_actions", {})
                 require(isinstance(actions, dict) and set(actions) <= {"idle", "prime", "fire", "reload", "reload_empty", "reload_start", "reload_end", "equip", "unequip", "melee", "ads_enter", "ads_leave", "sprint_enter", "sprint_loop", "sprint_leave", "prone_enter", "prone_loop", "prone_leave", "dive_enter", "dive_loop", "dive_leave"}, "invalid weapon animation actions")
+                if row.get("throwable") is not None or row.get("mine") is not None:
+                    require({"prime", "idle", "fire"} <= set(actions), "missing equipment deployment animation")
                 for identity in actions.values():
                     resolve(owner, identity, "animation")
                 if "localization_key" in row:

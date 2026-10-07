@@ -784,7 +784,7 @@ def main():
         definition = gameplay_definition(entities(external(entities_path)))
         if previous.get("version") == 2:
             definition["content"] = previous["content"]
-        for key in ("source_surfaces", "render_meshes", "collision_meshes", "static_model_instances", "survey_views", "tuning", "environment", "access"):
+        for key in ("source_surfaces", "render_meshes", "collision_meshes", "static_model_instances", "survey_views", "tuning", "environment", "access", "rounds", "player_health", "solo_revive"):
             if key in previous:
                 definition[key] = previous[key]
         (output / "game.json").write_text(json.dumps(definition, indent=2) + "\n", encoding="utf-8")
