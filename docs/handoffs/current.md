@@ -1,8 +1,8 @@
 TASK:
-Fix native ADS positioning from local main in codex/fix-ads-positioning. Final user instruction: stop validation and commit this worktree.
+Fix native ADS positioning from local main in codex/fix-ads-positioning. User stopped validation, requested the local commit, then authorized careful integration into main.
 
 STATUS:
-PARTIAL: source-backed positioning implemented and committed locally; rendered acceptance stopped at the user's request. No push or main merge in this final step.
+PARTIAL: source-backed positioning committed at 78778c6 and integrated into local main by fast-forward from c6d1363. Rendered acceptance remains stopped at the user's request. No push.
 
 FINDINGS:
 Recovered engine functions remove FOV positioning bias at full ADS, step a clamped ADS fraction using reciprocal native transition times, blend native horizontal 4:3 FOV using endpoint-dependent zoom fractions, and compose an animated camera tag separately from the base weapon frame. Current five ADS-up clips animate tag_torso. The former PostUpdate projection change could run after Bevy's camera update: identical camera-space points then returned different projected pixels. Explicit ordering fixes this. Sight sockets are diagnostics; optical points follow the actual rigid skin joint and inverse bind.
@@ -20,7 +20,7 @@ UNRESOLVED:
 The remaining 48 corrected 4:3 cases and grenade/Semtex/Monkey/Claymore regressions were not run to completion, per the user's stop instruction. Remington's visible obstruction is excluded from this positioning task at the user's direction; another task owns weapon assembly. Its projected reference passes but does not establish unobstructed visible iron alignment. Hip lens/framing, optical correction and procedural motion retain tuned reconstruction. Reverse ADS-up sampling on exit, complete native blend/tick arithmetic and variable-zoom/attachment branches are not established. Full rendered acceptance and exact native equivalence are not claimed.
 
 RECOMMENDED NEXT WORK:
-When requested, finish the remaining rendered/equipment checks, incorporate the separate assembly fix and review any newer main changes before local integration.
+When requested, finish the remaining rendered/equipment checks and incorporate the separate assembly fix. Integration checked clean source/main checkouts and confirmed no intervening main commits; the fast-forward preserved the reviewed source and assets exactly. No validation launches or repeated compiler gates were performed after the user's stop instruction.
 
 SCOPE NOT IMPLEMENTED:
-Separate weapon assembly fixes, absent weapon/movement variants, full native blend arithmetic, original pixel equivalence, unrelated gameplay, sustained full-map survival or main integration after the final stop-and-commit instruction.
+Separate weapon assembly fixes, absent weapon/movement variants, full native blend arithmetic, original pixel equivalence, unrelated gameplay or sustained full-map survival.
