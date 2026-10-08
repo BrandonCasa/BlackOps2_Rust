@@ -1,3 +1,0 @@
-[target.x86_64-pc-windows-msvc]
-# Bevy's recommended faster MSVC linker, already bundled with stable Rust.
-linker = "rust-lld.exe"

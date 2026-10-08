@@ -236,10 +236,10 @@ struct Constants {
 #[derive(Resource)]
 struct GiPipeline {
     layout: BindGroupLayoutDescriptor,
-    pipeline: CachedComputePipelineId,
+    pipeline: Option<CachedComputePipelineId>,
     reflection_pipeline: CachedComputePipelineId,
     apply_layout: BindGroupLayoutDescriptor,
-    apply_pipeline: CachedComputePipelineId,
+    apply_pipeline: Option<CachedComputePipelineId>,
     sampler: Sampler,
 }
 #[derive(Resource, Default)]
@@ -523,6 +523,10 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, mut inputs: 
         .id();
     inputs.reflection = Some(reflection);
     inputs.reflection_entity = Some(entity);
+    // Local reflections remain available without allocating irradiance fields.
+    if !cfg!(feature = "ddgi") {
+        return;
+    }
     for spacing in SPACING {
         let mut image = Image::new_fill(
             Extent3d {
@@ -631,6 +635,10 @@ fn shaders(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
             Shader::from_wgsl(include_str!("static_gi.wgsl"), "origins::static_gi"),
         )
         .expect("GI shader UUID");
+    if !cfg!(feature = "ddgi") {
+        *done = true;
+        return;
+    }
     shaders
         .insert(
             APPLY.id(),
@@ -950,7 +958,7 @@ fn inputs(
         snapshots.geometry.remove(&entity);
         removed = true;
     }
-    if **state == crate::GameState::Loading || inputs.cascades.is_empty() {
+    if **state == crate::GameState::Loading {
         return;
     }
     let Ok(camera) = cameras.single() else {
@@ -1199,26 +1207,52 @@ fn pipeline(
     cache: Res<PipelineCache>,
     surfaces: Res<super::ray_surface::Layout>,
 ) {
-    let layout = BindGroupLayoutDescriptor::new(
-        "ddgi_trace_and_blend",
-        &BindGroupLayoutEntries::sequential(
-            ShaderStages::COMPUTE,
-            (
-                uniform_buffer::<Constants>(false),
-                texture_3d(TextureSampleType::Float { filterable: true }),
-                storage_buffer_sized(false, None),
-                sampler(SamplerBindingType::Filtering),
-                texture_cube(TextureSampleType::Float { filterable: true }),
-                storage_buffer_read_only::<Vec<Lamp>>(false),
-                storage_buffer_read_only::<Vec<IVec4>>(false),
-                texture_storage_2d_array(
-                    TextureFormat::Rgba16Float,
-                    StorageTextureAccess::WriteOnly,
+    let layout = if cfg!(feature = "ddgi") {
+        BindGroupLayoutDescriptor::new(
+            "ddgi_trace_and_blend",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    uniform_buffer::<Constants>(false),
+                    texture_3d(TextureSampleType::Float { filterable: true }),
+                    storage_buffer_sized(false, None),
+                    sampler(SamplerBindingType::Filtering),
+                    texture_cube(TextureSampleType::Float { filterable: true }),
+                    storage_buffer_read_only::<Vec<Lamp>>(false),
+                    storage_buffer_read_only::<Vec<IVec4>>(false),
+                    texture_storage_2d_array(
+                        TextureFormat::Rgba16Float,
+                        StorageTextureAccess::WriteOnly,
+                    ),
+                    storage_buffer_read_only::<Vec<u32>>(false),
                 ),
-                storage_buffer_read_only::<Vec<u32>>(false),
             ),
-        ),
-    );
+        )
+    } else {
+        BindGroupLayoutDescriptor::new(
+            "Local reflections without DDGI",
+            &BindGroupLayoutEntries::with_indices(
+                ShaderStages::COMPUTE,
+                (
+                    (0, uniform_buffer::<Constants>(false)),
+                    (3, sampler(SamplerBindingType::Filtering)),
+                    (
+                        4,
+                        texture_cube(TextureSampleType::Float { filterable: true }),
+                    ),
+                    (5, storage_buffer_read_only::<Vec<Lamp>>(false)),
+                    (
+                        7,
+                        texture_storage_2d_array(
+                            TextureFormat::Rgba16Float,
+                            StorageTextureAccess::WriteOnly,
+                        ),
+                    ),
+                    (8, storage_buffer_read_only::<Vec<u32>>(false)),
+                ),
+            ),
+        )
+    };
     let apply_layout = BindGroupLayoutDescriptor::new(
         "ddgi_apply",
         &BindGroupLayoutEntries::sequential(
@@ -1231,16 +1265,24 @@ fn pipeline(
             ),
         ),
     );
-    let pipeline = cache.queue_compute_pipeline(ComputePipelineDescriptor {
-        label: Some("DDGI hardware trace and world-space accumulation".into()),
-        layout: vec![
-            scene.bind_group_layout.clone(),
-            layout.clone(),
-            surfaces.0.clone(),
-        ],
-        shader: COMPUTE,
-        entry_point: Some("main".into()),
-        ..default()
+    let shader_defs = if cfg!(feature = "ddgi") {
+        vec!["ORIGINS_DDGI".into()]
+    } else {
+        Vec::new()
+    };
+    let pipeline = cfg!(feature = "ddgi").then(|| {
+        cache.queue_compute_pipeline(ComputePipelineDescriptor {
+            label: Some("DDGI hardware trace and world-space accumulation".into()),
+            layout: vec![
+                scene.bind_group_layout.clone(),
+                layout.clone(),
+                surfaces.0.clone(),
+            ],
+            shader: COMPUTE,
+            shader_defs: shader_defs.clone(),
+            entry_point: Some("main".into()),
+            ..default()
+        })
     });
     let reflection_pipeline = cache.queue_compute_pipeline(ComputePipelineDescriptor {
         label: Some("Local scene reflection rays".into()),
@@ -1250,14 +1292,17 @@ fn pipeline(
             surfaces.0.clone(),
         ],
         shader: COMPUTE,
+        shader_defs,
         entry_point: Some("reflection".into()),
         ..default()
     });
-    let apply_pipeline = cache.queue_compute_pipeline(ComputePipelineDescriptor {
-        label: Some("DDGI persistent atlas writes".into()),
-        layout: vec![apply_layout.clone()],
-        shader: APPLY,
-        ..default()
+    let apply_pipeline = cfg!(feature = "ddgi").then(|| {
+        cache.queue_compute_pipeline(ComputePipelineDescriptor {
+            label: Some("DDGI persistent atlas writes".into()),
+            layout: vec![apply_layout.clone()],
+            shader: APPLY,
+            ..default()
+        })
     });
     commands.insert_resource(GiPipeline {
         layout,
@@ -1288,15 +1333,12 @@ fn update(
     surfaces: Res<super::ray_surface::Prepared>,
     mut ctx: RenderContext,
 ) {
-    if inputs.generation == outputs.generation || inputs.cascades.is_empty() {
+    if inputs.generation == outputs.generation {
         return;
     }
-    let (Some(compute), Some(apply), Some(scene_group), Some(surface_group)) = (
-        cache.get_compute_pipeline(pipeline.pipeline),
-        cache.get_compute_pipeline(pipeline.apply_pipeline),
-        scene.bind_group.as_ref(),
-        surfaces.group.as_ref(),
-    ) else {
+    let (Some(scene_group), Some(surface_group)) =
+        (scene.bind_group.as_ref(), surfaces.group.as_ref())
+    else {
         return;
     };
     let Ok(environment) = environment.single() else {
@@ -1343,7 +1385,7 @@ fn update(
         return;
     }
     super::ray_surface::reset_feedback(&surfaces, ctx.command_encoder());
-    if outputs.updates.is_none() {
+    if cfg!(feature = "ddgi") && outputs.updates.is_none() {
         outputs.updates = Some(device.create_buffer(&BufferDescriptor {
             label: Some("DDGI bounded probe update scratch"),
             size: u64::from(MAX_BATCH * PROBE_TEXELS) * 16,
@@ -1371,7 +1413,6 @@ fn update(
         .as_ref()
         .expect("Reflection array view")
         .1;
-    let scratch = outputs.updates.as_ref().expect("DDGI update buffer");
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let mut recorded = false;
@@ -1379,6 +1420,17 @@ fn update(
         if cascade.probes.is_empty() {
             continue;
         }
+        let (Some(compute), Some(apply)) = (
+            pipeline
+                .pipeline
+                .and_then(|id| cache.get_compute_pipeline(id)),
+            pipeline
+                .apply_pipeline
+                .and_then(|id| cache.get_compute_pipeline(id)),
+        ) else {
+            return;
+        };
+        let scratch = outputs.updates.as_ref().expect("DDGI update buffer");
         let image = images.get(&cascade.image).expect("Checked DDGI texture");
         let mut constants = UniformBuffer::from(Constants {
             center_spacing: cascade.center.extend(cascade.spacing),
@@ -1450,9 +1502,9 @@ fn update(
     }
     if let Some(reflect) = cache.get_compute_pipeline(pipeline.reflection_pipeline) {
         stats.1.fetch_add(1, Ordering::Relaxed);
-        let cascade = &inputs.cascades[0];
+        let cascade = inputs.cascades.first();
         let mut constants = UniformBuffer::from(Constants {
-            center_spacing: cascade.center.extend(cascade.spacing),
+            center_spacing: cascade.map_or(Vec4::ZERO, |c| c.center.extend(c.spacing)),
             grid_generation: GRID.extend(inputs.generation),
             batch_lamps: UVec4::new(0, inputs.lamps.len() as u32, 0, 0),
             reflection_position: inputs.reflection_position.extend(0.),
@@ -1461,21 +1513,44 @@ fn update(
         });
         constants.write_buffer(&device, &queue);
         let mut probes = StorageBuffer::from(vec![IVec4::ZERO]);
-        probes.write_buffer(&device, &queue);
-        let group = device.create_bind_group(
-            "Local scene reflection inputs",
-            &cache.get_bind_group_layout(&pipeline.layout),
-            &BindGroupEntries::sequential((
+        if cfg!(feature = "ddgi") {
+            probes.write_buffer(&device, &queue);
+        }
+        let entries = if let Some(cascade) = cascade {
+            BindGroupEntries::sequential((
                 constants.binding().expect("Reflection constants"),
                 &images.get(&cascade.image).expect("GI image").texture_view,
-                scratch.as_entire_binding(),
+                outputs
+                    .updates
+                    .as_ref()
+                    .expect("DDGI update buffer")
+                    .as_entire_binding(),
                 &pipeline.sampler,
                 &sky.texture_view,
                 outputs.lamps.binding().expect("Reflection lamps"),
                 probes.binding().expect("Probe placeholder"),
                 reflection_view,
                 outputs.lamp_grid.binding().expect("Reflection lamp grid"),
-            )),
+            ))
+            .to_vec()
+        } else {
+            BindGroupEntries::with_indices((
+                (0, constants.binding().expect("Reflection constants")),
+                (3, &pipeline.sampler),
+                (4, &sky.texture_view),
+                (5, outputs.lamps.binding().expect("Reflection lamps")),
+                (7, reflection_view),
+                (
+                    8,
+                    outputs.lamp_grid.binding().expect("Reflection lamp grid"),
+                ),
+            ))
+            .to_vec()
+        };
+        let group = device.create_bind_group(
+            "Local scene reflection inputs",
+            &cache.get_bind_group_layout(&pipeline.layout),
+            &entries,
         );
         let mut pass = ctx
             .command_encoder()

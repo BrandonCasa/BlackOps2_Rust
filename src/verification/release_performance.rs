@@ -342,7 +342,7 @@ fn record(
         "logging_enabled":cfg!(debug_assertions),
         "render_diagnostics":false,"pipeline_cache_per_frame_inspection":false,
         "antialiasing":profile.antialiasing,"preprocessing":preprocessing.report(),
-        "shared_lighting":{"ddgi_batches":gi.updates(),"reflection_frames":gi.reflections()},
+        "shared_lighting":{"ddgi_enabled":cfg!(feature = "ddgi"),"ddgi_batches":gi.updates(),"reflection_frames":gi.reflections()},
         "ray_contributors":&*contributors,
         "streaming":&*streaming,"audio_decode":&*audio,
     });

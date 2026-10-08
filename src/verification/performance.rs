@@ -141,7 +141,7 @@ pub(super) fn record(
             "shadow_cache_enabled": !options.uncached_shadows,
             "shadow_cache": shadows.report(),
             "shared_lighting_scene_refreshes": shared_gi.scene_refreshes(),
-            "shared_lighting": { "ddgi_batches": shared_gi.updates(), "reflection_frames": shared_gi.reflections() },
+            "shared_lighting": { "ddgi_enabled": cfg!(feature = "ddgi"), "ddgi_batches": shared_gi.updates(), "reflection_frames": shared_gi.reflections() },
             "ray_contributors": &*contributors,
             "ray_feedback": &*ray_feedback,
             "audio_decode": &*audio_decode,

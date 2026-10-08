@@ -5,24 +5,30 @@ enable wgpu_ray_query;
 #import bevy_solari::scene_bindings::directional_lights
 #import origins::ray_surface::{trace_surface, resolve_surface, surface_double_sided}
 #import bevy_pbr::utils::sample_cube_dir
+#ifdef ORIGINS_DDGI
 #import origins::gi_sampling::{sample_gi_field, gi_read, gi_oct_direction}
+#endif
 struct Constants { center_spacing: vec4<f32>, grid_generation: vec4<u32>, batch_lamps: vec4<u32>, reflection_position: vec4<f32>, lamp_grid_origin: vec4<f32>, lamp_grid_extent: vec4<u32> }
 struct Lamp { position_range: vec4<f32>, radiance_radius: vec4<f32> }
 @group(1) @binding(0) var<uniform> constants: Constants;
+#ifdef ORIGINS_DDGI
 @group(1) @binding(1) var previous: texture_3d<f32>;
 @group(1) @binding(2) var<storage, read_write> updates: array<vec4<f32>>;
+@group(1) @binding(6) var<storage> probes: array<vec4<i32>>;
+#endif
 @group(1) @binding(3) var sky_sampler: sampler;
 @group(1) @binding(4) var sky: texture_cube<f32>;
 @group(1) @binding(5) var<storage> lamps: array<Lamp>;
-@group(1) @binding(6) var<storage> probes: array<vec4<i32>>;
 @group(1) @binding(7) var reflection_output: texture_storage_2d_array<rgba16float,write>;
 @group(1) @binding(8) var<storage> lamp_grid: array<u32>;
+#ifdef ORIGINS_DDGI
 var<workgroup> radiances: array<vec3<f32>, 64>;
 var<workgroup> distances: array<f32, 96>;
 var<workgroup> directions: array<vec3<f32>, 96>;
 var<workgroup> probe_active: u32;
 var<workgroup> relocated: vec3<f32>;
 var<workgroup> moved: u32;
+#endif
 
 fn lamp_range(position: vec3<f32>) -> vec2<u32> {
     let cell = vec3<i32>(floor((position-constants.lamp_grid_origin.xyz)/constants.lamp_grid_origin.w));
@@ -38,6 +44,7 @@ fn lamp_id(range: vec2<u32>, ordinal: u32) -> u32 {
     return lamp_grid[range.x+ordinal];
 }
 
+#ifdef ORIGINS_DDGI
 fn sphere_direction(index: u32, count: u32) -> vec3<f32> {
     let y = 1.0 - 2.0 * (f32(index) + 0.5) / f32(count);
     let radius = sqrt(max(0.0, 1.0 - y * y));
@@ -58,9 +65,11 @@ fn rotated_direction(direction: vec3<f32>, seed: u32) -> vec3<f32> {
     let q = vec4(sqrt(1.0 - u) * sin(a), sqrt(1.0 - u) * cos(a), sqrt(u) * sin(b), sqrt(u) * cos(b));
     return direction + 2.0 * cross(q.xyz, cross(q.xyz, direction) + q.w * direction);
 }
+#endif
 fn visible(origin: vec3<f32>, direction: vec3<f32>, distance: f32) -> bool {
     return trace_surface(origin, direction, 0.01, distance, 0.0).kind == RAY_QUERY_INTERSECTION_NONE;
 }
+#ifdef ORIGINS_DDGI
 fn direct_irradiance(origin: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
     // Incident E/pi stays linear RGB: never replace the source's color with
     // luminance or a neutral bounce tint.
@@ -260,12 +269,15 @@ fn main(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_index
     }
 }
 
+#endif
 fn local_irradiance(position: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+#ifdef ORIGINS_DDGI
     let spacing = constants.center_spacing.w;
     let unit = (position-constants.center_spacing.xyz)/(vec3<f32>(constants.grid_generation.xyz)*spacing);
     if all(abs(unit) <= vec3(0.5)) {
         return sample_gi_field(previous,unit,normal,spacing,constants.center_spacing.xyz).irradiance;
     }
+#endif
     return vec3(0.0);
 }
 fn reflection_brdf(color: vec3<f32>, metal: f32, reflectance: f32, roughness: f32, N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, coat: f32, coat_roughness: f32) -> vec3<f32> {

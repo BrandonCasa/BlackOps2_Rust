@@ -63,7 +63,8 @@ cargo fmt --all -- --check
 Use optimized development builds for routine development and actual-game
 validation; omit `--release` to retain debug assertions and development
 diagnostics. Cargo.toml already sets opt-level = 1 for game code and 3 for
-dependencies. Keep `lto = "thin"` in development, `lto = true` in release,
+dependencies. Keep `lto = "off"` in development for fast dynamic builds and
+`lto = true` in release for runtime performance,
 and `codegen-units = 16` in development / `1` in release. Development build and
 profiling commands enable `dev-dynamic` (Bevy dynamic linking); release omits it.
 Retain development debug assertions and diagnostics.

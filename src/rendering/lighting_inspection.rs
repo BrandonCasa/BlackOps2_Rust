@@ -68,7 +68,7 @@ fn inspect(
         return;
     }
     let start = *started.get_or_insert(time.elapsed_secs());
-    if time.elapsed_secs() - start < 10.0 || gi.updates() < 2 {
+    if time.elapsed_secs() - start < 10.0 || (cfg!(feature = "ddgi") && gi.updates() < 2) {
         return;
     }
     let Ok(environment) = cameras.single() else {

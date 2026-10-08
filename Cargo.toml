@@ -11,6 +11,8 @@ members = ["."]
 resolver = "3"
 
 [features]
+default = []
+ddgi = []
 dev-dynamic = ["bevy/dynamic_linking"]
 profile-tracy = ["bevy/trace_tracy", "bevy/debug", "dep:tracy-client"]
 profile-tracy-memory = ["profile-tracy", "bevy/trace_tracy_memory"]
@@ -36,7 +38,7 @@ tracy-client = { version = "=0.18.5", default-features = false, features = ["onl
 
 [profile.dev]
 opt-level = 1
-lto = "thin"
+lto = "off"
 codegen-units = 16
 debug = true
 debug-assertions = true

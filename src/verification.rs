@@ -1273,6 +1273,7 @@ fn check(
         receipt["texture_streaming"] =
             serde_json::to_value(&*streaming).expect("Serializable streaming counters");
         receipt["shared_lighting"] = serde_json::json!({
+            "ddgi_enabled": cfg!(feature = "ddgi"),
             "ddgi_batches":shared_gi.updates(), "reflection_frames":shared_gi.reflections(),
             "scene_refreshes": shared_gi.scene_refreshes(),
             "ray_feedback":&*ray_surfaces, "contributors":&*ray_contributors,
