@@ -26,14 +26,15 @@ def resource_pressure(now):
 
 
 class PreparationResources:
-    def __init__(self, pause_file=None, gpu_memory_mib=2048, exit_for_shared_slot=False):
+    def __init__(self, pause_file=None, gpu_memory_mib=2048, exit_for_shared_slot=False, saturate=False):
         self.pause_file = pause_file
         self.last_check = 0.
         self.busy = False
         self.gpu_memory_mib = gpu_memory_mib
         self.exit_for_shared_slot = exit_for_shared_slot
         self.shared_slot_busy = False
-        if os.name == "nt":
+        self.saturate = saturate
+        if os.name == "nt" and not saturate:
             psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
         resource_pressure(time.monotonic())
 
@@ -55,12 +56,13 @@ class PreparationResources:
         # Nonblocking CPU percentages compare successive samples. File copies
         # can call wait milliseconds apart; sample pressure over a real interval
         # while still checking game/capture processes immediately.
-        self.busy |= resource_pressure(now)
+        if not self.saturate:
+            self.busy |= resource_pressure(now)
         # A newly started preparation or compiler belongs to the other task.
         # Yield even after admission rather than waiting for resource overload.
-        if gpu_owned or gpu_admission:
+        if (gpu_owned or gpu_admission) and not self.saturate:
             self.busy |= bool(names & {"texconv.exe", "cargo.exe", "rustc.exe"})
-        if gpu_admission and not self.busy:
+        if gpu_admission and not self.busy and not self.saturate:
             result = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.free",
                 "--format=csv,noheader,nounits"], capture_output=True, text=True, check=True)
             # Admission is separate from performance comparison. Once our job
@@ -73,7 +75,10 @@ class PreparationResources:
 
     def wait(self, gpu_admission=False, on_pause=None, gpu_owned=False):
         announced = False
-        while self.refresh(gpu_admission, force=True, gpu_owned=gpu_owned):
+        # File copies and tiled inference can call this thousands of times.
+        # Share the half-second admission snapshot rather than enumerating
+        # every Windows process for each mip, region and dependency.
+        while self.refresh(gpu_admission, gpu_owned=gpu_owned):
             if self.shared_slot_busy and self.exit_for_shared_slot:
                 # A destroyed inference session can leave its native CUDA
                 # context and partially cooked host arrays allocated. Exit the

@@ -10,11 +10,18 @@ use bevy::{
     gltf::GltfMaterialExtras,
     image::{CompressedImageFormats, ImageFormat, ImageSampler, ImageType},
     light::{Cascades, DirectionalLightShadowMap, NotShadowCaster, PointLightShadowMap},
+    math::Vec3A,
     prelude::*,
     tasks::{IoTaskPool, Task, block_on, poll_once},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, io::SeekFrom, path::Path, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    io::SeekFrom,
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
 
 const INDEX_PATH: &str = "texture-streaming.json";
 const MAX_IN_FLIGHT: usize = 2;
@@ -25,6 +32,35 @@ const IDLE_POOL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 struct Index {
     version: u32,
     textures: Vec<TextureEntry>,
+    #[serde(default)]
+    meshes: HashMap<String, Vec<SurfaceRegion>>,
+    #[serde(default)]
+    density_policy: Option<DensityPolicy>,
+}
+
+#[derive(Deserialize)]
+struct DensityPolicy {
+    target: f32,
+    pending_textures: Vec<String>,
+    results: Vec<DensityResult>,
+}
+
+#[derive(Deserialize)]
+struct DensityResult {
+    exception: bool,
+}
+
+#[derive(Deserialize)]
+struct SurfaceRegion {
+    center: [f32; 3],
+    half_extents: [f32; 3],
+    textures: HashMap<String, f32>,
+}
+
+struct BoundRegion {
+    center: Vec3,
+    half_extents: Vec3,
+    textures: Vec<(AssetId<Image>, f32)>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -134,6 +170,8 @@ pub(crate) struct TextureStreams {
     index_task: Option<Task<Result<Option<Index>, String>>>,
     entries: HashMap<String, TextureEntry>,
     residents: HashMap<AssetId<Image>, Resident>,
+    meshes: HashMap<String, Arc<Vec<SurfaceRegion>>>,
+    bound_regions: HashMap<AssetId<Mesh>, Arc<Vec<BoundRegion>>>,
     timer: Timer,
     previous_camera: Option<(Vec3, f64)>,
     enabled: bool,
@@ -147,6 +185,8 @@ impl Default for TextureStreams {
             index_task: None,
             entries: HashMap::new(),
             residents: HashMap::new(),
+            meshes: HashMap::new(),
+            bound_regions: HashMap::new(),
             timer: Timer::new(Duration::from_millis(100), TimerMode::Repeating),
             previous_camera: None,
             enabled: false,
@@ -226,6 +266,11 @@ pub(crate) struct TextureStreamingStats {
     pub shadow_requests: usize,
     pub anisotropic_textures: usize,
     pub resident_base_textures: usize,
+    pub density_bound_meshes: usize,
+    pub evaluated_surface_regions: usize,
+    pub density_target: f32,
+    pub density_capped_textures: usize,
+    pub density_pending_textures: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -272,6 +317,7 @@ impl TextureStreamingRequests {
 struct TextureUse {
     textures: Vec<AssetId<Image>>,
     coverage: Vec<AssetId<Image>>,
+    regions: Arc<Vec<BoundRegion>>,
 }
 
 pub(super) struct TextureStreamingPlugin;
@@ -336,11 +382,36 @@ fn start(server: Res<AssetServer>, mut streams: ResMut<TextureStreams>) {
             .await
             .map_err(|e| e.to_string())?;
         let index: Index = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-        if index.version != 1 {
+        if !matches!(index.version, 1 | 2) {
             return Err("Unsupported texture streaming index".into());
         }
         for entry in &index.textures {
             entry.validate()?;
+        }
+        let texture_uris: HashSet<_> = index
+            .textures
+            .iter()
+            .map(|entry| entry.uri.as_str())
+            .collect();
+        for (mesh, regions) in &index.meshes {
+            if !mesh.contains("#Mesh") || !mesh.contains("/Primitive") {
+                return Err(format!("Invalid surface density mesh: {mesh}"));
+            }
+            for region in regions {
+                if region.center.iter().any(|v| !v.is_finite())
+                    || region
+                        .half_extents
+                        .iter()
+                        .any(|v| !v.is_finite() || *v < 0.)
+                    || region.textures.iter().any(|(uri, density)| {
+                        !density.is_finite()
+                            || *density < 0.
+                            || !texture_uris.contains(uri.as_str())
+                    })
+                {
+                    return Err(format!("Invalid surface density region: {mesh}"));
+                }
+            }
         }
         Ok(Some(index))
     }));
@@ -356,6 +427,31 @@ fn receive_index(mut streams: ResMut<TextureStreams>, mut stats: ResMut<TextureS
     streams.index_task = None;
     match result {
         Ok(Some(index)) => {
+            if let Some(policy) = &index.density_policy {
+                stats.density_target = policy.target;
+                stats.density_capped_textures = policy
+                    .results
+                    .iter()
+                    .filter(|result| result.exception)
+                    .count();
+                stats.density_pending_textures = policy.pending_textures.len();
+                info!(
+                    "Prepared density target: {} texels/m, {} capped exceptions, {} pending maps",
+                    stats.density_target,
+                    stats.density_capped_textures,
+                    stats.density_pending_textures
+                );
+                if stats.density_pending_textures > 0 {
+                    warn!(
+                        "This is a partial texture qualification pack; the density migration is incomplete"
+                    );
+                }
+            }
+            streams.meshes = index
+                .meshes
+                .into_iter()
+                .map(|(key, regions)| (key, Arc::new(regions)))
+                .collect();
             for entry in index.textures {
                 if streams.entries.insert(entry.uri.clone(), entry).is_some() {
                     error!("Duplicate streamed texture URI");
@@ -462,14 +558,15 @@ fn register_images(
 
 fn bind_uses(
     mut commands: Commands,
-    streams: Res<TextureStreams>,
+    mut streams: ResMut<TextureStreams>,
     server: Res<AssetServer>,
-    unbound: Query<(Entity, &GltfMaterialExtras), Without<TextureUse>>,
+    mut stats: ResMut<TextureStreamingStats>,
+    unbound: Query<(Entity, &GltfMaterialExtras, &Mesh3d), Without<TextureUse>>,
 ) {
     if !streams.enabled {
         return;
     }
-    for (entity, extras) in &unbound {
+    for (entity, extras, mesh) in &unbound {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&extras.value) else {
             continue;
         };
@@ -497,12 +594,44 @@ fn bind_uses(
             }
         }
         if !pending {
+            let regions = if let Some(regions) = streams.bound_regions.get(&mesh.0.id()) {
+                regions.clone()
+            } else {
+                let path = server.get_path(mesh.0.id()).map(|path| path.to_string());
+                let regions = path.as_ref().and_then(|path| streams.meshes.get(path));
+                let bound = Arc::new(regions.map_or_else(Vec::new, |regions| {
+                    regions
+                        .iter()
+                        .map(|region| BoundRegion {
+                            center: Vec3::from_array(region.center),
+                            half_extents: Vec3::from_array(region.half_extents),
+                            textures: region
+                                .textures
+                                .iter()
+                                .filter_map(|(uri, density)| {
+                                    server
+                                        .get_handle::<Image>(uri.clone())
+                                        .map(|handle| (handle.id(), *density))
+                                })
+                                .collect(),
+                        })
+                        .collect()
+                }));
+                streams.bound_regions.insert(mesh.0.id(), bound.clone());
+                bound
+            };
             commands.entity(entity).insert(TextureUse {
                 textures: ids,
                 coverage,
+                regions,
             });
         }
     }
+    stats.density_bound_meshes = streams
+        .bound_regions
+        .values()
+        .filter(|regions| !regions.is_empty())
+        .count();
 }
 
 fn demand(
@@ -510,6 +639,7 @@ fn demand(
     mut streams: ResMut<TextureStreams>,
     state: Res<State<crate::GameState>>,
     definition: Option<Res<crate::assets::GameDefinition>>,
+    mut stats: ResMut<TextureStreamingStats>,
     cameras: Query<(&GlobalTransform, &Projection, &Camera), With<super::GameCamera>>,
     geometry: Query<(
         &TextureUse,
@@ -550,8 +680,52 @@ fn demand(
         resident.wanted = resident.entry.mips.len() - 1;
     }
     let mut bound_geometry = false;
+    let mut evaluated_regions = 0;
     for (usage, pose, bounds, visible) in &geometry {
         bound_geometry |= !usage.textures.is_empty();
+        if !usage.regions.is_empty() {
+            // sqrt(||A||1 * ||A||inf) bounds the largest singular scale,
+            // including shear; rotation can conservatively increase demand.
+            let matrix = pose.affine().matrix3.abs();
+            let rows = matrix * Vec3A::ONE;
+            let columns = Vec3A::new(
+                matrix.x_axis.element_sum(),
+                matrix.y_axis.element_sum(),
+                matrix.z_axis.element_sum(),
+            );
+            let scale = (rows.max_element() * columns.max_element())
+                .sqrt()
+                .max(0.00001);
+            for region in usage.regions.iter() {
+                let center = pose.transform_point(region.center);
+                let radius = (matrix * Vec3A::from(region.half_extents)).length();
+                let distance = ((center - position)
+                    .length()
+                    .min((center - predicted).length())
+                    - radius
+                    - 2.)
+                    .max(0.05);
+                if visible.is_some_and(|v| !v.get()) && distance > 15. {
+                    continue;
+                }
+                evaluated_regions += 1;
+                for (id, local_density) in &region.textures {
+                    let Some(resident) = streams.residents.get_mut(id) else {
+                        continue;
+                    };
+                    let density = local_density / scale;
+                    let mip = if resident.requires_base_mip() || density <= 0. {
+                        0
+                    } else {
+                        (density * distance / (focal * 2.)).log2().floor().max(0.) as usize
+                    }
+                    .min(resident.entry.mips.len() - 1);
+                    resident.wanted = resident.wanted.min(mip);
+                    resident.last_demand = now;
+                }
+            }
+            continue;
+        }
         let center = bounds.map_or(pose.translation(), |aabb| {
             pose.transform_point(aabb.center.into())
         });
@@ -589,6 +763,7 @@ fn demand(
         }
     }
     streams.evaluated_demand = bound_geometry || streams.entries.is_empty();
+    stats.evaluated_surface_regions = evaluated_regions;
 }
 
 fn pass_demand(
@@ -636,64 +811,115 @@ fn shadow_demand(
         if usage.coverage.is_empty() {
             continue;
         }
-        let center = bounds.map_or(pose.translation(), |aabb| {
-            pose.transform_point(aabb.center.into())
-        });
-        let radius = bounds.map_or(1., |aabb| {
-            (pose.affine().matrix3.abs() * aabb.half_extents).length()
-        });
-        let mut pixels_per_meter: f32 = 0.;
-        for (light, cascades) in &directional {
-            if !light.shadow_maps_enabled {
-                continue;
-            }
-            for cascade in cascades.cascades.values().flatten() {
-                let clip = cascade.clip_from_world.project_point3(center);
-                let rx = cascade.clip_from_world.row(0).truncate().length() * radius;
-                let ry = cascade.clip_from_world.row(1).truncate().length() * radius;
-                if clip.x.abs() <= 1. + rx && clip.y.abs() <= 1. + ry {
-                    pixels_per_meter = pixels_per_meter.max(2. / cascade.texel_size.max(0.00001));
+        let matrix = pose.affine().matrix3.abs();
+        let rows = matrix * Vec3A::ONE;
+        let columns = Vec3A::new(
+            matrix.x_axis.element_sum(),
+            matrix.y_axis.element_sum(),
+            matrix.z_axis.element_sum(),
+        );
+        let scale = (rows.max_element() * columns.max_element())
+            .sqrt()
+            .max(0.00001);
+        let fallback = if usage.regions.is_empty() {
+            usage
+                .coverage
+                .iter()
+                .filter_map(|id| {
+                    streams
+                        .residents
+                        .get(id)
+                        .map(|resident| (*id, resident.entry.texels_per_meter))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        for region in usage
+            .regions
+            .iter()
+            .map(Some)
+            .chain(usage.regions.is_empty().then_some(None))
+        {
+            let center = region.map_or_else(
+                || {
+                    bounds.map_or(pose.translation(), |aabb| {
+                        pose.transform_point(aabb.center.into())
+                    })
+                },
+                |region| pose.transform_point(region.center),
+            );
+            let radius = region.map_or_else(
+                || {
+                    bounds.map_or(1., |aabb| {
+                        (pose.affine().matrix3.abs() * aabb.half_extents).length()
+                    })
+                },
+                |region| (matrix * Vec3A::from(region.half_extents)).length(),
+            );
+            let mut pixels_per_meter: f32 = 0.;
+            for (light, cascades) in &directional {
+                if !light.shadow_maps_enabled {
+                    continue;
+                }
+                for cascade in cascades.cascades.values().flatten() {
+                    let clip = cascade.clip_from_world.project_point3(center);
+                    let rx = cascade.clip_from_world.row(0).truncate().length() * radius;
+                    let ry = cascade.clip_from_world.row(1).truncate().length() * radius;
+                    if clip.x.abs() <= 1. + rx && clip.y.abs() <= 1. + ry {
+                        pixels_per_meter =
+                            pixels_per_meter.max(2. / cascade.texel_size.max(0.00001));
+                    }
                 }
             }
-        }
-        for (light, pose, visible) in &points {
-            if !light.shadow_maps_enabled || visible.is_some_and(|v| !v.get()) {
+            for (light, pose, visible) in &points {
+                if !light.shadow_maps_enabled || visible.is_some_and(|v| !v.get()) {
+                    continue;
+                }
+                let distance = ((pose.translation() - center).length() - radius).max(0.05);
+                if distance < light.range {
+                    pixels_per_meter = pixels_per_meter.max(point_map.size as f32 / distance);
+                }
+            }
+            for (light, pose, visible) in &spots {
+                if !light.shadow_maps_enabled || visible.is_some_and(|v| !v.get()) {
+                    continue;
+                }
+                let distance = ((pose.translation() - center).length() - radius).max(0.05);
+                if distance < light.range {
+                    pixels_per_meter = pixels_per_meter.max(
+                        directional_map.size as f32
+                            / (distance * light.outer_angle.tan()).max(0.05),
+                    );
+                }
+            }
+            if pixels_per_meter <= 0. {
                 continue;
             }
-            let distance = ((pose.translation() - center).length() - radius).max(0.05);
-            if distance < light.range {
-                pixels_per_meter = pixels_per_meter.max(point_map.size as f32 / distance);
+            let textures = region.map_or(fallback.as_slice(), |region| region.textures.as_slice());
+            for (id, local_density) in textures {
+                if !usage.coverage.contains(id) {
+                    continue;
+                }
+                let Some(resident) = streams.residents.get_mut(id) else {
+                    continue;
+                };
+                let density = if region.is_some() {
+                    local_density / scale
+                } else {
+                    *local_density
+                };
+                let no_mips = resident.requires_base_mip();
+                let mip = if no_mips || density <= 0. {
+                    0
+                } else {
+                    (density / pixels_per_meter).log2().floor().max(0.) as usize
+                }
+                .min(resident.entry.mips.len() - 1);
+                resident.wanted = resident.wanted.min(mip);
+                resident.last_demand = now;
+                requested += 1;
             }
-        }
-        for (light, pose, visible) in &spots {
-            if !light.shadow_maps_enabled || visible.is_some_and(|v| !v.get()) {
-                continue;
-            }
-            let distance = ((pose.translation() - center).length() - radius).max(0.05);
-            if distance < light.range {
-                pixels_per_meter = pixels_per_meter.max(
-                    directional_map.size as f32 / (distance * light.outer_angle.tan()).max(0.05),
-                );
-            }
-        }
-        if pixels_per_meter <= 0. {
-            continue;
-        }
-        for id in &usage.coverage {
-            let Some(resident) = streams.residents.get_mut(id) else {
-                continue;
-            };
-            let density = resident.entry.texels_per_meter;
-            let no_mips = resident.requires_base_mip();
-            let mip = if no_mips || density <= 0. {
-                0
-            } else {
-                (density / pixels_per_meter).log2().floor().max(0.) as usize
-            }
-            .min(resident.entry.mips.len() - 1);
-            resident.wanted = resident.wanted.min(mip);
-            resident.last_demand = now;
-            requested += 1;
         }
     }
     stats.shadow_requests = requested;

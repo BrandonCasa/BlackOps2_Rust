@@ -1,90 +1,30 @@
 """Qualified neural preparation with semantic channels and original mip tails.
 
-DeepBump uses ONNX Runtime CPU/CUDA; Remacri uses the optional Spandrel adapter.
+DeepBump uses ONNX Runtime CPU/CUDA for every inferred detail level.
 Model weights, candidates and
 receipts remain external. This command never writes into its source pack.
 """
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
+import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 from PIL import Image
 
-from material_textures import color_levels, inspect_dds, normal_levels, response_levels, rgba_dds, rgba_levels
+from material_textures import inspect_dds, rgba_levels
 from preparation_resources import PreparationResources
 from deepbump_inference import DeepBumpSession
+from compressed_texture_cache import CompressedTextureCache, ENCODER_SHA256, materialize, stored_bytes, target_format
 
-MODEL_SHA256 = "e1a73bd89c2da1ae494774746398689048b5a892bd9653e146713f9df8bca86a"
-MODEL_CREDIT = "4x Remacri by FoolhardyVEVO; CC-BY-NC-SA-4.0; https://openmodeldb.info/models/4x-Remacri"
 DEEPBUMP_UPSCALE_SHA256 = "cf89d0ac5f7a73c8c172b8d92bd0e1fc3d5385bddef2fab15146f84a61477703"
 DEEPBUMP_CREDIT = "DeepBump by HugoTini; GPL-3.0; https://github.com/HugoTini/DeepBump"
-RECIPE_VERSION = 2
-
-
-class ConstantField:
-    def upscale(self, rgb, repeat_u=True, repeat_v=True):
-        if not np.all(rgb == rgb[0, 0]):
-            raise ValueError("Constant-field preparation received varying material data")
-        return np.tile(rgb[0, 0], (rgb.shape[0]*4, rgb.shape[1]*4, 1))
-
-
-class Remacri:
-    def __init__(self, weights, tile=256, halo=64, pause_file=None):
-        import torch
-        import spandrel
-        if hashlib.sha256(weights.read_bytes()).hexdigest() != MODEL_SHA256:
-            raise ValueError("The requested original Remacri model checksum does not match")
-        self.torch, self.tile, self.halo, self.pause_file = torch, tile, halo, pause_file
-        torch.set_num_threads(1)
-        # Full precision prevents invented precision-dependent texture changes.
-        self.model = spandrel.ModelLoader().load_from_file(weights).eval()
-        if self.model.scale != 4 or self.model.input_channels != 3:
-            raise ValueError("Expected the original RGB 4x ESRGAN Remacri model")
-        self.on_gpu = False
-        self.resources = PreparationResources(pause_file, exit_for_shared_slot=True)
-
-    def ready(self):
-        if self.resources.refresh(gpu_admission=not self.on_gpu, gpu_owned=self.on_gpu):
-            self.resources.wait(gpu_admission=not self.on_gpu, gpu_owned=self.on_gpu, on_pause=self.offload)
-        if not self.on_gpu:
-            self.resources.wait(gpu_admission=True)
-            self.model.cuda()
-            self.on_gpu = True
-
-    def offload(self):
-        if self.on_gpu:
-            self.model.cpu()
-            self.torch.cuda.empty_cache()
-            self.on_gpu = False
-
-    def upscale(self, rgb, repeat_u=True, repeat_v=True):
-        height, width = rgb.shape[:2]
-        if np.all(rgb == rgb[0, 0]):
-            # Constant material fields must stay constant; the RGB model's
-            # learned border response has no physical meaning for them.
-            return np.tile(rgb[0, 0], (height * 4, width * 4, 1))
-        result = np.empty((height * 4, width * 4, 3), np.float32)
-        for y in range(0, height, self.tile):
-            for x in range(0, width, self.tile):
-                self.ready()
-                y_end, x_end = min(y + self.tile, height), min(x + self.tile, width)
-                ys = np.arange(y - self.halo, y_end + self.halo)
-                xs = np.arange(x - self.halo, x_end + self.halo)
-                ys = ys % height if repeat_v else np.clip(ys, 0, height - 1)
-                xs = xs % width if repeat_u else np.clip(xs, 0, width - 1)
-                tile = rgb[ys[:, None], xs[None, :]]
-                tensor = self.torch.from_numpy(np.ascontiguousarray(tile.transpose(2, 0, 1))).unsqueeze(0).cuda()
-                with self.torch.inference_mode():
-                    output = self.model(tensor).float().clamp(0, 1)
-                crop = output[0, :, self.halo*4:(self.halo+y_end-y)*4,
-                              self.halo*4:(self.halo+x_end-x)*4]
-                result[y*4:y_end*4, x*4:x_end*4] = crop.cpu().numpy().transpose(1, 2, 0)
-                del tensor, output, crop
-        return result
+RECIPE_VERSION = 4
 
 
 class DeepBumpUpscaler:
@@ -94,12 +34,16 @@ class DeepBumpUpscaler:
     Here every output cell comes from a 256-pixel context with a retained halo,
     so periodic textures and atlas borders remain deterministic.
     """
-    def __init__(self, weights, tile=256, halo=64, pause_file=None, device="cpu"):
+    def __init__(self, weights, tile=256, halo=64, pause_file=None, device="cpu", saturate=True, cuda_graph=True):
         if hashlib.sha256(weights.read_bytes()).hexdigest() != DEEPBUMP_UPSCALE_SHA256:
             raise ValueError("DeepBump upscale model checksum mismatch")
-        if not 0 < halo < 128:
+        if tile != 256 or not 0 < halo < 128:
             raise ValueError("DeepBump 256-pixel model requires a halo below 128")
-        self.backend = DeepBumpSession(weights, pause_file, device)
+        self.backend = DeepBumpSession(weights, pause_file, device, saturate, cuda_graph)
+        # One persistent inference thread owns the graph and fixed buffers.
+        # CPU tile extraction/filtering overlaps the next GPU run; calls on a
+        # captured session remain strictly sequential.
+        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="deepbump")
         self.halo, self.tile, self.pause_file = halo, 256 - 2*halo, pause_file
 
     @property
@@ -109,89 +53,180 @@ class DeepBumpUpscaler:
     def offload(self):
         self.backend.offload()
 
-    def upscale(self, rgb, repeat_u=True, repeat_v=True):
+    def upscale(self, rgb, repeat_u=True, repeat_v=True, scale=4, entry=None):
         height, width = rgb.shape[:2]
+        if scale not in (2, 4):
+            raise ValueError("DeepBump stages retain 4x output or reduce it to 2x")
         if np.all(rgb == rgb[0, 0]):
-            return np.tile(rgb[0, 0], (height*4, width*4, 1))
-        result = np.empty((height*4, width*4, 3), np.float32)
-        for y in range(0, height, self.tile):
-            for x in range(0, width, self.tile):
-                ys = np.arange(y-self.halo, y-self.halo+256)
-                xs = np.arange(x-self.halo, x-self.halo+256)
-                ys = ys % height if repeat_v else np.clip(ys, 0, height-1)
-                xs = xs % width if repeat_u else np.clip(xs, 0, width-1)
-                tile = rgb[ys[:, None], xs[None, :]]
-                tensor = np.ascontiguousarray(tile.transpose(2, 0, 1)[None], np.float32)
-                output = self.backend.run(tensor)
-                if output.shape != (1, 3, 1024, 1024):
-                    raise ValueError("Unexpected DeepBump 4x output shape")
-                y_end, x_end = min(y+self.tile, height), min(x+self.tile, width)
-                crop = output[0, :, self.halo*4:(self.halo+y_end-y)*4,
-                              self.halo*4:(self.halo+x_end-x)*4]
-                result[y*4:y_end*4, x*4:x_end*4] = np.clip(crop.transpose(1, 2, 0), 0, 1)
+            return np.tile(rgb[0, 0], (height*scale, width*scale, 1))
+        result = np.empty((height*scale, width*scale, 3), np.float32)
+
+        def tensors():
+            for y in range(0, height, self.tile):
+                for x in range(0, width, self.tile):
+                    ys = np.arange(y-self.halo, y-self.halo+256)
+                    xs = np.arange(x-self.halo, x-self.halo+256)
+                    ys = ys % height if repeat_v else np.clip(ys, 0, height-1)
+                    xs = xs % width if repeat_u else np.clip(xs, 0, width-1)
+                    tile = rgb[ys[:, None], xs[None, :]]
+                    tensor = np.ascontiguousarray(tile.transpose(2, 0, 1)[None], np.float32)
+                    yield y, x, tensor
+
+        pending = iter(tensors())
+        current = next(pending, None)
+        future = self.executor.submit(self.backend.run, current[2]) if current else None
+        while current is not None:
+            y, x, _ = current
+            output = future.result()
+            upcoming = next(pending, None)
+            future = self.executor.submit(self.backend.run, upcoming[2]) if upcoming else None
+            if output.shape != (1, 3, 1024, 1024):
+                raise ValueError("Unexpected DeepBump 4x output shape")
+            y_end, x_end = min(y+self.tile, height), min(x+self.tile, width)
+            crop = output[0, :, self.halo*4:(self.halo+y_end-y)*4,
+                          self.halo*4:(self.halo+x_end-x)*4]
+            crop = np.clip(crop.transpose(1, 2, 0), 0, 1)
+            if not np.isfinite(crop).all():
+                raise ValueError("DeepBump produced nonfinite material data")
+            if scale == 2:
+                # The ONNX model still infers 4x. Reduce each retained tile
+                # before allocating the final image, including 16K outputs.
+                rgba = np.empty((*crop.shape[:2], 4), np.uint8)
+                rgba[..., :3] = np.rint(crop*255).astype(np.uint8)
+                rgba[..., 3] = 255
+                crop = downsample(rgba, entry)[..., :3].astype(np.float32)/255
+            result[y*scale:y_end*scale, x*scale:x_end*scale] = crop
+            current = upcoming
         return result
 
 
 def preserve_low_frequency(candidate, source):
     """Keep the original texel average, while retaining inferred subtexel detail."""
     height, width, channels = source.shape
-    result = candidate.reshape(height, 4, width, 4, channels).copy()
-    for _ in range(8):
-        error = source - result.mean(axis=(1, 3))
-        result += error[:, None, :, None, :]
-        np.clip(result, 0, 1, out=result)
-    return result.reshape(height*4, width*4, channels)
+    scale = candidate.shape[0]//height
+    result = candidate.reshape(height, scale, width, scale, channels)
+    for start in range(0, height, 16):
+        block = result[start:start+16]
+        for _ in range(8):
+            error = source[start:start+16] - block.mean(axis=(1, 3))
+            block += error[:, None, :, None, :]
+            np.clip(block, 0, 1, out=block)
+    return result.reshape(height*scale, width*scale, channels)
 
 
-def upscale_channel(model, pixels, entry):
+def upscale_channel(model, pixels, entry, scale=4):
     values = pixels.astype(np.float32) / 255.
     role = entry["role"]
     samplers = entry.get("samplers", [20])
     repeat_u, repeat_v = not any(x & 32 for x in samplers), not any(x & 64 for x in samplers)
+    result = np.empty((pixels.shape[0]*scale, pixels.shape[1]*scale, 4), np.uint8)
+    def encode(values, channel):
+        for start in range(0, values.shape[0], 32):
+            block = values[start:start+32]
+            result[start:start+32, :, channel] = np.rint(np.clip(block, 0, 1)*255).astype(np.uint8)
     def scalar(plane):
         if np.ptp(plane) == 0:
-            return np.full((plane.shape[0]*4, plane.shape[1]*4), plane[0, 0], np.float32)
+            return np.full((plane.shape[0]*scale, plane.shape[1]*scale), plane[0, 0], np.float32)
         rgb = np.repeat(plane[..., None], 3, axis=2)
         # RGB-trained inference is applied to each packed scalar separately;
         # material fields can never contaminate one another as RGB colors.
-        up = model.upscale(rgb, repeat_u, repeat_v).mean(axis=2, keepdims=True)
+        up = model.upscale(rgb, repeat_u, repeat_v, scale=scale,
+                           entry=dict(role="auxiliary", color_space="linear")).mean(axis=2, keepdims=True)
         return preserve_low_frequency(up, plane[..., None])[..., 0]
     if role in ("color", "emissive"):
-        rgb = model.upscale(values[..., :3], repeat_u, repeat_v)
+        rgb = model.upscale(values[..., :3], repeat_u, repeat_v, scale=scale, entry=entry)
         rgb = preserve_low_frequency(rgb, values[..., :3])
         # Authored coverage is geometrical data, including opaque zero alpha.
         # Preserve every source coverage cell exactly at the finer resolution.
-        alpha = np.repeat(np.repeat(values[..., 3], 4, axis=0), 4, axis=1)
-        result = np.dstack((rgb, alpha))
+        encode(rgb, slice(0, 3))
+        result[..., 3] = np.repeat(np.repeat(pixels[..., 3], scale, axis=0), scale, axis=1)
     elif role == "normal":
-        rgb = model.upscale(values[..., :3], repeat_u, repeat_v)
+        rgb = model.upscale(values[..., :3], repeat_u, repeat_v, scale=scale, entry=entry)
         rgb = preserve_low_frequency(rgb, values[..., :3])
-        normal = rgb * 2 - 1
-        normal[..., 2] = np.maximum(normal[..., 2], 1e-4)
-        normal /= np.maximum(np.linalg.norm(normal, axis=2, keepdims=True), 1e-6)
-        result = np.dstack((normal*.5+.5, np.ones(normal.shape[:2], np.float32)))
+        for start in range(0, rgb.shape[0], 32):
+            normal = rgb[start:start+32]*2-1
+            normal[..., 2] = np.maximum(normal[..., 2], 1e-4)
+            normal /= np.maximum(np.linalg.norm(normal, axis=2, keepdims=True), 1e-6)
+            result[start:start+32, :, :3] = np.rint(np.clip(normal*.5+.5, 0, 1)*255).astype(np.uint8)
+        result[..., 3] = 255
     elif role == "response":
         # Occlusion stays neutral; no baked darkness is inferred from albedo.
         if np.any(pixels[..., 0] != 255):
             raise ValueError("Canonical realtime response requires neutral occlusion")
-        result = np.dstack((np.ones((pixels.shape[0]*4, pixels.shape[1]*4), np.float32),
-                            scalar(values[..., 1]), scalar(values[..., 2]), scalar(values[..., 3])))
+        result[..., 0] = 255
+        for channel in (1, 2, 3):
+            encode(scalar(values[..., channel]), channel)
     elif role in ("control", "mask", "coating", "auxiliary"):
-        result = np.stack([scalar(values[..., channel]) for channel in range(4)], axis=2)
+        for channel in range(4):
+            encode(scalar(values[..., channel]), channel)
     else:
         raise ValueError(f"Unimplemented texture role: {role}")
-    return np.rint(np.clip(result, 0, 1) * 255).astype(np.uint8)
+    return result
 
 
-def top_levels(pixels, entry):
-    if entry["role"] == "normal":
-        normal = pixels[..., :3].astype(np.float32)/255*2-1
-        levels, _ = normal_levels(normal)
-    elif entry["role"] == "response":
-        levels = response_levels(pixels, [])
-    else:
-        levels = color_levels(pixels, entry["color_space"] == "srgb")
-    return levels[:2]
+def top_levels(pixels, entry, count=None):
+    levels = [pixels]
+    while levels[-1].shape[:2] != (1, 1) and (count is None or len(levels) < count):
+        levels.append(downsample(levels[-1], entry))
+    return levels
+
+
+def downsample(pixels, entry):
+    """Material-aware area reduction with bounded floating-point scratch."""
+    height, width = pixels.shape[:2]
+    nh, nw = max(1, height//2), max(1, width//2)
+    output = np.empty((nh, nw, 4), np.uint8)
+    from material_textures import reduced
+    for start in range(0, nh, 32):
+        rows = pixels[start*2:min((start+32)*2, height)].astype(np.float32)/255
+        if entry["role"] == "normal":
+            normals = rows[..., :3]*2-1
+            mean = reduced(normals)
+            mean /= np.maximum(np.linalg.norm(mean, axis=2, keepdims=True), 1e-6)
+            encoded = np.dstack((mean*.5+.5, np.ones(mean.shape[:2], np.float32)))
+        else:
+            if entry["color_space"] == "srgb":
+                rgb = rows[..., :3]
+                rows[..., :3] = np.where(rgb <= .04045, rgb/12.92, ((rgb+.055)/1.055)**2.4)
+            if entry["role"] == "response":
+                rows[..., 1] **= 4
+            encoded = reduced(rows)
+            if entry["color_space"] == "srgb":
+                rgb = encoded[..., :3]
+                encoded[..., :3] = np.where(rgb <= .0031308, rgb*12.92, 1.055*np.maximum(rgb, 0)**(1/2.4)-.055)
+            if entry["role"] == "response":
+                encoded[..., 1] = np.maximum(encoded[..., 1], 0)**.25
+        output[start:start+len(encoded)] = np.rint(np.clip(encoded, 0, 1)*255).astype(np.uint8)
+    return output
+
+
+def prepare_levels(model, levels, entry):
+    """Infer 4x stages, then reduce to the smallest sufficient 2^n extent.
+
+    Packed scalar fields, coverage and unit normals retain their existing
+    semantic recipe. No interpolation-only path can stand in for inference.
+    All original lossless mip levels are appended at their exact texel size.
+    """
+    scale = entry["scale"]
+    if scale < 1 or scale & (scale-1):
+        raise ValueError("Density output scale must be a positive power of two")
+    if entry.get("density_applicable") and (
+            entry["minimum_texels_per_meter"] * scale < entry["density_floor"] and not entry.get("density_exception")):
+        raise ValueError(f"Candidate cannot satisfy density floor: {entry['uri']}")
+    if max(entry["width"], entry["height"]) * scale > 16384:
+        raise ValueError(f"Strict density floor exceeds Bevy's texture limit: {entry['uri']}")
+    if scale == 1:
+        return levels, 0
+    pixels = levels[0]
+    retained_scale, stages = 1, 0
+    while retained_scale < scale:
+        step = 4 if scale//retained_scale >= 4 else 2
+        pixels = upscale_channel(model, pixels, entry, scale=step)
+        retained_scale *= step
+        stages += 1
+    added = int(math.log2(scale))
+    generated = top_levels(pixels, entry, count=added)
+    return generated[:added] + levels, stages
 
 
 def source_levels(pack, masters, entry):
@@ -208,6 +243,9 @@ def source_levels(pack, masters, entry):
     if not master.is_file():
         raise ValueError(f"Lossless canonical master unavailable: {entry['uri']}")
     master_raw = master.read_bytes()
+    expected = "pbr-" + hashlib.sha256(master_raw + entry["role"].encode()).hexdigest()[:32]
+    if path.stem != expected:
+        raise ValueError(f"Lossless master is not the content-addressed source: {entry['uri']}")
     record = inspect_dds(master_raw)
     if (record["width"], record["height"], record["mip_count"]) != (
             info["width"], info["height"], info["mip_count"]):
@@ -221,10 +259,15 @@ def main():
     parser.add_argument("--inventory", type=Path, required=True)
     parser.add_argument("--masters", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)
-    parser.add_argument("--upscaler", choices=("remacri", "deepbump"), default="deepbump")
-    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu",
-                        help="DeepBump backend; Remacri retains its CUDA adapter")
+    parser.add_argument("--upscaler", choices=("deepbump",), default="deepbump")
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda",
+                        help="Explicit DeepBump inference backend")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--encoder", type=Path, required=True, help="Pinned DirectXTex texconv for build-time BCn")
+    parser.add_argument("--compression-device", choices=("cuda", "cpu"), default="cuda")
+    parser.add_argument("--cache", type=Path, help="External compressed derived-data cache; defaults beside candidates")
+    parser.add_argument("--polite", action="store_true", help="Opt into low-priority resource-pressure yielding")
+    parser.add_argument("--no-cuda-graph", action="store_true", help="Disable fixed-buffer CUDA graph replay")
     parser.add_argument("--select", default="")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--tile", type=int, default=256)
@@ -236,9 +279,14 @@ def main():
                         help="Write external PNG evidence for selected qualification batches")
     args = parser.parse_args()
     workspace = Path(__file__).resolve().parents[1]
-    if args.output.resolve().is_relative_to(workspace) or args.output.resolve().is_relative_to(args.pack.resolve()):
+    if args.output.resolve().is_relative_to(workspace) or args.output.resolve().is_relative_to(args.pack.resolve()) or args.pack.resolve().is_relative_to(args.output.resolve()):
         raise ValueError("Candidate output must be external and separate from source assets")
     args.output.mkdir(parents=True, exist_ok=True)
+    cache_root = args.cache or args.output.parent/"compressed-texture-cache"
+    if cache_root.resolve().is_relative_to(workspace) or cache_root.resolve().is_relative_to(args.pack.resolve()) or args.pack.resolve().is_relative_to(cache_root.resolve()):
+        raise ValueError("Derived-data cache must be external and separate from source assets")
+    resources = PreparationResources(args.pause_file, exit_for_shared_slot=True, saturate=not args.polite)
+    cache = CompressedTextureCache(cache_root, args.encoder, args.compression_device, resources)
     entries = json.loads(args.inventory.read_text())["textures"]
     if args.constant_only:
         entries = [entry for entry in entries if entry["width"] == entry["height"] == 1]
@@ -247,10 +295,26 @@ def main():
     entries = sorted(entries, key=lambda e: (e["role"] != "color", e["uri"]))
     if args.limit:
         entries = entries[:args.limit]
+    impossible = [entry["uri"] for entry in entries if not entry.get("achievable", True) and not entry.get("density_exception")]
+    if impossible:
+        raise ValueError(f"Strict density preflight rejected {len(impossible)} maps above 16384 pixels: "
+                         + ", ".join(impossible[:5]))
+    extents = [stored_bytes(entry) for entry in entries]
+    scratch = max((math.ceil(entry["width"]*entry["height"]*entry["scale"]**2*16/3)+148 for entry in entries), default=0)
+    required = sum(max(0, size-(args.output/entry["uri"]).stat().st_size)
+                   if (args.output/entry["uri"]).exists() else size
+                   for entry, size in zip(entries, extents)) + scratch
+    free = shutil.disk_usage(args.output).free
+    if required > free:
+        raise ValueError(f"Candidate storage preflight needs {required/2**30:.2f} GiB; only {free/2**30:.2f} GiB free. "
+                         "Use an external volume with sufficient space or an explicit bounded selection.")
+    cache_required = sum(extents)+scratch
+    if cache_root.resolve().anchor != args.output.resolve().anchor and cache_required > shutil.disk_usage(cache_root).free:
+        raise ValueError(f"Compressed cache needs {cache_required/2**30:.2f} GiB free on its volume")
+    print(f"Compressed candidate budget {sum(extents)/2**30:.2f} GiB; temporary raw chain at most {scratch/2**30:.2f} GiB", flush=True)
     model = None
-    model_hash = MODEL_SHA256 if args.upscaler == "remacri" else DEEPBUMP_UPSCALE_SHA256
-    credit = MODEL_CREDIT if args.upscaler == "remacri" else DEEPBUMP_CREDIT
-    resources = PreparationResources(args.pause_file, exit_for_shared_slot=True)
+    model_hash = DEEPBUMP_UPSCALE_SHA256
+    credit = DEEPBUMP_CREDIT
     for index, entry in enumerate(entries):
         resources.wait(gpu_owned=model is not None and model.on_gpu,
                        on_pause=model.offload if model is not None else None)
@@ -258,62 +322,69 @@ def main():
         receipt = output.with_suffix(".json")
         output.parent.mkdir(parents=True, exist_ok=True)
         levels, source, source_hash, runtime_hash = source_levels(args.pack, args.masters, entry)
-        if entry["scale"] not in (1, 4):
-            raise ValueError("Qualified models provide exactly 4x preparation")
+        if entry["scale"] < 1 or entry["scale"] & (entry["scale"]-1):
+            raise ValueError("Density preparation requires a power-of-two output scale")
         if max(entry["width"], entry["height"]) * entry["scale"] > 16384:
             raise ValueError(f"Candidate exceeds Bevy's supported texture extent: {entry['uri']}")
         recipe = dict(version=RECIPE_VERSION, model_sha256=model_hash, upscaler=args.upscaler,
-                      device=args.device if args.upscaler == "deepbump" else "cuda",
+                      device=args.device,
+                      encoder_sha256=ENCODER_SHA256, compression=target_format(entry),
+                      compression_device=args.compression_device,
+                      cuda_graph=not args.no_cuda_graph,
                       tile=args.tile, halo=args.halo, scale=entry["scale"], role=entry["role"],
                       color_space=entry["color_space"], samplers=sorted(entry.get("samplers", [20])))
+        recipe.update(density_floor=entry.get("density_floor"), density_metric=entry.get("density_metric"))
+        recipe["density_exception"] = entry.get("density_exception", False)
+        recipe["source_density"] = entry.get("minimum_texels_per_meter")
         recipe_hash = hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
+        cache_key = hashlib.sha256((source_hash+runtime_hash+recipe_hash).encode()).hexdigest()
         if receipt.exists() and output.exists():
             existing = json.loads(receipt.read_text())
             if existing["source_sha256"] == source_hash and existing.get("recipe_sha256") == recipe_hash:
                 if hashlib.sha256(output.read_bytes()).hexdigest() == existing["output_sha256"]:
                     if args.previews and not output.with_suffix(".candidate.png").exists():
                         Image.fromarray(levels[0]).save(output.with_suffix(".source.png"))
-                        Image.fromarray(rgba_levels(output.read_bytes())[0]).save(output.with_suffix(".candidate.png"))
+                        with Image.open(output) as preview:
+                            preview.convert("RGBA").save(output.with_suffix(".candidate.png"))
                     print(f"{index+1}/{len(entries)} cached {entry['uri']}", flush=True)
                     continue
         started = time.monotonic()
-        if entry["scale"] == 1:
-            cooked = levels
-            pixels = levels[0]
-        else:
-            constant = np.all(levels[0] == levels[0][0, 0])
-            if constant:
-                pixels = upscale_channel(ConstantField(), levels[0], entry)
-            else:
-                if model is None:
-                    model_type = Remacri if args.upscaler == "remacri" else DeepBumpUpscaler
-                    options = dict(device=args.device) if args.upscaler == "deepbump" else {}
-                    model = model_type(args.model, args.tile, args.halo, args.pause_file, **options)
-                pixels = upscale_channel(model, levels[0], entry)
+        cached = cache.find(cache_key)
+        stages = math.ceil(math.log2(entry["scale"])/2)
+        if cached is None:
+            if entry["scale"] > 1 and model is None:
+                model = DeepBumpUpscaler(args.model, args.tile, args.halo, args.pause_file, device=args.device,
+                                         saturate=not args.polite, cuda_graph=not args.no_cuda_graph)
+            cooked, stages = prepare_levels(model, levels, entry)
             resources.wait(gpu_owned=model is not None and model.on_gpu,
                            on_pause=model.offload if model is not None else None)
-            # Retain the original chain verbatim below the new detail levels.
-            # Distant material appearance and authored alpha mip coverage persist.
-            cooked = top_levels(pixels, entry) + levels
-        raw = rgba_dds(cooked, entry["color_space"] == "srgb")
-        temporary = output.with_suffix(".tmp")
-        temporary.write_bytes(raw)
-        temporary.replace(output)
+            cached = cache.store(cache_key, cooked, entry, (args.pack/entry["uri"]).read_bytes())
+            del cooked
+        materialize(cached[0], output)
+        raw = output.read_bytes()
+        info = inspect_dds(raw)
         record = dict(uri=entry["uri"], role=entry["role"], scale=entry["scale"],
             source_sha256=source_hash, model_sha256=model_hash, credit=credit, upscaler=args.upscaler,
             source_runtime_sha256=runtime_hash,
             recipe=recipe, recipe_sha256=recipe_hash,
-            output_sha256=hashlib.sha256(raw).hexdigest(), width=pixels.shape[1], height=pixels.shape[0],
-            mip_count=len(cooked), source_mips_retained=True, seconds=time.monotonic()-started,
-            original_coverage_retained=entry["role"] in ("color", "emissive"))
+            output_sha256=info["sha256"], width=info["width"], height=info["height"],
+            mip_count=info["mip_count"], seconds=time.monotonic()-started,
+            original_coverage_retained_before_compression=entry["role"] in ("color", "emissive"))
+        record.update(cached[1])
+        record.update(inference_stages=stages, density_floor=entry.get("density_floor"),
+                      density_metric=entry.get("density_metric"),
+                      output_texels_per_meter=entry.get("output_texels_per_meter"),
+                      density_applicable=entry.get("density_applicable", True),
+                      density_exception=entry.get("density_exception", False))
         record["constant_field"] = bool(np.all(levels[0] == levels[0][0, 0]))
         receipt.write_text(json.dumps(record, indent=2) + "\n")
         # Qualification previews are evidence, never runtime source selection.
         if args.previews:
             Image.fromarray(levels[0]).save(output.with_suffix(".source.png"))
-            Image.fromarray(pixels).save(output.with_suffix(".candidate.png"))
+            with Image.open(output) as preview:
+                preview.convert("RGBA").save(output.with_suffix(".candidate.png"))
         print(f"{index+1}/{len(entries)} {entry['role']} {entry['uri']} {record['width']}x{record['height']}", flush=True)
-    print("Bounded batch complete; process exit releases inference resources", flush=True)
+    print("Compressed batch complete; process exit releases inference resources", flush=True)
 
 
 if __name__ == "__main__":
