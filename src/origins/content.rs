@@ -283,6 +283,8 @@ pub struct EnemyDefinition {
     #[serde(default)]
     pub animation_actions: BTreeMap<EnemyAnimation, ContentId>,
     #[serde(default)]
+    pub locomotion_states: BTreeMap<EnemyLocomotion, Vec<ContentId>>,
+    #[serde(default)]
     pub traversals: BTreeMap<String, EnemyTraversalDefinition>,
     #[serde(default = "default_attack_seconds")]
     pub attack_seconds: f32,
@@ -363,6 +365,29 @@ pub enum EnemyAnimation {
     Traverse,
     Landing,
     Tear,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnemyLocomotion {
+    Walk,
+    WalkCrawl,
+    Run,
+    RunCrawl,
+    Sprint,
+    SprintCrawl,
+    SuperSprint,
+    SuperSprintCrawl,
+    Stumpy,
+}
+impl EnemyLocomotion {
+    pub fn for_action(action: EnemyAnimation) -> Option<Self> {
+        match action {
+            EnemyAnimation::Walk => Some(Self::Walk),
+            EnemyAnimation::Run => Some(Self::Run),
+            EnemyAnimation::Sprint => Some(Self::Sprint),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1072,6 +1097,21 @@ impl ContentCatalog {
             }
             for clip in v.animation_actions.values() {
                 r(&v.id.0, &clip.0, "animation")?;
+            }
+            for clips in v.locomotion_states.values() {
+                valid(
+                    !clips.is_empty() && clips.len() <= 32,
+                    "Invalid locomotion substates",
+                )?;
+                for clip in clips {
+                    r(&v.id.0, &clip.0, "animation")?;
+                    valid(
+                        self.animations
+                            .iter()
+                            .any(|a| a.id == *clip && v.presentation.as_ref() == Some(&a.skeleton)),
+                        "Locomotion animation belongs to another rig",
+                    )?;
+                }
             }
             for (alias, traversal) in &v.traversals {
                 valid(

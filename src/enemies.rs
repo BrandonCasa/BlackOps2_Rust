@@ -5,7 +5,7 @@ use crate::{
     assets::GameDefinition,
     gameplay::{GameStep, Navigation},
     life::{LifeState, Vitality},
-    origins::content::{ContentId, EnemyAnimation},
+    origins::content::{ContentId, EnemyAnimation, EnemyDefinition, EnemyLocomotion},
     player::Player,
 };
 use avian3d::prelude::*;
@@ -41,6 +41,7 @@ pub struct Zombie {
     pub action: EnemyAnimation,
     pub elapsed: f32,
     pub stunned: f32,
+    locomotion_seed: u32,
     next_hit: usize,
     lure: Option<Entity>,
     last_target: Vec3,
@@ -68,6 +69,10 @@ impl Zombie {
             action: EnemyAnimation::Idle,
             elapsed: 0.,
             stunned: 0.,
+            locomotion_seed: position
+                .x
+                .to_bits()
+                .wrapping_add(position.z.to_bits().rotate_left(13)),
             next_hit: 0,
             lure: None,
             last_target: position,
@@ -78,6 +83,27 @@ impl Zombie {
             landing: 0.,
             tear: None,
         }
+    }
+    pub fn with_locomotion_seed(mut self, seed: u32) -> Self {
+        self.set_locomotion_seed(seed);
+        self
+    }
+    pub(crate) fn set_locomotion_seed(&mut self, seed: u32) {
+        self.locomotion_seed = seed;
+    }
+    pub(crate) fn locomotion_clip<'a>(&self, enemy: &'a EnemyDefinition) -> Option<&'a str> {
+        let state = EnemyLocomotion::for_action(self.action)?;
+        let clips = enemy.locomotion_states.get(&state)?;
+        if clips.is_empty() {
+            return None;
+        }
+        // BO2's zm_run preserves ASD substates. Keep this actor's choice across
+        // stops, attacks and repeated movement updates, shared by body and head.
+        let seed = self
+            .locomotion_seed
+            .wrapping_mul(1664525)
+            .wrapping_add(1013904223);
+        clips[(seed as usize) % clips.len()].0.rsplit('.').next()
     }
     pub fn reserves(&self, position: Vec3) -> bool {
         self.traversal.as_ref().is_some_and(|m| {
@@ -141,6 +167,7 @@ impl TraversalMotion {
 pub struct EnemyEvidence {
     pub variants: BTreeSet<String>,
     pub animations: BTreeSet<String>,
+    pub locomotion_clips: BTreeSet<String>,
     pub attached_heads: u32,
     pub attacks_started: u32,
     pub replans: u32,
@@ -190,6 +217,8 @@ struct Graphs(
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) struct EnemyBounds;
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub(crate) struct EnemyAnimationPlayback;
 pub struct EnemyPlugin;
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
@@ -215,7 +244,7 @@ impl Plugin for EnemyPlugin {
                     attach_parts,
                     light_materials,
                     admit_ready,
-                    animate,
+                    animate.in_set(EnemyAnimationPlayback),
                 )
                     .chain(),
             )
@@ -1051,6 +1080,8 @@ fn animate(
             EnemyAnimation::Traverse | EnemyAnimation::Tear
         ) {
             zombie.traversal_clip.as_deref()
+        } else if let Some(name) = zombie.locomotion_clip(enemy) {
+            Some(name)
         } else {
             enemy
                 .animation_actions
@@ -1088,6 +1119,9 @@ fn animate(
                     active.repeat();
                 }
                 evidence.animations.insert(format!("{:?}", zombie.action));
+                if EnemyLocomotion::for_action(zombie.action).is_some() {
+                    evidence.locomotion_clips.insert(name.to_owned());
+                }
             }
             if player
                 .animation(node)
@@ -1112,6 +1146,58 @@ fn animate(
             rig.clip = Some(name.to_owned());
         }
     }
+}
+/// Read the live multipart Bevy animation players for opt-in window validation.
+pub(crate) fn locomotion_observation(world: &mut World, owner: Entity) -> Vec<serde_json::Value> {
+    let rigs: Vec<_> = world
+        .query::<(Entity, &ActorRig)>()
+        .iter(world)
+        .filter(|(_, r)| r.owner == owner)
+        .map(|(entity, r)| {
+            (
+                entity,
+                r.presentation.0.clone(),
+                r.ready && r.attached,
+                r.clip.clone(),
+                r.players.clone(),
+                r.sockets
+                    .get("j_head")
+                    .copied()
+                    .or_else(|| r.sockets.get("j_spineupper").copied()),
+            )
+        })
+        .collect();
+    rigs.into_iter()
+        .map(|(entity, rig, ready, clip, players, joint)| {
+            // Attachment rigs intentionally do not build the torso's socket
+            // lookup. Observe their actual named native descendant directly.
+            let mut joint = joint;
+            if joint.is_none() {
+                let mut descendants = vec![entity];
+                while let Some(child) = descendants.pop() {
+                    if world
+                        .get::<Name>(child)
+                        .is_some_and(|n| n.as_str() == "j_head")
+                    {
+                        joint = Some(child);
+                        break;
+                    }
+                    if let Some(children) = world.get::<Children>(child) {
+                        descendants.extend(children.iter());
+                    }
+                }
+            }
+            let clocks: Vec<_> = players
+                .iter()
+                .filter_map(|e| world.get::<AnimationPlayer>(*e))
+                .flat_map(|p| p.playing_animations().map(|(_, a)| a.seek_time()))
+                .collect();
+            let pose = joint
+                .and_then(|e| world.get::<Transform>(e))
+                .map(|t| t.rotation.to_array());
+            serde_json::json!({"rig":rig,"ready":ready,"clip":clip,"clocks":clocks,"pose":pose})
+        })
+        .collect()
 }
 fn partial_roots(mut roots: Query<&mut Transform, With<PartialRoot>>) {
     for mut transform in &mut roots {

@@ -25,6 +25,7 @@ mod equipment_refills;
 mod firing_perks;
 mod generators;
 mod health_recovery;
+mod locomotion;
 mod mobility;
 mod monkeys;
 mod mud;
@@ -114,6 +115,11 @@ pub(crate) struct Verification {
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
+        if app.world().resource::<LaunchOptions>().verify_locomotion {
+            pipelines::install(app);
+            locomotion::install(app);
+            return;
+        }
         if app
             .world()
             .resource::<LaunchOptions>()
@@ -1226,7 +1232,7 @@ fn check(
                 "surface_attachments":equipment.surface_attachments,"actor_attachments":equipment.actor_attachments,"attached_motion":equipment.attached_motion,"events":equipment.events},
             "hit_volumes":{"bound":hit_evidence.bound_volumes,"pose_updates":hit_evidence.pose_updates,"regions":hit_evidence.regions,"hits":hit_evidence.hits},
             "enemy_attack_frame":verification.enemy_attack_frame,"enemy_death_frame":verification.enemy_death_frame,
-            "enemy_presentation": {"variants":enemy_evidence.variants,"animations":enemy_evidence.animations,
+            "enemy_presentation": {"variants":enemy_evidence.variants,"animations":enemy_evidence.animations,"locomotion_clips":enemy_evidence.locomotion_clips,
                 "attached_heads":enemy_evidence.attached_heads,"attacks_started":enemy_evidence.attacks_started,
                 "attack_hits":enemy_evidence.attack_hits,"deaths":enemy_evidence.deaths,
                 "corpses_removed":enemy_evidence.corpses_removed,"bounds_updates":enemy_evidence.bounds_updates},

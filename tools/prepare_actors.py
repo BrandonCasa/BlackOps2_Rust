@@ -18,6 +18,86 @@ except ImportError:
     from xanim import decode
 
 
+def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), board_delta=False, translation_offsets=None, native_translations=None):
+    """Append native channels without changing existing meshes, materials or clips."""
+    skeleton_joints = {j for skin in document.get("skins", []) for j in skin["joints"]}
+    children = {child for j in skeleton_joints for child in document["nodes"][j].get("children", [])}
+    roots = skeleton_joints - children
+    by_name = {node["name"]: i for i, node in enumerate(document["nodes"]) if "name" in node}
+    animations, notifications = [], []
+    views, accessors = document["bufferViews"], document["accessors"]
+
+    def animation_accessor(values, kind):
+        values = np.asarray(values, dtype="<f4")
+        while len(binary) % 4:
+            binary.append(0)
+        raw = values.tobytes()
+        view = len(views)
+        views.append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(raw)})
+        binary.extend(raw)
+        index = len(accessors)
+        accessors.append({"bufferView": view, "componentType": 5126, "count": len(values), "type": kind,
+                          "min": values.min(axis=0).reshape(-1).tolist(), "max": values.max(axis=0).reshape(-1).tolist()})
+        return index
+
+    for clip_path in clips:
+        clip = decode(clip_path.read_bytes())
+        if clip['delta'] and np.max(np.abs(clip['delta']['translation'][1])) > 0.01 and not in_place and not board_delta:
+            raise ValueError(f'unconsumed native root motion: {clip_path.name}; preserve the curve or declare gameplay-owned in-place playback')
+        samplers, channels = [], []
+        if board_delta:
+            if len(roots) != 1 or not clip['delta']:
+                raise ValueError('board animation requires one root and native delta')
+            times, values = clip['delta']['translation']
+            values = values[:, [0, 2, 1]] * [.0254, .0254, -.0254]
+            channels.append({'sampler': len(samplers), 'target': {'node': next(iter(roots)), 'path': 'translation'}})
+            samplers.append({'input': animation_accessor(times.reshape(-1, 1), 'SCALAR'),
+                             'output': animation_accessor(values, 'VEC3'), 'interpolation': 'LINEAR'})
+        for bone, tracks in clip["tracks"].items():
+            if in_place and bone == "tag_sync":
+                continue  # Authoring synchronization marker is not an actor pose joint.
+            if bone not in by_name or by_name[bone] not in skeleton_joints:
+                continue
+            node = by_name[bone]
+            for target, (times, source_values) in tracks.items():
+                values = source_values.copy()
+                if not clip["channel_presence"][bone][target]:
+                    bind = document["nodes"][node].get(target, [0,0,0] if target=="translation" else [0,0,0,1])
+                    values = np.repeat(np.asarray(bind).reshape(1,-1),len(values),axis=0)
+                elif target == "translation":
+                    # XModel.trans supplies the native translation baseline.
+                    # Arms generally store zero; weapon parts retain offsets.
+                    # OAT glTF rest locals are rebuilt from baseMat instead.
+                    if native_translations and bone in native_translations:
+                        values += np.asarray(native_translations[bone])
+                    if node in roots:
+                        values = values[:, [0, 2, 1]] * [1, 1, -1]
+                    values *= 0.0254
+                    if translation_offsets and bone in translation_offsets:
+                        values += np.asarray(translation_offsets[bone]) * 0.0254
+                    if in_place:
+                        # Retain bind offsets; native actor channels carry motion about that pose.
+                        anchor = values[-1] if bone == "j_mainroot" and clip_path.name in end_aligned_clips else values[0]
+                        values += np.asarray(document["nodes"][node].get("translation", [0,0,0])) - anchor
+                elif node in roots:
+                    # OAT premultiplies root orientations by a -90-degree X basis.
+                    # Parent-relative rotations retain their native local basis.
+                    x, y, z, w = values.T.copy()
+                    c = np.sqrt(0.5)
+                    values = np.stack((c * (x - w), c * (y + z), c * (z - y), c * (w + x)), axis=1)
+                input_index = animation_accessor(times.reshape(-1, 1), "SCALAR")
+                output_index = animation_accessor(values, "VEC3" if target == "translation" else "VEC4")
+                channels.append({"sampler": len(samplers), "target": {"node": node, "path": target}})
+                samplers.append({"input": input_index, "output": output_index, "interpolation": "LINEAR"})
+        if not channels:
+            continue  # Camera/socket-only clips have no channels for this mesh's rig.
+        animations.append({"name": clip_path.name, "channels": channels, "samplers": samplers})
+        notifications.append((clip_path.name, clip["notifications"]))
+    if animations:
+        document.setdefault("animations", []).extend(animations)
+    return notifications
+
+
 def convert(source_path, output, additional_images, clips, in_place=False, end_aligned_clips=(), board_delta=False, translation_offsets=None, native_translations=None, prepare_images=True):
     source = json.loads(source_path.read_text(encoding="utf-8-sig"))
     document = copy.deepcopy(source)
@@ -109,80 +189,8 @@ def convert(source_path, output, additional_images, clips, in_place=False, end_a
         image["uri"] = relative
     name = source_path.stem
     document["accessors"], document["bufferViews"] = accessors, views
-    skeleton_joints = {j for skin in document.get("skins", []) for j in skin["joints"]}
-    children = {child for j in skeleton_joints for child in document["nodes"][j].get("children", [])}
-    roots = skeleton_joints - children
-    by_name = {node["name"]: i for i, node in enumerate(document["nodes"]) if "name" in node}
-    animations, notifications = [], []
-
-    def animation_accessor(values, kind):
-        values = np.asarray(values, dtype="<f4")
-        while len(binary) % 4:
-            binary.append(0)
-        raw = values.tobytes()
-        view = len(views)
-        views.append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(raw)})
-        binary.extend(raw)
-        index = len(accessors)
-        accessors.append({"bufferView": view, "componentType": 5126, "count": len(values), "type": kind,
-                          "min": values.min(axis=0).reshape(-1).tolist(), "max": values.max(axis=0).reshape(-1).tolist()})
-        return index
-
-    for clip_path in clips:
-        clip = decode(clip_path.read_bytes())
-        if clip['delta'] and np.max(np.abs(clip['delta']['translation'][1])) > 0.01 and not in_place and not board_delta:
-            raise ValueError(f'unconsumed native root motion: {clip_path.name}; preserve the curve or declare gameplay-owned in-place playback')
-        samplers, channels = [], []
-        if board_delta:
-            if len(roots) != 1 or not clip['delta']:
-                raise ValueError('board animation requires one root and native delta')
-            times, values = clip['delta']['translation']
-            values = values[:, [0, 2, 1]] * [.0254, .0254, -.0254]
-            channels.append({'sampler': len(samplers), 'target': {'node': next(iter(roots)), 'path': 'translation'}})
-            samplers.append({'input': animation_accessor(times.reshape(-1, 1), 'SCALAR'),
-                             'output': animation_accessor(values, 'VEC3'), 'interpolation': 'LINEAR'})
-        for bone, tracks in clip["tracks"].items():
-            if in_place and bone == "tag_sync":
-                continue  # Authoring synchronization marker is not an actor pose joint.
-            if bone not in by_name or by_name[bone] not in skeleton_joints:
-                continue
-            node = by_name[bone]
-            for target, (times, source_values) in tracks.items():
-                values = source_values.copy()
-                if not clip["channel_presence"][bone][target]:
-                    bind = document["nodes"][node].get(target, [0,0,0] if target=="translation" else [0,0,0,1])
-                    values = np.repeat(np.asarray(bind).reshape(1,-1),len(values),axis=0)
-                elif target == "translation":
-                    # XModel.trans supplies the native translation baseline.
-                    # Arms generally store zero; weapon parts retain offsets.
-                    # OAT glTF rest locals are rebuilt from baseMat instead.
-                    if native_translations and bone in native_translations:
-                        values += np.asarray(native_translations[bone])
-                    if node in roots:
-                        values = values[:, [0, 2, 1]] * [1, 1, -1]
-                    values *= 0.0254
-                    if translation_offsets and bone in translation_offsets:
-                        values += np.asarray(translation_offsets[bone]) * 0.0254
-                    if in_place:
-                        # Retain bind offsets; native actor channels carry motion about that pose.
-                        anchor = values[-1] if bone == "j_mainroot" and clip_path.name in end_aligned_clips else values[0]
-                        values += np.asarray(document["nodes"][node].get("translation", [0,0,0])) - anchor
-                elif node in roots:
-                    # OAT premultiplies root orientations by a -90-degree X basis.
-                    # Parent-relative rotations retain their native local basis.
-                    x, y, z, w = values.T.copy()
-                    c = np.sqrt(0.5)
-                    values = np.stack((c * (x - w), c * (y + z), c * (z - y), c * (w + x)), axis=1)
-                input_index = animation_accessor(times.reshape(-1, 1), "SCALAR")
-                output_index = animation_accessor(values, "VEC3" if target == "translation" else "VEC4")
-                channels.append({"sampler": len(samplers), "target": {"node": node, "path": target}})
-                samplers.append({"input": input_index, "output": output_index, "interpolation": "LINEAR"})
-        if not channels:
-            continue  # Camera/socket-only clips have no channels for this mesh's rig.
-        animations.append({"name": clip_path.name, "channels": channels, "samplers": samplers})
-        notifications.append((clip_path.name, clip["notifications"]))
-    if animations:
-        document["animations"] = animations
+    document.pop("animations", None)
+    notifications = append_clips(document, binary, clips, in_place, end_aligned_clips, board_delta, translation_offsets, native_translations)
     document["buffers"] = [{"byteLength": len(binary), "uri": name + ".bin"}]
     document["asset"]["generator"] = ("Origins native weapon assembly" if any(n.get("name") == "weapon_assembly" for n in document["nodes"]) else "Origins recovered skeletal preparation")
     (output / (name + ".bin")).write_bytes(binary)

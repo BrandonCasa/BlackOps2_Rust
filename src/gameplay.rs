@@ -480,7 +480,8 @@ pub(crate) fn rounds(
                 .and_then(|e| e.traversals.get("rise"))
         })
         .flatten();
-    let zombie = Zombie::new(position, identity, gait, profile.speed(gait));
+    let zombie = Zombie::new(position, identity, gait, profile.speed(gait))
+        .with_locomotion_seed(session.spawn_cursor as u32);
     let zombie = if let Some(profile) = rise {
         zombie.rising(profile)
     } else {

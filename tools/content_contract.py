@@ -68,7 +68,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"distance_min"} if table=="sounds" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals", "locomotion_states"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"distance_min"} if table=="sounds" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -151,6 +151,13 @@ def validate_content(content, require):
                     resolve(owner,part["presentation"],"presentation")
                     require(isinstance(part["socket"],str) and part["socket"], "invalid actor socket")
                     require(part["root_joint"] is None or isinstance(part["root_joint"],str), "invalid partial rig root")
+                states = row.get("locomotion_states", {})
+                require(isinstance(states, dict) and set(states) <= {"walk", "walk_crawl", "run", "run_crawl", "sprint", "sprint_crawl", "super_sprint", "super_sprint_crawl", "stumpy"}, "invalid locomotion states")
+                for clips in states.values():
+                    require(isinstance(clips, list) and 0 < len(clips) <= 32, "invalid locomotion substates")
+                    for identity in clips:
+                        resolve(owner, identity, "animation")
+                        require(any(a["id"] == identity and a["skeleton"] == row["presentation"] for a in content["animations"]), "locomotion animation belongs to another rig")
                 actions = row.get("animation_actions", {})
                 region_ids = set()
                 regions = row.get("hit_regions", [])

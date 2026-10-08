@@ -51,7 +51,7 @@
 - [x] Normalize exported skin weights.
 - [x] Convert original animation tracks into glTF clips.
 - [x] Retarget recovered clips onto compatible skeletons.
-- [ ] Generate missing locomotion clips for recovered rigs.
+- [x] Generate missing locomotion clips for recovered rigs.
 - [ ] Generate missing combat clips for recovered rigs.
 - [ ] Generate missing interaction clips for recovered rigs.
 - [x] Export animation notification timings into content definitions.

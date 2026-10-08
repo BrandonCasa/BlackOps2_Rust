@@ -22,6 +22,7 @@ pub struct LaunchOptions {
     pub material_debug: u32,
     pub verify: Option<PathBuf>,
     pub verify_controls: bool,
+    pub verify_locomotion: bool,
     pub verify_texture_streaming: bool,
     pub verify_viewmodel_shadows: bool,
     pub benchmark: bool,
@@ -146,6 +147,7 @@ impl LaunchOptions {
                 || argument == "--verify-doors"
                 || argument == "--verify-navigation"
                 || argument == "--verify-traversal"
+                || argument == "--verify-locomotion"
                 || argument == "--verify-audio"
                 || argument == "--verify-barriers"
                 || argument == "--verify-generators"
@@ -208,6 +210,7 @@ impl LaunchOptions {
                 result.verify_navigation =
                     argument == "--verify-navigation" || argument == "--verify-traversal";
                 result.verify_traversal = argument == "--verify-traversal";
+                result.verify_locomotion = argument == "--verify-locomotion";
                 result.verify_audio = argument == "--verify-audio";
                 result.verify_barriers = argument == "--verify-barriers";
                 result.verify_generators = argument == "--verify-generators";

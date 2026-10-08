@@ -678,6 +678,7 @@ def main():
     parser.add_argument("--prepare-arsenal", action="store_true", help="convert native weapon tuning/localization into the external runtime pack")
     parser.add_argument("--prepare-ads", action="store_true", help="refresh native ADS curves and optical metadata in an assembled external pack")
     parser.add_argument("--prepare-traversals", action="store_true", help="prepare native negotiation/rising clips and root-motion profiles")
+    parser.add_argument("--prepare-locomotion", action="store_true", help="append native Origins locomotion states to prepared zombie rigs")
     parser.add_argument("--prepare-traversal-links", action="store_true", help="extract compiled negotiation endpoints, authored headings, flags and route costs")
     parser.add_argument("--prepare-barriers", action="store_true", help="prepare native wood windows, boards and tear timing")
     parser.add_argument("--prepare-generators", action="store_true", help="prepare original generator pumps and capture configuration")
@@ -692,6 +693,10 @@ def main():
     parser.add_argument("--prepare-player-health", action="store_true", help="recover standing player regeneration and immunity")
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
+    if args.prepare_locomotion:
+        from prepare_locomotion import prepare
+        prepare(config)
+        return
     if args.prepare_traversal_links:
         from traversal_links import prepare
         prepare(config)
