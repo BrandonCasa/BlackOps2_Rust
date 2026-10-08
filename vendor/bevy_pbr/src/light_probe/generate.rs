@@ -374,6 +374,7 @@ pub fn extract_generated_environment_map_entities(
             intensity: filtered_env_map.intensity,
             rotation: filtered_env_map.rotation,
             affects_lightmapped_mesh_diffuse: filtered_env_map.affects_lightmapped_mesh_diffuse,
+            source_revision: None,
         };
         commands
             .get_entity(entity)
@@ -391,6 +392,11 @@ pub struct RenderEnvironmentMap {
     pub intensity: f32,
     pub rotation: Quat,
     pub affects_lightmapped_mesh_diffuse: bool,
+    /// Render-graph producers may set this after recording a complete source
+    /// update, before downsampling. An unchanged revision retains the completed
+    /// mip chain/convolution. Extraction resets it to `None` each frame, which
+    /// preserves automatic per-frame generation for ordinary native callers.
+    pub source_revision: Option<u64>,
 }
 
 #[derive(Component)]
@@ -476,6 +482,8 @@ pub struct GeneratorBindGroups {
     pub copy: BindGroup,
     texture_ids: [TextureId; 5],
     combined_downsampling: bool,
+    downsampled_revision: Option<u64>,
+    filtered_revision: Option<u64>,
 }
 
 /// Prepares bind groups for environment map generation pipelines
@@ -747,6 +755,8 @@ pub fn prepare_generated_environment_map_bind_groups(
             copy: copy_bind_group,
             texture_ids,
             combined_downsampling: config.combine_bind_group,
+            downsampled_revision: None,
+            filtered_revision: None,
         });
     }
 }
@@ -788,7 +798,7 @@ fn create_placeholder_storage_view(render_device: &RenderDevice) -> TextureView 
 }
 
 pub fn downsampling_system(
-    query: Query<(&GeneratorBindGroups, &RenderEnvironmentMap)>,
+    mut query: Query<(&mut GeneratorBindGroups, &RenderEnvironmentMap)>,
     pipeline_cache: Res<PipelineCache>,
     pipelines: Option<Res<GeneratorPipelines>>,
     mut ctx: RenderContext,
@@ -816,7 +826,12 @@ pub fn downsampling_system(
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
 
-    for (bind_groups, env_map_light) in &query {
+    for (mut bind_groups, env_map_light) in &mut query {
+        if env_map_light.source_revision.is_some()
+            && bind_groups.downsampled_revision == env_map_light.source_revision
+        {
+            continue;
+        }
         // Copy base mip using compute shader with pre-built bind group
         {
             let mut compute_pass =
@@ -884,11 +899,13 @@ pub fn downsampling_system(
 
             pass_span.end(&mut compute_pass);
         }
+        // Publish only after the complete six-face mip chain was recorded.
+        bind_groups.downsampled_revision = env_map_light.source_revision;
     }
 }
 
 pub fn filtering_system(
-    query: Query<(&GeneratorBindGroups, &RenderEnvironmentMap)>,
+    mut query: Query<(&mut GeneratorBindGroups, &RenderEnvironmentMap)>,
     pipeline_cache: Res<PipelineCache>,
     pipelines: Option<Res<GeneratorPipelines>>,
     mut ctx: RenderContext,
@@ -908,7 +925,13 @@ pub fn filtering_system(
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
 
-    for (bind_groups, env_map_light) in &query {
+    for (mut bind_groups, env_map_light) in &mut query {
+        if env_map_light.source_revision.is_some()
+            && (bind_groups.filtered_revision == env_map_light.source_revision
+                || bind_groups.downsampled_revision != env_map_light.source_revision)
+        {
+            continue;
+        }
         // Radiance convolution pass
         {
             let mut compute_pass =
@@ -959,6 +982,7 @@ pub fn filtering_system(
 
             irr_span.end(&mut compute_pass);
         }
+        bind_groups.filtered_revision = env_map_light.source_revision;
     }
 }
 

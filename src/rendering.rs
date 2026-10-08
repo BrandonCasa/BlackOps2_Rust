@@ -10,6 +10,7 @@ use bevy::{
     light::NotShadowCaster,
     prelude::*,
 };
+mod budget;
 pub(crate) mod grading;
 mod lighting_inspection;
 mod opaque;
@@ -63,6 +64,7 @@ impl Plugin for GameRenderingPlugin {
             .add_plugins(streaming::TextureStreamingPlugin)
             .add_plugins((shadow_cache::ShadowCachePlugin, residency::ResidencyPlugin))
             .init_resource::<profile::VisualProfile>()
+            .init_resource::<budget::RenderBudget>()
             .add_plugins(sky_lighting::SkyLightingPlugin)
             .add_plugins(static_gi::StaticGiPlugin)
             .add_plugins(lighting_inspection::LightingInspectionPlugin)

@@ -30,6 +30,11 @@ Environment generation retains per-entity intermediate mip textures and all
 filter bindings/uniforms/views/placeholders while source, output, intermediate,
 blue-noise texture identities, sampler/layout resources and downsampling mode
 remain compatible. Texture replacements and size/layout changes rebuild them.
+RenderEnvironmentMap exposes an optional source revision for render-graph
+producers. Completed downsampling/convolution revisions live with the retained
+bindings; an unchanged source skips fresh copy/downsampling/filtering. Recreated
+bindings invalidate those revisions. Filtering waits for the matching complete
+six-face mip chain. Uncontrolled native callers preserve per-frame generation.
 bevy_solari: the RC's retained incremental scene, sparse uploads, cached bindings
 and native TLAS build are adopted intact; native BLAS/TLAS diagnostic spans are
 retained. An extracted DynamicRaytracingMesh ECS marker selects fast-build,

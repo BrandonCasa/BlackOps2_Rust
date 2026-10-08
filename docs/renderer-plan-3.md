@@ -114,9 +114,23 @@ remain open. The earlier actor presentation defect remains visible.
 
 Native filter preparation now retains per-entity intermediate textures and
 generation bindings/uniforms/mip views/placeholders against relevant texture,
-layout, sampler and downsampling identities. The actual focused DDGI game passes
-590 updates plus combat/ADS/Round 2/restart. Fresh tracing/convolution admission,
+layout, sampler and downsampling identities. Per-face adaptive admission,
 screen-space reconstruction and matched release performance remain open.
+
+The first bounded capture/filter milestone now uses an ECS RenderBudget for
+elapsed-time admission: desired 100 ms age, earlier after 0.25 m translation or
+numeric direct-light changes. Reused cubes keep their actual world-space capture
+anchor; rotation alone does not invalidate them. Texture replacement stays
+pending until the producer records a full new cube. Native generation tracks
+completed source/downsampling/filter revisions with the retained binding keys;
+unchanged sources skip fresh copy, mip generation and convolution. Ordinary
+native producers retain their automatic behavior. Frozen executable-18 passes
+the full 17-view/combat/ADS/Round 2/restart survey with 1447 DDGI batches, 895
+fresh cube updates and 552 reused frames. This proves reduced fresh admission,
+not matched release speedup or full temporal quality. Local dirty faces/tiles,
+confidence/variance, adaptive samples and screen-space replacement remain open.
+RenderBudget currently covers reflection bounds; other subsystem timing,
+memory and admission consumers remain open.
 
 - [ ] Retain cube faces, hit/depth validity, source generations, confidence,
   variance and filtered mip generations in world-anchored regions.
@@ -152,6 +166,15 @@ flags/order and uniqueness without scanning the growing output vector.
   budgets and thin-wall/door/emissive recovery.
 
 ## D. First-person and shadows
+
+The current viewmodel entities already have world-space GlobalTransforms and
+native PBR evaluation. They render through a second HDR camera with its own
+projection and shadow/view preparation. The RC's core depth preparation shares
+the main depth texture by render target/MSAA, so this camera's cleared depth
+attachment overwrites world depth. Preserve the existing world transforms,
+presentation projection and single final post chain while replacing that
+shared depth with owned first-person storage and removing duplicate view work.
+First-person geometry is still explicitly excluded from ray-scene admission.
 
 - [ ] Late first-person HDR phase replaces auxiliary full view, with separate
   cleared depth and ordinary internal depth testing. Preserve world depth.

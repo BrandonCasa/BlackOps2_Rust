@@ -54,6 +54,7 @@ struct SceneRefreshStats {
     geometry: AtomicU64,
     lighting: AtomicU64,
     materials: AtomicU64,
+    reflection_reuses: AtomicU64,
 }
 
 impl StaticGiStats {
@@ -69,6 +70,7 @@ impl StaticGiStats {
             "geometry_changes": load(&self.2.geometry),
             "lighting_changes": load(&self.2.lighting),
             "material_changes": load(&self.2.materials),
+            "reflection_reused_frames": load(&self.2.reflection_reuses),
             // The RC owns these updates; removed wrapper counters cannot measure them.
             "binding_rebuilds": null,
             "settled_compactions": null,
@@ -209,6 +211,7 @@ pub(super) struct GiInputs {
     reflection: Option<Handle<Image>>,
     reflection_entity: Option<Entity>,
     reflection_position: Vec3,
+    reflection_request: u64,
 }
 #[derive(Default)]
 struct ProbeWork {
@@ -220,7 +223,14 @@ struct ProbeWork {
     admitted: HashSet<IVec3>,
 }
 #[derive(Resource, Default)]
-struct Work(Vec<ProbeWork>);
+struct Work {
+    cascades: Vec<ProbeWork>,
+    reflection: ReflectionWork,
+}
+#[derive(Default)]
+struct ReflectionWork {
+    requested_at: Option<std::time::Duration>,
+}
 #[derive(Clone, Copy, ShaderType)]
 struct Constants {
     center_spacing: Vec4,
@@ -247,6 +257,9 @@ struct GiOutputs {
     lamp_grid: StorageBuffer<Vec<u32>>,
     lighting_generation: u32,
     reflection_view: Option<(TextureId, TextureView)>,
+    reflection_texture: Option<TextureId>,
+    reflection_request: u64,
+    reflection_revision: u64,
 }
 
 pub(super) struct StaticGiPlugin;
@@ -339,6 +352,7 @@ impl Plugin for StaticGiSchedulePlugin {
             RenderGraph,
             (
                 update,
+                reflection_generation,
                 downsampling_system,
                 filtering_system,
                 super::sky_lighting::restore,
@@ -809,10 +823,15 @@ fn inputs(
     stats: Res<StaticGiStats>,
     mut volumes: Query<&mut Transform>,
     mut commands: Commands,
-    locals: (Local<bool>, Local<u64>, Local<InputSnapshots>),
+    locals: (
+        Local<bool>,
+        Local<u64>,
+        Local<InputSnapshots>,
+        Res<super::budget::RenderBudget>,
+    ),
     deformation: Res<super::ray_skin::Revision>,
 ) {
-    let (mut attached, mut previous_skin, mut snapshots) = locals;
+    let (mut attached, mut previous_skin, mut snapshots, budget) = locals;
     let skin_changed = *previous_skin != deformation.0;
     *previous_skin = deformation.0;
     if !*attached && stats.updates() > 0 {
@@ -846,12 +865,6 @@ fn inputs(
     let Ok(camera) = cameras.single() else {
         return;
     };
-    inputs.reflection_position = camera.translation();
-    if let Some(entity) = inputs.reflection_entity
-        && let Ok(mut transform) = volumes.get_mut(entity)
-    {
-        transform.translation = camera.translation();
-    }
     // Native shadow caching moves light entities between archetypes. Query order
     // is therefore not a light revision. Retain scratch storage and compare
     // stable entity order and the numeric fields consumed by ray lighting.
@@ -938,9 +951,33 @@ fn inputs(
         inputs.lamp_grid = Arc::new(LampGrid::build(&inputs.lamps));
         inputs.lighting_generation = inputs.lighting_generation.wrapping_add(1);
     }
-    work.0
+    // Preserve the capture's world-space anchor on reused frames. Rotation
+    // cannot invalidate a world-aligned cube. Translation coverage and real
+    // elapsed age bound reuse; changed direct lights request an immediate
+    // complete capture, while moving geometry refreshes within the deadline.
+    let elapsed = time.elapsed();
+    let reflection_due = inputs.reflection_request == 0
+        || lighting_changed
+        || camera
+            .translation()
+            .distance_squared(inputs.reflection_position)
+            >= budget.reflection_anchor_distance.max(0.).powi(2)
+        || work.reflection.requested_at.is_none_or(|last| {
+            elapsed < last || elapsed.saturating_sub(last) >= budget.reflection_refresh_interval
+        });
+    if reflection_due {
+        inputs.reflection_request = inputs.reflection_request.wrapping_add(1);
+        inputs.reflection_position = camera.translation();
+        work.reflection.requested_at = Some(elapsed);
+        if let Some(entity) = inputs.reflection_entity
+            && let Ok(mut transform) = volumes.get_mut(entity)
+        {
+            transform.translation = inputs.reflection_position;
+        }
+    }
+    work.cascades
         .resize_with(inputs.cascades.len(), ProbeWork::default);
-    for (cascade, schedule) in inputs.cascades.iter_mut().zip(&mut work.0) {
+    for (cascade, schedule) in inputs.cascades.iter_mut().zip(&mut work.cascades) {
         cascade.center = (camera.translation() / cascade.spacing).round() * cascade.spacing;
         let origin = (cascade.center / cascade.spacing).as_ivec3() - GRID.as_ivec3() / 2;
         if schedule.origin != Some(origin) || lighting_changed || material_change {
@@ -1187,11 +1224,11 @@ fn update(
     else {
         return;
     };
-    if outputs
+    let reflection_replaced = outputs
         .reflection_view
         .as_ref()
-        .is_none_or(|(id, _)| *id != reflection.texture.id())
-    {
+        .is_none_or(|(id, _)| *id != reflection.texture.id());
+    if reflection_replaced {
         outputs.reflection_view = Some((
             reflection.texture.id(),
             reflection.texture.create_view(&TextureViewDescriptor {
@@ -1333,7 +1370,12 @@ fn update(
         }
         recorded = true;
     }
-    if let Some(reflect) = cache.get_compute_pipeline(pipeline.reflection_pipeline) {
+    let reflection_due = outputs.reflection_texture != Some(reflection.texture.id())
+        || outputs.reflection_revision == 0
+        || outputs.reflection_request != inputs.reflection_request;
+    if reflection_due
+        && let Some(reflect) = cache.get_compute_pipeline(pipeline.reflection_pipeline)
+    {
         stats.1.fetch_add(1, Ordering::Relaxed);
         let cascade = inputs.cascades.first();
         let mut constants = UniformBuffer::from(Constants {
@@ -1398,9 +1440,26 @@ fn update(
         pass.set_bind_group(2, surface_group, &[]);
         pass.dispatch_workgroups(32, 32, 6);
         span.end(&mut pass);
+        outputs.reflection_texture = Some(reflection.texture.id());
+        outputs.reflection_request = inputs.reflection_request;
+        outputs.reflection_revision = outputs.reflection_revision.wrapping_add(1);
+    } else if !reflection_due {
+        stats.2.reflection_reuses.fetch_add(1, Ordering::Relaxed);
     }
     outputs.generation = inputs.generation;
     if recorded && stats.0.fetch_add(1, Ordering::Relaxed) == 0 {
         info!("Recorded first rolling hardware DDGI probe batch");
+    }
+}
+
+// Explicit native source-generation hook: filters consume only a completed
+// six-face producer revision. Extraction defaults ordinary callers to fresh
+// generation, so publish this retained revision on every graph invocation.
+fn reflection_generation(
+    outputs: Res<GiOutputs>,
+    mut probes: Query<&mut bevy::pbr::generate::RenderEnvironmentMap, With<LocalReflection>>,
+) {
+    for mut probe in &mut probes {
+        probe.source_revision = Some(outputs.reflection_revision);
     }
 }
