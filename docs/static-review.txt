@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 5/50 resolved on local main: 04, 05, 06, 07, 08. Remaining findings are queued.
+Fix progress: 6/50 resolved on local main: 04, 05, 06, 07, 08, 09. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -98,6 +98,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/prepare_equipment.py:94–99
     Trigger, consequence, evidence and correction: After assembly, --prepare-equipment resets lure animation to the original world skeleton but leaves pickup at actor.weapon_<digest>. content_contract.py:201 rejects the mismatched assembly ownership.
     Confidence: High.
+    Fix status: RESOLVED - equipment regeneration retains an assembled Monkey Bomb world presentation and its owned o_monkey_bomb clip, rejecting missing/mismatched bindings instead of attaching the bare-model clip. Initial native-model preparation remains supported and explicitly binds pickup to that model. Actual assembled content reproduces the old owner failure, then passes the complete contract unchanged, with native 2.5-second loop/13 notifications preserved and zero assets rewritten. Native preparation generated eight files from the real preassembly pack; that older pack fails the current full contract on weapon-mechanics schema, while relevant loop/owner/buffer checks pass. Evidence: E:/Coding/Captures/static-review-09-20261008.
 
 10. [P2] Material cache signature excludes semantic converter dependencies
     Wave: 1

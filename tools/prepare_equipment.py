@@ -5,6 +5,31 @@ import math
 import hashlib
 from prepare_gameplay_content import external
 
+def prepare_monkey_world(content,monkey,inspection,pack):
+    owner=monkey.get("pickup") or ""
+    if owner.startswith("actor.weapon_"):
+        presentation=next((p for p in content["presentations"] if p["id"]==owner),None)
+        clips=[a for a in content["animations"] if a["skeleton"]==owner and
+               a["id"].rsplit(".",1)[1]=="o_monkey_bomb"]
+        if (presentation is None or len(clips)!=1 or clips[0]["id"] not in presentation["animations"] or
+                clips[0]["path"].split("#",1)[0]!=presentation["scene"].split("#",1)[0]):
+            raise ValueError("assembled Monkey Bomb lacks its native world loop: "+owner)
+        # Assembly preparation already applies its attachment/bind transforms.
+        # Retain that rig and animation rather than rebinding to the bare model.
+        return clips[0]["id"]
+    from prepare_actors import convert
+    model="t6_wpn_zmb_monkey_bomb_world"
+    relative,notifications=convert(inspection / "game-prepare/models/model_export" / (model+"_lod0.gltf"),
+        pack / "actors",inspection / "solo-content/actor-images",[inspection / "solo-content/source/xanim/o_monkey_bomb"])
+    identity="actor."+model
+    content["presentations"][:]=[p for p in content["presentations"] if p["id"]!=identity]
+    content["animations"][:]=[a for a in content["animations"] if a["skeleton"]!=identity]
+    clip="animation."+model+".o_monkey_bomb"
+    content["animations"].append({"id":clip,"path":"actors/"+relative+"#Animation0","skeleton":identity,"notifications":notifications[0][1]})
+    content["presentations"].append({"id":identity,"scene":"actors/"+relative+"#Scene0","animations":[clip],"sounds":[]})
+    monkey["pickup"]=identity
+    return clip
+
 def prepare_prime_clips(content, rows, inspection, pack):
     from prepare_actors import convert
     equipment=[w for w in content["weapons"] if w["id"] in (
@@ -85,16 +110,8 @@ def prepare(config):
     price=int(price_match.group(1))
     content=game["content"]
     from prepare_actors import convert
-    monkey_model="t6_wpn_zmb_monkey_bomb_world"
-    relative,notifications=convert(inspection / "game-prepare/models/model_export" / (monkey_model+"_lod0.gltf"),
-        pack / "actors",inspection / "solo-content/actor-images",[inspection / "solo-content/source/xanim/o_monkey_bomb"])
-    identity="actor."+monkey_model
-    content["presentations"][:]=[p for p in content["presentations"] if p["id"]!=identity]
-    content["animations"][:]=[a for a in content["animations"] if a["skeleton"]!=identity]
-    clip="animation."+monkey_model+".o_monkey_bomb"
-    content["animations"].append({"id":clip,"path":"actors/"+relative+"#Animation0","skeleton":identity,"notifications":notifications[0][1]})
-    content["presentations"].append({"id":identity,"scene":"actors/"+relative+"#Scene0","animations":[clip],"sounds":[]})
     monkey=next(w for w in content["weapons"] if w["id"]=="weapon.cymbal_monkey_zm")
+    clip=prepare_monkey_world(content,monkey,inspection,pack)
     monkey["name"]="Monkey Bomb"
     monkey["lure"]={"range":1536*.0254,"capacity":96,"spacing":45*.0254,"animation":clip}
     monkey_script=inspection / "solo-content/monkey-recovery/decompiled/t6/_zm_weap_cymbal_monkey.gsc"
