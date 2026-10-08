@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 13/50 resolved on local main: 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 13, 28, 29. Remaining findings are queued.
+Fix progress: 14/50 resolved on local main: 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 28, 29. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -121,6 +121,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/bo2_library.py:247–249
     Trigger, consequence, evidence and correction: Preparation records LOD source_sha256 (prepare_bo2_library.py:132). Import checks identity/LOD count but never the model hashes, allowing changed retained originals to accompany stale converted geometry.
     Confidence: High.
+    Fix status: RESOLVED - import preflights every declared native LOD against its recorded source_sha256 and complete LOD identities before retention, then rechecks the same expected hash before any model copy. Actual 66-zone/6,196-model/15,160-LOD audit passes: external native bytes, retained inventory OIDs and existing local LFS payloads all match; source/qualified manifest remain unchanged. Evidence: E:/Coding/Captures/static-review-12-20261008/source-model-receipt.json. No synthetic mutation, full library reimport, runtime changes or new repository Python scripts.
 
 13. [P2] Recooking retains old qualification while mutating the library
     Wave: 1

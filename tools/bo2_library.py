@@ -217,6 +217,27 @@ def retain_extracted(config):
     return hashes
 
 
+def check_model_sources(extraction, zone, model, record):
+    """Bind every prepared LOD to the native exchange that produced it."""
+    try:
+        from .import_origins import safe_path, require
+    except ImportError:
+        from import_origins import safe_path, require
+    require(record is not None and record["source_lods"] == model["lods"], "native model declaration omitted")
+    variants = record["variants"]
+    require(len(variants) == model["lods"] and
+            {variant["lod"] for variant in variants} == set(range(model["lods"])),
+            f"native model LOD identities differ: {zone}/{model['name']}")
+    hashes = {}
+    for variant in variants:
+        uri = f"{zone}/model_export/{model['name']}_lod{variant['lod']}.gltf"
+        original = safe_path(extraction, uri, {".gltf"})
+        expected = variant.get("source_sha256")
+        require(digest(original) == expected, f"original model changed: {uri}")
+        hashes[uri] = expected
+    return hashes
+
+
 def import_library(config):
     try:
         from .import_origins import validate_gltf, safe_path, require
@@ -239,6 +260,7 @@ def import_library(config):
             print(f"Validated library models/material banks {index + 1}", flush=True)
     require(all(len(m["variants"]) == m["source_lods"] for m in manifest["models"]), "native model LOD coverage mismatch")
     models = {(m["zone"], m["identity"]): m for m in manifest["models"]}
+    model_hashes = {}
     sources = {t["source"] for t in manifest["textures"]}
     declarations = []
     for inventory_path in sorted(extraction.glob("zone/*/*/asset-inventory.json")):
@@ -246,7 +268,7 @@ def import_library(config):
         inventory = json.loads(inventory_path.read_text())
         for model in inventory["models"]:
             record = models.get((zone, model["name"]))
-            require(record is not None and record["source_lods"] == model["lods"], "native model declaration omitted")
+            model_hashes.update(check_model_sources(extraction, zone, model, record))
         for image in inventory["images"]:
             name = zone + "/images/" + image["name"] + ".dds"
             if name not in sources:
@@ -284,7 +306,11 @@ def import_library(config):
         if not path.is_file() or not (set(relative.parts) & selected or path.name in {"asset-inventory.json", "material-definitions.json", "extraction-receipt.json", "extraction.json"}):
             continue
         target = library / "originals/extracted" / relative
+        # Preserve the preparation-time model hash through retention rather
+        # than accepting a different source revision after the preflight.
+        expected_model = model_hashes.get(relative.as_posix())
         sha = digest(path)
+        require(expected_model is None or sha == expected_model, f"original model changed: {relative.as_posix()}")
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists() or digest(target) != sha:
             shutil.copyfile(path, target)
