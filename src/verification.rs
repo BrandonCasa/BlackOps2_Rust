@@ -15,6 +15,7 @@ mod ads;
 mod arsenal;
 mod audio;
 mod barriers;
+mod brushes;
 mod claymores;
 mod controls;
 mod defensive_perks;
@@ -107,6 +108,7 @@ pub(crate) struct Verification {
     combat_receipt: serde_json::Value,
     placement_snapshot: Option<placements::Snapshot>,
     trigger_observation: Option<serde_json::Value>,
+    brush_observation: Option<serde_json::Value>,
 }
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
@@ -306,6 +308,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             combat_receipt: serde_json::Value::Null,
             placement_snapshot: None,
             trigger_observation: None,
+            brush_observation: None,
         });
     }
 }
@@ -603,6 +606,7 @@ fn check(
     map_sites: (
         placements::Sites,
         crate::environment::triggers::TriggerSites,
+        crate::environment::brushes::BrushSites,
     ),
     mut players: Query<
         (
@@ -644,7 +648,7 @@ fn check(
     >,
 ) {
     let mut screenshot = None;
-    let (sites, trigger_sites) = map_sites;
+    let (sites, trigger_sites, brush_sites) = map_sites;
     let (surfaces, streaming, profile, shared_gi, ray_surfaces, ray_contributors) = render_status;
     let (
         session,
@@ -699,7 +703,7 @@ fn check(
         }
     }
     if verification.trigger_observation.is_none()
-        && **state == GameState::Playing
+        && matches!(**state, GameState::Playing | GameState::Paused)
         && verification.playing > 0.5
         && let Some(game) = &definition
     {
@@ -714,6 +718,23 @@ fn check(
             return;
         }
         verification.trigger_observation = Some(observed);
+    }
+    if verification.brush_observation.is_none()
+        && matches!(**state, GameState::Playing | GameState::Paused)
+        && verification.playing > 0.5
+        && let Some(game) = &definition
+    {
+        let observed = brushes::observe(game, &brush_sites, &query);
+        let _ = std::fs::write(
+            verification.output.join("brush-entities.json"),
+            observed.to_string(),
+        );
+        if observed["passed"] != true {
+            error!("Game verification failed: brush entities: {observed}");
+            commands.write_message(AppExit::error());
+            return;
+        }
+        verification.brush_observation = Some(observed);
     }
     if !verification.benchmark
         && !verification.admission_snapshot
@@ -974,7 +995,12 @@ fn check(
         );
     }
     if verification.stage == 1 && verification.playing > 1. {
-        let view = visual_view(verification.survey, &definition, verification.only_view);
+        let view = visual_view(
+            verification.survey,
+            &definition,
+            verification.only_view,
+            !verification.benchmark,
+        );
         if let Some((position, yaw, pitch)) = view {
             if let Ok((_, mut projection)) = cameras.single_mut()
                 && let Projection::Perspective(perspective) = &mut *projection
@@ -1120,9 +1146,15 @@ fn check(
                         .is_ok_and(|after| placements::restart_matches(before, after))
                 });
         let restarted_triggers = triggers::observe(&definition, &trigger_sites, &query);
+        let restarted_brushes = brushes::observe(&definition, &brush_sites, &query);
         let passed = session.round == 1
             && placement_ids_preserved
             && restarted_triggers["passed"] == true
+            && restarted_brushes["passed"] == true
+            && verification
+                .brush_observation
+                .as_ref()
+                .is_some_and(|o| o["passed"] == true)
             && verification
                 .trigger_observation
                 .as_ref()
@@ -1202,6 +1234,8 @@ fn check(
         });
         receipt["trigger_volumes"] = serde_json::json!({"initial": verification.trigger_observation,
             "restarted":restarted_triggers});
+        receipt["brush_entities"] = serde_json::json!({"initial": verification.brush_observation,
+            "restarted":restarted_brushes});
         receipt["texture_streaming"] =
             serde_json::to_value(&*streaming).expect("Serializable streaming counters");
         receipt["shared_lighting"] = serde_json::json!({
@@ -1242,6 +1276,7 @@ fn visual_view(
     index: usize,
     definition: &GameDefinition,
     only_view: bool,
+    brush_views: bool,
 ) -> Option<(Vec3, f32, f32)> {
     if let Some(position) = definition.survey_views.get(index) {
         return Some((
@@ -1260,8 +1295,10 @@ fn visual_view(
         )),
         4 => Some((spawn, definition.yaw, 0.7)),
         5..=6 => Some((Vec3::new(-38.7, 4.5, -13.), 0., -0.6)),
+        7..=8 if brush_views => brush_view(definition, local == 8),
+        10..=11 if only_view => brush_view(definition, local == 11),
         // Opt-in close views of probe-only radios beside authored lanterns.
-        // The ordinary survey still ends at local view 6.
+        // Additional ordinary views above qualify authored brush placements.
         7 if only_view => Some((Vec3::new(72.0, -9.0, -130.0), 3.75, 0.1)),
         8 if only_view => Some((Vec3::new(-7.5, 1.8, -4.0), 1.92, -0.28)),
         // The reported thin-wall leak is beside the original Quick Revive
@@ -1289,4 +1326,34 @@ fn visual_view(
         }
         _ => None,
     }
+}
+
+fn brush_view(definition: &GameDefinition, ice: bool) -> Option<(Vec3, f32, f32)> {
+    let source = definition.environment.brush_entities.iter().find(|b| {
+        if ice {
+            b.source
+                .get("script_noteworthy")
+                .is_some_and(|n| n == "ice_ceiling_tile")
+        } else {
+            b.source
+                .get("targetname")
+                .is_some_and(|n| n == "chamber_entrance")
+        }
+    })?;
+    let origin = Vec3::from_array(source.position);
+    let (position, target) = if ice {
+        (origin + Vec3::new(0., -2.5, 3.), origin)
+    } else {
+        // Native chamber_entrance_position is (-339, 110.5, 69.5) inches/Z-up.
+        // Stand beside the authored gramophone site, outside the entrance brush.
+        (Vec3::new(-8.6106, 2.3, -2.8067), origin + Vec3::Y * 3.1)
+    };
+    let delta = target
+        - (position
+            + Vec3::Y * (definition.tuning.eye_height - definition.tuning.standing_height * 0.5));
+    Some((
+        position,
+        (-delta.x).atan2(-delta.z),
+        (delta.y / delta.length()).asin(),
+    ))
 }

@@ -389,6 +389,7 @@ fn scene_ready(
     roots: Query<&MapRoot>,
     children: Query<&Children>,
     mesh_entities: Query<(&Mesh3d, Option<&bevy::gltf::GltfMaterialName>)>,
+    extras: Query<&bevy::gltf::GltfExtras>,
     definition: Res<GameDefinition>,
     meshes: Res<Assets<Mesh>>,
     mut loading: ResMut<Loading>,
@@ -400,6 +401,33 @@ fn scene_ready(
     let Ok(root) = roots.get(event.entity) else {
         return;
     };
+    if !root.collision {
+        for entity in children.iter_descendants(event.entity) {
+            let Some(id) = extras
+                .get(entity)
+                .ok()
+                .and_then(|e| serde_json::from_str::<serde_json::Value>(&e.value).ok())
+                .and_then(|e| e["brush_entity"].as_str().map(str::to_owned))
+            else {
+                continue;
+            };
+            if let Some(source) = definition
+                .environment
+                .brush_entities
+                .iter()
+                .find(|b| b.id == id)
+            {
+                let meshes = children
+                    .iter_descendants(entity)
+                    .filter(|e| mesh_entities.contains(*e))
+                    .count();
+                crate::environment::brushes::bind(&mut commands, entity, source, meshes);
+            } else {
+                failure.0 = format!("Unknown brush entity {id}");
+                next.set(GameState::LoadError);
+            }
+        }
+    }
     if root.collision {
         for entity in children.iter_descendants(event.entity) {
             if let Ok((mesh, material)) = mesh_entities.get(entity) {

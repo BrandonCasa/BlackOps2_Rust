@@ -27,10 +27,12 @@ try:
     from .content_contract import validate_content, validate_rounds, validate_player_health
     from .texture_streaming import validate as validate_texture_streaming
     from .trigger_volumes import validate as validate_trigger_volumes
+    from .brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
 except ImportError:
     from content_contract import validate_content, validate_rounds, validate_player_health
     from texture_streaming import validate as validate_texture_streaming
     from trigger_volumes import validate as validate_trigger_volumes
+    from brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
 
 import numpy as np
 from PIL import Image
@@ -356,7 +358,7 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
             if key in node:
                 require(len(node[key]) == width and all(type(x) in (int, float) for x in node[key]), "invalid transform")
         extras = node.get("extras", {})
-        allowed_extras = {"static_instance"}
+        allowed_extras = {"static_instance", "brush_entity"}
         if allow_native_transforms:
             # Optional source-library exchanges retain source joint arithmetic;
             # these fields are never accepted by the production runtime pack.
@@ -369,6 +371,8 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
         require(set(extras) <= allowed_extras, "baked node lighting is retired")
         if "static_instance" in extras:
             require(extras["static_instance"] is True, "invalid static instance marker")
+        if "brush_entity" in extras:
+            require(isinstance(extras["brush_entity"],str) and re.fullmatch(r"[A-Za-z0-9_.-]+",extras["brush_entity"]), "invalid brush entity marker")
         for child in node.get("children", []):
             ref(nodes, child, "child node")
     skins = document.get("skins", [])
@@ -520,8 +524,9 @@ def validate_pack(root, receipt=None, exact=False):
         require(type(value) in (int, float) and math.isfinite(value) and value > 0,
                 "invalid ADS mouse sensitivity")
     environment = game.get("environment", {})
-    require(isinstance(environment,dict) and set(environment)<={"mud","triggers"},"unknown environment fields")
+    require(isinstance(environment,dict) and set(environment)<={"mud","triggers","brush_entities"},"unknown environment fields")
     validate_trigger_volumes(environment.get("triggers", []), require)
+    validate_brush_entities(environment.get("brush_entities", []), require)
     mud = environment.get("mud")
     if mud is not None:
         require(isinstance(mud,dict) and set(mud)=={"scale","stamin_scale","step","stamin_step","interval","volumes"},"invalid mud fields")
@@ -616,6 +621,7 @@ def validate_pack(root, receipt=None, exact=False):
         count = natural(game[game_key], game_key, 1)
         if receipt is not None:
             require(count == receipt[receipt_key], "preparation receipt count mismatch")
+    validate_brush_scene(environment.get("brush_entities", []), documents[game["scene"].split("#",1)[0]][0], require)
     # Additional presentation dependencies belong to the runtime closure. Raw source
     # inputs and preparation receipts are never traversed here.
     map_documents = dict(documents)

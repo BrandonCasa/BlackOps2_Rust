@@ -39,7 +39,7 @@
 - [x] Extend asset preparation with patch override resolution.
 - [x] Extend asset preparation with gameplay entity extraction.
 - [x] Extend asset preparation with trigger volume conversion.
-- [ ] Extend asset preparation with brush entity conversion.
+- [x] Extend asset preparation with brush entity conversion.
 - [x] Extend asset preparation with navigation node extraction.
 - [ ] Extend asset preparation with traversal link extraction.
 - [x] Extend asset preparation with skeletal model export.

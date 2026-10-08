@@ -2,12 +2,14 @@
 use crate::{GameState, assets::GameDefinition, gameplay::GameStep, player::Player};
 use avian3d::prelude::*;
 use bevy::prelude::*;
+pub mod brushes;
 pub mod triggers;
 #[derive(Clone, Default, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EnvironmentDefinition {
     pub mud: Option<MudDefinition>,
     pub triggers: Vec<triggers::TriggerDefinition>,
+    pub brush_entities: Vec<brushes::BrushDefinition>,
 }
 #[derive(Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -29,6 +31,7 @@ pub struct VolumeDefinition {
 impl EnvironmentDefinition {
     pub fn valid(&self) -> bool {
         triggers::valid(&self.triggers)
+            && brushes::valid(&self.brush_entities)
             && self.mud.as_ref().is_none_or(|m| {
                 [m.scale, m.stamin_scale, m.step, m.stamin_step, m.interval]
                     .iter()
