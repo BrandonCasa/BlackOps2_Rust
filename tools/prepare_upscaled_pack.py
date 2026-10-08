@@ -12,10 +12,71 @@ from texture_streaming import assemble, validate
 from preparation_resources import PreparationResources
 from import_origins import validate_pack
 from upscale_textures import DEEPBUMP_UPSCALE_SHA256, RECIPE_VERSION, source_levels
-from compressed_texture_cache import ENCODER_SHA256, FORMATS, materialize, target_format
+from compressed_texture_cache import ENCODER_SHA256, FORMATS, MASK_MARGINS, mask_recipe, materialize, quality_limits, sampled_channels, target_format
 
 
-def prepare(source, candidates, inventory, destination, receipt, pause_file=None, allow_partial=False, masters=None):
+def verify_quality(entry, record, info, source_info):
+    """Validate the numerical receipt for the exact final hashed mip chain."""
+    quality = record.get("quality", {})
+    if quality.get("output_sha256") != info["sha256"]:
+        raise ValueError("Candidate quality/integrity receipt refers to different bytes")
+    retained = source_info["dxgi"] == info["dxgi"]
+    if record.get("source_mips_retained") != retained or record.get("source_mips_recompressed") != (not retained):
+        raise ValueError("Candidate source-tail classification differs from its actual codec")
+    if record.get("mask_compression") != mask_recipe(entry):
+        raise ValueError("Candidate mask encoder recipe differs from actual material cutoffs")
+    if not quality.get("audited", True):
+        if quality.get("policy") != "representative-material-types" or quality.get("checked_mips") != 0:
+            raise ValueError("Unaudited candidate lacks the explicit representative-type policy")
+        return False
+    rows = quality.get("mips", [])
+    prefix = int(math.log2(entry["scale"]))
+    rms_limit, maximum_limit = quality_limits(entry["role"])
+    if quality.get("output_sha256") != info["sha256"] or \
+            quality.get("checked_mips") != info["mip_count"] or len(rows) != info["mip_count"] or \
+            quality.get("rms_limit") != rms_limit or quality.get("maximum_limit") != maximum_limit or \
+            quality.get("units") != ("degrees" if entry["role"] == "normal" else "unit-channel"):
+        raise ValueError("Candidate quality receipt differs from its hashed chain or strict ceilings")
+    legacy_count = info["mip_count"]-prefix if retained else 0
+    if quality.get("retained_source_mips") != legacy_count or \
+            quality.get("generated_mips") != info["mip_count"]-legacy_count:
+        raise ValueError("Candidate quality receipt misclassifies generated/retained mips")
+    cutoffs = entry.get("mask_cutoffs", [])
+    for index, (row, mip) in enumerate(zip(rows, info["mips"], strict=True)):
+        legacy = retained and index >= prefix
+        if row.get("level") != index or row.get("retained_source_mip") != legacy:
+            raise ValueError("Candidate quality receipt has incorrect mip ownership")
+        values = (row.get("rms"), row.get("maximum"))
+        if any(not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0 for value in values):
+            raise ValueError("Candidate quality error must be finite and nonnegative")
+        pixels = mip["width"]*mip["height"]
+        components = 1 if entry["role"] == "normal" else len(sampled_channels(entry["role"]))
+        if row.get("samples") != pixels*components:
+            raise ValueError("Candidate quality receipt omits semantic channel samples")
+        coverage = row.get("alpha_coverage", [])
+        if [result.get("cutoff") for result in coverage] != cutoffs:
+            raise ValueError("Candidate quality receipt omits an actual material cutoff")
+        for result in coverage:
+            counts = [result.get(key) for key in ("reference_covered", "decoded_covered", "changed")]
+            if any(type(count) is not int or not 0 <= count <= pixels for count in counts) or \
+                    abs(counts[0]-counts[1]) > counts[2]:
+                raise ValueError("Candidate mask coverage counts are inconsistent")
+        passed = values[0] <= rms_limit and values[1] <= maximum_limit and \
+                 all(result["changed"] == 0 for result in coverage)
+        if row.get("generated_limits_passed") != passed or (not legacy and not passed):
+            raise ValueError("Candidate has an unqualified generated/recompressed mip")
+    if record.get("mask_compression") != mask_recipe(entry):
+        raise ValueError("Candidate mask encoder recipe differs from actual material cutoffs")
+    for level, margin in record.get("mask_encoder_margins", {}).items():
+        index = int(level)
+        if not cutoffs or not 0 <= index < info["mip_count"] or \
+                (retained and index >= prefix) or type(margin) is not int or margin not in MASK_MARGINS[1:]:
+            raise ValueError("Candidate mask margin changed an unowned or invalid mip")
+    return True
+
+
+def prepare(source, candidates, inventory, destination, receipt, pause_file=None, allow_partial=False, masters=None,
+            representative_audits=None):
     resources = PreparationResources(pause_file, saturate=True)
     source, candidates, destination = source.resolve(), candidates.resolve(), destination.resolve()
     workspace = Path(__file__).resolve().parents[1]
@@ -39,6 +100,8 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
     provenance = {}
     adopted = []
     pending = []
+    audited = set()
+    unaudited = set()
     for entry in entries:
         resources.wait()
         path = candidates / entry["uri"]
@@ -66,8 +129,15 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
             raise ValueError("Candidate model, compression encoder or recipe checksum mismatch")
         if recipe.get("compression") != target_format(entry) or recipe.get("scale") != entry["scale"] or \
                 recipe.get("role") != entry["role"] or recipe.get("color_space") != entry["color_space"] or \
-                recipe.get("samplers") != sorted(entry.get("samplers", [20])):
+                recipe.get("samplers") != sorted(entry.get("samplers", [20])) or \
+                recipe.get("mask_cutoffs") != entry.get("mask_cutoffs", []) or \
+                recipe.get("mask_compression") != mask_recipe(entry):
             raise ValueError("Candidate compression or material recipe differs from inventory")
+        if recipe.get("cuda_math", "fp32") not in ("fp32", "tf32") or \
+                type(recipe.get("prefer_nhwc", False)) is not bool or \
+                (entry["role"] in ("control", "coating") and
+                 recipe.get("sampled_channels") != list(sampled_channels(entry["role"]))):
+            raise ValueError("Candidate math or consumed-channel recipe is invalid")
         if masters is None:
             raise ValueError("Assembly requires canonical masters to verify source mip receipts")
         levels, _, master_hash, _ = source_levels(source, masters, entry)
@@ -94,15 +164,34 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
             raise ValueError("Upscaled texture dimensions differ from the preparation contract")
         if info["mip_count"] != max(info["width"], info["height"]).bit_length():
             raise ValueError("Candidate requires a complete mip chain")
+        source_info = inspect_dds((source/entry["uri"]).read_bytes())
+        (audited if verify_quality(entry, record, info, source_info) else unaudited).add(entry["uri"])
         prefix = int(math.log2(entry["scale"]))
         if [mip["sha256"] for mip in info["mips"][prefix:]] != record.get("retained_mip_sha256"):
             raise ValueError("Candidate changed retained source mip data")
         if record.get("source_mips_retained") and [mip["sha256"] for mip in info["mips"][prefix:]] != [
-                mip["sha256"] for mip in inspect_dds((source/entry["uri"]).read_bytes())["mips"]]:
+                mip["sha256"] for mip in source_info["mips"]]:
             raise ValueError("Candidate did not retain the original compressed mip tail")
         metadata[entry["uri"]] = info
         adopted.append(entry["uri"])
         provenance[record["model_sha256"]] = dict(credit=record["credit"], upscaler=record["upscaler"])
+    type_receipt = None
+    if unaudited or representative_audits is not None:
+        if representative_audits is None:
+            raise ValueError("Representative-only cooking requires an explicit complete type-audit manifest")
+        type_receipt = json.loads(representative_audits.read_text())
+        representatives = type_receipt.get("representatives", {})
+        types = {"color", "cutout", "normal", "response", "control", "coating", "constant", "emissive"}
+        if set(representatives) != types:
+            raise ValueError("Representative audits must cover every prepared material type")
+        by_uri = {entry["uri"]: entry for entry in entries}
+        for kind, uri in representatives.items():
+            entry = by_uri.get(uri)
+            if entry is None or uri not in audited or \
+                    (kind == "constant" and not entry.get("constant_field")) or \
+                    (kind == "cutout" and (entry["role"] != "color" or not entry.get("mask_cutoffs"))) or \
+                    (kind not in ("constant", "cutout") and entry["role"] != kind):
+                raise ValueError(f"Missing actual qualified representative for {kind}")
     # Original glTF buffer bytes, transforms, skins and clips are copied without
     # conversion. Only prepared texture metadata is updated below.
     def copy_file(source_file, destination_file):
@@ -179,7 +268,8 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
                                       for entry in entries if entry.get("density_exception") and entry["uri"] in adopted],
                   source_scenes=scene_hashes, unchanged_buffers=buffer_hashes,
                   source_game_sha256=hashlib.sha256((source/"game.json").read_bytes()).hexdigest(),
-                  models=provenance)
+                  models=provenance, representative_audits=type_receipt,
+                  detailed_audited_textures=sorted(audited), integrity_only_textures=sorted(unaudited))
     for uri, digest in source_hashes.items():
         resources.wait()
         if hashlib.sha256((source/uri).read_bytes()).hexdigest() != digest:
@@ -196,8 +286,11 @@ def main():
     parser.add_argument("--pause-file", type=Path)
     parser.add_argument("--allow-partial", action="store_true",
                         help="Qualification only: retain and explicitly report maps without candidates")
+    parser.add_argument("--representative-audits", type=Path,
+                        help="Explicit real per-type numerical/visual qualification manifest")
     args = parser.parse_args()
-    prepare(args.source, args.candidates, args.inventory, args.destination, args.receipt, args.pause_file, args.allow_partial, args.masters)
+    prepare(args.source, args.candidates, args.inventory, args.destination, args.receipt, args.pause_file,
+            args.allow_partial, args.masters, args.representative_audits)
 
 
 if __name__ == "__main__":

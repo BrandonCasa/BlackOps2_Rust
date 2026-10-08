@@ -1,7 +1,7 @@
 //! Bevy-owned first-person scenes and action-driven animation playback.
 use crate::{
     GameState,
-    assets::GameDefinition,
+    assets::{GameDefinition, LaunchOptions},
     gameplay::SessionEntity,
     hud::PlayerOverlay,
     origins::content::{WeaponAnimation, WeaponId},
@@ -15,7 +15,6 @@ use bevy::{
         visibility::{NoFrustumCulling, RenderLayers},
     },
     core_pipeline::tonemapping::{Tonemapping, TonemappingLuts},
-    light::NotShadowCaster,
     post_process::auto_exposure::{AutoExposure, AutoExposureCompensationCurve},
     prelude::*,
     render::{
@@ -49,6 +48,8 @@ struct AimingJoint {
 }
 #[derive(Component)]
 struct RigRestPose(Transform);
+#[derive(Component)]
+struct SocketAttachment(Entity);
 #[derive(Component)]
 struct FirstPerson {
     owner: Entity,
@@ -118,12 +119,19 @@ impl Plugin for PresentationPlugin {
                     .after(camera_pose)
                     .before(bevy::transform::TransformSystems::Propagate),
             )
+            .add_systems(
+                PostUpdate,
+                follow_sockets
+                    .after(camera_pose)
+                    .before(bevy::transform::TransformSystems::Propagate),
+            )
             .add_systems(Last, offhand::record_visibility)
             .add_observer(rig_ready);
     }
 }
 pub(crate) fn first_person_light(
     mut commands: Commands,
+    options: Res<LaunchOptions>,
     mut cameras: Query<(Entity, &mut Camera), With<GameCamera>>,
     profile: Res<crate::rendering::profile::VisualProfile>,
     mut curves: ResMut<Assets<AutoExposureCompensationCurve>>,
@@ -173,12 +181,6 @@ pub(crate) fn first_person_light(
                 Exposure {
                     ev100: profile.outdoor_ev100,
                 },
-                AutoExposure {
-                    speed_brighten: profile.adaptation_speed,
-                    speed_darken: profile.adaptation_speed,
-                    compensation_curve: compensation.clone(),
-                    ..default()
-                },
                 Tonemapping::AgX,
                 ColorGrading {
                     global: ColorGradingGlobal {
@@ -196,6 +198,17 @@ pub(crate) fn first_person_light(
                 ViewModelCamera,
                 Name::new("First-person camera"),
             ));
+            // A frozen shadow comparison must never allocate adaptive GPU
+            // state: removing AutoExposure later does not clear every native
+            // render-world cache on this pinned Bevy release.
+            if !options.verify_viewmodel_shadows {
+                final_camera.insert(AutoExposure {
+                    speed_brighten: profile.adaptation_speed,
+                    speed_darken: profile.adaptation_speed,
+                    compensation_curve: compensation.clone(),
+                    ..default()
+                });
+            }
             if matches!(
                 profile.antialiasing,
                 crate::rendering::profile::Antialiasing::Smaa
@@ -364,6 +377,7 @@ fn attach_weapons(
     mut rigs: Query<(Entity, &mut Rig)>,
     children: Query<&Children>,
     names: Query<&Name>,
+    bindings: Query<&SocketAttachment>,
 ) {
     let sockets: Vec<_> = rigs
         .iter()
@@ -380,7 +394,7 @@ fn attach_weapons(
         })
         .collect();
     for (entity, mut rig) in &mut rigs {
-        if rig.attached || !rig.ready {
+        if rig.arms || !rig.ready {
             continue;
         }
         if let Some((_, _, weapon, knife)) = sockets
@@ -390,8 +404,17 @@ fn attach_weapons(
             let socket = if rig.knife { knife } else { weapon };
             // The hand socket is already in OAT's Y-up basis. Undo that basis on
             // the gun scene root before inheriting the authored socket pose.
-            commands.entity(*socket).add_child(entity);
+            // Keep owned rigs outside the native arm scene's entity hierarchy.
+            // Bevy reinstantiates a modified WorldAsset by despawning all its
+            // descendants; nesting a gun beneath a scene bone destroys it too.
+            if bindings
+                .get(entity)
+                .is_ok_and(|binding| binding.0 == *socket)
+            {
+                continue;
+            }
             commands.entity(entity).insert((
+                SocketAttachment(*socket),
                 Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
                 if rig.knife {
                     Visibility::Hidden
@@ -400,6 +423,43 @@ fn attach_weapons(
                 },
             ));
             rig.attached = true;
+        }
+    }
+}
+fn follow_sockets(
+    mut poses: ParamSet<(
+        Query<(&Transform, Option<&ChildOf>)>,
+        Query<(&SocketAttachment, &ChildOf, &mut Transform)>,
+    )>,
+) {
+    let attachments: Vec<_> = poses
+        .p1()
+        .iter()
+        .map(|(socket, parent, _)| (socket.0, parent.parent()))
+        .collect();
+    let transforms = poses.p0();
+    let followed: Vec<_> = attachments
+        .into_iter()
+        .map(|(socket, parent)| {
+            let mut cursor = socket;
+            let mut local = Mat4::IDENTITY;
+            while cursor != parent {
+                let Ok((pose, Some(ancestor))) = transforms.get(cursor) else {
+                    return None;
+                };
+                local = pose.to_matrix() * local;
+                cursor = ancestor.parent();
+            }
+            Some(
+                Transform::from_matrix(local).mul_transform(Transform::from_rotation(
+                    Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                )),
+            )
+        })
+        .collect();
+    for ((_, _, mut pose), followed) in poses.p1().iter_mut().zip(followed) {
+        if let Some(followed) = followed {
+            pose.set_if_neq(followed);
         }
     }
 }
@@ -417,6 +477,10 @@ fn rig_ready(
         return;
     };
     rig.ready = true;
+    rig.tracked.clear();
+    rig.players.clear();
+    rig.sequence = None;
+    rig.sampled_phase = None;
     for child in children.iter_descendants(event.entity) {
         if rig.arms
             && names
@@ -440,11 +504,10 @@ fn rig_ready(
             rig.players.push(child);
         }
         if meshes.contains(child) {
-            commands.entity(child).insert((
-                NotShadowCaster,
-                RenderLayers::layer(1),
-                NoFrustumCulling,
-            ));
+            commands
+                .entity(child)
+                .insert((RenderLayers::layer(1), crate::rendering::ForegroundTexture))
+                .remove::<NoFrustumCulling>();
         }
     }
     info!(

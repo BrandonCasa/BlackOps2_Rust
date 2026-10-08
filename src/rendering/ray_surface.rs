@@ -437,9 +437,6 @@ fn demands(
 ) {
     data.elapsed = time.elapsed_secs();
     let mut tails = Vec::with_capacity(data.textures.len());
-    requests.clear(streaming::TextureConsumer::StaticGi);
-    requests.clear(streaming::TextureConsumer::Reflection);
-    requests.clear(streaming::TextureConsumer::Lighting);
     for handle in data.textures.iter() {
         let descriptor = streams.mip_descriptor(handle.id());
         let (no_mips, anisotropy) =
@@ -471,7 +468,10 @@ fn demands(
         // GPU hits cover every cascade and the reflection cube. They refer to
         // full-chain levels and stable Image IDs, even while the live view is
         // only a streamed tail. One producer request serves all render passes.
-        let expires = feedback.updated + 0.5;
+        // Recent per-mip footprints bridge asynchronous readback and rolling
+        // stochastic batches. Unobserved detail expires rather than being
+        // erased by every next frame's sparse sample.
+        let expires = feedback.updated + 2.;
         if expires > time.elapsed_secs_f64() {
             for (handle, mip) in data.textures.iter().zip(&feedback.mips) {
                 if *mip != NONE {
@@ -528,7 +528,7 @@ fn demands(
         }
     }
     for ((id, consumer), mip) in wanted {
-        requests.request(id, consumer, mip, time.elapsed_secs_f64() + 0.5);
+        requests.request(id, consumer, mip, time.elapsed_secs_f64() + 2.);
     }
 }
 

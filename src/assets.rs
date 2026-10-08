@@ -22,6 +22,8 @@ pub struct LaunchOptions {
     pub material_debug: u32,
     pub verify: Option<PathBuf>,
     pub verify_controls: bool,
+    pub verify_texture_streaming: bool,
+    pub verify_viewmodel_shadows: bool,
     pub benchmark: bool,
     pub release_benchmark: bool,
     pub benchmark_view: Option<usize>,
@@ -64,6 +66,18 @@ impl LaunchOptions {
     pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
         let mut result = Self::default();
         if let Some(argument) = args.next() {
+            if argument == "--verify-texture-streaming" || argument == "--verify-viewmodel-shadows"
+            {
+                result.verify_texture_streaming = argument == "--verify-texture-streaming";
+                result.verify_viewmodel_shadows = argument == "--verify-viewmodel-shadows";
+                result.verify = args.next().map(PathBuf::from);
+                if result.verify.is_none() || args.next().is_some() {
+                    result.error = Some(
+                        "Usage: origins --verify-texture-streaming/--verify-viewmodel-shadows external-output-folder".into(),
+                    );
+                }
+                return result;
+            }
             if argument == "--release-benchmark-moving" || argument == "--release-benchmark-combat"
             {
                 result.benchmark = true;
@@ -102,11 +116,11 @@ impl LaunchOptions {
                     args.next().and_then(|v| v.to_str()?.parse().ok())
                 };
                 if result.verify.is_none()
-                    || !(u32::from(!result.benchmark_hands)..=11).contains(&result.material_debug)
+                    || !(u32::from(!result.benchmark_hands)..=12).contains(&result.material_debug)
                     || !result.benchmark_view.is_some_and(|view| view < 18)
                     || args.next().is_some()
                 {
-                    result.error = Some("Usage: origins --material-debug external-output-folder mode[1..11] view[0..17], or --material-debug-combat external-output-folder mode[1..11]".into());
+                    result.error = Some("Usage: origins --material-debug external-output-folder mode[1..12] view[0..17], or --material-debug-combat external-output-folder mode[1..12]".into());
                 }
                 return result;
             }

@@ -442,15 +442,14 @@ fn prepare_due(
         })
     };
     let image_views = views(&inputs.native_textures);
-    // Solari also binds unused raster templates. Their old views need eventual
-    // release, but changing those unused descriptors cannot change a ray hit.
-    // Debounce cleanup until promotions settle instead of rebuilding a TLAS
-    // for every streamed image. Referenced native maps still refresh immediately.
+    // Solari also binds unused raster templates. Rebind every changed view in
+    // this frame: the streaming allocator retires old GPU storage only after
+    // the queue completes, and even unused bound views must remain valid.
     let retained_views = views(&inputs.retained_native_textures);
     let retained_changed = retained_views != previous.retained_views;
     if retained_changed {
         previous.retained_views = retained_views;
-        previous.cleanup = 16;
+        previous.cleanup = 0;
     }
     let ready_meshes = inputs
         .native_meshes
@@ -458,7 +457,7 @@ fn prepare_due(
         .filter(|id| meshes.get(**id).is_some())
         .count();
     let current = (inputs.scene_generation, ready_meshes, image_views);
-    if current != previous.scene {
+    if current != previous.scene || retained_changed {
         previous.scene = current;
         previous.compaction = 16;
         previous.cleanup = 0;

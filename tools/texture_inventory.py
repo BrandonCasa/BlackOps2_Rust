@@ -223,12 +223,19 @@ def inventory(root, high_density=2048., pause_file=None, close_density=2048., me
                         entries[uri] = dict(uri=uri, role=channel["role"],
                             source_runtime_sha256=hashlib.sha256(raw_texture).hexdigest(),
                             color_space=channel["color_space"], width=channel["width"],
-                            height=channel["height"], samplers=[], materials=[], scenes=[],
+                            height=channel["height"], samplers=[], materials=[], scenes=[], mask_cutoffs=[],
                             minimum_texels_per_meter=None, maximum_texels_per_meter=0.,
                             minimum_axis_texels_per_meter=None, degenerate_uv_triangles=0,
                             physical_area_m2=0., uses=0, protected_closeup=False,
                             constant_field=constant)
                     entry = entries[uri]
+                    state = surface.get("presentation", {})
+                    if state.get("alpha") == "mask" and channel["role"] == "color":
+                        cutoff = float(state.get("cutoff", .5))
+                        if not math.isfinite(cutoff) or not 0 <= cutoff <= 1:
+                            raise ValueError(f"Invalid authored alpha cutoff: {uri}")
+                        if cutoff not in entry["mask_cutoffs"]:
+                            entry["mask_cutoffs"].append(cutoff)
                     if (entry["role"], entry["width"], entry["height"], entry["color_space"]) != (
                             channel["role"], channel["width"], channel["height"], channel["color_space"]):
                         raise ValueError(f"Conflicting texture semantics: {uri}")
@@ -272,6 +279,7 @@ def inventory(root, high_density=2048., pause_file=None, close_density=2048., me
                 key = f"{scene.relative_to(root).as_posix()}#Mesh{mesh_index}/Primitive{primitive_index}"
                 meshes[key] = list(primitive_patches.values())
     for entry in entries.values():
+        entry["mask_cutoffs"].sort()
         low = entry["minimum_texels_per_meter"]
         target = close_density if entry["protected_closeup"] else high_density
         applicable = not entry["constant_field"] and low is not None
