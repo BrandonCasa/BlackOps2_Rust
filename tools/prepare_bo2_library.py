@@ -362,6 +362,10 @@ def retune_unbound(config):
         if texture["variant"].get("lossless"):
             continue
         path = source / texture["source"]
+        # The loose launcher bitmap was already cooked explicitly as color.
+        # It has no DDS format or IWI header to reinterpret on a retry.
+        if path.suffix.lower() == ".bmp":
+            continue
         record = inspect_dds(path.read_bytes())
         iwi = path.with_suffix(".iwi")
         gamma = 1.

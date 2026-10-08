@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 10/50 resolved on local main: 01, 04, 05, 06, 07, 08, 09, 10, 11, 13. Remaining findings are queued.
+Fix progress: 11/50 resolved on local main: 01, 04, 05, 06, 07, 08, 09, 10, 11, 13, 28. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -217,6 +217,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/prepare_bo2_library.py:335–339,364–371
     Trigger, consequence, evidence and correction: First --retune-unbound imports loose/codlogo.bmp as a nonlossless color variant. Next run feeds every nonlossless source into inspect_dds, which rejects BMP after qualification was already revoked (242–243). Dispatch decoding by source type.
     Confidence: High.
+    Fix status: RESOLVED - retune skips the already explicitly cooked loose BMP before DDS/IWI interpretation. The actual 640x60 native codlogo.bmp reproduces invalid DDS header with the old decoder; its source hash and qualified sRGB color variant with all ten mips match the manifest. Production guard precedes decode. Evidence: E:/Coding/Captures/static-review-28-20261008. Complete mutating retune/GPU recook not run; originals, catalog/runtime assets and full library manifest remain unchanged.
 
 29. [P2] Geometry reuse records new source provenance for stale converted data
     Wave: 2
