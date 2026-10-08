@@ -6,6 +6,16 @@ from prepare_origins import entities
 from prepare_actors import convert
 from trigger_volumes import brush_vertices
 
+def zone_id(name):
+    return 'zone.start' if name=='zone_start' else 'zone.'+name.removeprefix('zone_')
+
+def door_zones(links,existing):
+    authored=sorted({zone_id(s) for a,b,f in links for s in (a,b)})
+    # Navigation's fallback has no native door edge, but retained nodes still
+    # own this zone. Preserve its existing state when refreshing adjacency.
+    retained=[z for z in existing if z['id']=='zone.unassigned' and z['id'] not in authored]
+    return [{'id':s,'initially_open':s=='zone.start'} for s in authored]+retained
+
 def prepare(config):
     inspection=external(config['assets']['inspection_output']);pack=external(config['game']['asset_pack'])
     records=entities(inspection/'game-prepare/entities/maps/mp/zm_tomb.d3dbsp.ents')
@@ -25,14 +35,13 @@ def prepare(config):
     script=inspection/'mechanics-rounds-01/decompile/decompiled/t6/zm_tomb.gsc'
     text=script.read_text();start=text.index('working_zone_init()\n{');end=text.index('\n}\n',start)
     links=re.findall(r'add_adjacent_zone\( "([^"]+)", "([^"]+)", "([^"]+)"',text[start:end])
-    zone=lambda s:'zone.start' if s=='zone_start' else 'zone.'+s.removeprefix('zone_')
-    zones=sorted({zone(s) for a,b,f in links for s in (a,b)})
-    content['zones']=[{'id':s,'initially_open':s=='zone.start'} for s in zones]
+    zones=door_zones(links,content['zones'])
+    content['zones']=zones
     connections=[];flags={}
     for a,b,f in links:
         identity='connection.'+f+'.'+str(len(flags.get(f,[])))
         flags.setdefault(f,[]).append(identity)
-        connections.append({'id':identity,'from':zone(a),'to':zone(b),'initially_open':f=='always_on'})
+        connections.append({'id':identity,'from':zone_id(a),'to':zone_id(b),'initially_open':f=='always_on'})
     content['zone_connections']=connections
     prefixes=('placement.door.','interaction.door.')
     for name,prefix in zip(('placements','interactions'),prefixes):content[name][:]=[x for x in content[name] if not x['id'].startswith(prefix)]

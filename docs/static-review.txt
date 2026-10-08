@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 4/50 resolved on local main: 04, 05, 06, 07. Remaining findings are queued.
+Fix progress: 5/50 resolved on local main: 04, 05, 06, 07, 08. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -91,6 +91,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/prepare_doors.py:28–30
     Trigger, consequence, evidence and correction: --prepare-doors replaces zones with script-adjacency zones, dropping zone.unassigned while preserving navigation nodes that reference it (prepare_navigation.py:39–40). The regenerated pack fails content validation.
     Confidence: High.
+    Fix status: RESOLVED - native door adjacency regeneration preserves the existing navigation fallback zone and its open/closed state. Actual recovered script has 160 edges/98 native zones; retaining zone.unassigned preserves all 99 current zones and 205 fallback nodes. Old catalog fails the content contract; corrected catalog passes, leaves all content unchanged and is idempotent. Evidence: E:/Coding/Captures/static-review-08-20261008. Complete door/model/audio regeneration and new runtime checks were not run.
 
 09. [P2] Equipment regeneration breaks assembled Monkey Bomb ownership
     Wave: 1
