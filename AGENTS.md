@@ -56,9 +56,17 @@ before integration. Repeat affected checks after actual failures/fixes:
 
 ```text
 cargo metadata --locked --no-deps --format-version 1
-cargo build --workspace --release --locked
+cargo build --workspace --locked
 cargo fmt --all -- --check
 ```
+
+Use optimized development builds for routine development and actual-game
+validation; omit `--release` to retain debug assertions and development
+diagnostics. Cargo.toml already sets opt-level = 1 for game code and 3 for
+dependencies. Launch the development-profile executable produced by this build.
+Reserve release builds for explicitly requested release/package work. Compare
+performance within the same build profile; existing release baselines do not
+qualify development-build performance.
 
 Exercise the real game window and distinguish compiled, tested, rendered and
 played behavior. Do not claim original equivalence from asset integrity checks.
