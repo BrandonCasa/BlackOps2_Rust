@@ -63,7 +63,10 @@ cargo fmt --all -- --check
 Use optimized development builds for routine development and actual-game
 validation; omit `--release` to retain debug assertions and development
 diagnostics. Cargo.toml already sets opt-level = 1 for game code and 3 for
-dependencies. Launch the development-profile executable produced by this build.
+dependencies. Keep `lto = true` and `codegen-units = 1` in both development
+and release profiles at all times, accepting longer builds for optimization.
+Retain development debug assertions and diagnostics.
+Launch the development-profile executable produced by this build.
 Reserve release builds for explicitly requested release/package work. Compare
 performance within the same build profile; existing release baselines do not
 qualify development-build performance.
