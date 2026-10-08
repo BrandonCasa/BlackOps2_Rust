@@ -82,6 +82,17 @@ below target and matched release adoption remains unqualified.
 
 ## A. Retained ray scene and shared deformation
 
+Persistent posed mesh assets now replace per-pose handle/UV/index churn, with
+reused position/normal/tangent scratch buffers and preserved authored sidecar IDs.
+An extracted native ECS marker separates dynamic fast-build/no-compaction from
+static fast-trace/compaction; replacement jobs cannot alias a newer BLAS under
+the same mesh ID. Native previous-TLAS retirement remains intact. Frozen
+executable-17 passes focused combat/ADS/Round 2/restart and 604 DDGI/reflection
+updates; all 12,746 pose updates reuse their mesh, with zero recovery allocations.
+CPU pose calculation and complete native mesh uploads still execute; shared GPU
+deformation, real refitting and matched release construction/traversal acceptance
+remain open. The earlier actor presentation defect remains visible.
+
 - [ ] Retain stable instances, geometry/descriptors/material records, buffer and
   TLAS capacity; extract/upload changed ranges.
 - [ ] Separate membership, transform, pose, material-content, residency and
@@ -90,7 +101,7 @@ below target and matched release adoption remains unqualified.
   preparation/GPU deformation across raster and ray consumers where compatible.
 - [ ] Preserve triangle/material mapping, normal transforms, tangent handedness,
   alpha coverage and off-screen GI/reflection blockers.
-- [ ] Separate static fast-trace/one-time-compaction and dynamic no-compaction
+- [x] Separate static fast-trace/one-time-compaction and dynamic no-compaction
   construction policies; start with retained dynamic rebuilds.
 - [ ] Obtain real BLAS update support through safe application APIs and qualify
   build-plus-trace cost against rebuilding. Pinned wgpu-core only rebuilds despite

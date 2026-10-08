@@ -1,16 +1,17 @@
 use alloc::collections::VecDeque;
 use bevy_asset::AssetId;
 use bevy_ecs::{
+    query::With,
     resource::Resource,
-    system::{Res, ResMut},
+    system::{Local, Query, Res, ResMut},
 };
 use bevy_mesh::{Indices, Mesh};
-use bevy_platform::collections::HashMap;
+use bevy_platform::collections::{HashMap, HashSet};
 use bevy_render::{
     diagnostic::{DiagnosticsRecorder, RecordDiagnostics},
     mesh::{
-        allocator::{MeshAllocator, MeshBufferSlice},
         RenderMesh,
+        allocator::{MeshAllocator, MeshBufferSlice},
     },
     render_asset::ExtractedAssets,
     render_resource::*,
@@ -66,6 +67,10 @@ impl BlasManager {
 
     fn remove(&mut self, mesh: AssetId<Mesh>) {
         self.changed.push(mesh);
+        // Jobs identify meshes by stable asset ID. A replacement must retire
+        // its queued job before that ID starts referring to the new BLAS.
+        self.compaction_queue
+            .retain(|(queued, _, _)| *queued != mesh);
 
         if let Some(removed) = self.blas.remove(&mesh) {
             self.retire(removed);
@@ -87,8 +92,15 @@ pub fn prepare_raytracing_blas(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut diagnostics: Option<ResMut<DiagnosticsRecorder>>,
+    dynamic_instances: Query<&super::RaytracingMesh3d, With<super::DynamicRaytracingMesh>>,
+    mut dynamic_meshes: Local<HashSet<AssetId<Mesh>>>,
 ) {
     blas_manager.changed.clear();
+    dynamic_meshes.clear();
+    dynamic_meshes.extend(dynamic_instances.iter().map(|mesh| mesh.0.id()));
+    blas_manager
+        .compaction_queue
+        .retain(|(mesh, _, _)| !dynamic_meshes.contains(mesh));
 
     // Delete BLAS for deleted or modified meshes
     for asset_id in extracted_meshes
@@ -112,13 +124,21 @@ pub fn prepare_raytracing_blas(
             let vertex_slice = mesh_allocator.mesh_vertex_slice(asset_id).unwrap();
             let index_slice = mesh_allocator.mesh_index_slice(asset_id).unwrap();
 
-            let (blas, blas_size) =
-                allocate_blas(&vertex_slice, &index_slice, asset_id, &render_device);
+            let dynamic = dynamic_meshes.contains(asset_id);
+            let (blas, blas_size) = allocate_blas(
+                &vertex_slice,
+                &index_slice,
+                asset_id,
+                &render_device,
+                dynamic,
+            );
 
             blas_manager.insert(*asset_id, blas);
-            blas_manager
-                .compaction_queue
-                .push_back((*asset_id, blas_size.vertex_count, false));
+            if !dynamic {
+                blas_manager
+                    .compaction_queue
+                    .push_back((*asset_id, blas_size.vertex_count, false));
+            }
 
             (*asset_id, vertex_slice, index_slice, blas_size)
         })
@@ -220,6 +240,7 @@ fn allocate_blas(
     index_slice: &MeshBufferSlice,
     asset_id: &AssetId<Mesh>,
     render_device: &RenderDevice,
+    dynamic: bool,
 ) -> (Blas, BlasTriangleGeometrySizeDescriptor) {
     let blas_size = BlasTriangleGeometrySizeDescriptor {
         vertex_format: Mesh::ATTRIBUTE_POSITION.format,
@@ -234,8 +255,12 @@ fn allocate_blas(
     let blas = render_device.wgpu_device().create_blas(
         &CreateBlasDescriptor {
             label: Some(&asset_id.to_string()),
-            flags: AccelerationStructureFlags::PREFER_FAST_TRACE
-                | AccelerationStructureFlags::ALLOW_COMPACTION,
+            flags: if dynamic {
+                AccelerationStructureFlags::PREFER_FAST_BUILD
+            } else {
+                AccelerationStructureFlags::PREFER_FAST_TRACE
+                    | AccelerationStructureFlags::ALLOW_COMPACTION
+            },
             update_mode: AccelerationStructureUpdateMode::Build,
         },
         BlasGeometrySizeDescriptors::Triangles {

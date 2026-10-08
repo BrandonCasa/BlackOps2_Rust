@@ -32,7 +32,14 @@ blue-noise texture identities, sampler/layout resources and downsampling mode
 remain compatible. Texture replacements and size/layout changes rebuild them.
 bevy_solari: the RC's retained incremental scene, sparse uploads, cached bindings
 and native TLAS build are adopted intact; native BLAS/TLAS diagnostic spans are
-retained. No obsolete whole-scene binder or extraction gates are ported.
+retained. An extracted DynamicRaytracingMesh ECS marker selects fast-build,
+non-compacting BLAS construction for posed providers; static meshes retain
+fast-trace construction and one-time compaction. Replacing a stable mesh ID
+retires its pending compaction job before constructing its new BLAS. Native
+previous-TLAS retirement and submission-completion lifetimes remain intact.
+This is safe rebuilding, not in-place refitting. The marker uses the matching
+RC bevy_extract dependency. No obsolete whole-scene binder/extraction gates
+are ported.
 
 Upstream embedded binaries use Git LFS and remain byte-identical. Their working
 files must be hydrated for native include_bytes! calls. Imported WESL trailing

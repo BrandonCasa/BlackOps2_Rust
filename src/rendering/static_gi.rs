@@ -735,6 +735,7 @@ fn proxies(
             Name::new("Shared lighting ray geometry"),
         ));
         if let Some(source) = skin_source {
+            proxy.insert(bevy::solari::scene::DynamicRaytracingMesh);
             proxy.insert(super::ray_skin::Skin {
                 owner: entity,
                 source,

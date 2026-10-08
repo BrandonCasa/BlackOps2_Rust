@@ -69,6 +69,9 @@ version = "0.20.0-rc.2"
 [dependencies.bevy_ecs]
 version = "0.20.0-rc.2"
 
+[dependencies.bevy_extract]
+version = "0.20.0-rc.2"
+
 [dependencies.bevy_image]
 version = "0.20.0-rc.2"
 

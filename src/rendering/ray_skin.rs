@@ -213,7 +213,7 @@ impl Source {
     ) -> Mesh {
         let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
-            RenderAssetUsages::RENDER_WORLD,
+            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
         );
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
@@ -296,6 +296,8 @@ pub(crate) struct RayContributorStats {
     admitted_providers: usize,
     admitted_skins: usize,
     pose_updates: u64,
+    retained_mesh_updates: u64,
+    recovered_mesh_assets: u64,
     ignored_joint_pose_updates: u64,
     active_skin_source_vertices: usize,
     active_skin_vertices: usize,
@@ -312,6 +314,7 @@ pub(super) fn deform(
     mut revision: ResMut<Revision>,
     mut sources: ResMut<Sources>,
     mut pose: Local<Vec<Mat4>>,
+    mut vertices: Local<(Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>)>,
     mut stats: ResMut<RayContributorStats>,
 ) {
     let _span = info_span!("ray_skin_deformation").entered();
@@ -371,9 +374,10 @@ pub(super) fn deform(
             continue;
         }
         let source = &provider.source;
-        let mut positions = Vec::with_capacity(source.positions.len());
-        let mut normals = Vec::with_capacity(source.positions.len());
-        let mut tangents = Vec::with_capacity(source.positions.len());
+        let (positions, normals, tangents) = &mut *vertices;
+        positions.clear();
+        normals.clear();
+        tangents.clear();
         for index in 0..source.positions.len() {
             let mut matrix = Mat4::ZERO;
             for lane in 0..4 {
@@ -407,16 +411,73 @@ pub(super) fn deform(
             normals.push(normal.to_array());
             tangents.push(tangent.extend(source.tangents[index][3]).to_array());
         }
-        let mesh = source.deformed_mesh(positions, normals, tangents, provider.vertex_offset);
         stats.deformed_source_vertices += source.accessor_vertices as u64;
         stats.deformed_vertices += source.positions.len() as u64;
-        // Bevy 0.19.1's pending compaction queue identifies BLAS by asset ID.
-        // Replacing that ID while compaction is pending can prepare the newest
-        // BLAS twice. Immutable pose generations retain native compaction and
-        // asset retirement without aliasing a queued acceleration structure.
-        let handle = meshes.add(mesh);
-        owner.mesh = handle.clone();
-        provider.mesh = handle;
+        // Retain mesh/instance identities and immutable UV/index data. Native
+        // asset extraction uploads the complete current pose; dynamic BLAS
+        // builds bypass static compaction and retain previous-TLAS lifetimes.
+        if let Some(mut mesh) = meshes.get_mut(&provider.mesh) {
+            let compatible = matches!(
+                mesh.try_attribute(Mesh::ATTRIBUTE_POSITION),
+                Ok(VertexAttributeValues::Float32x3(_))
+            ) && matches!(
+                mesh.try_attribute(Mesh::ATTRIBUTE_NORMAL),
+                Ok(VertexAttributeValues::Float32x3(_))
+            ) && matches!(
+                mesh.try_attribute(Mesh::ATTRIBUTE_TANGENT),
+                Ok(VertexAttributeValues::Float32x4(_))
+            );
+            if compatible {
+                for (attribute, values) in mesh.attributes_mut() {
+                    match values {
+                        VertexAttributeValues::Float32x3(data)
+                            if attribute.id == Mesh::ATTRIBUTE_POSITION.id =>
+                        {
+                            std::mem::swap(data, positions)
+                        }
+                        VertexAttributeValues::Float32x3(data)
+                            if attribute.id == Mesh::ATTRIBUTE_NORMAL.id =>
+                        {
+                            std::mem::swap(data, normals)
+                        }
+                        VertexAttributeValues::Float32x4(data)
+                            if attribute.id == Mesh::ATTRIBUTE_TANGENT.id =>
+                        {
+                            std::mem::swap(data, tangents)
+                        }
+                        _ => {}
+                    }
+                }
+                // Tangent handedness also carries the authored sidecar ID.
+                // Re-encode every current pose after replacing its tangent data.
+                super::ray_surface::encode_mapped_vertices(
+                    &mut mesh,
+                    provider.vertex_offset,
+                    &source.original_vertices,
+                );
+            } else {
+                *mesh = source.deformed_mesh(
+                    std::mem::take(positions),
+                    std::mem::take(normals),
+                    std::mem::take(tangents),
+                    provider.vertex_offset,
+                );
+            }
+            stats.retained_mesh_updates += 1;
+        } else {
+            // An externally retired asset still recovers a complete posed
+            // provider rather than exposing an uninitialized bind pose.
+            let mesh = source.deformed_mesh(
+                std::mem::take(positions),
+                std::mem::take(normals),
+                std::mem::take(tangents),
+                provider.vertex_offset,
+            );
+            let handle = meshes.add(mesh);
+            owner.mesh = handle.clone();
+            provider.mesh = handle;
+            stats.recovered_mesh_assets += 1;
+        }
         provider.previous.clear();
         provider.previous.extend_from_slice(&pose);
         revision.0 = revision.0.wrapping_add(1);

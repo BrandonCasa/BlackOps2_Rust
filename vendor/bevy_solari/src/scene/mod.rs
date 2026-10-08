@@ -7,29 +7,30 @@ use bevy_asset::embedded_asset;
 use bevy_shader::load_shader_library;
 pub use binder::prepare_raytracing_scene_resources;
 pub use binder::{RaytracingSceneBindings, RaytracingSceneNeedsPreviousFrameData};
-pub use types::RaytracingMesh3d;
+pub use types::{DynamicRaytracingMesh, RaytracingMesh3d};
 
 use crate::SolariPlugins;
 use bevy_app::{App, Plugin};
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_render::{
+    ExtractSchedule, GpuResourceAppExt, Render, RenderApp, RenderSystems,
+    extract_component::ExtractComponentPlugin,
     mesh::{
-        allocator::{allocate_and_free_meshes, MeshAllocatorSettings},
         RenderMesh,
+        allocator::{MeshAllocatorSettings, allocate_and_free_meshes},
     },
     render_asset::prepare_assets,
-    render_resource::{update_sparse_buffers, BufferUsages},
+    render_resource::{BufferUsages, update_sparse_buffers},
     renderer::{RenderDevice, RenderGraph, RenderGraphSystems},
-    ExtractSchedule, GpuResourceAppExt, Render, RenderApp, RenderSystems,
 };
 use binder::{
-    build_raytracing_tlas, prepare_raytracing_scene_bind_group, TlasInstanceSetupPipeline,
+    TlasInstanceSetupPipeline, build_raytracing_tlas, prepare_raytracing_scene_bind_group,
 };
-use blas::{compact_raytracing_blas, delete_raytracing_blas, prepare_raytracing_blas, BlasManager};
+use blas::{BlasManager, compact_raytracing_blas, delete_raytracing_blas, prepare_raytracing_blas};
 use extract::{
-    extract_raytracing_environment_map_light, extract_raytracing_material_assets,
-    extract_raytracing_scene_meshes_and_materials, extract_raytracing_scene_structural,
-    extract_raytracing_scene_transforms, ExtractedEnvironmentMapLight, StandardMaterialAssets,
+    ExtractedEnvironmentMapLight, StandardMaterialAssets, extract_raytracing_environment_map_light,
+    extract_raytracing_material_assets, extract_raytracing_scene_meshes_and_materials,
+    extract_raytracing_scene_structural, extract_raytracing_scene_transforms,
 };
 use tracing::warn;
 
@@ -38,6 +39,7 @@ pub struct RaytracingScenePlugin;
 
 impl Plugin for RaytracingScenePlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(ExtractComponentPlugin::<DynamicRaytracingMesh>::default());
         load_shader_library!(app, "brdf.wesl");
         load_shader_library!(app, "bindings.wesl");
         load_shader_library!(app, "sampling.wesl");
