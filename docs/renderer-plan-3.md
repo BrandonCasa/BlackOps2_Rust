@@ -30,9 +30,10 @@ The compatibility milestone passes the optimized-development DDGI build and
 focused actual-game combat, ADS, Round 2 and restart. All 68 engine crates resolve
 to rc.2. Required vendor fixes preserve the callable native vertex implementation
 and unchanged live shadow inventories under incremental light extraction.
-The full survey reached thirteen views but exceeded its 180-second deadline;
-the focused run passed on the same frozen executable. The final executable also
-passes all 32 actual-game controls checks, including repeat clicks and remapping.
+The initial full survey reached thirteen views but exceeded its deadline;
+after the light-admission/storage milestone, frozen executable-14 passes all
+17 views, combat, ADS, Round 2 and restart with 1502 DDGI/reflection updates.
+The port executable also passes all 32 controls checks, including repeat clicks.
 Updating the engine does not qualify either FPS target.
 Proceed directly to reducing fresh ray, reflection and auxiliary-view work;
 avoid another preliminary benchmark campaign.
@@ -60,6 +61,12 @@ these figures guide work and do not qualify diagnostic-free performance. Remove
 the explicit CPU light-clustering override only after validating native GPU lists
 and capacity. Remove unused full-scene mesh/texture inventories left behind by
 the retired Solari gates; changed-only native preparation should do that work.
+The first post-port milestone implements that admission and inventory cleanup,
+including native hidden-light/view-owner retirement and retained high-water
+shadow arrays. The latter repairs memory exhaustion from changing exact-size
+arrays in the transient texture cache. Actual-game survey acceptance passes;
+the development combat receipt is 8.05 FPS average, so performance remains far
+below target and matched release adoption remains unqualified.
 
 - [ ] Repair per-frame/view/invocation/submission attribution and repeated-path
   aggregation; distinguish inclusive parents from exclusive leaf work.
@@ -195,7 +202,7 @@ the retired Solari gates; changed-only native preparation should do that work.
 
 ## Qualification and completion
 
-- [ ] Coherent milestones pass rendering-logic tests, locked metadata/build,
+- [ ] Coherent milestones pass actual-game checks, locked metadata/build,
   formatting and affected asset closure; final full gates before integration.
 - [ ] Instrumented attribution and diagnostic-disabled debug/release measurements remain separate.
   Target 8 ms GPU and <5 ms CPU preparation with overlapping execution, not sums.

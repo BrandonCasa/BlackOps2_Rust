@@ -204,12 +204,8 @@ pub(super) struct GiInputs {
     lamps: Vec<Lamp>,
     generation: u32,
     scene_generation: u32,
-    material_generation: u32,
     lighting_generation: u32,
     lamp_grid: Arc<LampGrid>,
-    native_meshes: Arc<HashSet<AssetId<Mesh>>>,
-    native_textures: Arc<HashSet<AssetId<Image>>>,
-    retained_native_textures: Arc<HashSet<AssetId<Image>>>,
     reflection: Option<Handle<Image>>,
     reflection_entity: Option<Entity>,
     reflection_position: Vec3,
@@ -805,11 +801,7 @@ fn inputs(
         )>,
     >,
     mut removed_geometry: RemovedComponents<RaytracingMesh3d>,
-    material_state: (
-        MessageReader<AssetEvent<StandardMaterial>>,
-        Res<Assets<StandardMaterial>>,
-        Query<(&RaytracingMesh3d, &MeshMaterial3d<StandardMaterial>)>,
-    ),
+    mut material_events: MessageReader<AssetEvent<StandardMaterial>>,
     mut work: ResMut<Work>,
     mut inputs: ResMut<GiInputs>,
     stats: Res<StaticGiStats>,
@@ -818,7 +810,6 @@ fn inputs(
     locals: (Local<bool>, Local<u64>, Local<InputSnapshots>),
     deformation: Res<super::ray_skin::Revision>,
 ) {
-    let (mut material_events, materials, ray_instances) = material_state;
     let (mut attached, mut previous_skin, mut snapshots) = locals;
     let skin_changed = *previous_skin != deformation.0;
     *previous_skin = deformation.0;
@@ -931,52 +922,6 @@ fn inputs(
     }
     if material_change {
         stats.2.materials.fetch_add(1, Ordering::Relaxed);
-    }
-    let material_refresh = inputs.material_generation == 0 || material_change;
-    if material_refresh {
-        inputs.material_generation = inputs.material_generation.wrapping_add(1);
-        // Bevy 0.19.1's native binder inspects these four channels on every
-        // StandardMaterial, including retained raster templates. Other GPU
-        // images (UI, layered companions, generated atlases) cannot change its
-        // descriptors and must not force a fresh native TLAS.
-        inputs.retained_native_textures = Arc::new(
-            materials
-                .iter()
-                .flat_map(|(_, material)| {
-                    [
-                        &material.base_color_texture,
-                        &material.normal_map_texture,
-                        &material.emissive_texture,
-                        &material.metallic_roughness_texture,
-                    ]
-                })
-                .flatten()
-                .map(Handle::id)
-                .collect(),
-        );
-    }
-    if material_refresh || geometry_changed {
-        inputs.native_meshes =
-            Arc::new(ray_instances.iter().map(|(mesh, _)| mesh.0.id()).collect());
-        let ids: HashSet<_> = ray_instances
-            .iter()
-            .map(|(_, material)| material.0.id())
-            .collect();
-        inputs.native_textures = Arc::new(
-            ids.into_iter()
-                .filter_map(|id| materials.get(id))
-                .flat_map(|material| {
-                    [
-                        &material.base_color_texture,
-                        &material.normal_map_texture,
-                        &material.emissive_texture,
-                        &material.metallic_roughness_texture,
-                    ]
-                })
-                .flatten()
-                .map(Handle::id)
-                .collect(),
-        );
     }
     // Companion image bindings track resident views directly. A timed rebuild
     // of the entire native scene is unnecessary when its content is unchanged.

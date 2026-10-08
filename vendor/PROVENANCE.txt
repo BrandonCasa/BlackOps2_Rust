@@ -20,7 +20,12 @@ bevy_pbr: stable per-shadow-view/face timing and invocation context; the native
 vertex body is callable by extended materials through mesh_vertex, with the
 original vertex entry point forwarding to it without changing its arithmetic;
 incremental light extraction retains unchanged live shadow visibility tables
-instead of retiring them as if the changed-only query were the live inventory.
+and retires hidden retained records/view owners from the authoritative inventory,
+including lights whose cached visibility components are temporarily parked.
+LightMeta retains point and directional/spot depth-array storage at bounded
+high-water capacities; changing visible counts no longer accumulates exact-size
+arrays in the three-frame transient texture cache. Resolution changes recreate
+storage and existing texture-slot invalidation refreshes the affected maps.
 bevy_solari: the RC's retained incremental scene, sparse uploads, cached bindings
 and native TLAS build are adopted intact; native BLAS/TLAS diagnostic spans are
 retained. No obsolete whole-scene binder or extraction gates are ported.

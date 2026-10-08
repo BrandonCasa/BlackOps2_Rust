@@ -2,7 +2,7 @@ use crate::*;
 use alloc::sync::Arc;
 use bevy_asset::UntypedAssetId;
 use bevy_camera::primitives::{
-    face_index_to_name, CascadesFrusta, CubeMapFace, CubemapFrusta, Frustum, CUBE_MAP_FACES,
+    CUBE_MAP_FACES, CascadesFrusta, CubeMapFace, CubemapFrusta, Frustum, face_index_to_name,
 };
 use bevy_camera::visibility::{
     CascadesVisibleEntities, CubemapVisibleEntities, RenderLayers, ViewVisibility,
@@ -19,20 +19,20 @@ use bevy_ecs::{
     prelude::*,
     system::{SystemParam, SystemState},
 };
-use bevy_light::cascade::Cascade;
-use bevy_light::cluster::assign::{calculate_cluster_factors, ClusterableObjectType};
 use bevy_light::SunDisk;
+use bevy_light::cascade::Cascade;
+use bevy_light::cluster::assign::{ClusterableObjectType, calculate_cluster_factors};
 use bevy_light::{
-    spot_light_clip_from_view, spot_light_world_from_view, AmbientLight, CascadeShadowConfig,
-    Cascades, DirectionalLight, DirectionalLightShadowMap, GlobalAmbientLight, PointLight,
-    PointLightShadowMap, RectLight, ShadowFilteringMethod, SpotLight, VolumetricLight,
+    AmbientLight, CascadeShadowConfig, Cascades, DirectionalLight, DirectionalLightShadowMap,
+    GlobalAmbientLight, PointLight, PointLightShadowMap, RectLight, ShadowFilteringMethod,
+    SpotLight, VolumetricLight, spot_light_clip_from_view, spot_light_world_from_view,
 };
 use bevy_log::warn_once;
 use bevy_material::{
-    key::{ErasedMaterialPipelineKey, ErasedMeshPipelineKey},
     MaterialProperties,
+    key::{ErasedMaterialPipelineKey, ErasedMeshPipelineKey},
 };
-use bevy_math::{ops, proj, Mat4, UVec4, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
+use bevy_math::{Mat4, UVec4, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles, ops, proj};
 use bevy_mesh::{Mesh3d, MeshVertexBufferLayoutRef};
 use bevy_platform::collections::{HashMap, HashSet};
 use bevy_platform::hash::FixedHasher;
@@ -52,12 +52,7 @@ use bevy_render::view::{
     RenderVisibleEntities, VisibilityExtractionSystemParam,
 };
 use bevy_render::{
-    batching::gpu_preprocessing::{GpuPreprocessingMode, GpuPreprocessingSupport},
-    camera::SortedCameras,
-    mesh::allocator::MeshAllocator,
-    view::{NoIndirectDrawing, RetainedViewEntity},
-};
-use bevy_render::{
+    Extract,
     mesh::RenderMesh,
     render_asset::RenderAssets,
     render_phase::*,
@@ -65,7 +60,12 @@ use bevy_render::{
     renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
     texture::*,
     view::ExtractedView,
-    Extract,
+};
+use bevy_render::{
+    batching::gpu_preprocessing::{GpuPreprocessingMode, GpuPreprocessingSupport},
+    camera::SortedCameras,
+    mesh::allocator::MeshAllocator,
+    view::{NoIndirectDrawing, RetainedViewEntity},
 };
 use bevy_shape::{HalfSpace, ViewFrustum};
 use bevy_transform::{components::GlobalTransform, prelude::Transform};
@@ -481,14 +481,31 @@ pub fn extract_lights(
 
     // Extraction below only visits changed lights. An unchanged visible light
     // still owns its retained shadow lists and must survive the cleanup pass.
-    all_lights_found.extend(live_shadow_lights.iter().filter_map(
-        |(entity, visibility, point, spot, directional)| {
-            let casts_shadows = point.is_some_and(|light| light.shadow_maps_enabled)
-                || spot.is_some_and(|light| light.shadow_maps_enabled)
-                || directional.is_some_and(|light| light.shadow_maps_enabled);
-            (visibility.get() && casts_shadows).then_some(entity)
-        },
-    ));
+    for (entity, visibility, point, spot, directional) in &live_shadow_lights {
+        if !visibility.get() {
+            // Required visibility lists can be temporarily absent while a
+            // cached light is parked. Reconcile hidden retained lights from
+            // the authoritative inventory even if changed extraction skips
+            // them. Removing the view owners invokes native child cleanup.
+            if let Ok(mut entity_commands) = commands.get_entity(entity) {
+                if point.is_some() || spot.is_some() {
+                    entity_commands
+                        .remove::<(ExtractedPointLight, PointAndSpotLightViewEntities)>();
+                }
+                if directional.is_some() {
+                    entity_commands
+                        .remove::<(ExtractedDirectionalLight, DirectionalLightViewEntities)>();
+                }
+            }
+            continue;
+        }
+        let casts_shadows = point.is_some_and(|light| light.shadow_maps_enabled)
+            || spot.is_some_and(|light| light.shadow_maps_enabled)
+            || directional.is_some_and(|light| light.shadow_maps_enabled);
+        if casts_shadows {
+            all_lights_found.insert(entity);
+        }
+    }
 
     for (
         main_entity,
@@ -1054,6 +1071,10 @@ pub struct ViewLightsUniformOffset {
 #[derive(Resource, Default)]
 pub struct LightMeta {
     pub view_gpu_lights: DynamicUniformBuffer<GpuLights>,
+    // Shadow storage survives ordinary visibility changes. Exact-sized transient
+    // arrays otherwise retain several large allocations while the camera moves.
+    point_shadow_texture: Option<CachedTexture>,
+    directional_shadow_texture: Option<CachedTexture>,
 }
 
 #[derive(Component)]
@@ -1073,7 +1094,6 @@ pub enum LightEntity {
 
 pub fn prepare_lights(
     mut commands: Commands,
-    mut texture_cache: ResMut<TextureCache>,
     (render_device, render_queue): (Res<RenderDevice>, Res<RenderQueue>),
     mut global_clusterable_object_meta: ResMut<GlobalClusterableObjectMeta>,
     mut light_meta: ResMut<LightMeta>,
@@ -1504,13 +1524,28 @@ pub fn prepare_lights(
     let mut directional_light_depth_attachments =
         HashMap::<u32, DepthStencilViewAttachment>::default();
 
-    let point_light_depth_texture = texture_cache.get(
-        &render_device,
-        TextureDescriptor {
+    let point_layers = point_light_shadow_maps_count.max(1) as u32 * 6;
+    let point_size = point_light_shadow_map.size as u32;
+    if light_meta
+        .point_shadow_texture
+        .as_ref()
+        .is_none_or(|cached| {
+            let size = cached.texture.size();
+            size.width != point_size
+                || size.height != point_size
+                || size.depth_or_array_layers < point_layers
+        })
+    {
+        let capacity = (point_layers / 6)
+            .next_power_of_two()
+            .min(max_texture_cubes as u32)
+            .max(1)
+            * 6;
+        let texture = render_device.create_texture(&TextureDescriptor {
             size: Extent3d {
-                width: point_light_shadow_map.size as u32,
-                height: point_light_shadow_map.size as u32,
-                depth_or_array_layers: point_light_shadow_maps_count.max(1) as u32 * 6,
+                width: point_size,
+                height: point_size,
+                depth_or_array_layers: capacity,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -1519,8 +1554,14 @@ pub fn prepare_lights(
             label: Some("point_light_shadow_map_texture"),
             usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
-        },
-    );
+        });
+        let default_view = texture.create_view(&TextureViewDescriptor::default());
+        light_meta.point_shadow_texture = Some(CachedTexture {
+            texture,
+            default_view,
+        });
+    }
+    let point_light_depth_texture = light_meta.point_shadow_texture.as_ref().unwrap().clone();
 
     let point_light_depth_texture_view =
         point_light_depth_texture
@@ -1552,17 +1593,28 @@ pub fn prepare_lights(
                 array_layer_count: None,
             });
 
-    let directional_light_depth_texture = texture_cache.get(
-        &render_device,
-        TextureDescriptor {
+    let directional_size = (directional_light_shadow_map.size as u32)
+        .min(render_device.limits().max_texture_dimension_2d);
+    let directional_layers =
+        (num_directional_cascades_enabled + spot_light_shadow_maps_count).max(1) as u32;
+    if light_meta
+        .directional_shadow_texture
+        .as_ref()
+        .is_none_or(|cached| {
+            let size = cached.texture.size();
+            size.width != directional_size
+                || size.height != directional_size
+                || size.depth_or_array_layers < directional_layers
+        })
+    {
+        let capacity = directional_layers
+            .next_power_of_two()
+            .min(max_texture_array_layers as u32);
+        let texture = render_device.create_texture(&TextureDescriptor {
             size: Extent3d {
-                width: (directional_light_shadow_map.size as u32)
-                    .min(render_device.limits().max_texture_dimension_2d),
-                height: (directional_light_shadow_map.size as u32)
-                    .min(render_device.limits().max_texture_dimension_2d),
-                depth_or_array_layers: (num_directional_cascades_enabled
-                    + spot_light_shadow_maps_count)
-                    .max(1) as u32,
+                width: directional_size,
+                height: directional_size,
+                depth_or_array_layers: capacity,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -1571,8 +1623,18 @@ pub fn prepare_lights(
             label: Some("directional_light_shadow_map_texture"),
             usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
-        },
-    );
+        });
+        let default_view = texture.create_view(&TextureViewDescriptor::default());
+        light_meta.directional_shadow_texture = Some(CachedTexture {
+            texture,
+            default_view,
+        });
+    }
+    let directional_light_depth_texture = light_meta
+        .directional_shadow_texture
+        .as_ref()
+        .unwrap()
+        .clone();
 
     let directional_light_depth_texture_view =
         directional_light_depth_texture

@@ -4,7 +4,6 @@ use crate::{
     player::Player,
 };
 use bevy::{
-    camera::visibility::NoFrustumCulling,
     camera::{Exposure, Hdr, primitives::Aabb},
     core_pipeline::{prepass::DepthPrepass, tonemapping::Tonemapping},
     gltf::GltfMaterialName,
@@ -72,7 +71,7 @@ impl Plugin for GameRenderingPlugin {
             .init_resource::<pbr::MaterialDiagnostic>()
             .add_systems(Startup, (setup, opaque::initialize))
             .add_systems(PostStartup, sky::setup)
-            .add_systems(Startup, cpu_clusters)
+            .add_systems(Startup, cluster_capacity)
             .add_systems(
                 PostUpdate,
                 shadows::stabilize
@@ -97,8 +96,14 @@ impl Plugin for GameRenderingPlugin {
     }
 }
 
-fn cpu_clusters(mut settings: ResMut<bevy::light::cluster::GlobalClusterSettings>) {
-    settings.gpu_clustering = None;
+fn cluster_capacity(mut settings: ResMut<bevy::light::cluster::GlobalClusterSettings>) {
+    // Keep Bevy's device-qualified GPU clustering and its CPU fallback. Reserve
+    // bounded initial lists for the complete scene before its first visible view
+    // rather than relying on delayed overflow readbacks during camera movement.
+    if let Some(gpu) = settings.gpu_clustering.as_mut() {
+        gpu.initial_z_slice_list_capacity = gpu.initial_z_slice_list_capacity.max(8192);
+        gpu.initial_index_list_capacity = gpu.initial_index_list_capacity.max(262144);
+    }
 }
 
 pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>) {
@@ -336,9 +341,9 @@ fn surfaces(
                     Transform::from_translation(Vec3::from(bounds.center)),
                     LanternLight,
                     bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
-                    // Keep cube-array ownership stable across camera rotation.
-                    // Bevy still clusters the finite-range contribution per fragment.
-                    NoFrustumCulling,
+                    // Native light-sphere visibility bounds raster/shadow work.
+                    // Shadow caching validates remapped texture-slot ownership;
+                    // the separate ray-light query retains off-screen transport.
                     Name::new("Origins warm lantern"),
                 ));
             });
