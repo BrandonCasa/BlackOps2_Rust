@@ -3,7 +3,7 @@ import hashlib,json
 import numpy as np
 from prepare_gameplay_content import external
 from prepare_origins import entities
-from prepare_mud import brush_vertices
+from trigger_volumes import brush_vertices
 
 def prepare(config):
     base=external(config['assets']['inspection_output']);pack=external(config['game']['asset_pack'])

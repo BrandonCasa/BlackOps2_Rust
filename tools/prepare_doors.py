@@ -4,7 +4,7 @@ import numpy as np
 from prepare_gameplay_content import external
 from prepare_origins import entities
 from prepare_actors import convert
-from prepare_mud import brush_vertices
+from trigger_volumes import brush_vertices
 
 def prepare(config):
     inspection=external(config['assets']['inspection_output']);pack=external(config['game']['asset_pack'])

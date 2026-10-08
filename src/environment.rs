@@ -2,10 +2,12 @@
 use crate::{GameState, assets::GameDefinition, gameplay::GameStep, player::Player};
 use avian3d::prelude::*;
 use bevy::prelude::*;
+pub mod triggers;
 #[derive(Clone, Default, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EnvironmentDefinition {
     pub mud: Option<MudDefinition>,
+    pub triggers: Vec<triggers::TriggerDefinition>,
 }
 #[derive(Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -26,34 +28,35 @@ pub struct VolumeDefinition {
 }
 impl EnvironmentDefinition {
     pub fn valid(&self) -> bool {
-        self.mud.as_ref().is_none_or(|m| {
-            [m.scale, m.stamin_scale, m.step, m.stamin_step, m.interval]
-                .iter()
-                .all(|v| v.is_finite() && *v > 0.)
-                && m.scale <= m.stamin_scale
-                && m.stamin_scale <= 1.
-                && m.step <= 1.
-                && m.stamin_step <= m.step
-                && !m.volumes.is_empty()
-                && m.volumes.len() <= 4096
-                && m.volumes.iter().all(|v| {
-                    !v.id.is_empty()
-                        && v.id.len() < 128
-                        && v.position.iter().all(|p| p.is_finite())
-                        && (4..=128).contains(&v.vertices.len())
-                        && v.vertices.iter().flatten().all(|p| p.is_finite())
-                        && Collider::convex_hull(
-                            v.vertices.iter().copied().map(Vec3::from_array).collect(),
-                        )
-                        .is_some()
-                })
-                && m.volumes
+        triggers::valid(&self.triggers)
+            && self.mud.as_ref().is_none_or(|m| {
+                [m.scale, m.stamin_scale, m.step, m.stamin_step, m.interval]
                     .iter()
-                    .map(|v| &v.id)
-                    .collect::<std::collections::BTreeSet<_>>()
-                    .len()
-                    == m.volumes.len()
-        })
+                    .all(|v| v.is_finite() && *v > 0.)
+                    && m.scale <= m.stamin_scale
+                    && m.stamin_scale <= 1.
+                    && m.step <= 1.
+                    && m.stamin_step <= m.step
+                    && !m.volumes.is_empty()
+                    && m.volumes.len() <= 4096
+                    && m.volumes.iter().all(|v| {
+                        !v.id.is_empty()
+                            && v.id.len() < 128
+                            && v.position.iter().all(|p| p.is_finite())
+                            && (4..=128).contains(&v.vertices.len())
+                            && v.vertices.iter().flatten().all(|p| p.is_finite())
+                            && Collider::convex_hull(
+                                v.vertices.iter().copied().map(Vec3::from_array).collect(),
+                            )
+                            .is_some()
+                    })
+                    && m.volumes
+                        .iter()
+                        .map(|v| &v.id)
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len()
+                        == m.volumes.len()
+            })
     }
 }
 /// Default Avian membership is solid; query-only sensors occupy a separate layer.
@@ -98,6 +101,7 @@ pub struct EnvironmentPlugin;
 impl Plugin for EnvironmentPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Footstep>()
+            .add_systems(OnEnter(GameState::Playing), triggers::spawn)
             .add_systems(OnEnter(GameState::Playing), spawn)
             .add_systems(
                 FixedUpdate,

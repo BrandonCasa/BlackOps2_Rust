@@ -26,9 +26,11 @@ import tomllib
 try:
     from .content_contract import validate_content, validate_rounds, validate_player_health
     from .texture_streaming import validate as validate_texture_streaming
+    from .trigger_volumes import validate as validate_trigger_volumes
 except ImportError:
     from content_contract import validate_content, validate_rounds, validate_player_health
     from texture_streaming import validate as validate_texture_streaming
+    from trigger_volumes import validate as validate_trigger_volumes
 
 import numpy as np
 from PIL import Image
@@ -518,7 +520,8 @@ def validate_pack(root, receipt=None, exact=False):
         require(type(value) in (int, float) and math.isfinite(value) and value > 0,
                 "invalid ADS mouse sensitivity")
     environment = game.get("environment", {})
-    require(isinstance(environment,dict) and set(environment)<={"mud"},"unknown environment fields")
+    require(isinstance(environment,dict) and set(environment)<={"mud","triggers"},"unknown environment fields")
+    validate_trigger_volumes(environment.get("triggers", []), require)
     mud = environment.get("mud")
     if mud is not None:
         require(isinstance(mud,dict) and set(mud)=={"scale","stamin_scale","step","stamin_step","interval","volumes"},"invalid mud fields")

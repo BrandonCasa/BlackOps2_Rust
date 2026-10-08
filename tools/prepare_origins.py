@@ -682,6 +682,7 @@ def main():
     parser.add_argument("--prepare-generators", action="store_true", help="prepare original generator pumps and capture configuration")
     parser.add_argument("--prepare-audio", action="store_true", help="extract native sound banks and prepare aliases/bindings for current gameplay")
     parser.add_argument("--prepare-navigation", action="store_true", help="prepare recovered native navigation, zone volumes and spawn identities")
+    parser.add_argument("--prepare-triggers", action="store_true", help="convert all authored trigger volumes, boxes and radius shapes")
     parser.add_argument("--prepare-enemies", action="store_true", help="prepare intact native zombie rigs and lifecycle tuning")
     parser.add_argument("--prepare-hit-regions", action="store_true", help="bind anatomical hit volumes to prepared original zombie joints")
     parser.add_argument("--prepare-equipment", action="store_true", help="prepare recovered fragmentation grenade tuning")
@@ -689,6 +690,10 @@ def main():
     parser.add_argument("--prepare-player-health", action="store_true", help="recover standing player regeneration and immunity")
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
+    if args.prepare_triggers:
+        from trigger_volumes import prepare
+        prepare(config)
+        return
     if args.recover_weapon_skeletons:
         from recover_weapon_skeletons import prepare
         prepare(config)

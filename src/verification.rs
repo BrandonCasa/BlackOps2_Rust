@@ -39,6 +39,7 @@ mod solo_revive;
 mod speed_cola;
 mod stamin_up;
 mod texture_streaming;
+mod triggers;
 mod viewmodel_shadows;
 mod weapon_assemblies;
 
@@ -105,6 +106,7 @@ pub(crate) struct Verification {
     enemy_death_frame: bool,
     combat_receipt: serde_json::Value,
     placement_snapshot: Option<placements::Snapshot>,
+    trigger_observation: Option<serde_json::Value>,
 }
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
@@ -303,6 +305,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             enemy_death_frame: false,
             combat_receipt: serde_json::Value::Null,
             placement_snapshot: None,
+            trigger_observation: None,
         });
     }
 }
@@ -597,7 +600,10 @@ fn check(
         Res<crate::access::ZoneAccess>,
         Res<crate::barriers::Barriers>,
     ),
-    sites: placements::Sites,
+    map_sites: (
+        placements::Sites,
+        crate::environment::triggers::TriggerSites,
+    ),
     mut players: Query<
         (
             Entity,
@@ -638,6 +644,7 @@ fn check(
     >,
 ) {
     let mut screenshot = None;
+    let (sites, trigger_sites) = map_sites;
     let (surfaces, streaming, profile, shared_gi, ray_surfaces, ray_contributors) = render_status;
     let (
         session,
@@ -690,6 +697,23 @@ fn check(
                 return;
             }
         }
+    }
+    if verification.trigger_observation.is_none()
+        && **state == GameState::Playing
+        && verification.playing > 0.5
+        && let Some(game) = &definition
+    {
+        let observed = triggers::observe(game, &trigger_sites, &query);
+        let _ = std::fs::write(
+            verification.output.join("trigger-volumes.json"),
+            observed.to_string(),
+        );
+        if observed["passed"] != true {
+            error!("Game verification failed: trigger volume queries: {observed}");
+            commands.write_message(AppExit::error());
+            return;
+        }
+        verification.trigger_observation = Some(observed);
     }
     if !verification.benchmark
         && !verification.admission_snapshot
@@ -1095,8 +1119,14 @@ fn check(
                         .as_ref()
                         .is_ok_and(|after| placements::restart_matches(before, after))
                 });
+        let restarted_triggers = triggers::observe(&definition, &trigger_sites, &query);
         let passed = session.round == 1
             && placement_ids_preserved
+            && restarted_triggers["passed"] == true
+            && verification
+                .trigger_observation
+                .as_ref()
+                .is_some_and(|o| o["passed"] == true)
             && (!verification.semtex || verification.semtex_exercised)
             && (!verification.claymores || verification.claymores_exercised)
             && (!verification.monkeys || verification.monkeys_exercised)
@@ -1170,6 +1200,8 @@ fn check(
             "restarted":restarted_sites.as_ref().ok().map(placements::receipt),
             "restart_error":restarted_sites.err(),
         });
+        receipt["trigger_volumes"] = serde_json::json!({"initial": verification.trigger_observation,
+            "restarted":restarted_triggers});
         receipt["texture_streaming"] =
             serde_json::to_value(&*streaming).expect("Serializable streaming counters");
         receipt["shared_lighting"] = serde_json::json!({
