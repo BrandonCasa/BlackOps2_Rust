@@ -1,6 +1,15 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
+# ///
 """Retire native incident-light data from a prepared runtime closure, preserving originals."""
 from pathlib import Path
 import json
+
+try:
+    from .texture_streaming import validate as validate_streaming
+except ImportError:
+    from texture_streaming import validate as validate_streaming
 
 
 def strip_lighting(document):
@@ -80,7 +89,10 @@ def compact_geometry(document, pack):
 
 def migrate(pack):
     pack = Path(pack).resolve()
-    kept = set()
+    # Full mip chains are owned by the streaming index, not glTF. Validate
+    # that closure before changing files and retain both full and bootstrap
+    # dependencies when pruning retired incident-light images.
+    kept = {(pack / uri).resolve() for uri in validate_streaming(pack)}
     removed_bytes = 0
     for path in sorted(pack.rglob("*.gltf")):
         document = json.loads(path.read_text())

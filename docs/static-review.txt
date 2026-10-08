@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 1/50 resolved on local main: 04. Remaining findings are queued.
+Fix progress: 2/50 resolved on local main: 04, 05. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -70,6 +70,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/realtime_assets.py:98–104
     Trigger, consequence, evidence and correction: The retained set omits texture-streaming.json dependencies. Full DDS chains stored only in textures/streaming are deleted while the surviving index still references them, breaking a streamed pack.
     Confidence: High.
+    Fix status: RESOLVED - tools/realtime_assets.py validates the streaming index before mutation and retains its bootstrap/full-chain closure during image pruning. Actual independent 4,137-file pack migration preserves all 1,356 full chains, passes complete importer validation and leaves the qualified source unchanged. Evidence: E:/Coding/Captures/static-review-05-20261008. Runtime pack unchanged; hardlink writes remain finding06.
 
 06. [P1] Migration writes through source-preserving hardlinks
     Wave: 1
