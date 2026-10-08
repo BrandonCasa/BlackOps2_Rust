@@ -6,7 +6,8 @@ Start with [project state](docs/project-state.md), then relevant source and vali
 Work sequentially in this chat. **Subagents and delegated chats are banned.**
 Keep one current [handoff](docs/handoffs/current.md); replace stale state instead
 of accumulating audits. Git history holds retired documents and implementations.
-Keep at most 20 tracked Markdown files, including the ten required skills.
+Keep at most 20 tracked Markdown files.
+Do not create, restore, load or run repository skills.
 
 ## Goal
 
@@ -37,7 +38,7 @@ The user permits any necessary file types and raw inputs to be committed for
 this local-only project. Track substantial binary additions through Git LFS.
 Keep optional source inputs separate from the validated runtime pack. This
 permission overrides narrower source-file restrictions in retained documentation
-and skills. Originals must remain untouched. Never commit
+or prior skill instructions. Originals must remain untouched. Never commit
 installation paths, secrets or generated builds. Real paths belong in ignored
 `config/local_assets.toml`; tracked configuration contains placeholders.
 Preparation reads originals and emits an external standard asset pack; import
