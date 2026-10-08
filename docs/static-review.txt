@@ -1,0 +1,380 @@
+STATIC PYTHON / RUST CODE REVIEW
+Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
+Date: 2026-10-08
+Status: COMPLETE — requested static review stopped at 50 supported findings.
+Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
+
+SCOPE AND METHOD
+147 committed Python/Rust files inventoried (49 Python, 98 Rust).
+Only committed source at the snapshot above was reviewed. Dirty/untracked code
+was excluded; originals and source files were not changed.
+Three agents worked per wave, with all agents finished before the next wave.
+Each of the nine agents delivered at least two understanding summaries before
+its findings list and reported completed rabbit holes.
+The orchestrator aggregated agent reports; it did not open agent chats.
+After the user's clarification, the orchestrator stopped independent source
+inspection and further agent messages. The later Sherlock Holmes request was
+included in each wave-3 assignment.
+No application code, scripts, tests, compiler/build gates, benchmarks, or game
+were executed. Read-only Git/text inspection and relevant dependency-source
+reading supplied evidence. This report is the only output file created.
+These are static findings, not reproduced runtime outcomes. Conditional triggers
+and confidence limits are stated explicitly. P1 = high priority; P2 = medium
+priority; P3 = low priority. Reported duplicates and disproved candidates were
+excluded rather than counted toward the target.
+
+TIMED AGGREGATION CHECKPOINTS (UTC)
+Timestamps identify report-receipt/recording checkpoints, not exact bug-discovery
+times. The first recorded review clock was 2026-10-08 05:17:29 UTC.
+2026-10-08 05:20:09 UTC: Wave 1 renderer report received by this checkpoint; +3, aggregate 3.
+2026-10-08 05:23:09 UTC: All wave 1 reports received by this checkpoint; wave 2 dispatched after all wave 1 agents finished; +20, aggregate 23.
+2026-10-08 05:25:41 UTC: Wave 2 rendering report recorded; +3, aggregate 26.
+2026-10-08 05:26:24 UTC: Wave 2 Python report recorded; +6, aggregate 32.
+2026-10-08 05:28:08 UTC: All wave 2 reports received by checkpoint; 3 agents finished before wave 3 dispatch; +10, aggregate 42.
+2026-10-08 05:29:46 UTC: Wave 3 Python report recorded; +3, aggregate 45.
+2026-10-08 05:29:54 UTC: Wave 3 gameplay report recorded; +3, aggregate 48.
+2026-10-08 05:30:54 UTC: Wave 3 integration report received; all agents finished; review stopped at target; +2, aggregate 50.
+
+ONE AGGREGATE FINDINGS LIST
+Locations refer to committed snapshot lines, including supporting references in
+the explanation. Entries retain wave/report aggregation order.
+
+01. [P2] Static surfaces undo the straight-albedo blend correction
+    Wave: 1
+    Location: src/rendering.rs:295–299
+    Trigger, consequence, evidence and correction: For prepared DDS materials declaring premultiplied coverage, pbr::prepare selects Blend because DDS albedo is straight (pbr.rs:419–423). The later surfaces system overwrites it with Premultiplied; opaque conversion inherits the wrong mode, producing overly bright transparent edges.
+    Confidence: High.
+
+02. [P1] Newly registered bootstraps are counted twice before the fatal budget check
+    Wave: 1
+    Location: src/rendering/streaming.rs:1796–1806
+    Trigger, consequence, evidence and correction: register_images adds new bootstrap residents before upload, but upload still adds last frame's bootstrap_reserved_bytes for those images. allocate_detail recalculates the reserve later (1498–1511). Near the cap, this transient double count calls streams.fail and enters LoadError despite actual allocations fitting.
+    Confidence: High.
+
+03. [P2] Missing optional vertex attributes pass the guard and then panic
+    Wave: 1
+    Location: src/rendering/static_gi.rs:765–778
+    Trigger, consequence, evidence and correction: try_attribute(...).is_err() rejects moved CPU data but permits Ok(None). The subsequent attribute(...).expect panics for admitted meshes missing a required position/normal/UV0/tangent channel; tangents are optional in glTF. Require Ok(Some(_)) or supported defaults.
+    Confidence: High; asset-dependent.
+
+04. [P1] Lighting migration deletes brush ownership markers
+    Wave: 1
+    Location: tools/realtime_assets.py:18–21
+    Trigger, consequence, evidence and correction: strip_lighting removes node extras and restores only static_instance, dropping brush_entity. Current brush packs then fail validate_brush_scene's root-count check (brush_entities.py:85–92,183). Preserve nonlighting extras.
+    Confidence: High.
+
+05. [P1] Lighting migration deletes full streaming texture chains
+    Wave: 1
+    Location: tools/realtime_assets.py:98–104
+    Trigger, consequence, evidence and correction: The retained set omits texture-streaming.json dependencies. Full DDS chains stored only in textures/streaming are deleted while the surviving index still references them, breaking a streamed pack.
+    Confidence: High.
+
+06. [P1] Migration writes through source-preserving hardlinks
+    Wave: 1
+    Location: tools/realtime_assets.py:67,88
+    Trigger, consequence, evidence and correction: repair_material_pack materialize prefers hardlinks (52–53). Migration truncates candidate buffers/glTF in place, modifying the shared source file. Replace directory entries atomically.
+    Confidence: High.
+
+07. [P2] Shared texture qualification loses earlier alpha cutoffs
+    Wave: 1
+    Location: tools/prepare_materials.py:526–533
+    Trigger, consequence, evidence and correction: Each material recreates cooker.entries[uri], discarding previous mask_cutoffs. Shared maps with different MASK thresholds, or a later nonmask usage, are compressed/qualified against only the final usage.
+    Confidence: High.
+
+08. [P2] Door regeneration removes navigation's retained zone
+    Wave: 1
+    Location: tools/prepare_doors.py:28–30
+    Trigger, consequence, evidence and correction: --prepare-doors replaces zones with script-adjacency zones, dropping zone.unassigned while preserving navigation nodes that reference it (prepare_navigation.py:39–40). The regenerated pack fails content validation.
+    Confidence: High.
+
+09. [P2] Equipment regeneration breaks assembled Monkey Bomb ownership
+    Wave: 1
+    Location: tools/prepare_equipment.py:94–99
+    Trigger, consequence, evidence and correction: After assembly, --prepare-equipment resets lure animation to the original world skeleton but leaves pickup at actor.weapon_<digest>. content_contract.py:201 rejects the mismatched assembly ownership.
+    Confidence: High.
+
+10. [P2] Material cache signature excludes semantic converter dependencies
+    Wave: 1
+    Location: tools/prepare_bo2_library.py:66–67
+    Trigger, consequence, evidence and correction: Changing material_semantics.py does not invalidate the converter hash, which includes only prepare_materials.py/material_textures.py. Cached materials bypass updated binding/physical response logic.
+    Confidence: High.
+
+11. [P2] Full-chain recovery verifies the bootstrap instead of copied full data
+    Wave: 1
+    Location: tools/prepare_texture_source.py:39–40,52–57
+    Trigger, consequence, evidence and correction: Recovery copies full_uri but checks uri's bootstrap hash and skips full URIs. Modified full DDS bytes with the same layout can receive a validated recovery receipt despite differing from the initial source closure.
+    Confidence: High.
+
+12. [P2] Library import does not verify recorded source model hashes
+    Wave: 1
+    Location: tools/bo2_library.py:247–249
+    Trigger, consequence, evidence and correction: Preparation records LOD source_sha256 (prepare_bo2_library.py:132). Import checks identity/LOD count but never the model hashes, allowing changed retained originals to accompany stale converted geometry.
+    Confidence: High.
+
+13. [P2] Recooking retains old qualification while mutating the library
+    Wave: 1
+    Location: tools/prepare_bo2_library.py:38–40
+    Trigger, consequence, evidence and correction: prepare writes glTF/DDS before replacing library.json near line209, leaving qualified:true from the prior run if interrupted. Revoke qualification before mutation, as qualify_existing/retune_unbound already do.
+    Confidence: High.
+
+14. [P1] Step movement combines distant support with a different horizontal endpoint
+    Wave: 1
+    Location: src/player.rs:560,578–579
+    Trigger, consequence, evidence and correction: The speculative raised sweep advances at least radius+0.1 meters, then commits short-tick X/Z with the distant endpoint's Y without validating the combined point. Narrow platforms/corners can lift players or enemies into obstacles or unsupported positions.
+    Confidence: High.
+
+15. [P2] Player ground and step queries include zone sensors
+    Wave: 1
+    Location: src/environment.rs:71–73
+    Trigger, consequence, evidence and correction: ZoneSensor uses layer4 (access.rs:281), also included by player_solids for ingress blockers. Direct ground/support/step casts (player.rs:307–325,533–570) include sensor hulls; Avian MoveAndSlide excludes Sensors. Auxiliary queries can report artificial ground/step obstruction.
+    Confidence: High.
+
+16. [P2] Cancelled reloads leave Electric Cherry blocked
+    Wave: 1
+    Location: src/perk_effects.rs:154,168–173
+    Trigger, consequence, evidence and correction: Cherry clears per-weapon blocked state only on ReloadCompleted. Equipment priming cancels reload via cancel_action (weapons.rs:456–461; equipment.rs:365–371) without a cancellation receipt, suppressing the next legitimate discharge.
+    Confidence: High.
+
+17. [P2] Empty reload events publish an incorrect duration
+    Wave: 1
+    Location: src/weapons.rs:744–765
+    Trigger, consequence, evidence and correction: ReloadStarted.seconds uses reload_seconds although empty reload actions use mechanics.empty_reload. Cherry cooldown (perk_effects.rs:182) therefore differs from the actual action; shell reload events report only one phase.
+    Confidence: High.
+
+18. [P2] Capture membership has no upper vertical bound
+    Wave: 1
+    Location: src/generators.rs:436–441
+    Trigger, consequence, evidence and correction: The predicate checks horizontal radius and a lower feet plane only. An activated generator can progress and refund its purchaser while the player stands on an overhead platform inside that horizontal radius.
+    Confidence: High.
+
+19. [P2] Rebinding allows Pause to overlap active gameplay controls
+    Wave: 1
+    Location: src/input/bindings.rs:246–253,280–290
+    Trigger, consequence, evidence and correction: Conflict validation excludes Pause. Binding it to Fire or movement passes validation, but pause_and_restart checks it independently (input.rs:305–313), so firing/movement also pauses and mouse clicks can close the menu.
+    Confidence: High.
+
+20. [P2] Secondary audio layers are delayed by rendered frames
+    Wave: 1
+    Location: src/audio.rs:544–545
+    Trigger, consequence, evidence and correction: Secondary aliases spawn new SoundRequests during iteration of the current snapshot and are admitted next Update. Every chain layer adds a rendered-frame delay, separating shot bass/decay or gear/footsteps at low FPS.
+    Confidence: High.
+
+21. [P2] Rejected replacement sounds can retire audible tails
+    Wave: 1
+    Location: src/audio.rs:398–412,473–486
+    Trigger, consequence, evidence and correction: Same-alias admission despawns the oldest sound before validating new attachment/distance. A distant or invalid request removes a nearby audible tail and is then itself rejected.
+    Confidence: High.
+
+22. [P2] Global sound cap prevents priority dialogue replacement
+    Wave: 1
+    Location: src/audio.rs:414–436
+    Trigger, consequence, evidence and correction: The count>=64 rejection precedes higher-priority voice replacement, so important dialogue cannot replace an existing lower-priority voice at capacity. Counts also remain stale after draining prior voices.
+    Confidence: High.
+
+23. [P2] Repeated Round 255 omits round-start audio
+    Wave: 1
+    Location: src/audio/gameplay.rs:382–403
+    Trigger, consequence, evidence and correction: Audio detects start by changed numeric session.round. Gameplay repeats capped255 and emits RoundStarted every intermission (gameplay.rs:407–415; rounds.rs:5–9), but the unchanged number suppresses later start cues.
+    Confidence: High.
+
+24. [P1] Shadow completion can cache faces with unresolved caster queues
+    Wave: 2
+    Location: src/rendering/shadow_cache.rs:1637–1660
+    Trigger, consequence, evidence and correction: complete checks global PipelineCache status but not per-view PendingShadowQueues or mesh/material readiness. A face drawn while a caster is unready can receive a reusable stamp and be suspended, preserving missing occlusion after dependencies arrive without another silhouette revision (reuse:1395–1450).
+    Confidence: Medium-high; scheduling/readiness analysis, no runtime reproduction.
+
+25. [P2] Masked multilayer effects become opaque ray occluders
+    Wave: 2
+    Location: src/rendering/ray_surface.wgsl:251–254
+    Trigger, consequence, evidence and correction: Rust admits masked effects (static_gi.rs:729–730) and records cutoff (ray_surface.rs:371–374), but ray opacity returns1 for extended multilayer materials before effect evaluation. Forward opaque.wgsl evaluates texture/vertex/facing alpha and discards holes; GI/reflections therefore see filled geometry.
+    Confidence: High; admitted material configuration is conditional.
+
+26. [P2] Ray providers retain their first mesh/material snapshot after source changes
+    Wave: 2
+    Location: src/rendering/static_gi.rs:665–670,791–828,856
+    Trigger, consequence, evidence and correction: Without<Traced> prevents readmission; carrier/sidecar caches use immutable or_insert snapshots (ray_surface.rs:251–254,375–398). Raster Mesh3d/material handles or source asset properties can change while GI/reflections retain old geometry/color/emissive/opacity/textures. Native generation invalidation does not refresh sidecars.
+    Confidence: High on mutation path; ordinary-play frequency unmeasured.
+
+27. [P1] Full world rebuild drops assembled gameplay configuration
+    Wave: 2
+    Location: tools/prepare_origins.py:553–558,654–656
+    Trigger, consequence, evidence and correction: Ordinary rebuild preserves only previous content before replacing game.json, discarding rounds/player_health/solo_revive/tuning/environment/access/audio. The content-only branch preserves these fields (780–782); importer requires the profiles (599–603). Rebuilding geometry makes the assembled pack unimportable.
+    Confidence: High.
+
+28. [P2] Library retuning cannot retry after importing its own BMP
+    Wave: 2
+    Location: tools/prepare_bo2_library.py:335–339,364–371
+    Trigger, consequence, evidence and correction: First --retune-unbound imports loose/codlogo.bmp as a nonlossless color variant. Next run feeds every nonlossless source into inspect_dds, which rejects BMP after qualification was already revoked (242–243). Dispatch decoding by source type.
+    Confidence: High.
+
+29. [P2] Geometry reuse records new source provenance for stale converted data
+    Wave: 2
+    Location: tools/prepare_bo2_library.py:112–115,132
+    Trigger, consequence, evidence and correction: --reuse-geometry relies on mtime, generator name and buffer lengths, not prior source digest. Changed sources retaining older/equal timestamps can keep old geometry/skeletons while the manifest records the current original digest.
+    Confidence: High.
+
+30. [P2] World collision admission ignores recovered nonsolid disposition
+    Wave: 2
+    Location: tools/prepare_origins.py:650–651
+    Trigger, consequence, evidence and correction: presentation declares opaque/mask solid (58–68), but world collider admission checks family-name water/unlit only. Blend/add/multiply surfaces with other names enter the collision scene and assets.rs:431–451 makes them solid, blocking movement/queries.
+    Confidence: High.
+
+31. [P2] Offline validation accepts ordinary tuning rejected at startup
+    Wave: 2
+    Location: tools/import_origins.py:518–525
+    Trigger, consequence, evidence and correction: For example walk_speed:-1 passes importer field-name/selected-setting checks. origins.rs:183–214 requires ordinary movement/gravity/action scalars finite and positive; a validated/imported pack can fail startup. Mirror complete runtime constraints.
+    Confidence: High.
+
+32. [P2] Mud brush conversion omits authored entity rotation
+    Wave: 2
+    Location: tools/prepare_mud.py:18–21
+    Trigger, consequence, evidence and correction: Nonzero-angle player_slow_area vertices receive only p+origin then axis conversion. trigger_volumes.py:45–60,76–87 applies native rotation for equivalent brushes. Runtime slowdown sensors therefore occupy the wrong footprint.
+    Confidence: High on omission; current-map applicability unconfirmed.
+
+33. [P1] Specialized verification deadlines are bypassed by missing prerequisites
+    Wave: 2
+    Location: src/verification/ads.rs:64–75
+    Trigger, consequence, evidence and correction: ADS and multiple specialized drivers destructure player/definition before deadlines and return on load failure; generic check disables itself for their flags (verification.rs:672–688). controls.rs:222–228 also returns before phase99 handling without a player. A failed load can hang verification indefinitely.
+    Confidence: High.
+
+34. [P2] Failed audio qualification leaves a successful exit status
+    Wave: 2
+    Location: src/verification/audio.rs:105–125
+    Trigger, consequence, evidence and correction: On AppExit, audio record can write passed:false for source/backend/volume/lifecycle failures without producing an error exit. Generic/specialized scenarios can therefore exit0 while audio qualification failed.
+    Confidence: High.
+
+35. [P2] Door timeout recovery loops indefinitely after unexpected GameOver
+    Wave: 2
+    Location: src/verification/doors.rs:757–770
+    Trigger, consequence, evidence and correction: Timeout selects phase8 and resets its clock; phase8 requires Playing (732), while only phase7 sends RestartGame. Unexpected GameOver keeps cycling phase8 timeouts without recovery/overall failure exit.
+    Confidence: High.
+
+36. [P2] Receipt write errors are ignored before successful verification exit
+    Wave: 2
+    Location: src/verification.rs:1278–1287
+    Trigger, consequence, evidence and correction: Final std::fs::write Results are discarded here and in ads.rs:99–107,controls.rs:796–805,texture_streaming.rs:405–413 and others. Disk/permission failures can leave absent/stale receipts accompanying success. Require persistence as release_performance does.
+    Confidence: High.
+
+37. [P2] Relative output paths bypass checkout-output protection
+    Wave: 2
+    Location: src/verification.rs:233–243
+    Trigger, consequence, evidence and correction: --verify . from the repo passes lexical starts_with(CARGO_MANIFEST_DIR), then creates settings/reports/screenshots inside the checkout. Similar checks exist in controls/streaming/shadows; resolve/restrict paths before any settings/output write.
+    Confidence: High.
+
+38. [P2] Catalog accepts stale visibility evidence from previous actions
+    Wave: 2
+    Location: src/verification/weapon_assemblies.rs:402–406
+    Trigger, consequence, evidence and correction: Offhand evidence is keyed only by weapon/action (offhand.rs:280–294); hidden rigs are skipped without invalidating entries. Revisited ReturnIdle can use old visible evidence while the current rig is hidden/absent.
+    Confidence: High.
+
+39. [P2] World catalog visibility is recorded as unconditionally true
+    Wave: 2
+    Location: src/verification/weapon_assemblies.rs:304–310
+    Trigger, consequence, evidence and correction: Scene readiness and bounds produce visible:true without camera visibility/render-layer/current-mesh admission. Completion accepts this field (211–214), allowing hidden/culled world previews to qualify.
+    Confidence: High.
+
+40. [P2] Downed restrictions pass after one conforming observation
+    Wave: 2
+    Location: src/verification/solo_revive.rs:253–259
+    Trigger, consequence, evidence and correction: coverage.restrictions |= predicate persists across all three revival cycles; later ADS/melee/speed/stance/slot violations cannot clear it. Acceptance (316–327) can qualify incorrect later behavior. Accumulate violations per eligible interval.
+    Confidence: High.
+
+41. [P2] Wall-weapon success does not require shell-interruption coverage
+    Wave: 2
+    Location: src/verification/arsenal.rs:266–300,330,111–120
+    Trigger, consequence, evidence and correction: The PreUpdate interruption requires observing ShellPhase::Start after0.3s. Skipped transient phases allow completed normal reloads to advance; shell phase/interruption flags are only serialized and final passed:true ignores them.
+    Confidence: High.
+
+42. [P2] Independent screenshot producers can drop requested captures
+    Wave: 2
+    Location: src/verification/equipment_presentation.rs:70–86
+    Trigger, consequence, evidence and correction: Equipment and scenario producers can request the same primary window in one frame (e.g.semtex.rs:298–302). Bevy extract_screenshots despawns duplicate target requests, but equipment already marks the key captured. Share requests/save observers and mark completion from callbacks.
+    Confidence: Medium-high; native screenshot implementation traced.
+
+43. [P2] Resume ignores changed runtime-source identity
+    Wave: 3
+    Location: tools/upscale_textures.py:411–418
+    Trigger, consequence, evidence and correction: Recompressed runtime DDS with the same lossless master can hit the early resume shortcut: it compares master hash/recipe/output checksum but omits source_runtime_sha256. Candidate retains old runtime mip tail/receipt, then prepare_upscaled_pack.py:120–122 rejects it rather than regenerating. Require both hashes.
+    Confidence: High.
+
+44. [P2] Streaming policy loses the independent close-view density floor
+    Wave: 3
+    Location: tools/prepare_upscaled_pack.py:215–220
+    Trigger, consequence, evidence and correction: Inventory assigns high-density versus close-density per protected_closeup texture (texture_inventory.py:299–309). Assembly stores only world_density_floor; texture_streaming.py:168–173 applies it to every result. Correct close-view cooks can fail, and valid cap exceptions can be rejected as spurious.
+    Confidence: High.
+
+45. [P2] Polite CUDA admission is blocked by unrelated GPUs
+    Wave: 3
+    Location: tools/preparation_resources.py:65–72
+    Trigger, consequence, evidence and correction: nvidia-smi queries all GPUs and ORs utilization/free-memory admission across every row. deepbump uses device0; a busy or <5120MiB secondary card can pause its workload indefinitely despite the inference device being available. Filter by actual device identity/remapping.
+    Confidence: High.
+
+46. [P2] An inadmissible first defender slot starves usable alternatives
+    Wave: 3
+    Location: src/generators.rs:294–317
+    Trigger, consequence, evidence and correction: find always selects the lowest absent slot before navigation/occupancy admission. Failure returns without testing another slot or rotating selection; every half-second attempt retries the same obstructed/unprojectable slot despite usable vacant positions.
+    Confidence: High; concrete gameplay trigger is conditional.
+
+47. [P2] Defender admission ignores existing traversal landing reservations
+    Wave: 3
+    Location: src/generators.rs:304–317
+    Trigger, consequence, evidence and correction: Checks use current transforms and physics intersections only; noclip/rising actors have disabled colliders and can be distant from their reserved endpoint (enemies.rs:82–86). Unlike ordinary spawn admission's Zombie::reserves, defenders can occupy that endpoint and force blocked landing/recovery.
+    Confidence: High; concrete gameplay trigger is conditional.
+
+48. [P2] Cherry stun desynchronizes tearing boards from their owner
+    Wave: 3
+    Location: src/barriers.rs:354–355
+    Trigger, consequence, evidence and correction: Enemy lifecycle freezes elapsed while stunned (enemies.rs:291–302), but Pulling board age advances unconditionally. destroy carries that age into Opening (140–149), which retires at pull_seconds (346–351). A stunned tearing zombie freezes while its board advances and can disappear immediately on resumed destruction.
+    Confidence: High; concrete gameplay trigger is conditional.
+
+49. [P2] Viewmodel sway scales with rendering frame duration
+    Wave: 3
+    Location: src/presentation/offhand.rs:168–175
+    Trigger, consequence, evidence and correction: The sway target uses yaw/pitch delta since the previous Update (-delta*0.6), while smoothing uses elapsed seconds. At equal angular velocity below clamping,240FPS yields about one-quarter the target at60FPS. Performance therefore changes apparent weapon lag. Use angular velocity with retuned scaling.
+    Confidence: High; direct arithmetic/callchain proof.
+
+50. [P3] Paused viewmodels keep moving as sway decays
+    Wave: 3
+    Location: src/presentation/offhand.rs:139–175,188–192
+    Trigger, consequence, evidence and correction: select_visible runs every Update without state gating (presentation.rs:86–96). Paused player look yields zero deltas but virtual Time advances; sway decays and first-person transforms change while animation/gameplay clocks are frozen. Pause after a mouse turn changes the frozen weapon pose.
+    Confidence: High; state/timing callchain traced.
+
+COVERAGE AND LIMITS
+Python: reports covered preparation/orchestration, imports/closure contracts,
+geometry/brushes/triggers/mud/navigation/traversal, actor/XAnim/skeleton/ADS
+assembly, weapons/equipment/perks/rounds/health/barriers/generators, material
+semantics/DDS/mips/streaming/cache, source library qualification/retuning,
+texture inventories/upscaling/recovery/resource admission, repairs and profiling.
+Large Python import/preparation/contracts were fully read in wave 2; assigned
+texture/resume/resource modules were fully read again in wave 3.
+
+Rust gameplay: reported reads included input/settings/menu, player/movement/
+health, weapons/equipment/mines/lures, damage/economy/interactions, all life
+modules/solo revival/perks, access/barriers/generators/navigation/enemies/hit
+regions, environment/brushes/triggers, audio and presentation/HUD. Navigation,
+enemy traversal and generators received deeper follow-up in wave 3.
+
+Rust rendering/integration: reported full reads included bootstrap/assets,
+streaming/memory/residency/shutdown, ray skin, sky/lighting/PBR/profile/shadows/
+preprocessing/postprocess/grading/inspection, then static GI/ray surfaces/
+opaque/materials, content catalog and presentation/offhand. Shadow cache's
+invalidation/queue/completion logic was substantially read; some statistics
+boilerplate remained depth-limited. Associated WGSL and local Avian/Bevy
+source were read to establish interface and query/capture behavior.
+
+Verification: all 31 files under src/verification/ were read, including drivers
+and acceptance/receipt predicates. src/verification.rs was extensively but
+partially read; one large initial read was truncated. No assigned verification
+submodule was entirely unread.
+
+The inventory was repository-wide; reading depth varied. This does not claim
+every line of every file was exhaustively analyzed or that unlisted code is
+correct. Complete independent coverage of all shader logic was outside scope.
+Conditional material, multi-GPU, mutation and authored-rotation cases were
+not checked by execution or exhaustive source-data enumeration.
+
+UNRESOLVED / RECOMMENDED NEXT WORK
+No fixes were implemented. Triage the eight P1 findings first, then the P2
+runtime/admission/source-integrity defects and verification false-pass paths.
+Use these committed line references to implement coherent fixes; any subsequent
+compiler/asset/window validation remains separate, expressly unperformed work.
