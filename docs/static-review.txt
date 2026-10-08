@@ -3,6 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
+Fix progress: 1/50 resolved on local main: 04. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -62,6 +63,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/realtime_assets.py:18–21
     Trigger, consequence, evidence and correction: strip_lighting removes node extras and restores only static_instance, dropping brush_entity. Current brush packs then fail validate_brush_scene's root-count check (brush_entities.py:85–92,183). Preserve nonlighting extras.
     Confidence: High.
+    Fix status: RESOLVED � tools/realtime_assets.py removes only node extras.lighting, retaining brush ownership and other nonlighting metadata while preserving legacy static-instance conversion. Actual canonical map reproduces the old root-count failure; all 67 brush roots pass after correction, the existing realtime document is unchanged, and repeated stripping is identical. Evidence: E:/Coding/Captures/static-review-04-20261008. Full migration remains deferred until findings 05/06; no runtime assets changed.
 
 05. [P1] Lighting migration deletes full streaming texture chains
     Wave: 1

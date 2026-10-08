@@ -16,9 +16,17 @@ def strip_lighting(document):
         for primitive in mesh["primitives"]:
             primitive["attributes"].pop("TEXCOORD_1", None)
     for node in document.get("nodes", []):
-        extras = node.pop("extras", {})
-        if extras.get("static_instance") is True or "lighting_id" in extras.get("lighting", {}) or node.get("name") == "static_instance":
-            node["extras"] = {"static_instance": True}
+        extras = node.get("extras", {})
+        was_lit_instance = "lighting_id" in extras.get("lighting", {})
+        # Brush ownership and other scene metadata belong to their consumers;
+        # this migration retires only the incident-light member.
+        extras.pop("lighting", None)
+        if extras.get("static_instance") is True or was_lit_instance or node.get("name") == "static_instance":
+            extras["static_instance"] = True
+        if extras:
+            node["extras"] = extras
+        else:
+            node.pop("extras", None)
 
 
 def compact_geometry(document, pack):
