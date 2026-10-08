@@ -36,6 +36,7 @@ pub(crate) use ray_skin::RayContributorStats;
 pub(crate) use ray_surface::RaySurfaceStats;
 pub(crate) use shadow_cache::ShadowCacheStats;
 pub(crate) use static_gi::StaticGiStats;
+pub(crate) use streaming::{ForegroundTexture, TextureUse};
 pub(crate) use streaming::{TextureStreamingStats, TextureStreams};
 
 #[derive(Component)]

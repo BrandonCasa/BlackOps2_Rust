@@ -37,6 +37,8 @@ mod semtex;
 mod solo_revive;
 mod speed_cola;
 mod stamin_up;
+mod texture_streaming;
+mod viewmodel_shadows;
 mod weapon_assemblies;
 
 #[derive(Resource)]
@@ -105,6 +107,24 @@ pub(crate) struct Verification {
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
+        if app
+            .world()
+            .resource::<LaunchOptions>()
+            .verify_viewmodel_shadows
+        {
+            pipelines::install(app);
+            viewmodel_shadows::install(app);
+            return;
+        }
+        if app
+            .world()
+            .resource::<LaunchOptions>()
+            .verify_texture_streaming
+        {
+            pipelines::install(app);
+            texture_streaming::install(app);
+            return;
+        }
         if app.world().resource::<LaunchOptions>().release_benchmark {
             pipelines::install(app);
             release_performance::install(app);

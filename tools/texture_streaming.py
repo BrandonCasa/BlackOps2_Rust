@@ -38,7 +38,7 @@ def tail(raw, record, first):
     return bytes(header) + raw[start["offset"]:]
 
 
-def assemble(pack, textures, bootstrap_extent=128, provenance=None, resources=None):
+def assemble(pack, textures, bootstrap_extent=128, provenance=None, resources=None, meshes=None, density_policy=None):
     destination = pack / "textures/streaming"
     destination.mkdir(parents=True, exist_ok=True)
     entries = []
@@ -55,7 +55,10 @@ def assemble(pack, textures, bootstrap_extent=128, provenance=None, resources=No
         if full in full_sources and full_sources[full] != record["sha256"]:
             raise ValueError("Distinct streaming sources share a filename")
         full_sources[full] = record["sha256"]
-        full.write_bytes(raw)
+        # Move the immutable cooked file rather than duplicating an entire BC
+        # chain. Candidate/cache hard links remain immutable; the bootstrap is
+        # a newly created, independent file at the original URI.
+        path.replace(full)
         bootstrap = tail(raw, record, first)
         path.write_bytes(bootstrap)
         entries.append(dict(uri=texture["uri"], full_uri=full.relative_to(pack).as_posix(),
@@ -64,11 +67,18 @@ def assemble(pack, textures, bootstrap_extent=128, provenance=None, resources=No
             bytes=len(raw), sha256=record["sha256"],
             bootstrap_sha256=hashlib.sha256(bootstrap).hexdigest(),
             color_space=texture["color_space"],
-            texels_per_meter=(texture.get("minimum_texels_per_meter") or 0.) * texture.get("scale", 1),
+            texels_per_meter=(texture.get("minimum_axis_texels_per_meter", texture.get("minimum_texels_per_meter")) or 0.) * texture.get("scale", 1),
             protected_closeup=texture.get("protected_closeup", False),
             mips=[{key: mip[key] for key in ("level", "width", "height", "offset", "bytes", "sha256")}
                   for mip in record["mips"]]))
-    document = dict(version=1, textures=entries, models=provenance or {})
+    document = dict(version=2 if meshes is not None else 1, textures=entries, models=provenance or {})
+    if meshes is not None:
+        scales = {entry["uri"]: entry.get("scale", 1) for entry in textures}
+        document["meshes"] = {key: [dict(region, textures={uri: density * scales[uri]
+            for uri, density in region["textures"].items()}) for region in regions]
+            for key, regions in meshes.items()}
+    if density_policy is not None:
+        document["density_policy"] = density_policy
     (pack / "texture-streaming.json").write_text(json.dumps(document, separators=(",", ":")) + "\n")
     return document
 
@@ -79,8 +89,10 @@ def validate(pack, resources=None):
     if not index.exists():
         return {}
     document = json.loads(index.read_text())
-    if document.get("version") != 1 or "textures" not in document or set(document) - {"version", "textures", "models"}:
+    if document.get("version") not in (1, 2) or "textures" not in document or set(document) - {"version", "textures", "models", "meshes", "density_policy"}:
         raise ValueError("Unsupported texture streaming index")
+    if document["version"] == 2 and not isinstance(document.get("meshes"), dict):
+        raise ValueError("Streaming version 2 requires local surface regions")
     hashes = {index.relative_to(pack).as_posix(): hashlib.sha256(index.read_bytes()).hexdigest()}
     seen = set()
     for item in document["textures"]:
@@ -122,4 +134,43 @@ def validate(pack, resources=None):
             raise ValueError("Bootstrap DDS checksum mismatch")
         hashes[item["uri"]] = item["bootstrap_sha256"]
         hashes[item["full_uri"]] = item["sha256"]
+    for mesh, regions in document.get("meshes", {}).items():
+        scene, marker, label = mesh.partition("#")
+        if not marker or not label.startswith("Mesh") or "/Primitive" not in label or \
+                not (pack/scene).resolve().is_relative_to(pack.resolve()) or not (pack/scene).is_file():
+            raise ValueError("Invalid streaming mesh dependency")
+        for region in regions:
+            if set(region) != {"center", "half_extents", "textures"} or \
+                    len(region["center"]) != 3 or len(region["half_extents"]) != 3 or \
+                    any(not math.isfinite(v) for v in region["center"] + region["half_extents"]) or \
+                    any(v < 0 for v in region["half_extents"]):
+                raise ValueError("Invalid streaming surface bounds")
+            if any(uri not in seen or not math.isfinite(value) or value < 0
+                   for uri, value in region["textures"].items()):
+                raise ValueError("Invalid local streaming density")
+    policy = document.get("density_policy")
+    if policy is not None:
+        if set(policy) != {"target", "metric", "cap_to_device", "pending_textures", "results"} or \
+                not math.isfinite(policy["target"]) or policy["target"] <= 0 or \
+                policy["metric"] not in ("area", "minimum-axis") or type(policy["cap_to_device"]) is not bool:
+            raise ValueError("Invalid streaming density policy")
+        pending = set(policy["pending_textures"])
+        results = set()
+        by_uri = {entry["uri"]: entry for entry in document["textures"]}
+        for result in policy["results"]:
+            uri = result["uri"]
+            if uri in results or uri not in seen or uri in pending:
+                raise ValueError("Duplicate or unknown density result")
+            results.add(uri)
+            density = result["density"]
+            if density is not None and (not math.isfinite(density) or density < 0):
+                raise ValueError("Invalid achieved density")
+            if result["applicable"] and (density is None or density < policy["target"]):
+                if not result["exception"] or not policy["cap_to_device"] or \
+                        max(by_uri[uri]["width"], by_uri[uri]["height"]) != 16384:
+                    raise ValueError("Unreported density shortfall")
+            elif result["exception"]:
+                raise ValueError("Spurious density exception")
+        if results | pending != seen or len(pending) != len(policy["pending_textures"]):
+            raise ValueError("Density policy does not cover every streamed map")
     return hashes

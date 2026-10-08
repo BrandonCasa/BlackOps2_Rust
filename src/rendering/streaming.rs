@@ -1,30 +1,128 @@
 //! Range-streamed standard DDS mip tails, using Bevy assets and task pools.
 //! Image IDs stay stable while Bevy replaces/reclaims differently sized GPU
-//! textures. Visible demand takes precedence over the idle residency budget.
+//! textures. Current coverage allocates detail within a driver-sized VRAM cap.
+mod memory;
 use bevy::{
     asset::{
         AssetEvent, AssetId, AsyncReadExt, AsyncSeekExt, RenderAssetUsages,
         io::{AssetReaderError, AssetSourceId},
     },
-    camera::primitives::Aabb,
+    camera::{primitives::Aabb, visibility::VisibleEntities},
     gltf::GltfMaterialExtras,
     image::{CompressedImageFormats, ImageFormat, ImageSampler, ImageType},
     light::{Cascades, DirectionalLightShadowMap, NotShadowCaster, PointLightShadowMap},
+    math::Vec3A,
     prelude::*,
+    render::{
+        Render, RenderApp, RenderSystems, erased_render_asset::prepare_erased_assets,
+        extract_resource::ExtractResourcePlugin, render_asset::prepare_assets,
+        renderer::RenderAdapterInfo, texture::GpuImage,
+    },
     tasks::{IoTaskPool, Task, block_on, poll_once},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, io::SeekFrom, path::Path, time::Duration};
+use std::{
+    collections::{BinaryHeap, HashMap, HashSet},
+    io::SeekFrom,
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
 
 const INDEX_PATH: &str = "texture-streaming.json";
-const MAX_IN_FLIGHT: usize = 2;
+const MAX_IN_FLIGHT: usize = 4;
+const MAX_PENDING_REQUESTS: usize = 8;
+const BUFFERED_READ_BYTES: u64 = 64 * 1024 * 1024;
 const UPLOAD_BYTES_PER_FRAME: u64 = 8 * 1024 * 1024;
-const IDLE_POOL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum DemandClass {
+    Foreground,
+    Camera,
+    Indirect,
+    Prefetch,
+    Idle,
+}
+// Separate read/upload cursors reserve progress for every active producer.
+// Empty classes lend their slots; persistent per-image age orders each class.
+const SERVICE: [DemandClass; 6] = [
+    DemandClass::Foreground,
+    DemandClass::Camera,
+    DemandClass::Foreground,
+    DemandClass::Camera,
+    DemandClass::Indirect,
+    DemandClass::Prefetch,
+];
+struct Candidate {
+    id: AssetId<Image>,
+    class: DemandClass,
+    since: f64,
+    bytes: u64,
+    promotion: bool,
+    uri: String,
+    coverage: f32,
+    gpu_bytes: u64,
+}
+fn fair_next(candidates: &mut Vec<Candidate>, cursor: &mut usize) -> Option<Candidate> {
+    for offset in 0..SERVICE.len() {
+        let index = (*cursor + offset) % SERVICE.len();
+        if let Some(position) = candidates
+            .iter()
+            .position(|c| c.promotion && c.class == SERVICE[index])
+        {
+            *cursor = (index + 1) % SERVICE.len();
+            return Some(candidates.remove(position));
+        }
+    }
+    (!candidates.is_empty()).then(|| candidates.remove(0))
+}
+fn order_candidates(candidates: &mut [Candidate]) {
+    candidates.sort_unstable_by(|a, b| {
+        b.promotion
+            .cmp(&a.promotion)
+            .then_with(|| a.class.cmp(&b.class))
+            // Coverage orders current requests within a one-second age bucket;
+            // older buckets always win, retaining bounded FIFO aging.
+            .then_with(|| a.since.floor().total_cmp(&b.since.floor()))
+            .then_with(|| b.coverage.total_cmp(&a.coverage))
+            .then_with(|| a.since.total_cmp(&b.since))
+            .then_with(|| a.uri.cmp(&b.uri))
+    });
+}
 
 #[derive(Deserialize)]
 struct Index {
     version: u32,
     textures: Vec<TextureEntry>,
+    #[serde(default)]
+    meshes: HashMap<String, Vec<SurfaceRegion>>,
+    #[serde(default)]
+    density_policy: Option<DensityPolicy>,
+}
+
+#[derive(Deserialize)]
+struct DensityPolicy {
+    target: f32,
+    pending_textures: Vec<String>,
+    results: Vec<DensityResult>,
+}
+
+#[derive(Deserialize)]
+struct DensityResult {
+    exception: bool,
+}
+
+#[derive(Deserialize)]
+struct SurfaceRegion {
+    center: [f32; 3],
+    half_extents: [f32; 3],
+    textures: HashMap<String, f32>,
+}
+
+struct BoundRegion {
+    center: Vec3,
+    half_extents: Vec3,
+    textures: Vec<(AssetId<Image>, f32)>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -102,6 +200,12 @@ impl TextureEntry {
     fn resident_bytes(&self, mip: usize) -> u64 {
         self.bytes - self.mips[mip].offset
     }
+
+    fn gpu_bytes(&self, mip: usize) -> u64 {
+        // Charge aligned storage plus per-texture padding, not just compressed
+        // payload bytes. Small tails still occupy native allocation space.
+        self.resident_bytes(mip).div_ceil(65536) * 65536 + 65536
+    }
 }
 
 struct Request {
@@ -121,6 +225,13 @@ struct Resident {
     sampler: ImageSampler,
     request: Option<Request>,
     failed: bool,
+    foreground: bool,
+    class: DemandClass,
+    queued_since: Option<f64>,
+    screen_coverage: f32,
+    requested: usize,
+    stabilized: usize,
+    coarser_since: Option<f64>,
 }
 
 impl Resident {
@@ -134,11 +245,20 @@ pub(crate) struct TextureStreams {
     index_task: Option<Task<Result<Option<Index>, String>>>,
     entries: HashMap<String, TextureEntry>,
     residents: HashMap<AssetId<Image>, Resident>,
+    meshes: HashMap<String, Arc<Vec<SurfaceRegion>>>,
+    bound_regions: HashMap<AssetId<Mesh>, Arc<Vec<BoundRegion>>>,
     timer: Timer,
     previous_camera: Option<(Vec3, f64)>,
     enabled: bool,
     evaluated_demand: bool,
     failure: Option<String>,
+    read_cursor: usize,
+    admission_reservation: Option<(AssetId<Image>, usize)>,
+    upload_cursor: usize,
+    upload_reservation: Option<(AssetId<Image>, usize)>,
+    budget: u64,
+    bootstrap_reserve: u64,
+    last_image_count: usize,
 }
 
 impl Default for TextureStreams {
@@ -147,16 +267,40 @@ impl Default for TextureStreams {
             index_task: None,
             entries: HashMap::new(),
             residents: HashMap::new(),
+            meshes: HashMap::new(),
+            bound_regions: HashMap::new(),
             timer: Timer::new(Duration::from_millis(100), TimerMode::Repeating),
             previous_camera: None,
             enabled: false,
             evaluated_demand: false,
             failure: None,
+            read_cursor: 0,
+            admission_reservation: None,
+            upload_cursor: 0,
+            upload_reservation: None,
+            budget: 0,
+            bootstrap_reserve: 0,
+            last_image_count: 0,
         }
     }
 }
 
 impl TextureStreams {
+    pub(crate) fn residency(&self, id: AssetId<Image>) -> Option<serde_json::Value> {
+        let resident = self.residents.get(&id)?;
+        Some(serde_json::json!({
+            "id":format!("{id:?}"), "uri":resident.entry.uri,
+            "full_extent":[resident.entry.width,resident.entry.height],
+            "bootstrap_mip":resident.entry.bootstrap_mip,
+            "resident_mip":resident.mip,"wanted_mip":resident.wanted,
+            "pending_mip":resident.request.as_ref().map(|r|r.mip),
+            "foreground":resident.foreground,
+            "screen_coverage":resident.screen_coverage,
+            "requested_mip":resident.requested,
+            "stabilized_mip":resident.stabilized,
+            "budget_limited":resident.wanted > resident.requested,
+        }))
+    }
     fn fail(&mut self, error: String) {
         self.failure = Some(error);
         self.enabled = false;
@@ -215,17 +359,64 @@ pub(crate) struct TextureMipDescriptor {
 pub(crate) struct TextureStreamingStats {
     pub managed_textures: usize,
     pub resident_mip_bytes: u64,
+    pub resident_gpu_bytes: u64,
+    pub accepted_gpu_bytes: u64,
     pub wanted_mip_bytes: u64,
     pub queued_reads: usize,
     pub uploaded_bytes: u64,
     pub promotions: u64,
     pub demotions: u64,
     pub pending_detail: usize,
+    pub pending_mip_changes: usize,
     pub errors: u32,
     pub lighting_requests: usize,
     pub shadow_requests: usize,
     pub anisotropic_textures: usize,
     pub resident_base_textures: usize,
+    pub material_refreshes: u64,
+    pub standard_refreshes: u64,
+    pub opaque_refreshes: u64,
+    pub diagnostic_refreshes: u64,
+    pub reads_by_class: [u64; 4],
+    pub uploads_by_class: [u64; 4],
+    pub max_read_wait_seconds: [f64; 4],
+    pub buffered_read_bytes: u64,
+    pub peak_buffered_read_bytes: u64,
+    pub active_workers: usize,
+    pub peak_active_workers: usize,
+    pub cancelled_reads: u64,
+    pub pending_by_class: [usize; 4],
+    pub admission_drains: u64,
+    pub upload_deferrals: u64,
+    pub density_bound_meshes: usize,
+    pub evaluated_surface_regions: usize,
+    pub density_target: f32,
+    pub density_capped_textures: usize,
+    pub density_pending_textures: usize,
+    pub adapter: String,
+    pub capacity_source: String,
+    pub detected_vram_bytes: u64,
+    pub residency_budget_bytes: u64,
+    pub bootstrap_reserved_bytes: u64,
+    pub retiring_gpu_bytes: u64,
+    pub replacement_reserved_bytes: u64,
+    pub accounted_gpu_bytes: u64,
+    pub peak_accounted_gpu_bytes: u64,
+    pub naturally_requested_bytes: u64,
+    pub stabilized_requested_bytes: u64,
+    pub budget_limited_textures: usize,
+    pub screen_coverage_sum: f32,
+    pub gpu_budget_drains: u64,
+}
+impl TextureStreamingStats {
+    pub(crate) fn settled(&self) -> bool {
+        self.pending_mip_changes == 0
+            && self.queued_reads == 0
+            && self.active_workers == 0
+            && self.buffered_read_bytes == 0
+            && self.replacement_reserved_bytes == 0
+            && self.retiring_gpu_bytes == 0
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -236,11 +427,10 @@ pub(crate) enum TextureConsumer {
 }
 
 struct PassDemand {
-    mip: usize,
-    valid_until: f64,
+    mips: Vec<(usize, f64)>,
 }
 
-/// Pass producers replace their current requests after each completed batch.
+/// Pass producers retain bounded recent footprints across stochastic batches.
 /// A GPU feedback readback can request full-chain mips using these stable IDs.
 #[derive(Resource, Default)]
 pub(crate) struct TextureStreamingRequests {
@@ -258,28 +448,41 @@ impl TextureStreamingRequests {
         valid_until: f64,
     ) {
         if valid_until.is_finite() {
-            self.requests
-                .insert((id, consumer), PassDemand { mip, valid_until });
+            let request = self
+                .requests
+                .entry((id, consumer))
+                .or_insert_with(|| PassDemand { mips: Vec::new() });
+            if let Some((_, expires)) = request.mips.iter_mut().find(|(level, _)| *level == mip) {
+                *expires = expires.max(valid_until);
+            } else {
+                request.mips.push((mip, valid_until));
+            }
         }
-    }
-
-    pub(crate) fn clear(&mut self, consumer: TextureConsumer) {
-        self.requests.retain(|(_, pass), _| *pass != consumer);
     }
 }
 
 #[derive(Component)]
-struct TextureUse {
-    textures: Vec<AssetId<Image>>,
+pub(crate) struct TextureUse {
+    pub(crate) textures: Vec<AssetId<Image>>,
     coverage: Vec<AssetId<Image>>,
+    regions: Arc<Vec<BoundRegion>>,
 }
+
+/// First-person overlay primitives are late-spawned and cannot wait behind
+/// the world/GI backlog. Visibility still retires inactive owned rigs.
+#[derive(Component)]
+pub(crate) struct ForegroundTexture;
 
 pub(super) struct TextureStreamingPlugin;
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TextureStreamingSet;
 impl Plugin for TextureStreamingPlugin {
     fn build(&self, app: &mut App) {
+        let memory = memory::MemoryLedger::default();
+        app.insert_resource(memory.clone());
         app.init_resource::<TextureStreams>()
+            .init_resource::<memory::Replacements>()
+            .add_plugins(ExtractResourcePlugin::<memory::Replacements>::default())
             .init_resource::<TextureStreamingStats>()
             .init_resource::<TextureStreamingRequests>()
             .add_systems(Startup, start)
@@ -296,14 +499,65 @@ impl Plugin for TextureStreamingPlugin {
                 // Bevy computes visibility after asset events. Publish finished
                 // images above first, then queue next-frame reads from this
                 // frame's camera and shadow footprints without mutating assets.
-                (bind_uses, demand, shadow_demand, pass_demand, schedule)
+                (
+                    bind_uses,
+                    demand,
+                    shadow_demand,
+                    pass_demand,
+                    allocate_detail,
+                    schedule,
+                )
                     .chain()
                     .after(TextureStreamingSet)
                     .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility)
                     .after(bevy::light::SimulationLightSystems::UpdateLightFrusta),
             );
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render
+                .insert_resource(memory)
+                .init_resource::<memory::RetiringTextures>()
+                .init_resource::<memory::MaterialImages>()
+                .init_resource::<memory::MatchedReplacements>()
+                .add_systems(
+                    Render,
+                    (
+                        memory::invalidate_material_bindings,
+                        memory::capture_replaced,
+                    )
+                        .chain()
+                        .in_set(RenderSystems::PrepareAssets)
+                        .before(prepare_assets::<GpuImage>)
+                        .before(prepare_erased_assets::<MeshMaterial3d<StandardMaterial>>)
+                        .before(
+                            prepare_erased_assets::<MeshMaterial3d<super::opaque::OpaqueMaterial>>,
+                        )
+                        .before(
+                            prepare_erased_assets::<MeshMaterial3d<super::pbr::DiagnosticMaterial>>,
+                        ),
+                )
+                .add_systems(
+                    Render,
+                    memory::release_completed.in_set(RenderSystems::Cleanup),
+                );
+            render.add_systems(
+                Render,
+                uploaded_images_ready
+                    .in_set(RenderSystems::PrepareAssets)
+                    .after(prepare_assets::<GpuImage>)
+                    .before(prepare_erased_assets::<MeshMaterial3d<StandardMaterial>>)
+                    .before(prepare_erased_assets::<MeshMaterial3d<super::opaque::OpaqueMaterial>>)
+                    .before(
+                        prepare_erased_assets::<MeshMaterial3d<super::pbr::DiagnosticMaterial>>,
+                    ),
+            );
+        }
     }
 }
+
+// Bevy's erased material plugin has no GpuImage preparation dependency. Keep
+// the existing native systems ordered so a same-frame material refresh binds
+// the replacement view, rather than the previous mip tail's valid GPU view.
+fn uploaded_images_ready() {}
 
 fn report_failure(
     streams: Res<TextureStreams>,
@@ -319,7 +573,29 @@ fn report_failure(
     }
 }
 
-fn start(server: Res<AssetServer>, mut streams: ResMut<TextureStreams>) {
+fn start(
+    server: Res<AssetServer>,
+    adapter: Res<RenderAdapterInfo>,
+    mut streams: ResMut<TextureStreams>,
+    mut stats: ResMut<TextureStreamingStats>,
+) {
+    let capacity = match memory::detect(&adapter) {
+        Ok(capacity) => capacity,
+        Err(error) => {
+            stats.errors += 1;
+            streams.fail(error.to_string());
+            return;
+        }
+    };
+    stats.adapter = adapter.name.clone();
+    stats.capacity_source = capacity.source.into();
+    stats.detected_vram_bytes = capacity.bytes;
+    streams.budget = capacity.bytes / 4 * 3;
+    stats.residency_budget_bytes = streams.budget;
+    info!(
+        "Texture VRAM: {} dedicated bytes; {} byte hard cap on {}",
+        capacity.bytes, streams.budget, adapter.name
+    );
     let server = server.clone();
     streams.index_task = Some(IoTaskPool::get().spawn(async move {
         let source = server
@@ -336,11 +612,36 @@ fn start(server: Res<AssetServer>, mut streams: ResMut<TextureStreams>) {
             .await
             .map_err(|e| e.to_string())?;
         let index: Index = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-        if index.version != 1 {
+        if !matches!(index.version, 1 | 2) {
             return Err("Unsupported texture streaming index".into());
         }
         for entry in &index.textures {
             entry.validate()?;
+        }
+        let texture_uris: HashSet<_> = index
+            .textures
+            .iter()
+            .map(|entry| entry.uri.as_str())
+            .collect();
+        for (mesh, regions) in &index.meshes {
+            if !mesh.contains("#Mesh") || !mesh.contains("/Primitive") {
+                return Err(format!("Invalid surface density mesh: {mesh}"));
+            }
+            for region in regions {
+                if region.center.iter().any(|v| !v.is_finite())
+                    || region
+                        .half_extents
+                        .iter()
+                        .any(|v| !v.is_finite() || *v < 0.)
+                    || region.textures.iter().any(|(uri, density)| {
+                        !density.is_finite()
+                            || *density < 0.
+                            || !texture_uris.contains(uri.as_str())
+                    })
+                {
+                    return Err(format!("Invalid surface density region: {mesh}"));
+                }
+            }
         }
         Ok(Some(index))
     }));
@@ -356,6 +657,31 @@ fn receive_index(mut streams: ResMut<TextureStreams>, mut stats: ResMut<TextureS
     streams.index_task = None;
     match result {
         Ok(Some(index)) => {
+            if let Some(policy) = &index.density_policy {
+                stats.density_target = policy.target;
+                stats.density_capped_textures = policy
+                    .results
+                    .iter()
+                    .filter(|result| result.exception)
+                    .count();
+                stats.density_pending_textures = policy.pending_textures.len();
+                info!(
+                    "Prepared density target: {} texels/m, {} capped exceptions, {} pending maps",
+                    stats.density_target,
+                    stats.density_capped_textures,
+                    stats.density_pending_textures
+                );
+                if stats.density_pending_textures > 0 {
+                    warn!(
+                        "This is a partial texture qualification pack; the density migration is incomplete"
+                    );
+                }
+            }
+            streams.meshes = index
+                .meshes
+                .into_iter()
+                .map(|(key, regions)| (key, Arc::new(regions)))
+                .collect();
             for entry in index.textures {
                 if streams.entries.insert(entry.uri.clone(), entry).is_some() {
                     error!("Duplicate streamed texture URI");
@@ -366,6 +692,24 @@ fn receive_index(mut streams: ResMut<TextureStreams>, mut stats: ResMut<TextureS
                 }
             }
             streams.enabled = !streams.entries.is_empty();
+            streams.bootstrap_reserve = streams
+                .entries
+                .values()
+                .map(|entry| entry.gpu_bytes(entry.bootstrap_mip))
+                .sum();
+            let minimum_replacement = streams
+                .entries
+                .values()
+                .map(|entry| entry.gpu_bytes(entry.mips.len() - 1))
+                .max()
+                .unwrap_or(0);
+            if streams.bootstrap_reserve + minimum_replacement > streams.budget {
+                stats.errors += 1;
+                streams.fail(
+                    "Required native texture bootstraps and minimum replacement exceed the detected VRAM budget".into(),
+                );
+                return;
+            }
             info!(
                 "Texture streaming: {} indexed full mip chains",
                 streams.entries.len()
@@ -399,8 +743,12 @@ fn register_images(
     if !streams.enabled {
         return;
     }
-    let initial = streams.residents.is_empty();
-    let ids = if initial {
+    // Added events are emitted after this system. Catch new image counts here
+    // so a one-axis bootstrap receives its indexed 2D dimension before its
+    // very first native GPU preparation, rather than one frame afterwards.
+    let new_images = streams.residents.is_empty() || streams.last_image_count != images.len();
+    streams.last_image_count = images.len();
+    let ids = if new_images {
         images.ids().collect::<Vec<_>>()
     } else {
         changed
@@ -443,6 +791,8 @@ fn register_images(
         // Bevy retains the descriptor/ID after moving pixel bytes to render.
         // MAIN_WORLD would instead clone and retain a complete CPU mip chain.
         image.asset_usage = RenderAssetUsages::RENDER_WORLD;
+        image.texture_descriptor.dimension = bevy::render::render_resource::TextureDimension::D2;
+        let bootstrap_mip = entry.bootstrap_mip;
         streams.residents.insert(
             id,
             Resident {
@@ -455,6 +805,13 @@ fn register_images(
                 sampler: image.sampler.clone(),
                 request: None,
                 failed: false,
+                foreground: false,
+                class: DemandClass::Idle,
+                queued_since: None,
+                screen_coverage: 0.,
+                requested: bootstrap_mip,
+                stabilized: bootstrap_mip,
+                coarser_since: None,
             },
         );
     }
@@ -462,14 +819,15 @@ fn register_images(
 
 fn bind_uses(
     mut commands: Commands,
-    streams: Res<TextureStreams>,
+    mut streams: ResMut<TextureStreams>,
     server: Res<AssetServer>,
-    unbound: Query<(Entity, &GltfMaterialExtras), Without<TextureUse>>,
+    mut stats: ResMut<TextureStreamingStats>,
+    unbound: Query<(Entity, &GltfMaterialExtras, &Mesh3d), Without<TextureUse>>,
 ) {
     if !streams.enabled {
         return;
     }
-    for (entity, extras) in &unbound {
+    for (entity, extras, mesh) in &unbound {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&extras.value) else {
             continue;
         };
@@ -497,12 +855,50 @@ fn bind_uses(
             }
         }
         if !pending {
+            // A shared map may occupy several native material slots. Count
+            // this primitive's coverage once for its stable Image identity.
+            ids.sort_unstable();
+            ids.dedup();
+            coverage.sort_unstable();
+            coverage.dedup();
+            let regions = if let Some(regions) = streams.bound_regions.get(&mesh.0.id()) {
+                regions.clone()
+            } else {
+                let path = server.get_path(mesh.0.id()).map(|path| path.to_string());
+                let regions = path.as_ref().and_then(|path| streams.meshes.get(path));
+                let bound = Arc::new(regions.map_or_else(Vec::new, |regions| {
+                    regions
+                        .iter()
+                        .map(|region| BoundRegion {
+                            center: Vec3::from_array(region.center),
+                            half_extents: Vec3::from_array(region.half_extents),
+                            textures: region
+                                .textures
+                                .iter()
+                                .filter_map(|(uri, density)| {
+                                    server
+                                        .get_handle::<Image>(uri.clone())
+                                        .map(|handle| (handle.id(), *density))
+                                })
+                                .collect(),
+                        })
+                        .collect()
+                }));
+                streams.bound_regions.insert(mesh.0.id(), bound.clone());
+                bound
+            };
             commands.entity(entity).insert(TextureUse {
                 textures: ids,
                 coverage,
+                regions,
             });
         }
     }
+    stats.density_bound_meshes = streams
+        .bound_regions
+        .values()
+        .filter(|regions| !regions.is_empty())
+        .count();
 }
 
 fn demand(
@@ -510,19 +906,30 @@ fn demand(
     mut streams: ResMut<TextureStreams>,
     state: Res<State<crate::GameState>>,
     definition: Option<Res<crate::assets::GameDefinition>>,
-    cameras: Query<(&GlobalTransform, &Projection, &Camera), With<super::GameCamera>>,
+    mut stats: ResMut<TextureStreamingStats>,
+    cameras: Query<
+        (&GlobalTransform, &Projection, &Camera, &VisibleEntities),
+        With<super::GameCamera>,
+    >,
+    overlays: Query<
+        (&GlobalTransform, &Projection, &Camera),
+        With<crate::presentation::ViewModelCamera>,
+    >,
     geometry: Query<(
+        Entity,
         &TextureUse,
         &GlobalTransform,
         Option<&Aabb>,
-        Option<&ViewVisibility>,
+        Option<&InheritedVisibility>,
+        Has<ForegroundTexture>,
+        Has<bevy::mesh::skinning::SkinnedMesh>,
     )>,
 ) {
     if !streams.enabled || !streams.timer.tick(time.delta()).just_finished() {
         return;
     }
     let _span = info_span!("texture_streaming_demand").entered();
-    let Ok((camera_pose, projection, camera)) = cameras.single() else {
+    let Ok((camera_pose, projection, camera, visible_entities)) = cameras.single() else {
         return;
     };
     let Projection::Perspective(projection) = projection else {
@@ -544,31 +951,183 @@ fn demand(
     streams.previous_camera = Some((position, now));
     let predicted = position + velocity * 0.75;
     let focal = viewport.y as f32 / (2. * (projection.fov * 0.5).tan());
-    // No material gets an unconditional authored-resolution residency floor.
-    // Each consumer requests its real footprint, including offscreen GI hits.
+    let overlay = overlays
+        .single()
+        .ok()
+        .and_then(|(pose, projection, camera)| {
+            if let Projection::Perspective(projection) = projection {
+                Some((pose, projection, camera.physical_viewport_size()?))
+            } else {
+                None
+            }
+        });
+    let camera_meshes: HashSet<_> = visible_entities
+        .get(std::any::TypeId::of::<Mesh3d>())
+        .iter()
+        .copied()
+        .collect();
+    // World consumers request their footprint, including offscreen GI hits.
+    // Visible overlay rigs are close-view consumers of their complete maps.
     for resident in streams.residents.values_mut() {
-        resident.wanted = resident.entry.mips.len() - 1;
+        resident.requested = resident.entry.mips.len() - 1;
+        resident.foreground = false;
+        resident.class = DemandClass::Idle;
+        resident.screen_coverage = 0.;
     }
     let mut bound_geometry = false;
-    for (usage, pose, bounds, visible) in &geometry {
+    let mut evaluated_regions = 0;
+    for (entity, usage, pose, bounds, inherited, foreground, skinned) in &geometry {
         bound_geometry |= !usage.textures.is_empty();
-        let center = bounds.map_or(pose.translation(), |aabb| {
-            pose.transform_point(aabb.center.into())
-        });
-        let radius = bounds.map_or(1., |aabb| {
-            // Transform the complete bounds, including nonuniform/sheared
-            // ancestors, before estimating the nearest possible surface.
-            (pose.affine().matrix3.abs() * aabb.half_extents).length()
-        });
-        let distance = ((center - position)
-            .length()
-            .min((center - predicted).length())
-            - radius
-            - 2.)
+        if **state != crate::GameState::Loading
+            && inherited.is_some_and(|visibility| !visibility.get())
+        {
+            continue;
+        }
+        let class = if foreground {
+            DemandClass::Foreground
+        } else if camera_meshes.contains(&entity) || **state == crate::GameState::Loading {
+            DemandClass::Camera
+        } else {
+            DemandClass::Prefetch
+        };
+        if foreground {
+            // Native skinned bounds reflect this frame's posed primitive.
+            // Offline density-region boxes are in the bind pose and cannot
+            // estimate animated hands' actual projected coverage.
+            let center = bounds.map_or(Vec3::ZERO, |aabb| aabb.center.into());
+            let half = bounds.map_or(Vec3::ONE, |aabb| aabb.half_extents.into());
+            let (view_pose, view_projection, _) =
+                overlay.unwrap_or((camera_pose, projection, viewport));
+            let coverage = screen_fraction(pose, center, half, view_pose, view_projection);
+            evaluated_regions += usage.regions.len();
+            for id in &usage.textures {
+                if let Some(resident) = streams.residents.get_mut(id) {
+                    resident.requested = 0;
+                    resident.foreground = true;
+                    resident.class = DemandClass::Foreground;
+                    resident.last_demand = now;
+                    resident.screen_coverage = (resident.screen_coverage + coverage).min(1.);
+                }
+            }
+            continue;
+        }
+        if skinned && !usage.regions.is_empty() {
+            // Skinning moves triangles outside their offline bind-pose cells.
+            // Use native posed bounds once per primitive/Image for coverage,
+            // with the finest authored local sampling density for its maps.
+            let center = bounds.map_or(Vec3::ZERO, |aabb| aabb.center.into());
+            let half = bounds.map_or(Vec3::ONE, |aabb| aabb.half_extents.into());
+            let distance = surface_distance(pose, center, half, position)
+                .min(surface_distance(pose, center, half, predicted))
+                .max(0.05);
+            if class == DemandClass::Prefetch && distance > 15. {
+                continue;
+            }
+            let coverage = if class == DemandClass::Camera {
+                screen_fraction(pose, center, half, camera_pose, projection)
+            } else {
+                0.
+            };
+            let scale = transform_scale(pose);
+            let mut densities: HashMap<AssetId<Image>, f32> = HashMap::new();
+            for region in usage.regions.iter() {
+                for (id, density) in &region.textures {
+                    densities
+                        .entry(*id)
+                        .and_modify(|previous| *previous = previous.min(*density))
+                        .or_insert(*density);
+                }
+            }
+            evaluated_regions += usage.regions.len();
+            for (id, density) in densities {
+                let Some(resident) = streams.residents.get_mut(&id) else {
+                    continue;
+                };
+                let density = density / scale;
+                let mip = if resident.requires_base_mip() || density <= 0. {
+                    0
+                } else {
+                    (density * distance / (focal * 2.)).log2().floor().max(0.) as usize
+                }
+                .min(resident.entry.mips.len() - 1);
+                resident.requested = resident.requested.min(mip);
+                resident.class = resident.class.min(class);
+                resident.last_demand = now;
+                resident.screen_coverage = (resident.screen_coverage + coverage).min(1.);
+            }
+            continue;
+        }
+        if !usage.regions.is_empty() {
+            // sqrt(||A||1 * ||A||inf) bounds the largest singular scale,
+            // including shear; rotation can conservatively increase demand.
+            let scale = transform_scale(pose);
+            for region in usage.regions.iter() {
+                let distance = surface_distance(pose, region.center, region.half_extents, position)
+                    .min(surface_distance(
+                        pose,
+                        region.center,
+                        region.half_extents,
+                        predicted,
+                    ))
+                    .max(0.05);
+                let (view_pose, view_projection, _) = if foreground {
+                    overlay.unwrap_or((camera_pose, projection, viewport))
+                } else {
+                    (camera_pose, projection, viewport)
+                };
+                let coverage = if foreground || class == DemandClass::Camera {
+                    screen_fraction(
+                        pose,
+                        region.center,
+                        region.half_extents,
+                        view_pose,
+                        view_projection,
+                    )
+                } else {
+                    0.
+                };
+                if !foreground && !camera_meshes.contains(&entity) && distance > 15. {
+                    continue;
+                }
+                evaluated_regions += 1;
+                for (id, local_density) in &region.textures {
+                    let Some(resident) = streams.residents.get_mut(id) else {
+                        continue;
+                    };
+                    let density = local_density / scale;
+                    let mip = if foreground || resident.requires_base_mip() || density <= 0. {
+                        0
+                    } else {
+                        (density * distance / (focal * 2.)).log2().floor().max(0.) as usize
+                    }
+                    .min(resident.entry.mips.len() - 1);
+                    resident.requested = resident.requested.min(mip);
+                    resident.foreground |= foreground;
+                    resident.class = resident.class.min(class);
+                    resident.last_demand = now;
+                    resident.screen_coverage = (resident.screen_coverage + coverage).min(1.);
+                }
+            }
+            continue;
+        }
+        let center = bounds.map_or(Vec3::ZERO, |aabb| aabb.center.into());
+        let half_extents = bounds.map_or(Vec3::ONE, |aabb| aabb.half_extents.into());
+        let distance = surface_distance(pose, center, half_extents, position)
+            .min(surface_distance(pose, center, half_extents, predicted))
             .max(0.05);
+        let (view_pose, view_projection, _) = if foreground {
+            overlay.unwrap_or((camera_pose, projection, viewport))
+        } else {
+            (camera_pose, projection, viewport)
+        };
+        let coverage = if foreground || class == DemandClass::Camera {
+            screen_fraction(pose, center, half_extents, view_pose, view_projection)
+        } else {
+            0.
+        };
         // Offscreen consumers add their own footprints below. Movement-prefetch
         // keeps nearby surfaces ready before they enter the camera view.
-        if visible.is_some_and(|v| !v.get()) && distance > 15. {
+        if !foreground && !camera_meshes.contains(&entity) && distance > 15. {
             continue;
         }
         let pixels_per_meter = focal / distance * 2.;
@@ -578,17 +1137,117 @@ fn demand(
             };
             let density = resident.entry.texels_per_meter;
             let no_mips = resident.requires_base_mip();
-            let mip = if no_mips || density <= 0. || distance < 1. {
+            let mip = if foreground || no_mips || density <= 0. || distance < 1. {
                 0
             } else {
                 (density / pixels_per_meter).log2().floor().max(0.) as usize
             }
             .min(resident.entry.mips.len() - 1);
-            resident.wanted = resident.wanted.min(mip);
+            resident.requested = resident.requested.min(mip);
+            resident.foreground |= foreground;
+            let class = if foreground {
+                DemandClass::Foreground
+            } else if camera_meshes.contains(&entity) || **state == crate::GameState::Loading {
+                DemandClass::Camera
+            } else {
+                DemandClass::Prefetch
+            };
+            resident.class = resident.class.min(class);
             resident.last_demand = now;
+            resident.screen_coverage = (resident.screen_coverage + coverage).min(1.);
         }
     }
     streams.evaluated_demand = bound_geometry || streams.entries.is_empty();
+    stats.evaluated_surface_regions = evaluated_regions;
+}
+
+fn transform_scale(pose: &GlobalTransform) -> f32 {
+    let matrix = pose.affine().matrix3.abs();
+    let rows = matrix * Vec3A::ONE;
+    let columns = Vec3A::new(
+        matrix.x_axis.element_sum(),
+        matrix.y_axis.element_sum(),
+        matrix.z_axis.element_sum(),
+    );
+    (rows.max_element() * columns.max_element())
+        .sqrt()
+        .max(0.00001)
+}
+
+/// Distance to a region's actual local box, transformed conservatively under
+/// nonuniform scale/shear. A large floor cell's enclosing sphere must not make
+/// a surface several meters away request the closest possible texel footprint.
+fn surface_distance(pose: &GlobalTransform, center: Vec3, half: Vec3, camera: Vec3) -> f32 {
+    let inverse = pose.affine().inverse();
+    let local = Vec3::from(inverse.transform_point3a(camera.into()));
+    let outside = ((local - center).abs() - half).max(Vec3::ZERO).length();
+    let matrix = inverse.matrix3.abs();
+    let rows = matrix * Vec3A::ONE;
+    let columns = Vec3A::new(
+        matrix.x_axis.element_sum(),
+        matrix.y_axis.element_sum(),
+        matrix.z_axis.element_sum(),
+    );
+    outside
+        / (rows.max_element() * columns.max_element())
+            .sqrt()
+            .max(0.00001)
+}
+
+/// Clipped projected bounding-box area / viewport area. Shared uses of an Image
+/// accumulate coverage once per region and clamp to one; this is a conservative
+/// coverage estimate rather than a GPU pixel-count/occlusion readback.
+fn screen_fraction(
+    pose: &GlobalTransform,
+    center: Vec3,
+    half: Vec3,
+    camera: &GlobalTransform,
+    projection: &PerspectiveProjection,
+) -> f32 {
+    let inverse = camera.affine().inverse();
+    let tangent = (projection.fov * 0.5).tan();
+    let mut low = Vec2::ONE;
+    let mut high = -Vec2::ONE;
+    let mut points = Vec::with_capacity(8);
+    for x in [-1., 1.] {
+        for y in [-1., 1.] {
+            for z in [-1., 1.] {
+                let world = pose.transform_point(center + half * Vec3::new(x, y, z));
+                let point = inverse.transform_point3a(world.into());
+                points.push(Vec3::from(point));
+            }
+        }
+    }
+    let mut clipped: Vec<_> = points
+        .iter()
+        .copied()
+        .filter(|point| point.z <= -projection.near)
+        .collect();
+    for index in 0..8 {
+        for axis in [1, 2, 4] {
+            let other = index ^ axis;
+            if other <= index {
+                continue;
+            }
+            let (a, b) = (points[index], points[other]);
+            if (a.z < -projection.near) != (b.z < -projection.near) {
+                clipped.push(a.lerp(b, (-projection.near - a.z) / (b.z - a.z)));
+            }
+        }
+    }
+    if clipped.is_empty() {
+        return 0.;
+    }
+    for point in clipped {
+        let ndc = Vec2::new(
+            point.x / (-point.z * tangent * projection.aspect_ratio),
+            point.y / (-point.z * tangent),
+        )
+        .clamp(-Vec2::ONE, Vec2::ONE);
+        low = low.min(ndc);
+        high = high.max(ndc);
+    }
+    ((high - low).max(Vec2::ZERO).element_product() * 0.25).clamp(0., 1.)
 }
 
 fn pass_demand(
@@ -598,18 +1257,27 @@ fn pass_demand(
     mut stats: ResMut<TextureStreamingStats>,
 ) {
     let now = time.elapsed_secs_f64();
-    requests
-        .requests
-        .retain(|_, request| request.valid_until >= now);
+    requests.requests.retain(|_, request| {
+        request.mips.retain(|(_, expires)| *expires >= now);
+        !request.mips.is_empty()
+    });
     stats.lighting_requests = requests.requests.len();
     for ((id, _), request) in &requests.requests {
         if let Some(resident) = streams.residents.get_mut(id) {
             let mip = if resident.requires_base_mip() {
                 0
             } else {
-                request.mip
+                request
+                    .mips
+                    .iter()
+                    .map(|(mip, _)| *mip)
+                    .min()
+                    .expect("Live pass footprints")
             };
-            resident.wanted = resident.wanted.min(mip.min(resident.entry.mips.len() - 1));
+            resident.requested = resident
+                .requested
+                .min(mip.min(resident.entry.mips.len() - 1));
+            resident.class = resident.class.min(DemandClass::Indirect);
             resident.last_demand = now;
         }
     }
@@ -619,7 +1287,16 @@ fn shadow_demand(
     time: Res<Time<Real>>,
     mut streams: ResMut<TextureStreams>,
     mut stats: ResMut<TextureStreamingStats>,
-    geometry: Query<(&TextureUse, &GlobalTransform, Option<&Aabb>), Without<NotShadowCaster>>,
+    geometry: Query<
+        (
+            &TextureUse,
+            &GlobalTransform,
+            Option<&Aabb>,
+            Option<&InheritedVisibility>,
+            Has<bevy::mesh::skinning::SkinnedMesh>,
+        ),
+        Without<NotShadowCaster>,
+    >,
     directional: Query<(&DirectionalLight, &Cascades)>,
     points: Query<(&PointLight, &GlobalTransform, Option<&ViewVisibility>)>,
     spots: Query<(&SpotLight, &GlobalTransform, Option<&ViewVisibility>)>,
@@ -632,71 +1309,286 @@ fn shadow_demand(
     let _span = info_span!("texture_streaming_shadows").entered();
     let now = time.elapsed_secs_f64();
     let mut requested = 0;
-    for (usage, pose, bounds) in &geometry {
-        if usage.coverage.is_empty() {
+    for (usage, pose, bounds, inherited, skinned) in &geometry {
+        if usage.coverage.is_empty() || inherited.is_some_and(|visibility| !visibility.get()) {
             continue;
         }
-        let center = bounds.map_or(pose.translation(), |aabb| {
-            pose.transform_point(aabb.center.into())
-        });
-        let radius = bounds.map_or(1., |aabb| {
-            (pose.affine().matrix3.abs() * aabb.half_extents).length()
-        });
-        let mut pixels_per_meter: f32 = 0.;
-        for (light, cascades) in &directional {
-            if !light.shadow_maps_enabled {
-                continue;
-            }
-            for cascade in cascades.cascades.values().flatten() {
-                let clip = cascade.clip_from_world.project_point3(center);
-                let rx = cascade.clip_from_world.row(0).truncate().length() * radius;
-                let ry = cascade.clip_from_world.row(1).truncate().length() * radius;
-                if clip.x.abs() <= 1. + rx && clip.y.abs() <= 1. + ry {
-                    pixels_per_meter = pixels_per_meter.max(2. / cascade.texel_size.max(0.00001));
+        let matrix = pose.affine().matrix3.abs();
+        let scale = transform_scale(pose);
+        let posed_regions = skinned && !usage.regions.is_empty();
+        let fallback = if posed_regions {
+            let mut densities: HashMap<AssetId<Image>, f32> = HashMap::new();
+            for region in usage.regions.iter() {
+                for (id, density) in &region.textures {
+                    densities
+                        .entry(*id)
+                        .and_modify(|previous| *previous = previous.min(*density))
+                        .or_insert(*density);
                 }
             }
-        }
-        for (light, pose, visible) in &points {
-            if !light.shadow_maps_enabled || visible.is_some_and(|v| !v.get()) {
+            densities
+                .into_iter()
+                .map(|(id, density)| (id, density / scale))
+                .collect::<Vec<_>>()
+        } else if usage.regions.is_empty() {
+            usage
+                .coverage
+                .iter()
+                .filter_map(|id| {
+                    streams
+                        .residents
+                        .get(id)
+                        .map(|resident| (*id, resident.entry.texels_per_meter))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        for region in usage
+            .regions
+            .iter()
+            .filter(|_| !posed_regions)
+            .map(Some)
+            .chain((usage.regions.is_empty() || posed_regions).then_some(None))
+        {
+            let center = region.map_or_else(
+                || {
+                    bounds.map_or(pose.translation(), |aabb| {
+                        pose.transform_point(aabb.center.into())
+                    })
+                },
+                |region| pose.transform_point(region.center),
+            );
+            let radius = region.map_or_else(
+                || {
+                    bounds.map_or(1., |aabb| {
+                        (pose.affine().matrix3.abs() * aabb.half_extents).length()
+                    })
+                },
+                |region| (matrix * Vec3A::from(region.half_extents)).length(),
+            );
+            let mut pixels_per_meter: f32 = 0.;
+            for (light, cascades) in &directional {
+                if !light.shadow_maps_enabled {
+                    continue;
+                }
+                for cascade in cascades.cascades.values().flatten() {
+                    let clip = cascade.clip_from_world.project_point3(center);
+                    let rx = cascade.clip_from_world.row(0).truncate().length() * radius;
+                    let ry = cascade.clip_from_world.row(1).truncate().length() * radius;
+                    if clip.x.abs() <= 1. + rx && clip.y.abs() <= 1. + ry {
+                        pixels_per_meter =
+                            pixels_per_meter.max(2. / cascade.texel_size.max(0.00001));
+                    }
+                }
+            }
+            for (light, pose, visible) in &points {
+                if !light.shadow_maps_enabled || visible.is_some_and(|v| !v.get()) {
+                    continue;
+                }
+                let distance = ((pose.translation() - center).length() - radius).max(0.05);
+                if distance < light.range {
+                    pixels_per_meter = pixels_per_meter.max(point_map.size as f32 / distance);
+                }
+            }
+            for (light, pose, visible) in &spots {
+                if !light.shadow_maps_enabled || visible.is_some_and(|v| !v.get()) {
+                    continue;
+                }
+                let distance = ((pose.translation() - center).length() - radius).max(0.05);
+                if distance < light.range {
+                    pixels_per_meter = pixels_per_meter.max(
+                        directional_map.size as f32
+                            / (distance * light.outer_angle.tan()).max(0.05),
+                    );
+                }
+            }
+            if pixels_per_meter <= 0. {
                 continue;
             }
-            let distance = ((pose.translation() - center).length() - radius).max(0.05);
-            if distance < light.range {
-                pixels_per_meter = pixels_per_meter.max(point_map.size as f32 / distance);
+            let textures = region.map_or(fallback.as_slice(), |region| region.textures.as_slice());
+            for (id, local_density) in textures {
+                if !usage.coverage.contains(id) {
+                    continue;
+                }
+                let Some(resident) = streams.residents.get_mut(id) else {
+                    continue;
+                };
+                let density = if region.is_some() {
+                    local_density / scale
+                } else {
+                    *local_density
+                };
+                let no_mips = resident.requires_base_mip();
+                let mip = if no_mips || density <= 0. {
+                    0
+                } else {
+                    (density / pixels_per_meter).log2().floor().max(0.) as usize
+                }
+                .min(resident.entry.mips.len() - 1);
+                resident.requested = resident.requested.min(mip);
+                resident.class = resident.class.min(DemandClass::Indirect);
+                resident.last_demand = now;
+                requested += 1;
             }
-        }
-        for (light, pose, visible) in &spots {
-            if !light.shadow_maps_enabled || visible.is_some_and(|v| !v.get()) {
-                continue;
-            }
-            let distance = ((pose.translation() - center).length() - radius).max(0.05);
-            if distance < light.range {
-                pixels_per_meter = pixels_per_meter.max(
-                    directional_map.size as f32 / (distance * light.outer_angle.tan()).max(0.05),
-                );
-            }
-        }
-        if pixels_per_meter <= 0. {
-            continue;
-        }
-        for id in &usage.coverage {
-            let Some(resident) = streams.residents.get_mut(id) else {
-                continue;
-            };
-            let density = resident.entry.texels_per_meter;
-            let no_mips = resident.requires_base_mip();
-            let mip = if no_mips || density <= 0. {
-                0
-            } else {
-                (density / pixels_per_meter).log2().floor().max(0.) as usize
-            }
-            .min(resident.entry.mips.len() - 1);
-            resident.wanted = resident.wanted.min(mip);
-            resident.last_demand = now;
-            requested += 1;
         }
     }
     stats.shadow_requests = requested;
+}
+
+struct DetailStep {
+    id: AssetId<Image>,
+    mip: usize,
+    bytes: u64,
+    score: f64,
+    uri: String,
+}
+impl PartialEq for DetailStep {
+    fn eq(&self, other: &Self) -> bool {
+        self.score == other.score && self.uri == other.uri && self.mip == other.mip
+    }
+}
+impl Eq for DetailStep {}
+impl PartialOrd for DetailStep {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for DetailStep {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.score
+            .total_cmp(&other.score)
+            .then_with(|| other.uri.cmp(&self.uri))
+            .then_with(|| self.mip.cmp(&other.mip))
+    }
+}
+fn detail_step(id: AssetId<Image>, resident: &Resident, mip: usize, previous: usize) -> DetailStep {
+    let coverage = (resident.screen_coverage * 64.).ceil() / 64.;
+    let priority = match resident.class {
+        DemandClass::Foreground => 1024. * coverage.max(0.02),
+        DemandClass::Camera => 16. * coverage.max(0.001),
+        DemandClass::Indirect => 2.,
+        DemandClass::Prefetch => 0.5,
+        DemandClass::Idle => 0.01,
+    };
+    let bytes = resident.entry.gpu_bytes(mip) - resident.entry.gpu_bytes(mip + 1);
+    // Diminishing projected detail benefit per additional allocated byte.
+    // Quantized coverage and a small residency preference avoid boundary churn.
+    let benefit = 2_f64.powi(-((mip - resident.stabilized) as i32));
+    let retained = if mip >= previous { 1.05 } else { 1. };
+    DetailStep {
+        id,
+        mip,
+        bytes,
+        score: f64::from(priority) * benefit * retained / bytes.max(1) as f64,
+        uri: resident.entry.uri.clone(),
+    }
+}
+
+/// Select native mip tails under the capacity cap without discarding authored
+/// levels. Camera coverage and producer/action importance determine allocation;
+/// weighted FIFO determines bounded transfer progress independently afterwards.
+fn allocate_detail(
+    time: Res<Time<Real>>,
+    mut streams: ResMut<TextureStreams>,
+    mut stats: ResMut<TextureStreamingStats>,
+) {
+    if !streams.enabled {
+        return;
+    }
+    let registered_bootstraps: u64 = streams
+        .residents
+        .values()
+        .map(|resident| resident.entry.gpu_bytes(resident.entry.bootstrap_mip))
+        .sum();
+    let unregistered = streams
+        .bootstrap_reserve
+        .saturating_sub(registered_bootstraps);
+    // Charge one complete accepted replacement while the old allocation is
+    // in submitted work. Reserve accepted tails, rather than an unaffordable
+    // full source map; small adapters can still allocate useful native mips.
+    let limit = streams.budget.saturating_sub(unregistered);
+    stats.bootstrap_reserved_bytes = unregistered;
+    stats.naturally_requested_bytes = streams
+        .residents
+        .values()
+        .map(|resident| resident.entry.resident_bytes(resident.requested))
+        .sum();
+    stats.screen_coverage_sum = streams
+        .residents
+        .values()
+        .map(|resident| resident.screen_coverage)
+        .sum();
+    let mut selected: u64 = 0;
+    let mut largest_replacement: u64 = 0;
+    let mut improvements = BinaryHeap::new();
+    let previous: HashMap<_, _> = streams
+        .residents
+        .iter()
+        .map(|(id, resident)| (*id, resident.wanted))
+        .collect();
+    for (id, resident) in streams.residents.iter_mut() {
+        // Admit finer footprints immediately. A single missed stochastic hit
+        // or delayed readback must not demote a useful allocation. Retire the
+        // held target only after continuously coarser demand for four seconds;
+        // budget selection may trim it immediately at its current importance.
+        if resident.requested <= resident.stabilized {
+            resident.stabilized = resident.requested;
+            resident.coarser_since = None;
+        } else {
+            let since = resident
+                .coarser_since
+                .get_or_insert(time.elapsed_secs_f64());
+            if time.elapsed_secs_f64() - *since >= 4. {
+                resident.stabilized = resident.requested;
+                resident.coarser_since = None;
+            }
+        }
+        resident.wanted = resident.entry.mips.len() - 1;
+        selected += resident.entry.gpu_bytes(resident.wanted);
+        largest_replacement = largest_replacement.max(resident.entry.gpu_bytes(resident.wanted));
+        if resident.wanted > resident.stabilized {
+            improvements.push(detail_step(
+                *id,
+                resident,
+                resident.wanted - 1,
+                previous[id],
+            ));
+        }
+    }
+    while let Some(step) = improvements.pop() {
+        let replacement =
+            largest_replacement.max(streams.residents[&step.id].entry.gpu_bytes(step.mip));
+        if selected + step.bytes + replacement > limit {
+            continue;
+        }
+        selected += step.bytes;
+        largest_replacement = replacement;
+        let resident = streams
+            .residents
+            .get_mut(&step.id)
+            .expect("Allocated texture resident");
+        resident.wanted = step.mip;
+        if step.mip > resident.stabilized {
+            improvements.push(detail_step(
+                step.id,
+                resident,
+                step.mip - 1,
+                previous[&step.id],
+            ));
+        }
+    }
+    stats.budget_limited_textures = streams
+        .residents
+        .values()
+        .filter(|resident| resident.wanted > resident.requested)
+        .count();
+    stats.accepted_gpu_bytes = selected;
+    stats.stabilized_requested_bytes = streams
+        .residents
+        .values()
+        .map(|resident| resident.entry.resident_bytes(resident.stabilized))
+        .sum();
 }
 
 fn upload(
@@ -704,6 +1596,11 @@ fn upload(
     mut streams: ResMut<TextureStreams>,
     mut stats: ResMut<TextureStreamingStats>,
     mut images: ResMut<Assets<Image>>,
+    mut standard: ResMut<Assets<StandardMaterial>>,
+    mut opaque: ResMut<Assets<super::opaque::OpaqueMaterial>>,
+    mut diagnostic: ResMut<Assets<super::pbr::DiagnosticMaterial>>,
+    memory: Res<memory::MemoryLedger>,
+    mut replacements: ResMut<memory::Replacements>,
 ) {
     if !streams.enabled {
         return;
@@ -711,16 +1608,28 @@ fn upload(
     let _span = info_span!("texture_streaming_upload").entered();
     let mut frame_bytes = 0;
     let mut failure = None;
-    for (id, resident) in &mut streams.residents {
+    let mut replaced = HashSet::new();
+    let active: Vec<_> = streams
+        .residents
+        .iter()
+        .filter(|(_, resident)| resident.request.is_some())
+        .map(|(id, _)| *id)
+        .collect();
+    for id in active {
+        let resident = streams
+            .residents
+            .get_mut(&id)
+            .expect("Active texture request");
         let Some(request) = resident.request.as_mut() else {
             continue;
         };
         // A stale demotion must not discard detail newly required by any pass.
-        // Cancel a stale promotion only when current residency already suffices.
+        // Cancel every promotion exceeding the newly accepted allocation.
         if (request.mip > resident.wanted && request.mip >= resident.mip)
-            || (request.mip < resident.wanted && resident.mip <= resident.wanted)
+            || request.mip < resident.wanted
         {
             resident.request = None;
+            stats.cancelled_reads += 1;
             continue;
         }
         if request.ready.is_none() {
@@ -739,13 +1648,62 @@ fn upload(
                 }
             }
         }
-        let bytes = resident.entry.resident_bytes(request.mip);
-        // A large single promotion is allowed; otherwise it would starve.
-        if frame_bytes > 0 && frame_bytes + bytes > UPLOAD_BYTES_PER_FRAME {
-            continue;
+    }
+    let now = time.elapsed_secs_f64();
+    let mut ready: Vec<_> = streams
+        .residents
+        .iter()
+        .filter_map(|(id, resident)| {
+            let request = resident.request.as_ref()?;
+            request.ready.as_ref()?;
+            Some(Candidate {
+                id: *id,
+                class: resident.class,
+                since: resident.queued_since.unwrap_or(now),
+                bytes: resident.entry.resident_bytes(request.mip),
+                promotion: request.mip < resident.mip,
+                uri: resident.entry.uri.clone(),
+                coverage: resident.screen_coverage,
+                gpu_bytes: resident.entry.gpu_bytes(request.mip),
+            })
+        })
+        .collect();
+    order_candidates(&mut ready);
+    loop {
+        let cursor = streams.upload_cursor;
+        let reserved = streams
+            .upload_reservation
+            .take()
+            .and_then(|(id, next_cursor)| {
+                let position = ready.iter().position(|candidate| candidate.id == id)?;
+                streams.upload_cursor = next_cursor;
+                Some(ready.remove(position))
+            });
+        let Some(candidate) =
+            reserved.or_else(|| fair_next(&mut ready, &mut streams.upload_cursor))
+        else {
+            break;
+        };
+        // Select before checking remaining room. Smaller uploads must not
+        // repeatedly bypass a large map: reserve this exact turn for the next
+        // frame, where even an oversize authored chain can upload alone.
+        if frame_bytes != 0 && frame_bytes + candidate.bytes > UPLOAD_BYTES_PER_FRAME {
+            streams.upload_reservation = Some((candidate.id, streams.upload_cursor));
+            streams.upload_cursor = cursor;
+            stats.upload_deferrals += 1;
+            break;
         }
+        let id = candidate.id;
+        let resident = streams
+            .residents
+            .get_mut(&id)
+            .expect("Ready texture resident");
+        let request = resident.request.as_mut().expect("Ready texture request");
+        let bytes = candidate.bytes;
+        let old_bytes = resident.entry.gpu_bytes(resident.mip);
         let image = request.ready.take().expect("Ready streaming image");
-        if images.insert(*id, image).is_err() {
+        let descriptor = image.texture_descriptor.clone();
+        if images.insert(id, image).is_err() {
             resident.failed = true;
             stats.errors += 1;
             failure = Some(format!(
@@ -753,14 +1711,41 @@ fn upload(
                 resident.entry.uri
             ));
         } else {
+            memory.replace(old_bytes);
+            replacements.record(id, old_bytes, descriptor);
             stats.promotions += u64::from(request.mip < resident.mip);
             stats.demotions += u64::from(request.mip > resident.mip);
             stats.uploaded_bytes += bytes;
             resident.mip = request.mip;
             resident.last_change = time.elapsed_secs_f64();
             frame_bytes += bytes;
+            replaced.insert(id.untyped());
+            if candidate.class != DemandClass::Idle {
+                stats.uploads_by_class[candidate.class as usize] += 1;
+            }
         }
         resident.request = None;
+    }
+    // Stable Image IDs do not preserve their GPU texture views when a mip tail
+    // changes size. Bevy prepares a material's bindings on material changes;
+    // refresh affected assets before native extraction, after replacing images.
+    // This applies equally to standard skinned rigs, world extensions and F11.
+    if !replaced.is_empty() {
+        let standard_count = refresh_materials(&mut standard, &replaced, dependencies_changed);
+        let opaque_count = refresh_materials(&mut opaque, &replaced, |material, replaced| {
+            // ExtendedMaterial's pinned Asset visitor does not visit its
+            // inline base/extension. Traverse both declarations explicitly.
+            dependencies_changed(&material.base, replaced)
+                || dependencies_changed(&material.extension, replaced)
+        });
+        let diagnostic_count =
+            refresh_materials(&mut diagnostic, &replaced, |material, replaced| {
+                dependencies_changed(&material.base, replaced)
+            });
+        stats.standard_refreshes += standard_count;
+        stats.opaque_refreshes += opaque_count;
+        stats.diagnostic_refreshes += diagnostic_count;
+        stats.material_refreshes += standard_count + opaque_count + diagnostic_count;
     }
     if let Some(error) = failure {
         streams.fail(error);
@@ -792,23 +1777,101 @@ fn upload(
         .filter(|r| matches!(&r.sampler, ImageSampler::Descriptor(s) if s.anisotropy_clamp > 1))
         .count();
     stats.resident_base_textures = streams.residents.values().filter(|r| r.mip == 0).count();
+    stats.retiring_gpu_bytes = memory.retiring_bytes();
+    stats.resident_gpu_bytes = streams
+        .residents
+        .values()
+        .map(|resident| resident.entry.gpu_bytes(resident.mip))
+        .sum();
+    stats.replacement_reserved_bytes = streams
+        .residents
+        .values()
+        .filter_map(|resident| {
+            resident
+                .request
+                .as_ref()
+                .map(|request| resident.entry.gpu_bytes(request.mip))
+        })
+        .sum();
+    stats.accounted_gpu_bytes = stats.resident_gpu_bytes
+        + stats.retiring_gpu_bytes
+        + stats.replacement_reserved_bytes
+        + stats.bootstrap_reserved_bytes;
+    stats.peak_accounted_gpu_bytes = stats
+        .peak_accounted_gpu_bytes
+        .max(stats.accounted_gpu_bytes);
+    if stats.accounted_gpu_bytes > streams.budget {
+        stats.errors += 1;
+        streams.fail("Texture replacement exceeded its reserved VRAM allocation".into());
+    }
 }
 
-fn schedule(server: Res<AssetServer>, time: Res<Time<Real>>, mut streams: ResMut<TextureStreams>) {
+fn refresh_materials<M: Material>(
+    materials: &mut Assets<M>,
+    replaced: &HashSet<bevy::asset::UntypedAssetId>,
+    uses_replaced: impl Fn(&M, &HashSet<bevy::asset::UntypedAssetId>) -> bool,
+) -> u64 {
+    let affected: Vec<_> = materials
+        .iter()
+        .filter_map(|(id, material)| uses_replaced(material, replaced).then_some(id))
+        .collect();
+    for id in &affected {
+        if let Some(material) = materials.get_mut(*id) {
+            // Emit Modified without changing authored material properties.
+            let _ = material.into_inner();
+        }
+    }
+    affected.len() as u64
+}
+
+fn dependencies_changed<A: Asset>(
+    asset: &A,
+    replaced: &HashSet<bevy::asset::UntypedAssetId>,
+) -> bool {
+    let mut changed = false;
+    asset.visit_dependencies(&mut |dependency| changed |= replaced.contains(&dependency));
+    changed
+}
+
+fn schedule(
+    server: Res<AssetServer>,
+    time: Res<Time<Real>>,
+    mut streams: ResMut<TextureStreams>,
+    mut stats: ResMut<TextureStreamingStats>,
+    memory: Res<memory::MemoryLedger>,
+) {
     if !streams.enabled {
         return;
     }
     let _span = info_span!("texture_streaming_schedule").entered();
     let now = time.elapsed_secs_f64();
-    let in_flight = streams
-        .residents
-        .values()
-        .filter(|r| r.request.is_some())
-        .count();
+    let mut in_flight = 0;
+    let mut pending = 0;
+    let mut buffered = 0;
+    let mut gpu_reserved = 0;
+    stats.pending_by_class = [0; 4];
+    for resident in streams.residents.values_mut() {
+        // Repeated camera/pass refreshes coalesce in this stable ID and must
+        // never reset the age of an outstanding promotion.
+        if resident.wanted < resident.mip {
+            resident.queued_since.get_or_insert(now);
+            if resident.class != DemandClass::Idle {
+                stats.pending_by_class[resident.class as usize] += 1;
+            }
+        } else if resident.request.is_none() {
+            resident.queued_since = None;
+        }
+        if let Some(request) = &resident.request {
+            pending += 1;
+            in_flight += usize::from(request.ready.is_none());
+            buffered += resident.entry.resident_bytes(request.mip);
+            gpu_reserved += resident.entry.gpu_bytes(request.mip);
+        }
+    }
     let pool: u64 = streams
         .residents
         .values()
-        .map(|r| r.entry.resident_bytes(r.mip))
+        .map(|r| r.entry.gpu_bytes(r.mip))
         .sum();
     let mut candidates = streams
         .residents
@@ -820,16 +1883,66 @@ fn schedule(server: Res<AssetServer>, time: Res<Time<Real>>, mut streams: ResMut
             if resident.wanted < resident.mip {
                 return true;
             }
-            now - resident.last_change >= 2.
-                && (pool > IDLE_POOL_BYTES || now - resident.last_demand >= 5.)
+            stats.budget_limited_textures > 0 || now - resident.last_change >= 2.
         })
-        .map(|(id, resident)| (*id, resident.wanted < resident.mip, resident.last_demand))
+        .map(|(id, resident)| Candidate {
+            id: *id,
+            class: if resident.wanted < resident.mip {
+                resident.class
+            } else {
+                DemandClass::Idle
+            },
+            since: resident.queued_since.unwrap_or(resident.last_change),
+            bytes: resident.entry.resident_bytes(resident.wanted),
+            promotion: resident.wanted < resident.mip,
+            uri: resident.entry.uri.clone(),
+            coverage: resident.screen_coverage,
+            gpu_bytes: resident.entry.gpu_bytes(resident.wanted),
+        })
         .collect::<Vec<_>>();
-    candidates.sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| b.2.total_cmp(&a.2)));
-    for (id, _, _) in candidates
-        .into_iter()
-        .take(MAX_IN_FLIGHT.saturating_sub(in_flight))
-    {
+    order_candidates(&mut candidates);
+    while in_flight < MAX_IN_FLIGHT && pending < MAX_PENDING_REQUESTS {
+        let cursor = streams.read_cursor;
+        let reserved = streams
+            .admission_reservation
+            .take()
+            .and_then(|(id, next_cursor)| {
+                let position = candidates.iter().position(|candidate| candidate.id == id)?;
+                streams.read_cursor = next_cursor;
+                Some(candidates.remove(position))
+            });
+        let Some(mut candidate) =
+            reserved.or_else(|| fair_next(&mut candidates, &mut streams.read_cursor))
+        else {
+            break;
+        };
+        let accounted =
+            pool + memory.retiring_bytes() + gpu_reserved + stats.bootstrap_reserved_bytes;
+        if accounted + candidate.gpu_bytes > streams.budget {
+            streams.admission_reservation = Some((candidate.id, streams.read_cursor));
+            streams.read_cursor = cursor;
+            stats.gpu_budget_drains += 1;
+            // Memory pressure drains demotions and completed replacements;
+            // smaller promotions cannot steal this reserved producer's turn.
+            if let Some(position) = candidates
+                .iter()
+                .position(|c| !c.promotion && accounted + c.gpu_bytes <= streams.budget)
+            {
+                candidate = candidates.remove(position);
+            } else {
+                break;
+            }
+        }
+        // Reserve the next fair turn even when its native map cannot yet fit.
+        // Drain existing requests instead of allowing a stream of smaller
+        // newcomers to bypass it forever. One oversize map is admitted alone.
+        if buffered != 0 && buffered + candidate.bytes > BUFFERED_READ_BYTES {
+            streams.admission_reservation = Some((candidate.id, streams.read_cursor));
+            streams.read_cursor = cursor;
+            stats.admission_drains += 1;
+            break;
+        }
+        let id = candidate.id;
         let resident = streams.residents.get_mut(&id).expect("Candidate resident");
         let mip = resident.wanted;
         let entry = resident.entry.clone();
@@ -841,7 +1954,39 @@ fn schedule(server: Res<AssetServer>, time: Res<Time<Real>>, mut streams: ResMut
             task: IoTaskPool::get()
                 .spawn(async move { read_tail(server, entry, mip, sampler).await }),
         });
+        in_flight += 1;
+        pending += 1;
+        buffered += candidate.bytes;
+        gpu_reserved += candidate.gpu_bytes;
+        if candidate.class != DemandClass::Idle {
+            let index = candidate.class as usize;
+            stats.reads_by_class[index] += 1;
+            stats.max_read_wait_seconds[index] =
+                stats.max_read_wait_seconds[index].max(now - candidate.since);
+        }
     }
+    stats.active_workers = in_flight;
+    stats.queued_reads = pending;
+    stats.pending_detail = streams
+        .residents
+        .values()
+        .filter(|r| r.wanted < r.mip)
+        .count();
+    stats.pending_mip_changes = streams
+        .residents
+        .values()
+        .filter(|r| r.wanted != r.mip)
+        .count();
+    stats.peak_active_workers = stats.peak_active_workers.max(in_flight);
+    stats.buffered_read_bytes = buffered;
+    stats.peak_buffered_read_bytes = stats.peak_buffered_read_bytes.max(buffered);
+    stats.retiring_gpu_bytes = memory.retiring_bytes();
+    stats.replacement_reserved_bytes = gpu_reserved;
+    stats.accounted_gpu_bytes =
+        pool + stats.retiring_gpu_bytes + gpu_reserved + stats.bootstrap_reserved_bytes;
+    stats.peak_accounted_gpu_bytes = stats
+        .peak_accounted_gpu_bytes
+        .max(stats.accounted_gpu_bytes);
 }
 
 async fn read_tail(
@@ -904,7 +2049,7 @@ async fn read_tail(
         .read_exact(&mut header[entry.header_bytes..])
         .await
         .map_err(|e| e.to_string())?;
-    Image::from_buffer(
+    let mut image = Image::from_buffer(
         &header,
         ImageType::Format(ImageFormat::Dds),
         CompressedImageFormats::all(),
@@ -912,5 +2057,10 @@ async fn read_tail(
         sampler,
         RenderAssetUsages::RENDER_WORLD,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    // A rectangular 2D tail can become 1xN. Bevy's generic DDS inference
+    // treats uncompressed strips as D1; this pack's surfaces stay 2D at every
+    // mip, including narrow response/coverage tails admitted during release.
+    image.texture_descriptor.dimension = bevy::render::render_resource::TextureDimension::D2;
+    Ok(image)
 }

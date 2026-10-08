@@ -1,4 +1,5 @@
 //! Source-informed opaque surfaces within Bevy's standard material pipeline.
+mod material;
 use super::{SurfaceReady, profile::VisualProfile};
 use crate::assets::{LoadConfiguration, LoadFailure, WorldCollider};
 use bevy::{
@@ -17,6 +18,7 @@ use bevy::{
     render::storage::ShaderBuffer,
     shader::{Shader, ShaderImport, ShaderRef},
 };
+pub(super) use material::OpaqueMaterial;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -71,7 +73,6 @@ pub(crate) const ROTATION1: MeshVertexAttribute =
     MeshVertexAttribute::new("OriginsRotation1", 10003, VertexFormat::Float32x4);
 pub(crate) const ROTATION2: MeshVertexAttribute =
     MeshVertexAttribute::new("OriginsRotation2", 10004, VertexFormat::Float32x4);
-pub(super) type OpaqueMaterial = ExtendedMaterial<StandardMaterial, OpaqueSurface>;
 
 #[derive(Resource, Default, serde::Serialize)]
 pub(crate) struct OpaqueSurfaceStatus {
@@ -195,38 +196,50 @@ pub(super) struct OpaqueSurface {
     parameters: SurfaceParameters,
     #[texture(101)]
     #[sampler(102)]
+    #[dependency]
     normal: Option<Handle<Image>>,
     #[texture(103)]
     #[sampler(104)]
+    #[dependency]
     second_normal: Option<Handle<Image>>,
     #[texture(105)]
     #[sampler(106)]
+    #[dependency]
     specular: Option<Handle<Image>>,
     #[texture(107)]
     #[sampler(108)]
+    #[dependency]
     second_specular: Option<Handle<Image>>,
     #[texture(109)]
     #[sampler(110)]
+    #[dependency]
     control: Option<Handle<Image>>,
     #[texture(111)]
     #[sampler(112)]
+    #[dependency]
     color0: Option<Handle<Image>>,
     #[texture(113)]
     #[sampler(114)]
+    #[dependency]
     color1: Option<Handle<Image>>,
     #[texture(115)]
     #[sampler(116)]
+    #[dependency]
     color2: Option<Handle<Image>>,
     #[texture(117)]
     #[sampler(118)]
+    #[dependency]
     color3: Option<Handle<Image>>,
     #[texture(119)]
     #[sampler(120)]
+    #[dependency]
     third_normal: Option<Handle<Image>>,
     #[texture(121)]
     #[sampler(122)]
+    #[dependency]
     third_specular: Option<Handle<Image>>,
     #[storage(123, read_only, binding_array(126))]
+    #[dependency]
     animation_clock: Handle<ShaderBuffer>,
 }
 
@@ -749,7 +762,7 @@ pub(super) fn convert(
                 base.cull_mode = None;
                 base.double_sided = true;
             }
-            let handle = materials.add(ExtendedMaterial { base, extension });
+            let handle = materials.add(OpaqueMaterial(ExtendedMaterial { base, extension }));
             library.materials.insert(key, handle.clone());
             if effect_admitted {
                 info!(

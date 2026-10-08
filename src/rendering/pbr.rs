@@ -78,12 +78,18 @@ const DIAGNOSTIC_LIGHTING: Handle<Shader> = uuid_handle!("ab5c9d0c-e0fa-4f55-81f
 pub(super) fn lighting_diagnostics(source: String, mode: &str) -> String {
     let source = source
         .replacen("    var direct_light: vec3<f32> = vec3<f32>(0.0);",
-            "    var origins_sun = vec3(0.0);\n    var origins_shadow = 1.0;\n    var direct_light: vec3<f32> = vec3<f32>(0.0);", 1)
+            "    var origins_sun = vec3(0.0);\n    var origins_shadow = 1.0;\n    var origins_local_shadow = 0.0;\n    var origins_local_weight = 0.0;\n    var direct_light: vec3<f32> = vec3<f32>(0.0);", 1)
         .replacen("#ifdef DIRECTIONAL_LIGHT_SHADOW_MAP_DEBUG_CASCADES",
             &format!("        if {mode}() == 9u {{ origins_sun += light_contrib * shadow; }}\n        if {mode}() == 10u {{ origins_shadow = min(origins_shadow, shadow); }}\n#ifdef DIRECTIONAL_LIGHT_SHADOW_MAP_DEBUG_CASCADES"), 1);
+    let local = format!(
+        "\n        if {mode}() == 12u {{\n            let origins_weight = dot(max(light_contrib, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));\n            origins_local_shadow += origins_weight * shadow;\n            origins_local_weight += origins_weight;\n        }}"
+    );
+    let source = source
+        .replace("        let light_contrib = lighting::point_light(light_id, &lighting_input, enable_diffuse, true);", &format!("        let light_contrib = lighting::point_light(light_id, &lighting_input, enable_diffuse, true);{local}"))
+        .replace("        let light_contrib = lighting::spot_light(light_id, &lighting_input, enable_diffuse);", &format!("        let light_contrib = lighting::spot_light(light_id, &lighting_input, enable_diffuse);{local}"));
     source
         .replacen("    // Total light", &format!(
-            "    if {mode}() == 8u {{ return vec4(emissive_light, 1.0); }}\n    if {mode}() == 9u {{ return vec4(origins_sun * view_bindings::view.exposure, 1.0); }}\n    if {mode}() == 10u {{ return vec4(vec3(origins_shadow), 1.0); }}\n    if {mode}() == 11u {{ return vec4(indirect_light * view_bindings::view.exposure, 1.0); }}\n    // Total light"), 1)
+            "    if {mode}() == 8u {{ return vec4(emissive_light, 1.0); }}\n    if {mode}() == 9u {{ return vec4(origins_sun * view_bindings::view.exposure, 1.0); }}\n    if {mode}() == 10u {{ return vec4(vec3(origins_shadow), 1.0); }}\n    if {mode}() == 11u {{ return vec4(indirect_light * view_bindings::view.exposure, 1.0); }}\n    if {mode}() == 12u {{ return vec4(vec3(select(1.0, origins_local_shadow / max(origins_local_weight, 0.000001), origins_local_weight > 0.0)), 1.0); }}\n    // Total light"), 1)
         .replacen("    indirect_light += environment_light.specular * specular_occlusion;",
             &format!("    if {mode}() != 11u {{ indirect_light += environment_light.specular * specular_occlusion; }}"), 1)
 }
@@ -146,17 +152,17 @@ pub(super) fn diagnostics(
     )>,
     mut cache: Local<HashMap<AssetId<StandardMaterial>, Handle<DiagnosticMaterial>>>,
 ) {
-    let requested = if options.material_debug != 0 {
+    let requested = if options.material_debug != 0 || options.verify_viewmodel_shadows {
         options.material_debug
     } else if keys.just_pressed(KeyCode::F11) {
-        (mode.0 + 1) % 12
+        (mode.0 + 1) % 13
     } else {
         mode.0
     };
     if requested != mode.0 {
         mode.0 = requested;
         info!(
-            "Material diagnostic: {} (0 lit, 1 identity, 2 roughness, 3 metal, 4 normal, 5 coverage, 6 reflection, 7 geometry normal, 8 emission, 9 sun, 10 shadow, 11 indirect diffuse)",
+            "Material diagnostic: {} (0 lit, 1 identity, 2 roughness, 3 metal, 4 normal, 5 coverage, 6 reflection, 7 geometry normal, 8 emission, 9 sun, 10 sun shadow, 11 indirect diffuse, 12 local shadow)",
             mode.0
         );
     }
@@ -258,6 +264,22 @@ pub(super) fn load(server: &AssetServer, texture: &PreparedTexture) -> Handle<Im
 
 type PreparedHandles = HashMap<AssetId<StandardMaterial>, Vec<(PreparedTexture, Handle<Image>)>>;
 
+pub(super) struct CachedMaterial {
+    hidden: bool,
+    material: StandardMaterial,
+}
+impl CachedMaterial {
+    fn maps_match(&self, material: &StandardMaterial) -> bool {
+        let prepared = &self.material;
+        material.base_color_texture == prepared.base_color_texture
+            && material.normal_map_texture == prepared.normal_map_texture
+            && material.metallic_roughness_texture == prepared.metallic_roughness_texture
+            && material.occlusion_texture == prepared.occlusion_texture
+            && material.emissive_texture == prepared.emissive_texture
+            && material.clearcoat_texture == prepared.clearcoat_texture
+    }
+}
+
 pub(super) fn prepare(
     mut commands: Commands,
     entities: Query<
@@ -274,17 +296,26 @@ pub(super) fn prepare(
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut pending: Local<PreparedHandles>,
-    mut prepared: Local<HashMap<AssetId<StandardMaterial>, bool>>,
+    mut prepared: Local<HashMap<AssetId<StandardMaterial>, CachedMaterial>>,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
     profile: Res<super::profile::VisualProfile>,
     mut library: Option<ResMut<super::opaque::SurfaceLibrary>>,
 ) {
     for (entity, handle, extras, visibility, pending_visibility, skinned) in &entities {
-        if let Some(hidden) = prepared.get(&handle.0.id()) {
+        if let Some(cached) = prepared.get(&handle.0.id()) {
+            let Some(mut material) = materials.get_mut(&handle.0) else {
+                continue;
+            };
+            // Instantiating a retained scene can restore its original glTF
+            // material into the same ID. Reapply the canonical maps before
+            // publishing readiness; a boolean cache alone leaves white rigs.
+            if !cached.maps_match(&material) {
+                *material = cached.material.clone();
+            }
             // Materials are shared, but visibility belongs to each scene
             // instance, including rigs spawned after initial preparation.
-            if *hidden {
+            if cached.hidden {
                 commands.entity(entity).insert(Visibility::Hidden);
             } else if let Some(original) = pending_visibility {
                 commands.entity(entity).insert(original.0);
@@ -410,7 +441,13 @@ pub(super) fn prepare(
         // Prepared materials retain the maps; completed requests need not
         // keep another strong owner of every texture and its source metadata.
         pending.remove(&handle.0.id());
-        prepared.insert(handle.0.id(), state["visible"].as_bool() == Some(false));
+        prepared.insert(
+            handle.0.id(),
+            CachedMaterial {
+                hidden: state["visible"].as_bool() == Some(false),
+                material: material.clone(),
+            },
+        );
         commands
             .entity(entity)
             .remove::<PendingMaterialVisibility>()

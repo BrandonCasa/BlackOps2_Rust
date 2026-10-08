@@ -22,7 +22,9 @@ class DeepBumpNormals:
     def __init__(self, weights, pause_file=None, device="cpu"):
         if hashlib.sha256(weights.read_bytes()).hexdigest() != NORMAL_MODEL_SHA256:
             raise ValueError("DeepBump normal model checksum mismatch")
-        self.backend = DeepBumpSession(weights, pause_file, device)
+        # The normal model returns 256-square data, unlike the 4x upscaler's
+        # fixed 1024-square graph output. Use the native dynamic run path.
+        self.backend = DeepBumpSession(weights, pause_file, device, cuda_graph=False)
 
     def infer(self, color, repeat_u=True, repeat_v=True):
         # The model is trained on grayscale texture structure, encoded as RGB
