@@ -28,10 +28,10 @@ struct SurfaceVertex {
     @location(9) layer3_uv: vec2<f32>,
 #endif
 #ifdef ORIGINS_ROTATION1
-    @location(10) rotation1: vec4<f32>,
+    @location(10) rotation_first: vec4<f32>,
 #endif
 #ifdef ORIGINS_ROTATION2
-    @location(11) rotation2: vec4<f32>,
+    @location(11) rotation_second: vec4<f32>,
 #endif
 }
 struct SurfaceOutput {
@@ -50,8 +50,8 @@ struct SurfaceOutput {
 #endif
     @location(8) layer_uv: vec4<f32>,
     @location(9) layer3_uv: vec2<f32>,
-    @location(10) rotation1: vec4<f32>,
-    @location(11) rotation2: vec4<f32>,
+    @location(10) rotation_first: vec4<f32>,
+    @location(11) rotation_second: vec4<f32>,
 }
 @vertex
 fn vertex(input: SurfaceVertex) -> SurfaceOutput {
@@ -108,14 +108,14 @@ fn vertex(input: SurfaceVertex) -> SurfaceOutput {
     out.layer3_uv = input.uv;
 #endif
 #ifdef ORIGINS_ROTATION1
-    out.rotation1 = input.rotation1;
+    out.rotation_first = input.rotation_first;
 #else
-    out.rotation1 = vec4(1.0, 0.0, 0.0, 1.0);
+    out.rotation_first = vec4(1.0, 0.0, 0.0, 1.0);
 #endif
 #ifdef ORIGINS_ROTATION2
-    out.rotation2 = input.rotation2;
+    out.rotation_second = input.rotation_second;
 #else
-    out.rotation2 = vec4(1.0, 0.0, 0.0, 1.0);
+    out.rotation_second = vec4(1.0, 0.0, 0.0, 1.0);
 #endif
     return out;
 }

@@ -8,14 +8,14 @@
 }
 #import origins::surface_lighting::apply_pbr_lighting
 
-#import origins::surface_bindings::{OriginsSurfaceData, animation_time, diagnostic_mode, set_surface_slot, parameters_for, sample_normal_map, sample_second_normal, sample_specular_map, sample_second_specular, sample_control_map, sample_color0, sample_color1, sample_color2, sample_color3, sample_third_normal, sample_third_specular}
+#import origins::surface_bindings::{OriginsSurfaceData, animation_time, diagnostic_mode, set_surface_slot, parameters_for, sample_normal_map, sample_second_normal, sample_specular_map, sample_second_specular, sample_control_map, sample_color_base, sample_color_first, sample_color_second, sample_color_third, sample_third_normal, sample_third_specular}
 #import bevy_pbr::mesh_bindings::mesh
 #import origins::surface_effect::{effect_uv, effect_color}
 
 fn effect_sample(slot: u32, layer: u32, uv: vec2<f32>) -> vec4<f32> {
-    if layer == 0u { return sample_color0(slot,uv); }
-    if layer == 1u { return sample_color1(slot,uv); }
-    return sample_color2(slot,uv);
+    if layer == 0u { return sample_color_base(slot,uv); }
+    if layer == 1u { return sample_color_first(slot,uv); }
+    return sample_color_second(slot,uv);
 }
 
 fn normal_slope(sampled: vec4<f32>, strength: f32, two_component: bool) -> vec2<f32> {
@@ -43,7 +43,7 @@ fn layer_color(base: vec3<f32>, overlay: vec4<f32>, weight: f32, operation: u32)
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     @location(8) layer_uv: vec4<f32>, @location(9) layer3_uv: vec2<f32>,
-    @location(10) rotation1: vec4<f32>, @location(11) rotation2: vec4<f32>) -> FragmentOutput {
+    @location(10) rotation_first: vec4<f32>, @location(11) rotation_second: vec4<f32>) -> FragmentOutput {
     #ifdef BINDLESS
     let slot = mesh[in.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
 #else
@@ -78,7 +78,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         uv1 = in.uv * surface.response.w;
         // Control magnitudes used to include macro darkness. Only normalized
         // material coverage survives; scene illumination is evaluated now.
-        pbr.material.base_color = vec4(sample_color0(slot, uv1).rgb*weights.x + sample_color1(slot, uv1).rgb*weights.y, 1.0);
+        pbr.material.base_color = vec4(sample_color_base(slot, uv1).rgb*weights.x + sample_color_first(slot, uv1).rgb*weights.y, 1.0);
     }
     var slope0 = select(vec2(0.0), normal_slope(sample_normal_map(slot, uv0), surface.response.x, (surface.modes.w & 1u) != 0u), (surface.modes.x & 2u) != 0u);
     var slope1 = select(vec2(0.0), normal_slope(sample_second_normal(slot, uv1), surface.response.x, (surface.modes.w & 2u) != 0u), (surface.modes.x & 4u) != 0u);
@@ -90,10 +90,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     if layered && !effect {
         uv1 = layer_uv.xy;
         uv2 = layer_uv.zw;
-        let c0 = sample_color0(slot, uv0);
-        let c1 = sample_color1(slot, uv1);
-        let c2 = sample_color2(slot, uv2);
-        let c3 = sample_color3(slot, layer3_uv);
+        let c0 = sample_color_base(slot, uv0);
+        let c1 = sample_color_first(slot, uv1);
+        let c2 = sample_color_second(slot, uv2);
+        let c3 = sample_color_third(slot, layer3_uv);
         // Authored vertex G/B control consecutive overlays. Alpha is the retained
         // texture reveal/macro mask, sampled as data by the sRGB texture's alpha.
         // Reveal controls coverage, but cannot replace texture opacity. Blood,
@@ -108,8 +108,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         let response1 = select(0.0,w1,surface.layers.y == 1u);
         let response2 = select(0.0,w2,surface.layers.z == 1u);
         weights = vec3((1.0-response1)*(1.0-response2),response1*(1.0-response2),response2);
-        slope1 = select(slope0,orient(normal_slope(sample_second_normal(slot, uv1), surface.response.x, (surface.modes.w & 2u) != 0u),rotation1),(surface.modes.x & 4u) != 0u);
-        slope2 = select(slope0,orient(normal_slope(sample_third_normal(slot, uv2), surface.response.x, (surface.modes.w & 4u) != 0u),rotation2),(surface.modes.x & 8u) != 0u);
+        slope1 = select(slope0,orient(normal_slope(sample_second_normal(slot, uv1), surface.response.x, (surface.modes.w & 2u) != 0u),rotation_first),(surface.modes.x & 4u) != 0u);
+        slope2 = select(slope0,orient(normal_slope(sample_third_normal(slot, uv2), surface.response.x, (surface.modes.w & 4u) != 0u),rotation_second),(surface.modes.x & 8u) != 0u);
         s1 = select(s0,sample_second_specular(slot, uv1),(surface.modes.z & 1u) != 0u);
         s2 = select(s0,sample_third_specular(slot, uv2),(surface.modes.z & 2u) != 0u);
     }

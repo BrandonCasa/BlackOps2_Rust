@@ -28,13 +28,13 @@ struct SurfaceIndices {
     second_specular_sampler: u32,
     control_map: u32,
     control_sampler: u32,
-    color0: u32,
+    color_base: u32,
     color0_sampler: u32,
-    color1: u32,
+    color_first: u32,
     color1_sampler: u32,
-    color2: u32,
+    color_second: u32,
     color2_sampler: u32,
-    color3: u32,
+    color_third: u32,
     color3_sampler: u32,
     third_normal: u32,
     third_normal_sampler: u32,
@@ -57,13 +57,13 @@ struct SurfaceIndices {
 @group(#{MATERIAL_BIND_GROUP}) @binding(108) var second_specular_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(109) var control_map: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(110) var control_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(111) var color0: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(111) var color_base: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(112) var color0_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(113) var color1: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(113) var color_first: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(114) var color1_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(115) var color2: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(115) var color_second: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(116) var color2_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(117) var color3: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(117) var color_third: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(118) var color3_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(119) var third_normal: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(120) var third_normal_sampler: sampler;
@@ -113,32 +113,32 @@ fn sample_control_map(slot: u32, uv: vec2<f32>) -> vec4<f32> {
     return textureSample(control_map, control_sampler, uv);
 #endif
 }
-fn sample_color0(slot: u32, uv: vec2<f32>) -> vec4<f32> {
+fn sample_color_base(slot: u32, uv: vec2<f32>) -> vec4<f32> {
 #ifdef BINDLESS
-    return textureSample(bindless_textures_2d[surface_indices[slot].color0], bindless_samplers_filtering[surface_indices[slot].color0_sampler], uv);
+    return textureSample(bindless_textures_2d[surface_indices[slot].color_base], bindless_samplers_filtering[surface_indices[slot].color0_sampler], uv);
 #else
-    return textureSample(color0, color0_sampler, uv);
+    return textureSample(color_base, color0_sampler, uv);
 #endif
 }
-fn sample_color1(slot: u32, uv: vec2<f32>) -> vec4<f32> {
+fn sample_color_first(slot: u32, uv: vec2<f32>) -> vec4<f32> {
 #ifdef BINDLESS
-    return textureSample(bindless_textures_2d[surface_indices[slot].color1], bindless_samplers_filtering[surface_indices[slot].color1_sampler], uv);
+    return textureSample(bindless_textures_2d[surface_indices[slot].color_first], bindless_samplers_filtering[surface_indices[slot].color1_sampler], uv);
 #else
-    return textureSample(color1, color1_sampler, uv);
+    return textureSample(color_first, color1_sampler, uv);
 #endif
 }
-fn sample_color2(slot: u32, uv: vec2<f32>) -> vec4<f32> {
+fn sample_color_second(slot: u32, uv: vec2<f32>) -> vec4<f32> {
 #ifdef BINDLESS
-    return textureSample(bindless_textures_2d[surface_indices[slot].color2], bindless_samplers_filtering[surface_indices[slot].color2_sampler], uv);
+    return textureSample(bindless_textures_2d[surface_indices[slot].color_second], bindless_samplers_filtering[surface_indices[slot].color2_sampler], uv);
 #else
-    return textureSample(color2, color2_sampler, uv);
+    return textureSample(color_second, color2_sampler, uv);
 #endif
 }
-fn sample_color3(slot: u32, uv: vec2<f32>) -> vec4<f32> {
+fn sample_color_third(slot: u32, uv: vec2<f32>) -> vec4<f32> {
 #ifdef BINDLESS
-    return textureSample(bindless_textures_2d[surface_indices[slot].color3], bindless_samplers_filtering[surface_indices[slot].color3_sampler], uv);
+    return textureSample(bindless_textures_2d[surface_indices[slot].color_third], bindless_samplers_filtering[surface_indices[slot].color3_sampler], uv);
 #else
-    return textureSample(color3, color3_sampler, uv);
+    return textureSample(color_third, color3_sampler, uv);
 #endif
 }
 fn sample_third_normal(slot: u32, uv: vec2<f32>) -> vec4<f32> {

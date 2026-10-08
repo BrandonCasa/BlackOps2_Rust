@@ -3,8 +3,8 @@ enable wgpu_ray_query;
 #import bevy_solari::scene_bindings::{trace_ray, geometry_ids, transforms, load_vertices, transform_positions, materials, material_ids, ResolvedRayHitFull, ResolvedMaterial}
 #import origins::surface_effect::{Effect, effect_uv, effect_gradient, effect_color}
 struct Surface { response: vec4<f32>, modes: vec4<u32>, layers: vec4<u32>, reveal: vec4<f32>, wetness: vec4<f32>, water: vec4<f32>, velocity: vec4<f32>, effect: Effect }
-struct Vertex { color: vec4<f32>, uv: vec4<f32>, uv3: vec4<f32>, rotation1: vec4<f32>, rotation2: vec4<f32> }
-struct Material { surface: Surface, color: vec4<f32>, emissive: vec4<f32>, response: vec4<f32>, alpha: vec4<f32>, textures0: vec4<u32>, textures1: vec4<u32>, textures2: vec4<u32>, textures3: vec4<u32> }
+struct Vertex { color: vec4<f32>, uv: vec4<f32>, third_uv: vec4<f32>, rotation_first: vec4<f32>, rotation_second: vec4<f32> }
+struct Material { surface: Surface, color: vec4<f32>, emissive: vec4<f32>, response: vec4<f32>, alpha: vec4<f32>, textures_first: vec4<u32>, textures_second: vec4<u32>, textures_third: vec4<u32>, textures_fourth: vec4<u32> }
 @group(2) @binding(0) var<storage> vertices: array<Vertex>;
 @group(2) @binding(1) var<storage> surfaces: array<Material>;
 @group(2) @binding(2) var maps: binding_array<texture_2d<f32>>;
@@ -16,10 +16,10 @@ struct Material { surface: Surface, color: vec4<f32>, emissive: vec4<f32>, respo
 @group(2) @binding(6) var<storage, read> effect_clock: vec4<f32>;
 
 fn channel(m: Material, index: u32) -> u32 {
-    if index < 4u { return m.textures0[index]; }
-    if index < 8u { return m.textures1[index - 4u]; }
-    if index < 12u { return m.textures2[index - 8u]; }
-    return m.textures3[index - 12u];
+    if index < 4u { return m.textures_first[index]; }
+    if index < 8u { return m.textures_second[index - 4u]; }
+    if index < 12u { return m.textures_third[index - 8u]; }
+    return m.textures_fourth[index - 12u];
 }
 fn sampled(m: Material, index: u32, uv: vec2<f32>, footprint: f32, gradients: mat2x2<f32>, fallback: vec4<f32>) -> vec4<f32> {
     let id = channel(m, index);
@@ -130,9 +130,9 @@ fn resolve_surface(ray: SurfaceRay, footprint: f32) -> Hit {
     let a2 = vertices[u32(abs(v[2].tangent.w))-1u];
     let color = a0.color*b.x+a1.color*b.y+a2.color*b.z;
     let layer_uv = a0.uv*b.x+a1.uv*b.y+a2.uv*b.z;
-    let uv3 = (a0.uv3*b.x+a1.uv3*b.y+a2.uv3*b.z).xy;
-    let rotation1 = a0.rotation1*b.x+a1.rotation1*b.y+a2.rotation1*b.z;
-    let rotation2 = a0.rotation2*b.x+a1.rotation2*b.y+a2.rotation2*b.z;
+    let third_uv = (a0.third_uv*b.x+a1.third_uv*b.y+a2.third_uv*b.z).xy;
+    let rotation_first = a0.rotation_first*b.x+a1.rotation_first*b.y+a2.rotation_first*b.z;
+    let rotation_second = a0.rotation_second*b.x+a1.rotation_second*b.y+a2.rotation_second*b.z;
     let uv0 = v[0].uv*b.x+v[1].uv*b.y+v[2].uv*b.z;
     let density0 = density(v[0].uv,v[1].uv,v[2].uv,world,cone);
     var uv1 = uv0; var uv2 = uv0;
@@ -158,7 +158,7 @@ fn resolve_surface(ray: SurfaceRay, footprint: f32) -> Hit {
         let c0 = sampled(m,7u,uv0,footprint,density0,vec4(1.0));
         let c1 = sampled(m,8u,uv1,footprint,density1,vec4(1.0));
         let c2 = sampled(m,9u,uv2,footprint,density2,vec4(1.0));
-        let c3 = sampled(m,10u,uv3,footprint,density(a0.uv3.xy,a1.uv3.xy,a2.uv3.xy,world,cone),vec4(1.0));
+        let c3 = sampled(m,10u,third_uv,footprint,density(a0.third_uv.xy,a1.third_uv.xy,a2.third_uv.xy,world,cone),vec4(1.0));
         let w1 = reveal(color.g,c1.a,p.reveal.xy)*clamp(c1.a,0.0,1.0);
         let w2 = select(0.0,reveal(color.b,c2.a,p.reveal.zw)*clamp(c2.a,0.0,1.0),p.layers.x > 2u);
         var rgb = layer_color(c0.rgb,c1,w1,p.layers.y);
@@ -168,9 +168,9 @@ fn resolve_surface(ray: SurfaceRay, footprint: f32) -> Hit {
         let r1 = select(0.0,w1,p.layers.y == 1u); let r2 = select(0.0,w2,p.layers.z == 1u);
         weights = vec3((1.0-r1)*(1.0-r2),r1*(1.0-r2),r2);
         n1 = n0;
-        if (p.modes.x & 4u) != 0u { n1 = orient(normal_map(m,1u,uv1,footprint,density1,true),rotation1); }
+        if (p.modes.x & 4u) != 0u { n1 = orient(normal_map(m,1u,uv1,footprint,density1,true),rotation_first); }
         n2 = n0;
-        if (p.modes.x & 8u) != 0u { n2 = orient(normal_map(m,2u,uv2,footprint,density2,true),rotation2); }
+        if (p.modes.x & 8u) != 0u { n2 = orient(normal_map(m,2u,uv2,footprint,density2,true),rotation_second); }
         s1 = response_map(m,4u,uv1,footprint,density1,(p.modes.z & 1u) != 0u,s0);
         s2 = response_map(m,5u,uv2,footprint,density2,(p.modes.z & 2u) != 0u,s0);
     }
