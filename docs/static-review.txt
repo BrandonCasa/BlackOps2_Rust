@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 16/50 resolved on local main: 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 27, 28, 29, 32. Remaining findings are queued.
+Fix progress: 17/50 resolved on local main: 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 27, 28, 29, 31, 32. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -240,6 +240,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/import_origins.py:518–525
     Trigger, consequence, evidence and correction: For example walk_speed:-1 passes importer field-name/selected-setting checks. origins.rs:183–214 requires ordinary movement/gravity/action scalars finite and positive; a validated/imported pack can fail startup. Mirror complete runtime constraints.
     Confidence: High.
+    Fix status: RESOLVED - the existing importer now validates all 26 Tuning and 22 MobilityTuning fields with current Rust defaults, f32 finite/positive semantics, unsigned/signed integer bounds, array lengths and capsule/sprint/fall relationships. Complete actual native exact closure passes: 4,137 files/3,358,926,284 bytes, every qualified hash unchanged. The native pack exercises 21 omitted tuning defaults and all 22 mobility defaults. Source correspondence and receipt: E:/Coding/Captures/static-review-31-20261008/qualification.json. No synthetic invalid packs, runtime changes or new repository scripts; compiler/window checks skipped.
 
 32. [P2] Mud brush conversion omits authored entity rotation
     Wave: 2

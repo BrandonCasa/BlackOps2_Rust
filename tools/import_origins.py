@@ -481,6 +481,71 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
     return document, scene_meshes
 
 
+def validate_tuning(tuning):
+    """Mirror Tuning/MobilityTuning serde defaults and startup constraints."""
+    scalars = {"walk_speed": 4.8, "sprint_speed": 7.2, "sprint_seconds": 4.,
+        "sprint_minimum": .25, "sprint_recovery_rate": 1., "sprint_recovery_delay": 0.,
+        "crouch_speed": 2.4, "gravity": 20., "jump_speed": 6., "step_height": .45,
+        "radius": .35, "standing_height": 1.8, "crouch_height": 1.15, "eye_height": 1.62,
+        "mouse_sensitivity": .002, "ads_mouse_sensitivity": .0012, "fire_interval": .2,
+        "reload_seconds": 1.5, "zombie_speed": 1.15}
+    integers = {"pistol_damage": (50, 1, 2147483647), "melee_damage": (150, 1, 2147483647),
+        "zombie_damage": (50, 1, 2147483647), "magazine": (8, 1, 4294967295),
+        "reserve": (32, 0, 4294967295)}
+    require(isinstance(tuning, dict) and set(tuning) <= scalars.keys() | integers.keys() | {"combat_points", "mobility"},
+            "unknown gameplay tuning")
+
+    def number(value, key, nonnegative=False):
+        require(type(value) in (int, float), f"invalid tuning number: {key}")
+        # Startup deserializes f32, so overflow, underflow to zero and rounded
+        # cross-field comparisons must use that representation here too.
+        try:
+            with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+                value = np.float32(value)
+        except (OverflowError, ValueError):
+            raise ValueError(f"invalid tuning number: {key}") from None
+        require(np.isfinite(value) and (value >= 0 if nonnegative else value > 0),
+                f"invalid tuning number: {key}")
+        return value
+
+    values = {key: number(tuning.get(key, default), key, key == "sprint_recovery_delay")
+              for key, default in scalars.items()}
+    for key, (default, minimum, maximum) in integers.items():
+        value = tuning.get(key, default)
+        require(type(value) is int and minimum <= value <= maximum, f"invalid tuning integer: {key}")
+        values[key] = value
+    points = tuning.get("combat_points", [10, 50, 50, 10, 80])
+    require(isinstance(points, list) and len(points) == 5 and
+            all(type(value) is int and 0 <= value <= 2147483647 for value in points), "invalid combat point tuning")
+    values["combat_points"] = points
+    require(values["sprint_minimum"] <= values["sprint_seconds"], "sprint minimum exceeds capacity")
+    with np.errstate(over="ignore"):
+        diameter = np.float32(2.) * values["radius"]
+    require(values["standing_height"] > diameter and values["crouch_height"] > diameter and
+            values["crouch_height"] <= values["standing_height"], "invalid player capsule heights")
+
+    mobility_scalars = {"prone_height": .75, "prone_eye": .3048, "prone_speed": 1.1,
+        "prone_step": .12, "acceleration": 40., "deceleration": 50., "air_acceleration": 8.,
+        "air_deceleration": 2., "stance_seconds": .18, "jump_recovery": .25,
+        "dive_speed": 8., "dive_lift": 3.2, "dive_recovery": .55, "fall_minimum": 3.2512,
+        "fall_fatal": 7.62, "landing_dip": .12, "landing_seconds": .3,
+        "sway_limit": .04, "sway_response": 14.}
+    feedback = {"walk_bob": [.016, .024], "sprint_bob": [.025, .04], "stride": [2.4, 3.]}
+    mobility = tuning.get("mobility", {})
+    require(isinstance(mobility, dict) and set(mobility) <= mobility_scalars.keys() | feedback.keys(),
+            "unknown mobility tuning")
+    movement = {key: number(mobility.get(key, default), key) for key, default in mobility_scalars.items()}
+    for key, default in feedback.items():
+        value = mobility.get(key, default)
+        require(isinstance(value, list) and len(value) == 2, f"invalid movement feedback tuning: {key}")
+        movement[key] = [number(item, key) for item in value]
+    require(diameter < movement["prone_height"] < values["crouch_height"], "invalid prone capsule")
+    require(movement["prone_eye"] < movement["prone_height"], "invalid prone eye")
+    require(movement["fall_minimum"] < movement["fall_fatal"], "unordered fall thresholds")
+    values["mobility"] = movement
+    return values
+
+
 def validate_pack(root, receipt=None, exact=False):
     root = root.resolve()
     files = {"game.json"}
@@ -515,14 +580,7 @@ def validate_pack(root, receipt=None, exact=False):
     require(len(audio.get('emitters',[]))<=4096,'too many ambient emitters')
     for e in audio.get('emitters',[]):
         require(set(e)=={'alias','position'} and e['alias'] in aliases and len(e['position'])==3 and all(type(v) in (int,float) and math.isfinite(v) for v in e['position']),'invalid ambient emitter')
-    require(set(game.get("tuning", {})) <= {"walk_speed", "sprint_speed", "sprint_seconds", "sprint_minimum", "sprint_recovery_rate", "sprint_recovery_delay", "crouch_speed", "gravity",
-        "jump_speed", "step_height", "radius", "standing_height", "crouch_height", "eye_height",
-        "mouse_sensitivity", "ads_mouse_sensitivity", "pistol_damage", "melee_damage", "magazine", "reserve", "fire_interval",
-        "reload_seconds", "zombie_damage", "zombie_speed", "combat_points", "mobility"}, "unknown gameplay tuning")
-    if "ads_mouse_sensitivity" in game.get("tuning", {}):
-        value = game["tuning"]["ads_mouse_sensitivity"]
-        require(type(value) in (int, float) and math.isfinite(value) and value > 0,
-                "invalid ADS mouse sensitivity")
+    tuning = validate_tuning(game.get("tuning", {}))
     environment = game.get("environment", {})
     require(isinstance(environment,dict) and set(environment)<={"mud","triggers","brush_entities"},"unknown environment fields")
     validate_trigger_volumes(environment.get("triggers", []), require)
@@ -580,21 +638,6 @@ def validate_pack(root, receipt=None, exact=False):
         require(isinstance(row["id"],str) and re.fullmatch(r"[A-Za-z0-9_.-]+",row["id"]) and row["id"] not in spawn_ids,"invalid spawn ID");spawn_ids.add(row["id"])
         require(row["zone"] in zones and type(row["rising"]) is bool,"invalid spawn zone/kind")
         require(isinstance(row["position"],list) and len(row["position"])==3 and all(type(v) in (int,float) and math.isfinite(v) for v in row["position"]),"invalid spawn origin")
-    mobility = game.get("tuning", {}).get("mobility", {})
-    require(isinstance(mobility, dict) and set(mobility) <= {"prone_height","prone_eye","prone_speed","prone_step","acceleration","deceleration","air_acceleration","air_deceleration","stance_seconds","jump_recovery","dive_speed","dive_lift","dive_recovery","fall_minimum","fall_fatal","landing_dip","landing_seconds","walk_bob","sprint_bob","stride","sway_limit","sway_response"}, "unknown mobility tuning")
-    require(all(type(v) in (int,float) and math.isfinite(v) and v > 0 for k,v in mobility.items() if k not in ("walk_bob","sprint_bob","stride")),"invalid mobility tuning")
-    for key in ("walk_bob","sprint_bob","stride"):
-        if key in mobility: require(isinstance(mobility[key],list) and len(mobility[key])==2 and all(type(x) in (int,float) and math.isfinite(x) and x>0 for x in mobility[key]),"invalid movement feedback tuning")
-    require(game.get("tuning", {}).get("radius",.35)*2 < mobility.get("prone_height",.75) < game.get("tuning", {}).get("crouch_height",1.15),"invalid prone capsule")
-    require(mobility.get("prone_eye",.3048) < mobility.get("prone_height",.75),"invalid prone eye")
-    require(mobility.get("fall_minimum",3.2512)<mobility.get("fall_fatal",7.62),"unordered fall thresholds")
-    sprint_tuning = game.get("tuning", {})
-    for key, default in (("sprint_seconds", 4), ("sprint_minimum", 0.25), ("sprint_recovery_rate", 1), ("sprint_recovery_delay", 0)):
-        value = sprint_tuning.get(key, default)
-        require(type(value) in (int, float) and math.isfinite(value) and (value >= 0 if key == "sprint_recovery_delay" else value > 0), "invalid sprint tuning")
-    require(sprint_tuning.get("sprint_minimum", 0.25) <= sprint_tuning.get("sprint_seconds", 4), "sprint minimum exceeds capacity")
-    points = game.get("tuning", {}).get("combat_points", [10, 50, 50, 10, 80])
-    require(isinstance(points, list) and len(points) == 5 and all(type(v) is int and 0 <= v <= 2147483647 for v in points), "invalid combat point tuning")
     require(game.get("version") == 2, "unsupported gameplay version; expected 2, regenerate/import the pack")
     validate_rounds(game.get("rounds"), require)
     validate_player_health(game.get("player_health"), require)
@@ -605,7 +648,9 @@ def validate_pack(root, receipt=None, exact=False):
     require(solo["seconds"] < solo["bleedout_seconds"] and solo["bleedout_seconds"] % 1 == 0 and solo["bleedout_seconds"] <= 3600 and 0.001 <= solo["bleedout_poll_seconds"] <= solo["bleedout_seconds"], "invalid solo revive deadline")
     require(type(solo["maximum_purchases"]) is int and solo["maximum_purchases"] > 0 and type(solo["reserve_clips"]) is int and 0 <= solo["reserve_clips"] <= 100, "invalid solo charge/ammo count")
     require(solo["perk"] in {p["id"] for p in game["content"]["perks"]} and solo["downed_weapon"] in {w["id"] for w in game["content"]["weapons"]}, "unresolved solo revive content")
-    require(game.get("tuning", {}).get("radius", .35) * 2 <= solo["downed_height"] < game.get("tuning", {}).get("standing_height", 1.8), "invalid downed capsule height")
+    with np.errstate(over="ignore"):
+        downed_height = np.float32(solo["downed_height"])
+    require(np.float32(2.) * tuning["radius"] <= downed_height < tuning["standing_height"], "invalid downed capsule height")
     documents = {}
     for key, count_key in (("scene", "render_meshes"), ("collision_scene", "collision_meshes")):
         match = re.fullmatch(r"(.+\.gltf)#Scene(0|[1-9][0-9]*)", game[key])
