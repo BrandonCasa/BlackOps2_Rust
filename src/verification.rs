@@ -31,6 +31,7 @@ mod mule_kick;
 mod performance;
 mod perk_health;
 mod pipelines;
+mod placements;
 mod release_performance;
 pub(crate) use pipelines::error_layer;
 mod semtex;
@@ -103,6 +104,7 @@ pub(crate) struct Verification {
     enemy_attack_frame: bool,
     enemy_death_frame: bool,
     combat_receipt: serde_json::Value,
+    placement_snapshot: Option<placements::Snapshot>,
 }
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
@@ -300,6 +302,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             enemy_attack_frame: false,
             enemy_death_frame: false,
             combat_receipt: serde_json::Value::Null,
+            placement_snapshot: None,
         });
     }
 }
@@ -594,6 +597,7 @@ fn check(
         Res<crate::access::ZoneAccess>,
         Res<crate::barriers::Barriers>,
     ),
+    sites: placements::Sites,
     mut players: Query<
         (
             Entity,
@@ -669,6 +673,23 @@ fn check(
         || verification.generators
     {
         return;
+    }
+    if verification.placement_snapshot.is_none()
+        && **state == GameState::Playing
+        && let Some(game) = &definition
+    {
+        match placements::snapshot(game, &sites) {
+            Ok(snapshot) => verification.placement_snapshot = Some(snapshot),
+            Err(error) => {
+                let _ = std::fs::write(
+                    verification.output.join("placement-failure.json"),
+                    serde_json::json!({"passed":false,"error":error}).to_string(),
+                );
+                error!("Game verification failed: {error}");
+                commands.write_message(AppExit::error());
+                return;
+            }
+        }
     }
     if !verification.benchmark
         && !verification.admission_snapshot
@@ -1064,7 +1085,18 @@ fn check(
             && !recovery.critical
             && recovery.feedback == 0.
             && health.current() == Some(definition.player_health.maximum);
+        let restarted_sites = placements::snapshot(&definition, &sites);
+        let placement_ids_preserved =
+            verification
+                .placement_snapshot
+                .as_ref()
+                .is_some_and(|before| {
+                    restarted_sites
+                        .as_ref()
+                        .is_ok_and(|after| placements::restart_matches(before, after))
+                });
         let passed = session.round == 1
+            && placement_ids_preserved
             && (!verification.semtex || verification.semtex_exercised)
             && (!verification.claymores || verification.claymores_exercised)
             && (!verification.monkeys || verification.monkeys_exercised)
@@ -1132,6 +1164,12 @@ fn check(
             "survey_views":verification.camera_views.len(), "water_animation_seconds":verification.water_times,
             "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
         receipt["navigation"] = serde_json::json!({"nodes":navigation.node_count(),"links":navigation.link_count(),"rejected_nodes":navigation.rejected_nodes,"rejected_links":navigation.rejected_links,"requests":navigation.requests,"cache_hits":navigation.cache_hits,"fallbacks":navigation.fallbacks,"admissions":navigation.admissions.len()});
+        receipt["placement_identities"] = serde_json::json!({
+            "preserved_on_restart":placement_ids_preserved,
+            "initial":verification.placement_snapshot.as_ref().map(placements::receipt),
+            "restarted":restarted_sites.as_ref().ok().map(placements::receipt),
+            "restart_error":restarted_sites.err(),
+        });
         receipt["texture_streaming"] =
             serde_json::to_value(&*streaming).expect("Serializable streaming counters");
         receipt["shared_lighting"] = serde_json::json!({

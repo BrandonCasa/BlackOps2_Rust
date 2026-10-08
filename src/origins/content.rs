@@ -9,15 +9,23 @@ macro_rules! identifiers {
         pub struct $name(pub String);
     )+};
 }
-identifiers!(
-    ContentId,
-    PlacementId,
-    ZoneId,
-    WeaponId,
-    PerkId,
-    QuestId,
-    InteractionId
-);
+identifiers!(ContentId, ZoneId, WeaponId, PerkId, QuestId, InteractionId);
+
+/// Authored gameplay-site identity, preserved when its session entity is replaced.
+#[derive(
+    bevy::prelude::Component,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize,
+)]
+#[serde(transparent)]
+pub struct PlacementId(pub String);
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]

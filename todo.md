@@ -1,5 +1,5 @@
 - [x] Add stable IDs for content definitions.
-- [ ] Add stable IDs for map placements.
+- [x] Add stable IDs for map placements.
 - [x] Add typed zone identifiers.
 - [x] Add typed weapon identifiers.
 - [x] Add typed perk identifiers.

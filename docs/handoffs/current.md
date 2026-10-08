@@ -1,19 +1,19 @@
 # Current handoff
 
-TASK: Resume the user's sequential TODO goal: remove rendering-improvement tasks and commit first, then implement one remaining TODO at a time using recovered Black Ops II source.
+TASK: Remove rendering-improvement TODOs and commit first, then implement one remaining TODO at a time using recovered Black Ops II source.
 
 STATUS: PARTIAL
 
-FINDINGS: The starting main checkout was clean at 3a0a9842c. Rendering improvements occupied 32 checklist entries: 28 open and four completed. Original-game assets, animations, HUD, effects and graphics settings remain gameplay scope. The checklist now contains 1,213 entries: 474 complete and 739 open.
+FINDINGS: Cleanup committed at 19a5199ac removes 32 rendering entries. First remaining TODO, stable IDs for map placements, is complete. The prepared catalog already had validated typed placement IDs; the missing runtime association now binds those IDs to all 59 authored gameplay interaction roots. BO2 capture-zone source indexes named sites independently of temporary runtime entities. The checklist has 1,213 tasks: 475 complete and 738 open.
 
-EVIDENCE: Reviewed current project state, repository instructions, architecture and the full rendering-related checklist block. Prior screenshot-pack integration is preserved in Git history at fe67bb7a4; this milestone changes no rendering implementation or assets.
+EVIDENCE: zm_tomb_capture_zones.gsc::init_capture_zone indexes level.zone_capture.zones by script_noteworthy and rejects duplicates; authored sites are found through getent/getstructarray targetname lookups. Existing preparation uses source entity identities, generator/barrier names and perk-site aliases. E:/Coding/Captures/origins-placement-identities-20261007-232445 contains compiler-gates.json, asset-integrity.json, launch.json, exit.json and window/verification.json. Preserved executable SHA256: 962A9D1DE2491150DAFE50103832189CF5D12EA1F02F5148BDC9B2239A12DB93.
 
-CHANGES: Removed texture upscaling, DDGI, shadow/reflection synchronization, actor rendering resource optimization and light-leak improvement entries. Updated project-state checklist totals and retired stale references to the removed texture task and repository skills.
+CHANGES: PlacementId is a Bevy component and is attached when interaction roots assemble. The existing real-game driver checks missing, duplicate, wrong-site and incomplete bindings, then compares all stable IDs and replaced ECS entities after restart. Only the placement-ID TODO is newly checked; content IDs, assets and gameplay rules are retained.
 
-VALIDATION: Scoped git diff --check passed. Compiler, asset and actual-game gates are skipped for this documentation-only milestone. No unit tests, fixtures, Clippy or push.
+VALIDATION: Locked metadata, workspace release build (3m 14s), format and complete 4,137-file asset closure passed. Owned actual-game PID 47132 exited 0: six ordinary kills, Round 2, movement, fifteen rendered views, clean Round 1 restart, 59 initial/59 restarted placement bindings, all IDs preserved and all entities replaced, zero streaming errors. Inspected the rendered playing capture. The initial asset invocation failed because default Python lacked tomllib; the installed Python >=3.11 invocation passed. No unit tests, fixtures, Clippy or push.
 
-UNRESOLVED: The remaining gameplay TODOs require source inspection and implementation; no gameplay task is newly complete.
+UNRESOLVED: 738 gameplay checklist entries remain. Existing data-specific placement names/hash disambiguation are retained; native engine entity-number parity and sustained manual play are unqualified. Current static render geometry is separate from the gameplay placement catalog.
 
-RECOMMENDED NEXT WORK: Commit this cleanup, then implement the first open checklist item, stable IDs for map placements, using native map entity identities where available.
+RECOMMENDED NEXT WORK: Inspect the next open TODO: Extend asset preparation with trigger volume conversion. Reuse retained collision submodel extraction and original map/script definitions.
 
-SCOPE NOT IMPLEMENTED: No new gameplay, rendering changes, asset preparation or runtime validation in the cleanup milestone.
+SCOPE NOT IMPLEMENTED: No other TODO implementation, new asset extraction/import, renderer work, standalone application, original-game equivalence, performance acceptance or release-package refresh.

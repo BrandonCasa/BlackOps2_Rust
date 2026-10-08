@@ -79,6 +79,7 @@ fn assemble(
             continue;
         };
         let mut entity = commands.spawn((
+            placement.id.clone(),
             Usable {
                 source: source.clone(),
             },
