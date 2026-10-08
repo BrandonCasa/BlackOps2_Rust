@@ -84,6 +84,8 @@ pub(crate) struct OpaqueSurfaceStatus {
     layered: usize,
     masked: usize,
     transparent: usize,
+    pub(crate) premultiplied_sources: usize,
+    pub(crate) straight_alpha_mismatches: usize,
     water: usize,
     wettable: usize,
     pub pending: usize,
@@ -684,6 +686,8 @@ pub(super) fn convert(
         }
         let is_static = static_instance(entity, &extras, &parents);
         let effect_admitted = definition.effect.is_some();
+        let premultiplied_source =
+            definition.presentation["alpha"].as_str() == Some("premultiplied");
         let key = original.0.id();
         let handle = if let Some(handle) = library.materials.get(&key) {
             handle.clone()
@@ -829,6 +833,9 @@ pub(super) fn convert(
         status.transparent += (material.base.alpha_mode != AlphaMode::Opaque
             && !matches!(material.base.alpha_mode, AlphaMode::Mask(_)))
             as usize;
+        status.premultiplied_sources += premultiplied_source as usize;
+        status.straight_alpha_mismatches +=
+            (premultiplied_source && material.base.alpha_mode != AlphaMode::Blend) as usize;
         status.water += ((material.extension.parameters.modes.x & 16) != 0) as usize;
         status.wettable += (material.extension.parameters.wetness.x > 0.) as usize;
     }

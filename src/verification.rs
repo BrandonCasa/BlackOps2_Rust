@@ -1207,6 +1207,7 @@ fn check(
             && rounds_exercised
             && restart_damage_clear
             && surfaces.pending == 0
+            && surfaces.straight_alpha_mismatches == 0
             && streaming.errors == 0
             && if verification.benchmark {
                 (!verification.combat || verification.round_two)

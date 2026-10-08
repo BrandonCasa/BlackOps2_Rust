@@ -304,14 +304,9 @@ fn surfaces(
             Some("front") => Some(bevy::render::render_resource::Face::Front),
             _ => Some(bevy::render::render_resource::Face::Back),
         };
-        material.alpha_mode = match state["alpha"].as_str() {
-            Some("mask") => AlphaMode::Mask(state["cutoff"].as_f64().unwrap_or(0.5) as f32),
-            Some("blend") => AlphaMode::Blend,
-            Some("premultiplied") => AlphaMode::Premultiplied,
-            Some("add") => AlphaMode::Add,
-            Some("multiply") => AlphaMode::Multiply,
-            _ => AlphaMode::Opaque,
-        };
+        // PbrReady guarantees pbr::prepare already selected the coverage mode.
+        // In particular, prepared DDS albedo needs Blend for authored
+        // premultiplied surfaces; replaying the source mode undoes that fix.
         if state["emissive"].as_bool() == Some(true) {
             material.emissive_exposure_weight = 1.;
             material.emissive = if state["lamp"].as_bool() == Some(true) {

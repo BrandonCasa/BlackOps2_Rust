@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 8/50 resolved on local main: 04, 05, 06, 07, 08, 09, 10, 11. Remaining findings are queued.
+Fix progress: 9/50 resolved on local main: 01, 04, 05, 06, 07, 08, 09, 10, 11. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -45,6 +45,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: src/rendering.rs:295–299
     Trigger, consequence, evidence and correction: For prepared DDS materials declaring premultiplied coverage, pbr::prepare selects Blend because DDS albedo is straight (pbr.rs:419–423). The later surfaces system overwrites it with Premultiplied; opaque conversion inherits the wrong mode, producing overly bright transparent edges.
     Confidence: High.
+    Fix status: RESOLVED - surfaces preserves the PbrReady coverage decision instead of replaying source alpha. Existing opaque-material diagnostics now count authored premultiplied instances and reject straight-alpha mismatches in normal verification. Locked metadata, release and corrected format gates pass. Actual native game reports 323 premultiplied instances with zero mismatches, six kills, Round 2, 17 survey views and restart; streaming/audio errors are zero. All 4,137 runtime files retain qualified hashes. Evidence: E:/Coding/Captures/static-review-01-20261008. No native pixel equivalence, brightness percentage or sustained performance claim.
 
 02. [P1] Newly registered bootstraps are counted twice before the fatal budget check
     Wave: 1
