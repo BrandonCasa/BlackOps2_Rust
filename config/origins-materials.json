@@ -96,6 +96,14 @@
       "metallic": 0,
       "coating": 0,
       "normal_strength": 0.6
+    },
+    "leather": {
+      "roughness": 0.66,
+      "minimum": 0.45,
+      "maximum": 0.88,
+      "metallic": 0,
+      "coating": 0.02,
+      "normal_strength": 0.85
     }
   },
   "materials": {
@@ -3503,14 +3511,84 @@
       "layer_classes": [
         "painted_metal"
       ],
-      "source_family": "mc_lit_sm_r0c0n0s0_zqq1fze7"
+      "source_family": "mc_lit_sm_r0c0n0s0_zqq1fze7",
+      "physical_response": {
+        "0": {
+          "roughness": 0.4,
+          "minimum": 0.28,
+          "maximum": 0.65,
+          "metallic": 0.85,
+          "coating": 0.05,
+          "gloss_weight": 0.65,
+          "regions": [
+            {
+              "uv_rect": [
+                0.6,
+                0.21,
+                0.81,
+                0.35
+              ],
+              "roughness": 0.62,
+              "metallic": 0,
+              "coating": 0.16
+            },
+            {
+              "uv_rect": [
+                0.74,
+                0.475,
+                0.85,
+                0.52
+              ],
+              "roughness": 0.62,
+              "metallic": 0,
+              "coating": 0.16
+            }
+          ]
+        }
+      },
+      "review": "Native dark blued-steel artwork and gloss retained; inspected wood-grip islands use dielectric response. Atlas masks are tunable reconstruction."
     },
     "mc/mtl_t6_wpn_zmb_mc96_camo2": {
       "class": "painted_metal",
       "layer_classes": [
         "painted_metal"
       ],
-      "source_family": "mc_lit_sm_r0c0n0s0_zqq1fze7"
+      "source_family": "mc_lit_sm_r0c0n0s0_zqq1fze7",
+      "physical_response": {
+        "0": {
+          "roughness": 0.4,
+          "minimum": 0.28,
+          "maximum": 0.65,
+          "metallic": 0.85,
+          "coating": 0.05,
+          "gloss_weight": 0.65,
+          "regions": [
+            {
+              "uv_rect": [
+                0.6,
+                0.21,
+                0.81,
+                0.35
+              ],
+              "roughness": 0.62,
+              "metallic": 0,
+              "coating": 0.16
+            },
+            {
+              "uv_rect": [
+                0.74,
+                0.475,
+                0.85,
+                0.52
+              ],
+              "roughness": 0.62,
+              "metallic": 0,
+              "coating": 0.16
+            }
+          ]
+        }
+      },
+      "review": "Native dark blued-steel artwork and gloss retained; inspected wood-grip islands use dielectric response. Atlas masks are tunable reconstruction."
     },
     "mc/mtl_t6_wpn_zmb_mg08": {
       "class": "metal",
@@ -3884,76 +3962,116 @@
       "source_family": "mc_lit_sm_r0c0n0s0_zqq1fze7"
     },
     "mc/mtl_viewarm_zom_dempsey": {
-      "class": "skin",
+      "class": "leather",
       "layer_classes": [
-        "skin"
+        "leather"
       ],
       "source_family": "mc_sw4_3d_char_cloth_4z8fq5wu",
-      "compression": "lossless"
+      "review": "Inspected native glove/wrist atlases: leather with authored blood, seams and watch hardware; not skin.",
+      "physical_response": {
+        "0": {
+          "gloss_weight": 0.5,
+          "regions": [
+            {
+              "uv_rect": [
+                0,
+                0.73,
+                0.535,
+                1
+              ],
+              "roughness": 0.38,
+              "metallic": 0.8,
+              "coating": 0.04
+            }
+          ]
+        }
+      }
     },
     "mc/mtl_viewarm_zom_dempsey_device": {
-      "class": "skin",
+      "class": "leather",
       "layer_classes": [
-        "skin"
+        "leather"
       ],
       "source_family": "mc_sw4_3d_char_cloth_4z8fq5wu",
-      "compression": "lossless"
+      "review": "Inspected native glove/wrist atlases: leather with authored blood, seams and watch hardware; not skin.",
+      "physical_response": {
+        "0": {
+          "gloss_weight": 0.5,
+          "regions": [
+            {
+              "uv_rect": [
+                0,
+                0,
+                1,
+                0.36
+              ],
+              "roughness": 0.4,
+              "metallic": 0.75,
+              "coating": 0.03
+            },
+            {
+              "uv_rect": [
+                0,
+                0.73,
+                1,
+                1
+              ],
+              "roughness": 0.78,
+              "metallic": 0,
+              "coating": 0
+            }
+          ]
+        }
+      }
     },
     "mc/mtl_viewarm_zom_nikolai": {
       "class": "skin",
       "layer_classes": [
         "skin"
       ],
-      "source_family": "mc_sw4_3d_char_cloth_4z8fq5wu",
-      "compression": "lossless"
+      "source_family": "mc_sw4_3d_char_cloth_4z8fq5wu"
     },
     "mc/mtl_viewarm_zom_richtofen": {
       "class": "skin",
       "layer_classes": [
         "skin"
       ],
-      "source_family": "mc_sw4_3d_char_cloth_4z8fq5wu",
-      "compression": "lossless"
+      "source_family": "mc_sw4_3d_char_cloth_4z8fq5wu"
     },
     "mc/mtl_viewarm_zom_richtofen_l": {
       "class": "skin",
       "layer_classes": [
         "skin"
       ],
-      "source_family": "mc_sw4_3d_char_skin_j92387z3",
-      "compression": "lossless"
+      "source_family": "mc_sw4_3d_char_skin_j92387z3"
     },
     "mc/mtl_viewarm_zom_richtofen_r": {
       "class": "skin",
       "layer_classes": [
         "skin"
       ],
-      "source_family": "mc_sw4_3d_char_skin_j92387z3",
-      "compression": "lossless"
+      "source_family": "mc_sw4_3d_char_skin_j92387z3"
     },
     "mc/mtl_viewarm_zom_takeo": {
       "class": "skin",
       "layer_classes": [
         "skin"
       ],
-      "source_family": "mc_sw4_3d_char_skin_j92387z3",
-      "compression": "lossless"
+      "source_family": "mc_sw4_3d_char_skin_j92387z3"
     },
     "mc/mtl_viewarm_zom_takeo_alpha_1": {
       "class": "skin",
       "layer_classes": [
         "skin"
       ],
-      "source_family": "mc_sw4_3d_viewmodel_transparent_z9z0z75f",
-      "compression": "lossless"
+      "source_family": "mc_sw4_3d_viewmodel_transparent_z9z0z75f"
     },
     "mc/mtl_viewarm_zom_takeo_straps": {
       "class": "fabric",
       "layer_classes": [
         "fabric"
       ],
-      "source_family": "mc_sw4_3d_char_cloth_4z8fq5wu",
-      "compression": "lossless"
+      "source_family": "mc_sw4_3d_char_cloth_4z8fq5wu"
     },
     "mc/mtl_weapon_m14_scope_rail": {
       "class": "metal",

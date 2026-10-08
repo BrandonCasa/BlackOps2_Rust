@@ -135,30 +135,57 @@ def upscale_channel(model, pixels, entry, scale=4):
     values = pixels.astype(np.float32) / 255.
     role = entry["role"]
     samplers = entry.get("samplers", [20])
+    addresses = {(x & 32, x & 64) for x in samplers}
+    if len(addresses) != 1:
+        raise ValueError(f"{entry['uri']}: conflicting clamp/repeat uses; split the material recipe explicitly")
+    if role not in ("color", "emissive"):
+        # Physical fields are sampled data, not RGB artwork. Interpolate
+        # authored slopes/GGX moments independently without hallucinating masks.
+        width, height = pixels.shape[1]*scale, pixels.shape[0]*scale
+        result = np.zeros((height, width, 4), np.uint8)
+        result[..., 3] = 255
+        def resized(plane):
+            # Periodic fields interpolate across the authored seam. Clamped
+            # atlases retain edge values. Only one scalar plane is resized.
+            pad = np.pad(plane, ((1, 1), (0, 0)), mode="edge" if samplers[0]&64 else "wrap")
+            pad = np.pad(pad, ((0, 0), (1, 1)), mode="edge" if samplers[0]&32 else "wrap")
+            enlarged = Image.fromarray(pad).resize(((pixels.shape[1]+2)*scale,
+                         (pixels.shape[0]+2)*scale), Image.Resampling.BILINEAR)
+            return np.asarray(enlarged)[scale:height+scale, scale:width+scale]
+        if role == "normal":
+            z = np.maximum(values[..., 2]*2-1, .05)
+            planes = [resized((values[..., i]*2-1)/z) for i in range(2)]
+            for start in range(0, height, 32):
+                unit = np.dstack((planes[0][start:start+32], planes[1][start:start+32],
+                                  np.ones((min(32, height-start), width), np.float32)))
+                unit /= np.maximum(np.linalg.norm(unit, axis=2, keepdims=True), 1e-6)
+                result[start:start+32, :, :3] = np.rint(np.clip(unit*.5+.5, 0, 1)*255).astype(np.uint8)
+        else:
+            if role == "response":
+                if np.any(pixels[..., 0] != 255):
+                    raise ValueError("Realtime response requires neutral occlusion")
+                channels = (1, 2, 3)
+                result[..., 0] = 255
+            elif role in ("control", "coating", "mask", "auxiliary"):
+                channels = (0, 1) if role == "control" else (0,) if role == "coating" else range(4)
+            else:
+                raise ValueError(f"Unsupported physical field role: {role}")
+            for channel in channels:
+                plane = values[..., channel]**4 if role == "response" and channel == 1 else values[..., channel]
+                plane = resized(plane)
+                for start in range(0, height, 32):
+                    rows = plane[start:start+32]
+                    if role == "response" and channel == 1:
+                        rows = np.maximum(rows, 0)**.25
+                    result[start:start+32, :, channel] = np.rint(np.clip(rows, 0, 1)*255).astype(np.uint8)
+                del plane
+        return result
     repeat_u, repeat_v = not any(x & 32 for x in samplers), not any(x & 64 for x in samplers)
     result = np.empty((pixels.shape[0]*scale, pixels.shape[1]*scale, 4), np.uint8)
     def encode(values, channel):
         for start in range(0, values.shape[0], 32):
             block = values[start:start+32]
             result[start:start+32, :, channel] = np.rint(np.clip(block, 0, 1)*255).astype(np.uint8)
-    def scalar(plane, channel):
-        if np.ptp(plane) == 0:
-            return np.full((plane.shape[0]*scale, plane.shape[1]*scale), plane[0, 0], np.float32)
-        rgb = np.repeat(plane[..., None], 3, axis=2)
-        # RGB-trained inference is applied to each packed scalar separately;
-        # material fields can never contaminate one another as RGB colors.
-        up = model.upscale(rgb, repeat_u, repeat_v, scale=scale,
-                           entry=dict(role="auxiliary", color_space="linear"),
-                           progress=f"{entry['uri']} scalar {channel}").mean(axis=2, keepdims=True)
-        return preserve_low_frequency(up, plane[..., None])[..., 0]
-    aliases = {}
-    def encode_scalar(channel):
-        digest = hashlib.sha256(np.ascontiguousarray(pixels[..., channel]).tobytes()).digest()
-        if digest in aliases:
-            result[..., channel] = result[..., aliases[digest]]
-        else:
-            encode(scalar(values[..., channel], channel), channel)
-            aliases[digest] = channel
     if role in ("color", "emissive"):
         rgb = model.upscale(values[..., :3], repeat_u, repeat_v, scale=scale, entry=entry,
                             progress=f"{entry['uri']} {role} RGB")
@@ -167,31 +194,6 @@ def upscale_channel(model, pixels, entry, scale=4):
         # Preserve every source coverage cell exactly at the finer resolution.
         encode(rgb, slice(0, 3))
         result[..., 3] = np.repeat(np.repeat(pixels[..., 3], scale, axis=0), scale, axis=1)
-    elif role == "normal":
-        rgb = model.upscale(values[..., :3], repeat_u, repeat_v, scale=scale, entry=entry,
-                            progress=f"{entry['uri']} normal XYZ")
-        rgb = preserve_low_frequency(rgb, values[..., :3])
-        for start in range(0, rgb.shape[0], 32):
-            normal = rgb[start:start+32]*2-1
-            normal[..., 2] = np.maximum(normal[..., 2], 1e-4)
-            normal /= np.maximum(np.linalg.norm(normal, axis=2, keepdims=True), 1e-6)
-            result[start:start+32, :, :3] = np.rint(np.clip(normal*.5+.5, 0, 1)*255).astype(np.uint8)
-        result[..., 3] = 255
-    elif role == "response":
-        # Occlusion stays neutral; no baked darkness is inferred from albedo.
-        if np.any(pixels[..., 0] != 255):
-            raise ValueError("Canonical realtime response requires neutral occlusion")
-        result[..., 0] = 255
-        for channel in (1, 2, 3):
-            encode_scalar(channel)
-    elif role in ("control", "mask", "coating", "auxiliary"):
-        channels = (0, 1) if role == "control" else (0,) if role == "coating" else range(4)
-        result[..., :3] = 0
-        result[..., 3] = 255
-        for channel in channels:
-            encode_scalar(channel)
-    else:
-        raise ValueError(f"Unimplemented texture role: {role}")
     return result
 
 
@@ -234,8 +236,8 @@ def downsample(pixels, entry):
 def prepare_levels(model, levels, entry):
     """Infer 4x stages, then reduce to the smallest sufficient 2^n extent.
 
-    Packed scalar fields, coverage and unit normals retain their existing
-    semantic recipe. No interpolation-only path can stand in for inference.
+    Color artwork uses neural inference. Physical fields use their explicit
+    slope/GGX/scalar interpolation; coverage retains authored source cells.
     All original lossless mip levels are appended at their exact texel size.
     """
     scale = entry["scale"]
@@ -370,6 +372,8 @@ def main():
                       cuda_graph=not args.no_cuda_graph,
                       tile=args.tile, halo=args.halo, scale=entry["scale"], role=entry["role"],
                       color_space=entry["color_space"], samplers=sorted(entry.get("samplers", [20])))
+        if entry["role"] not in ("color", "emissive"):
+            recipe["semantic_filter_version"] = 2
         if args.cuda_math != "fp32" or args.prefer_nhwc:
             recipe.update(cuda_math=args.cuda_math, prefer_nhwc=args.prefer_nhwc)
         if entry["role"] in ("control", "coating"):
@@ -422,7 +426,7 @@ def main():
                     hashlib.sha256(memoryview(level).cast("B")).hexdigest() for level in levels]:
                 raise ValueError("Recovered semantic candidate changed authored source mip data")
             if cooked is None:
-                if entry["scale"] > 1 and model is None:
+                if entry["scale"] > 1 and entry["role"] in ("color", "emissive") and model is None:
                     model = DeepBumpUpscaler(args.model, args.tile, args.halo, args.pause_file, device=args.device,
                                              saturate=not args.polite, cuda_graph=not args.no_cuda_graph,
                                              math_mode=args.cuda_math, prefer_nhwc=args.prefer_nhwc)
@@ -452,7 +456,9 @@ def main():
                       density_applicable=entry.get("density_applicable", True),
                       density_exception=entry.get("density_exception", False))
         record["constant_field"] = bool(np.all(levels[0] == levels[0][0, 0]))
-        receipt.write_text(json.dumps(record, indent=2) + "\n")
+        temporary = receipt.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(record, indent=2) + "\n")
+        temporary.replace(receipt)
         # Qualification previews are evidence, never runtime source selection.
         if args.previews:
             Image.fromarray(levels[0]).save(output.with_suffix(".source.png"))

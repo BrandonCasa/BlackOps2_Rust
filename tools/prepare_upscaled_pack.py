@@ -63,7 +63,10 @@ def verify_quality(entry, record, info, source_info):
                 raise ValueError("Candidate mask coverage counts are inconsistent")
         passed = values[0] <= rms_limit and values[1] <= maximum_limit and \
                  all(result["changed"] == 0 for result in coverage)
-        if row.get("generated_limits_passed") != passed or (not legacy and not passed):
+        visual_review = entry["role"] == "response" and quality.get("numerical_policy") == "visual-review"
+        if row.get("generated_limits_passed") != passed or \
+                (not legacy and not passed and not visual_review) or \
+                (not legacy and any(result["changed"] for result in coverage)):
             raise ValueError("Candidate has an unqualified generated/recompressed mip")
     if record.get("mask_compression") != mask_recipe(entry):
         raise ValueError("Candidate mask encoder recipe differs from actual material cutoffs")
@@ -120,6 +123,8 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
         if record["role"] != entry["role"] or record.get("upscaler") != "deepbump":
             raise ValueError("Migration requires the selected DeepBump material recipe")
         recipe = record.get("recipe", {})
+        if entry["role"] not in ("color", "emissive") and recipe.get("semantic_filter_version") != 2:
+            raise ValueError("Data fields require independent physical filtering; recook this candidate")
         if recipe.get("version") != RECIPE_VERSION or record.get("density_floor") != entry.get("density_floor") or \
                 record.get("density_metric") != entry.get("density_metric"):
             raise ValueError("Candidate requires the current strict-density recipe")
@@ -258,6 +263,9 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
         buffer_hashes[relative.as_posix()] = digest
     result = dict(version=1, texture_count=len(entries), streaming_files=len(hashes),
                   validated_files=len(complete_closure),
+                  runtime_bytes=sum((destination/uri).stat().st_size for uri in complete_closure),
+                  bulk_cook_complete=not pending,
+                  visual_status="pending actual-game multimodal review",
                   adopted_textures=adopted, pending_textures=pending,
                   upgraded_textures=sum(entry["scale"] > 1 for entry in entries),
                   density_metric=inventory_document.get("density_metric"),

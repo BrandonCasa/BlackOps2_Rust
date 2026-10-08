@@ -11,13 +11,10 @@ import argparse
 import copy
 from functools import lru_cache
 import hashlib
-import io
 import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
-import struct
 import tempfile
 import tomllib
 
@@ -27,9 +24,11 @@ from PIL import Image
 try:
     from .material_textures import canonical_normal, color_levels, inspect_dds, normal_levels, response_levels, rgba_dds, rgba_levels
     from .prepare_origins import material_family, presentation
+    from .material_semantics import resolve_bindings, meanings, physical_response, uv_selection
 except ImportError:
     from material_textures import canonical_normal, color_levels, inspect_dds, normal_levels, response_levels, rgba_dds, rgba_levels
     from prepare_origins import material_family, presentation
+    from material_semantics import resolve_bindings, meanings, physical_response, uv_selection
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 EFFECT_CONSTANT_HASHES = {
@@ -229,10 +228,10 @@ class Cooker:
             return None
         path = self.image_paths.get(binding["image"])
         if path is None:
-            return None
+            raise ValueError(f"Native image {binding['image']} is missing; recover the declared zone DDS")
         # A patch may reuse a name with different bytes. Provenance follows the
         # resolved zone image, rather than silently keeping the first revision.
-        key = str(path.relative_to(self.inspection).as_posix())
+        key = str(path.resolve())  # Receipt only; never exported to runtime descriptors.
         if key not in self.sources:
             try:
                 self.sources[key] = dict(inspect_dds(path.read_bytes(), allow_non_2d=True),
@@ -244,17 +243,24 @@ class Cooker:
         return self.pixels(path)
 
     def texture(self, levels, role, srgb=False):
+        if all(np.all(level == levels[0][0, 0]) for level in levels):
+            levels = [levels[0][:1, :1].copy()]
         raw = rgba_dds(levels, srgb)
         digest = hashlib.sha256(raw + role.encode()).hexdigest()[:32]
         name = f"pbr-{digest}.dds"
         w, h = levels[0].shape[1], levels[0].shape[0]
-        fmt = "BC7_UNORM_SRGB" if srgb else "BC5_UNORM" if role == "normal" else "BC4_UNORM" if role == "mask" else "BC7_UNORM"
+        fmt = "BC7_UNORM_SRGB" if srgb else "BC5_UNORM" if role == "normal" else "BC4_UNORM" if role in ("coating", "mask") else "BC7_UNORM"
         # Block encoders require aligned top levels. Preserve tiny/odd native sizes.
         if w % 4 or h % 4:
             fmt = "R8G8B8A8_UNORM_SRGB" if srgb else "R8G8B8A8_UNORM"
         master = self.work / name
-        if not master.exists():
-            master.write_bytes(raw)
+        if master.exists():
+            if master.read_bytes() != raw:
+                raise ValueError(f"Canonical master cache is corrupt: {name}; remove only this keyed master and resume")
+        else:
+            temporary = master.with_suffix(".dds.tmp")
+            temporary.write_bytes(raw)
+            temporary.replace(master)
         self.pending[name] = fmt
         uri = "textures/" + name
         self.entries[uri] = {"uri": uri, "role": role, "color_space": "srgb" if srgb else "linear",
@@ -268,16 +274,7 @@ class Cooker:
         family = original.get("family", "unrecovered") if original else entry["source_family"]
         old = surface.get("channels", [])
         by_role = {(c["role"], c["layer"]): c for c in old}
-        native = {}
-        counts = {}
-        hashes = {2695565377: 0, 3054311504: 1, 3054311507: 2, 3054311506: 3,
-                  1507003663: 0, 2486480606: 1, 2486480605: 2,
-                  887934131: 0, 3532022562: 1, 3532022561: 2}
-        for binding in (original or {}).get("textures", []):
-            role = {2: "color", 5: "normal", 8: "specular_gloss"}.get(binding["semantic"], "auxiliary")
-            layer = hashes.get(binding["hash"], counts.get(role, 0))
-            counts[role] = layer + 1
-            native[role, layer] = binding
+        native = resolve_bindings(original, surface, identity)
 
         def old_pixels(role, layer):
             c = by_role.get((role, layer))
@@ -313,7 +310,7 @@ class Cooker:
             surface["presentation"]["lamp"] = False
         state = surface.get("presentation", {"alpha": "opaque"})
         surface.update(identity=identity, family=surface.get("family", material_family(family)),
-                       version=2, physical_class=entry["class"], coating_roughness=.12)
+                       version=2, physical_class="fabric" if entry["class"] == "leather" else entry["class"], coating_roughness=.12)
         cooked, semantics = [], []
         layers = sorted({layer for role, layer in set(native) | set(by_role) if role == "color"} | {0})
         for layer in layers:
@@ -322,16 +319,17 @@ class Cooker:
             color, normal, specular = pixels("color", layer), pixels("normal", layer), pixels("specular_gloss", layer)
             if color is None and normal is None and specular is None:
                 continue
-            alpha_gloss = f"n{layer}x{layer}" in family and specular is None
+            interpretation = meanings(family, surface, layer, specular is not None)
+            alpha_gloss = interpretation["color_alpha"] == "gloss"
             gloss = (specular if specular is not None else color) if (specular is not None or alpha_gloss) else None
-            meanings = {"color_alpha": "gloss" if alpha_gloss else "opacity" if state["alpha"] != "opaque" and layer == 0 else "reveal" if layer > 0 else "unused",
-                        "specular_alpha": "gloss", "normal_rg": "native_slopes"}
             if color is not None:
                 base = color.copy()
                 if alpha_gloss or layer == 0 and state["alpha"] == "opaque":
                     base[..., 3] = 255
-                c = self.texture(color_levels(base, True, state.get("cutoff", .5) if state["alpha"] == "mask" else None), "color", True)
+                c = self.texture(color_levels(base, True, state.get("cutoff", .5) if state["alpha"] == "mask" and layer == 0 else None), "color", True)
                 cooked.append(dict(c, layer=layer, channels="rgb:base_color,a:coverage"))
+                if state["alpha"] == "mask" and layer == 0:
+                    self.entries[c["uri"]]["mask_cutoffs"] = [state.get("cutoff", .5)]
             if normal is not None:
                 if ("normal", layer) in native and self.source(native["normal", layer]) is not None:
                     unit = canonical_normal(normal, recipe["normal_strength"])
@@ -343,32 +341,21 @@ class Cooker:
                 cooked.append(dict(n, layer=layer, channels="rg:unit_normal_xy"))
             else:
                 variance = []
-            template = color if color is not None else normal if normal is not None else specular
-            h, w = template.shape[:2]
-            rough = np.full((h, w), recipe["roughness"], np.float32)
-            if gloss is not None:
-                g = np.array(Image.fromarray(gloss).resize((w, h), Image.Resampling.BILINEAR))[..., 3] / 255
-                converted = (2 / (np.exp2(13 * g) + 2)) ** .25
-                rough = np.clip(.25 * rough + .75 * converted, recipe["minimum"], recipe["maximum"])
-            metal = np.full((h, w), recipe["metallic"], np.float32)
-            coat = np.full((h, w), recipe["coating"], np.float32)
-            if kind in ("metal", "painted_metal") and color is not None:
-                rgb = color[..., :3].astype(np.float32) / 255
-                rust = np.clip((rgb[..., 0] - rgb[..., 1] * 1.2) * 5, 0, 1)
-                # Explicit authored reconstruction of rust islands; grayscale paint
-                # is kept dielectric rather than automatically exposing substrate.
-                metal *= 1 - rust
-                rough = rough * (1 - rust) + .88 * rust
-                coat *= 1 - rust
-            if normal is not None and unit.shape[:2] == rough.shape:
-                rough = np.clip(rough + (1 - unit[..., 2]) * .06, 0, 1)
-            response = np.rint(np.dstack((np.ones((h, w)), rough, metal, coat)) * 255).astype(np.uint8)
-            orm = self.texture(response_levels(response, variance), "response")
+            response = physical_response(color, gloss, normal, recipe,
+                                         entry.get("physical_response", {}).get(str(layer)))
+            response_mips = response_levels(response, variance)
+            orm = self.texture(response_mips, "response")
             cooked.append(dict(orm, layer=layer, channels="r:occlusion,g:perceptual_roughness,b:metallic,a:coating"))
-            semantics.append({"layer": layer, "class": kind, "interpretation": meanings,
+            if ("coating", layer) in by_role:
+                coating_mips = [np.dstack((level[..., 3], np.zeros(level.shape[:2], np.uint8),
+                                          np.zeros(level.shape[:2], np.uint8), np.full(level.shape[:2], 255, np.uint8)))
+                                for level in response_mips]
+                coating = self.texture(coating_mips, "coating")
+                cooked.append(dict(coating, layer=layer, channels="r:coating"))
+            semantics.append({"layer": layer, "class": kind, "interpretation": interpretation,
                               "roughness_source": "specular_alpha" if specular is not None else "color_alpha" if alpha_gloss else "authored_family",
                               "bindings": [dict(native[role, layer]) for role in ("color", "normal", "specular_gloss") if (role, layer) in native]})
-        emissive = old_pixels("emissive", 0)
+        emissive = pixels("emissive", 0)
         if emissive is not None:
             c = self.texture(color_levels(emissive, True), "emissive", True)
             cooked.append(dict(c, layer=0, channels="rgb:emissive,a:unused"))
@@ -388,7 +375,7 @@ class Cooker:
                     cooked.append(dict(c, layer=layer, channels="rg:unit_normal_xy"))
         surface["channels"] = sorted(cooked, key=lambda c: (c["role"], c["layer"]))
         for c in surface["channels"]:
-            role = "specular_gloss" if c["role"] == "response" else "color" if c["role"] in ("control",) else c["role"]
+            role = "specular_gloss" if c["role"] in ("response", "coating") else "color" if c["role"] == "control" else c["role"]
             binding = native.get((role, c["layer"]), native.get(("color", c["layer"]), {}))
             c["sampler"] = binding.get("sampler", 20)
         if "presentation" in surface:
@@ -398,7 +385,7 @@ class Cooker:
                 material["alphaCutoff"] = state.get("cutoff", .5)
         surface["provenance"] = {"source_family": family, "source_zone": (original or {}).get("zone", "retained_export"),
                                  "recipe_sha256": hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest(),
-                                 "approximation": "GGX lobe fit; authored family limits and normal-guided roughness; chromatic rust mask"}
+                                 "approximation": "bounded native-gloss GGX fit; explicit catalog substrate and reviewed atlas masks; neutral AO"}
         effect = prepared_effect(original, surface)
         if effect:
             surface["effect"] = effect
@@ -418,32 +405,28 @@ class Cooker:
         pbr["roughnessFactor"] = self.catalog["classes"][entry["class"]]["roughness"]
 
     def compress(self):
-        if hashlib.sha256(self.encoder.read_bytes()).hexdigest() != ENCODER_SHA256:
-            raise ValueError("DirectXTex encoder differs from pinned may2026 executable")
-        groups = {}
-        for name, fmt in self.pending.items():
-            target = self.pack / "textures" / name
-            if not target.exists():
-                groups.setdefault(fmt, []).append(name)
-        for fmt, names in groups.items():
-            for begin in range(0, len(names), 24):
-                batch = names[begin:begin + 24]
-                args = [str(self.encoder), "-nologo", "-y", "-dx10", "-sepalpha", "-f", fmt,
-                        "-o", str(self.pack / "textures")]
-                if fmt.startswith("BC7"):
-                    args.extend(["-bc", "x"])
-                args.extend(str(self.work / n) for n in batch)
-                result = subprocess.run(args, capture_output=True)
-                if result.returncode:
-                    raise RuntimeError(result.stdout.decode(errors="replace") + result.stderr.decode(errors="replace"))
-                print(f"Cooked {fmt}: {min(begin + 24, len(names))}/{len(names)}", flush=True)
+        try:
+            from .compressed_texture_cache import CompressedTextureCache, materialize
+            from .preparation_resources import PreparationResources
+        except ImportError:
+            from compressed_texture_cache import CompressedTextureCache, materialize
+            from preparation_resources import PreparationResources
+        resources = PreparationResources(exit_for_shared_slot=True, saturate=True)
+        cache = CompressedTextureCache(self.work / "compressed-cache", self.encoder, "cuda", resources)
         for name in self.pending:
-            raw = (self.pack / "textures" / name).read_bytes()
-            record = inspect_dds(raw)
-            expected = self.entries["textures/" + name]
-            if (record["width"], record["height"], len(record["mips"])) != (expected["width"], expected["height"], expected["mip_count"]):
-                raise ValueError("encoder changed authored mip chain or image dimensions")
-            expected["dds"] = record
+            resources.wait()
+            raw = (self.work / name).read_bytes()
+            entry = dict(self.entries["textures/" + name], scale=1,
+                         density_applicable=max(self.entries["textures/" + name]["width"],
+                                                self.entries["textures/" + name]["height"]) > 1)
+            key = hashlib.sha256(raw + entry["role"].encode() + ENCODER_SHA256.encode() + b"cuda" +
+                                 json.dumps(entry.get("mask_cutoffs", [])).encode()).hexdigest()
+            found = cache.find(key)
+            if found is None:
+                found = cache.store(key, rgba_levels(raw), entry, raw)
+            materialize(found[0], self.pack / "textures" / name)
+            self.entries[entry["uri"]].update(format=found[1]["format"],
+                dds=inspect_dds(found[0].read_bytes()))
 
 
 def prepare(config, source_pack=None, write_catalog=False):
@@ -516,122 +499,62 @@ def prepare(config, source_pack=None, write_catalog=False):
 
 
 def qualify(config, extra_channels=None, document_paths=None, prune=True):
-    """Compare every cooked mip with its lossless master; retain bad encodes."""
-    pack = Path(config["game"]["asset_pack"])
-    work = Path(config["materials"]["work"])
-    encoder = Path(config["materials"]["encoder"])
-    if hashlib.sha256(encoder.read_bytes()).hexdigest() != ENCODER_SHA256:
-        raise ValueError("encoder does not match pinned release")
+    """Qualify legacy callers through the same GPU semantic cache, without fallback."""
+    pack = Path(config["game"]["asset_pack"]).resolve()
+    work = Path(config["materials"]["work"]).resolve()
+    if pack.is_relative_to(WORKSPACE) or work.is_relative_to(WORKSPACE):
+        raise ValueError("Material qualification must remain external")
     paths = sorted(pack.rglob("*.gltf")) if document_paths is None else document_paths
     documents = [(p, json.loads(p.read_text())) for p in paths]
-    catalog = json.loads((WORKSPACE / "config/origins-materials.json").read_text())
-    forced_lossless = set()
+    inspection = Path(config["assets"]["inspection_output"])
+    cooker = Cooker(pack, work, Path(config["materials"]["encoder"]), {}, inspection,
+                    Path(config["materials"]["extraction"]))
     for _, document in documents:
         for material in document.get("materials", []):
-            if "surface" not in material.get("extras", {}):
-                continue
-            if catalog["materials"].get(material["name"], {}).get("compression") == "lossless":
-                surface = material["extras"]["surface"]
-                surface["provenance"]["compression_policy"] = "lossless close-view material"
-                forced_lossless.update(c["uri"] for c in surface["channels"])
-    # StandardMaterial samples coat strength from R, whereas the world adapter
-    # uses the response texture's A. Prepare the same mask in BC4 for actors.
-    for _, doc in documents:
-        for material in doc.get("materials", []):
-            if "surface" not in material.get("extras", {}):
-                continue
-            surface = material["extras"]["surface"]
-            if any(c["role"] == "coating" for c in surface["channels"]):
+            surface = material.get("extras", {}).get("surface")
+            if not surface:
                 continue
             response = next((c for c in surface["channels"] if c["role"] == "response" and c["layer"] == 0), None)
-            if response is None:
-                continue
-            levels = rgba_levels((work / Path(response["uri"]).name).read_bytes())
-            if not levels[0][..., 3].any():
-                continue
-            levels = [np.repeat(x[..., 3:4], 4, axis=2) for x in levels]
-            raw = rgba_dds(levels)
-            name = f"pbr-{hashlib.sha256(raw + b'coating').hexdigest()[:32]}.dds"
-            master, target = work / name, pack / "textures" / name
-            master.write_bytes(raw)
-            fmt = "BC4_UNORM" if response["width"] % 4 == 0 and response["height"] % 4 == 0 else "R8G8B8A8_UNORM"
-            if not target.exists():
-                result = subprocess.run([str(encoder), "-nologo", "-y", "-dx10", "-f", fmt,
-                    "-o", str(target.parent), str(master)], capture_output=True)
-                if result.returncode:
-                    raise RuntimeError(result.stdout.decode(errors="replace") + result.stderr.decode(errors="replace"))
-            surface["channels"].append({**response, "uri": "textures/" + name, "role": "coating",
-                                        "channels": "r:coating", "format": fmt})
-    channels = {c["uri"]: c for _, d in documents for m in d.get("materials", [])
-                for c in m.get("extras", {}).get("surface", {}).get("channels", [])}
-    channels.update({c["uri"]: c for c in (extra_channels or [])})
-    previous_path = work / "compression-receipt.json"
-    previous = json.loads(previous_path.read_text())["textures"] if previous_path.is_file() else {}
-    metrics, replacements = ({} if prune else previous.copy()), {}
-    for index, (uri, channel) in enumerate(sorted(channels.items())):
-        path = pack / uri
-        raw = path.read_bytes()
-        record = inspect_dds(raw)
-        masters = rgba_levels((work / path.name).read_bytes())
-        offset, squared, count, worst = 148, 0., 0, 0.
-        for mip, master in zip(record["mips"], masters, strict=True):
-            # PIL's DDS decoder exposes a single mip. Wrap each retained payload
-            # in a one-level header so all levels are qualified, including tails.
-            header = bytearray(raw[:148])
-            struct.pack_into("<II", header, 12, mip["height"], mip["width"])
-            struct.pack_into("<I", header, 28, 1)
-            with Image.open(io.BytesIO(header + raw[offset:offset + mip["bytes"]])) as image:
-                decoded = np.asarray(image.convert("RGBA")).astype(np.float32) / 255
-            offset += mip["bytes"]
-            original = master.astype(np.float32) / 255
-            if channel["role"] == "normal":
-                def unit(x):
-                    xy = x[..., :2] * 2 - 1
-                    n = np.dstack((xy, np.sqrt(np.maximum(1 - np.sum(xy * xy, axis=2), 0))))
-                    return n / np.maximum(np.linalg.norm(n, axis=2, keepdims=True), 1e-6)
-                error = np.rad2deg(np.arccos(np.clip(np.sum(unit(original) * unit(decoded), axis=2), -1, 1)))
-            else:
-                width = 1 if channel["role"] in {"coating", "mask"} else 4
-                error = np.abs(original[..., :width] - decoded[..., :width])
-            squared += float(np.sum(error.astype(np.float64) ** 2))
-            count += error.size
-            worst = max(worst, float(np.max(error)))
-        rms = (squared / count) ** .5
-        # Normal thresholds are degrees; all other thresholds are unit channels.
-        limit, peak = (.35, 1.5) if channel["role"] == "normal" else (.0015, 2 / 255)
-        retain = uri in forced_lossless or rms > limit or worst > peak
-        if retain:
-            path.write_bytes((work / path.name).read_bytes())
-            replacements[uri] = "R8G8B8A8_UNORM_SRGB" if channel["color_space"] == "srgb" else "R8G8B8A8_UNORM"
-        elif record["dxgi"] in {28, 29}:
-            # A reused texture may already be a qualified lossless exception.
-            # Keep metadata aligned with its real payload on incremental cooks.
-            replacements[uri] = "R8G8B8A8_UNORM_SRGB" if record["dxgi"] == 29 else "R8G8B8A8_UNORM"
-        if not retain and record["dxgi"] in {28, 29} and previous.get(uri, {}).get("lossless_exception"):
-            metrics[uri] = previous[uri]
-        else:
-            metrics[uri] = {"role": channel["role"], "rms": rms, "maximum": worst, "lossless_exception": retain,
-                            "reason": "close-view material policy" if uri in forced_lossless else "numeric quality limits" if retain else "within quality limits"}
-        if index % 100 == 0:
-            print(f"Qualified mips {index + 1}/{len(channels)}", flush=True)
-    for path, doc in documents:
-        for material in doc.get("materials", []):
-            for c in material.get("extras", {}).get("surface", {}).get("channels", []):
-                c["format"] = replacements.get(c["uri"], c["format"])
-        normal_scaffold(path, doc)
-        path.write_text(json.dumps(doc, separators=(",", ":")) + "\n")
-    # Remove intermediate textures no longer referenced, confined to this
-    # external cooking destination. The installed game is never a target.
-    for path in (pack / "textures").glob("*.dds"):
-        if prune and path.relative_to(pack).as_posix() not in channels:
-            path.unlink()
-    (work / "compression-receipt.json").write_text(json.dumps({"encoder_sha256": ENCODER_SHA256,
-        "quality_limits": {"normal_rms_degrees": .35, "normal_maximum_degrees": 1.5,
-                           "channel_rms": .0015, "channel_maximum": 2 / 255},
-        "textures": metrics, "lossless_exceptions": sum(m["lossless_exception"] for m in metrics.values())}, indent=2) + "\n")
-    print(f"Qualified {len(channels)} textures, every mip; receipt contains {len(metrics)} textures and {sum(m['lossless_exception'] for m in metrics.values())} lossless exceptions", flush=True)
-    for c in (extra_channels or []):
-        c["format"] = replacements.get(c["uri"], c["format"])
+            if response and not any(c["role"] == "coating" for c in surface["channels"]):
+                levels = rgba_levels((work / Path(response["uri"]).name).read_bytes())
+                if levels[0][..., 3].any():
+                    coat = [np.dstack((x[..., 3], np.zeros(x.shape[:2], np.uint8),
+                                      np.zeros(x.shape[:2], np.uint8), np.full(x.shape[:2], 255, np.uint8)))
+                            for x in levels]
+                    channel = cooker.texture(coat, "coating")
+                    surface["channels"].append(dict(channel, layer=0, sampler=response["sampler"], channels="r:coating"))
+            for channel in surface["channels"]:
+                cooker.entries[channel["uri"]] = dict(channel)
+                if channel["role"] == "color" and channel["layer"] == 0 and material.get("alphaMode") == "MASK":
+                    cooker.entries[channel["uri"]].setdefault("mask_cutoffs", []).append(material.get("alphaCutoff", .5))
+    for channel in extra_channels or []:
+        cooker.entries.setdefault(channel["uri"], dict(channel))
+    for uri, channel in cooker.entries.items():
+        channel["mask_cutoffs"] = sorted(set(channel.get("mask_cutoffs", [])))
+        cooker.pending[Path(uri).name] = channel["format"]
+    cooker.compress()
+    for path, document in documents:
+        for material in document.get("materials", []):
+            for channel in material.get("extras", {}).get("surface", {}).get("channels", []):
+                metadata = cooker.entries[channel["uri"]]
+                channel.update({key: metadata[key] for key in ("format", "width", "height", "mip_count")})
+        normal_scaffold(path, document)
+        temporary = path.with_suffix(".gltf.tmp")
+        temporary.write_text(json.dumps(document, separators=(",", ":")) + "\n")
+        temporary.replace(path)
+    for channel in extra_channels or []:
+        metadata = cooker.entries[channel["uri"]]
+        channel.update({key: metadata[key] for key in ("format", "width", "height", "mip_count")})
+    if prune:
+        for path in (pack / "textures").glob("*.dds"):
+            if path.relative_to(pack).as_posix() not in cooker.entries:
+                path.unlink()
+    receipt = work / "compression-receipt.json"
+    temporary = receipt.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(dict(encoder_sha256=ENCODER_SHA256, compression_device="cuda",
+                                        textures=cooker.entries), indent=2) + "\n")
+    temporary.replace(receipt)
+    print(f"GPU-qualified {len(cooker.entries)} complete semantic mip chains", flush=True)
 
 
 def migrate_assemblies(config):
@@ -812,50 +735,6 @@ def prune_runtime_pack(config):
     return hashes
 
 
-def lossless_comparison(config):
-    """Assemble the same complete runtime pack with precompression masters."""
-    try:
-        from .import_origins import validate_pack
-    except ImportError:
-        from import_origins import validate_pack
-    pack = Path(config["game"]["asset_pack"]).resolve()
-    work = Path(config["materials"]["work"]).resolve()
-    target = Path(config["assets"]["inspection_output"]).resolve() / "pbr-lossless-package/assets/origins"
-    _, _, hashes = validate_pack(pack, exact=True)
-    if target == WORKSPACE or WORKSPACE in target.parents or target == pack:
-        raise ValueError("comparison destination must be external and distinct")
-    target.mkdir(parents=True, exist_ok=True)
-    existing = {p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file()}
-    if existing - hashes.keys():
-        _, _, prior = validate_pack(target, exact=True)
-        if prior.keys() != existing:
-            raise ValueError("comparison destination contains unrelated files")
-        for uri in existing - hashes.keys():
-            (target / uri).unlink()
-    for uri, sha in hashes.items():
-        output = target / uri
-        output.parent.mkdir(parents=True, exist_ok=True)
-        if not output.is_file() or hashlib.sha256(output.read_bytes()).hexdigest() != sha:
-            shutil.copyfile(pack / uri, output)
-    channels = set()
-    for path in target.rglob("*.gltf"):
-        doc = json.loads(path.read_text())
-        for material in doc["materials"]:
-            for c in material["extras"]["surface"]["channels"]:
-                uri = c["uri"]
-                if uri not in channels:
-                    raw = (work / Path(uri).name).read_bytes()
-                    inspect_dds(raw)
-                    (target / uri).write_bytes(raw)
-                    channels.add(uri)
-                c["format"] = "R8G8B8A8_UNORM_SRGB" if c["color_space"] == "srgb" else "R8G8B8A8_UNORM"
-        path.write_text(json.dumps(doc, separators=(",", ":")) + "\n")
-    _, _, result = validate_pack(target, exact=True)
-    (target.parent.parent / "comparison.json").write_text(json.dumps({"version": 2,
-        "compressed": hashes, "lossless": result, "master_textures": len(channels)}, indent=2) + "\n")
-    print(f"Lossless comparison closure: {len(result)} files, {len(channels)} canonical masters", flush=True)
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -863,7 +742,6 @@ if __name__ == "__main__":
     parser.add_argument("--qualify-existing", action="store_true")
     parser.add_argument("--migrate-assemblies", action="store_true")
     parser.add_argument("--assemble-existing", action="store_true")
-    parser.add_argument("--lossless-comparison", action="store_true")
     parser.add_argument("--retune-response-mips", action="store_true")
     parser.add_argument("--retune-identities", action="store_true")
     parser.add_argument("--retain-effects", action="store_true")
@@ -882,8 +760,6 @@ if __name__ == "__main__":
         retune_response_mips(config)
         qualify(config)
         prune_runtime_pack(config)
-    elif args.lossless_comparison:
-        lossless_comparison(config)
     elif args.assemble_existing:
         prune_runtime_pack(config)
     elif args.qualify_existing:

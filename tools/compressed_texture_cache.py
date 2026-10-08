@@ -172,7 +172,9 @@ def qualify(raw, levels, role, legacy_start=None, cutoffs=()):
                          alpha_coverage=[dict(cutoff=cutoff, **value) for cutoff, value in coverage.items()]))
         # Retained source bytes cannot acquire a new codec error. Record their
         # master differences separately; reject generated/recompressed errors.
-        if not retained and not numerical_passed:
+        # Packed-response codec errors are diagnostics for the required visual
+        # gate. The user explicitly keeps GPU BC7 despite its numerical ceiling.
+        if not retained and not numerical_passed and role != "response":
             raise ValueError(f"{role} mip {index} block compression failed quality/coverage limits: "
                              f"rms={rms:.6f}, max={maximum:.6f}, alpha={coverage}")
         if not retained and not coverage_passed:
@@ -181,6 +183,7 @@ def qualify(raw, levels, role, legacy_start=None, cutoffs=()):
                 units="degrees" if role == "normal" else "unit-channel",
                 rms_limit=rms_limit, maximum_limit=max_limit, checked_mips=len(levels),
                 sampled_channels=list(sampled_channels(role)),
+                numerical_policy="visual-review" if role == "response" else "strict",
                 generated_mips=sum(not row["retained_source_mip"] for row in rows),
                 retained_source_mips=sum(row["retained_source_mip"] for row in rows),
                 mips=rows)
@@ -309,6 +312,11 @@ class CompressedTextureCache:
                 try:
                     quality = qualify(raw, levels, entry["role"], prefix if retained else None, cutoffs)
                     quality["audited"] = True
+                    exceeded = [row["level"] for row in quality["mips"]
+                                if not row["retained_source_mip"] and not row["generated_limits_passed"]]
+                    if exceeded:
+                        print(f"{entry['uri']}: GPU response compression ceiling exceeded at mips {exceeded}; "
+                              "recorded for actual-game visual review", flush=True)
                     break
                 except CoverageError as error:
                     previous = margins.get(error.level, 0)

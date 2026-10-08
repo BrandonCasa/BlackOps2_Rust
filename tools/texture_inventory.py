@@ -18,6 +18,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", str(os.cpu_count() or 1))
 import numpy as np
 from preparation_resources import PreparationResources
 from material_textures import inspect_dds
+from material_semantics import CHANNELS, uv_selection
 
 
 def contained(root, path):
@@ -102,7 +103,7 @@ def channel_uv(document, scene, primitive, channel, surface):
     elif layer == 3 and "_ORIGINS_LAYER3_UV" in attrs:
         uv = accessor(document, scene, attrs["_ORIGINS_LAYER3_UV"])[:, :2]
     else:
-        uv = accessor(document, scene, attrs["TEXCOORD_0"])
+        raise ValueError(f"{scene.name}: layer {layer} requires its declared secondary UV attribute")
     return uv
 
 
@@ -228,14 +229,28 @@ def inventory(root, high_density=2048., pause_file=None, close_density=2048., me
                             minimum_axis_texels_per_meter=None, degenerate_uv_triangles=0,
                             physical_area_m2=0., uses=0, protected_closeup=False,
                             constant_field=constant)
+                        entry_semantics = dict(channels=channel["channels"],
+                                               interpretation=[])
+                        entries[uri].update(entry_semantics)
                     entry = entries[uri]
+                    if channel["role"] not in CHANNELS or channel["channels"] != CHANNELS[channel["role"]]:
+                        raise ValueError(f"{material['name']}: contradictory/unsupported {channel['role']} channels")
+                    expected_space = "srgb" if channel["role"] in ("color", "emissive") else "linear"
+                    if channel["color_space"] != expected_space:
+                        raise ValueError(f"{material['name']}: {channel['role']} requires {expected_space}")
                     state = surface.get("presentation", {})
-                    if state.get("alpha") == "mask" and channel["role"] == "color":
+                    if state.get("alpha") == "mask" and channel["role"] == "color" and channel["layer"] == 0:
                         cutoff = float(state.get("cutoff", .5))
                         if not math.isfinite(cutoff) or not 0 <= cutoff <= 1:
                             raise ValueError(f"Invalid authored alpha cutoff: {uri}")
                         if cutoff not in entry["mask_cutoffs"]:
                             entry["mask_cutoffs"].append(cutoff)
+                    interpretation = dict(material=material["name"], family=surface["family"],
+                        source_family=surface.get("provenance", {}).get("source_family"),
+                        layer=channel["layer"], uv=uv_selection(surface, channel["layer"], channel["role"]),
+                        sampler=channel["sampler"], coverage=state.get("alpha", "opaque") if channel["layer"] == 0 else "reveal")
+                    if interpretation not in entry["interpretation"]:
+                        entry["interpretation"].append(interpretation)
                     if (entry["role"], entry["width"], entry["height"], entry["color_space"]) != (
                             channel["role"], channel["width"], channel["height"], channel["color_space"]):
                         raise ValueError(f"Conflicting texture semantics: {uri}")

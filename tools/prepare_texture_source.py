@@ -10,7 +10,6 @@ from pathlib import Path
 import shutil
 
 from import_origins import validate_pack
-from preparation_resources import PreparationResources
 
 
 FORMATS = {28: "R8G8B8A8_UNORM", 29: "R8G8B8A8_UNORM_SRGB", 80: "BC4_UNORM",
@@ -26,14 +25,13 @@ def prepare(source, destination, receipt):
     if receipt.resolve().is_relative_to(workspace) or receipt.resolve().is_relative_to(source) or receipt.resolve().is_relative_to(destination):
         raise ValueError("Recovery receipt must remain external and separate from both packs")
     _, _, hashes = validate_pack(source, exact=True)
-    resources = PreparationResources()
     destination.mkdir(parents=True)
     index_path = source / "texture-streaming.json"
     index = json.loads(index_path.read_text()) if index_path.exists() else {"textures": []}
     streams = {entry["uri"]: entry for entry in index["textures"]}
     retired = {entry["full_uri"] for entry in index["textures"]} | {"texture-streaming.json"}
     for uri, digest in hashes.items():
-        resources.wait()
+        # Snapshotting bytes is CPU/file work and does not own the GPU slot.
         if uri in retired:
             continue
         output = destination / uri
