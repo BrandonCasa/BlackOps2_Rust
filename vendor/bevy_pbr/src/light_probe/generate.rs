@@ -12,11 +12,12 @@
 //! For prefiltered environment maps, see [`bevy_light::EnvironmentMapLight`].
 //! These components are intended to be added to a camera.
 use bevy_app::{App, Plugin, Update};
-use bevy_asset::{embedded_asset, load_embedded_asset, AssetServer, Assets, RenderAssetUsages};
+use bevy_asset::{AssetServer, Assets, RenderAssetUsages, embedded_asset, load_embedded_asset};
 use bevy_core_pipeline::mip_generation::{
     self, DownsamplePass, DownsamplePipeline, DownsamplePipelineKey, DownsamplingConstants,
 };
 use bevy_ecs::{
+    change_detection::DetectChanges,
     component::Component,
     entity::Entity,
     query::Without,
@@ -27,23 +28,24 @@ use bevy_ecs::{
 use bevy_image::Image;
 use bevy_math::{Quat, UVec2, Vec2};
 use bevy_render::{
+    Extract, ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems,
     diagnostic::RecordDiagnostics,
     init_gpu_resource,
     render_asset::RenderAssets,
     render_resource::{
-        binding_types::*, AddressMode, BindGroup, BindGroupEntries, BindGroupLayoutDescriptor,
+        AddressMode, BindGroup, BindGroupEntries, BindGroupLayoutDescriptor,
         BindGroupLayoutEntries, CachedComputePipelineId, ComputePassDescriptor,
         ComputePipelineDescriptor, DownlevelFlags, Extent3d, FilterMode, MipmapFilterMode,
         PipelineCache, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType,
         SpecializedComputePipelines, StorageTextureAccess, Texture, TextureAspect,
-        TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
-        TextureView, TextureViewDescriptor, TextureViewDimension, UniformBuffer,
+        TextureDescriptor, TextureDimension, TextureFormat, TextureId, TextureSampleType,
+        TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension, UniformBuffer,
+        binding_types::*,
     },
     renderer::{RenderAdapter, RenderContext, RenderDevice, RenderQueue},
     sync_component::{SyncComponent, SyncComponentPlugin},
     sync_world::RenderEntity,
-    texture::{CachedTexture, GpuImage, TextureCache},
-    Extract, ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems,
+    texture::{CachedTexture, GpuImage},
 };
 
 // Implementation: generate diffuse and specular cubemaps required by PBR
@@ -120,7 +122,9 @@ impl Plugin for EnvironmentMapGenerationPlugin {
                 .contains(DownlevelFlags::COMPUTE_SHADERS);
 
             if !limit_support || !downlevel_support {
-                info!("Disabling EnvironmentMapGenerationPlugin because compute is not supported on this platform. This is safe to ignore if you are not using EnvironmentMapGenerationPlugin.");
+                info!(
+                    "Disabling EnvironmentMapGenerationPlugin because compute is not supported on this platform. This is safe to ignore if you are not using EnvironmentMapGenerationPlugin."
+                );
                 return;
             }
         } else {
@@ -404,34 +408,47 @@ fn compute_mip_count(size: u32) -> u32 {
 
 /// Prepares textures needed for single pass downsampling
 pub fn prepare_generated_environment_map_intermediate_textures(
-    light_probes: Query<(Entity, &RenderEnvironmentMap)>,
+    light_probes: Query<(Entity, &RenderEnvironmentMap, Option<&IntermediateTextures>)>,
     render_device: Res<RenderDevice>,
-    mut texture_cache: ResMut<TextureCache>,
     mut commands: Commands,
 ) {
-    for (entity, env_map_light) in &light_probes {
+    for (entity, env_map_light, existing) in &light_probes {
         let base_size = env_map_light.environment_map.texture_descriptor.size.width;
         let mip_level_count = compute_mip_count(base_size);
 
-        let environment_map = texture_cache.get(
-            &render_device,
-            TextureDescriptor {
-                label: Some("intermediate_environment_map"),
-                size: Extent3d {
-                    width: base_size,
-                    height: base_size,
-                    depth_or_array_layers: 6, // Cubemap faces
-                },
-                mip_level_count,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba16Float,
-                usage: TextureUsages::TEXTURE_BINDING
-                    | TextureUsages::STORAGE_BINDING
-                    | TextureUsages::COPY_DST,
-                view_formats: &[],
+        // Filtering retains its inputs and mip views across skipped refreshes.
+        // The transient cache can evict a sleeping map after three frames.
+        if existing.is_some_and(|textures| {
+            let texture = &textures.environment_map.texture;
+            texture.width() == base_size
+                && texture.height() == base_size
+                && texture.depth_or_array_layers() == 6
+                && texture.mip_level_count() == mip_level_count
+        }) {
+            continue;
+        }
+
+        let texture = render_device.create_texture(&TextureDescriptor {
+            label: Some("intermediate_environment_map"),
+            size: Extent3d {
+                width: base_size,
+                height: base_size,
+                depth_or_array_layers: 6, // Cubemap faces
             },
-        );
+            mip_level_count,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba16Float,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::STORAGE_BINDING
+                | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let default_view = texture.create_view(&TextureViewDescriptor::default());
+        let environment_map = CachedTexture {
+            texture,
+            default_view,
+        };
 
         commands
             .entity(entity)
@@ -457,11 +474,18 @@ pub struct GeneratorBindGroups {
     pub radiance: Vec<BindGroup>, // One per mip level
     pub irradiance: BindGroup,
     pub copy: BindGroup,
+    texture_ids: [TextureId; 5],
+    combined_downsampling: bool,
 }
 
 /// Prepares bind groups for environment map generation pipelines
 pub fn prepare_generated_environment_map_bind_groups(
-    light_probes: Query<(Entity, &IntermediateTextures, &RenderEnvironmentMap)>,
+    light_probes: Query<(
+        Entity,
+        &IntermediateTextures,
+        &RenderEnvironmentMap,
+        Option<&GeneratorBindGroups>,
+    )>,
     render_device: Res<RenderDevice>,
     pipeline_cache: Res<PipelineCache>,
     queue: Res<RenderQueue>,
@@ -479,17 +503,35 @@ pub fn prepare_generated_environment_map_bind_groups(
     };
 
     assert!(stbn_texture.texture_descriptor.size.width.is_power_of_two());
-    assert!(stbn_texture
-        .texture_descriptor
-        .size
-        .height
-        .is_power_of_two());
+    assert!(
+        stbn_texture
+            .texture_descriptor
+            .size
+            .height
+            .is_power_of_two()
+    );
     let noise_size_bits = UVec2::new(
         stbn_texture.texture_descriptor.size.width.trailing_zeros(),
         stbn_texture.texture_descriptor.size.height.trailing_zeros(),
     );
 
-    for (entity, textures, env_map_light) in &light_probes {
+    for (entity, textures, env_map_light, existing) in &light_probes {
+        let texture_ids = [
+            env_map_light.environment_map.texture.id(),
+            env_map_light.diffuse_map.texture.id(),
+            env_map_light.specular_map.texture.id(),
+            textures.environment_map.texture.id(),
+            stbn_texture.texture.id(),
+        ];
+        if !layouts.is_changed()
+            && !samplers.is_changed()
+            && existing.is_some_and(|groups| {
+                groups.texture_ids == texture_ids
+                    && groups.combined_downsampling == config.combine_bind_group
+            })
+        {
+            continue;
+        }
         // Determine mip chain based on input size
         let base_size = env_map_light.environment_map.texture_descriptor.size.width;
         let mip_count = compute_mip_count(base_size);
@@ -703,6 +745,8 @@ pub fn prepare_generated_environment_map_bind_groups(
             radiance: radiance_bind_groups,
             irradiance: irradiance_bind_group,
             copy: copy_bind_group,
+            texture_ids,
+            combined_downsampling: config.combine_bind_group,
         });
     }
 }

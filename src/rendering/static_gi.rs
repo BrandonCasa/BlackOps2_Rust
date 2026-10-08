@@ -217,6 +217,7 @@ struct ProbeWork {
     cursor: u32,
     credit: f32,
     receivers: HashSet<IVec3>,
+    admitted: HashSet<IVec3>,
 }
 #[derive(Resource, Default)]
 struct Work(Vec<ProbeWork>);
@@ -1002,6 +1003,7 @@ fn inputs(
         let count = schedule.credit.floor() as u32;
         schedule.credit -= count as f32;
         cascade.probes.clear();
+        schedule.admitted.clear();
         for _ in 0..count {
             let priority = loop {
                 let Some(p) = schedule.priority.pop_front() else {
@@ -1022,11 +1024,7 @@ fn inputs(
                 probe.w |= 4;
             }
             // Distinct workgroups may never write the same probe tile.
-            if !cascade
-                .probes
-                .iter()
-                .any(|p| p.truncate() == probe.truncate())
-            {
+            if schedule.admitted.insert(probe.truncate()) {
                 cascade.probes.push(probe);
             }
         }

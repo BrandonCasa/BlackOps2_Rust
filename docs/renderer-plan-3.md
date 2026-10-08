@@ -101,6 +101,12 @@ below target and matched release adoption remains unqualified.
 
 ## B. Reflections and environment reuse
 
+Native filter preparation now retains per-entity intermediate textures and
+generation bindings/uniforms/mip views/placeholders against relevant texture,
+layout, sampler and downsampling identities. The actual focused DDGI game passes
+590 updates plus combat/ADS/Round 2/restart. Fresh tracing/convolution admission,
+screen-space reconstruction and matched release performance remain open.
+
 - [ ] Retain cube faces, hit/depth validity, source generations, confidence,
   variance and filtered mip generations in world-anchored regions.
 - [ ] Dirty face/tile invalidation includes geometry, emitters, materials, sky,
@@ -116,6 +122,9 @@ below target and matched release adoption remains unqualified.
   uses valid coarser sources; preserve dynamic lighting and parallax recovery.
 
 ## C. DDGI production and receiving
+
+Probe admission now uses a reused bounded set, preserving first admission,
+flags/order and uniqueness without scanning the growing output vector.
 
 - [ ] Select finest supported cascade before expensive sampling; sample coarse
   fields only for boundaries or missing fine support. Preserve initialized black,
