@@ -400,14 +400,24 @@ impl Registry {
 }
 
 pub(super) fn encode_vertices(mesh: &mut Mesh, offset: u32) {
+    encode_vertex_ids(mesh, offset, None);
+}
+
+/// Compacted skin vertices retain their original IDs in the authored sidecar.
+pub(super) fn encode_mapped_vertices(mesh: &mut Mesh, offset: u32, original_vertices: &[u32]) {
+    encode_vertex_ids(mesh, offset, Some(original_vertices));
+}
+
+fn encode_vertex_ids(mesh: &mut Mesh, offset: u32, original_vertices: Option<&[u32]>) {
     if let Some(VertexAttributeValues::Float32x4(tangents)) =
         mesh.attribute_mut(Mesh::ATTRIBUTE_TANGENT)
     {
+        assert!(original_vertices.is_none_or(|vertices| vertices.len() == tangents.len()));
         for (index, tangent) in tangents.iter_mut().enumerate() {
             let id = if offset == u32::MAX {
                 1
             } else {
-                offset + index as u32 + 1
+                offset + original_vertices.map_or(index as u32, |vertices| vertices[index]) + 1
             };
             // A malformed zero handedness must not turn the sidecar ID into
             // zero and underflow the shader's one-based lookup.

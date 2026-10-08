@@ -243,6 +243,7 @@ fn record(
     audio: Res<crate::audio::AudioDecodeStats>,
     profile: Res<crate::rendering::profile::VisualProfile>,
     preprocessing: Res<crate::rendering::PreprocessingStatus>,
+    contributors: Res<crate::rendering::RayContributorStats>,
 ) {
     if run.finished {
         return;
@@ -342,6 +343,7 @@ fn record(
         "render_diagnostics":false,"pipeline_cache_per_frame_inspection":false,
         "antialiasing":profile.antialiasing,"preprocessing":preprocessing.report(),
         "shared_lighting":{"ddgi_batches":gi.updates(),"reflection_frames":gi.reflections()},
+        "ray_contributors":&*contributors,
         "streaming":&*streaming,"audio_decode":&*audio,
     });
     match std::fs::write(output.join("performance.json"), receipt.to_string()) {

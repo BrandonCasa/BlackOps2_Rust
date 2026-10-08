@@ -17,6 +17,8 @@ use std::{
 pub(super) struct Sources(pub HashMap<AssetId<Mesh>, Arc<Source>>);
 
 pub(super) struct Source {
+    accessor_vertices: usize,
+    original_vertices: Vec<u32>,
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
     tangents: Vec<[f32; 4]>,
@@ -144,36 +146,61 @@ impl Source {
         {
             return None;
         }
-        // Deformation still visits the complete accessor, including vertices
-        // absent from this primitive's triangles, so validate all influences.
-        let maximum_joint = joints
-            .iter()
-            .zip(weights)
-            .flat_map(|(joints, weights)| joints.iter().zip(weights))
-            .filter_map(|(joint, weight)| (*weight > 0.).then_some(*joint as usize))
-            .max()?;
         // Material surfaces can share a whole rig's vertex accessor while
-        // indexing disjoint triangles. Only those referenced vertices can
-        // change this surface's ray geometry.
+        // indexing disjoint triangles. Keep every triangle in source order,
+        // but deform and upload only the vertices that it references. Original
+        // vertex IDs still address the authored surface-attribute sidecar.
         let used_joints = Self::indexed_joints(mesh)?;
+        let maximum_joint = *used_joints.last()?;
+        let mut remap = vec![u32::MAX; positions.len()];
+        let mut original_vertices = Vec::new();
+        let indices = indices
+            .into_iter()
+            .map(|index| {
+                let mapped = &mut remap[index as usize];
+                if *mapped == u32::MAX {
+                    *mapped = original_vertices.len() as u32;
+                    original_vertices.push(index);
+                }
+                *mapped
+            })
+            .collect();
         Some(Self {
-            positions: positions.clone(),
-            normals: normals.clone(),
-            tangents: tangents.clone(),
-            uv: uv.clone(),
+            accessor_vertices: positions.len(),
+            positions: original_vertices
+                .iter()
+                .map(|&i| positions[i as usize])
+                .collect(),
+            normals: original_vertices
+                .iter()
+                .map(|&i| normals[i as usize])
+                .collect(),
+            tangents: original_vertices
+                .iter()
+                .map(|&i| tangents[i as usize])
+                .collect(),
+            uv: original_vertices.iter().map(|&i| uv[i as usize]).collect(),
             indices,
-            joints: joints.clone(),
-            weights: weights.clone(),
+            joints: original_vertices
+                .iter()
+                .map(|&i| joints[i as usize])
+                .collect(),
+            weights: original_vertices
+                .iter()
+                .map(|&i| weights[i as usize])
+                .collect(),
+            original_vertices,
             used_joints,
             maximum_joint,
         })
     }
 
-    pub(super) fn mesh(&self) -> Mesh {
+    pub(super) fn mesh(&self, vertex_offset: u32) -> Mesh {
         self.deformed_mesh(
             self.positions.clone(),
             self.normals.clone(),
             self.tangents.clone(),
+            vertex_offset,
         )
     }
 
@@ -182,6 +209,7 @@ impl Source {
         positions: Vec<[f32; 3]>,
         normals: Vec<[f32; 3]>,
         tangents: Vec<[f32; 4]>,
+        vertex_offset: u32,
     ) -> Mesh {
         let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
@@ -193,6 +221,11 @@ impl Source {
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uv.clone());
         mesh.insert_indices(Indices::U32(self.indices.clone()));
         mesh.enable_raytracing = true;
+        super::ray_surface::encode_mapped_vertices(
+            &mut mesh,
+            vertex_offset,
+            &self.original_vertices,
+        );
         mesh
     }
 }
@@ -226,6 +259,8 @@ pub(super) fn visibility(
 ) {
     stats.admitted_providers = 0;
     stats.admitted_skins = 0;
+    stats.active_skin_source_vertices = 0;
+    stats.active_skin_vertices = 0;
     for (entity, provider, ray, skin) in &providers {
         let visible = owners
             .get(provider.owner)
@@ -235,6 +270,10 @@ pub(super) fn visibility(
             && skin.is_none_or(|skin| !skin.previous.is_empty());
         stats.admitted_providers += usize::from(visible);
         stats.admitted_skins += usize::from(visible && skin.is_some());
+        if visible && let Some(skin) = skin {
+            stats.active_skin_source_vertices += skin.source.accessor_vertices;
+            stats.active_skin_vertices += skin.source.positions.len();
+        }
         if visible && ray.is_none_or(|ray| ray.0.id() != provider.mesh.id()) {
             commands
                 .entity(entity)
@@ -258,6 +297,10 @@ pub(crate) struct RayContributorStats {
     admitted_skins: usize,
     pose_updates: u64,
     ignored_joint_pose_updates: u64,
+    active_skin_source_vertices: usize,
+    active_skin_vertices: usize,
+    deformed_source_vertices: u64,
+    deformed_vertices: u64,
 }
 
 pub(super) fn deform(
@@ -364,8 +407,9 @@ pub(super) fn deform(
             normals.push(normal.to_array());
             tangents.push(tangent.extend(source.tangents[index][3]).to_array());
         }
-        let mut mesh = source.deformed_mesh(positions, normals, tangents);
-        super::ray_surface::encode_vertices(&mut mesh, provider.vertex_offset);
+        let mesh = source.deformed_mesh(positions, normals, tangents, provider.vertex_offset);
+        stats.deformed_source_vertices += source.accessor_vertices as u64;
+        stats.deformed_vertices += source.positions.len() as u64;
         // Bevy 0.19.1's pending compaction queue identifies BLAS by asset ID.
         // Replacing that ID while compaction is pending can prepare the newest
         // BLAS twice. Immutable pose generations retain native compaction and

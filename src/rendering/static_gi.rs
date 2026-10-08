@@ -749,9 +749,7 @@ fn proxies(
             None
         };
         let trace_mesh = if let Some(source) = &skin_source {
-            let mut trace = source.mesh();
-            super::ray_surface::encode_vertices(&mut trace, vertex_offset);
-            meshes.add(trace)
+            meshes.add(source.mesh(vertex_offset))
         } else if let Some(handle) = cache.0.get(&(mesh.0.id(), vertex_offset)) {
             handle.clone()
         } else {
