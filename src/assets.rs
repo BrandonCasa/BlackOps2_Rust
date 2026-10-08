@@ -25,6 +25,7 @@ pub struct LaunchOptions {
     pub verify_locomotion: bool,
     pub verify_texture_streaming: bool,
     pub verify_viewmodel_shadows: bool,
+    pub verify_actor_shadows: bool,
     pub benchmark: bool,
     pub release_benchmark: bool,
     pub benchmark_view: Option<usize>,
@@ -67,14 +68,17 @@ impl LaunchOptions {
     pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
         let mut result = Self::default();
         if let Some(argument) = args.next() {
-            if argument == "--verify-texture-streaming" || argument == "--verify-viewmodel-shadows"
+            if argument == "--verify-texture-streaming"
+                || argument == "--verify-viewmodel-shadows"
+                || argument == "--verify-actor-shadows"
             {
                 result.verify_texture_streaming = argument == "--verify-texture-streaming";
                 result.verify_viewmodel_shadows = argument == "--verify-viewmodel-shadows";
+                result.verify_actor_shadows = argument == "--verify-actor-shadows";
                 result.verify = args.next().map(PathBuf::from);
                 if result.verify.is_none() || args.next().is_some() {
                     result.error = Some(
-                        "Usage: origins --verify-texture-streaming/--verify-viewmodel-shadows external-output-folder".into(),
+                        "Usage: origins --verify-texture-streaming/--verify-viewmodel-shadows/--verify-actor-shadows external-output-folder".into(),
                     );
                 }
                 return result;

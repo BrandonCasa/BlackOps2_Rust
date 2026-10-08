@@ -47,6 +47,10 @@ struct SurfaceReady;
 #[derive(Component)]
 pub(crate) struct DynamicSurface;
 
+/// World actors share native maps, but need close-combat texture admission.
+#[derive(Component)]
+pub(crate) struct ActorSurface;
+
 #[derive(Component)]
 struct LanternLight;
 
@@ -244,6 +248,7 @@ fn surfaces(
     library: Option<Res<opaque::SurfaceLibrary>>,
     profile: Res<profile::VisualProfile>,
     parents: Query<&ChildOf>,
+    zombies: Query<(), With<crate::enemies::Zombie>>,
     boards: Query<
         (),
         Or<(
@@ -261,7 +266,9 @@ fn surfaces(
         let mut ancestor = Some(entity);
         // Animated providers retain Bevy's native skinning and PBR shader.
         let mut dynamic = skinned;
+        let mut actor = false;
         while let Some(e) = ancestor {
+            actor |= zombies.contains(e);
             if boards.contains(e) {
                 dynamic = true;
                 break;
@@ -270,7 +277,12 @@ fn surfaces(
         }
         if dynamic {
             commands.entity(entity).insert(DynamicSurface);
-            if opaque::requires_extension(&library, &name.0) {
+            if actor {
+                // Use the same native skinned surface path as layered rigs:
+                // prepared normals/response and two-sided shadow specialization.
+                commands.entity(entity).insert(ActorSurface);
+            }
+            if actor || opaque::requires_extension(&library, &name.0) {
                 commands.entity(entity).insert(SurfaceReady);
             }
             continue;

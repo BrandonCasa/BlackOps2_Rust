@@ -646,6 +646,7 @@ pub(super) fn convert(
             &MeshMaterial3d<StandardMaterial>,
             &GltfMaterialName,
             &Mesh3d,
+            Has<super::ActorSurface>,
         ),
         (
             With<SurfaceReady>,
@@ -665,7 +666,7 @@ pub(super) fn convert(
 ) {
     let Some(mut library) = library else { return };
     status.pending = 0;
-    for (entity, original, name, mesh) in &query {
+    for (entity, original, name, mesh, actor) in &query {
         let Some(base) = standard.get(&original.0) else {
             status.pending += 1;
             continue;
@@ -710,7 +711,8 @@ pub(super) fn convert(
                         | ((channel("normal", 2).is_some() as u32) << 3)
                         | ((water as u32) << 4)
                         | ((definition.effect.is_some() as u32) << 5)
-                        | ((base.unlit as u32) << 6),
+                        | ((base.unlit as u32) << 6)
+                        | ((actor as u32) << 7),
                     channel("response", 0).is_some() as u32,
                     channel("response", 1).is_some() as u32
                         | ((channel("response", 2).is_some() as u32) << 1),

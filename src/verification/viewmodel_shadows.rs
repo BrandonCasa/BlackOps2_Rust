@@ -1,4 +1,4 @@
-//! Frozen native scene comparisons: the only changed occluders are overlay meshes.
+//! Frozen native scene comparisons for first-person rigs or world zombies.
 use crate::{
     GameState,
     assets::{GameDefinition, LaunchOptions},
@@ -17,6 +17,7 @@ use std::{collections::HashSet, path::PathBuf, time::Instant};
 
 #[derive(Resource)]
 struct Run {
+    actor: bool,
     output: PathBuf,
     started: Instant,
     changed: Instant,
@@ -52,6 +53,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
         return;
     }
     commands.insert_resource(Run {
+        actor: options.verify_actor_shadows,
         output: output.clone(),
         started: Instant::now(),
         changed: Instant::now(),
@@ -80,13 +82,31 @@ fn observe(
             Entity,
             &InheritedVisibility,
             Has<NotShadowCaster>,
-            &RenderLayers,
+            Option<&RenderLayers>,
         ),
-        With<ForegroundTexture>,
+        Or<(
+            With<ForegroundTexture>,
+            With<crate::rendering::ActorSurface>,
+        )>,
+    >,
+    actor_meshes: Query<
+        Option<&crate::rendering::TextureUse>,
+        With<crate::rendering::ActorSurface>,
+    >,
+    mut zombies: Query<
+        (
+            &mut crate::gameplay::Zombie,
+            &mut Transform,
+            Option<&mut avian3d::prelude::Position>,
+        ),
+        (Without<Player>, Without<crate::rendering::GameCamera>),
     >,
     mut players: Query<
         (&mut Player, &mut Transform, &WeaponInventory),
-        Without<crate::rendering::GameCamera>,
+        (
+            Without<crate::gameplay::Zombie>,
+            Without<crate::rendering::GameCamera>,
+        ),
     >,
     lights: (
         Query<(
@@ -129,13 +149,19 @@ fn observe(
             _ => 0,
         };
         if matches!(run.stage, 2 | 6) {
-            for (entity, visible, _, _) in &casters {
+            for (entity, visible, _, _) in casters
+                .iter()
+                .filter(|(e, ..)| actor_meshes.contains(*e) == run.actor)
+            {
                 if visible.get() {
                     commands.entity(entity).insert(NotShadowCaster);
                 }
             }
         } else if matches!(run.stage, 3 | 7) {
-            for (entity, _, _, _) in &casters {
+            for (entity, _, _, _) in casters
+                .iter()
+                .filter(|(e, ..)| actor_meshes.contains(*e) == run.actor)
+            {
                 commands.entity(entity).remove::<NotShadowCaster>();
             }
         } else if run.stage == 4 {
@@ -147,7 +173,27 @@ fn observe(
             // authored sun direction. Physics/animation remain paused.
             body.translation =
                 Vec3::from_array(definition.survey_views[4]) + Vec3::Y * player.height * 0.5;
-            if let Some((_, _, _, _, pose)) = lights.0.iter().next() {
+            if run.actor {
+                // Move frozen production rigs together into the outdoor survey.
+                // Keep their actual poses, materials and native shadow lights.
+                player.yaw = definition.yaw;
+                player.pitch = -0.05;
+                let forward = Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z;
+                let count = zombies.iter().count();
+                let right = Quat::from_rotation_y(player.yaw) * Vec3::X;
+                for (index, (mut actor, mut zombie, position)) in zombies.iter_mut().enumerate() {
+                    zombie.translation = body.translation
+                        + forward * 2.5
+                        + right * ((index as f32 - (count - 1) as f32 * 0.5) * 0.8);
+                    zombie.rotation = Quat::from_rotation_y(player.yaw + std::f32::consts::PI);
+                    if let Some(mut position) = position {
+                        position.0 = zombie.translation;
+                    }
+                    actor.action = crate::origins::content::EnemyAnimation::Idle;
+                    actor.elapsed = 0.5;
+                    actor.stunned = 600.;
+                }
+            } else if let Some((_, _, _, _, pose)) = lights.0.iter().next() {
                 let direction = pose.rotation() * Vec3::Z;
                 player.yaw = (-direction.x).atan2(-direction.z);
                 player.pitch = 0.;
@@ -157,19 +203,51 @@ fn observe(
     }
     let visible: HashSet<_> = casters
         .iter()
-        .filter(|(_, visibility, _, _)| visibility.get())
+        .filter(|(e, visibility, _, _)| visibility.get() && actor_meshes.contains(*e) == run.actor)
         .map(|(e, _, _, _)| e)
         .collect();
     if **state == GameState::Playing
-        && visible.len() >= 5
+        && visible.len() >= if run.actor { 1 } else { 5 }
         && players
             .iter()
             .any(|(_, _, inventory)| inventory.action == WeaponAction::Ready)
     {
+        if run.actor {
+            let Ok((mut player, body, _)) = players.single_mut() else {
+                return;
+            };
+            let Some((mut actor, mut target, position)) =
+                zombies.iter_mut().min_by(|(_, a, _), (_, b, _)| {
+                    a.translation
+                        .distance_squared(body.translation)
+                        .total_cmp(&b.translation.distance_squared(body.translation))
+                })
+            else {
+                return;
+            };
+            let eye = body.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
+            let delta = target.translation + Vec3::Y * 0.4 - eye;
+            if delta.xz().length() > 3. {
+                return;
+            }
+            player.yaw = (-delta.x).atan2(-delta.z);
+            player.pitch = delta.y.atan2(delta.xz().length());
+            // Bring this native rig inside the lantern-lit room instead of
+            // observing it through the opaque barrier from outside lamp reach.
+            let forward = Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z;
+            target.translation = body.translation + forward * 1.75;
+            target.rotation = Quat::from_rotation_y(player.yaw + std::f32::consts::PI);
+            if let Some(mut position) = position {
+                position.0 = target.translation;
+            }
+            actor.action = crate::origins::content::EnemyAnimation::Idle;
+            actor.elapsed = 0.5;
+            actor.stunned = 600.;
+        }
         next.set(GameState::Paused);
         return;
     }
-    if **state != GameState::Paused || visible.len() < 5 {
+    if **state != GameState::Paused || visible.len() < if run.actor { 1 } else { 5 } {
         return;
     }
     if !run.initialized {
@@ -184,7 +262,21 @@ fn observe(
     }
     // Local mask weighting uses native BRDF/normal maps. Wait for the complete
     // accepted stationary allocation, rather than only the foreground queue.
-    if run.changed.elapsed().as_secs_f32() < 5. || !streaming.settled() {
+    let detail_ready = if run.actor {
+        // Probe feedback can keep unrelated world promotions active. Require
+        // the actual actor maps to finish instead of waiting on the whole map.
+        visible
+            .iter()
+            .filter_map(|e| actor_meshes.get(*e).ok().flatten())
+            .flat_map(|usage| usage.textures.iter().copied())
+            .filter_map(|id| streams.residency(id))
+            .all(|r| {
+                r["pending_mip"].is_null() && r["resident_mip"].as_u64() <= r["wanted_mip"].as_u64()
+            })
+    } else {
+        streaming.settled()
+    };
+    if run.changed.elapsed().as_secs_f32() < 5. || !detail_ready {
         return;
     }
     let sun_rows: Vec<_> = lights.0.iter().map(|(entity, light, entities, layers, _)| {
@@ -223,6 +315,20 @@ fn observe(
     commands
         .spawn(Screenshot::primary_window())
         .observe(save_to_disk(run.output.join(format!("{label}.png"))));
+    let mut row = row;
+    if run.actor {
+        let textures: HashSet<_> = visible
+            .iter()
+            .filter_map(|e| actor_meshes.get(*e).ok().flatten())
+            .flat_map(|usage| usage.textures.iter().copied())
+            .collect();
+        row["actor_texture_residency"] = serde_json::json!(
+            textures
+                .into_iter()
+                .filter_map(|id| streams.residency(id))
+                .collect::<Vec<_>>()
+        );
+    }
     run.rows.push(row);
     // Changes below affect the following diagnostic only after this frozen
     // scene has had time to render its requested screenshot.
@@ -230,7 +336,12 @@ fn observe(
     run.changed = Instant::now();
 }
 fn finish(commands: &mut Commands, run: &Run, stats: &TextureStreamingStats, passed: bool) {
-    let _ = std::fs::write(run.output.join("viewmodel-shadows.json"), serde_json::json!({"native_admission_passed":passed,"scope":"native shadow caster admission, rendered pass/cache counters and frozen overlay-only on/off/restored screenshots; inspect receiver occlusion in captures","cases":run.rows,"streaming":stats}).to_string());
+    let name = if run.actor {
+        "actor-shadows.json"
+    } else {
+        "viewmodel-shadows.json"
+    };
+    let _ = std::fs::write(run.output.join(name), serde_json::json!({"world_actors":run.actor,"native_admission_passed":passed,"scope":"native shadow caster admission, rendered pass/cache counters and frozen on/off/restored screenshots; inspect receiver occlusion in captures","cases":run.rows,"streaming":stats}).to_string());
     commands.write_message(if passed {
         AppExit::Success
     } else {

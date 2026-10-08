@@ -124,6 +124,7 @@ impl Plugin for VerificationPlugin {
             .world()
             .resource::<LaunchOptions>()
             .verify_viewmodel_shadows
+            || app.world().resource::<LaunchOptions>().verify_actor_shadows
         {
             pipelines::install(app);
             viewmodel_shadows::install(app);

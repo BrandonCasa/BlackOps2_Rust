@@ -165,6 +165,13 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     pbr.material.perceptual_roughness = clamp(sg.g,0.089,1.0);
     pbr.material.metallic = clamp(sg.b,0.0,1.0);
     pbr.material.clearcoat = clamp(sg.a,0.0,1.0);
+    if (surface.modes.x & 128u) != 0u {
+        // Actor conversion removes the StandardMaterial response binding;
+        // preserve authored cavity occlusion from the already sampled map.
+        let cavity = clamp(sg.r,0.0,1.0);
+        pbr.diffuse_occlusion *= vec3(cavity);
+        pbr.specular_occlusion *= cavity;
+    }
     pbr.material.clearcoat_perceptual_roughness = surface.response.y;
     pbr.clearcoat_N = normalize(pbr.world_normal);
     pbr.material.base_color = alpha_discard(pbr.material,pbr.material.base_color);

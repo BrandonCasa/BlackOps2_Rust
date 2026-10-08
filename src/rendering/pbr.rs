@@ -152,7 +152,10 @@ pub(super) fn diagnostics(
     )>,
     mut cache: Local<HashMap<AssetId<StandardMaterial>, Handle<DiagnosticMaterial>>>,
 ) {
-    let requested = if options.material_debug != 0 || options.verify_viewmodel_shadows {
+    let requested = if options.material_debug != 0
+        || options.verify_viewmodel_shadows
+        || options.verify_actor_shadows
+    {
         options.material_debug
     } else if keys.just_pressed(KeyCode::F11) {
         (mode.0 + 1) % 13

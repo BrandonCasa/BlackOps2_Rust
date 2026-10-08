@@ -923,6 +923,7 @@ fn demand(
         Option<&InheritedVisibility>,
         Has<ForegroundTexture>,
         Has<bevy::mesh::skinning::SkinnedMesh>,
+        Has<super::ActorSurface>,
     )>,
 ) {
     if !streams.enabled || !streams.timer.tick(time.delta()).just_finished() {
@@ -976,7 +977,7 @@ fn demand(
     }
     let mut bound_geometry = false;
     let mut evaluated_regions = 0;
-    for (entity, usage, pose, bounds, inherited, foreground, skinned) in &geometry {
+    for (entity, usage, pose, bounds, inherited, foreground, skinned, actor) in &geometry {
         bound_geometry |= !usage.textures.is_empty();
         if **state != crate::GameState::Loading
             && inherited.is_some_and(|visibility| !visibility.get())
@@ -1008,6 +1009,52 @@ fn demand(
                     resident.last_demand = now;
                     resident.screen_coverage = (resident.screen_coverage + coverage).min(1.);
                 }
+            }
+            continue;
+        }
+        if actor {
+            // Combat detail uses posed bounds, never native-unit bind-pose
+            // density. Shared head/body maps are promoted once per Image ID;
+            // the existing allocator and upload limits still enforce capacity.
+            let center = bounds.map_or(Vec3::ZERO, |aabb| aabb.center.into());
+            let half = bounds.map_or(Vec3::ONE, |aabb| aabb.half_extents.into());
+            let distance = surface_distance(pose, center, half, position)
+                .min(surface_distance(pose, center, half, predicted))
+                .max(0.05);
+            if class == DemandClass::Prefetch && distance > 15. {
+                continue;
+            }
+            let visible = class == DemandClass::Camera;
+            let close = visible && distance <= 6.;
+            let coverage = if visible {
+                screen_fraction(pose, center, half, camera_pose, projection)
+            } else {
+                0.
+            };
+            let diameter = (2. * half.max_element() * transform_scale(pose)).max(0.1);
+            for id in &usage.textures {
+                let Some(resident) = streams.residents.get_mut(id) else {
+                    continue;
+                };
+                let extent = resident.entry.width.max(resident.entry.height) as f32;
+                let mip = if close || resident.requires_base_mip() {
+                    0
+                } else {
+                    (extent * distance / (focal * diameter * 2.))
+                        .log2()
+                        .floor()
+                        .max(0.) as usize
+                }
+                .min(resident.entry.mips.len() - 1);
+                resident.requested = resident.requested.min(mip);
+                resident.foreground |= close;
+                resident.class = resident.class.min(if close {
+                    DemandClass::Foreground
+                } else {
+                    class
+                });
+                resident.last_demand = now;
+                resident.screen_coverage = (resident.screen_coverage + coverage).min(1.);
             }
             continue;
         }
