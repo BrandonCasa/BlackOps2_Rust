@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 2/50 resolved on local main: 04, 05. Remaining findings are queued.
+Fix progress: 3/50 resolved on local main: 04, 05, 06. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -63,20 +63,21 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/realtime_assets.py:18–21
     Trigger, consequence, evidence and correction: strip_lighting removes node extras and restores only static_instance, dropping brush_entity. Current brush packs then fail validate_brush_scene's root-count check (brush_entities.py:85–92,183). Preserve nonlighting extras.
     Confidence: High.
-    Fix status: RESOLVED � tools/realtime_assets.py removes only node extras.lighting, retaining brush ownership and other nonlighting metadata while preserving legacy static-instance conversion. Actual canonical map reproduces the old root-count failure; all 67 brush roots pass after correction, the existing realtime document is unchanged, and repeated stripping is identical. Evidence: E:/Coding/Captures/static-review-04-20261008. Full migration remains deferred until findings 05/06; no runtime assets changed.
+    Fix status: RESOLVED � tools/realtime_assets.py removes only node extras.lighting, retaining brush ownership and other nonlighting metadata while preserving legacy static-instance conversion. Actual canonical map reproduces the old root-count failure; all 67 brush roots pass after correction, the existing realtime document is unchanged, and repeated stripping is identical. Evidence: E:/Coding/Captures/static-review-04-20261008. Full migration is qualified under findings05/06; no runtime assets changed.
 
 05. [P1] Lighting migration deletes full streaming texture chains
     Wave: 1
     Location: tools/realtime_assets.py:98–104
     Trigger, consequence, evidence and correction: The retained set omits texture-streaming.json dependencies. Full DDS chains stored only in textures/streaming are deleted while the surviving index still references them, breaking a streamed pack.
     Confidence: High.
-    Fix status: RESOLVED - tools/realtime_assets.py validates the streaming index before mutation and retains its bootstrap/full-chain closure during image pruning. Actual independent 4,137-file pack migration preserves all 1,356 full chains, passes complete importer validation and leaves the qualified source unchanged. Evidence: E:/Coding/Captures/static-review-05-20261008. Runtime pack unchanged; hardlink writes remain finding06.
+    Fix status: RESOLVED - tools/realtime_assets.py validates the streaming index before mutation and retains its bootstrap/full-chain closure during image pruning. Actual independent 4,137-file pack migration preserves all 1,356 full chains, passes complete importer validation and leaves the qualified source unchanged. Evidence: E:/Coding/Captures/static-review-05-20261008. Runtime pack unchanged; hardlink protection is recorded under finding06.
 
 06. [P1] Migration writes through source-preserving hardlinks
     Wave: 1
     Location: tools/realtime_assets.py:67,88
     Trigger, consequence, evidence and correction: repair_material_pack materialize prefers hardlinks (52–53). Migration truncates candidate buffers/glTF in place, modifying the shared source file. Replace directory entries atomically.
     Confidence: High.
+    Fix status: RESOLVED - migration writes buffers and UTF-8/LF glTF through unique sibling files and atomic entry replacement, detaching immutable source hardlinks. Actual CLI migration starts with 4,137 shared files, detaches all 275 glTF documents and the map buffer, retains 3,861 untouched links, and leaves every source hash unchanged. Scene documents and binary bytes match the full-qualified finding05 pack. Evidence: E:/Coding/Captures/static-review-06-20261008. Runtime pack unchanged.
 
 07. [P2] Shared texture qualification loses earlier alpha cutoffs
     Wave: 1

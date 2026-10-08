@@ -5,11 +5,24 @@
 """Retire native incident-light data from a prepared runtime closure, preserving originals."""
 from pathlib import Path
 import json
+import os
+import tempfile
 
 try:
     from .texture_streaming import validate as validate_streaming
 except ImportError:
     from texture_streaming import validate as validate_streaming
+
+
+def replace_bytes(path, raw):
+    """Replace the candidate entry without writing through an immutable hardlink."""
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.migration-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(raw)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def strip_lighting(document):
@@ -81,7 +94,7 @@ def compact_geometry(document, pack):
             sampler["input"], sampler["output"] = mapping[sampler["input"]], mapping[sampler["output"]]
     target = pack / document["buffers"][0]["uri"]
     before = sum(len(b) for b in raw)
-    target.write_bytes(output)
+    replace_bytes(target, output)
     document["buffers"] = [{"uri": document["buffers"][0]["uri"], "byteLength": len(output)}]
     document["bufferViews"], document["accessors"] = kept_views, accessors
     return before - len(output)
@@ -105,7 +118,7 @@ def migrate(pack):
             for channel in material.get("extras", {}).get("surface", {}).get("channels", []):
                 if "uri" in channel:
                     kept.add((pack / channel["uri"]).resolve())
-        path.write_text(json.dumps(document, separators=(",", ":")) + "\n")
+        replace_bytes(path, (json.dumps(document, separators=(",", ":")) + "\n").encode("utf-8"))
     def content_images(value):
         if isinstance(value, dict):
             for item in value.values():
