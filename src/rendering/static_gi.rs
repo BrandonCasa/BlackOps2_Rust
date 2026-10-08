@@ -765,16 +765,14 @@ fn proxies(
                 Mesh::ATTRIBUTE_UV_0,
                 Mesh::ATTRIBUTE_TANGENT,
             ];
-            if attributes
-                .iter()
-                .any(|attribute| source.try_attribute(*attribute).is_err())
-            {
+            // Solari requires all four channels. Read them fallibly once so
+            // absent or extracted CPU data never reaches a panic-based read.
+            let [Ok(position), Ok(normal), Ok(uv), Ok(tangent)] =
+                attributes.map(|attribute| source.try_attribute(attribute))
+            else {
                 continue;
-            }
-            for attribute in attributes {
-                let values = source
-                    .attribute(attribute)
-                    .expect("Checked Solari vertex layout");
+            };
+            for (attribute, values) in attributes.into_iter().zip([position, normal, uv, tangent]) {
                 trace.insert_attribute(attribute, values.clone());
             }
             let Some(indices) = source.indices() else {

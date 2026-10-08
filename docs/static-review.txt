@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 17/50 resolved on local main: 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 27, 28, 29, 31, 32. Remaining findings are queued.
+Fix progress: 18/50 resolved on local main: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 27, 28, 29, 31, 32. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -59,6 +59,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: src/rendering/static_gi.rs:765–778
     Trigger, consequence, evidence and correction: try_attribute(...).is_err() rejects moved CPU data but permits Ok(None). The subsequent attribute(...).expect panics for admitted meshes missing a required position/normal/UV0/tangent channel; tangents are optional in glTF. Require Ok(Some(_)) or supported defaults.
     Confidence: High; asset-dependent.
+    Fix status: RESOLVED - required Solari channels are now read fallibly once, removing duplicate attribute(...).expect calls and preserving identical successful values and optional defaults. Locked Bevy 0.19.1 returns Result<&VertexAttributeValues, MeshAccessError>, with missing attributes Err(NotFound); the reported Ok(None) premise is disproved and no original panic was reproduced. All 4,137 actual native asset hashes preserve prior qualification. Locked compiler/format gates pass. Initial normal window hit its unchanged 180-second deadline after six kills/Round 2/15 views; one same-executable retry passed six kills, Round 2, 17 views and restart with active GI/reflections and zero renderer/streaming/audio errors. Saved actor projections remain a visual concern without causal attribution or blanket appearance/performance acceptance. Evidence: E:/Coding/Captures/static-review-03-20261008.
 
 04. [P1] Lighting migration deletes brush ownership markers
     Wave: 1
