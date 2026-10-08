@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 15/50 resolved on local main: 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 27, 28, 29. Remaining findings are queued.
+Fix progress: 16/50 resolved on local main: 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 27, 28, 29, 32. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -246,6 +246,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/prepare_mud.py:18–21
     Trigger, consequence, evidence and correction: Nonzero-angle player_slow_area vertices receive only p+origin then axis conversion. trigger_volumes.py:45–60,76–87 applies native rotation for equivalent brushes. Runtime slowdown sensors therefore occupy the wrong footprint.
     Confidence: High on omission; current-map applicability unconfirmed.
+    Fix status: RESOLVED - mud preparation reuses the existing native trigger Euler rotation and transforms each brush vertex before translation/axis conversion. Actual native slow-area preparation emits all 203 convex volumes and exactly preserves the already fully qualified candidate game bytes; originals unchanged. Current map has one slow-area entity with zero angles, so no current footprint change or exercised nonzero-angle case is claimed. Evidence: E:/Coding/Captures/static-review-32-20261008. No synthetic rotation fixtures, runtime import or new repository scripts.
 
 33. [P1] Specialized verification deadlines are bypassed by missing prerequisites
     Wave: 2

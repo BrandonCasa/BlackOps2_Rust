@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 from prepare_gameplay_content import external
 from prepare_origins import entities
-from trigger_volumes import brush_vertices
+from trigger_volumes import brush_vertices, rotation
 
 def prepare(config):
     inspection=external(config["assets"]["inspection_output"]);pack=external(config["game"]["asset_pack"])
@@ -16,9 +16,10 @@ def prepare(config):
     for e in records:
         if e.get("targetname")!="player_slow_area":continue
         origin=np.array([float(x) for x in e["origin"].split()]);model=models[e["model"].lstrip("*")]
+        transform=rotation(e.get("angles","0 0 0"))
         for brush in model["hulls"]:
             vertices=brush_vertices(brush)
-            points=np.array([matrix@(p+origin)*0.0254 for p in vertices]);center=points.mean(axis=0)
+            points=np.array([matrix@(transform@p+origin)*0.0254 for p in vertices]);center=points.mean(axis=0)
             hulls.append({"id":"mud."+e["guid"].lower()+"."+str(brush["brush"]),"position":center.tolist(),"vertices":(points-center).tolist()})
     if not hulls:raise ValueError("missing native slow area")
     script=inspection/"mechanics-world-02/decompiled/t6/zm_tomb_utility.gsc"
