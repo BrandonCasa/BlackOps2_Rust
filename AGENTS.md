@@ -3,7 +3,10 @@
 ## Working set and execution
 
 Start with [project state](docs/project-state.md), then relevant source and validation tools.
-Work sequentially in this chat. **Subagents and delegated chats are banned.**
+The renderer plan 3.0 goal explicitly authorizes subagents. Consult a subagent
+before implementation decisions and require a critic's contextual review score
+greater than 8/10 before every commit. Use focused ownership for parallel edits;
+never revert another contributor's work. Actual-game validation remains sequential.
 Keep one current [handoff](docs/handoffs/current.md); replace stale state instead
 of accumulating audits. Git history holds retired documents and implementations.
 Keep at most 20 tracked Markdown files.
@@ -28,6 +31,9 @@ facilities. Do not recreate engine infrastructure or add standalone demo/viewer
 applications. Keep shared gameplay independent of Origins configuration.
 Use focused modules, typed errors, fixed-step gameplay and explicit ordering.
 Use stable Rust; retain `#![forbid(unsafe_code)]` and Cargo.lock.
+Renderer changes use Bevy ECS components, resources, systems and explicit schedule
+ordering. Focused dependency patches are authorized when Bevy/wgpu integration
+needs capabilities absent from the pinned engine; keep application APIs safe.
 
 ## Assets
 
@@ -43,9 +49,12 @@ installation paths, secrets or generated builds. Real paths belong in ignored
 `config/local_assets.toml`; tracked configuration contains placeholders.
 Preparation reads originals and emits an external standard asset pack; import
 copies only validated runtime files and never modifies originals.
-Unit tests and Clippy are banned. Do not run Clippy or add it to validation gates.
-Do not add or restore test suites or test fixtures. Validate with asset integrity
-checks, compiler gates and the actual game window.
+The renderer plan 3.0 goal permits focused unit tests for rendering logic. Use
+them to verify invalidation, work admission, history rejection, and pipeline work
+counts; unit tests do not establish GPU speed or visual acceptance. Unrelated
+unit suites and synthetic asset fixtures remain prohibited. Clippy remains banned.
+Validate with rendering-logic tests, asset integrity checks, compiler gates and
+the actual game window.
 Inspect candidates before staging.
 
 ## Validation and Git
@@ -88,6 +97,8 @@ wait until the slot is free. Never run more than one validation at a time. If
 another chat starts a run while yours is active, stop only your own run and wait;
 never interrupt another chat's process.
 Review diffs and make coherent local commits. Never push unless requested.
+For renderer plan 3.0, commit frequently with atomic diffs, only after a critic
+subagent reviews the exact diff in context and rates it greater than 8/10.
 Every commit message must include a clear summary and a detailed body explaining
 what changed, why the change was needed, and how it was implemented. Describe
 the affected systems or files, the resulting behavior, and relevant validation
