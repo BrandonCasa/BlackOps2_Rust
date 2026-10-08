@@ -286,6 +286,19 @@ impl Default for TextureStreams {
 }
 
 impl TextureStreams {
+    fn refresh_bootstrap_reservation(&self, stats: &mut TextureStreamingStats) -> u64 {
+        let registered: u64 = self
+            .residents
+            .values()
+            .map(|resident| resident.entry.gpu_bytes(resident.entry.bootstrap_mip))
+            .sum();
+        let reserved = self.bootstrap_reserve.saturating_sub(registered);
+        stats.indexed_bootstrap_gpu_bytes = self.bootstrap_reserve;
+        stats.registered_bootstrap_gpu_bytes = registered;
+        stats.bootstrap_reserved_bytes = reserved;
+        reserved
+    }
+
     pub(crate) fn residency(&self, id: AssetId<Image>) -> Option<serde_json::Value> {
         let resident = self.residents.get(&id)?;
         Some(serde_json::json!({
@@ -397,6 +410,8 @@ pub(crate) struct TextureStreamingStats {
     pub capacity_source: String,
     pub detected_vram_bytes: u64,
     pub residency_budget_bytes: u64,
+    pub indexed_bootstrap_gpu_bytes: u64,
+    pub registered_bootstrap_gpu_bytes: u64,
     pub bootstrap_reserved_bytes: u64,
     pub retiring_gpu_bytes: u64,
     pub replacement_reserved_bytes: u64,
@@ -815,6 +830,10 @@ fn register_images(
             },
         );
     }
+    // Registration moves these bytes from future bootstrap reservations into
+    // resident allocations. Publish that transfer before this frame's upload;
+    // allocate_detail runs later and its previous-frame snapshot is stale here.
+    streams.refresh_bootstrap_reservation(&mut stats);
 }
 
 fn bind_uses(
@@ -1543,19 +1562,11 @@ fn allocate_detail(
     if !streams.enabled {
         return;
     }
-    let registered_bootstraps: u64 = streams
-        .residents
-        .values()
-        .map(|resident| resident.entry.gpu_bytes(resident.entry.bootstrap_mip))
-        .sum();
-    let unregistered = streams
-        .bootstrap_reserve
-        .saturating_sub(registered_bootstraps);
+    let unregistered = streams.refresh_bootstrap_reservation(&mut stats);
     // Charge one complete accepted replacement while the old allocation is
     // in submitted work. Reserve accepted tails, rather than an unaffordable
     // full source map; small adapters can still allocate useful native mips.
     let limit = streams.budget.saturating_sub(unregistered);
-    stats.bootstrap_reserved_bytes = unregistered;
     stats.naturally_requested_bytes = streams
         .residents
         .values()
@@ -1653,6 +1664,7 @@ fn upload(
         return;
     }
     let _span = info_span!("texture_streaming_upload").entered();
+    let bootstrap_reserved = streams.refresh_bootstrap_reservation(&mut stats);
     let mut frame_bytes = 0;
     let mut failure = None;
     let mut replaced = HashSet::new();
@@ -1843,7 +1855,7 @@ fn upload(
     stats.accounted_gpu_bytes = stats.resident_gpu_bytes
         + stats.retiring_gpu_bytes
         + stats.replacement_reserved_bytes
-        + stats.bootstrap_reserved_bytes;
+        + bootstrap_reserved;
     stats.peak_accounted_gpu_bytes = stats
         .peak_accounted_gpu_bytes
         .max(stats.accounted_gpu_bytes);
@@ -1891,6 +1903,7 @@ fn schedule(
         return;
     }
     let _span = info_span!("texture_streaming_schedule").entered();
+    let bootstrap_reserved = streams.refresh_bootstrap_reservation(&mut stats);
     let now = time.elapsed_secs_f64();
     let mut in_flight = 0;
     let mut pending = 0;
@@ -1963,8 +1976,7 @@ fn schedule(
         else {
             break;
         };
-        let accounted =
-            pool + memory.retiring_bytes() + gpu_reserved + stats.bootstrap_reserved_bytes;
+        let accounted = pool + memory.retiring_bytes() + gpu_reserved + bootstrap_reserved;
         if accounted + candidate.gpu_bytes > streams.budget {
             streams.admission_reservation = Some((candidate.id, streams.read_cursor));
             streams.read_cursor = cursor;
@@ -2029,8 +2041,7 @@ fn schedule(
     stats.peak_buffered_read_bytes = stats.peak_buffered_read_bytes.max(buffered);
     stats.retiring_gpu_bytes = memory.retiring_bytes();
     stats.replacement_reserved_bytes = gpu_reserved;
-    stats.accounted_gpu_bytes =
-        pool + stats.retiring_gpu_bytes + gpu_reserved + stats.bootstrap_reserved_bytes;
+    stats.accounted_gpu_bytes = pool + stats.retiring_gpu_bytes + gpu_reserved + bootstrap_reserved;
     stats.peak_accounted_gpu_bytes = stats
         .peak_accounted_gpu_bytes
         .max(stats.accounted_gpu_bytes);

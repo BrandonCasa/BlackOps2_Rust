@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 12/50 resolved on local main: 01, 04, 05, 06, 07, 08, 09, 10, 11, 13, 28, 29. Remaining findings are queued.
+Fix progress: 13/50 resolved on local main: 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 13, 28, 29. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -52,6 +52,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: src/rendering/streaming.rs:1796–1806
     Trigger, consequence, evidence and correction: register_images adds new bootstrap residents before upload, but upload still adds last frame's bootstrap_reserved_bytes for those images. allocate_detail recalculates the reserve later (1498–1511). Near the cap, this transient double count calls streams.fail and enters LoadError despite actual allocations fitting.
     Confidence: High.
+    Fix status: RESOLVED. A shared live indexed-minus-registered bootstrap calculation now transfers reservations immediately after registration and supplies upload, allocation and read admission directly. The actual native streaming sequence passed all five cases with 380 conserved frames, four registration frames and zero errors; peak accounted bytes 1,676,345,344 remain below the unchanged detected cap 12,878,610,432. Locked compiler/format and unchanged asset hashes pass. The near-cap failure itself was not forced or reproduced. Evidence: E:/Coding/Captures/static-review-02-20261008.
 
 03. [P2] Missing optional vertex attributes pass the guard and then panic
     Wave: 1

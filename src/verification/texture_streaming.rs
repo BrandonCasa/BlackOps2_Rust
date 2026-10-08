@@ -30,6 +30,9 @@ struct Run {
     capture_pending: bool,
     scene_started: bool,
     last_status: Instant,
+    bootstrap_conservation_frames: u64,
+    bootstrap_registration_frames: u64,
+    last_registered_bootstrap_bytes: u64,
 }
 const LABELS: [&str; 5] = [
     "mauser-arms",
@@ -68,6 +71,9 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
         capture_pending: false,
         scene_started: false,
         last_status: Instant::now(),
+        bootstrap_conservation_frames: 0,
+        bootstrap_registration_frames: 0,
+        last_registered_bootstrap_bytes: 0,
     });
 }
 fn input(run: Res<Run>, mut input: ResMut<GameInput>) {
@@ -111,6 +117,22 @@ fn observe(
     cameras: Query<&bevy::camera::visibility::VisibleEntities, With<crate::rendering::GameCamera>>,
     mut players: Query<(&mut WeaponInventory, &mut Player)>,
 ) {
+    if stats.indexed_bootstrap_gpu_bytes > 0 {
+        run.bootstrap_conservation_frames += 1;
+        if stats.registered_bootstrap_gpu_bytes + stats.bootstrap_reserved_bytes
+            != stats.indexed_bootstrap_gpu_bytes
+        {
+            run.failures.push(
+                "bootstrap resident/reservation transfer did not conserve indexed bytes".into(),
+            );
+            finish(&mut commands, &run, &stats);
+            return;
+        }
+        if stats.registered_bootstrap_gpu_bytes > run.last_registered_bootstrap_bytes {
+            run.bootstrap_registration_frames += 1;
+        }
+        run.last_registered_bootstrap_bytes = stats.registered_bootstrap_gpu_bytes;
+    }
     let rig_rows: Vec<_> = rigs.iter().map(|(entity, rig, visibility, inherited, root)| {
         let mut ancestry = vec![];
         let mut ancestor = Some(entity);
@@ -399,9 +421,11 @@ fn finish(commands: &mut Commands, run: &Run, stats: &TextureStreamingStats) {
         && stats.uploads_by_class[2] > 0
         && stats.peak_active_workers <= 4
         && stats.detected_vram_bytes > 0
+        && run.bootstrap_conservation_frames > 0
+        && run.bootstrap_registration_frames > 1
         && stats.residency_budget_bytes <= stats.detected_vram_bytes / 4 * 3
         && stats.peak_accounted_gpu_bytes <= stats.residency_budget_bytes;
-    let receipt = serde_json::json!({"passed":passed,"scope":"native first-person and camera-visible world mip residency with three camera turns, explicit controlled MP40 grant and ADS pose, real Frag prime and session restart under native GI/shadows; no combat, acquisition or throughput benchmark", "stable_arm_image_ids":stable_arms,"restart_retired_old_meshes":restart_retired,"native_lighting_and_shadow_demand":run.native_passes_active,"competition_frames_by_class_bitmask":run.competition_frames,"peak_pending_by_class":run.peak_pending,"class_order":["foreground","camera","indirect","prefetch"],"cases":run.rows,"failures":run.failures,"streaming":stats});
+    let receipt = serde_json::json!({"passed":passed,"scope":"native first-person and camera-visible world mip residency with three camera turns, explicit controlled MP40 grant and ADS pose, real Frag prime and session restart under native GI/shadows; no combat, acquisition or throughput benchmark", "bootstrap_conservation_frames":run.bootstrap_conservation_frames,"bootstrap_registration_frames":run.bootstrap_registration_frames,"stable_arm_image_ids":stable_arms,"restart_retired_old_meshes":restart_retired,"native_lighting_and_shadow_demand":run.native_passes_active,"competition_frames_by_class_bitmask":run.competition_frames,"peak_pending_by_class":run.peak_pending,"class_order":["foreground","camera","indirect","prefetch"],"cases":run.rows,"failures":run.failures,"streaming":stats});
     let _ = std::fs::write(
         run.output.join("texture-streaming.json"),
         receipt.to_string(),
