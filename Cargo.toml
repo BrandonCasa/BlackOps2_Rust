@@ -50,3 +50,4 @@ codegen-units = 1
 incremental = false
 debug = false
 debug-assertions = false
+panic = "abort"

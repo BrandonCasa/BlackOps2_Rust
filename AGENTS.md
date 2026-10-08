@@ -69,7 +69,7 @@ Retain development debug assertions and diagnostics.
 Launch the development-profile executable produced by this build.
 Use release builds for performance measurements and release/package work.
 Release uses opt-level = 3, no incremental compilation, no debug information
-and no debug assertions. Dependency log calls above DEBUG are removed in debug
+and no debug assertions, with `panic = "abort"`. Dependency log calls above DEBUG are removed in debug
 builds. All log calls and tracing events/spans are compiled out in release;
 Tracy, Tracy memory and Chrome profiling features are forbidden in release.
 Release disables LogPlugin, renderer diagnostics and pipeline-error inspection.
