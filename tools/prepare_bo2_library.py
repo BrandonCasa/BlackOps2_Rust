@@ -66,8 +66,11 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
         raise ValueError("complete fastfile extraction is required before library conversion")
     pack, work = inspection / "bo2-library-prepared", inspection / "bo2-library-cooking"
     pack.mkdir(exist_ok=True)
+    previous_manifest = {}
     if (pack / "library.json").is_file():
-        revoke_qualification(pack)
+        previous_manifest = revoke_qualification(pack)
+    previous_sources = {(model["zone"], model["identity"], variant["lod"]): variant
+        for model in previous_manifest.get("models", []) for variant in model["variants"]}
     zones = sorted(source.glob("zone/*/*/asset-inventory.json"))
     definitions, inventories, images = {}, {}, {}
     all_names = set()
@@ -136,10 +139,14 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
                     continue
                 output = pack / "models" / key
                 target = output / original.name
+                source_hash = digest(original)
+                previous_source = previous_sources.get((key, model["name"], lod), {})
                 # This recovery option reuses geometry emitted earlier in the
                 # same extraction, while cooking every material afresh. Changed
                 # exchanges and incomplete buffers always run conversion again.
-                previous = json.loads(target.read_text()) if reuse_geometry and target.is_file() and target.stat().st_mtime_ns >= original.stat().st_mtime_ns else {}
+                previous = json.loads(target.read_text()) if (reuse_geometry and target.is_file()
+                    and previous_source.get("source_sha256") == source_hash
+                    and previous_source.get("uri") == target.relative_to(pack).as_posix()) else {}
                 if previous.get("asset", {}).get("generator") == "Origins recovered skeletal preparation" and all(
                         (output / b["uri"]).is_file() and (output / b["uri"]).stat().st_size == b["byteLength"] for b in previous.get("buffers", [])):
                     doc = previous
@@ -159,7 +166,7 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
                     cook(material, doc, original)
                 doc["textures"], doc["images"], doc["samplers"] = [], [], []
                 target.write_text(json.dumps(doc, separators=(",", ":")) + "\n")
-                lods.append({"lod": lod, "uri": target.relative_to(pack).as_posix(), "source_sha256": digest(original)})
+                lods.append({"lod": lod, "uri": target.relative_to(pack).as_posix(), "source_sha256": source_hash})
             model_records.append({"zone": key, "identity": model["name"], "source_lods": model["lods"], "variants": lods})
         # Materials used only by world surfaces also receive canonical maps.
         bank = {"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": []}], "nodes": [], "materials": []}

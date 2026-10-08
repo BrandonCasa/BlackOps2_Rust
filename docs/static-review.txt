@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 11/50 resolved on local main: 01, 04, 05, 06, 07, 08, 09, 10, 11, 13, 28. Remaining findings are queued.
+Fix progress: 12/50 resolved on local main: 01, 04, 05, 06, 07, 08, 09, 10, 11, 13, 28, 29. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -224,6 +224,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/prepare_bo2_library.py:112–115,132
     Trigger, consequence, evidence and correction: --reuse-geometry relies on mtime, generator name and buffer lengths, not prior source digest. Changed sources retaining older/equal timestamps can keep old geometry/skeletons while the manifest records the current original digest.
     Confidence: High.
+    Fix status: RESOLVED - geometry reuse requires the prior manifest LOD source hash and output URI to match current source bytes, alongside the existing generator/complete-buffer checks; timestamps no longer admit geometry. Missing provenance reconverts. The captured source digest is retained in the new LOD record. Six actual native LODs match prior provenance and complete converted buffers. Evidence: E:/Coding/Captures/static-review-29-20261008. Full recook and synthetic source/timestamp mutation were not run; worker12 separately qualifies the complete native LOD hash closure.
 
 30. [P2] World collision admission ignores recovered nonsolid disposition
     Wave: 2
