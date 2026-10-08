@@ -4,7 +4,7 @@ use crate::{
     access::{DoorBlocker, ZoneAccess},
     assets::GameDefinition,
     gameplay::{GameStep, Session},
-    origins::{ContentId, Traversal, ZoneId},
+    origins::{ContentId, NativeNegotiation, Traversal, ZoneId},
     player::{Player, capsule},
 };
 use avian3d::prelude::*;
@@ -30,6 +30,13 @@ struct Edge {
     blockers: Vec<ContentId>,
     ready: bool,
     cost: f32,
+    native: Option<(ContentId, NativeNegotiation)>,
+}
+pub struct TraversalStep {
+    pub start: Vec3,
+    pub end: Vec3,
+    pub alias: String,
+    pub yaw: f32,
 }
 #[derive(Clone)]
 pub struct Admission {
@@ -86,6 +93,57 @@ impl Ord for Work {
     }
 }
 impl Navigation {
+    /// Observe prepared closure independently of geometry/zone admission in the real game.
+    pub fn negotiation_observation(
+        &self,
+        game: &GameDefinition,
+        access: &ZoneAccess,
+    ) -> serde_json::Value {
+        let native: HashMap<_, _> = self
+            .edges
+            .iter()
+            .enumerate()
+            .flat_map(|(from, edges)| {
+                edges.iter().filter_map(move |edge| {
+                    edge.native
+                        .as_ref()
+                        .map(|(id, data)| (id, (from, edge, data)))
+                })
+            })
+            .collect();
+        let mut rows = Vec::new();
+        for source in &game.content.navigation_links {
+            let Some(expected) = &source.negotiation else {
+                continue;
+            };
+            let observed = native.get(&source.id);
+            let passed = observed.is_some_and(|(from, edge, data)| {
+                *data == expected
+                    && edge.cost == expected.cost
+                    && edge.traversal == source.traversal
+                    && edge.animation == source.source_animation
+                    && game
+                        .content
+                        .navigation_nodes
+                        .get(*from)
+                        .is_some_and(|n| n.id == source.from)
+                    && game
+                        .content
+                        .navigation_nodes
+                        .get(edge.to)
+                        .is_some_and(|n| n.id == source.to)
+            });
+            rows.push(serde_json::json!({"id":source.id,"passed":passed,"animation":source.source_animation,
+                "cost":observed.map(|(_,e,_)|e.cost),"yaw":observed.map(|(_,_,n)|n.start.yaw),
+                "flags":expected.flags,"disconnected":expected.disconnect_count,
+                "geometry_admitted":observed.is_some_and(|(_,e,_)|e.ready),
+                "accessible":observed.is_some_and(|(from,e,_)|self.allowed(*from,e,access))}));
+        }
+        serde_json::json!({"passed": rows.len() == native.len() && rows.iter().all(|r|r["passed"] == true),
+            "expected":rows.len(),"retained":native.len(),
+            "geometry_admitted":rows.iter().filter(|r|r["geometry_admitted"] == true).count(),
+            "accessible":rows.iter().filter(|r|r["accessible"] == true).count(),"links":rows})
+    }
     pub fn inspect_gate(&self, id: &ContentId, access: &ZoneAccess) -> Option<(Vec3, Vec3, bool)> {
         self.edges.iter().enumerate().find_map(|(from, edges)| {
             edges
@@ -116,17 +174,29 @@ impl Navigation {
         for (from, edges) in self.edges.iter().enumerate() {
             for e in edges {
                 if self.allowed(from, e, access)
-                    && matches!(e.traversal, Traversal::Climb)
+                    && matches!(e.traversal, Traversal::Climb | Traversal::Jump)
                     && self.nodes[e.to].point.y - self.nodes[from].point.y > 0.7
                 {
-                    pairs.push((self.nodes[from].point, self.nodes[e.to].point));
+                    let start = self.nodes[from].point;
+                    let end = self.nodes[e.to].point;
+                    let delta = end - start;
+                    let heading_change = e.native.as_ref().map_or(0., |(_, native)| {
+                        ((native.start.yaw - (-delta.z).atan2(delta.x) + std::f32::consts::PI)
+                            .rem_euclid(std::f32::consts::TAU)
+                            - std::f32::consts::PI)
+                            .abs()
+                    });
+                    pairs.push((start, end, heading_change));
                 }
             }
         }
-        pairs.into_iter().find_map(|(from, to)| {
+        // Qualify the authored-angle consumer at a site that differs from endpoint facing.
+        pairs.sort_by(|a, b| b.2.total_cmp(&a.2));
+        pairs.into_iter().find_map(|(from, to, _)| {
             let destination = self.destination(from, to, access);
             self.traversal(from, destination, access)
-                .filter(|(_, end, _)| end.distance_squared(to) < 0.25)
+                .filter(|step| step.end.distance_squared(to) < 0.25)
+                .map(|step| (step.start, step.end, step.alias))
         })
     }
     pub fn inspect_cache(&mut self, access: &ZoneAccess) -> bool {
@@ -169,6 +239,9 @@ impl Navigation {
     }
     fn allowed(&self, from: usize, e: &Edge, access: &ZoneAccess) -> bool {
         e.ready
+            && e.native
+                .as_ref()
+                .is_none_or(|(_, n)| n.disconnect_count == 0)
             && (matches!(e.traversal, Traversal::Walk) || e.animation.is_some())
             && self.nodes[from].ready
             && self.nodes[e.to].ready
@@ -276,7 +349,7 @@ impl Navigation {
         position: Vec3,
         destination: Vec3,
         access: &ZoneAccess,
-    ) -> Option<(Vec3, Vec3, String)> {
+    ) -> Option<TraversalStep> {
         let from = self.nearest(position, access, true)?;
         if self.nodes[from].point.distance_squared(position) > 0.64 {
             return None;
@@ -286,9 +359,20 @@ impl Navigation {
                 && self.allowed(from, edge, access)
                 && self.nodes[edge.to].point.distance_squared(destination) < 0.25)
                 .then(|| {
-                    edge.animation
-                        .clone()
-                        .map(|alias| (self.nodes[from].point, self.nodes[edge.to].point, alias))
+                    edge.animation.clone().map(|alias| {
+                        let start = self.nodes[from].point;
+                        let end = self.nodes[edge.to].point;
+                        let delta = end - start;
+                        TraversalStep {
+                            start,
+                            end,
+                            alias,
+                            yaw: edge
+                                .native
+                                .as_ref()
+                                .map_or_else(|| (-delta.z).atan2(delta.x), |(_, n)| n.start.yaw),
+                        }
+                    })
                 })
                 .flatten()
         })
@@ -503,7 +587,14 @@ fn refresh(
                                     animation: source.source_animation.clone(),
                                     blockers: requirements,
                                     ready,
-                                    cost: delta.length().max(0.01),
+                                    cost: source
+                                        .negotiation
+                                        .as_ref()
+                                        .map_or_else(|| delta.length().max(0.01), |n| n.cost),
+                                    native: source
+                                        .negotiation
+                                        .clone()
+                                        .map(|n| (source.id.clone(), n)),
                                 },
                             ))
                         })

@@ -4,6 +4,10 @@ Used by preparation, import, and packaging; never enumerates optional raw inputs
 """
 import math
 import re
+try:
+    from .traversal_links import validate as validate_negotiation
+except ImportError:
+    from traversal_links import validate as validate_negotiation
 
 TABLES = {
     "barriers": ("barrier", "id placement entry exit boards repair_sound break_sound"),
@@ -64,10 +68,11 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation"} if table=="navigation_links" else {"distance_min"} if table=="sounds" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"distance_min"} if table=="sounds" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
+    navigation_nodes = {n["id"]: n for n in content["navigation_nodes"]}
     def resolve(owner, identity, kind="any", optional=False):
         if optional and identity is None:
             return
@@ -372,6 +377,10 @@ def validate_content(content, require):
                 require(row["traversal"] in ("walk", "climb", "jump", "rise", "portal"), "invalid traversal")
                 identities(owner,row.get("blockers",[]),"connection")
                 require(row.get("source_animation") is None or isinstance(row["source_animation"],str) and 0<len(row["source_animation"])<128,"invalid source traversal animation")
+                validate_negotiation(row, require)
+                if row.get("negotiation") is not None:
+                    for key, node_key in (("start", "from"), ("end", "to")):
+                        require(all(abs(a-b) < .0001 for a,b in zip(row["negotiation"][key]["position"], navigation_nodes[row[node_key]]["position"], strict=True)), "negotiation authored position mismatch")
             elif table == "generators":
                 resolve(owner, row["placement"], "placement")
                 identities(owner, row["zones"], "zone")

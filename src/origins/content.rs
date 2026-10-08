@@ -537,6 +537,67 @@ pub struct NavigationLink {
     pub blockers: Vec<ContentId>,
     #[serde(default)]
     pub source_animation: Option<String>,
+    #[serde(default)]
+    pub negotiation: Option<NativeNegotiation>,
+}
+/// Compiled path-node constants. Positions/distances use meters; yaw uses radians.
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NegotiationNode {
+    pub index: u16,
+    pub r#type: u8,
+    pub spawn_flags: i32,
+    pub position: [f32; 3],
+    pub yaw: f32,
+    pub forward: [f32; 3],
+    pub radius: f32,
+    pub minimum_use_distance_squared: f32,
+    pub overlap: [i16; 2],
+    pub targetname: String,
+    pub link_name: String,
+    pub noteworthy: String,
+    pub target: String,
+}
+impl NegotiationNode {
+    fn valid(&self, kind: u8, identity: &ContentId, nodes: &[NavigationNode]) -> bool {
+        self.index < u16::MAX
+            && self.r#type == kind
+            && identity.0 == format!("node.native.{}", self.index)
+            && self.position.iter().all(|x| x.is_finite())
+            && self.yaw.is_finite()
+            && self.forward.iter().all(|x| x.is_finite())
+            && self.forward[1] == 0.
+            && (self.forward[0] - self.yaw.cos()).abs() < 0.0001
+            && (self.forward[2] + self.yaw.sin()).abs() < 0.0001
+            && self.radius.is_finite()
+            && self.radius >= 0.
+            && self.minimum_use_distance_squared.is_finite()
+            && self.minimum_use_distance_squared >= 0.
+            && [
+                &self.targetname,
+                &self.link_name,
+                &self.noteworthy,
+                &self.target,
+            ]
+            .iter()
+            .all(|s| s.len() < 128)
+            && nodes.iter().find(|n| n.id == *identity).is_some_and(|n| {
+                n.position
+                    .iter()
+                    .zip(self.position)
+                    .all(|(a, b)| (a - b).abs() < 0.0001)
+            })
+    }
+}
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeNegotiation {
+    pub cost: f32,
+    /// Native bits remain source data until their engine semantics are recovered.
+    pub flags: u8,
+    pub disconnect_count: u8,
+    pub start: NegotiationNode,
+    pub end: NegotiationNode,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1154,6 +1215,16 @@ impl ContentCatalog {
                     .is_none_or(|s| !s.is_empty() && s.len() < 128),
                 "Invalid traversal source animation",
             )?;
+            if let Some(native) = &v.negotiation {
+                valid(
+                    matches!(v.traversal, Traversal::Climb | Traversal::Jump)
+                        && v.source_animation.is_some()
+                        && positive(native.cost)
+                        && native.start.valid(17, &v.from, &self.navigation_nodes)
+                        && native.end.valid(18, &v.to, &self.navigation_nodes),
+                    "Invalid native negotiation endpoint or cost",
+                )?;
+            }
         }
         for v in &self.generators {
             r(&v.id.0, &v.placement.0, "placement")?;

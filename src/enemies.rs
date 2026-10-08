@@ -526,9 +526,14 @@ pub(crate) fn lifecycle(
                 navigation.destination(feet, target - Vec3::Y * 0.9, &access) + Vec3::Y * 0.85
             };
         }
-        if let Some((start, end, alias)) =
-            navigation.traversal(feet, zombie.destination - Vec3::Y * 0.85, &access)
+        if let Some(step) = navigation.traversal(feet, zombie.destination - Vec3::Y * 0.85, &access)
         {
+            let crate::navigation::TraversalStep {
+                start,
+                end,
+                alias,
+                yaw,
+            } = step;
             if let Some(window) = definition.content.barriers.iter().find(|b| {
                 definition
                     .content
@@ -575,9 +580,8 @@ pub(crate) fn lifecycle(
                 barriers.entries += 1;
             }
             if let Some(profile) = enemy.traversals.get(&alias) {
-                let delta = end - start;
-                // Source root forward is +X; authored endpoints set world heading.
-                let rotation = Quat::from_rotation_y((-delta.z).atan2(delta.x));
+                // zm_shared::dotraverse faces the authored negotiation start angle.
+                let rotation = Quat::from_rotation_y(yaw);
                 zombie.traversal = Some(TraversalMotion {
                     start: start + Vec3::Y * 0.85,
                     end: end + Vec3::Y * 0.85,

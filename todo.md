@@ -41,7 +41,7 @@
 - [x] Extend asset preparation with trigger volume conversion.
 - [x] Extend asset preparation with brush entity conversion.
 - [x] Extend asset preparation with navigation node extraction.
-- [ ] Extend asset preparation with traversal link extraction.
+- [x] Extend asset preparation with traversal link extraction.
 - [x] Extend asset preparation with skeletal model export.
 - [x] Extend asset preparation with animation track export.
 - [x] Convert animation translations into runtime coordinates.

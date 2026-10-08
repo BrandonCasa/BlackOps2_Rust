@@ -29,6 +29,8 @@ struct Coverage {
     landing_seen: bool,
     traversal_blast: Option<u32>,
     traversal_hit: bool,
+    traversal_yaw: Option<f32>,
+    heading_checked: bool,
     combat_case: usize,
     combat_before: Option<usize>,
     rows: Vec<serde_json::Value>,
@@ -135,6 +137,9 @@ fn drive(
                     .as_ref()
                     .is_some_and(|z| access.reachable.contains(z));
                 c.rows.push(serde_json::json!({"case":"compiled_graph","passed":nav.node_count()==2776 && nav.link_count()==23197 && members,"zone":current_zone.0,"rejected_nodes":nav.rejected_nodes,"rejected_links":nav.rejected_links,"admissions":nav.admissions.len()}));
+                let observed = nav.negotiation_observation(&game, &access);
+                let _ = std::fs::write(v.output.join("traversal-links.json"), observed.to_string());
+                c.rows.push(serde_json::json!({"case":"compiled_negotiations","passed":observed["passed"],"expected":observed["expected"],"retained":observed["retained"],"geometry_admitted":observed["geometry_admitted"]}));
                 for d in &game.access.doors {
                     let gate = nav.inspect_gate(&d.connection, &access);
                     c.rows.push(serde_json::json!({"case":"closed_gate","door":d.connection,"passed":gate.is_some_and(|(_,_,allowed)|!allowed),"found":gate.is_some(),"links":nav.inspect_gate_nodes(&d.connection)}));
@@ -316,6 +321,22 @@ fn drive(
             c.rows.push(serde_json::json!({"case":"all_groups","passed":access.purchases as usize==game.access.doors.len() && blockers.is_empty() && props.is_empty() && evidence.animated==expected && evidence.sounds==expected && evidence.playing_sounds>0 && evidence.playing_sounds<=expected && access.reachable.len()>3,"purchases":access.purchases,"buy_cues":audio.events.get("zmb_cha_ching"),"removed":evidence.removed,"animated":evidence.animated,"sounds":evidence.sounds,"playing_sounds":evidence.playing_sounds}));
             if v.traversal {
                 if let Some((start, end, alias)) = nav.inspect_traversal(&access) {
+                    c.traversal_yaw = game
+                        .content
+                        .navigation_links
+                        .iter()
+                        .filter_map(|l| l.negotiation.as_ref())
+                        .find(|n| {
+                            (Vec3::from_array(n.start.position) - start)
+                                .xz()
+                                .length_squared()
+                                < 0.0001
+                                && (Vec3::from_array(n.end.position) - end)
+                                    .xz()
+                                    .length_squared()
+                                    < 0.0001
+                        })
+                        .map(|n| n.start.yaw);
                     let enemy = game
                         .content
                         .enemies
@@ -346,13 +367,14 @@ fn drive(
                     c.traversal_start = enemy_evidence.traversals_started;
                     c.traversal_finish = enemy_evidence.traversals_finished;
                     c.traversal_blocked_start = enemy_evidence.traversal_blocked_landings;
-                    c.rows.push(serde_json::json!({"case":"native_climb_selected","passed":true,"alias":alias,"start":start.to_array(),"end":end.to_array()}));
+                    let source_yaw = c.traversal_yaw;
+                    c.rows.push(serde_json::json!({"case":"native_traversal_selected","passed":source_yaw.is_some(),"alias":alias,"source_yaw":source_yaw,"start":start.to_array(),"end":end.to_array()}));
                     c.phase = 10;
                     c.age = 0.;
                     return;
                 }
                 c.rows
-                    .push(serde_json::json!({"case":"native_climb_selected","passed":false}));
+                    .push(serde_json::json!({"case":"native_traversal_selected","passed":false}));
             }
             pose.translation = Vec3::from_array(game.spawn) + Vec3::Y * 30.;
             p.velocity = Vec3::ZERO;
@@ -380,7 +402,7 @@ fn drive(
                 commands
                     .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
                     .observe(bevy::render::view::screenshot::save_to_disk(
-                        v.output.join("native-climb.png"),
+                        v.output.join("native-traversal.png"),
                     ));
                 c.climb_capture = true;
             }
@@ -391,6 +413,24 @@ fn drive(
             if let Some((entity, body, z, vitality, disabled)) =
                 enemies.iter().find(|(e, _, _, _, _)| Some(*e) == c.actor)
             {
+                if !c.heading_checked && z.action == crate::origins::EnemyAnimation::Traverse {
+                    let forward = body.rotation * Vec3::X;
+                    let matched = c.traversal_yaw.is_some_and(|yaw| {
+                        forward.distance(Vec3::new(yaw.cos(), 0., -yaw.sin())) < 0.0001
+                    });
+                    let source_yaw = c.traversal_yaw;
+                    let endpoint_yaw = (-((c.center - c.aim).z)).atan2((c.center - c.aim).x);
+                    let difference = source_yaw.map(|yaw| {
+                        ((yaw - endpoint_yaw + std::f32::consts::PI)
+                            .rem_euclid(std::f32::consts::TAU)
+                            - std::f32::consts::PI)
+                            .abs()
+                            .to_degrees()
+                    });
+                    let changed = difference.is_some_and(|d| d > 1.);
+                    c.rows.push(serde_json::json!({"case":"authored_traversal_heading","passed":matched && changed,"source_yaw":source_yaw,"endpoint_heading_difference_degrees":difference,"actual_forward":forward.to_array()}));
+                    c.heading_checked = true;
+                }
                 if c.traversal_blast.is_none()
                     && disabled.is_some()
                     && z.action == crate::origins::EnemyAnimation::Traverse
@@ -426,7 +466,7 @@ fn drive(
             if c.landed_at.is_some_and(|age| c.age - age > 0.6) || c.age > 15. {
                 let passed = enemy_evidence.traversals_started > c.traversal_start
                     && enemy_evidence.traversals_finished > c.traversal_finish;
-                c.rows.push(serde_json::json!({"case":"native_climb_completed","passed":passed,"started":enemy_evidence.traversals_started,"finished":enemy_evidence.traversals_finished,"blocked_landings":enemy_evidence.traversal_blocked_landings,"rising_finished":enemy_evidence.rising_finished}));
+                c.rows.push(serde_json::json!({"case":"native_traversal_completed","passed":passed,"started":enemy_evidence.traversals_started,"finished":enemy_evidence.traversals_finished,"blocked_landings":enemy_evidence.traversal_blocked_landings,"rising_finished":enemy_evidence.rising_finished}));
                 let recovered = c.landing_seen
                     && actor_action.is_some_and(|(a, _)| {
                         a != crate::origins::content::EnemyAnimation::Landing
@@ -696,6 +736,12 @@ fn drive(
                 let initial = c.initial_links;
                 let active = nav.active_links(&access);
                 c.rows.push(serde_json::json!({"case":"navigation_restart","passed":nav.cache_len()==0 && active==initial && nav.graph_changes==1,"cache":nav.cache_len(),"active_links":active,"zone":current_zone.0,"admissions":nav.admissions.len()}));
+                let observed = nav.negotiation_observation(&game, &access);
+                let _ = std::fs::write(
+                    v.output.join("traversal-links-restarted.json"),
+                    observed.to_string(),
+                );
+                c.rows.push(serde_json::json!({"case":"restarted_negotiations","passed":observed["passed"],"retained":observed["retained"]}));
             }
             let passed = c.rows.iter().all(|r| r["passed"] == true);
             let _=std::fs::write(v.output.join(if v.traversal {"traversal.json"}else if v.navigation {"navigation.json"}else{"doors.json"}),serde_json::json!({"passed":passed,"rows":c.rows,"groups":game.access.doors.len(),"zones":game.content.zones.len()}).to_string());

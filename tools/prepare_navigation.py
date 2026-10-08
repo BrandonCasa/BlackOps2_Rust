@@ -8,7 +8,8 @@ from trigger_volumes import brush_vertices
 def prepare(config):
     base=external(config['assets']['inspection_output']);pack=external(config['game']['asset_pack'])
     records=entities(base/'game-prepare/entities/maps/mp/zm_tomb.d3dbsp.ents')
-    source=base/'solo-content/navigation-recovery/map-navigation.json';nodes=json.loads(source.read_text())
+    from traversal_links import load, negotiation
+    source,nodes=load(config)
     table=base/'solo-content/mud-triggers-recovery/map-triggers.json';models={str(r['model']):r for r in json.loads(table.read_text())}
     game=json.loads((pack/'game.json').read_text());content=game['content'];known={z['id'] for z in content['zones']}
     matrix=np.array([[1,0,0],[0,0,1],[0,-1,0]],dtype=float)
@@ -59,13 +60,9 @@ def prepare(config):
         for ordinal,l in enumerate(n['links']):
             other=l['to']
             if other not in retained:continue
-            animation=n['animation'] or None
-            traversal='walk'
-            if l['negotiation']:
-                traversal='jump' if animation and ('jump_down' in animation or 'jump_across' in animation) else 'climb'
             blockers=crossings(n['position'],retained[other]['position'])
-            links.append({'id':f'link.native.{i}.{ordinal}','from':f'node.native.{i}','to':f'node.native.{other}','traversal':traversal,'connection':None,
-                'blockers':blockers,'source_animation':animation if l['negotiation'] else None})
+            links.append({'id':f'link.native.{i}.{ordinal}','from':f'node.native.{i}','to':f'node.native.{other}','connection':None,
+                'blockers':blockers,**negotiation(n,retained[other],l)})
     content['navigation_links']=links
     spawns=[]
     for e in records:
@@ -77,5 +74,5 @@ def prepare(config):
     (pack/'game.json').write_text(json.dumps(game,indent=2)+'\n')
     receipt={'native_nodes':len(nodes),'retained_nodes':len(retained),'unassigned_nodes':unassigned,'links':len(links),'negotiations':sum(l['traversal']!='walk' for l in links),'blocked_links':sum(bool(l['blockers']) for l in links),'zone_brushes':len(volumes),'spawns':len(spawns),
         'navigation_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'brushes_sha256':hashlib.sha256(table.read_bytes()).hexdigest(),
-        'approximation':'Avian validates ordinary floor/capsule routes at assembly. Authored node origins classify zones; nearest plane fallback limited to 48 source units. Door crossings expand native convex brushes by 30 cm. Negotiations retained but traversal execution remains a later milestone.'}
+        'approximation':'Avian validates ordinary floor/capsule routes at assembly. Authored node origins classify zones; nearest plane fallback limited to 48 source units. Door crossings expand native convex brushes by 30 cm. Negotiations retain native endpoint constants and cost; playback uses fitted source root motion.'}
     (base/'solo-content/navigation-preparation.json').write_text(json.dumps(receipt,indent=2));print(receipt)

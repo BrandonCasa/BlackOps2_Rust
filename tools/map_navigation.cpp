@@ -25,11 +25,21 @@ void ContentPrinter::PrintContent() const {
         if(i)out<<',';
         out<<"{\"index\":"<<i<<",\"type\":"<<static_cast<int>(n.type)<<",\"position\":[";
         for(unsigned axis=0;axis<3;++axis) {require(std::isfinite(n.vOrigin.v[axis]));if(axis)out<<',';out<<n.vOrigin.v[axis];}
-        out<<"],\"animation\":"<<std::quoted(m_zone.m_script_strings.Value(n.animscript))<<",\"links\":[";
+        require(std::isfinite(n.fAngle) && std::isfinite(n.fRadius) && std::isfinite(n.minUseDistSq));
+        out<<"],\"animation\":"<<std::quoted(m_zone.m_script_strings.Value(n.animscript))
+           <<",\"spawn_flags\":"<<n.spawnflags
+           <<",\"targetname\":"<<std::quoted(m_zone.m_script_strings.Value(n.targetname))
+           <<",\"link_name\":"<<std::quoted(m_zone.m_script_strings.Value(n.script_linkName))
+           <<",\"noteworthy\":"<<std::quoted(m_zone.m_script_strings.Value(n.script_noteworthy))
+           <<",\"target\":"<<std::quoted(m_zone.m_script_strings.Value(n.target))
+           <<",\"angle\":"<<n.fAngle<<",\"forward\":[";
+        for(unsigned axis=0;axis<2;++axis) {require(std::isfinite(n.forward.v[axis]));if(axis)out<<',';out<<n.forward.v[axis];}
+        out<<"],\"radius\":"<<n.fRadius<<",\"minimum_use_distance_squared\":"<<n.minUseDistSq
+           <<",\"overlap\":["<<n.wOverlapNode[0]<<','<<n.wOverlapNode[1]<<"],\"links\":[";
         for(unsigned j=0;j<n.totalLinkCount;++j) {
             const auto& link=n.Links[j];require(link.nodeNum<path->nodeCount && std::isfinite(link.fDist) && link.fDist>=0);
             if(j)out<<',';
-            out<<"{\"to\":"<<link.nodeNum<<",\"distance\":"<<link.fDist<<",\"negotiation\":"<<static_cast<int>(link.negotiationLink)<<",\"flags\":"<<static_cast<int>(link.flags)<<",\"disconnect\":"<<static_cast<int>(link.disconnectCount)<<'}';
+            out<<"{\"to\":"<<link.nodeNum<<",\"distance\":"<<link.fDist<<",\"negotiation\":"<<static_cast<unsigned>(static_cast<unsigned char>(link.negotiationLink))<<",\"flags\":"<<static_cast<unsigned>(static_cast<unsigned char>(link.flags))<<",\"disconnect\":"<<static_cast<unsigned>(static_cast<unsigned char>(link.disconnectCount))<<'}';
         }
         out<<"]}";
     }

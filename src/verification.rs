@@ -109,6 +109,7 @@ pub(crate) struct Verification {
     placement_snapshot: Option<placements::Snapshot>,
     trigger_observation: Option<serde_json::Value>,
     brush_observation: Option<serde_json::Value>,
+    negotiation_observation: Option<serde_json::Value>,
 }
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
@@ -309,6 +310,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             placement_snapshot: None,
             trigger_observation: None,
             brush_observation: None,
+            negotiation_observation: None,
         });
     }
 }
@@ -701,6 +703,22 @@ fn check(
                 return;
             }
         }
+    }
+    if verification.negotiation_observation.is_none()
+        && navigation.link_count() > 0
+        && let Some(game) = &definition
+    {
+        let observed = navigation.negotiation_observation(game, &access);
+        let _ = std::fs::write(
+            verification.output.join("traversal-links.json"),
+            observed.to_string(),
+        );
+        if observed["passed"] != true {
+            error!("Game verification failed: negotiation closure: {observed}");
+            commands.write_message(AppExit::error());
+            return;
+        }
+        verification.negotiation_observation = Some(observed);
     }
     if verification.trigger_observation.is_none()
         && matches!(**state, GameState::Playing | GameState::Paused)
@@ -1147,7 +1165,13 @@ fn check(
                 });
         let restarted_triggers = triggers::observe(&definition, &trigger_sites, &query);
         let restarted_brushes = brushes::observe(&definition, &brush_sites, &query);
+        let restarted_negotiations = navigation.negotiation_observation(&definition, &access);
         let passed = session.round == 1
+            && restarted_negotiations["passed"] == true
+            && verification
+                .negotiation_observation
+                .as_ref()
+                .is_some_and(|o| o["passed"] == true)
             && placement_ids_preserved
             && restarted_triggers["passed"] == true
             && restarted_brushes["passed"] == true
@@ -1236,6 +1260,8 @@ fn check(
             "restarted":restarted_triggers});
         receipt["brush_entities"] = serde_json::json!({"initial": verification.brush_observation,
             "restarted":restarted_brushes});
+        receipt["traversal_links"] = serde_json::json!({"initial": verification.negotiation_observation,
+            "restarted":restarted_negotiations});
         receipt["texture_streaming"] =
             serde_json::to_value(&*streaming).expect("Serializable streaming counters");
         receipt["shared_lighting"] = serde_json::json!({
