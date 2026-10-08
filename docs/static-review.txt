@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 18/50 resolved on local main: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 27, 28, 29, 31, 32. Remaining findings are queued.
+Fix progress: 19/50 resolved on local main: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 15, 27, 28, 29, 31, 32. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -142,6 +142,8 @@ the explanation. Entries retain wave/report aggregation order.
     Location: src/environment.rs:71–73
     Trigger, consequence, evidence and correction: ZoneSensor uses layer4 (access.rs:281), also included by player_solids for ingress blockers. Direct ground/support/step casts (player.rs:307–325,533–570) include sensor hulls; Avian MoveAndSlide excludes Sensors. Auxiliary queries can report artificial ground/step obstruction.
     Confidence: High.
+
+    Fix status: RESOLVED - query-only zone hulls and their locate filter share dedicated layer 8; player ingress clips retain layer 4 and player_solids retains mask 5. Locked metadata, release and format gates pass. The same frozen executable passes 19 native barrier cases (nine ingress attempts), all 11 door groups/24 cases and 53 navigation cases including zone.start membership and restart; all three exit 0 with no renderer/streaming/audio errors. Runtime assets preserve the qualified 4,137-file closure. Evidence: E:/Coding/Captures/static-review-15-20261008/qualification.json. No synthetic input, repository scripts, performance or blanket visual acceptance.
 
 16. [P2] Cancelled reloads leave Electric Cherry blocked
     Wave: 1

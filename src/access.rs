@@ -192,6 +192,8 @@ fn audio_evidence(
 }
 #[derive(Resource, Default)]
 pub struct CurrentZone(pub Option<ZoneId>);
+// Query-only zone hulls must not alias the player's solid ingress clips.
+const ZONE_SENSOR_LAYER: u32 = 8;
 #[derive(Component)]
 struct ZoneSensor {
     zone: ZoneId,
@@ -206,7 +208,7 @@ fn locate(
         zone.0 = None;
         return;
     };
-    let filter = SpatialQueryFilter::from_mask(4);
+    let filter = SpatialQueryFilter::from_mask(ZONE_SENSOR_LAYER);
     zone.0 = query
         .shape_intersections(
             &Collider::sphere(0.03),
@@ -278,7 +280,7 @@ fn assemble(
                     RigidBody::Static,
                     shape,
                     Sensor,
-                    CollisionLayers::new(4, LayerMask::NONE),
+                    CollisionLayers::new(ZONE_SENSOR_LAYER, LayerMask::NONE),
                     Transform::from_translation(Vec3::from_array(v.volume.position)),
                 ));
             }
