@@ -64,7 +64,8 @@ Use optimized development builds for routine development and actual-game
 validation; omit `--release` to retain debug assertions and development
 diagnostics. Cargo.toml already sets opt-level = 1 for game code and 3 for
 dependencies. Keep `lto = "thin"` in development, `lto = true` in release,
-and `codegen-units = 1` in both profiles, accepting longer builds for optimization.
+and `codegen-units = 16` in development / `1` in release. Development build and
+profiling commands enable `dev-dynamic` (Bevy dynamic linking); release omits it.
 Retain development debug assertions and diagnostics.
 Launch the development-profile executable produced by this build.
 Use release builds for performance measurements and release/package work.

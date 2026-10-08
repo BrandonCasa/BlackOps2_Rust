@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+#[cfg(all(not(debug_assertions), feature = "dev-dynamic"))]
+compile_error!("Bevy dynamic linking is development-only; omit dev-dynamic for release builds.");
+
 #[cfg(all(
     not(debug_assertions),
     any(

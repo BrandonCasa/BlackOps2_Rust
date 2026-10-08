@@ -6,6 +6,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$savedRustc = $env:RUSTC
+$savedRustdoc = $env:RUSTDOC
 Push-Location $repository
 try {
     $cargoCommand = Get-Command cargo -ErrorAction SilentlyContinue
@@ -17,6 +19,13 @@ try {
         $resolvedCargo = & $rustupCommand.Source which cargo
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $resolvedCargo)) {
             $cargoExecutable = $resolvedCargo
+            # Direct Cargo bypasses rustup's RUSTUP_TOOLCHAIN propagation.
+            # Resolve compiler tools here, before Cargo enters dependency dirs
+            # that may contain their own unrelated rust-toolchain.toml.
+            $env:RUSTC = & $rustupCommand.Source which rustc
+            if ($LASTEXITCODE -ne 0) { throw 'Could not resolve workspace rustc' }
+            $env:RUSTDOC = & $rustupCommand.Source which rustdoc
+            if ($LASTEXITCODE -ne 0) { throw 'Could not resolve workspace rustdoc' }
         }
     }
     $occupied = Get-Process -Name origins,cargo,rustc,capture,wpr,xperf,texconv -ErrorAction SilentlyContinue
@@ -57,11 +66,13 @@ try {
     if ($CompilerGate -eq 'Check') {
         $checkArguments = @('check', '--lib', '--offline', '--locked', '--jobs', '1')
         if ($Profile -eq 'Release') { $checkArguments += '--release' }
+        else { $checkArguments += @('--features', 'dev-dynamic') }
         Invoke-Compiler -compilerArguments $checkArguments
         return
     }
     $buildArguments = @('build', '--workspace', '--locked')
     if ($Profile -eq 'Release') { $buildArguments += '--release' }
+    else { $buildArguments += @('--features', 'dev-dynamic') }
     Invoke-Compiler -compilerArguments $buildArguments
     & $cargoExecutable fmt --all -- --check
     if ($LASTEXITCODE -ne 0) { throw 'Formatting check failed' }
@@ -78,4 +89,8 @@ try {
     if (-not $oldConfig.StartsWith($release + [IO.Path]::DirectorySeparatorChar)) { throw 'Invalid release config path' }
     if (Test-Path -LiteralPath $oldConfig) { Remove-Item -LiteralPath $oldConfig }
     Write-Output (Join-Path $release 'origins.exe')
-} finally { Pop-Location }
+} finally {
+    $env:RUSTC = $savedRustc
+    $env:RUSTDOC = $savedRustdoc
+    Pop-Location
+}

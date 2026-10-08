@@ -45,7 +45,7 @@ try {
             & cargo build --workspace --release --locked
         } else {
             $profilingFeature = if ($Memory) { 'profile-tracy-memory' } else { 'profile-tracy' }
-            & cargo build --workspace --locked --features $profilingFeature
+            & cargo build --workspace --locked --features "dev-dynamic,$profilingFeature"
         }
         if ($LASTEXITCODE -ne 0) { throw "Build failed for $buildProfile measurements" }
     }
