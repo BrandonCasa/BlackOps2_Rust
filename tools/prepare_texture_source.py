@@ -16,6 +16,15 @@ FORMATS = {28: "R8G8B8A8_UNORM", 29: "R8G8B8A8_UNORM_SRGB", 80: "BC4_UNORM",
            83: "BC5_UNORM", 98: "BC7_UNORM", 99: "BC7_UNORM_SRGB"}
 
 
+def copy_verified(source, output, expected):
+    """Bind copied bytes to the initially validated source closure."""
+    shutil.copyfile(source, output)
+    for path in (source, output):
+        with path.open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
+                raise ValueError(f"Source or copied data changed during snapshot: {source.name}")
+
+
 def prepare(source, destination, receipt):
     source, destination = source.resolve(), destination.resolve()
     workspace = Path(__file__).resolve().parents[1]
@@ -30,6 +39,7 @@ def prepare(source, destination, receipt):
     index = json.loads(index_path.read_text()) if index_path.exists() else {"textures": []}
     streams = {entry["uri"]: entry for entry in index["textures"]}
     retired = {entry["full_uri"] for entry in index["textures"]} | {"texture-streaming.json"}
+    expected_copies = {}
     for uri, digest in hashes.items():
         # Snapshotting bytes is CPU/file work and does not own the GPU slot.
         if uri in retired:
@@ -37,7 +47,9 @@ def prepare(source, destination, receipt):
         output = destination / uri
         output.parent.mkdir(parents=True, exist_ok=True)
         if uri in streams:
-            shutil.copyfile(source / streams[uri]["full_uri"], output)
+            full_uri = streams[uri]["full_uri"]
+            expected_copies[uri] = hashes[full_uri]
+            copy_verified(source / full_uri, output, expected_copies[uri])
         elif output.suffix == ".gltf":
             document = json.loads((source / uri).read_text())
             for material in document.get("materials", []):
@@ -48,10 +60,13 @@ def prepare(source, destination, receipt):
                                        mip_count=len(entry["mips"]), format=FORMATS[entry["format"]])
             output.write_text(json.dumps(document, separators=(",", ":")) + "\n")
         else:
-            shutil.copyfile(source / uri, output)
+            expected_copies[uri] = digest
+            copy_verified(source / uri, output, digest)
         if hashlib.sha256((source / uri).read_bytes()).hexdigest() != digest:
             raise ValueError(f"Source changed during snapshot: {uri}")
     _, _, expanded = validate_pack(destination, exact=True)
+    if any(expanded[uri] != expected for uri, expected in expected_copies.items()):
+        raise ValueError("Recovered copied data differs from the initially validated source")
     unchanged = {uri: digest for uri, digest in hashes.items()
                  if uri.endswith(".bin") or uri == "game.json"}
     if any(expanded[uri] != digest for uri, digest in unchanged.items()):
