@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 3/50 resolved on local main: 04, 05, 06. Remaining findings are queued.
+Fix progress: 4/50 resolved on local main: 04, 05, 06, 07. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -84,6 +84,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/prepare_materials.py:526–533
     Trigger, consequence, evidence and correction: Each material recreates cooker.entries[uri], discarding previous mask_cutoffs. Shared maps with different MASK thresholds, or a later nonmask usage, are compressed/qualified against only the final usage.
     Confidence: High.
+    Fix status: RESOLVED - material qualification collects a sorted union of coverage thresholds across shared texture usages and extra channels; initial cooking preserves its shared registry and normalizes cutoffs before compression/cache keys. Qualification metadata remains separate from emitted surface channels. Actual 275-scene/1,358-texture catalog retains all 45 masked-map thresholds in both scene orders, with sources unchanged. Current data has no multiple-cutoff map or reproduced old loss; conditional code correction, no GPU recompression. Evidence: E:/Coding/Captures/static-review-07-20261008.
 
 08. [P2] Door regeneration removes navigation's retained zone
     Wave: 1

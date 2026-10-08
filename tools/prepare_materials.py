@@ -263,9 +263,12 @@ class Cooker:
             temporary.replace(master)
         self.pending[name] = fmt
         uri = "textures/" + name
-        self.entries[uri] = {"uri": uri, "role": role, "color_space": "srgb" if srgb else "linear",
-                             "format": fmt, "width": w, "height": h, "mip_count": len(levels)}
-        return self.entries[uri].copy()
+        channel = {"uri": uri, "role": role, "color_space": "srgb" if srgb else "linear",
+                   "format": fmt, "width": w, "height": h, "mip_count": len(levels)}
+        self.entries.setdefault(uri, channel.copy())
+        # Coverage qualification belongs to the shared registry, not emitted
+        # surface channels (whose schema does not contain mask_cutoffs).
+        return channel
 
     def material(self, material, document, path, original):
         surface = material.setdefault("extras", {}).setdefault("surface", {})
@@ -329,7 +332,7 @@ class Cooker:
                 c = self.texture(color_levels(base, True, state.get("cutoff", .5) if state["alpha"] == "mask" and layer == 0 else None), "color", True)
                 cooked.append(dict(c, layer=layer, channels="rgb:base_color,a:coverage"))
                 if state["alpha"] == "mask" and layer == 0:
-                    self.entries[c["uri"]]["mask_cutoffs"] = [state.get("cutoff", .5)]
+                    self.entries[c["uri"]].setdefault("mask_cutoffs", []).append(state.get("cutoff", .5))
             if normal is not None:
                 if ("normal", layer) in native and self.source(native["normal", layer]) is not None:
                     unit = canonical_normal(normal, recipe["normal_strength"])
@@ -416,6 +419,8 @@ class Cooker:
         for name in self.pending:
             resources.wait()
             raw = (self.work / name).read_bytes()
+            self.entries["textures/" + name]["mask_cutoffs"] = sorted(set(
+                self.entries["textures/" + name].get("mask_cutoffs", [])))
             entry = dict(self.entries["textures/" + name], scale=1,
                          density_applicable=max(self.entries["textures/" + name]["width"],
                                                 self.entries["textures/" + name]["height"]) > 1)
@@ -498,6 +503,27 @@ def prepare(config, source_pack=None, write_catalog=False):
     qualify(config)
 
 
+def qualification_entries(documents, extra_channels=None):
+    """Collect every authored coverage threshold before qualifying shared maps."""
+    entries = {}
+    for document in documents:
+        for material in document.get("materials", []):
+            surface = material.get("extras", {}).get("surface")
+            if not surface:
+                continue
+            for channel in surface["channels"]:
+                entry = entries.setdefault(channel["uri"], dict(channel, mask_cutoffs=[]))
+                entry["mask_cutoffs"].extend(channel.get("mask_cutoffs", []))
+                if channel["role"] == "color" and channel["layer"] == 0 and material.get("alphaMode") == "MASK":
+                    entry.setdefault("mask_cutoffs", []).append(material.get("alphaCutoff", .5))
+    for channel in extra_channels or []:
+        entry = entries.setdefault(channel["uri"], dict(channel, mask_cutoffs=[]))
+        entry["mask_cutoffs"].extend(channel.get("mask_cutoffs", []))
+    for entry in entries.values():
+        entry["mask_cutoffs"] = sorted(set(entry.get("mask_cutoffs", [])))
+    return entries
+
+
 def qualify(config, extra_channels=None, document_paths=None, prune=True):
     """Qualify legacy callers through the same GPU semantic cache, without fallback."""
     pack = Path(config["game"]["asset_pack"]).resolve()
@@ -523,14 +549,8 @@ def qualify(config, extra_channels=None, document_paths=None, prune=True):
                             for x in levels]
                     channel = cooker.texture(coat, "coating")
                     surface["channels"].append(dict(channel, layer=0, sampler=response["sampler"], channels="r:coating"))
-            for channel in surface["channels"]:
-                cooker.entries[channel["uri"]] = dict(channel)
-                if channel["role"] == "color" and channel["layer"] == 0 and material.get("alphaMode") == "MASK":
-                    cooker.entries[channel["uri"]].setdefault("mask_cutoffs", []).append(material.get("alphaCutoff", .5))
-    for channel in extra_channels or []:
-        cooker.entries.setdefault(channel["uri"], dict(channel))
+    cooker.entries = qualification_entries((document for _, document in documents), extra_channels)
     for uri, channel in cooker.entries.items():
-        channel["mask_cutoffs"] = sorted(set(channel.get("mask_cutoffs", [])))
         cooker.pending[Path(uri).name] = channel["format"]
     cooker.compress()
     for path, document in documents:
