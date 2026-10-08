@@ -146,6 +146,7 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
     ));
     let mut camera = commands.spawn((
         Camera3d::default(),
+        bevy::pbr::ScreenSpaceTransmission::default(),
         GameCamera,
         // Preserve native depth for AO. GPU frustum culling and indirect
         // batching retain CPU visibility admission. Two-phase occlusion

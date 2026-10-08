@@ -25,8 +25,14 @@ impl BrushDefinition {
             .volumes
             .iter()
             .map(|v| {
-                Collider::convex_hull(v.vertices.iter().copied().map(Vec3::from_array).collect())
-                    .map(|shape| (Vec3::from_array(v.position), Quat::IDENTITY, shape))
+                Collider::convex_hull(
+                    &v.vertices
+                        .iter()
+                        .copied()
+                        .map(Vec3::from_array)
+                        .collect::<Vec<_>>(),
+                )
+                .map(|shape| (Vec3::from_array(v.position), Quat::IDENTITY, shape))
             })
             .collect();
         pieces.filter(|p| !p.is_empty()).map(Collider::compound)

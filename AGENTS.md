@@ -3,10 +3,7 @@
 ## Working set and execution
 
 Start with [project state](docs/project-state.md), then relevant source and validation tools.
-The renderer plan 3.0 goal explicitly authorizes subagents. Consult a subagent
-before implementation decisions and require a critic's contextual review score
-greater than 8/10 before every commit. Use focused ownership for parallel edits;
-never revert another contributor's work. Actual-game validation remains sequential.
+Work sequentially in this chat. Subagents and delegated chats are banned.
 Keep one current [handoff](docs/handoffs/current.md); replace stale state instead
 of accumulating audits. Git history holds retired documents and implementations.
 Keep at most 20 tracked Markdown files.
@@ -49,12 +46,9 @@ installation paths, secrets or generated builds. Real paths belong in ignored
 `config/local_assets.toml`; tracked configuration contains placeholders.
 Preparation reads originals and emits an external standard asset pack; import
 copies only validated runtime files and never modifies originals.
-The renderer plan 3.0 goal permits focused unit tests for rendering logic. Use
-them to verify invalidation, work admission, history rejection, and pipeline work
-counts; unit tests do not establish GPU speed or visual acceptance. Unrelated
-unit suites and synthetic asset fixtures remain prohibited. Clippy remains banned.
-Validate with rendering-logic tests, asset integrity checks, compiler gates and
-the actual game window.
+Unit tests and Clippy are banned. Do not run Clippy or add it to validation gates.
+Do not add or restore test suites or test fixtures. Validate with asset integrity
+checks, compiler gates and the actual game window.
 Inspect candidates before staging.
 
 ## Validation and Git
@@ -97,8 +91,6 @@ wait until the slot is free. Never run more than one validation at a time. If
 another chat starts a run while yours is active, stop only your own run and wait;
 never interrupt another chat's process.
 Review diffs and make coherent local commits. Never push unless requested.
-For renderer plan 3.0, commit frequently with atomic diffs, only after a critic
-subagent reviews the exact diff in context and rates it greater than 8/10.
 Every commit message must include a clear summary and a detailed body explaining
 what changed, why the change was needed, and how it was implemented. Describe
 the affected systems or files, the resulting behavior, and relevant validation

@@ -234,7 +234,10 @@ impl Plugin for VerificationPlugin {
                     .after(crate::input::collect),
             )
             .add_systems(Update, check)
-            .add_systems(Last, performance::record);
+            .add_systems(
+                Last,
+                performance::record.after(bevy::diagnostic::update_frame_count),
+            );
     }
 }
 fn setup(mut commands: Commands, options: Res<LaunchOptions>) {

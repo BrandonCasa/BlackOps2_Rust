@@ -45,6 +45,7 @@ pub(super) struct Material {
     textures3: UVec4,
 }
 #[derive(Resource, Clone, Default, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct Data {
     vertices: Arc<Vec<Vertex>>,
     materials: Arc<Vec<Material>>,
@@ -190,30 +191,35 @@ fn shaders(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
         return;
     }
     let Some((id, source)) = shaders.iter().find_map(|(id, shader)| {
-        (shader.import_path == ShaderImport::Custom("bevy_solari::scene_bindings".into()))
+        (shader.import_path == ShaderImport::Custom("bevy_solari::scene::bindings".into()))
             .then(|| (id, shader.source.as_str().to_owned()))
     }) else {
         return;
     };
     // Tangent magnitudes carry a stable companion vertex ID only in ray meshes.
     // Restore handedness before native TBN construction. Raster meshes are untouched.
-    assert_eq!(source.matches("        vertices[0].tangent.w,").count(), 1);
+    let tangent_hook = "vertices[0].tangent.w * determinant_sign";
+    assert_eq!(source.matches(tangent_hook).count(), 1);
     shaders
         .insert(
             id,
-            Shader::from_wgsl(
-                source.replace(
-                    "        vertices[0].tangent.w,",
-                    "        sign(vertices[0].tangent.w),",
+            Shader::from_wesl(
+                source.replacen(
+                    tangent_hook,
+                    "sign(vertices[0].tangent.w) * determinant_sign",
+                    1,
                 ),
-                "origins::native_ray_bindings",
+                "embedded://bevy_solari/scene/bindings.wesl",
             ),
         )
         .expect("Native scene shader");
     shaders
         .insert(
             SHADER.id(),
-            Shader::from_wgsl(include_str!("ray_surface.wgsl"), "origins::ray_surface"),
+            Shader::from_wesl(
+                include_str!("ray_surface.wesl"),
+                "embedded://origins/ray_surface.wesl",
+            ),
         )
         .expect("Ray surface shader");
     *done = true;

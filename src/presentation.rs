@@ -145,7 +145,7 @@ pub(crate) fn first_person_light(
     let middle_gray = 0.18_f32.log2();
     let brighten = (profile.outdoor_ev100 - profile.indoor_ev100).clamp(0., 5.);
     let compensation = curves.add(
-        AutoExposureCompensationCurve::from_curve(bevy::math::cubic_splines::LinearSpline::new([
+        AutoExposureCompensationCurve::from_curve(bevy::curve::cubic_splines::LinearSpline::new([
             Vec2::new(-8., -8. + brighten),
             Vec2::new(middle_gray - brighten, middle_gray),
             Vec2::new(middle_gray + 1., middle_gray),
@@ -161,6 +161,7 @@ pub(crate) fn first_person_light(
         commands.entity(camera).with_children(|parent| {
             let mut final_camera = parent.spawn((
                 Camera3d::default(),
+                bevy::pbr::ScreenSpaceTransmission::default(),
                 Camera {
                     order: 1,
                     clear_color: ClearColorConfig::None,

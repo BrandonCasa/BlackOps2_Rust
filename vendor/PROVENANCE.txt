@@ -1,0 +1,36 @@
+Pinned Bevy engine patches
+
+bevy_render, bevy_pbr and bevy_solari originate from crates.io Bevy 0.20.0-rc.2,
+upstream tag commit 343a0233d6788a49f224a3684c8995e246663df3.
+The MIT and Apache-2.0 licenses remain alongside each copied production source.
+Only manifests, licenses, upstream README files and production src trees are
+retained. Dependencies are excluded from the single-package workspace.
+The root [patch.crates-io] selects these sources; Cargo.lock pins the entire
+Bevy dependency graph to the same RC. Original assets remain untouched.
+
+Original crates.io package SHA256 checksums:
+bevy_render 85dec5029f3bd8ca09f584f24df77d1bd096906062aa4377bc8af95d60f50136
+bevy_pbr 69a4a0e861abccd2ff8c655415ab3981f401a83b930a4c5c7227a0b6297f709e
+bevy_solari d3b48f81a2d3fa80a171fdb8b2655182f2b272dd17da05776b31b875810eee91
+
+Local changes:
+bevy_render: frame/workload-associated raw diagnostic records, bounded paired
+query banks/readbacks, completed FIFO, earlier recording and coverage reporting.
+bevy_pbr: stable per-shadow-view/face timing and invocation context; the native
+vertex body is callable by extended materials through mesh_vertex, with the
+original vertex entry point forwarding to it without changing its arithmetic;
+incremental light extraction retains unchanged live shadow visibility tables
+instead of retiring them as if the changed-only query were the live inventory.
+bevy_solari: the RC's retained incremental scene, sparse uploads, cached bindings
+and native TLAS build are adopted intact; native BLAS/TLAS diagnostic spans are
+retained. No obsolete whole-scene binder or extraction gates are ported.
+
+Upstream embedded binaries use Git LFS and remain byte-identical. Their working
+files must be hydrated for native include_bytes! calls. Imported WESL trailing
+ASCII spaces/tabs and excess EOF blanks may be normalized without changing tokens.
+Package checksums identify upstream archives, not hashes of this patched tree.
+
+Avian compatibility follows upstream PR 1070 at immutable revision
+34c9b008d2f40638a953d9218db48d54f661365d, including its pinned Bevy-heavy,
+transform-interpolation and matrix dependencies. It targets Bevy 0.20; root
+exact RC constraints select rc.2 throughout. Existing f32 behavior is its default.

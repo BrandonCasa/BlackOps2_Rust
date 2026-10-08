@@ -49,7 +49,11 @@ impl EnvironmentDefinition {
                             && (4..=128).contains(&v.vertices.len())
                             && v.vertices.iter().flatten().all(|p| p.is_finite())
                             && Collider::convex_hull(
-                                v.vertices.iter().copied().map(Vec3::from_array).collect(),
+                                &v.vertices
+                                    .iter()
+                                    .copied()
+                                    .map(Vec3::from_array)
+                                    .collect::<Vec<_>>(),
                             )
                             .is_some()
                     })
@@ -128,12 +132,12 @@ fn spawn(mut commands: Commands, game: Res<GameDefinition>, existing: Query<(), 
     if let Some(mud) = &game.environment.mud {
         for volume in &mud.volumes {
             if let Some(shape) = Collider::convex_hull(
-                volume
+                &volume
                     .vertices
                     .iter()
                     .copied()
                     .map(Vec3::from_array)
-                    .collect(),
+                    .collect::<Vec<_>>(),
             ) {
                 commands.spawn((
                     MudVolume(volume.id.clone()),

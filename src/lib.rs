@@ -159,11 +159,16 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         verification::VerificationPlugin,
     ));
     if cfg!(debug_assertions)
-        && benchmark
         && !release_benchmark
-        && !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>()
+        && (benchmark || cfg!(feature = "profile-tracy") || cfg!(feature = "profile-chrome"))
     {
-        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+        if !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
+            app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+        }
+        app.init_resource::<bevy::render::diagnostic::RenderDiagnosticsFrameContext>()
+            .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<
+                bevy::render::diagnostic::RenderDiagnosticsFrameContext,
+            >::default());
     }
     if benchmark || verification_enabled {
         // Keep actual-window profiling independent of focus throttling.

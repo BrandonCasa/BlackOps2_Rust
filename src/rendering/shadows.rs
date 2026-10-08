@@ -48,8 +48,8 @@ pub(super) fn prepare(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>
         })
     };
     let (Some((sampling_id, sampling)), Some((shadows_id, shadows))) = (
-        native("bevy_pbr::shadow_sampling"),
-        native("bevy_pbr::shadows"),
+        native("bevy_pbr::render::shadow_sampling"),
+        native("bevy_pbr::render::shadows"),
     ) else {
         return;
     };
@@ -59,7 +59,7 @@ pub(super) fn prepare(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>
     // Preserve native maps, comparisons and samples; use world distances and
     // the sun's angular radius. Keep the filter pattern in the light's plane.
     // The original function is also used by perspective spot lights.
-    let corrected_sampling = sampling + "\n" + include_str!("sun_pcss.wgsl");
+    let corrected_sampling = sampling + "\n" + include_str!("sun_pcss.wesl");
     let original = "            texel_size,\n            (*light).soft_shadow_size,\n        );";
     assert_eq!(
         shadows.matches(original).count(),
@@ -74,13 +74,16 @@ pub(super) fn prepare(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>
     shaders
         .insert(
             sampling_id,
-            Shader::from_wgsl(corrected_sampling, "origins::sun_sampling"),
+            Shader::from_wesl(
+                corrected_sampling,
+                "embedded://bevy_pbr/render/shadow_sampling.wesl",
+            ),
         )
         .expect("Native shadow sampling handle");
     shaders
         .insert(
             shadows_id,
-            Shader::from_wgsl(corrected_shadows, "origins::sun_shadows"),
+            Shader::from_wesl(corrected_shadows, "embedded://bevy_pbr/render/shadows.wesl"),
         )
         .expect("Native shadow handle");
     *done = true;

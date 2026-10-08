@@ -22,8 +22,8 @@ use bevy::{
     render::{
         Render, RenderApp, RenderSystems,
         batching::gpu_preprocessing::{
-            BatchedInstanceBuffers, BinUnpackingBuffers, BinUnpackingBuffersKey,
-            GpuPreprocessingMode, GpuPreprocessingSupport,
+            BatchedInstanceBuffers, GpuPreprocessingMode, GpuPreprocessingSupport,
+            SceneUnpackingBuffers, SceneUnpackingBuffersKey,
         },
         camera::{DirtySpecializations, ViewPendingQueues},
         extract_resource::{ExtractResource, ExtractResourcePlugin},
@@ -110,9 +110,10 @@ impl ShadowCacheStats {
             "native_late_indirect_skipped_views": self.late_indirect_skipped.load(Ordering::Relaxed),
             "native_late_indirect_conservative_fallbacks": self.late_indirect_fallbacks.load(Ordering::Relaxed),
             "direct_shadow_phase_resets": self.direct_shadow_phase_resets.load(Ordering::Relaxed),
-            "native_indirect_clear_runs": self.indirect_stage_runs[0].load(Ordering::Relaxed),
-            "native_indirect_clear_skipped_views": self.indirect_stage_skipped[0].load(Ordering::Relaxed),
-            "native_indirect_clear_conservative_fallbacks": self.indirect_stage_fallbacks[0].load(Ordering::Relaxed),
+            "native_indirect_clear_runs": null,
+            "native_indirect_clear_skipped_views": null,
+            "native_indirect_clear_conservative_fallbacks": null,
+            "native_indirect_clear_scope": "scene",
             "native_bin_unpack_runs": self.indirect_stage_runs[1].load(Ordering::Relaxed),
             "native_bin_unpack_skipped_views": self.indirect_stage_skipped[1].load(Ordering::Relaxed),
             "native_bin_unpack_conservative_fallbacks": self.indirect_stage_fallbacks[1].load(Ordering::Relaxed),
@@ -159,6 +160,7 @@ struct CachedLightVisibility {
 }
 
 #[derive(Resource, Default, Clone, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 struct ShadowRevisions {
     epoch: u64,
     casters: u64,
@@ -366,14 +368,12 @@ impl Plugin for ShadowCachePlugin {
                         late_indirect_due,
                     ))));
             }
+            // The RC clears scene unpacking metadata once in Render, rather
+            // than clearing indirect metadata for every Core3d view.
             for (stage, name) in [
-                "clear_indirect_parameters_metadata",
-                "unpack_bins",
-                "early_prepass_build_indirect_parameters",
-            ]
-            .into_iter()
-            .enumerate()
-            {
+                (1, "unpack_bins"),
+                (2, "early_prepass_build_indirect_parameters"),
+            ] {
                 let native_name = format!("bevy_pbr::render::gpu_preprocess::{name}");
                 let keys: Vec<_> = schedule
                     .graph()
@@ -392,9 +392,6 @@ impl Plugin for ShadowCachePlugin {
                 );
                 if let Some(&key) = keys.first() {
                     let condition = match stage {
-                        0 => ConditionWithAccess::new(Box::new(IntoSystem::into_system(
-                            indirect_stage_due::<0>,
-                        ))),
                         1 => ConditionWithAccess::new(Box::new(IntoSystem::into_system(
                             indirect_stage_due::<1>,
                         ))),
@@ -1061,7 +1058,7 @@ fn suspend_render_visibility(world: &mut World) {
                 && retained.subviews.iter().all(|(view, entities)| {
                     view.main_entity == *owner
                         && view.subview_index < 6
-                        && entities.get::<Mesh3d>().is_some()
+                        && entities.1.get::<Mesh3d>().is_some()
                         && extracted.subviews.contains_key(view)
                 });
             let Some(light) = light else {
@@ -1202,7 +1199,7 @@ fn select(
     mut dirty: ResMut<DirtySpecializations>,
     mut gpu_buffers: (
         Option<ResMut<BatchedInstanceBuffers<MeshUniform, MeshInputUniform>>>,
-        Option<ResMut<BinUnpackingBuffers>>,
+        Option<ResMut<SceneUnpackingBuffers>>,
         Option<ResMut<BinUnpackingBindGroups>>,
     ),
 ) {
@@ -1290,7 +1287,7 @@ fn select(
                 {
                     phase_buffers.work_item_buffers.remove(&retained);
                 }
-                let key = BinUnpackingBuffersKey {
+                let key = SceneUnpackingBuffersKey {
                     phase: TypeId::of::<Shadow>(),
                     view: retained,
                 };
@@ -1368,7 +1365,10 @@ fn select(
         // Retain slot remapping checks and include the camera allocation owner.
         let slot = (
             shadow.pass_name.clone(),
-            view.retained_view_entity.auxiliary_entity.id(),
+            view.retained_view_entity
+                .auxiliary_entity
+                .map(|entity| entity.id())
+                .unwrap_or(Entity::PLACEHOLDER),
         );
         // A completed map stays valid while an unrelated pipeline compiles.
         // Dirty maps become reusable only after completion confirms readiness.
@@ -1587,7 +1587,7 @@ fn specialization_due(
                 } => (
                     *light_entity,
                     RetainedViewEntity {
-                        auxiliary_entity: MainEntity::from(Entity::PLACEHOLDER),
+                        auxiliary_entity: None,
                         subview_index: *face_index as u32,
                         ..retained
                     },
@@ -1595,7 +1595,7 @@ fn specialization_due(
                 LightEntity::Spot { light_entity } => (
                     *light_entity,
                     RetainedViewEntity {
-                        auxiliary_entity: MainEntity::from(Entity::PLACEHOLDER),
+                        auxiliary_entity: None,
                         subview_index: 0,
                         ..retained
                     },
@@ -1607,7 +1607,7 @@ fn specialization_due(
             let Some(visible) = visible.subviews.get(&visible_view) else {
                 return true;
             };
-            let Some(meshes) = visible.get::<Mesh3d>() else {
+            let Some(meshes) = visible.1.get::<Mesh3d>() else {
                 return false;
             };
             let Some(pipelines) = specialized.get(&retained) else {

@@ -41,7 +41,10 @@ pub(super) fn prepare(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>
         "{before}        inscattering = vec3(0.0);\n        transmittance = vec3(1.0);\n    }}\n\n{end}{after}"
     );
     shaders
-        .insert(id, Shader::from_wgsl(source, "origins::scene_sky"))
+        .insert(
+            id,
+            Shader::from_wesl(source, "embedded://bevy_pbr/atmosphere/render_sky.wesl"),
+        )
         .expect("Native sky shader");
     *done = true;
 }

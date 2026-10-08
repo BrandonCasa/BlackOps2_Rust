@@ -60,12 +60,12 @@ impl AccessDefinition {
                     && (4..=128).contains(&v.volume.vertices.len())
                     && v.volume.vertices.iter().flatten().all(|x| x.is_finite())
                     && Collider::convex_hull(
-                        v.volume
+                        &v.volume
                             .vertices
                             .iter()
                             .copied()
                             .map(Vec3::from_array)
-                            .collect(),
+                            .collect::<Vec<_>>(),
                     )
                     .is_some()
             })
@@ -111,7 +111,11 @@ impl AccessDefinition {
                             && (4..=128).contains(&v.vertices.len())
                             && v.vertices.iter().flatten().all(|x| x.is_finite())
                             && Collider::convex_hull(
-                                v.vertices.iter().copied().map(Vec3::from_array).collect(),
+                                &v.vertices
+                                    .iter()
+                                    .copied()
+                                    .map(Vec3::from_array)
+                                    .collect::<Vec<_>>(),
                             )
                             .is_some()
                     })
@@ -266,12 +270,12 @@ fn assemble(
     if volumes.is_empty() {
         for v in &definition.access.volumes {
             if let Some(shape) = Collider::convex_hull(
-                v.volume
+                &v.volume
                     .vertices
                     .iter()
                     .copied()
                     .map(Vec3::from_array)
-                    .collect(),
+                    .collect::<Vec<_>>(),
             ) {
                 commands.spawn((
                     ZoneSensor {
@@ -299,9 +303,13 @@ fn assemble(
     access.refresh(&definition.content);
     for door in &definition.access.doors {
         for v in &door.blocks {
-            if let Some(shape) =
-                Collider::convex_hull(v.vertices.iter().copied().map(Vec3::from_array).collect())
-            {
+            if let Some(shape) = Collider::convex_hull(
+                &v.vertices
+                    .iter()
+                    .copied()
+                    .map(Vec3::from_array)
+                    .collect::<Vec<_>>(),
+            ) {
                 commands.spawn((
                     SessionEntity,
                     DoorBlocker(door.connection.clone()),

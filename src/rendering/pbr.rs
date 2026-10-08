@@ -79,8 +79,8 @@ pub(super) fn lighting_diagnostics(source: String, mode: &str) -> String {
     let source = source
         .replacen("    var direct_light: vec3<f32> = vec3<f32>(0.0);",
             "    var origins_sun = vec3(0.0);\n    var origins_shadow = 1.0;\n    var origins_local_shadow = 0.0;\n    var origins_local_weight = 0.0;\n    var direct_light: vec3<f32> = vec3<f32>(0.0);", 1)
-        .replacen("#ifdef DIRECTIONAL_LIGHT_SHADOW_MAP_DEBUG_CASCADES",
-            &format!("        if {mode}() == 9u {{ origins_sun += light_contrib * shadow; }}\n        if {mode}() == 10u {{ origins_shadow = min(origins_shadow, shadow); }}\n#ifdef DIRECTIONAL_LIGHT_SHADOW_MAP_DEBUG_CASCADES"), 1);
+        .replacen("@if(DIRECTIONAL_LIGHT_SHADOW_MAP_DEBUG_CASCADES)",
+            &format!("        if {mode}() == 9u {{ origins_sun += light_contrib * shadow; }}\n        if {mode}() == 10u {{ origins_shadow = min(origins_shadow, shadow); }}\n@if(DIRECTIONAL_LIGHT_SHADOW_MAP_DEBUG_CASCADES)"), 1);
     let local = format!(
         "\n        if {mode}() == 12u {{\n            let origins_weight = dot(max(light_contrib, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));\n            origins_local_shadow += origins_weight * shadow;\n            origins_local_weight += origins_weight;\n        }}"
     );
@@ -100,29 +100,30 @@ pub(super) fn diagnostic_shaders(shaders: &mut Assets<Shader>, engine: &str) {
         engine.contains(hook),
         "Pinned Bevy material diagnostic hook changed"
     );
-    let lighting = engine.replacen("#define_import_path bevy_pbr::pbr_functions",
-        "#define_import_path origins::diagnostic_lighting\n#import origins::diagnostic_bindings::material_diagnostic_mode", 1)
-        .replacen(hook, "    if material_diagnostic_mode() == 6u { return vec4(environment_light.specular * specular_occlusion * view_bindings::view.exposure, 1.0); }\n    indirect_light += environment_light.diffuse * diffuse_occlusion;", 1);
+    let lighting = format!(
+        "import origins::diagnostic_bindings::material_diagnostic_mode;\n{}",
+        engine.replace("package::", "bevy_pbr::")
+    ).replacen(hook, "    if material_diagnostic_mode() == 6u { return vec4(environment_light.specular * specular_occlusion * view_bindings::view.exposure, 1.0); }\n    indirect_light += environment_light.diffuse * diffuse_occlusion;", 1);
     let lighting = lighting_diagnostics(lighting, "material_diagnostic_mode");
     for (handle, source, path) in [
         (
             DIAGNOSTIC_SHADER,
-            include_str!("diagnostic.wgsl").to_owned(),
-            "origins::material_diagnostic",
+            include_str!("diagnostic.wesl").to_owned(),
+            "embedded://origins/material_diagnostic.wesl",
         ),
         (
             DIAGNOSTIC_BINDINGS,
-            include_str!("diagnostic_bindings.wgsl").to_owned(),
-            "origins::diagnostic_bindings",
+            include_str!("diagnostic_bindings.wesl").to_owned(),
+            "embedded://origins/diagnostic_bindings.wesl",
         ),
         (
             DIAGNOSTIC_LIGHTING,
             lighting,
-            "origins::diagnostic_lighting",
+            "embedded://origins/diagnostic_lighting.wesl",
         ),
     ] {
         shaders
-            .insert(handle.id(), Shader::from_wgsl(source, path))
+            .insert(handle.id(), Shader::from_wesl(source, path))
             .expect("Valid shader UUID");
     }
 }

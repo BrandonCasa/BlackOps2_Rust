@@ -4,7 +4,7 @@
 
 Implement every facet below. Qualify native 1920x1080 with DDGI enabled on the
 recorded RTX 4080: at least 80 average FPS in optimized debug and 100+ rendered
-FPS in release. Preserve accepted material detail, colored transport, shadows,
+FPS in release, both with diagnostic tooling disabled. Preserve accepted material detail, colored transport, shadows,
 reflections, gameplay and first-person framing. Mild temporal softness while
 moving is permitted; settled detail and HUD remain crisp. No unmeasured guarantee
 or completion claim. Ordinary-frame target is 10 ms; record every miss.
@@ -12,17 +12,36 @@ or completion claim. Ordinary-frame target is 10 ms; record every miss.
 One stable-Rust application/window, Bevy rendering/ECS ownership, Avian physics,
 application `forbid(unsafe_code)`, locked dependencies, original assets untouched,
 and existing total VRAM cap remain requirements. Dependency patches are allowed.
-Consult subagents for implementation decisions; every atomic commit requires a
-critic score greater than 8/10 for its exact diff. Rendering-logic unit tests are
-authorized; Clippy, unrelated suites and synthetic asset fixtures remain banned.
+Work sequentially in this chat under the latest project instructions. Subagents,
+delegated chats, unit suites, synthetic fixtures and Clippy are banned.
 Use one actual-game validation slot. Preserve executable identities immediately
 after builds. Keep the current handoff concise; this plan is the persistent scope.
+
+## RC migration first
+
+Use Bevy 0.20.0-rc.2 (tag commit 343a0233d6788a49f224a3684c8995e246663df3)
+as the engine base, including the matching vendored render/PBR/Solari crates.
+Pin Avian's upstream Bevy 0.20 compatibility revision and maintain one Bevy
+version throughout the graph. Port custom shaders to WESL and preserve native
+lighting, shadow corrections, material source semantics and DDGI. Adopt the RC's
+incremental Solari extraction, retained records, sparse uploads and cached
+bindings; remove superseded 0.19 whole-scene gates and material-table adapters.
+The compatibility milestone passes the optimized-development DDGI build and
+focused actual-game combat, ADS, Round 2 and restart. All 68 engine crates resolve
+to rc.2. Required vendor fixes preserve the callable native vertex implementation
+and unchanged live shadow inventories under incremental light extraction.
+The full survey reached thirteen views but exceeded its 180-second deadline;
+the focused run passed on the same frozen executable. The final executable also
+passes all 32 actual-game controls checks, including repeat clicks and remapping.
+Updating the engine does not qualify either FPS target.
+Proceed directly to reducing fresh ray, reflection and auxiliary-view work;
+avoid another preliminary benchmark campaign.
 
 ## Source findings and attribution
 
 The user-reported 6.2 FPS off / 4.3 FPS on means 161.3 / 232.6 ms if matched;
 removing all DDGI overhead would still miss 10 ms by 16x. This is not a new
-qualified benchmark. Source audit found per-pose ray mesh asset churn and static
+qualified benchmark. The pre-migration 0.19.1 source audit found per-pose ray mesh asset churn and static
 BLAS compaction, broad scene extraction/TLAS buffer reconstruction on pose changes,
 unconditional 256-square six-face reflection tracing and filtering, GI fields
 sampled before cascade ownership selection, exact camera-height sky invalidation,
@@ -30,6 +49,17 @@ auxiliary first-person shadow views, disabled GPU light clustering, and general
 material evaluation. Existing local face caching, compact skin sources and
 unchanged-pose skipping must be extended, not duplicated. Final post-processing
 is already shared. First-person ray participation is currently excluded.
+
+The RC focused validation admits 331 shadowed point lights: lanterns explicitly
+carry NoFrustumCulling to stabilize old cache ownership. The cache already checks
+texture-slot ownership, so retain that correctness while restoring conservative
+native light admission. All off-screen lights must remain available to ray GI and
+reflections. The RC capture's 106 instrumented frames average approximately
+25.2 ms exclusive shared/per-view shadow drawing versus 3.5 ms DDGI tracing;
+these figures guide work and do not qualify diagnostic-free performance. Remove
+the explicit CPU light-clustering override only after validating native GPU lists
+and capacity. Remove unused full-scene mesh/texture inventories left behind by
+the retired Solari gates; changed-only native preparation should do that work.
 
 - [ ] Repair per-frame/view/invocation/submission attribution and repeated-path
   aggregation; distinguish inclusive parents from exclusive leaf work.
@@ -167,7 +197,7 @@ is already shared. First-person ray participation is currently excluded.
 
 - [ ] Coherent milestones pass rendering-logic tests, locked metadata/build,
   formatting and affected asset closure; final full gates before integration.
-- [ ] Debug attribution and uninstrumented release measurements remain separate.
+- [ ] Instrumented attribution and diagnostic-disabled debug/release measurements remain separate.
   Target 8 ms GPU and <5 ms CPU preparation with overlapping execution, not sums.
 - [ ] Matched three-run debug average >=80 FPS in each defined scenario at native
   1080p/DDGI with approved quality. Release requires ordinary warmed frames <=10 ms,

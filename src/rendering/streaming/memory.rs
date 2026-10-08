@@ -1,11 +1,12 @@
 //! Selected-adapter capacity and reservations around native image replacement.
 use bevy::{
     asset::{AssetId, UntypedAssetId},
-    pbr::{MaterialBindGroupAllocators, PreparedMaterial, RenderMaterialBindings},
+    pbr::PreparedMaterial,
     prelude::*,
     render::{
         erased_render_asset::{ErasedRenderAssets, ExtractedAssets as ExtractedMaterials},
         extract_resource::ExtractResource,
+        material_bind_groups::{MaterialBindGroupAllocators, RenderMaterialBindings},
         render_asset::{ExtractedAssets, RenderAssets},
         render_resource::{Texture, TextureDescriptor},
         renderer::{RenderAdapterInfo, RenderQueue},
@@ -186,6 +187,7 @@ struct Replacement {
 /// multiple CPU replacements without losing reservations or acknowledging a
 /// future, not-yet-extracted descriptor.
 #[derive(Resource, Clone, Default, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct Replacements(HashMap<AssetId<Image>, Replacement>);
 impl Replacements {
     pub fn record(

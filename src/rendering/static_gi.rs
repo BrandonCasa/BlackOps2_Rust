@@ -3,13 +3,13 @@
 use super::opaque::OpaqueMaterial;
 use bevy::{
     asset::{AssetId, RenderAssetUsages, uuid_handle},
-    ecs::schedule::{ConditionWithAccess, ScheduleCleanupPolicy},
+    ecs::schedule::ScheduleCleanupPolicy,
     image::{ImageSampler, ImageSamplerDescriptor},
     light::{IrradianceVolume, LightProbe},
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
     render::{
-        Extract, ExtractSchedule, Render, RenderApp, RenderStartup,
+        Render, RenderApp, RenderStartup,
         diagnostic::RecordDiagnostics,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         extract_resource::{ExtractResource, ExtractResourcePlugin},
@@ -23,7 +23,6 @@ use bevy::{
 };
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    hash::{DefaultHasher, Hash, Hasher},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -43,6 +42,7 @@ const MAX_BATCH: u32 = 2048;
 #[derive(Component)]
 struct Traced;
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct LocalReflection;
 #[derive(Resource, Default)]
 struct TraceMeshes(HashMap<(AssetId<Mesh>, u32), Handle<Mesh>>);
@@ -54,9 +54,6 @@ struct SceneRefreshStats {
     geometry: AtomicU64,
     lighting: AtomicU64,
     materials: AtomicU64,
-    bindings: AtomicU64,
-    compaction: AtomicU64,
-    cleanup: AtomicU64,
 }
 
 impl StaticGiStats {
@@ -72,9 +69,11 @@ impl StaticGiStats {
             "geometry_changes": load(&self.2.geometry),
             "lighting_changes": load(&self.2.lighting),
             "material_changes": load(&self.2.materials),
-            "binding_rebuilds": load(&self.2.bindings),
-            "settled_compactions": load(&self.2.compaction),
-            "settled_texture_cleanup": load(&self.2.cleanup),
+            // The RC owns these updates; removed wrapper counters cannot measure them.
+            "binding_rebuilds": null,
+            "settled_compactions": null,
+            "settled_texture_cleanup": null,
+            "native_preparation": "retained_incremental",
         })
     }
 }
@@ -199,6 +198,7 @@ impl LampGrid {
     }
 }
 #[derive(Resource, Clone, Default, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct GiInputs {
     pub cascades: Vec<Cascade>,
     lamps: Vec<Lamp>,
@@ -306,62 +306,9 @@ impl Plugin for StaticGiSchedulePlugin {
         let render = app
             .get_sub_app_mut(RenderApp)
             .expect("Native render app before cleanup");
-        // Native Solari owns extraction, TLAS and descriptor creation. Static
-        // fields need fresh scene data only on their update, not every frame.
-        // Pin the native systems by their diagnostic names because their modules
-        // are private in Bevy 0.19.1; attach ordinary native run conditions.
-        render.edit_schedule(ExtractSchedule, |schedule| {
-            let keys: Vec<_> = schedule
-                .graph()
-                .systems
-                .iter()
-                .filter_map(|(key, system, _)| {
-                    let name = format!("{}", system.name());
-                    (name.contains("bevy_solari::scene::extract::extract_raytracing_scene")
-                        || name.contains(
-                            "extract_resource<bevy_solari::scene::extract::StandardMaterialAssets",
-                        ))
-                    .then_some((key, name.contains("extract_resource<")))
-                })
-                .collect();
-            assert_eq!(keys.len(), 2, "Pinned Solari extraction contract");
-            for (key, materials) in keys {
-                let conditions = schedule
-                    .graph_mut()
-                    .systems
-                    .get_conditions_mut(key)
-                    .expect("Native conditions");
-                if materials {
-                    conditions.push(ConditionWithAccess::new(Box::new(IntoSystem::into_system(
-                        extract_materials_due,
-                    ))));
-                } else {
-                    conditions.push(ConditionWithAccess::new(Box::new(IntoSystem::into_system(
-                        extract_due,
-                    ))));
-                }
-            }
-        });
-        render.edit_schedule(Render, |schedule| {
-            let key = schedule
-                .graph()
-                .systems
-                .iter()
-                .find_map(|(key, system, _)| {
-                    format!("{}", system.name())
-                        .contains("bevy_solari::scene::binder::prepare_raytracing_scene_bindings")
-                        .then_some(key)
-                })
-                .expect("Pinned Solari binding contract");
-            schedule
-                .graph_mut()
-                .systems
-                .get_conditions_mut(key)
-                .expect("Native conditions")
-                .push(ConditionWithAccess::new(Box::new(IntoSystem::into_system(
-                    prepare_due,
-                ))));
-        });
+        // The RC retains and updates the ray scene natively. Always admit its
+        // incremental systems so removals, compaction and residency changes
+        // are processed before our lighting consumers.
         // Attach native conditions before removal initializes the schedule.
         // Graph-side edits after initialization would be overwritten by the
         // executable's retained conditions on its next rebuild.
@@ -405,87 +352,6 @@ impl Plugin for StaticGiSchedulePlugin {
         );
     }
 }
-fn extract_due(inputs: Extract<Res<GiInputs>>, mut previous: Local<u32>) -> bool {
-    let due = inputs.scene_generation != *previous;
-    *previous = inputs.scene_generation;
-    due
-}
-fn extract_materials_due(inputs: Extract<Res<GiInputs>>, mut previous: Local<u32>) -> bool {
-    let due = inputs.material_generation != *previous;
-    *previous = inputs.material_generation;
-    due
-}
-#[derive(Default)]
-struct NativeSceneRefresh {
-    scene: (u32, usize, u64),
-    retained_views: u64,
-    compaction: u8,
-    cleanup: u8,
-}
-
-fn prepare_due(
-    inputs: Res<GiInputs>,
-    meshes: Res<RenderAssets<bevy::render::mesh::RenderMesh>>,
-    images: Res<RenderAssets<GpuImage>>,
-    stats: Res<StaticGiStats>,
-    mut previous: Local<NativeSceneRefresh>,
-) -> bool {
-    let views = |textures: &HashSet<AssetId<Image>>| {
-        textures.iter().fold(0u64, |sum, id| {
-            let mut hash = DefaultHasher::new();
-            id.hash(&mut hash);
-            images
-                .get(*id)
-                .map(|image| image.texture_view.id())
-                .hash(&mut hash);
-            sum.wrapping_add(hash.finish())
-        })
-    };
-    let image_views = views(&inputs.native_textures);
-    // Solari also binds unused raster templates. Rebind every changed view in
-    // this frame: the streaming allocator retires old GPU storage only after
-    // the queue completes, and even unused bound views must remain valid.
-    let retained_views = views(&inputs.retained_native_textures);
-    let retained_changed = retained_views != previous.retained_views;
-    if retained_changed {
-        previous.retained_views = retained_views;
-        previous.cleanup = 0;
-    }
-    let ready_meshes = inputs
-        .native_meshes
-        .iter()
-        .filter(|id| meshes.get(**id).is_some())
-        .count();
-    let current = (inputs.scene_generation, ready_meshes, image_views);
-    if current != previous.scene || retained_changed {
-        previous.scene = current;
-        previous.compaction = 16;
-        previous.cleanup = 0;
-        stats.2.bindings.fetch_add(1, Ordering::Relaxed);
-        return true;
-    }
-    // A final settled rebuild lets the native TLAS adopt asynchronously
-    // compacted BLAS. Idle scenes then retain their bindings indefinitely.
-    if previous.compaction > 0 {
-        previous.compaction -= 1;
-        if previous.compaction == 0 {
-            previous.cleanup = 0;
-            stats.2.compaction.fetch_add(1, Ordering::Relaxed);
-            stats.2.bindings.fetch_add(1, Ordering::Relaxed);
-            return true;
-        }
-    }
-    if previous.cleanup > 0 && !retained_changed {
-        previous.cleanup -= 1;
-        if previous.cleanup == 0 {
-            stats.2.cleanup.fetch_add(1, Ordering::Relaxed);
-            stats.2.bindings.fetch_add(1, Ordering::Relaxed);
-            return true;
-        }
-    }
-    false
-}
-
 fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, mut inputs: ResMut<GiInputs>) {
     let mut reflection = Image::new_fill(
         Extent3d {
@@ -567,19 +433,21 @@ fn shaders(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
         return;
     }
     let Some(id) = shaders.iter().find_map(|(id, shader)| {
-        (shader.import_path == ShaderImport::Custom("bevy_pbr::irradiance_volume".into()))
-            .then_some(id)
+        (shader.import_path
+            == ShaderImport::Custom("bevy_pbr::light_probe::irradiance_volume".into()))
+        .then_some(id)
     }) else {
         return;
     };
     let Some((environment_id, environment)) = shaders.iter().find_map(|(id, shader)| {
-        (shader.import_path == ShaderImport::Custom("bevy_pbr::environment_map".into()))
-            .then(|| (id, shader.source.as_str().to_owned()))
+        (shader.import_path
+            == ShaderImport::Custom("bevy_pbr::light_probe::environment_map".into()))
+        .then(|| (id, shader.source.as_str().to_owned()))
     }) else {
         return;
     };
     let Some((ambient_id, ambient)) = shaders.iter().find_map(|(id, shader)| {
-        (shader.import_path == ShaderImport::Custom("bevy_pbr::ambient".into()))
+        (shader.import_path == ShaderImport::Custom("bevy_pbr::render::pbr_ambient".into()))
             .then(|| (id, shader.source.as_str().to_owned()))
     }) else {
         return;
@@ -596,9 +464,9 @@ fn shaders(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
     shaders
         .insert(
             ambient_id,
-            Shader::from_wgsl(
+            Shader::from_wesl(
                 ambient.replacen(ambient_hook, "diffuse_ambient", 1),
-                "origins::diffuse_fill",
+                "embedded://bevy_pbr/render/pbr_ambient.wesl",
             ),
         )
         .expect("Native ambient shader");
@@ -615,24 +483,33 @@ fn shaders(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
     );
     let environment = environment.replacen(hook, &format!(
         "{hook}\n            if light_probes.reflection_probe_count > 0 {{\n                let scene = light_probes.reflection_probes[0];\n                if scene.cubemap_index >= 0 {{\n                    query_result.texture_index = scene.cubemap_index;\n                    query_result.intensity = scene.intensity;\n                    query_result.light_from_world = transpose_affine_matrix(scene.light_from_world_transposed);\n                    query_result.flags = scene.flags & ~LIGHT_PROBE_FLAG_PARALLAX_CORRECT;\n                }}\n            }}"), 1)
-        .replacen("#import bevy_pbr::light_probe::{light_probe_iterator_new, light_probe_iterator_next}",
-            "#import bevy_pbr::light_probe::{light_probe_iterator_new, light_probe_iterator_next, transpose_affine_matrix}", 1);
+        .replacen("import package::light_probe::{light_probe_iterator_new, light_probe_iterator_next};",
+            "import package::light_probe::{light_probe_iterator_new, light_probe_iterator_next, transpose_affine_matrix};", 1);
     shaders
         .insert(
             environment_id,
-            Shader::from_wgsl(environment, "origins::scene_environment"),
+            Shader::from_wesl(
+                environment,
+                "embedded://bevy_pbr/light_probe/environment_map.wesl",
+            ),
         )
         .expect("Native environment shader");
     shaders
         .insert(
             SAMPLING.id(),
-            Shader::from_wgsl(include_str!("gi_sampling.wgsl"), "origins::gi_sampling"),
+            Shader::from_wesl(
+                include_str!("gi_sampling.wesl"),
+                "embedded://origins/gi_sampling.wesl",
+            ),
         )
         .expect("GI shader UUID");
     shaders
         .insert(
             COMPUTE.id(),
-            Shader::from_wgsl(include_str!("static_gi.wgsl"), "origins::static_gi"),
+            Shader::from_wesl(
+                include_str!("static_gi.wesl"),
+                "embedded://origins/static_gi.wesl",
+            ),
         )
         .expect("GI shader UUID");
     if !cfg!(feature = "ddgi") {
@@ -642,24 +519,36 @@ fn shaders(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
     shaders
         .insert(
             APPLY.id(),
-            Shader::from_wgsl(include_str!("gi_apply.wgsl"), "origins::gi_apply"),
+            Shader::from_wesl(
+                include_str!("gi_apply.wesl"),
+                "embedded://origins/gi_apply.wesl",
+            ),
         )
         .expect("GI apply shader UUID");
     // All Bevy PBR materials use the same visibility-aware native volume lookup.
+    shaders
+        .insert(
+            id,
+            Shader::from_wesl(
+                native_volume_shader_source(),
+                "embedded://bevy_pbr/light_probe/irradiance_volume.wesl",
+            ),
+        )
+        .expect("Engine volume shader");
+    *done = true;
+}
+
+fn native_volume_shader_source() -> String {
     // Keep one sampling implementation, but address native binding-array
     // textures inside the lookup, avoiding opaque binding-array resources in
     // the function interface used by the Vulkan shader compiler.
-    let helper = include_str!("gi_sampling.wgsl").split_once('\n').expect("GI import declaration").1
+    let helper = include_str!("gi_sampling.wesl").split_once('\n').expect("GI import declaration").1
         .replace("field: texture_3d<f32>", "texture_index: i32")
         .replace("fn sample_gi_field(", "fn sample_volume(")
         .replace("gi_read(field,", "gi_read(texture_index,")
         .replace("gi_direction_sample(field,", "gi_direction_sample(texture_index,")
-        .replace("    let grid =", "#ifdef MULTIPLE_LIGHT_PROBES_IN_ARRAY\n    let field = irradiance_volumes[texture_index];\n#else\n    let field = irradiance_volume;\n#endif\n    let grid =");
-    let volume = include_str!("gi_volume.wgsl").replace("// SAMPLING_HELPER", &helper);
-    shaders
-        .insert(id, Shader::from_wgsl(volume, "origins::gi_volume"))
-        .expect("Engine volume shader");
-    *done = true;
+        .replace("    let grid =", "@if(MULTIPLE_LIGHT_PROBES_IN_ARRAY) let field = irradiance_volumes[texture_index];\n@if(!MULTIPLE_LIGHT_PROBES_IN_ARRAY) let field = irradiance_volume;\n    let grid =");
+    include_str!("gi_volume.wesl").replace("// SAMPLING_HELPER", &helper)
 }
 
 fn proxies(

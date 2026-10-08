@@ -39,28 +39,25 @@ pub(super) fn prepare_shaders(
         return;
     }
     let Some(source) = shaders.iter().find_map(|(_, shader)| {
-        (shader.import_path == ShaderImport::Custom("bevy_pbr::pbr_functions".into()))
+        (shader.import_path == ShaderImport::Custom("bevy_pbr::render::pbr_functions".into()))
             .then(|| shader.source.as_str().to_string())
     }) else {
         return;
     };
     super::pbr::diagnostic_shaders(&mut shaders, &source);
-    let lighting = source
-        .replacen(
-            "#define_import_path bevy_pbr::pbr_functions",
-            "#define_import_path origins::surface_lighting\n#import origins::surface_bindings::{reflection_diagnostic_enabled, surface_diagnostic_mode}",
-            1,
-        )
-        .replacen(
-            "    indirect_light += environment_light.diffuse * diffuse_occlusion;",
-            "    if reflection_diagnostic_enabled() { return vec4(environment_light.specular * specular_occlusion * view_bindings::view.exposure, 1.0); }\n    indirect_light += environment_light.diffuse * diffuse_occlusion;",
-            1,
-        );
+    let lighting = format!(
+        "import origins::surface_bindings::{{reflection_diagnostic_enabled, surface_diagnostic_mode}};\n{}",
+        source.replace("package::", "bevy_pbr::")
+    ).replacen(
+        "    indirect_light += environment_light.diffuse * diffuse_occlusion;",
+        "    if reflection_diagnostic_enabled() { return vec4(environment_light.specular * specular_occlusion * view_bindings::view.exposure, 1.0); }\n    indirect_light += environment_light.diffuse * diffuse_occlusion;",
+        1,
+    );
     let lighting = super::pbr::lighting_diagnostics(lighting, "surface_diagnostic_mode");
     shaders
         .insert(
             LIGHTING_SHADER.id(),
-            Shader::from_wgsl(lighting, "origins::surface_lighting"),
+            Shader::from_wesl(lighting, "embedded://origins/surface_lighting.wesl"),
         )
         .expect("Valid shader UUID");
     commands.insert_resource(MaterialShadersReady);
@@ -558,7 +555,7 @@ pub(super) fn initialize(
             definitions,
             prepared_meshes: HashSet::new(),
             materials: HashMap::new(),
-            animation_clock: buffers.add(ShaderBuffer::from(Vec4::ZERO)),
+            animation_clock: buffers.add(ShaderBuffer::from(vec![Vec4::ZERO])),
         })
     })();
     match result {
@@ -566,34 +563,37 @@ pub(super) fn initialize(
             shaders
                 .insert(
                     EFFECT_SHADER.id(),
-                    Shader::from_wgsl(
-                        include_str!("surface_effect.wgsl"),
-                        "origins::surface_effect",
+                    Shader::from_wesl(
+                        include_str!("surface_effect.wesl"),
+                        "embedded://origins/surface_effect.wesl",
                     ),
                 )
                 .expect("Effect shader");
             shaders
                 .insert(
                     BINDINGS_SHADER.id(),
-                    Shader::from_wgsl(
-                        include_str!("surface_bindings.wgsl"),
-                        "origins::surface_bindings",
+                    Shader::from_wesl(
+                        include_str!("surface_bindings.wesl"),
+                        "embedded://origins/surface_bindings.wesl",
                     ),
                 )
                 .expect("Shader UUID is valid");
             shaders
                 .insert(
                     VERTEX_SHADER.id(),
-                    Shader::from_wgsl(
-                        include_str!("surface_vertex.wgsl"),
-                        "src/rendering/surface_vertex.wgsl",
+                    Shader::from_wesl(
+                        include_str!("surface_vertex.wesl"),
+                        "embedded://origins/surface_vertex.wesl",
                     ),
                 )
                 .expect("Shader UUID is valid");
             shaders
                 .insert(
                     SHADER.id(),
-                    Shader::from_wgsl(include_str!("opaque.wgsl"), "src/rendering/opaque.wgsl"),
+                    Shader::from_wesl(
+                        include_str!("opaque.wesl"),
+                        "embedded://origins/opaque.wesl",
+                    ),
                 )
                 .expect("Shader UUID is valid");
             info!(
@@ -620,7 +620,8 @@ pub(super) fn animate_water(
     // Updating material assets would churn bindless slabs and invalidate cached
     // shadow queues. Bevy uploads one shared buffer in place; materials stay static.
     if let Some(mut clock) = buffers.get_mut(&library.animation_clock) {
-        clock.set_data(Vec4::new(time.elapsed_secs(), mode.0 as f32, 0., 0.));
+        clock.clear();
+        clock.extend_from_slice(&[Vec4::new(time.elapsed_secs(), mode.0 as f32, 0., 0.)]);
     }
 }
 
@@ -768,7 +769,7 @@ pub(super) fn convert(
                 base.cull_mode = None;
                 base.double_sided = true;
             }
-            let handle = materials.add(OpaqueMaterial(ExtendedMaterial { base, extension }));
+            let handle = materials.add(ExtendedMaterial { base, extension });
             library.materials.insert(key, handle.clone());
             if effect_admitted {
                 info!(

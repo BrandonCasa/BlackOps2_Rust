@@ -17,6 +17,7 @@ use bevy::{
 use std::time::{Duration, Instant};
 
 #[derive(Component, Clone, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct SkyEnvironment(pub Handle<Image>);
 
 fn environment(
@@ -40,6 +41,7 @@ fn environment(
 }
 
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 struct SkyInputs {
     revision: u64,
     interval: Duration,

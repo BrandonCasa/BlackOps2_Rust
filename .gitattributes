@@ -6,3 +6,4 @@ assets/source/bo2/**/*.json -text whitespace=blank-at-eol,blank-at-eof,space-bef
 # Preserve source JSON bytes (including line endings), without LFS filtering.
 assets/origins/game.json !filter !diff !merge -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 assets/origins/texture-streaming.json !filter !diff !merge -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+# Embedded, source-pinned Bevy assets must be hydrated in working checkouts.

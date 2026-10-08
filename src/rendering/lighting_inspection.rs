@@ -142,17 +142,17 @@ fn sample(
     let mut nonfinite = 0usize;
     for (index, texel) in event.data.chunks_exact(8).enumerate() {
         if tag.field {
-            let tile = super::static_gi::PROBE_TILE.as_usizevec2();
+            let tile = super::static_gi::PROBE_TILE;
             let x = index % tag.width;
             let y = (index / tag.width) % tag.height;
             let z = index / (tag.width * tag.height);
-            if x % tile.x + y % tile.y * tile.x >= 64 {
+            if x % (tile.x as usize) + y % (tile.y as usize) * (tile.x as usize) >= 64 {
                 continue;
             }
             let state = z * tag.width * tag.height
-                + (y / tile.y * tile.y + 192 / tile.x) * tag.width
-                + x / tile.x * tile.x
-                + 192 % tile.x;
+                + (y / (tile.y as usize) * (tile.y as usize) + 192 / (tile.x as usize)) * tag.width
+                + x / (tile.x as usize) * (tile.x as usize)
+                + 192 % (tile.x as usize);
             let alpha = state * 8 + 6;
             if half(u16::from_le_bytes([
                 event.data[alpha],

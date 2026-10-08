@@ -7,7 +7,9 @@ use bevy::{
         keyboard::KeyboardInput,
         mouse::{MouseButtonInput, MouseWheel},
     },
+    picking::{events::PointerPress, hover::Hovered, pointer::PointerButton},
     prelude::*,
+    ui_widgets::Button as UiButton,
 };
 
 const PAGE_SIZE: usize = 8;
@@ -19,6 +21,7 @@ pub(crate) struct ControlMenu {
     pub notice: String,
     pub revision: u64,
     pub handled_input: bool,
+    pointer_choice: Option<Choice>,
 }
 #[derive(Component)]
 struct MenuRoot;
@@ -125,7 +128,8 @@ pub(super) fn install(app: &mut App) {
     if options.verify.is_some() && !options.verify_controls {
         return;
     }
-    app.add_systems(OnEnter(GameState::Paused), open)
+    app.add_observer(pointer_activate)
+        .add_systems(OnEnter(GameState::Paused), open)
         .add_systems(OnExit(GameState::Paused), close)
         .add_systems(
             PreUpdate,
@@ -212,7 +216,8 @@ fn rebuild(
             for (index, choice) in choices(&menu).into_iter().enumerate() {
                 parent
                     .spawn((
-                        Button,
+                        UiButton,
+                        Hovered::default(),
                         MenuRow { index, choice },
                         Node {
                             min_height: px(27.),
@@ -314,8 +319,9 @@ fn navigate(
     mut settings: ResMut<ControlSettings>,
     mut next: ResMut<NextState<GameState>>,
     mut store: ResMut<SettingsStore>,
-    rows: Query<(&MenuRow, &Interaction), Changed<Interaction>>,
+    rows: Query<(&MenuRow, Ref<Hovered>)>,
 ) {
+    let pointer_choice = menu.pointer_choice.take();
     if menu.capturing.is_some() || menu.handled_input {
         return;
     }
@@ -363,21 +369,24 @@ fn navigate(
             activate(choice, -1., &mut menu, &mut settings, &mut next, &mut store);
         }
     }
-    for (row, interaction) in &rows {
-        if *interaction != Interaction::None {
+    for (row, hovered) in &rows {
+        if hovered.is_changed() && hovered.0 {
             menu.selected = row.index;
         }
-        if *interaction == Interaction::Pressed {
-            activate(
-                row.choice,
-                1.,
-                &mut menu,
-                &mut settings,
-                &mut next,
-                &mut store,
-            );
-            break;
-        }
+    }
+    if let Some(choice) = pointer_choice {
+        activate(choice, 1., &mut menu, &mut settings, &mut next, &mut store);
+    }
+}
+fn pointer_activate(event: On<PointerPress>, rows: Query<&MenuRow>, mut menu: ResMut<ControlMenu>) {
+    // Every native press is actionable, including repeated complete taps in
+    // one frame. A deferred Pressed marker must not suppress later clicks.
+    if event.button == PointerButton::Primary
+        && menu.capturing.is_none()
+        && let Ok(row) = rows.get(event.entity)
+    {
+        menu.selected = row.index;
+        menu.pointer_choice = Some(row.choice);
     }
 }
 fn capture(

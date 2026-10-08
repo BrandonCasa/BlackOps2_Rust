@@ -35,7 +35,11 @@ impl TriggerDefinition {
                     .iter()
                     .map(|v| {
                         Collider::convex_hull(
-                            v.vertices.iter().copied().map(Vec3::from_array).collect(),
+                            &v.vertices
+                                .iter()
+                                .copied()
+                                .map(Vec3::from_array)
+                                .collect::<Vec<_>>(),
                         )
                         .map(|shape| (Vec3::from_array(v.position), Quat::IDENTITY, shape))
                     })

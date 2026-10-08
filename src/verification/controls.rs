@@ -18,7 +18,7 @@ use bevy::{
     math::DVec2,
     prelude::*,
     render::view::screenshot::{Screenshot, save_to_disk},
-    window::CursorGrabMode,
+    window::{CursorGrabMode, CursorMoved, WindowEvent},
 };
 use std::{path::PathBuf, time::Instant};
 
@@ -139,7 +139,7 @@ fn tap(world: &mut World, window: Entity, code: KeyCode) {
     key(world, window, code, false);
 }
 fn mouse(world: &mut World, window: Entity, button: MouseButton, down: bool) {
-    world.write_message(MouseButtonInput {
+    let event = MouseButtonInput {
         button,
         state: if down {
             ButtonState::Pressed
@@ -147,7 +147,9 @@ fn mouse(world: &mut World, window: Entity, button: MouseButton, down: bool) {
             ButtonState::Released
         },
         window,
-    });
+    };
+    world.write_message(WindowEvent::MouseButtonInput(event));
+    world.write_message(event);
 }
 fn click(world: &mut World, window: Entity, button: MouseButton) {
     mouse(world, window, button, true);
@@ -160,10 +162,16 @@ fn point(world: &mut World, window: Entity, row: usize) -> bool {
         .find(|(r, _, node)| r.index == row && node.size().length_squared() > 0.)
         .map(|(_, transform, _)| transform.to_scale_angle_translation().2);
     if let Some(center) = center {
-        world
-            .get_mut::<Window>(window)
-            .unwrap()
-            .set_physical_cursor_position(Some(center.as_dvec2()));
+        let mut target = world.get_mut::<Window>(window).unwrap();
+        target.set_physical_cursor_position(Some(center.as_dvec2()));
+        let position = center / target.scale_factor();
+        let event = CursorMoved {
+            window,
+            position,
+            delta: None,
+        };
+        world.write_message(WindowEvent::CursorMoved(event.clone()));
+        world.write_message(event);
         true
     } else {
         false
@@ -236,8 +244,18 @@ fn drive(world: &mut World) {
         31 => 3.,
         _ => 0.3,
     };
+    // First observes the preceding PreUpdate input. StateTransition runs after
+    // PreUpdate, and cursor capture runs in Update, so resume checkpoints need
+    // one subsequent Playing input collection before judging posture/actions.
+    let settled_frames = if matches!(run.phase, 201 | 23 | 25) {
+        3
+    } else {
+        2
+    };
     if run.phase > 0
-        && (run.changed.elapsed().as_secs_f32() < wait || run.frame - run.changed_frame < 2)
+        && (run.changed.elapsed().as_secs_f32() < wait
+            || run.frame - run.changed_frame < settled_frames
+            || (run.phase == 28 && run.tap_ticks == 0))
     {
         world.insert_resource(run);
         return;
@@ -576,7 +594,9 @@ fn drive(world: &mut World) {
             mouse(world, window, MouseButton::Left, false);
             world
                 .resource_mut::<Time<Fixed>>()
-                .set_timestep_seconds(0.5);
+                // Leave several bounded virtual frame deltas before the next
+                // tick even when real rendered frames are slow during loading.
+                .set_timestep_seconds(2.0);
             advance(&mut run);
         }
         26 => {
