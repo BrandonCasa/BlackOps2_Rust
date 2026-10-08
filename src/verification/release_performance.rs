@@ -337,6 +337,8 @@ fn record(
         "physical_resolution":windows.single().ok().map(|w|[w.resolution.physical_width(),w.resolution.physical_height()]),
         "adapter":adapter.as_ref().map(|a|format!("{:?}",a.0)),
         "vsync":false,"profile_tracy":cfg!(feature="profile-tracy"),"profile_chrome":cfg!(feature="profile-chrome"),
+        "build_profile":if cfg!(debug_assertions) {"debug"} else {"release"},
+        "logging_enabled":cfg!(debug_assertions),
         "render_diagnostics":false,"pipeline_cache_per_frame_inspection":false,
         "antialiasing":profile.antialiasing,"preprocessing":preprocessing.report(),
         "shared_lighting":{"ddgi_batches":gi.updates(),"reflection_frames":gi.reflections()},

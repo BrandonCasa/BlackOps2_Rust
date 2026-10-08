@@ -82,6 +82,9 @@ impl<S: Subscriber> Layer<S> for MaterialErrors {
 }
 
 pub(super) fn install(app: &mut App) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
     app.init_resource::<PipelineFailures>()
         .add_systems(Update, fail);
     let failures = app.world().resource::<PipelineFailures>().clone();

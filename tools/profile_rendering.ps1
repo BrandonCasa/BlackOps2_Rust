@@ -19,7 +19,8 @@ if (([int]$AllViews.IsPresent + [int]$Moving.IsPresent + [int]$Combat.IsPresent 
     throw 'Choose one profiling workload'
 }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$gameExecutable = if ($ExePath) { [IO.Path]::GetFullPath($ExePath) } else { Join-Path $repository 'target/release/origins.exe' }
+$buildProfile = if ($NoTracy) { 'release' } else { 'debug' }
+$gameExecutable = if ($ExePath) { [IO.Path]::GetFullPath($ExePath) } else { Join-Path $repository "target/$buildProfile/origins.exe" }
 if ($ExePath -and -not $SkipBuild) { throw 'An explicit preserved executable requires -SkipBuild' }
 if ($NoTracy -and ($Memory -or $AllocationExporter)) { throw 'An ordinary executable comparison cannot request Tracy allocation instrumentation' }
 if ($AllocationExporter -and -not (Test-Path -LiteralPath $AllocationExporter)) { throw 'Allocation exporter does not exist' }
@@ -44,9 +45,9 @@ try {
             & cargo build --workspace --release --locked
         } else {
             $profilingFeature = if ($Memory) { 'profile-tracy-memory' } else { 'profile-tracy' }
-            & cargo build --workspace --release --locked --features $profilingFeature
+            & cargo build --workspace --locked --features $profilingFeature
         }
-        if ($LASTEXITCODE -ne 0) { throw 'Profiling release build failed' }
+        if ($LASTEXITCODE -ne 0) { throw "Build failed for $buildProfile measurements" }
     }
     if (Get-Process -Name origins -ErrorAction SilentlyContinue) {
         throw 'The shared actual-game validation slot is occupied; wait for that run to finish'
@@ -131,6 +132,9 @@ try {
     $receipt = Get-Content -LiteralPath $completionPath -Raw | ConvertFrom-Json
     if ($receipt.passed -ne $true) { throw 'Actual game completion receipt did not pass' }
     $performance = Get-Content -LiteralPath "$outputPath/performance.json" -Raw | ConvertFrom-Json
+    if ($performance.build_profile -ne $buildProfile) {
+        throw "Expected $buildProfile executable; measurement receipt reports a different profile"
+    }
     $lighting = if ($performance.shared_lighting) { $performance.shared_lighting } else { $receipt.shared_lighting }
     if ($lighting -and ($lighting.ddgi_batches -le 0 -or $lighting.reflection_frames -le 0)) {
         throw 'DDGI/reflections did not dispatch during this workload; performance is not comparable'

@@ -133,6 +133,8 @@ pub(super) fn record(
             "lantern_shadow_map_size": profile.lantern_shadow_map_size,
             "continuous_camera_motion": verification.moving_view,
             "profile_tracy": cfg!(feature="profile-tracy"), "profile_chrome": cfg!(feature="profile-chrome"),
+            "build_profile": if cfg!(debug_assertions) { "debug" } else { "release" },
+            "logging_enabled": cfg!(debug_assertions),
             "workload": if options.verify_generators { "generator lifecycle including restart" } else if options.benchmark_combat { "combat" } else { "render survey" },
             "views": views, "render_passes": passes, "frame_ms": samples.frames,
             "shadowed_point_lights_min_max": samples.shadow_lights,

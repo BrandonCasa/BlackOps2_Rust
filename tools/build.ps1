@@ -1,4 +1,5 @@
 param(
+    [ValidateSet('Debug', 'Release')][string]$Profile = 'Debug',
     [ValidateSet('Build', 'Check')][string]$CompilerGate = 'Build',
     [uint32]$CompilerSeconds = 0
 )
@@ -54,12 +55,20 @@ try {
     & $cargoExecutable metadata --locked --no-deps --format-version 1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Cargo metadata failed' }
     if ($CompilerGate -eq 'Check') {
-        Invoke-Compiler -compilerArguments @('check', '--lib', '--offline', '--locked', '--jobs', '1')
+        $checkArguments = @('check', '--lib', '--offline', '--locked', '--jobs', '1')
+        if ($Profile -eq 'Release') { $checkArguments += '--release' }
+        Invoke-Compiler -compilerArguments $checkArguments
         return
     }
-    Invoke-Compiler -compilerArguments @('build', '--workspace', '--release', '--locked')
+    $buildArguments = @('build', '--workspace', '--locked')
+    if ($Profile -eq 'Release') { $buildArguments += '--release' }
+    Invoke-Compiler -compilerArguments $buildArguments
     & $cargoExecutable fmt --all -- --check
     if ($LASTEXITCODE -ne 0) { throw 'Formatting check failed' }
+    if ($Profile -eq 'Debug') {
+        Write-Output (Join-Path $repository 'target/debug/origins.exe')
+        return
+    }
     $release = Join-Path $repository 'release'
     'from pathlib import Path; from tools.import_origins import import_pack; result = import_pack(Path("assets/origins"), Path("release/assets/origins"), None); print({k: v for k, v in result.items() if k != "sha256"})' | & uv run --python '>=3.11' --with 'numpy>=2,<3' --with 'pillow>=12,<13' --with 'soundfile>=0.13,<0.14' python -
     if ($LASTEXITCODE -ne 0) { throw 'Runtime asset validation/copy failed; inspect the error above (LFS pointers require git lfs pull)' }

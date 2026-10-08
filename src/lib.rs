@@ -1,5 +1,17 @@
 #![forbid(unsafe_code)]
 
+#[cfg(all(
+    not(debug_assertions),
+    any(
+        feature = "profile-tracy",
+        feature = "profile-tracy-memory",
+        feature = "profile-chrome"
+    )
+))]
+compile_error!(
+    "Release builds forbid profiling; use the development profile for Tracy or Chrome captures."
+);
+
 pub mod access;
 pub mod assets;
 pub mod audio;
@@ -54,9 +66,11 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     let ads_capture = options.verify_ads;
     let verification_enabled = options.verify.is_some();
     app.insert_resource(options);
+    let default_plugins = DefaultPlugins.build();
+    #[cfg(not(debug_assertions))]
+    let default_plugins = default_plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(
-        DefaultPlugins
-            .build()
+        default_plugins
             .disable::<bevy::anti_alias::AntiAliasPlugin>()
             .set(bevy::log::LogPlugin {
                 custom_layer: verification::error_layer,
@@ -141,7 +155,8 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    if benchmark
+    if cfg!(debug_assertions)
+        && benchmark
         && !release_benchmark
         && !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>()
     {

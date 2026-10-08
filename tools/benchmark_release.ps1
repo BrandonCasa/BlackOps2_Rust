@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Executable,
     [Parameter(Mandatory = $true)][string]$Output,
+    [ValidateSet('debug', 'release')][string]$Profile = 'release',
     [ValidateSet('moving', 'combat')][string[]]$Workloads = @('moving', 'combat'),
     [ValidateRange(1, 9)][int]$Repeats = 3,
     [string]$Baseline
@@ -34,6 +35,7 @@ $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $repor
     started_utc = [DateTime]::UtcNow.ToString('o')
     workloads = $Workloads
     repeats = $Repeats
+    build_profile = $Profile
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $report 'identity.json')
 
 $runs = [Collections.Generic.List[object]]::new()
@@ -88,12 +90,14 @@ foreach ($workload in $Workloads) {
         }
         $result = Get-Content -LiteralPath (Join-Path $runFolder 'performance.json') -Raw | ConvertFrom-Json
         if (-not $result.passed -or $result.profile_tracy -or $result.profile_chrome -or
+            $result.build_profile -ne $Profile -or $result.logging_enabled -ne ($Profile -eq 'debug') -or
             $null -eq $result.render_diagnostics -or $result.render_diagnostics -or
             $null -eq $result.pipeline_cache_per_frame_inspection -or $result.pipeline_cache_per_frame_inspection -or
             $result.sample_wall_seconds -lt 30) {
-            throw "Unqualified release benchmark: $runFolder"
+            throw "Unqualified $Profile benchmark: $runFolder"
         }
         $runs.Add([ordered]@{ workload = $workload; run = $index; summary = $result.summary;
+            build_profile = $result.build_profile; logging_enabled = $result.logging_enabled;
             physical_resolution = $result.physical_resolution; adapter = $result.adapter;
             antialiasing = $result.antialiasing; preprocessing = $result.preprocessing;
             seed = $result.seed; controlled_setup = $result.controlled_setup;
@@ -123,7 +127,7 @@ if ($Baseline) {
         $afterRuns = @($runs | Where-Object { $_.workload -eq $group.workload })
         if ($beforeRuns.Count -lt 3 -or $afterRuns.Count -lt 3) { throw 'Acceptance requires at least three runs per workload' }
         foreach ($row in $afterRuns) {
-            foreach ($field in @('physical_resolution', 'adapter', 'workload_revision', 'antialiasing', 'preprocessing', 'seed', 'controlled_setup')) {
+            foreach ($field in @('build_profile', 'logging_enabled', 'physical_resolution', 'adapter', 'workload_revision', 'antialiasing', 'preprocessing', 'seed', 'controlled_setup')) {
                 $expected = $beforeRuns[0].$field | ConvertTo-Json -Depth 8 -Compress
                 $actual = $row[$field] | ConvertTo-Json -Depth 8 -Compress
                 if ($actual -ne $expected) { throw "Incomparable $($group.workload) workload: $field changed" }

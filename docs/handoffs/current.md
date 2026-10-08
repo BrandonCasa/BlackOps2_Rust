@@ -1,19 +1,19 @@
 # Current handoff
 
-TASK: Resume the TODO list solo, one TODO at a time with detailed local commits. Current task: Generate missing combat clips for recovered rigs. The user stopped agents and the static-review fix pass.
+TASK: Configure debug/release profiles from the Bevy setup guide, commit the decisions, then compare real-game debug/release FPS.
 
 STATUS: PARTIAL
 
-FINDINGS: All three review agents are interrupted. Their unmerged finding 14, 16 and 33 changes remain in their own worktrees; none were integrated. The confirmed finding 14 Cargo process tree was stopped, and no agent game run remains active. Review closures remain 19/50 (01-13, 15, 27-29, 31-32); the other 31 are deferred. Locomotion is complete at 23d9214d4. TODO counts remain 479 complete/734 open of 1,213.
+FINDINGS: Development uses opt-level 1, dependency opt-level 3, thin LTO, one codegen unit, debug information/assertions and diagnostic logging. Release uses opt-level 3, full LTO, one codegen unit, no incremental compilation/debug information/assertions, all log/tracing calls disabled, no LogPlugin/renderer diagnostic plugin/pipeline inspection, and compile-time rejection of Tracy/Chrome features. Functional Bevy system names remain required for native renderer schedule wiring. Stable Rust and static linking are retained; bundled rust-lld is selected for Windows MSVC.
 
-EVIDENCE: collaboration agent inventory reports all three interrupted. Process command line identified the stopped build as static-review-14-20261008/build-final.log; subsequent Cargo/rustc/origins inventory is empty. Main source/runtime pack is clean. Finding 15 evidence remains E:/Coding/Captures/static-review-15-20261008/qualification.json, with passing 19 barrier, 24 door and 53 navigation cases. Existing native combat states are in E:/Coding/Captures/origins-locomotion-20261008-011230/raw/animstatedefs/zm_tomb_basic.asd.
+EVIDENCE: https://bevy.org/learn/quick-start/getting-started/setup/ reviewed in full. Cargo feature tree confirms log and tracing release_max_level_off. Local pinned Bevy PluginGroupBuilder source confirms setting a disabled LogPlugin does not re-enable it.
 
-CHANGES: Current state and handoff now follow the user's new order. The static review retains unresolved findings rather than claiming completion. No new helper scripts, agent merges or gameplay changes in this documentation checkpoint.
+CHANGES: Cargo profiles/dependencies/lockfile, Windows linker configuration, build-profile selection, development-only profiling, benchmark profile/logging receipts and comparison guards, README and project rules. Debug is the build-script default; Release packages the validated runtime pack. Existing benchmark driver now accepts explicit debug measurements with matching qualification checks.
 
-VALIDATION: Scoped documentation diff checks only. Previous finding 15 locked release/metadata/format and real-window evidence remains historical. Current main AGENTS.md uses optimized development builds with full LTO, one codegen unit and debug assertions for routine validation. No compiler, asset or actual-window rerun for this checkpoint; no tests, fixtures, Clippy or push.
+VALIDATION: Locked metadata, full formatting, PowerShell parsing and scoped diff checks pass. Two owned development builds were interrupted after user changes superseded their configuration; neither is a compiler pass. Compiler builds, frozen pack validation and actual-game FPS measurements are pending after the requested initial commit. No tests, fixtures, Clippy or push.
 
-UNRESOLVED: Thirty-one static-review findings and 734 TODOs remain. Read-only finding 30 census identified 89 current world collision nodes with retained solid:false; no preparation/runtime correction was made before the user stopped the review pass. Earlier finding 03 normal-window deadline failure and saved actor projection concern remain recorded in Git and external evidence. Native random selection/locomotion fitting, crawler/stumpy consumers, full gameplay and sustained visual/performance acceptance remain incomplete.
+UNRESOLVED: No measured debug/release FPS or release-window qualification yet. Prior performance baselines lack the new logging/profile receipts and cannot qualify the changed build policy. Concurrent uncommitted combat-clip work is excluded from this commit and the planned source snapshot. Previous gameplay/static-review/TODO limitations remain recorded in Git.
 
-RECOMMENDED NEXT WORK: Use native Origins combat state definitions and existing recovered xanim/rig conversion to generate missing combat clips, preserve previously qualified rig/locomotion assets, validate the complete asset closure and actual game, then commit that TODO. Continue the list sequentially without agents.
+RECOMMENDED NEXT WORK: Snapshot committed source and runtime assets, build both profiles from the same source, run three matched moving and combat samples per profile sequentially, preserve executable/asset hashes, compare FPS/p95, and record failures honestly. Resume the existing combat-clip TODO afterward.
 
-SCOPE NOT IMPLEMENTED: Unmerged review fixes, new combat clips/selection, finding 30 correction, runtime import, blanket visual/performance acceptance, benchmark or package refresh.
+SCOPE NOT IMPLEMENTED: Gameplay or asset changes, nightly/Cranelift/dynamic-linking adoption, performance gains, release package acceptance, or integration of concurrent combat edits.

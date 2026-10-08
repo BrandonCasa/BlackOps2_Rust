@@ -3997,8 +3997,10 @@ dependencies = [
  "avian3d",
  "bevy",
  "bevy_input",
+ "log",
  "serde",
  "serde_json",
+ "tracing",
  "tracy-client",
 ]
 
