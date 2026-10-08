@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 9/50 resolved on local main: 01, 04, 05, 06, 07, 08, 09, 10, 11. Remaining findings are queued.
+Fix progress: 10/50 resolved on local main: 01, 04, 05, 06, 07, 08, 09, 10, 11, 13. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -126,6 +126,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/prepare_bo2_library.py:38–40
     Trigger, consequence, evidence and correction: prepare writes glTF/DDS before replacing library.json near line209, leaving qualified:true from the prior run if interrupted. Revoke qualification before mutation, as qualify_existing/retune_unbound already do.
     Confidence: High.
+    Fix status: RESOLVED - prepare revokes any existing qualification before catalog/cooker/asset writes. One production revoke_qualification helper atomically replaces the manifest and is shared by recook, qualify-existing and retune. Actual complete native manifest (6,196 models/32,519 texture records) preserves every field except qualified:false, detaches a hardlinked candidate, keeps originals/reference bytes unchanged and repeats identically. Evidence: E:/Coding/Captures/static-review-13-20261008. Full GPU recook/interruption injection was not run; no runtime assets or new repository scripts.
 
 14. [P1] Step movement combines distant support with a different horizontal endpoint
     Wave: 1

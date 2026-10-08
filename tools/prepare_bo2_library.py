@@ -7,9 +7,11 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import struct
+import tempfile
 import tomllib
 
 import numpy as np
@@ -38,6 +40,24 @@ def material_converter_hash():
     return hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()
 
 
+def revoke_qualification(pack):
+    """Withdraw approval before changing any previously qualified library data."""
+    path = pack / "library.json"
+    manifest = json.loads(path.read_text())
+    manifest["qualified"] = False
+    temporary = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n",
+        dir=pack, prefix=".library-", suffix=".json", delete=False)
+    temporary_path = Path(temporary.name)
+    try:
+        with temporary:
+            json.dump(manifest, temporary, indent=2)
+            temporary.write("\n")
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return manifest
+
+
 def prepare(config, reuse_geometry=False, defer_qualification=False):
     inspection = Path(config["assets"]["inspection_output"]).resolve()
     source = inspection / "bo2-library-extraction"
@@ -46,6 +66,8 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
         raise ValueError("complete fastfile extraction is required before library conversion")
     pack, work = inspection / "bo2-library-prepared", inspection / "bo2-library-cooking"
     pack.mkdir(exist_ok=True)
+    if (pack / "library.json").is_file():
+        revoke_qualification(pack)
     zones = sorted(source.glob("zone/*/*/asset-inventory.json"))
     definitions, inventories, images = {}, {}, {}
     all_names = set()
@@ -226,9 +248,7 @@ def qualify_existing(config):
     """Finish quality checks on an assembled library without recooking geometry."""
     inspection = Path(config["assets"]["inspection_output"]).resolve()
     pack, work = inspection / "bo2-library-prepared", inspection / "bo2-library-cooking"
-    manifest = json.loads((pack / "library.json").read_text())
-    manifest["qualified"] = False
-    (pack / "library.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest = revoke_qualification(pack)
     modified = copy.deepcopy(config)
     modified["game"]["asset_pack"], modified["materials"]["work"] = str(pack), str(work)
     qualify(modified, [t["variant"] for t in manifest["textures"] if not t["variant"].get("lossless")])
@@ -244,11 +264,9 @@ def retune_unbound(config):
     """
     inspection = Path(config["assets"]["inspection_output"])
     source, pack, work = inspection / "bo2-library-extraction", inspection / "bo2-library-prepared", inspection / "bo2-library-cooking"
-    manifest = json.loads((pack / "library.json").read_text())
     # Retuning changes the prepared closure before its all-mip qualification.
     # An interrupted retry must never leave an earlier approval usable.
-    manifest["qualified"] = False
-    (pack / "library.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest = revoke_qualification(pack)
     catalog = json.loads((WORKSPACE / "config/bo2-materials.json").read_text())
     overrides = json.loads((WORKSPACE / "config/origins-materials.json").read_text())
     for identity, entry in overrides["materials"].items():
