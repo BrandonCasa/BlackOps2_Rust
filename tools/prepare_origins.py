@@ -262,7 +262,7 @@ def entities(path):
             for block in re.findall(r"\{([^{}]*)\}", text)]
 
 
-def gameplay_definition(records):
+def gameplay_definition(records, previous=None):
     starts = [e for e in records if e.get("targetname") == "initial_spawn_points"]
     if not starts:
         raise ValueError("map entities have no initial spawn points")
@@ -284,11 +284,19 @@ def gameplay_definition(records):
             points.append(point.tolist())
     if not points:
         raise ValueError("map entities have no starting-zone zombie entry points")
-    return {"version": 2, "content": initial_catalog(), "scene": "map.gltf#Scene0", "collision_scene": "map.gltf#Scene1",
+    definition = {"version": 2, "content": initial_catalog(), "scene": "map.gltf#Scene0", "collision_scene": "map.gltf#Scene1",
             "spawn": spawn, "yaw": math.radians(90 - angles[1]), "spawn_points": points,
             "waypoints": local, "survey_views": [p for p in nodes[::max(1, len(nodes)//8)]][:8],
             "source_surfaces": 0, "render_meshes": 0, "collision_meshes": 0,
             "static_model_instances": 0}
+    if previous and previous.get("version") == 2:
+        # Geometry rebuilds must retain independently assembled gameplay.
+        # Source positions and the newly generated geometry counts stay fresh.
+        for key in ("content", "survey_views", "tuning", "environment", "access",
+                    "rounds", "player_health", "solo_revive", "audio"):
+            if key in previous:
+                definition[key] = previous[key]
+    return definition
 
 
 class Gltf:
@@ -550,12 +558,9 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
     tangent = tangents(corners["tangent"], corners["p"][:, 3])
     color = corners["color"].astype(np.float32) / 255
     layer_uv, layer3_uv, rotation1, rotation2 = secondary_attributes(root, manifest, uv, surfaces)
-    definition = gameplay_definition(entities(external(entity_path)))
     previous_path = output / "game.json"
-    if previous_path.is_file():
-        previous = json.loads(previous_path.read_text(encoding="utf-8-sig"))
-        if previous.get("version") == 2:
-            definition["content"] = previous["content"]
+    previous = json.loads(previous_path.read_text(encoding="utf-8-sig")) if previous_path.is_file() else None
+    definition = gameplay_definition(entities(external(entity_path)), previous)
     output.mkdir(parents=True, exist_ok=True)
     texture_dir = output / "textures"
     texture_dir.mkdir(exist_ok=True)
@@ -779,10 +784,8 @@ def main():
     if args.content_only:
         output = external(Path(config["game"]["asset_pack"]))
         previous = json.loads((output / "game.json").read_text(encoding="utf-8-sig"))
-        definition = gameplay_definition(entities(external(entities_path)))
-        if previous.get("version") == 2:
-            definition["content"] = previous["content"]
-        for key in ("source_surfaces", "render_meshes", "collision_meshes", "static_model_instances", "survey_views", "tuning", "environment", "access", "rounds", "player_health", "solo_revive", "audio"):
+        definition = gameplay_definition(entities(external(entities_path)), previous)
+        for key in ("source_surfaces", "render_meshes", "collision_meshes", "static_model_instances"):
             if key in previous:
                 definition[key] = previous[key]
         (output / "game.json").write_text(json.dumps(definition, indent=2) + "\n", encoding="utf-8")

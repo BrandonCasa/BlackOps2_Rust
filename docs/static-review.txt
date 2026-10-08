@@ -3,7 +3,7 @@ Snapshot: ec0f3c087f08c98c19b5dacb8965fe59fdc9fbcc
 Date: 2026-10-08
 Status: COMPLETE — requested static review stopped at 50 supported findings.
 Findings: 8 P1 / 41 P2 / 1 P3. No P0 findings asserted.
-Fix progress: 14/50 resolved on local main: 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 28, 29. Remaining findings are queued.
+Fix progress: 15/50 resolved on local main: 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 27, 28, 29. Remaining findings are queued.
 
 SCOPE AND METHOD
 147 committed Python/Rust files inventoried (49 Python, 98 Rust).
@@ -213,6 +213,7 @@ the explanation. Entries retain wave/report aggregation order.
     Location: tools/prepare_origins.py:553–558,654–656
     Trigger, consequence, evidence and correction: Ordinary rebuild preserves only previous content before replacing game.json, discarding rounds/player_health/solo_revive/tuning/environment/access/audio. The content-only branch preserves these fields (780–782); importer requires the profiles (599–603). Rebuilding geometry makes the assembled pack unimportable.
     Confidence: High.
+    Fix status: RESOLVED - existing gameplay_definition retains nine independently assembled version-two gameplay fields for both full reconstruction and content-only regeneration; native source positions and fresh geometry counts remain regenerated. Actual native entities reproduce incomplete round profile under old reconstruction. Corrected reconstruction preserves all game semantics and its independent 4,137-file/275-scene candidate passes the complete exact importer closure. Evidence: E:/Coding/Captures/static-review-27-20261008. Full geometry/image regeneration and runtime import were not run; canonical source unchanged, no new repository scripts.
 
 28. [P2] Library retuning cannot retry after importing its own BMP
     Wave: 2
