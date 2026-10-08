@@ -29,6 +29,15 @@ except ImportError:
     from prepare_origins import tile_blend_color
 
 
+def material_converter_hash():
+    # Cached surfaces depend on native binding/physical-response interpretation
+    # and presentation rules as well as pixel cooking. Name each dependency so
+    # any change invalidates the previous material recipe.
+    names = ("prepare_materials.py", "material_textures.py", "material_semantics.py", "prepare_origins.py")
+    sources = {name: digest(Path(__file__).with_name(name)) for name in names}
+    return hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()
+
+
 def prepare(config, reuse_geometry=False, defer_qualification=False):
     inspection = Path(config["assets"]["inspection_output"]).resolve()
     source = inspection / "bo2-library-extraction"
@@ -63,8 +72,7 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
     common_images = {name: path for key, mapping in images.items() if key.endswith(("/common_zm", "/patch_zm")) for name, path in mapping.items()}
     cache_path = work / "material-cache.json"
     material_cache = json.loads(cache_path.read_text()) if cache_path.is_file() else {}
-    converter_hash = hashlib.sha256(Path(__file__).with_name("prepare_materials.py").read_bytes()
-        + Path(__file__).with_name("material_textures.py").read_bytes()).hexdigest()
+    converter_hash = material_converter_hash()
     image_hashes = {}
     model_records, missing = [], []
     for key, inventory in inventories.items():
