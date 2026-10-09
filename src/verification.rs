@@ -118,6 +118,34 @@ pub(crate) struct Verification {
     negotiation_observation: Option<serde_json::Value>,
 }
 pub struct VerificationPlugin;
+fn power_fixture(world: &mut World, placement: &str) {
+    let game = world.resource::<GameDefinition>();
+    let generator = game.content.interactions.iter().find_map(|interaction| {
+        if interaction.placement.0 != placement {
+            return None;
+        }
+        let crate::origins::InteractionAction::Perk { perk, .. } = &interaction.action else {
+            return None;
+        };
+        game.content
+            .perks
+            .iter()
+            .find(|p| p.id == *perk)?
+            .generator
+            .clone()
+    });
+    let Some(generator) = generator else { return };
+    let mut generators = world.resource_mut::<crate::generators::Generators>();
+    let site = generators
+        .sites
+        .get_mut(&generator)
+        .expect("native generator fixture");
+    if site.state == crate::generators::GeneratorState::Active {
+        return;
+    }
+    site.state = crate::generators::GeneratorState::Active;
+    world.resource_mut::<crate::perks::PerkEvidence>().events.push(serde_json::json!({"event":"power_fixture_setup","placement":placement,"generator":generator.0,"setup":true}));
+}
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(all(debug_assertions, feature = "dev-dynamic"))]

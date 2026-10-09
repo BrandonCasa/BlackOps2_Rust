@@ -20,7 +20,7 @@ def prepare(config):
     perk, presentation = "perk.stamin_up", "prop." + model
     price = int(re.search(r'case "specialty_longersprint":\s*case "specialty_longersprint_upgrade":\s*cost = (\d+);', text)[1])
     fields = bottle["fields"]
-    rows = {"perks":{"id":perk,"name":"Stamin-Up","price":price,"icon":None,"presentation":presentation,"sprint":{"duration_scale":2.0,"speed_scale":1.07},
+    rows = {"perks":{"id":perk,"generator":"generator.generator_nml_left","name":"Stamin-Up","price":price,"icon":None,"presentation":presentation,"sprint":{"duration_scale":2.0,"speed_scale":1.07},
             "drink":{"bottle":"weapon."+bottle["source"],"seconds":float(fields["firstRaiseTime"]),"lower_seconds":float(fields["dropTime"]),"activation_delay":0.5}},
         "presentations":{"id":presentation,"scene":"props/"+relative+"#Scene0","animations":[],"sounds":[]},
         "placements":{"id":"placement.stamin_up","definition":perk,"position":machine["position"],"yaw":math.radians(float(machine["fields"]["angles"].split()[1])),"zone":"zone.start"},
@@ -31,6 +31,6 @@ def prepare(config):
     game["tuning"].update({"sprint_seconds":4., "sprint_minimum":1., "sprint_recovery_rate":1., "sprint_recovery_delay":0.})
     (pack / "game.json").write_text(json.dumps(game,indent=2)+"\n")
     report = {"perk":rows["perks"],"machine":machine,"script_sha256":hashlib.sha256(script.read_bytes()).hexdigest(),"bottle_sha256":bottle["sha256"],
-        "approximations":["Double endurance and 7 percent uncrouched speed reconstruct Stamin-Up engine modifiers; native arithmetic is unrecovered.","Base four-second endurance, one second recovered per second and release-to-rearm exhaustion are explicit sprint reconstructions.","Generator gating, machine collision/zone metadata and original audio remain unfinished or reconstructed."]}
+        "approximations":["Double endurance and 7 percent uncrouched speed reconstruct Stamin-Up engine modifiers; native arithmetic is unrecovered.","Base four-second endurance, one second recovered per second and release-to-rearm exhaustion are explicit sprint reconstructions.","Machine collision/zone metadata and original audio remain unfinished or reconstructed."]}
     (inspection / "solo-content/stamin-up-preparation.json").write_text(json.dumps(report,indent=2))
     print(json.dumps(report["perk"]))

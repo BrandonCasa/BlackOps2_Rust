@@ -330,6 +330,9 @@ fn update(
                     "Not enough points"
                 }
                 crate::interactions::InteractionRejection::FullAmmo => "Ammo full",
+                crate::interactions::InteractionRejection::NoPower => {
+                    "Activate the local generator"
+                }
                 crate::interactions::InteractionRejection::PerkLimit => {
                     "Perk purchase limit reached (4)"
                 }

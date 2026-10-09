@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation", "dual_weapon"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals", "locomotion_states"} if table == "enemies" else {"presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"distance_min"} if table=="sounds" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation", "dual_weapon"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals", "locomotion_states"} if table == "enemies" else {"generator", "presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"distance_min"} if table=="sounds" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -284,6 +284,7 @@ def validate_content(content, require):
                     require(abs(sum(x*x for x in m["ads_rotation"]) - 1) < 0.002, "unnormalized ADS rotation")
                     number(m["burst_delay"])
             elif table == "perks":
+                resolve(owner, row.get("generator"), "generator", optional=True)
                 if "fall_protection" in row: require(type(row["fall_protection"]) is bool, "invalid fall protection flag")
                 if row.get("dive") is not None:
                     d = row["dive"]
@@ -356,6 +357,10 @@ def validate_content(content, require):
                 if action.get("ammo_price") is not None:
                     natural(action["ammo_price"])
                 resolve(owner, action[key], kind)
+                if action["kind"] == "perk":
+                    perk = next(p for p in content["perks"] if p["id"] == action["perk"])
+                    require(perk.get("generator") is not None or perk["id"] == "perk.mule_kick",
+                            "perk machine lacks source-defined power availability")
                 if "price" in action:
                     natural(action["price"])
                 if "event" in action:

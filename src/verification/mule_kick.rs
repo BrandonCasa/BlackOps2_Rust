@@ -148,6 +148,7 @@ fn drive(
                 if let Some(center)=wall_approach(&query,owner,&player,p.translation,p.rotation*Vec3::Z,&game){transform.translation=center;target=Some(p.translation);}
             }
         } else if let Some(perk) = perk {
+            commands.queue(move |world: &mut World| super::power_fixture(world, perk));
             let p = game
                 .content
                 .placements

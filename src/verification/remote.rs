@@ -75,6 +75,7 @@ struct Setup {
     blast: Option<RemoteBlast>,
     owned_perks: Option<Vec<String>>,
     round_event: Option<RemoteRound>,
+    open_connections: Vec<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -207,7 +208,7 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
             "origins/input":{"params":{"events":[{"tick":"relative integer 1..3600","key":"Bevy KeyCode name or MouseLeft/MouseRight/MouseMiddle","pressed":"boolean"}]},"max_events":512,"effect":"Queue native input messages; automatic release after final scheduled tick"},
             "origins/release":{"params":{},"effect":"Cancel queued input and release remotely held buttons"},
             "origins/quit":{"params":{},"effect":"Release remote inputs and emit normal AppExit"},
-            "origins/setup":{"params":{"points":"optional u32","position":"optional [x,y,z] player center","yaw":"optional radians","pitch":"optional radians","weapons":"optional 1..2 native weapon IDs","owned_perks":"optional 0..8 unique native perk IDs","blast":{"session_id":"u64","center":"[x,y,z]","damage":"0..1000000","radius":"0.01..100"},"round_event":{"session_id":"u64","round":"1..10000"},"clear_enemies":"optional bool","pending":"optional 0..10000","pause_spawning_seconds":"optional 0..300","enemies":[{"position":"[x,y,z]","health":"1..1000000, default100","defender":"optional generator ID"}]},"max_enemies":64,"effect":"Direct scenario setup only; not evidence of gameplay"}
+            "origins/setup":{"params":{"points":"optional u32","position":"optional [x,y,z] player center","yaw":"optional radians","pitch":"optional radians","weapons":"optional 1..2 native weapon IDs","owned_perks":"optional 0..8 unique native perk IDs","open_connections":"optional native door connection IDs","blast":{"session_id":"u64","center":"[x,y,z]","damage":"0..1000000","radius":"0.01..100"},"round_event":{"session_id":"u64","round":"1..10000"},"clear_enemies":"optional bool","pending":"optional 0..10000","pause_spawning_seconds":"optional 0..300","enemies":[{"position":"[x,y,z]","health":"1..1000000, default100","defender":"optional generator ID"}]},"max_enemies":64,"effect":"Direct scenario setup only; not evidence of gameplay"}
         }
     }))
 }
@@ -382,6 +383,13 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         return Err(error("Setup outside bounds"));
     }
     let game = world.resource::<GameDefinition>();
+    if request
+        .open_connections
+        .iter()
+        .any(|id| !game.access.doors.iter().any(|d| d.connection.0 == *id))
+    {
+        return Err(error("Unknown door connection"));
+    }
     let perks = request
         .owned_perks
         .as_ref()
@@ -539,5 +547,11 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
             round: event.round,
         });
     }
+    world.resource_scope(|world, mut access: Mut<crate::access::ZoneAccess>| {
+        let game = world.resource::<GameDefinition>();
+        for id in request.open_connections {
+            let _ = access.unlock(game, &crate::origins::ContentId(id));
+        }
+    });
     Ok(json!({"setup_applied":true,"gameplay_evidence":false,"enemies":spawned}))
 }

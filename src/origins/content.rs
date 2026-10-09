@@ -395,6 +395,8 @@ impl EnemyLocomotion {
 #[serde(deny_unknown_fields)]
 pub struct PerkDefinition {
     pub id: PerkId,
+    #[serde(default)]
+    pub generator: Option<ContentId>,
     pub name: String,
     pub price: u32,
     pub icon: Option<ContentId>,
@@ -1132,6 +1134,9 @@ impl ContentCatalog {
             }
         }
         for v in &self.perks {
+            if let Some(generator) = &v.generator {
+                r(&v.id.0, &generator.0, "generator")?;
+            }
             valid(
                 v.dive.as_ref().is_none_or(|d| d.valid()),
                 "Invalid dive modifiers",
@@ -1204,7 +1209,16 @@ impl ContentCatalog {
                     r(&v.id.0, &connection.0, "connection")?
                 }
                 InteractionAction::Weapon { weapon, .. } => r(&v.id.0, &weapon.0, "weapon")?,
-                InteractionAction::Perk { perk } => r(&v.id.0, &perk.0, "perk")?,
+                InteractionAction::Perk { perk } => {
+                    r(&v.id.0, &perk.0, "perk")?;
+                    valid(
+                        self.perks.iter().any(|definition| {
+                            definition.id == *perk
+                                && (definition.generator.is_some() || perk.0 == "perk.mule_kick")
+                        }),
+                        "Perk machine lacks source-defined power availability",
+                    )?;
+                }
                 InteractionAction::Generator { generator } => {
                     r(&v.id.0, &generator.0, "generator")?
                 }

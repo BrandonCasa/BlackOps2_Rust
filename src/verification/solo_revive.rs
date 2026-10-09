@@ -93,6 +93,9 @@ fn drive(
     };
     input.clear();
     coverage.elapsed += time.delta_secs();
+    if **state == GameState::Playing && matches!(coverage.phase, 0..=2 | 10..=11) {
+        commands.queue(|world: &mut World| super::power_fixture(world, "placement.quick_revive"));
+    }
     let placement = definition
         .content
         .placements

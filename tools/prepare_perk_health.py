@@ -21,7 +21,7 @@ def prepare(config):
     price = int(re.search(r'case "specialty_armorvest":\s*case "specialty_armorvest_upgrade":\s*cost = (\d+);', text)[1])
     native_maximum = int(re.search(r'set_zombie_var\( "zombie_perk_juggernaut_health", (\d+) \)', text)[1])
     f = bottle["fields"]
-    rows = {"perks": {"id":perk,"name":"Juggernog","price":price,"icon":None,"presentation":presentation,"maximum_health":250,
+    rows = {"perks": {"id":perk,"generator":"generator.generator_nml_right","name":"Juggernog","price":price,"icon":None,"presentation":presentation,"maximum_health":250,
             "drink":{"bottle":"weapon."+bottle["source"],"seconds":float(f["firstRaiseTime"]),"lower_seconds":float(f["dropTime"]),"activation_delay":0.5}},
         "presentations":{"id":presentation,"scene":"props/"+relative+"#Scene0","animations":[],"sounds":[]},
         "placements":{"id":"placement.juggernog","definition":perk,"position":machine["position"],"yaw":math.radians(float(machine["fields"]["angles"].split()[1])),"zone":"zone.start"},
@@ -31,6 +31,6 @@ def prepare(config):
         c[table].append(row)
     (pack / "game.json").write_text(json.dumps(game,indent=2)+"\n")
     report = {"perk":rows["perks"],"machine":machine,"native_script_maximum":native_maximum,"script_sha256":hashlib.sha256(script.read_bytes()).hexdigest(),
-        "approximations":["250 effective health reconstructs the five-hit ordinary-zombie behavior; retained script maximum 160 and native armorvest arithmetic are unresolved.","Generator power gating remains unfinished; prepared machine is currently available.","Shared machine bounds and zone.start reconstruct pending local-power/collision metadata."]}
+        "approximations":["250 effective health reconstructs the five-hit ordinary-zombie behavior; retained script maximum 160 and native armorvest arithmetic are unresolved.","Shared machine bounds and zone.start reconstruct pending collision/zone metadata."]}
     (inspection / "solo-content/perk-health-preparation.json").write_text(json.dumps(report,indent=2))
     print(json.dumps(report["perk"]))

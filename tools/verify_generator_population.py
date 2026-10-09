@@ -111,6 +111,27 @@ def scenario(client, report, count):
     client.wait_ticks(4)
 
 
+def capture_generator(client, number):
+    site = next(site for site in client.state()['generators']['sites'] if site['number'] == number)
+    state = focus_generator(client, site)
+    key = interaction_key(state)
+    client.call('origins/input', {'events': [
+        {'tick': 1, 'key': key, 'pressed': True},
+        {'tick': 3, 'key': key, 'pressed': False},
+    ]})
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        state = client.wait_ticks(6)
+        current = next(value for value in state['generators']['sites'] if value['id'] == site['id'])
+        if current['state'] == 'Active':
+            client.release()
+            return client.wait_ticks(70)
+        if state['state'] != 'Playing':
+            raise RuntimeError('Session interrupted during generator capture')
+        client.call('origins/setup', {'clear_enemies': True})
+    raise TimeoutError('Generator did not finish capture through native input')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://127.0.0.1:15702")

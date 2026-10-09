@@ -662,6 +662,7 @@ fn drive(world: &mut World) {
             advance(&mut run);
         }
         28 => {
+            super::power_fixture(world, "placement.quick_revive");
             let shots = world.resource::<Session>().shots;
             run.record("quick tap persists through rendered frames and fires once",
                 run.tap_frames >= 2 && run.tap_ticks == 1 && shots == run.shots + 1,
@@ -916,7 +917,14 @@ fn drive(world: &mut World) {
         }
         54 | 99 => {
             let passed = run.phase == 54 && run.rows.iter().all(|r| r["passed"] == true);
+            let power_fixtures: Vec<_> = world
+                .resource::<crate::perks::PerkEvidence>()
+                .events
+                .iter()
+                .filter(|event| event["event"] == "power_fixture_setup")
+                .collect();
             let receipt = serde_json::json!({"passed":passed,"phase":run.phase,"rows":run.rows,"startup_loaded":run.loaded,"startup_settings":run.initial_settings,
+                "power_fixtures":power_fixtures,
                 "startup_audio":run.startup_audio,"startup_error":run.startup_error,
                 "elapsed_seconds":run.started.elapsed().as_secs_f32(),"native_equivalence":false});
             let _ = std::fs::write(

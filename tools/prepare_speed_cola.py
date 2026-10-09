@@ -20,7 +20,7 @@ def prepare(config):
     perk, presentation = "perk.speed_cola", "prop." + model
     price = int(re.search(r'case "specialty_fastreload":\s*case "specialty_fastreload_upgrade":\s*cost = (\d+);', text)[1])
     fields = bottle["fields"]
-    rows = {"perks":{"id":perk,"name":"Speed Cola","price":price,"icon":None,"presentation":presentation,"reload_duration_scale":0.5,
+    rows = {"perks":{"id":perk,"generator":"generator.generator_mid_trench","name":"Speed Cola","price":price,"icon":None,"presentation":presentation,"reload_duration_scale":0.5,
             "drink":{"bottle":"weapon."+bottle["source"],"seconds":float(fields["firstRaiseTime"]),"lower_seconds":float(fields["dropTime"]),"activation_delay":0.5}},
         "presentations":{"id":presentation,"scene":"props/"+relative+"#Scene0","animations":[],"sounds":[]},
         "placements":{"id":"placement.speed_cola","definition":perk,"position":machine["position"],"yaw":math.radians(float(machine["fields"]["angles"].split()[1])),"zone":"zone.start"},
@@ -30,6 +30,6 @@ def prepare(config):
         content[table].append(row)
     (pack / "game.json").write_text(json.dumps(game,indent=2)+"\n")
     report = {"perk":rows["perks"],"machine":machine,"script_sha256":hashlib.sha256(script.read_bytes()).hexdigest(),"bottle_sha256":bottle["sha256"],
-        "approximations":["Half-duration reload tuning reconstructs Speed Cola's engine perk; native engine arithmetic is not recovered.","Fixed-step phase boundaries quantize shell timing.","Generator gating, machine collision/zone metadata and original audio remain unfinished or reconstructed."]}
+        "approximations":["Half-duration reload tuning reconstructs Speed Cola's engine perk; native engine arithmetic is not recovered.","Fixed-step phase boundaries quantize shell timing.","Machine collision/zone metadata and original audio remain unfinished or reconstructed."]}
     (inspection / "solo-content/speed-cola-preparation.json").write_text(json.dumps(report,indent=2))
     print(json.dumps(report["perk"]))

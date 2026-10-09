@@ -95,7 +95,6 @@
 - [ ] Add Panzersoldat staff-part drops.
 - [ ] Add first Panzersoldat round scheduling.
 - [ ] Add recurring Panzersoldat round scheduling.
-- [ ] Add local power availability.
 - [ ] Add generator shutdown progress.
 - [ ] Add generator recapture interactions.
 - [ ] Add generator defender capture-zone targeting.
@@ -110,8 +109,6 @@
 - [ ] Add generator attack wave completion rewards.
 - [ ] Add earned perk purchase slots.
 - [ ] Preserve source-defined earned slot persistence.
-- [ ] Connect perk machines to local generator power.
-- [ ] Add perk purchase interactions.
 - [ ] Add Wunderfizz active machine selection.
 - [ ] Add Wunderfizz generator power requirements.
 - [ ] Add Wunderfizz source-defined perk weights.

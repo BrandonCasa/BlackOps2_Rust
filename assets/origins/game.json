@@ -114015,6 +114015,7 @@
     "perks": [
       {
         "id": "perk.quick_revive",
+        "generator": "generator.generator_start_bunker",
         "name": "Quick Revive",
         "price": 500,
         "icon": null,
@@ -114028,6 +114029,7 @@
       },
       {
         "id": "perk.juggernog",
+        "generator": "generator.generator_nml_right",
         "name": "Juggernog",
         "price": 2500,
         "icon": null,
@@ -114042,6 +114044,7 @@
       },
       {
         "id": "perk.speed_cola",
+        "generator": "generator.generator_mid_trench",
         "name": "Speed Cola",
         "price": 3000,
         "icon": null,
@@ -114056,6 +114059,7 @@
       },
       {
         "id": "perk.stamin_up",
+        "generator": "generator.generator_nml_left",
         "name": "Stamin-Up",
         "price": 2000,
         "icon": null,

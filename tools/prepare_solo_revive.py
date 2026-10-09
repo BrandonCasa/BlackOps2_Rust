@@ -37,7 +37,7 @@ def prepare(config):
     activation_delay = float(re.search(r'waittill_notify_or_timeout\( "burp", ([\d.]+) \)', texts["perks"])[1])
     drink = {"bottle":"weapon." + bottle["source"], "seconds":float(bottle_fields["firstRaiseTime"]),
         "lower_seconds":float(bottle_fields["dropTime"]), "activation_delay":activation_delay}
-    content["perks"].append({"id":perk,"name":"Quick Revive","price":price,"icon":None,"presentation":presentation,"drink":drink})
+    content["perks"].append({"id":perk,"generator":"generator.generator_start_bunker","name":"Quick Revive","price":price,"icon":None,"presentation":presentation,"drink":drink})
     content["presentations"][:] = [p for p in content["presentations"] if p["id"] != presentation]
     content["presentations"].append({"id":presentation,"scene":"props/"+relative+"#Scene0","animations":[],"sounds":[]})
     placement = "placement.quick_revive"

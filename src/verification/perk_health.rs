@@ -71,6 +71,7 @@ fn drive(
             .find(|p| p.id.0 == id)
             .expect("prepared perk");
         let machine = Vec3::from_array(p.position);
+        commands.queue(move |world: &mut World| super::power_fixture(world, id));
         let rotation = Quat::from_rotation_y(p.yaw);
         transform.translation = machine + rotation * Vec3::new(0., player.height * 0.5 + 0.02, 2.2);
         let delta = machine + Vec3::Y + rotation * Vec3::new(0., 0., 0.8)

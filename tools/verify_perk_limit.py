@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 
 from gameplay_remote import Client, write_report
+from verify_generator_population import capture_generator
 
 
 def check(report, name, passed, **evidence):
@@ -35,10 +36,10 @@ def approach(client, content, perk):
     yaw = placement["yaw"]
     front = [math.sin(yaw), 0, math.cos(yaw)]
     target = [origin[0] + front[0] * 0.8, origin[1] + 1, origin[2] + front[2] * 0.8]
-    for distance in (1.4, 1.7, 1.2, 2.0):
+    for distance in (2.2, 1.7, 1.4, 2.0):
         state = client.state()
         player = state["player"]
-        position = [origin[0] + front[0] * distance, origin[1] + player["height"] / 2,
+        position = [origin[0] + front[0] * distance, origin[1] + player["height"] / 2 + 0.02,
                     origin[2] + front[2] * distance]
         eye = [position[0], position[1] + player["eye_height"] - player["height"] / 2, position[2]]
         delta = [target[i] - eye[i] for i in range(3)]
@@ -51,17 +52,20 @@ def approach(client, content, perk):
     raise RuntimeError("Could not focus native " + perk["name"] + " machine")
 
 
-def setup(client, content, perk_id, owned):
+def setup(client, content, perk_id, owned, connections):
     client.reset()
     fixture = {"clear_enemies": True, "points": 10000, "pending": 6,
-               "pause_spawning_seconds": 300, "owned_perks": owned}
+               "pause_spawning_seconds": 300, "owned_perks": owned, "open_connections": connections}
     client.call("origins/setup", fixture)
     perk = next(item for item in content["perks"] if item["id"] == perk_id)
+    if perk.get('generator') and perk_id not in owned:
+        generator = next(g for g in content['generators'] if g['id'] == perk['generator'])
+        capture_generator(client, generator['number'])
     return approach(client, content, perk), perk, fixture
 
 
-def rejected(client, report, content, name, perk_id, owned, rejection):
-    before, perk, fixture = setup(client, content, perk_id, owned)
+def rejected(client, report, content, name, perk_id, owned, rejection, connections):
+    before, perk, fixture = setup(client, content, perk_id, owned, connections)
     interact(client, before)
     after = client.until(lambda state: state["focus"]["rejection"] == rejection, timeout=2)
     check(report, name, set(after["player"]["perks"]) == set(owned)
@@ -72,9 +76,11 @@ def rejected(client, report, content, name, perk_id, owned, rejection):
     client.release()
 
 
-def run(client, report, content):
+def run(client, report, game):
+    content = game['content']
+    connections = [d['connection'] for d in game['access']['doors']]
     three = ["perk.juggernog", "perk.speed_cola", "perk.mule_kick"]
-    before, perk, fixture = setup(client, content, "perk.quick_revive", three)
+    before, perk, fixture = setup(client, content, "perk.quick_revive", three, connections)
     interact(client, before)
     after = client.until(lambda state: "perk.quick_revive" in state["player"]["perks"]
                          and not state["player"]["drinking"], timeout=15)
@@ -85,9 +91,9 @@ def run(client, report, content):
           fixture=fixture, before=before, after=after)
     client.release()
     rejected(client, report, content, "fifth_perk_rejected_without_payment_or_drink", "perk.quick_revive",
-             three + ["perk.stamin_up"], "PerkLimit")
+             three + ["perk.stamin_up"], "PerkLimit", connections)
     rejected(client, report, content, "duplicate_keeps_priority_at_four_perks", "perk.juggernog",
-             three + ["perk.stamin_up"], "Duplicate")
+             three + ["perk.stamin_up"], "Duplicate", connections)
 
 
 def main():
@@ -103,7 +109,8 @@ def main():
     report = {"passed": False, "scenario": "default_perk_purchase_limit", "cases": [],
               "setup_is_gameplay_evidence": False,
               "limitations": ["Ownership is direct scenario setup; purchase outcomes use native input.",
-                              "Earned slots and local generator power are outside this scenario."]}
+                              "Capture defenders are removed as setup to isolate purchases; capture itself uses native input.",
+                              "Earned slots are outside this scenario."]}
     try:
         if args.identity is not None:
             identity = args.identity.resolve()
@@ -113,7 +120,7 @@ def main():
         game_path = root / "assets/origins/game.json"
         data = game_path.read_bytes()
         report["content"] = {"path": str(game_path), "sha256": hashlib.sha256(data).hexdigest()}
-        content = json.loads(data)["content"]
+        content = json.loads(data)
         client.until(lambda state: state.get("state") == "Playing" and state.get("player"), timeout=120)
         run(client, report, content)
         report["passed"] = True
