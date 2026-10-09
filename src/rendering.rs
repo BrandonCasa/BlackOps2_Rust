@@ -142,7 +142,9 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
             // Bound receiver displacement below this map's thin occluders;
             // the PCSS path separately compensates its texel footprint.
             shadow_depth_bias: 0.002,
-            shadow_normal_bias: 0.25,
+            // Bias is in texels: scale with map resolution to retain
+            // the accepted world-space displacement at thin blockers.
+            shadow_normal_bias: 0.5,
             ..default()
         },
         bevy::light::VolumetricLight,
@@ -368,7 +370,9 @@ fn fixture_lights(
                         // Native defaults displace receivers eight centimeters
                         // toward a lamp, enough to cross this map's thin walls.
                         shadow_depth_bias: 0.005,
-                        shadow_normal_bias: 0.3,
+                        // Preserve physical receiver displacement with the
+                        // higher-resolution local maps (bias is in texels).
+                        shadow_normal_bias: 0.6,
                         shadow_maps_enabled: true,
                         soft_shadows_enabled: true,
                         ..default()

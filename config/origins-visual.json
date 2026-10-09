@@ -45,7 +45,7 @@
   ],
   "lantern_lumens": 2600.0,
   "lantern_range": 7.0,
-  "lantern_shadow_map_size": 512,
+  "lantern_shadow_map_size": 1024,
   "emissive_nits": 150.0,
   "lantern_emissive_nits": 4000.0,
   "water_color": [
@@ -66,6 +66,6 @@
   "fog_base_height": -2.0,
   "fog_height_falloff": 0.09,
   "sky_lighting_hz": 1.0,
-  "sun_shadow_map_size": 4096,
+  "sun_shadow_map_size": 8192,
   "sun_shadow_distance": 160.0
 }
