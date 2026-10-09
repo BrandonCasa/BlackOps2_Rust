@@ -4,7 +4,8 @@
     1.0,
     1.0
   ],
-  "ambient_brightness": 80.0,
+  "ambient_brightness": 30.0,
+  "environment_intensity": 0.08,
   "sun_color": [
     1.0,
     0.97,
@@ -26,8 +27,16 @@
     "strength": 0.85,
     "contrast": 1.12,
     "vibrance": 1.16,
-    "shadow_tint": [1.0, 1.0, 1.0],
-    "highlight_tint": [1.04, 1.015, 0.965]
+    "shadow_tint": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "highlight_tint": [
+      1.04,
+      1.015,
+      0.965
+    ]
   },
   "comparison_fov_degrees": 55.0,
   "antialiasing": "Smaa",
@@ -45,7 +54,7 @@
   ],
   "lantern_lumens": 2600.0,
   "lantern_range": 7.0,
-  "lantern_shadow_map_size": 1024,
+  "lantern_shadow_map_size": 512,
   "emissive_nits": 150.0,
   "lantern_emissive_nits": 4000.0,
   "water_color": [
@@ -63,9 +72,9 @@
     -0.013,
     0.016
   ],
-  "fog_base_height": -2.0,
-  "fog_height_falloff": 0.09,
-  "sky_lighting_hz": 1.0,
-  "sun_shadow_map_size": 8192,
-  "sun_shadow_distance": 160.0
+  "sun_shadow_map_size": 4096,
+  "sun_shadow_distance": 100.0,
+  "max_local_lights": 8,
+  "local_light_distance": 28.0,
+  "local_light_fade_seconds": 0.3
 }

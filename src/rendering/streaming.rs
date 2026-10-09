@@ -322,35 +322,6 @@ impl TextureStreams {
         }
     }
 
-    pub(crate) fn mip_descriptor(&self, id: AssetId<Image>) -> Option<TextureMipDescriptor> {
-        let resident = self.residents.get(&id)?;
-        Some(TextureMipDescriptor {
-            full_extent: UVec2::new(resident.entry.width, resident.entry.height),
-        })
-    }
-
-    /// Convert a pass footprint diameter in meters to a full-chain mip.
-    /// Use the narrower axis of an anisotropic footprint conservatively.
-    /// GI and reflection producers share the same disk-backed Image assets.
-    pub(crate) fn mip_for_footprint(
-        &self,
-        id: AssetId<Image>,
-        footprint_meters: f32,
-    ) -> Option<usize> {
-        let resident = self.residents.get(&id)?;
-        let density = resident.entry.texels_per_meter;
-        let mip = if resident.requires_base_mip()
-            || density <= 0.
-            || !footprint_meters.is_finite()
-            || footprint_meters <= 0.
-        {
-            0
-        } else {
-            (density * footprint_meters).log2().floor().max(0.) as usize
-        };
-        Some(mip.min(resident.entry.mips.len() - 1))
-    }
-
     pub(crate) fn failure(&self) -> Option<&str> {
         self.failure.as_deref()
     }
@@ -361,11 +332,6 @@ impl TextureStreams {
             && (!self.enabled
                 || (self.evaluated_demand && self.residents.values().all(|r| r.mip <= r.wanted)))
     }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct TextureMipDescriptor {
-    pub full_extent: UVec2,
 }
 
 #[derive(Resource, Default, Serialize)]
@@ -382,7 +348,6 @@ pub(crate) struct TextureStreamingStats {
     pub pending_detail: usize,
     pub pending_mip_changes: usize,
     pub errors: u32,
-    pub lighting_requests: usize,
     pub shadow_requests: usize,
     pub anisotropic_textures: usize,
     pub resident_base_textures: usize,
@@ -434,48 +399,6 @@ impl TextureStreamingStats {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum TextureConsumer {
-    StaticGi,
-    Reflection,
-    Lighting,
-}
-
-struct PassDemand {
-    mips: Vec<(usize, f64)>,
-}
-
-/// Pass producers retain bounded recent footprints across stochastic batches.
-/// A GPU feedback readback can request full-chain mips using these stable IDs.
-#[derive(Resource, Default)]
-pub(crate) struct TextureStreamingRequests {
-    requests: HashMap<(AssetId<Image>, TextureConsumer), PassDemand>,
-}
-
-impl TextureStreamingRequests {
-    /// `valid_until` uses Bevy's `Time<Real>::elapsed_secs_f64()` clock so
-    /// residency can retire stale pass requests while gameplay is paused.
-    pub(crate) fn request(
-        &mut self,
-        id: AssetId<Image>,
-        consumer: TextureConsumer,
-        mip: usize,
-        valid_until: f64,
-    ) {
-        if valid_until.is_finite() {
-            let request = self
-                .requests
-                .entry((id, consumer))
-                .or_insert_with(|| PassDemand { mips: Vec::new() });
-            if let Some((_, expires)) = request.mips.iter_mut().find(|(level, _)| *level == mip) {
-                *expires = expires.max(valid_until);
-            } else {
-                request.mips.push((mip, valid_until));
-            }
-        }
-    }
-}
-
 #[derive(Component)]
 pub(crate) struct TextureUse {
     pub(crate) textures: Vec<AssetId<Image>>,
@@ -499,7 +422,6 @@ impl Plugin for TextureStreamingPlugin {
             .init_resource::<memory::Replacements>()
             .add_plugins(ExtractResourcePlugin::<memory::Replacements>::default())
             .init_resource::<TextureStreamingStats>()
-            .init_resource::<TextureStreamingRequests>()
             .add_systems(Startup, start)
             .add_systems(
                 PostUpdate,
@@ -514,14 +436,7 @@ impl Plugin for TextureStreamingPlugin {
                 // Bevy computes visibility after asset events. Publish finished
                 // images above first, then queue next-frame reads from this
                 // frame's camera and shadow footprints without mutating assets.
-                (
-                    bind_uses,
-                    demand,
-                    shadow_demand,
-                    pass_demand,
-                    allocate_detail,
-                    schedule,
-                )
+                (bind_uses, demand, shadow_demand, allocate_detail, schedule)
                     .chain()
                     .after(TextureStreamingSet)
                     .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility)
@@ -1314,39 +1229,6 @@ fn screen_fraction(
         high = high.max(ndc);
     }
     ((high - low).max(Vec2::ZERO).element_product() * 0.25).clamp(0., 1.)
-}
-
-fn pass_demand(
-    time: Res<Time<Real>>,
-    mut streams: ResMut<TextureStreams>,
-    mut requests: ResMut<TextureStreamingRequests>,
-    mut stats: ResMut<TextureStreamingStats>,
-) {
-    let now = time.elapsed_secs_f64();
-    requests.requests.retain(|_, request| {
-        request.mips.retain(|(_, expires)| *expires >= now);
-        !request.mips.is_empty()
-    });
-    stats.lighting_requests = requests.requests.len();
-    for ((id, _), request) in &requests.requests {
-        if let Some(resident) = streams.residents.get_mut(id) {
-            let mip = if resident.requires_base_mip() {
-                0
-            } else {
-                request
-                    .mips
-                    .iter()
-                    .map(|(mip, _)| *mip)
-                    .min()
-                    .expect("Live pass footprints")
-            };
-            resident.requested = resident
-                .requested
-                .min(mip.min(resident.entry.mips.len() - 1));
-            resident.class = resident.class.min(DemandClass::Indirect);
-            resident.last_demand = now;
-        }
-    }
 }
 
 fn shadow_demand(

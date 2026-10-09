@@ -1,4 +1,9 @@
-import bevy_pbr::render::mesh::mesh_vertex as bevy_vertex;
+import bevy_pbr::render::{
+    mesh_functions, skinning,
+    mesh::morph_vertex,
+    forward_io::decompress_vertex,
+    view_transformations::position_world_to_clip,
+};
 import bevy_pbr::render::forward_io::{Vertex, VertexOutput};
 
 struct SurfaceVertex {
@@ -48,7 +53,25 @@ fn vertex(input: SurfaceVertex) -> SurfaceOutput {
     @if(SKINNED) standard.joint_indices = input.joint_indices;
     @if(SKINNED) standard.joint_weights = input.joint_weights;
     @if(MORPH_TARGETS) standard.index = input.index;
-    let base = bevy_vertex(standard);
+    // Use native mesh/skin/morph helpers without calling an @vertex entry point.
+    // WESL entry points cannot be called as functions by a material extension.
+    let uncompressed = decompress_vertex(standard, input.instance_index);
+    @if(MORPH_TARGETS) let vertex = morph_vertex(uncompressed, input.instance_index);
+    @if(!MORPH_TARGETS) let vertex = uncompressed;
+    let mesh_world = mesh_functions::get_world_from_local(input.instance_index);
+    @if(SKINNED) let world = skinning::skin_model(vertex.joint_indices, vertex.joint_weights, input.instance_index);
+    @if(!SKINNED) let world = mesh_world;
+    var base: VertexOutput;
+    base.world_position = mesh_functions::mesh_position_local_to_world(world, vec4(vertex.position, 1.0));
+    base.position = position_world_to_clip(base.world_position.xyz);
+    @if(SKINNED) base.world_normal = skinning::skin_normals(world, vertex.normal);
+    @if(!SKINNED) base.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, input.instance_index);
+    base.world_tangent = mesh_functions::mesh_tangent_local_to_world(world, vertex.tangent, input.instance_index);
+    base.uv = vertex.uv;
+    base.uv_b = vertex.uv_b;
+    base.color = vertex.color;
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX) base.instance_index = input.instance_index;
+    @if(VISIBILITY_RANGE_DITHER) base.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(input.instance_index, mesh_world[3]);
     var out: SurfaceOutput;
     out.position = base.position;
     out.world_position = base.world_position;

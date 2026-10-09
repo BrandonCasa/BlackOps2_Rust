@@ -65,9 +65,8 @@ fn configure(mut support: ResMut<GpuPreprocessingSupport>, requested: Res<Reques
         // mesh-uniform expansion to compute.
         MeshPreprocessing::Gpu => GpuPreprocessingMode::PreprocessingOnly,
         // Native indirect batching is the default on supported devices.
-        // CPU visibility admission bounds the work lists. Native GPU frustum
-        // culling/indirect batching retains the preprocessing/CPU fallback;
-        // matched ordinary workloads rejected two-phase occlusion overhead.
+        // Native GPU frustum culling and indirect batching retain the
+        // preprocessing/CPU fallback on less capable devices.
         MeshPreprocessing::GpuCulling => GpuPreprocessingMode::Culling,
     });
 }

@@ -83,14 +83,6 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
                 use_gpu_instance_buffer_builder: gpu_preprocessing,
                 ..default()
             })
-            .set(bevy::render::RenderPlugin {
-                render_creation: bevy::render::settings::RenderCreation::Automatic({
-                    let mut settings = bevy::render::settings::WgpuSettings::default();
-                    settings.features |= bevy::solari::SolariPlugins::required_wgpu_features();
-                    Box::new(settings)
-                }),
-                ..default()
-            })
             .set(
                 bevy::gltf::GltfPlugin::default()
                     .add_custom_vertex_attribute("ORIGINS_LAYER_UV", rendering::LAYER_UV)
@@ -165,10 +157,6 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         if !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
             app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
         }
-        app.init_resource::<bevy::render::diagnostic::RenderDiagnosticsFrameContext>()
-            .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<
-                bevy::render::diagnostic::RenderDiagnosticsFrameContext,
-            >::default());
     }
     app.add_plugins(run_environment::UnattendedRunPlugin);
     app

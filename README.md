@@ -16,7 +16,7 @@ Build for development with `tools/build.ps1` (or `-Profile Debug`), producing `t
 
 The release command produces `release/origins.exe` and `release/assets/origins/`. Copy that entire directory anywhere and launch its executable from any working directory. Keep the assets beside the executable when relocating it. Packaging runs the compiler gates and reuses the offline importer to validate the dependency closure and copied hashes, without original inputs or local configuration. Packaging needs existing Cargo, `uv`, Python 3.11+, NumPy 2 and Pillow 12; playing the package needs none of those tools.
 
-DDGI diffuse probe lighting is disabled by default. Enable it at build time with `tools/build.ps1 -Ddgi` (or `-Profile Release -Ddgi`), or pass `--features dev-dynamic,ddgi` to development Cargo commands and `--features ddgi` to release Cargo commands. Default builds allocate no DDGI cascades or update buffer and run no probe trace/blend passes. Direct sunlight, lanterns, ambient diffuse fill, shadows and scene reflections remain active; reflections omit their DDGI contribution. There is no runtime toggle.
+Lighting uses Bevy raster shadow maps, Gaussian PCF, atmosphere environment lighting and SSAO. Up to eight nearby fixture lights cast shadows, fading as the camera moves. Hardware ray tracing and the DDGI build feature have been removed; no special GPU ray-tracing support is required. See [rendering](docs/reverse_engineering/rendering.md) for the approximations and tuning.
 
 Missing or corrupt assets show a loading error in the game window and application log. Restore the complete package asset directory; for a checkout containing Git LFS pointers, run `git lfs pull`.
 

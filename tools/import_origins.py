@@ -24,11 +24,13 @@ import tempfile
 import tomllib
 
 try:
+    from .fixture_emitters import FIXTURE_SURFACES
     from .content_contract import validate_content, validate_rounds, validate_player_health
     from .texture_streaming import validate as validate_texture_streaming
     from .trigger_volumes import validate as validate_trigger_volumes
     from .brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
 except ImportError:
+    from fixture_emitters import FIXTURE_SURFACES
     from content_contract import validate_content, validate_rounds, validate_player_health
     from texture_streaming import validate as validate_texture_streaming
     from trigger_volumes import validate as validate_trigger_volumes
@@ -121,7 +123,6 @@ def read_json(path):
 
 
 def validate_gltf(root, relative, files, *, allow_native_transforms=False):
-    from fixture_emitters import FIXTURE_SURFACES
     path = safe_path(root, relative, {".gltf"})
     document = read_json(path)
     files.add(relative)

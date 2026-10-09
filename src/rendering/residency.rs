@@ -11,7 +11,6 @@ impl Plugin for ResidencyPlugin {
             PostUpdate,
             release
                 .after(super::streaming::TextureStreamingSet)
-                .after(super::ray_skin::visibility)
                 .before(bevy::asset::AssetEventSystems),
         );
     }

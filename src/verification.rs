@@ -638,9 +638,6 @@ fn check(
         Res<crate::rendering::OpaqueSurfaceStatus>,
         Res<crate::rendering::TextureStreamingStats>,
         Res<crate::rendering::profile::VisualProfile>,
-        Res<crate::rendering::StaticGiStats>,
-        Res<crate::rendering::RaySurfaceStats>,
-        Res<crate::rendering::RayContributorStats>,
     ),
     mut cameras: Query<
         (&Transform, &mut Projection),
@@ -661,7 +658,7 @@ fn check(
 ) {
     let mut screenshot = None;
     let (sites, trigger_sites, brush_sites) = map_sites;
-    let (surfaces, streaming, profile, shared_gi, ray_surfaces, ray_contributors) = render_status;
+    let (surfaces, streaming, profile) = render_status;
     let (
         session,
         history,
@@ -1280,10 +1277,8 @@ fn check(
         receipt["texture_streaming"] =
             serde_json::to_value(&*streaming).expect("Serializable streaming counters");
         receipt["shared_lighting"] = serde_json::json!({
-            "ddgi_enabled": cfg!(feature = "ddgi"),
-            "ddgi_batches":shared_gi.updates(), "reflection_frames":shared_gi.reflections(),
-            "scene_refreshes": shared_gi.scene_refreshes(),
-            "ray_feedback":&*ray_surfaces, "contributors":&*ray_contributors,
+            "method": "native_raster", "ray_tracing": false,
+            "indirect": "atmosphere_environment_and_ssao",
         });
         receipt["enemy_traversal"] = serde_json::json!({"started":enemy_evidence.traversals_started,"finished":enemy_evidence.traversals_finished,"rising_finished":enemy_evidence.rising_finished,"blocked_landings":enemy_evidence.traversal_blocked_landings,"adjusted_landings":enemy_evidence.adjusted_landings});
         receipt["enemy_navigation"] = serde_json::json!({"replans":enemy_evidence.replans,"target_replans":enemy_evidence.target_replans,"blocker_replans":enemy_evidence.blocker_replans,"direct_pursuits":enemy_evidence.direct_pursuits,"stuck_recoveries":enemy_evidence.stuck_recoveries,"separations":enemy_evidence.separations});

@@ -154,7 +154,7 @@ fn observe(
         run.peak_pending[index] = run.peak_pending[index].max(stats.pending_by_class[index]);
     }
     run.competition_frames[active] += 1;
-    run.native_passes_active |= stats.lighting_requests > 0 && stats.shadow_requests > 0;
+    run.native_passes_active |= stats.shadow_requests > 0;
     if run.started.elapsed().as_secs() > 240
         || streams.failure().is_some()
         || **state == GameState::LoadError

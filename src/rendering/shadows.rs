@@ -1,90 +1,75 @@
-//! Correct directional PCSS in Bevy's existing shadow-map sampling path.
-use bevy::{
-    prelude::*,
-    shader::{Shader, ShaderImport},
-};
+//! A small light budget; Bevy owns culling, shadow maps, filtering and drawing.
+use super::{GameCamera, LanternLight, profile::VisualProfile};
+use bevy::prelude::*;
+use std::collections::{HashMap, HashSet};
 
-/// Retain Bevy's snapped XY fit and its native maps/frusta, but include
-/// offscreen sun casters in a fixed light-space depth interval. A camera-fitted
-/// depth interval clips approaching casters differently as the view rotates.
-/// The 4 km slab covers the Origins runtime closure and moving actor bounds;
-/// reverse-Z float depth preserves contact precision without a camera-dependent
-/// near plane, depth scale or normal bias.
-pub(super) fn stabilize(mut lights: Query<(&GlobalTransform, &mut bevy::light::Cascades)>) {
-    const NEAR: f32 = 2048.;
-    const DEPTH: f32 = 4096.;
-    for (light, mut cascades) in &mut lights {
-        let basis = Mat4::from_quat(light.rotation());
-        let inverse = basis.transpose();
-        for cascade in cascades.cascades.values_mut().flatten() {
-            // Do not recover XY by transforming world_from_cascade back to
-            // light space. Its camera-fitted Z participates in that round trip
-            // and introduces tiny XY errors as the view rotates. Preserve the
-            // engine's directly constructed, texel-snapped projection rows.
-            let origin = Vec3::new(
-                -cascade.clip_from_world.w_axis.x / cascade.clip_from_cascade.x_axis.x,
-                -cascade.clip_from_world.w_axis.y / cascade.clip_from_cascade.y_axis.y,
-                NEAR,
-            );
-            cascade.world_from_cascade.w_axis = basis * origin.extend(1.);
-            cascade.clip_from_cascade.z_axis.z = DEPTH.recip();
-            cascade.clip_from_cascade.w_axis.z = 1.;
-            cascade.clip_from_world.x_axis.z = inverse.x_axis.z / DEPTH;
-            cascade.clip_from_world.y_axis.z = inverse.y_axis.z / DEPTH;
-            cascade.clip_from_world.z_axis.z = inverse.z_axis.z / DEPTH;
-            cascade.clip_from_world.w_axis.z = 1. - NEAR / DEPTH;
+/// Bound cubemap rendering even in rooms containing many fixtures. Retiring
+/// lights keep their shadows until fully faded; new lights wait for a free slot.
+/// Never turn a shadowed lamp into an unshadowed wall-leaking light.
+pub(super) fn select_local_lights(
+    camera: Query<&GlobalTransform, With<GameCamera>>,
+    mut lights: Query<
+        (Entity, &GlobalTransform, &mut PointLight, &mut Visibility),
+        With<LanternLight>,
+    >,
+    profile: Res<VisualProfile>,
+    time: Res<Time<Real>>,
+    mut weights: Local<HashMap<Entity, f32>>,
+) {
+    let Ok(camera) = camera.single() else { return };
+    let eye = camera.translation();
+    let mut ranked: Vec<_> = lights
+        .iter()
+        .filter_map(|(entity, pose, _, _)| {
+            let distance = pose.translation().distance(eye);
+            // Keep existing owners through small camera movements at a rank boundary.
+            let retained = weights.get(&entity).is_some_and(|weight| *weight > 0.);
+            (distance < profile.local_light_distance)
+                .then_some((entity, distance * if retained { 0.8 } else { 1. }))
+        })
+        .collect();
+    ranked.sort_by(|a, b| {
+        a.1.total_cmp(&b.1)
+            .then_with(|| a.0.to_bits().cmp(&b.0.to_bits()))
+    });
+    let selected: HashSet<_> = ranked
+        .iter()
+        .take(profile.max_local_lights)
+        .map(|(entity, _)| *entity)
+        .collect();
+    weights.retain(|entity, _| lights.contains(*entity));
+    let step = time.delta_secs() / profile.local_light_fade_seconds.max(0.01);
+    for (entity, weight) in weights.iter_mut() {
+        if !selected.contains(entity) {
+            *weight = (*weight - step).max(0.);
         }
     }
-}
-
-pub(super) fn prepare(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
-    if *done {
-        return;
+    weights.retain(|_, weight| *weight > 0.);
+    let mut slots = profile.max_local_lights.saturating_sub(weights.len());
+    for (entity, _) in ranked.iter().take(profile.max_local_lights) {
+        if let Some(weight) = weights.get_mut(entity) {
+            *weight = (*weight + step).min(1.);
+        } else if slots > 0 {
+            weights.insert(*entity, step.min(1.));
+            slots -= 1;
+        }
     }
-    let native = |path: &str| {
-        shaders.iter().find_map(|(id, shader)| {
-            (shader.import_path == ShaderImport::Custom(path.into()))
-                .then(|| (id, shader.source.as_str().to_owned()))
-        })
-    };
-    let (Some((sampling_id, sampling)), Some((shadows_id, shadows))) = (
-        native("bevy_pbr::render::shadow_sampling"),
-        native("bevy_pbr::render::shadows"),
-    ) else {
-        return;
-    };
-    // Bevy 0.19.1's directional path applies a perspective depth ratio to
-    // orthographic cascades. Their fitted near/far planes vary with camera
-    // orientation, so that ratio changes a stationary blocker's penumbra.
-    // Preserve native maps, comparisons and samples; use world distances and
-    // the sun's angular radius. Keep the filter pattern in the light's plane.
-    // The original function is also used by perspective spot lights.
-    let corrected_sampling = sampling + "\n" + include_str!("sun_pcss.wesl");
-    let original = "            texel_size,\n            (*light).soft_shadow_size,\n        );";
-    assert_eq!(
-        shadows.matches(original).count(),
-        1,
-        "Pinned directional PCSS call"
-    );
-    let corrected_shadows = shadows
-        .replacen("sample_shadow_map, sample_shadow_map_pcss,", "sample_shadow_map, sample_shadow_map_pcss, sample_directional_shadow_map_pcss, directional_receiver_gradient,", 1)
-        .replacen("return sample_shadow_map_pcss(\n            light_local.xy,", "return sample_directional_shadow_map_pcss(\n            light_local.xy,", 1)
-        .replacen(original,
-        "            texel_size,\n            (*light).soft_shadow_size,\n            1.0 / length(vec3((*cascade).clip_from_world[0].z, (*cascade).clip_from_world[1].z, (*cascade).clip_from_world[2].z)),\n            (*light).cascades[(*light).num_cascades - 1u].far_bound,\n            vec2(dot(normalize(vec3((*cascade).clip_from_world[0].x, (*cascade).clip_from_world[1].x, (*cascade).clip_from_world[2].x)), frag_position.xyz), dot(normalize(vec3((*cascade).clip_from_world[0].y, (*cascade).clip_from_world[1].y, (*cascade).clip_from_world[2].y)), frag_position.xyz)),\n            directional_receiver_gradient((*cascade).clip_from_world, surface_normal),\n        );", 1);
-    shaders
-        .insert(
-            sampling_id,
-            Shader::from_wesl(
-                corrected_sampling,
-                "embedded://bevy_pbr/render/shadow_sampling.wesl",
-            ),
-        )
-        .expect("Native shadow sampling handle");
-    shaders
-        .insert(
-            shadows_id,
-            Shader::from_wesl(corrected_shadows, "embedded://bevy_pbr/render/shadows.wesl"),
-        )
-        .expect("Native shadow handle");
-    *done = true;
+    for (entity, pose, mut light, mut visibility) in &mut lights {
+        let weight = weights.get(&entity).copied().unwrap_or(0.);
+        let distance = pose.translation().distance(eye);
+        let fade = ((profile.local_light_distance - distance) / 6.).clamp(0., 1.);
+        let intensity = profile.lantern_lumens * weight * fade * fade * (3. - 2. * fade);
+        if light.intensity != intensity {
+            light.intensity = intensity;
+        }
+        let enabled = intensity > 0.;
+        if light.shadow_maps_enabled != enabled {
+            light.shadow_maps_enabled = enabled;
+        }
+        visibility.set_if_neq(if enabled {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
 }

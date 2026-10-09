@@ -8,30 +8,18 @@ default-run = "origins"
 
 [workspace]
 members = ["."]
-exclude = ["vendor/bevy_render", "vendor/bevy_pbr", "vendor/bevy_solari", "vendor/bevy_light"]
 resolver = "3"
-
-# Focused, source-pinned engine patches preserve Bevy ownership while exposing
-# complete development-frame attribution and retained ray-scene integration.
-[patch.crates-io]
-bevy_render = { path = "vendor/bevy_render" }
-bevy_pbr = { path = "vendor/bevy_pbr" }
-bevy_solari = { path = "vendor/bevy_solari" }
-bevy_light = { path = "vendor/bevy_light" }
 
 [features]
 default = []
-ddgi = []
 dev-dynamic = ["bevy/dynamic_linking"]
 profile-tracy = ["bevy/trace_tracy", "bevy/debug", "dep:tracy-client"]
 profile-tracy-memory = ["profile-tracy", "bevy/trace_tracy_memory"]
 profile-chrome = ["bevy/trace_chrome", "bevy/debug"]
 
 [dependencies]
-# Native Solari schedule integration needs system names in ordinary releases.
-# These names are functional schedule keys, not runtime tracing. Profiling is
-# development-only; release strips log/tracing calls and disables LogPlugin.
-bevy = { version = "=0.20.0-rc.2", default-features = false, features = ["std", "debug", "async_executor", "multi_threaded", "bevy_asset", "bevy_scene", "bevy_gltf", "bevy_animation", "bevy_curve", "gltf_animation", "bevy_audio", "vorbis", "jpeg", "dds", "bevy_pbr", "bevy_solari", "pbr_multi_layer_material_textures", "experimental_pbr_pcss", "bevy_post_process", "bevy_anti_alias", "smaa_luts", "bevy_winit", "bevy_state", "bevy_ui", "bevy_ui_render", "bevy_ui_widgets", "ui_picking", "bevy_text", "default_font", "keyboard", "mouse", "png", "tonemapping_luts", "bevy_log", "bevy_mikktspace", "reflect_auto_register", "zstd_rust"] }
+# Profiling is development-only; release strips log/tracing calls and disables LogPlugin.
+bevy = { version = "=0.20.0-rc.2", default-features = false, features = ["std", "debug", "async_executor", "multi_threaded", "bevy_asset", "bevy_scene", "bevy_gltf", "bevy_animation", "bevy_curve", "gltf_animation", "bevy_audio", "vorbis", "jpeg", "dds", "bevy_pbr", "pbr_multi_layer_material_textures", "bevy_post_process", "bevy_anti_alias", "smaa_luts", "bevy_winit", "bevy_state", "bevy_ui", "bevy_ui_render", "bevy_ui_widgets", "ui_picking", "bevy_text", "default_font", "keyboard", "mouse", "png", "tonemapping_luts", "bevy_log", "bevy_mikktspace", "reflect_auto_register", "zstd_rust"] }
 # Upstream Avian's Bevy 0.20 migration, pinned rather than following a branch.
 avian3d = { git = "https://github.com/andriyDev/avian.git", rev = "34c9b008d2f40638a953d9218db48d54f661365d", default-features = false, features = ["3d", "parry-f32", "collider-from-mesh", "enhanced-determinism"] }
 # Serialize Bevy's physical key/button types for local control bindings.

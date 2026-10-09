@@ -12,8 +12,7 @@ param(
     [switch]$AllViews,
     [switch]$Moving,
     [switch]$Combat,
-    [switch]$Generators,
-    [switch]$Ddgi
+    [switch]$Generators
 )
 $ErrorActionPreference = 'Stop'
 if (([int]$AllViews.IsPresent + [int]$Moving.IsPresent + [int]$Combat.IsPresent + [int]$Generators.IsPresent) -gt 1) {
@@ -43,11 +42,10 @@ Push-Location $repository
 try {
     if (-not $SkipBuild) {
         if ($NoTracy) {
-            $releaseFeatures = if ($Ddgi) { @('--features', 'ddgi') } else { @() }
+            $releaseFeatures = @()
             & cargo build --workspace --release --locked @releaseFeatures
         } else {
             $profilingFeature = if ($Memory) { 'profile-tracy-memory' } else { 'profile-tracy' }
-            if ($Ddgi) { $profilingFeature += ',ddgi' }
             & cargo build --workspace --locked --features "dev-dynamic,$profilingFeature"
         }
         if ($LASTEXITCODE -ne 0) { throw "Build failed for $buildProfile measurements" }
@@ -62,7 +60,7 @@ try {
         executable_sha256 = (Get-FileHash -LiteralPath $gameExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
         memory_instrumentation_requested = $Memory.IsPresent
         tracy_capture_requested = -not $NoTracy.IsPresent
-        ddgi_requested = $Ddgi.IsPresent
+        lighting_method = 'native_raster'
         preprocessing_requested = $Preprocessing
         workload = if ($Generators) { 'generators' } elseif ($Combat) { 'combat' } elseif ($Moving) { 'moving' } elseif ($AllViews) { 'all views' } else { 'steady' }
         view = $View
@@ -145,14 +143,8 @@ try {
         throw "Expected $buildProfile executable; measurement receipt reports a different profile"
     }
     $lighting = if ($performance.shared_lighting) { $performance.shared_lighting } else { $receipt.shared_lighting }
-    if ($lighting) {
-        # Older receipts predate the feature and always enabled DDGI.
-        $ddgiEnabled = $lighting.ddgi_enabled -ne $false
-        if ($lighting.reflection_frames -le 0 -or
-            ($ddgiEnabled -and $lighting.ddgi_batches -le 0) -or
-            (-not $ddgiEnabled -and $lighting.ddgi_batches -ne 0)) {
-            throw 'Lighting dispatches do not match the recorded DDGI configuration'
-        }
+    if ($lighting.method -ne 'native_raster' -or $lighting.ray_tracing -ne $false) {
+        throw 'Expected native raster lighting without ray tracing'
     }
     if ($NoTracy) {
         if ($performance.profile_tracy -ne $false -or $performance.profile_chrome -ne $false) {

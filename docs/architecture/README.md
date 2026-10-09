@@ -5,7 +5,7 @@ One Cargo package, `origins`, produces one executable. `src/lib.rs` composes plu
 | Module | Responsibility |
 | --- | --- |
 | assets | Executable-relative pack discovery, loading errors, Bevy glTF loading and collision admission |
-| rendering | Bevy camera/materials, terrain, water, realtime sun/sky, height fog, PCSS and shadow-cache invalidation |
+| rendering | Bevy camera/materials, terrain, water, native sun/sky, distance fog, raster shadows and bounded local-light admission |
 | input | Named keyboard/mouse actions, fixed-tick edges, focus clearing, pause UI and local control/audio settings |
 | player | Capsule stance, mouse look, grounding, gravity and Avian move-and-slide |
 | life | Retained reusable health, death, revival and bleedout semantics |

@@ -1,8 +1,7 @@
 param(
     [ValidateSet('Debug', 'Release')][string]$Profile = 'Debug',
     [ValidateSet('Build', 'Check')][string]$CompilerGate = 'Build',
-    [uint32]$CompilerSeconds = 0,
-    [switch]$Ddgi
+    [uint32]$CompilerSeconds = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,14 +67,12 @@ try {
         $checkArguments = @('check', '--lib', '--offline', '--locked', '--jobs', '1')
         if ($Profile -eq 'Release') { $checkArguments += '--release' }
         else { $checkArguments += @('--features', 'dev-dynamic') }
-        if ($Ddgi) { $checkArguments += @('--features', 'ddgi') }
         Invoke-Compiler -compilerArguments $checkArguments
         return
     }
     $buildArguments = @('build', '--workspace', '--locked')
     if ($Profile -eq 'Release') { $buildArguments += '--release' }
     else { $buildArguments += @('--features', 'dev-dynamic') }
-    if ($Ddgi) { $buildArguments += @('--features', 'ddgi') }
     Invoke-Compiler -compilerArguments $buildArguments
     & $cargoExecutable fmt --all -- --check
     if ($LASTEXITCODE -ne 0) { throw 'Formatting check failed' }

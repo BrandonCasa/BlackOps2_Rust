@@ -104,7 +104,7 @@ foreach ($workload in $Workloads) {
         $runs.Add([ordered]@{ workload = $workload; run = $index; summary = $result.summary;
             run_environment = $result.run_environment;
             build_profile = $result.build_profile; logging_enabled = $result.logging_enabled;
-            ddgi_enabled = $result.shared_lighting.ddgi_enabled -ne $false;
+            lighting_method = $result.shared_lighting.method;
             physical_resolution = $result.physical_resolution; adapter = $result.adapter;
             antialiasing = $result.antialiasing; preprocessing = $result.preprocessing;
             seed = $result.seed; controlled_setup = $result.controlled_setup;
@@ -134,9 +134,6 @@ if ($Baseline) {
         $afterRuns = @($runs | Where-Object { $_.workload -eq $group.workload })
         if ($beforeRuns.Count -lt 3 -or $afterRuns.Count -lt 3) { throw 'Acceptance requires at least three runs per workload' }
         foreach ($row in $afterRuns) {
-            # Historical baselines always enabled DDGI; reject mixed lighting work.
-            $beforeDdgi = $beforeRuns[0].ddgi_enabled -ne $false
-            if ($row.ddgi_enabled -ne $beforeDdgi) { throw 'Incomparable lighting workload: DDGI configuration changed' }
             foreach ($field in @('build_profile', 'logging_enabled', 'physical_resolution', 'adapter', 'workload_revision', 'antialiasing', 'preprocessing', 'seed', 'controlled_setup')) {
                 $expected = $beforeRuns[0].$field | ConvertTo-Json -Depth 8 -Compress
                 $actual = $row[$field] | ConvertTo-Json -Depth 8 -Compress

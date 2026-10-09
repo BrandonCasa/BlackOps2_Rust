@@ -248,44 +248,6 @@ impl From<&OpaqueSurface> for SurfaceParameters {
     }
 }
 
-impl OpaqueSurface {
-    pub(super) fn ray_parameters(&self) -> SurfaceParameters {
-        self.parameters
-    }
-
-    pub(super) fn ray_textures(&self, base: &StandardMaterial) -> [Option<Handle<Image>>; 12] {
-        [
-            self.normal.clone(),
-            self.second_normal.clone(),
-            self.third_normal.clone(),
-            self.specular.clone(),
-            self.second_specular.clone(),
-            self.third_specular.clone(),
-            self.control.clone(),
-            self.color0
-                .clone()
-                .or_else(|| base.base_color_texture.clone()),
-            self.color1.clone(),
-            self.color2.clone(),
-            self.color3.clone(),
-            base.emissive_texture.clone(),
-        ]
-    }
-
-    pub(super) fn trace_material(&self, base: &StandardMaterial) -> StandardMaterial {
-        let mut material = base.clone();
-        material.base_color_texture = self
-            .color0
-            .clone()
-            .or_else(|| base.base_color_texture.clone());
-        material.normal_map_texture = self.normal.clone();
-        material.metallic_roughness_texture = self.specular.clone();
-        material.perceptual_roughness = 1.;
-        material.metallic = 1.;
-        material
-    }
-}
-
 impl MaterialExtension for OpaqueSurface {
     fn vertex_shader() -> ShaderRef {
         VERTEX_SHADER.into()

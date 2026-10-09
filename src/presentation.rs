@@ -198,6 +198,7 @@ pub(crate) fn first_person_light(
                 },
                 RenderLayers::layer(1),
                 ViewModelCamera,
+                bevy::render::view::NoIndirectDrawing,
                 Name::new("First-person camera"),
             ));
             // A frozen shadow comparison must never allocate adaptive GPU

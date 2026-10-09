@@ -9,9 +9,6 @@ use std::{collections::BTreeMap, path::PathBuf};
 #[derive(Component)]
 struct Sample {
     label: String,
-    width: usize,
-    height: usize,
-    field: bool,
     output: PathBuf,
 }
 #[derive(Resource, Default)]
@@ -54,8 +51,6 @@ fn inspect(
     options: Res<crate::assets::LaunchOptions>,
     state: Res<State<crate::GameState>>,
     cameras: Query<&bevy::light::EnvironmentMapLight, With<super::GameCamera>>,
-    fields: Res<super::static_gi::GiInputs>,
-    gi: Res<super::static_gi::StaticGiStats>,
     images: Res<Assets<Image>>,
     time: Res<Time<Real>>,
     mut started: Local<Option<f32>>,
@@ -68,44 +63,25 @@ fn inspect(
         return;
     }
     let start = *started.get_or_insert(time.elapsed_secs());
-    if time.elapsed_secs() - start < 10.0 || (cfg!(feature = "ddgi") && gi.updates() < 2) {
+    if time.elapsed_secs() - start < 10.0 {
         return;
     }
     let Ok(environment) = cameras.single() else {
         return;
     };
-    let mut candidates = vec![
-        (
-            "sky-specular".to_owned(),
-            environment.specular_map.clone(),
-            false,
-        ),
-        (
-            "sky-diffuse".to_owned(),
-            environment.diffuse_map.clone(),
-            false,
-        ),
+    let candidates = [
+        ("sky-specular".to_owned(), environment.specular_map.clone()),
+        ("sky-diffuse".to_owned(), environment.diffuse_map.clone()),
     ];
-    candidates.extend(
-        fields
-            .cascades
-            .iter()
-            .enumerate()
-            .map(|(i, c)| (format!("ddgi-{i}"), c.image.clone(), true)),
-    );
-    for (label, image, field) in candidates {
-        let Some(source) = images.get(&image) else {
+    for (label, image) in candidates {
+        let Some(_) = images.get(&image) else {
             continue;
         };
-        let width = source.texture_descriptor.size.width as usize;
         commands
             .spawn((
                 Readback::texture(image),
                 Sample {
                     label,
-                    width,
-                    height: source.texture_descriptor.size.height as usize,
-                    field,
                     output: output.clone(),
                 },
             ))
@@ -130,7 +106,6 @@ fn sample(
     event: On<ReadbackComplete>,
     tags: Query<&Sample>,
     mut samples: ResMut<Samples>,
-    gi: Res<super::static_gi::StaticGiStats>,
     mut commands: Commands,
 ) {
     let Ok(tag) = tags.get(event.entity) else {
@@ -140,33 +115,9 @@ fn sample(
     let mut rgb_sum = [0.0f64; 3];
     let mut rgb_peak = [0.0f32; 3];
     let mut nonfinite = 0usize;
-    for (index, texel) in event.data.chunks_exact(8).enumerate() {
-        if tag.field {
-            let tile = super::static_gi::PROBE_TILE;
-            let x = index % tag.width;
-            let y = (index / tag.width) % tag.height;
-            let z = index / (tag.width * tag.height);
-            if x % (tile.x as usize) + y % (tile.y as usize) * (tile.x as usize) >= 64 {
-                continue;
-            }
-            let state = z * tag.width * tag.height
-                + (y / (tile.y as usize) * (tile.y as usize) + 192 / (tile.x as usize)) * tag.width
-                + x / (tile.x as usize) * (tile.x as usize)
-                + 192 % (tile.x as usize);
-            let alpha = state * 8 + 6;
-            if half(u16::from_le_bytes([
-                event.data[alpha],
-                event.data[alpha + 1],
-            ])) <= 0.
-            {
-                continue;
-            }
-        }
-        let mut rgb: [f32; 3] =
+    for texel in event.data.chunks_exact(8) {
+        let rgb: [f32; 3] =
             std::array::from_fn(|i| half(u16::from_le_bytes([texel[i * 2], texel[i * 2 + 1]])));
-        if tag.field {
-            rgb = rgb.map(|v| v.powi(5) * 2.);
-        }
         if rgb.iter().all(|value| value.is_finite()) {
             for channel in 0..3 {
                 rgb_sum[channel] += f64::from(rgb[channel]);
@@ -182,8 +133,7 @@ fn sample(
     let data = serde_json::json!({"samples":count,"nonfinite":nonfinite,"mean_radiance":values.iter().sum::<f32>() / count.max(1) as f32,
         "mean_rgb":rgb_sum.map(|v| v / count.max(1) as f64),"peak_rgb":rgb_peak,
         "median_radiance":values.get(count / 2),"p99_radiance":values.get(count.saturating_sub(1) * 99 / 100),"max_radiance":values.last(),
-        "ddgi_probe_batches":gi.updates(),
-        "quantity":if tag.field { "diffuse_irradiance_over_pi" } else { "environment_radiance" }});
+        "quantity":"environment_radiance"});
     info!("GPU lighting sample {}: {}", tag.label, data);
     samples.0.insert(tag.label.clone(), data);
     if let Err(error) = std::fs::write(

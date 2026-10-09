@@ -10,7 +10,6 @@ use bevy::{
     light::NotShadowCaster,
     prelude::*,
 };
-mod budget;
 mod first_person;
 pub(crate) mod grading;
 mod lighting_inspection;
@@ -19,25 +18,16 @@ mod pbr;
 pub(crate) mod postprocess;
 mod preprocessing;
 pub(crate) mod profile;
-mod ray_skin;
-mod ray_surface;
 mod readback_shutdown;
 mod residency;
-mod shadow_cache;
 mod shadows;
 mod sky;
-mod sky_lighting;
-mod static_gi;
 mod streaming;
 pub(crate) use first_person::FirstPersonDepthStats;
 pub(crate) use opaque::OpaqueSurfaceStatus;
 pub(crate) use opaque::{LAYER_UV, LAYER3_UV, ROTATION1, ROTATION2};
 pub(crate) use pbr::PbrReady;
 pub(crate) use preprocessing::PreprocessingStatus;
-pub(crate) use ray_skin::RayContributorStats;
-pub(crate) use ray_surface::RaySurfaceStats;
-pub(crate) use shadow_cache::ShadowCacheStats;
-pub(crate) use static_gi::StaticGiStats;
 pub(crate) use streaming::{ForegroundTexture, TextureUse};
 pub(crate) use streaming::{TextureStreamingStats, TextureStreams};
 
@@ -72,11 +62,8 @@ impl Plugin for GameRenderingPlugin {
             .add_plugins(MaterialPlugin::<pbr::DiagnosticMaterial>::default())
             .add_plugins(preprocessing::PreprocessingPlugin)
             .add_plugins(streaming::TextureStreamingPlugin)
-            .add_plugins((shadow_cache::ShadowCachePlugin, residency::ResidencyPlugin))
+            .add_plugins(residency::ResidencyPlugin)
             .init_resource::<profile::VisualProfile>()
-            .init_resource::<budget::RenderBudget>()
-            .add_plugins(sky_lighting::SkyLightingPlugin)
-            .add_plugins(static_gi::StaticGiPlugin)
             .add_plugins(lighting_inspection::LightingInspectionPlugin)
             .add_plugins(readback_shutdown::ReadbackShutdownPlugin)
             .init_resource::<OpaqueSurfaceStatus>()
@@ -86,17 +73,16 @@ impl Plugin for GameRenderingPlugin {
             .add_systems(Startup, cluster_capacity)
             .add_systems(
                 PostUpdate,
-                shadows::stabilize
-                    .after(bevy::light::cascade::build_directional_light_cascades)
-                    .before(bevy::light::SimulationLightSystems::UpdateLightFrusta),
+                shadows::select_local_lights
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .before(bevy::light::SimulationLightSystems::AssignLightsToClusters)
+                    .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
             )
             .add_systems(
                 Update,
                 (
                     camera_follow,
                     sky::viewmodel_environment,
-                    sky::prepare,
-                    shadows::prepare.before(opaque::prepare_shaders),
                     opaque::prepare_shaders,
                     (pbr::prepare, surfaces, fixture_lights, opaque::convert).chain(),
                 ),
@@ -136,20 +122,18 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
             illuminance: profile.sun_illuminance,
             color: profile::color(profile.sun_color),
             affects_lightmapped_mesh_diffuse: true,
-            soft_shadow_size: Some(0.00465),
             contact_shadows_enabled: true,
             shadow_maps_enabled: true,
-            // Bound receiver displacement below this map's thin occluders;
-            // the PCSS path separately compensates its texel footprint.
+            // Small native receiver bias preserves thin wall occluders.
             shadow_depth_bias: 0.002,
             // Bias is in texels: scale with map resolution to retain
             // the accepted world-space displacement at thin blockers.
-            shadow_normal_bias: 0.5,
+            shadow_normal_bias: 0.25,
             ..default()
         },
-        bevy::light::VolumetricLight,
         bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
         bevy::light::CascadeShadowConfigBuilder {
+            num_cascades: 3,
             maximum_distance: profile.sun_shadow_distance,
             first_cascade_far_bound: 12.,
             ..default()
@@ -167,9 +151,9 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
         Camera3d::default(),
         bevy::pbr::ScreenSpaceTransmission::default(),
         GameCamera,
-        // Preserve native depth for AO. GPU frustum culling and indirect
-        // batching retain CPU visibility admission. Two-phase occlusion
-        // regressed the matched ordinary executable and stays disabled.
+        bevy::light::ShadowFilteringMethod::Gaussian,
+        // Native depth supports SSAO and contact shadows. Bevy handles
+        // frustum culling and indirect batching on supported devices.
         DepthPrepass,
         Transform::from_xyz(0., 2., 0.),
         Hdr,
@@ -371,18 +355,15 @@ fn fixture_lights(
                         // toward a lamp, enough to cross this map's thin walls.
                         shadow_depth_bias: 0.005,
                         // Preserve physical receiver displacement with the
-                        // higher-resolution local maps (bias is in texels).
-                        shadow_normal_bias: 0.6,
-                        shadow_maps_enabled: true,
-                        soft_shadows_enabled: true,
+                        // local maps (bias is in texels).
+                        shadow_normal_bias: 0.3,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     Transform::from_translation(Vec3::from(bounds.center)),
                     LanternLight,
+                    Visibility::Hidden,
                     bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
-                    // Native light-sphere visibility bounds raster/shadow work.
-                    // Shadow caching validates remapped texture-slot ownership;
-                    // the separate ray-light query retains off-screen transport.
                     Name::new("Origins warm lantern"),
                 ));
             });

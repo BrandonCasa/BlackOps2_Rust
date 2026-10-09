@@ -59,7 +59,6 @@ pub struct LaunchOptions {
     pub verify_claymores: bool,
     pub verify_monkeys: bool,
     pub verify_equipment_refills: bool,
-    pub uncached_shadows: bool,
     pub mesh_preprocessing: MeshPreprocessing,
     pub error: Option<String>,
 }
@@ -239,12 +238,7 @@ impl LaunchOptions {
             }
             let mut preprocessing_override = false;
             for remaining in args.by_ref() {
-                if result.benchmark && remaining == "--uncached-shadows" && !result.uncached_shadows
-                {
-                    result.uncached_shadows = true;
-                } else if result.benchmark
-                    && remaining == "--cpu-preprocessing"
-                    && !preprocessing_override
+                if result.benchmark && remaining == "--cpu-preprocessing" && !preprocessing_override
                 {
                     result.mesh_preprocessing = MeshPreprocessing::Cpu;
                     preprocessing_override = true;

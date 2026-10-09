@@ -3,7 +3,7 @@ use crate::{
     GameState,
     assets::{GameDefinition, LaunchOptions},
     player::Player,
-    rendering::{ForegroundTexture, ShadowCacheStats, TextureStreamingStats, TextureStreams},
+    rendering::{ForegroundTexture, TextureStreamingStats, TextureStreams},
     weapons::{WeaponAction, WeaponInventory},
 };
 use bevy::{
@@ -75,7 +75,6 @@ fn observe(
     definition: Option<Res<GameDefinition>>,
     streams: Res<TextureStreams>,
     streaming: Res<TextureStreamingStats>,
-    cache: Res<ShadowCacheStats>,
     exposure: Query<Entity, With<AutoExposure>>,
     casters: Query<
         (
@@ -304,13 +303,9 @@ fn observe(
     } else {
         sun_admitted
     };
-    let stats = cache.report();
-    let passed = all_excluded
-        && admitted
-        && stats["rendered_directional_cascades"].as_u64().unwrap_or(0) > 0
-        && stats["rendered_cube_faces"].as_u64().unwrap_or(0) > 0;
+    let passed = all_excluded && admitted;
     let label = LABELS[run.stage];
-    let row = serde_json::json!({"case":label,"material_debug":options.material_debug,"automatic_exposure_cameras":exposure.iter().count(),"player_pose":players.iter().map(|(player,body,inventory)|serde_json::json!({"position":body.translation.to_array(),"yaw":player.yaw,"pitch":player.pitch,"action":format!("{:?}",inventory.action)})).collect::<Vec<_>>(),"native_admission_passed":passed,"casters":visible.iter().map(|e|e.to_bits()).collect::<Vec<_>>(),"sun":sun_rows,"points":point_rows,"shadow_cache":stats,"streaming":&*streaming});
+    let row = serde_json::json!({"case":label,"material_debug":options.material_debug,"automatic_exposure_cameras":exposure.iter().count(),"player_pose":players.iter().map(|(player,body,inventory)|serde_json::json!({"position":body.translation.to_array(),"yaw":player.yaw,"pitch":player.pitch,"action":format!("{:?}",inventory.action)})).collect::<Vec<_>>(),"native_admission_passed":passed,"casters":visible.iter().map(|e|e.to_bits()).collect::<Vec<_>>(),"sun":sun_rows,"points":point_rows,"streaming":&*streaming});
     let _ = std::fs::write(run.output.join(format!("{label}.json")), row.to_string());
     commands
         .spawn(Screenshot::primary_window())
@@ -341,7 +336,7 @@ fn finish(commands: &mut Commands, run: &Run, stats: &TextureStreamingStats, pas
     } else {
         "viewmodel-shadows.json"
     };
-    let _ = std::fs::write(run.output.join(name), serde_json::json!({"world_actors":run.actor,"native_admission_passed":passed,"scope":"native shadow caster admission, rendered pass/cache counters and frozen on/off/restored screenshots; inspect receiver occlusion in captures","cases":run.rows,"streaming":stats}).to_string());
+    let _ = std::fs::write(run.output.join(name), serde_json::json!({"world_actors":run.actor,"native_admission_passed":passed,"scope":"native shadow caster admission and frozen on/off/restored screenshots; inspect receiver occlusion in captures","cases":run.rows,"streaming":stats}).to_string());
     commands.write_message(if passed {
         AppExit::Success
     } else {
