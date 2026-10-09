@@ -149,7 +149,8 @@ impl Plugin for GeneratorPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                defenders
+                (clear_defenders, defenders)
+                    .chain()
                     .in_set(GameStep::Zombies)
                     .after(tick)
                     .run_if(in_state(GameState::Playing)),
@@ -219,6 +220,26 @@ fn defender_intent(
         }
     }
 }
+fn clear_defenders(
+    mut generators: ResMut<Generators>,
+    mut defenders: Query<
+        (&mut Vitality, &GeneratorDefender),
+        (With<crate::enemies::Zombie>, With<Transform>),
+    >,
+) {
+    for (mut health, guard) in &mut defenders {
+        if generators
+            .sites
+            .get(&guard.generator)
+            .is_none_or(|s| s.state != GeneratorState::Capturing)
+            && health.state() == LifeState::ActorAlive
+            && let Ok(damage) = crate::life::ResolvedDamage::new(health.current().unwrap_or(1))
+        {
+            let _ = health.apply(damage);
+            generators.defenders_cleared += 1;
+        }
+    }
+}
 fn defenders(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
@@ -228,31 +249,12 @@ fn defenders(
     navigation: Res<crate::navigation::Navigation>,
     access: Res<crate::access::ZoneAccess>,
     query: avian3d::prelude::SpatialQuery,
-    mut actors: Query<
-        (
-            Entity,
-            &mut Vitality,
-            &Transform,
-            Option<&GeneratorDefender>,
-        ),
+    actors: Query<
+        (&Vitality, &Transform, Option<&GeneratorDefender>),
         With<crate::enemies::Zombie>,
     >,
 ) {
     use avian3d::prelude::ColliderDisabled;
-    for (_, mut health, _, guard) in &mut actors {
-        if guard.is_some_and(|g| {
-            generators
-                .sites
-                .get(&g.generator)
-                .is_none_or(|s| s.state != GeneratorState::Capturing)
-        }) && health.state() == LifeState::ActorAlive
-        {
-            if let Ok(damage) = crate::life::ResolvedDamage::new(health.current().unwrap_or(1)) {
-                let _ = health.apply(damage);
-                generators.defenders_cleared += 1;
-            }
-        }
-    }
     generators.spawn_clock -= time.delta_secs();
     if generators.spawn_clock > 0. {
         return;
@@ -268,11 +270,11 @@ fn defenders(
     let id = id.clone();
     let alive: Vec<_> = actors
         .iter()
-        .filter(|(_, v, _, _)| v.state() == LifeState::ActorAlive)
+        .filter(|(v, _, _)| v.state() == LifeState::ActorAlive)
         .collect();
     let slots: Vec<_> = alive
         .iter()
-        .filter_map(|(_, _, _, g)| g.filter(|g| g.generator == id).map(|g| g.slot))
+        .filter_map(|(_, _, g)| g.filter(|g| g.generator == id).map(|g| g.slot))
         .collect();
     if slots.len() >= 4 || alive.len() >= definition.rounds.actor_cap as usize {
         return;
@@ -299,7 +301,7 @@ fn defenders(
     };
     let position = base + Vec3::Y * 0.85;
     let shape = crate::player::capsule(0.3, 1.7);
-    if alive.iter().any(|(_, _, t, _)| {
+    if alive.iter().any(|(_, t, _)| {
         (t.translation - position).xz().length_squared() < 0.5625
             && (t.translation.y - position.y).abs() < 1.
     }) || !query
@@ -497,7 +499,7 @@ fn presentation(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut graph_cache: ResMut<GeneratorGraphs>,
     mut visuals: Query<(Entity, &mut GeneratorVisual)>,
-    mut players: Query<(&mut AnimationPlayer, Option<&GeneratorPlayback>)>,
+    mut players: Query<(&mut AnimationPlayer, Has<GeneratorPlayback>)>,
     audio: Query<(Entity, &GeneratorAudio)>,
 ) {
     let _span = info_span!("generator_presentation").entered();
@@ -656,7 +658,7 @@ fn presentation(
             let Ok((mut player, attached)) = players.get_mut(child) else {
                 continue;
             };
-            if attached.is_none() {
+            if !attached {
                 commands
                     .entity(child)
                     .insert((AnimationGraphHandle(graph.clone()), GeneratorPlayback));

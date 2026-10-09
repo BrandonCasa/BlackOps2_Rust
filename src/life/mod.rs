@@ -595,11 +595,9 @@ impl LifeCommandQueue {
     }
 
     pub fn retire_pending_target(&mut self, target: Entity) -> Vec<LifeCommandRequest> {
-        let (retired, retained) = std::mem::take(&mut self.pending)
-            .into_iter()
-            .partition(|request| request.target == target);
-        self.pending = retained;
-        retired
+        self.pending
+            .extract_if(.., |request| request.target == target)
+            .collect()
     }
 }
 

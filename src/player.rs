@@ -9,7 +9,18 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 #[derive(Component)]
-#[require(RigidBody::Kinematic, CustomPositionIntegration)]
+#[require(
+    RigidBody::Kinematic,
+    CustomPositionIntegration,
+    SessionEntity = SessionEntity,
+    crate::environment::TerrainMotion,
+    crate::movement::MotionFeedback,
+    crate::player_health::Recovery,
+    crate::solo_revive::PerkInventory,
+    crate::perk_effects::CherryState,
+    crate::mines::MineInventory,
+    crate::equipment::TacticalInventory,
+)]
 pub struct Player {
     pub yaw: f32,
     pub pitch: f32,
@@ -91,19 +102,10 @@ fn spawn_player(
             eye_height: definition.tuning.eye_height,
         },
         capsule(definition.tuning.radius, height),
-        (
-            crate::movement::SprintState::new(definition.tuning.sprint_seconds),
-            crate::movement::Mobility::new(definition.tuning.eye_height),
-            crate::environment::TerrainMotion::default(),
-            crate::movement::MotionFeedback::default(),
-        ),
+        crate::movement::SprintState::new(definition.tuning.sprint_seconds),
+        crate::movement::Mobility::new(definition.tuning.eye_height),
         vitality,
-        crate::player_health::Recovery::default(),
-        crate::solo_revive::PerkInventory::default(),
-        crate::perk_effects::CherryState::default(),
         inventory,
-        crate::mines::MineInventory::default(),
-        crate::equipment::TacticalInventory::default(),
         crate::equipment::GrenadeInventory::new(
             crate::origins::content::WeaponId("weapon.frag_grenade_zm".into()),
             definition
@@ -114,7 +116,6 @@ fn spawn_player(
                 .and_then(|w| w.throwable.as_ref())
                 .expect("validated starting grenade"),
         ),
-        SessionEntity,
         Transform::from_translation(Vec3::from_array(definition.spawn) + Vec3::Y * (height * 0.5)),
         Name::new("Player"),
     ));
@@ -170,7 +171,6 @@ pub fn move_player(
     )>,
     mut commands: Commands,
     slide: MoveAndSlide,
-    query: SpatialQuery,
     mut landings: MessageWriter<crate::movement::Landing>,
     mut evidence: ResMut<crate::movement::MovementEvidence>,
 ) {
@@ -304,7 +304,7 @@ pub fn move_player(
     }
     player.crouched = mobility.stance != crate::movement::Stance::Standing || downed;
     player.prone = mobility.stance == crate::movement::Stance::Prone && !downed;
-    let ground = query.cast_shape(
+    let ground = slide.spatial_query.cast_shape(
         &collider,
         transform.translation,
         Quat::IDENTITY,
@@ -312,7 +312,7 @@ pub fn move_player(
         &ShapeCastConfig::from_max_distance(0.13),
         &filter,
     );
-    let support = query.cast_ray(
+    let support = slide.spatial_query.cast_ray(
         transform.translation - Vec3::Y * (player.height * 0.5 - 0.1),
         Dir3::NEG_Y,
         0.25,
@@ -476,7 +476,7 @@ pub fn move_player(
     }
     let result = slide_character(
         &slide,
-        &query,
+        &slide.spatial_query,
         MotionShape {
             collider: &collider,
             radius: tuning.radius,

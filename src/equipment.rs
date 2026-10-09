@@ -298,7 +298,7 @@ pub(crate) fn throw_input(
         &mut WeaponInventory,
         &crate::mines::MineInventory,
         &mut TacticalInventory,
-        Option<&crate::perks::PerkDrinking>,
+        Has<crate::perks::PerkDrinking>,
     )>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
@@ -314,7 +314,7 @@ pub(crate) fn throw_input(
         drinking,
     ) in &mut players
     {
-        if health.state() != LifeState::Standing || drinking.is_some() {
+        if health.state() != LifeState::Standing || drinking {
             continue;
         }
         for tactical_slot in [false, true] {
@@ -499,8 +499,8 @@ fn flight(
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     mut grenades: Query<(Entity, &mut Grenade, &mut Transform)>,
-    targets: Query<(&Vitality, &Transform, Option<&Player>), Without<Grenade>>,
-    poses: Query<(&Transform, &GlobalTransform, Option<&ChildOf>), Without<Grenade>>,
+    targets: Query<(), (With<Vitality>, With<Transform>, Without<Grenade>)>,
+    poses: Query<(&Transform, &GlobalTransform, Has<ChildOf>), Without<Grenade>>,
     surfaces: Query<&crate::audio::SurfaceSound>,
     query: SpatialQuery,
     mut blasts: ResMut<BlastQueue>,
@@ -529,7 +529,7 @@ fn flight(
         } = grenade.motion
         {
             if let Ok((local, global, parent)) = poses.get(target) {
-                let pose = if parent.is_none() {
+                let pose = if !parent {
                     *local
                 } else {
                     global.compute_transform()
@@ -588,7 +588,7 @@ fn flight(
                         transform.rotation = Quat::from_rotation_arc(Vec3::Y, normal);
                         grenade.motion = if let Ok((local, global, parent)) = poses.get(hit.entity)
                         {
-                            let pose = if parent.is_none() {
+                            let pose = if !parent {
                                 *local
                             } else {
                                 global.compute_transform()
@@ -677,7 +677,7 @@ pub(crate) fn resolve_blasts(
     game: Res<GameDefinition>,
     mut queue: ResMut<BlastQueue>,
     query: SpatialQuery,
-    targets: Query<(Entity, &Vitality, &Transform, Option<&Player>)>,
+    targets: Query<(Entity, &Vitality, &Transform, Has<Player>)>,
     mut impacts: ResMut<crate::damage::DamageQueue>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -738,12 +738,12 @@ pub(crate) fn resolve_blasts(
                 region: HitRegion::Torso,
                 amount: damage,
             });
-            if player.is_some() {
+            if player {
                 evidence.self_impacts += 1;
             } else {
                 evidence.enemy_impacts += 1;
             }
-            evidence.record(serde_json::json!({"event":"blast_impact","target":target.to_bits(),"self":player.is_some(),"distance":distance,"damage":damage}));
+            evidence.record(serde_json::json!({"event":"blast_impact","target":target.to_bits(),"self":player,"distance":distance,"damage":damage}));
         }
         commands.spawn((
             SessionEntity,

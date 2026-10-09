@@ -409,7 +409,7 @@ fn animate(
     mut boards: Query<(Entity, &mut BoardVisual, &mut Visibility)>,
     children: Query<&Children>,
     names: Query<&Name>,
-    mut players: Query<(&mut AnimationPlayer, Option<&BoardPlayback>)>,
+    mut players: Query<(&mut AnimationPlayer, Has<BoardPlayback>)>,
 ) {
     let Some(definition) = definition else {
         return;
@@ -467,7 +467,7 @@ fn animate(
             let Ok((mut player, attached)) = players.get_mut(child) else {
                 continue;
             };
-            if attached.is_none() {
+            if !attached {
                 commands
                     .entity(child)
                     .insert((AnimationGraphHandle(graph.clone()), BoardPlayback));

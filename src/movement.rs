@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct SprintState {
     pub remaining: f32,
     pub capacity: f32,
@@ -14,11 +14,7 @@ impl SprintState {
         Self {
             remaining: capacity,
             capacity,
-            sprinting: false,
-            exhausted: false,
-            recovery_age: 0.,
-            last_run_seconds: 0.,
-            active_seconds: 0.,
+            ..default()
         }
     }
     pub fn update(
@@ -162,7 +158,7 @@ pub enum Stance {
 pub struct Dive {
     pub direction: Vec3,
 }
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct Mobility {
     pub stance: Stance,
     pub dive: Option<Dive>,
@@ -177,15 +173,8 @@ pub struct Mobility {
 impl Mobility {
     pub fn new(eye: f32) -> Self {
         Self {
-            stance: Stance::Standing,
-            dive: None,
-            recovery: 0.,
-            jump_recovery: 0.,
-            airborne: false,
-            peak: 0.,
-            fall_speed: 0.,
             previous_eye: eye,
-            landing_dip: 0.,
+            ..default()
         }
     }
     pub fn busy(&self) -> bool {

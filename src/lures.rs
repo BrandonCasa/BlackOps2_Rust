@@ -93,13 +93,7 @@ pub fn install(app: &mut App) {
 fn assign(
     definition: Res<GameDefinition>,
     bombs: Query<(Entity, &Grenade, &Transform)>,
-    enemies: Query<(
-        Entity,
-        &crate::enemies::Zombie,
-        &Transform,
-        &Vitality,
-        &PopulationKind,
-    )>,
+    enemies: Query<(Entity, &Transform, &Vitality, &PopulationKind), With<crate::enemies::Zombie>>,
     query: SpatialQuery,
     players: Query<(), With<crate::player::Player>>,
     mut attractions: ResMut<Attractions>,
@@ -145,12 +139,10 @@ fn assign(
     let mut next = BTreeMap::new();
     let mut candidates: Vec<_> = enemies
         .iter()
-        .filter(|(_, _, _, v, k)| {
-            v.state() == LifeState::ActorAlive && **k != PopulationKind::Special
-        })
+        .filter(|(_, _, v, k)| v.state() == LifeState::ActorAlive && **k != PopulationKind::Special)
         .collect();
     candidates.sort_by_key(|(entity, ..)| entity.to_bits());
-    for (entity, _, pose, _, _) in candidates {
+    for (entity, pose, _, _) in candidates {
         let selected = active
             .iter()
             .enumerate()

@@ -198,8 +198,10 @@ fn begin(
             .expect("validated downed weapon");
         inventory.cancel_action();
         let lost_weapon = inventory.set_third_slot(false, &definition.content.weapons);
-        let backup = inventory.clone();
-        *inventory = WeaponInventory::temporary(weapon, profile.reserve_clips);
+        let backup = std::mem::replace(
+            &mut *inventory,
+            WeaponInventory::temporary(weapon, profile.reserve_clips),
+        );
         perks.owned.clear();
         let timing = BleedoutTiming::new(
             Duration::from_secs_f32(profile.bleedout_seconds),
@@ -300,7 +302,7 @@ pub(crate) fn finish(
                 episode.token = Some(token);
             }
             Ok(LifeCommandOutcome::Revived { current, maximum }) => {
-                *inventory = episode.backup.clone();
+                *inventory = std::mem::take(&mut episode.backup);
                 inventory.cancel_action();
                 let _ = inventory.set_third_slot(false, &definition.content.weapons);
                 perks.solo_charges = perks.solo_charges.saturating_sub(1);

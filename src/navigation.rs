@@ -469,15 +469,13 @@ fn refresh(
     definition: Res<GameDefinition>,
     access: Res<ZoneAccess>,
     query: SpatialQuery,
-    players: Query<(Entity, &Transform), With<Player>>,
+    player: Single<(Entity, &Transform), With<Player>>,
     blockers: Query<Entity, Or<(With<DoorBlocker>, With<crate::barriers::BarrierBlocker>)>>,
     actors: Query<Entity, With<crate::enemies::Zombie>>,
     zone: Res<crate::access::CurrentZone>,
     slide: MoveAndSlide,
 ) {
-    let Ok((owner, pose)) = players.single() else {
-        return;
-    };
+    let (owner, pose) = player.into_inner();
     if nav.nodes.is_empty() {
         nav.warmup += 1;
         if nav.warmup < 3 {

@@ -36,6 +36,15 @@ pub enum InteractionRejection {
     Unavailable,
     Duplicate,
 }
+impl From<PurchaseError<Self>> for InteractionRejection {
+    fn from(error: PurchaseError<Self>) -> Self {
+        match error {
+            PurchaseError::InsufficientPoints => Self::InsufficientPoints,
+            PurchaseError::Duplicate => Self::Duplicate,
+            PurchaseError::Rejected(reason) => reason,
+        }
+    }
+}
 pub struct InteractionPlugin;
 #[derive(Resource, Default)]
 struct WallMaterials(HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>);
@@ -188,8 +197,8 @@ pub(crate) fn interact(
         &mut crate::equipment::GrenadeInventory,
         &mut crate::mines::MineInventory,
         &mut crate::equipment::TacticalInventory,
-        &mut crate::solo_revive::PerkInventory,
-        Option<&crate::perks::PerkDrinking>,
+        &crate::solo_revive::PerkInventory,
+        Has<crate::perks::PerkDrinking>,
     )>,
     mut focus: ResMut<InteractionFocus>,
     mut ledger: ResMut<PointLedger>,
@@ -308,7 +317,7 @@ pub(crate) fn interact(
                 || grenades.busy()
                 || mines.busy()
                 || tactical.busy()
-                || drinking.is_some()
+                || drinking
             {
                 return Err(InteractionRejection::Busy);
             }
@@ -319,11 +328,7 @@ pub(crate) fn interact(
                 focus.accepted += 1;
                 None
             }
-            Err(PurchaseError::InsufficientPoints) => {
-                Some(InteractionRejection::InsufficientPoints)
-            }
-            Err(PurchaseError::Duplicate) => Some(InteractionRejection::Duplicate),
-            Err(PurchaseError::Rejected(reason)) => Some(reason),
+            Err(error) => Some(error.into()),
         };
         return;
     }
@@ -336,7 +341,7 @@ pub(crate) fn interact(
             || grenades.busy()
             || mines.busy()
             || tactical.busy()
-            || drinking.is_some()
+            || drinking
             || input.fire_held
         {
             focus.progress = 0.;
@@ -410,13 +415,7 @@ pub(crate) fn interact(
                 focus.rejection = None;
                 focus.prompt.clear();
             }
-            Err(PurchaseError::InsufficientPoints) => {
-                focus.rejection = Some(InteractionRejection::InsufficientPoints)
-            }
-            Err(PurchaseError::Duplicate) => {
-                focus.rejection = Some(InteractionRejection::Duplicate)
-            }
-            Err(PurchaseError::Rejected(reason)) => focus.rejection = Some(reason),
+            Err(error) => focus.rejection = Some(error.into()),
         }
         return;
     }
@@ -443,7 +442,7 @@ pub(crate) fn interact(
                 || grenades.busy()
                 || mines.busy()
                 || tactical.busy()
-                || drinking.is_some()
+                || drinking
             {
                 return Err(InteractionRejection::Busy);
             }
@@ -462,11 +461,7 @@ pub(crate) fn interact(
                 focus.accepted += 1;
                 None
             }
-            Err(PurchaseError::InsufficientPoints) => {
-                Some(InteractionRejection::InsufficientPoints)
-            }
-            Err(PurchaseError::Duplicate) => Some(InteractionRejection::Duplicate),
-            Err(PurchaseError::Rejected(reason)) => Some(reason),
+            Err(error) => Some(error.into()),
         };
         return;
     }
@@ -523,7 +518,7 @@ pub(crate) fn interact(
             || grenades.busy()
             || mines.busy()
             || tactical.busy()
-            || drinking.is_some()
+            || drinking
         {
             return Err(InteractionRejection::Busy);
         }
@@ -583,8 +578,6 @@ pub(crate) fn interact(
             );
             None
         }
-        Err(PurchaseError::InsufficientPoints) => Some(InteractionRejection::InsufficientPoints),
-        Err(PurchaseError::Duplicate) => Some(InteractionRejection::Duplicate),
-        Err(PurchaseError::Rejected(reason)) => Some(reason),
+        Err(error) => Some(error.into()),
     };
 }

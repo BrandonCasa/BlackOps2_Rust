@@ -164,7 +164,7 @@ fn place(
         &mut crate::weapons::WeaponInventory,
         &crate::equipment::GrenadeInventory,
         &crate::equipment::TacticalInventory,
-        Option<&crate::perks::PerkDrinking>,
+        Has<crate::perks::PerkDrinking>,
     )>,
     mut evidence: ResMut<MineEvidence>,
 ) {
@@ -185,7 +185,7 @@ fn place(
         else {
             continue;
         };
-        if vitality.state() != LifeState::Standing || drinking.is_some() {
+        if vitality.state() != LifeState::Standing || drinking {
             inventory.placing = false;
             inventory.remaining = 0.;
             continue;

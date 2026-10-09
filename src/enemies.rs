@@ -209,8 +209,6 @@ struct ActorMesh {
 }
 #[derive(Component)]
 struct HasActor;
-#[derive(Component)]
-struct ActorLit;
 #[derive(Resource, Default)]
 struct Graphs(
     HashMap<AssetId<Gltf>, (Handle<AnimationGraph>, BTreeMap<String, AnimationNodeIndex>)>,
@@ -243,7 +241,6 @@ impl Plugin for EnemyPlugin {
                     spawn_actors,
                     graphs,
                     attach_parts,
-                    light_materials,
                     admit_ready,
                     animate.in_set(EnemyAnimationPlayback),
                 )
@@ -273,7 +270,7 @@ pub(crate) fn lifecycle(
     mut navigation: ResMut<Navigation>,
     access: Res<crate::access::ZoneAccess>,
     attractions: Res<crate::lures::Attractions>,
-    players: Query<(Entity, &Transform, &Vitality), (With<Player>, Without<Zombie>)>,
+    player: Single<(Entity, &Transform, &Vitality), (With<Player>, Without<Zombie>)>,
     mut enemies: Query<
         (
             Entity,
@@ -281,7 +278,7 @@ pub(crate) fn lifecycle(
             &mut Transform,
             &Collider,
             &Vitality,
-            Option<&ActorReady>,
+            Has<ActorReady>,
         ),
         Without<Player>,
     >,
@@ -293,9 +290,7 @@ pub(crate) fn lifecycle(
     server: Res<AssetServer>,
     goals: Query<&EnemyGoal>,
 ) {
-    let Ok((player_entity, player_transform, health)) = players.single() else {
-        return;
-    };
+    let (player_entity, player_transform, health) = player.into_inner();
     let dt = time.delta_secs();
     let mut positions: Vec<_> = enemies
         .iter()
@@ -315,7 +310,7 @@ pub(crate) fn lifecycle(
             barriers.release(entity);
             continue;
         }
-        if ready.is_none() {
+        if !ready {
             continue;
         }
         if zombie.stunned > 0. {
@@ -840,35 +835,33 @@ fn spawn_actors(
             };
             let body = socket.is_none();
             let source = server.load(scene.split('#').next().unwrap_or(scene).to_owned());
-            let root = commands
-                .spawn((
-                    WorldAssetRoot(server.load(scene.to_owned())),
-                    ActorRig {
-                        presentation: id.clone(),
-                        owner,
-                        source,
-                        socket,
-                        partial_root,
-                        ready: false,
-                        attached: body,
-                        players: Vec::new(),
-                        sockets: HashMap::new(),
-                        action: None,
-                        clip: None,
-                    },
-                    if body {
-                        Transform::from_xyz(0., -0.85, 0.)
-                    } else {
-                        Transform::default()
-                    },
-                    if body {
-                        Visibility::Inherited
-                    } else {
-                        Visibility::Hidden
-                    },
-                ))
-                .id();
-            commands.entity(owner).add_child(root);
+            commands.spawn((
+                ChildOf(owner),
+                WorldAssetRoot(server.load(scene.to_owned())),
+                ActorRig {
+                    presentation: id.clone(),
+                    owner,
+                    source,
+                    socket,
+                    partial_root,
+                    ready: false,
+                    attached: body,
+                    players: Vec::new(),
+                    sockets: HashMap::new(),
+                    action: None,
+                    clip: None,
+                },
+                if body {
+                    Transform::from_xyz(0., -0.85, 0.)
+                } else {
+                    Transform::default()
+                },
+                if body {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                },
+            ));
         }
         commands.entity(owner).insert(HasActor);
         evidence.variants.insert(zombie.definition.0.clone());
@@ -996,28 +989,13 @@ fn attach_parts(
         let Ok((_, mut rig)) = rigs.get_mut(entity) else {
             continue;
         };
-        commands.entity(parent).add_child(entity);
         commands.entity(entity).insert((
+            ChildOf(parent),
             Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
             Visibility::Inherited,
         ));
         rig.attached = true;
         evidence.attached_heads += 1;
-    }
-}
-fn light_materials(
-    mut commands: Commands,
-    meshes: Query<
-        Entity,
-        (
-            With<ActorMesh>,
-            Without<ActorLit>,
-            With<crate::rendering::PbrReady>,
-        ),
-    >,
-) {
-    for entity in &meshes {
-        commands.entity(entity).insert(ActorLit);
     }
 }
 fn admit_ready(
@@ -1027,9 +1005,9 @@ fn admit_ready(
     cache: Res<Graphs>,
 ) {
     for owner in &enemies {
-        let parts: Vec<_> = rigs.iter().filter(|r| r.owner == owner).collect();
-        if !parts.is_empty()
-            && parts.iter().all(|r| {
+        let mut parts = rigs.iter().filter(|r| r.owner == owner).peekable();
+        if parts.peek().is_some()
+            && parts.all(|r| {
                 r.ready
                     && r.attached
                     && !r.players.is_empty()
