@@ -136,6 +136,11 @@ try {
     $receipt = Get-Content -LiteralPath $completionPath -Raw | ConvertFrom-Json
     if ($receipt.passed -ne $true) { throw 'Actual game completion receipt did not pass' }
     $performance = Get-Content -LiteralPath "$outputPath/performance.json" -Raw | ConvertFrom-Json
+    if ($performance.run_environment.continuous_window_updates -ne $true -or
+        $performance.run_environment.display_sleep_inhibited -ne $true -or
+        $performance.run_environment.system_sleep_inhibited -ne $true) {
+        throw 'Profiling lacks active focus/display/system sleep protection; rebuild the executable'
+    }
     if ($performance.build_profile -ne $buildProfile) {
         throw "Expected $buildProfile executable; measurement receipt reports a different profile"
     }

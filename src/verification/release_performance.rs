@@ -243,8 +243,12 @@ fn record(
     audio: Res<crate::audio::AudioDecodeStats>,
     profile: Res<crate::rendering::profile::VisualProfile>,
     preprocessing: Res<crate::rendering::PreprocessingStatus>,
-    contributors: Res<crate::rendering::RayContributorStats>,
+    run_context: (
+        Res<crate::rendering::RayContributorStats>,
+        Res<crate::run_environment::RunEnvironment>,
+    ),
 ) {
+    let (contributors, environment) = run_context;
     if run.finished {
         return;
     }
@@ -341,6 +345,7 @@ fn record(
         "build_profile":if cfg!(debug_assertions) {"debug"} else {"release"},
         "logging_enabled":cfg!(debug_assertions),
         "render_diagnostics":false,"pipeline_cache_per_frame_inspection":false,
+        "run_environment": &*environment,
         "antialiasing":profile.antialiasing,"preprocessing":preprocessing.report(),
         "shared_lighting":{"ddgi_enabled":cfg!(feature = "ddgi"),"ddgi_batches":gi.updates(),"reflection_frames":gi.reflections()},
         "ray_contributors":&*contributors,

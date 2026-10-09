@@ -89,6 +89,11 @@ foreach ($workload in $Workloads) {
             throw "Concurrent compilation invalidated the release comparison; preserve $runFolder and repeat after builds are free"
         }
         $result = Get-Content -LiteralPath (Join-Path $runFolder 'performance.json') -Raw | ConvertFrom-Json
+        if ($result.run_environment.continuous_window_updates -ne $true -or
+            $result.run_environment.display_sleep_inhibited -ne $true -or
+            $result.run_environment.system_sleep_inhibited -ne $true) {
+            throw "Benchmark lacks active focus/display/system sleep protection; rebuild the executable: $runFolder"
+        }
         if (-not $result.passed -or $result.profile_tracy -or $result.profile_chrome -or
             $result.build_profile -ne $Profile -or $result.logging_enabled -ne ($Profile -eq 'debug') -or
             $null -eq $result.render_diagnostics -or $result.render_diagnostics -or
@@ -97,6 +102,7 @@ foreach ($workload in $Workloads) {
             throw "Unqualified $Profile benchmark: $runFolder"
         }
         $runs.Add([ordered]@{ workload = $workload; run = $index; summary = $result.summary;
+            run_environment = $result.run_environment;
             build_profile = $result.build_profile; logging_enabled = $result.logging_enabled;
             ddgi_enabled = $result.shared_lighting.ddgi_enabled -ne $false;
             physical_resolution = $result.physical_resolution; adapter = $result.adapter;

@@ -43,6 +43,7 @@ pub mod player_health;
 pub mod presentation;
 pub mod rendering;
 pub mod rounds;
+mod run_environment;
 pub mod solo_revive;
 pub mod verification;
 pub mod weapons;
@@ -67,7 +68,6 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     let release_benchmark = options.release_benchmark;
     let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
     let ads_capture = options.verify_ads;
-    let verification_enabled = options.verify.is_some();
     app.insert_resource(options);
     let default_plugins = DefaultPlugins.build();
     #[cfg(not(debug_assertions))]
@@ -170,10 +170,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
                 bevy::render::diagnostic::RenderDiagnosticsFrameContext,
             >::default());
     }
-    if benchmark || verification_enabled {
-        // Keep actual-window profiling independent of focus throttling.
-        app.insert_resource(bevy::winit::WinitSettings::continuous());
-    }
+    app.add_plugins(run_environment::UnattendedRunPlugin);
     app
 }
 

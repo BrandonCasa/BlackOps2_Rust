@@ -20,6 +20,8 @@ Bevy owns ECS, scheduling, scenes, asset loading, materials, cameras, visibility
 
 Every session entity is marked for restart. Map and engine entities persist. Entering Playing from pause retains the session; restarting removes session entities and rebuilds Round 1. Loading failures become visible UI states with the failing path and recovery steps. AssetPlugin receives the resolved absolute runtime pack root. Adjacent assets take priority; Cargo outputs find the pack through their repository ancestors. No runtime local config or asset override is read.
 
+Benchmark and verification launches use continuous Winit updates regardless of focus. On Windows, a main-thread Bevy resource also inhibits automatic display and system sleep from PreStartup until the application exits, without changing the power plan or injecting input. Native request failure exits with an error instead of qualifying a measurement. Performance receipts record all three protections, and the benchmark/profiling drivers reject executables without them. Rebuild preserved executables before new measurements. Normal interactive launches retain Bevy's focus-aware update policy. Manual sleep, screen locking, screen savers and driver-specific frame caps remain external conditions; keep the benchmark window visible on an unlocked desktop.
+
 The [coordinate decision](../adr/0002-bevy-runtime-coordinates.md) applies once during preparation. Runtime code uses meters and Y-up. Captures are references for visual understanding and never define scene membership or cameras.
 
 Future reusable systems belong in focused modules, with map-specific parameters in Origins configuration. Add a dependency or rendering extension only for a concrete need Bevy/Avian does not already supply.

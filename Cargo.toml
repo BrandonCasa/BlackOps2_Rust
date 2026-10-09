@@ -46,6 +46,10 @@ tracing = { version = "=0.1.44", default-features = false, features = ["std", "r
 # retain no listener and profiling needs no Windows Firewall access prompt.
 tracy-client = { version = "=0.19.0", default-features = false, features = ["only-localhost"], optional = true }
 
+[target.'cfg(windows)'.dependencies]
+# Safe, lifetime-scoped native display/system sleep inhibition for unattended runs.
+keepawake = "=0.6.1"
+
 [profile.dev]
 opt-level = 1
 lto = "off"
