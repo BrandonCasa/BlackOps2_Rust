@@ -6,7 +6,7 @@ Use your judgment to choose tools, validation, and implementation strategy. Suba
 
 Keep one Cargo package and one game executable, `origins.exe`. Build on Bevy and Avian rather than duplicating engine infrastructure. Retain safe Rust and the locked dependency versions unless the task calls for changing them.
 
-Keep `todo.md` as the sole project checklist, with concrete implementation tasks. Do not add codebase documentation or explanatory code comments unless requested. Leave rendering and graphics work out of the checklist.
+Keep `todo.md` as the sole project checklist, with concrete implementation tasks. Do not add code comments or codebase documentation unless explicitly authorized by the user. Do not create new Markdown documents anywhere in the repository folder, including subfolders, unless explicitly authorized by the user. Leave rendering and graphics work out of the checklist.
 
 Preserve original source assets. Keep prepared runtime assets under `assets/origins/`, validate their dependency closure when changing the pack, and use Git LFS for substantial binaries. Keep secrets, machine-specific paths, and generated builds out of commits.
 
