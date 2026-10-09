@@ -1,23 +1,41 @@
-- [ ] Bind cinematic audio aliases to frame sequences.
+- [ ] Preserve executable-relative discovery for expanded runtime packs.
+- [ ] Package newly referenced runtime asset types.
 - [ ] Add deferred boundaries before changed colliders enter queries.
 - [ ] Add session IDs to delayed gameplay events.
 - [ ] Discard delayed events from retired sessions.
-- [ ] Reset quest progress when starting fresh sessions.
-- [ ] Reset weather when starting fresh sessions.
-- [ ] Reset digging state when starting fresh sessions.
-- [ ] Reset robot schedules when starting fresh sessions.
-- [ ] Reset tank state when starting fresh sessions.
-- [ ] Reset box placement when starting fresh sessions.
 - [ ] Pause gameplay timers with session simulation.
-- [ ] Add buildable equipment input.
-- [ ] Add staff secondary mode input.
+- [ ] Add Original difficulty profiles.
+- [ ] Add Easy difficulty profiles.
+- [ ] Add solo main menu state.
+- [ ] Add Original difficulty menu selection.
+- [ ] Add Easy difficulty menu selection.
+- [ ] Add loading presentation state.
+- [ ] Add visible content loading error recovery.
+- [ ] Add solo session start action.
+- [ ] Add restart menu action.
+- [ ] Add quit-to-menu action.
+- [ ] Add exit-application action.
+- [ ] Adapt the existing window driver to the new gameplay interfaces.
+- [ ] Add main quest stage state.
+- [ ] Reset quest progress when starting fresh sessions.
+- [ ] Prevent main quest progression from invalid interactions.
+- [ ] Retire active quest timers after stage transitions.
+- [ ] Disable original unsupported quests on Easy difficulty.
+- [ ] Add quest-controlled round holds.
+- [ ] Release round holds after quest progression.
+- [ ] Exclude first-person meshes from movement collisions.
 - [ ] Add moving-platform support tracking.
 - [ ] Move boarded players with platform displacement.
 - [ ] Clear platform support when players jump.
-- [ ] Exclude first-person meshes from movement collisions.
+- [ ] Add unopened-zone player access restrictions.
+- [ ] Replace static duplicates of dynamic gameplay objects.
 - [ ] Add purchase refund handling.
 - [ ] Add source-defined purchase discounts.
-- [ ] Bind weapon upgrade names to localized strings.
+- [ ] Add buildable equipment input.
+- [ ] Add staff secondary mode input.
+- [ ] Add tactical equipment replacement.
+- [ ] Add armored hit regions.
+- [ ] Apply armor absorption before vitality damage.
 - [ ] Add projectile weapon spawning.
 - [ ] Add projectile swept collision.
 - [ ] Add projectile impact resolution.
@@ -27,16 +45,13 @@
 - [ ] Prevent repeated hits on one penetrated actor.
 - [ ] Add attachment-specific weapon modifiers.
 - [ ] Add upgraded weapon attachment rotation.
-- [ ] Add tactical equipment replacement.
-- [ ] Add armored hit regions.
-- [ ] Apply armor absorption before vitality damage.
 - [ ] Feed soul collection from attributed death events.
-- [ ] Add stuck enemy detection.
 - [ ] Add zombie running states.
 - [ ] Add zombie pursuit states.
 - [ ] Cancel attacks after target loss.
-- [ ] Add crawling zombie movement.
+- [ ] Add stuck enemy detection.
 - [ ] Add limb damage thresholds.
+- [ ] Add crawling zombie movement.
 - [ ] Convert eligible damaged zombies into crawlers.
 - [ ] Add headless zombie behavior.
 - [ ] Add zombie stagger reactions.
@@ -44,27 +59,31 @@
 - [ ] Add zombie freeze status.
 - [ ] Add zombie electrical stun status.
 - [ ] Add zombie distraction targeting.
-- [ ] Add round-dependent zombie speed selection.
 - [ ] Preserve pending budget after failed admission.
 - [ ] Add source-defined zombie replacement rules.
 - [ ] Preserve replacement enemy health.
-- [ ] Add round transition announcements.
-- [ ] Add quest-controlled round holds.
-- [ ] Release round holds after quest progression.
-- [ ] Add first Panzersoldat round scheduling.
-- [ ] Add recurring Panzersoldat round scheduling.
-- [ ] Add generator attack wave scheduling.
-- [ ] Separate generator attack waves from normal round budgets.
-- [ ] Add Original difficulty profiles.
-- [ ] Add Easy difficulty profiles.
-- [ ] Disable original unsupported quests on Easy difficulty.
+- [ ] Add round-dependent zombie speed selection.
+- [ ] Add collectible part definitions.
+- [ ] Add owned part inventory.
+- [ ] Add collectible part placements.
+- [ ] Add source-defined randomized part locations.
+- [ ] Add part pickup interactions.
+- [ ] Add crafting recipe prerequisites.
+- [ ] Add crafted equipment ownership.
+- [ ] Add crafting bench placements.
+- [ ] Bind original bench-specific recipe availability.
+- [ ] Add crafting interaction progress.
+- [ ] Cancel interrupted crafting.
+- [ ] Consume recipe parts after crafting completes.
+- [ ] Add crafted equipment pickup interactions.
+- [ ] Add crafted equipment replacement interactions.
 - [ ] Add Panzersoldat locomotion behavior.
 - [ ] Add Panzersoldat landing behavior.
 - [ ] Add Panzersoldat pursuit behavior.
 - [ ] Add Panzersoldat armored body regions.
 - [ ] Add Panzersoldat faceplate hit regions.
-- [ ] Add Panzersoldat exposed head damage.
 - [ ] Add Panzersoldat armor break transitions.
+- [ ] Add Panzersoldat exposed head damage.
 - [ ] Add Panzersoldat flamethrower windup.
 - [ ] Add Panzersoldat flame damage volumes.
 - [ ] Add Panzersoldat flame cooldown.
@@ -77,39 +96,34 @@
 - [ ] Add Panzersoldat melee attacks.
 - [ ] Add Panzersoldat death rewards.
 - [ ] Add Panzersoldat staff-part drops.
+- [ ] Add first Panzersoldat round scheduling.
+- [ ] Add recurring Panzersoldat round scheduling.
+- [ ] Add local power availability.
+- [ ] Add generator shutdown progress.
+- [ ] Add generator recapture interactions.
 - [ ] Add generator defender capture-zone targeting.
 - [ ] Add generator defender attack behavior.
+- [ ] Retire excess round enemies when reserving generator defender slots.
 - [ ] Add generator attacker route selection.
 - [ ] Add generator attacker shutdown behavior.
 - [ ] Add generator attacker progression between generators.
-- [ ] Add unopened-zone player access restrictions.
-- [ ] Replace static duplicates of dynamic gameplay objects.
-- [ ] Add generator shutdown progress.
-- [ ] Add generator recapture interactions.
-- [ ] Retire excess round enemies when reserving generator defender slots.
-- [ ] Add local power availability.
-- [ ] Connect perk machines to local generator power.
-- [ ] Connect wall interactions to source-defined power requirements.
-- [ ] Require all six generators for Pack-a-Punch availability.
-- [ ] Disable Pack-a-Punch after generator shutdown.
-- [ ] Add generator attack notifications.
-- [ ] Add generator attack wave completion rewards.
+- [ ] Separate generator attack waves from normal round budgets.
+- [ ] Add generator attack wave scheduling.
 - [ ] Add generator one initial reward behavior.
 - [ ] Add generator six Fire Staff part reward.
+- [ ] Add generator attack wave completion rewards.
 - [ ] Add default perk purchase limits.
 - [ ] Add earned perk purchase slots.
 - [ ] Preserve source-defined earned slot persistence.
+- [ ] Connect perk machines to local generator power.
 - [ ] Add perk purchase interactions.
 - [ ] Add Wunderfizz active machine selection.
 - [ ] Add Wunderfizz generator power requirements.
-- [ ] Add Wunderfizz perk purchase rolls.
 - [ ] Add Wunderfizz source-defined perk weights.
+- [ ] Add Wunderfizz perk purchase rolls.
 - [ ] Add Wunderfizz bottle collection.
 - [ ] Add Wunderfizz bottle expiration.
 - [ ] Add Wunderfizz relocation.
-- [ ] Add Fire Sale temporary box activation.
-- [ ] Add Fire Sale box pricing.
-- [ ] Restore normal box state after Fire Sale.
 - [ ] Add random perk bottle collection.
 - [ ] Add empty perk bottle slot rewards.
 - [ ] Add personal Blood Money rewards.
@@ -117,34 +131,74 @@
 - [ ] Reveal Zombie Blood hidden entities.
 - [ ] Hide restricted entities after Zombie Blood expires.
 - [ ] Add wall weapon purchase placements.
-- [ ] Add wall weapon ammunition purchases.
-- [ ] Add upgraded wall ammunition purchases.
+- [ ] Connect wall interactions to source-defined power requirements.
 - [ ] Add source-defined wall ammunition prices.
 - [ ] Add wall weapon shared-ammunition handling.
+- [ ] Add wall weapon ammunition purchases.
+- [ ] Add upgraded wall ammunition purchases.
 - [ ] Add Mystery Box initial placement selection.
-- [ ] Add Mystery Box purchase interaction.
+- [ ] Reset box placement when starting fresh sessions.
 - [ ] Add Mystery Box weapon roll weights.
 - [ ] Exclude unavailable weapons from box rolls.
 - [ ] Exclude source-defined limited weapons from box rolls.
+- [ ] Add Mystery Box purchase interaction.
 - [ ] Add Mystery Box take interaction.
 - [ ] Replace the selected inventory weapon after taking box rewards.
 - [ ] Add Mystery Box reward expiration.
 - [ ] Add Mystery Box teddy bear outcome.
 - [ ] Add Mystery Box relocation refunds.
 - [ ] Add Mystery Box relocation destination selection.
+- [ ] Add Fire Sale temporary box activation.
+- [ ] Add Fire Sale box pricing.
+- [ ] Restore normal box state after Fire Sale.
+- [ ] Bind weapon upgrade names to localized strings.
+- [ ] Require all six generators for Pack-a-Punch availability.
+- [ ] Disable Pack-a-Punch after generator shutdown.
+- [ ] Add Pack-a-Punch processing state.
 - [ ] Add Pack-a-Punch purchase interaction.
 - [ ] Remove deposited weapons from active inventory.
-- [ ] Add Pack-a-Punch processing state.
+- [ ] Add Pack-a-Punch upgraded ammunition grants.
 - [ ] Add Pack-a-Punch weapon collection.
 - [ ] Add Pack-a-Punch return timeout.
-- [ ] Add Pack-a-Punch upgraded ammunition grants.
+- [ ] Add Pack-a-Punch weapon replacement recovery.
 - [ ] Add Pack-a-Punch repeated upgrade purchases.
 - [ ] Add Pack-a-Punch source-defined attachment rerolls.
-- [ ] Add Pack-a-Punch weapon replacement recovery.
+- [ ] Add snow weather state.
+- [ ] Add rain weather state.
+- [ ] Add clear weather state.
+- [ ] Reset weather when starting fresh sessions.
+- [ ] Add weather cycle scheduling.
+- [ ] Add shovel ownership state.
+- [ ] Add shovel pickup placements.
+- [ ] Add dig mound placements.
+- [ ] Reset digging state when starting fresh sessions.
+- [ ] Add dig mound interaction availability.
+- [ ] Add dig mound depletion.
+- [ ] Add round-dependent dig mound respawning.
+- [ ] Add weather-dependent dig loot rolls.
+- [ ] Connect weather state to digging loot selection.
+- [ ] Add dig ammunition rewards.
+- [ ] Add dig point rewards.
+- [ ] Add dig grenade hazards.
+- [ ] Add dig zombie spawns.
+- [ ] Add dig powerup rewards.
+- [ ] Add zone-dependent Ice Staff dig eligibility.
+- [ ] Add source-defined Ice Staff dig selection.
+- [ ] Add Golden Shovel progression counters.
+- [ ] Add Golden Shovel acquisition.
+- [ ] Add Golden Shovel loot modifiers.
+- [ ] Add Golden Helmet ownership.
+- [ ] Add Golden Helmet dig rolls.
+- [ ] Add hidden perk dig placement selection.
+- [ ] Require Golden Shovel for hidden perk digs.
+- [ ] Require Zombie Blood for hidden perk dig visibility.
+- [ ] Add hidden perk dig collection.
+- [ ] Increment perk purchase limits from hidden digs.
 - [ ] Add Thor's route definition.
 - [ ] Add Odin's route definition.
 - [ ] Add Freya's route definition.
 - [ ] Add independent robot pass schedules.
+- [ ] Reset robot schedules when starting fresh sessions.
 - [ ] Add source-defined simultaneous robot passes.
 - [ ] Add robot route movement.
 - [ ] Add robot footprint damage volumes.
@@ -156,81 +210,30 @@
 - [ ] Add shootable robot foot hatches.
 - [ ] Open eligible robot foot hatches after damage.
 - [ ] Add robot foot entry volumes.
-- [ ] Teleport eligible players into robot interiors.
 - [ ] Add robot interior occupancy state.
+- [ ] Teleport eligible players into robot interiors.
 - [ ] Add robot evacuation timers.
 - [ ] Add robot evacuation interactions.
 - [ ] Teleport evacuated players to corresponding exit positions.
 - [ ] Clear robot occupancy after player death.
-- [ ] Add robot interior announcements.
-- [ ] Add robot interior quest buttons.
-- [ ] Add robot staff placement interactions.
 - [ ] Add robot Wind Staff part pickups.
-- [ ] Add robot pass audio.
-- [ ] Add tank initial placement.
 - [ ] Add tank church-to-bunker route.
 - [ ] Add tank bunker-to-church route.
+- [ ] Add tank initial placement.
+- [ ] Reset tank state when starting fresh sessions.
+- [ ] Add tank arrival states.
+- [ ] Add tank cooling-down states.
 - [ ] Add tank boarding collision.
+- [ ] Add tank rider support.
+- [ ] Add tank passenger exit behavior.
 - [ ] Add tank route purchase interactions.
 - [ ] Add tank departure delay.
 - [ ] Add tank route movement.
-- [ ] Add tank rider support.
-- [ ] Add tank passenger exit behavior.
 - [ ] Add tank path crushing damage.
-- [ ] Add tank arrival states.
-- [ ] Add tank cooling-down states.
 - [ ] Add tank cooldown expiration.
 - [ ] Add tank return purchase interactions.
-- [ ] Add tank boarding prompts.
-- [ ] Add tank route sounds.
-- [ ] Add tank lightning-part jump access.
 - [ ] Add tank lightning-part pickup platforms.
-- [ ] Add weather cycle scheduling.
-- [ ] Add snow weather state.
-- [ ] Add rain weather state.
-- [ ] Add clear weather state.
-- [ ] Add weather-specific ambient audio.
-- [ ] Connect weather state to digging loot selection.
-- [ ] Add shovel pickup placements.
-- [ ] Add shovel ownership state.
-- [ ] Add dig mound placements.
-- [ ] Add dig mound interaction availability.
-- [ ] Add dig mound depletion.
-- [ ] Add round-dependent dig mound respawning.
-- [ ] Add weather-dependent dig loot rolls.
-- [ ] Add dig ammunition rewards.
-- [ ] Add dig point rewards.
-- [ ] Add dig grenade hazards.
-- [ ] Add dig zombie spawns.
-- [ ] Add dig powerup rewards.
-- [ ] Add zone-dependent Ice Staff dig eligibility.
-- [ ] Add source-defined Ice Staff dig selection.
-- [ ] Add Golden Shovel progression counters.
-- [ ] Add Golden Shovel acquisition.
-- [ ] Add Golden Shovel loot modifiers.
-- [ ] Add Golden Helmet dig rolls.
-- [ ] Add Golden Helmet ownership.
-- [ ] Add hidden perk dig placement selection.
-- [ ] Require Golden Shovel for hidden perk digs.
-- [ ] Require Zombie Blood for hidden perk dig visibility.
-- [ ] Add hidden perk dig collection.
-- [ ] Increment perk purchase limits from hidden digs.
-- [ ] Add digging sounds.
-- [ ] Add collectible part definitions.
-- [ ] Add collectible part placements.
-- [ ] Add source-defined randomized part locations.
-- [ ] Add part pickup interactions.
-- [ ] Add owned part inventory.
-- [ ] Add crafting bench placements.
-- [ ] Add crafting recipe prerequisites.
-- [ ] Add crafting interaction progress.
-- [ ] Cancel interrupted crafting.
-- [ ] Consume recipe parts after crafting completes.
-- [ ] Add crafted equipment ownership.
-- [ ] Add crafted equipment pickup interactions.
-- [ ] Add crafted equipment replacement interactions.
-- [ ] Bind original bench-specific recipe availability.
-- [ ] Add crafting progress sounds.
+- [ ] Add tank lightning-part jump access.
 - [ ] Add Zombie Shield part sets.
 - [ ] Add Zombie Shield recipe.
 - [ ] Add Zombie Shield held state.
@@ -246,23 +249,21 @@
 - [ ] Add shield replacement pickup.
 - [ ] Add Maxis Drone part sets.
 - [ ] Add Maxis Drone recipe.
+- [ ] Add Maxis Drone source-defined damage immunity.
+- [ ] Add Maxis Drone deployment duration.
 - [ ] Add Maxis Drone deployment.
 - [ ] Add Maxis Drone player following.
 - [ ] Add Maxis Drone target selection.
 - [ ] Add Maxis Drone firing.
-- [ ] Add Maxis Drone source-defined damage immunity.
-- [ ] Add Maxis Drone deployment duration.
 - [ ] Add Maxis Drone return behavior.
 - [ ] Add Maxis Drone bench recharge.
 - [ ] Add Maxis Drone pickup after recharge.
 - [ ] Add Maxis Drone upgraded state.
 - [ ] Add Maxis Drone collection of reward seals.
-- [ ] Add Maxis Drone quest destination overrides.
-- [ ] Add Maxis Drone spatial audio.
-- [ ] Add gramophone pickup.
+- [ ] Add record inventory.
 - [ ] Add master record randomized placements.
 - [ ] Add elemental record randomized placements.
-- [ ] Add record inventory.
+- [ ] Add gramophone pickup.
 - [ ] Add excavation gramophone placement.
 - [ ] Open excavation stairs after master record playback.
 - [ ] Add gramophone retrieval interactions.
@@ -272,16 +273,28 @@
 - [ ] Add Lightning tunnel gramophone placement.
 - [ ] Add elemental record portal eligibility.
 - [ ] Add portal opening state.
-- [ ] Add portal entry interactions.
 - [ ] Add elemental destination mapping.
 - [ ] Add Crazy Place arrival positions.
+- [ ] Add portal entry interactions.
 - [ ] Add Crazy Place return portals.
 - [ ] Add portal closing after gramophone retrieval.
 - [ ] Add Crazy Place barrier definitions.
 - [ ] Add Crazy Place barrier movement scheduling.
 - [ ] Add Crazy Place barrier collision updates.
 - [ ] Add Crazy Place barrier navigation updates.
-- [ ] Add Crazy Place barrier movement sounds.
+- [ ] Add Fire Staff ammunition definitions.
+- [ ] Add Ice Staff ammunition definitions.
+- [ ] Add Wind Staff ammunition definitions.
+- [ ] Add Lightning Staff ammunition definitions.
+- [ ] Add Kagutsuchi's Blood weapon definition.
+- [ ] Add Ull's Arrow weapon definition.
+- [ ] Add Boreas' Fury weapon definition.
+- [ ] Add Kimat's Bite weapon definition.
+- [ ] Add Fire Staff inventory ownership.
+- [ ] Add Ice Staff inventory ownership.
+- [ ] Add Wind Staff inventory ownership.
+- [ ] Add Lightning Staff inventory ownership.
+- [ ] Enforce source-defined single-staff carrying restrictions.
 - [ ] Add Fire crystal pickup.
 - [ ] Add Ice crystal pickup.
 - [ ] Add Wind crystal pickup.
@@ -292,31 +305,50 @@
 - [ ] Add Fire Staff Panzer-part pickup.
 - [ ] Add Fire Staff recipe.
 - [ ] Add Fire Staff crafting pedestal.
-- [ ] Add Fire Staff inventory ownership.
 - [ ] Add Ice Staff northern dig-part pickup.
 - [ ] Add Ice Staff central dig-part pickup.
 - [ ] Add Ice Staff southern dig-part pickup.
 - [ ] Add Ice Staff recipe.
 - [ ] Add Ice Staff crafting pedestal.
-- [ ] Add Ice Staff inventory ownership.
 - [ ] Add Wind Staff Thor-part pickup.
 - [ ] Add Wind Staff Odin-part pickup.
 - [ ] Add Wind Staff Freya-part pickup.
 - [ ] Add Wind Staff recipe.
 - [ ] Add Wind Staff crafting pedestal.
-- [ ] Add Wind Staff inventory ownership.
 - [ ] Add Lightning Staff outbound tank-part pickup.
 - [ ] Add Lightning Staff first return tank-part pickup.
 - [ ] Add Lightning Staff second return tank-part pickup.
 - [ ] Add Lightning Staff recipe.
 - [ ] Add Lightning Staff crafting pedestal.
-- [ ] Add Lightning Staff inventory ownership.
-- [ ] Enforce source-defined single-staff carrying restrictions.
 - [ ] Add staff pedestal storage.
 - [ ] Add staff pedestal retrieval.
 - [ ] Add source-defined staff exchange behavior.
-- [ ] Add Fire Staff cauldron soul charging.
+- [ ] Add Fire Staff projectile attacks.
+- [ ] Add Fire Staff impact burning.
+- [ ] Add Ice Staff projectile attacks.
+- [ ] Add Ice Staff freezing duration.
+- [ ] Add Ice Staff frozen enemy shattering.
+- [ ] Add Wind Staff projectile attacks.
+- [ ] Add Wind Staff enemy knockback.
+- [ ] Add Lightning Staff projectile bursts.
+- [ ] Add Lightning Staff chain damage.
+- [ ] Add source-defined staff melee damage.
+- [ ] Add Fire Staff charge levels.
+- [ ] Add Ice Staff charge levels.
+- [ ] Add Wind Staff charge levels.
+- [ ] Add Lightning Staff charge levels.
+- [ ] Add staff charge accumulation.
+- [ ] Add staff charge ammunition costs.
+- [ ] Cancel staff charging during weapon switches.
+- [ ] Add Fire Staff charged area attacks.
+- [ ] Add Ice Staff charged blizzards.
+- [ ] Add Wind Staff charged tornadoes.
+- [ ] Add Lightning Staff charged electrical fields.
+- [ ] Add Sekhmet's Vigor ammunition state.
+- [ ] Add staff alternate-mode switching.
+- [ ] Add Sekhmet's Vigor projectile attacks.
 - [ ] Add Fire Staff cauldron completion state.
+- [ ] Add Fire Staff cauldron soul charging.
 - [ ] Add Fire Staff church symbol selection.
 - [ ] Add Fire Staff torch sequence inputs.
 - [ ] Add Fire Staff torch sequence rejection.
@@ -350,40 +382,14 @@
 - [ ] Add staff upgrade soul collection.
 - [ ] Add staff upgrade charging completion.
 - [ ] Add upgraded staff retrieval.
-- [ ] Add staff upgrade completion announcements.
-- [ ] Add Fire Staff ammunition definitions.
-- [ ] Add Fire Staff projectile attacks.
-- [ ] Add Fire Staff impact burning.
-- [ ] Add Fire Staff charge levels.
-- [ ] Add Fire Staff charged area attacks.
-- [ ] Add Kagutsuchi's Blood weapon definition.
-- [ ] Add Ice Staff ammunition definitions.
-- [ ] Add Ice Staff projectile attacks.
-- [ ] Add Ice Staff freezing duration.
-- [ ] Add Ice Staff frozen enemy shattering.
-- [ ] Add Ice Staff charge levels.
-- [ ] Add Ice Staff charged blizzards.
-- [ ] Add Ull's Arrow weapon definition.
-- [ ] Add Wind Staff ammunition definitions.
-- [ ] Add Wind Staff projectile attacks.
-- [ ] Add Wind Staff enemy knockback.
-- [ ] Add Wind Staff charge levels.
-- [ ] Add Wind Staff charged tornadoes.
-- [ ] Add Boreas' Fury weapon definition.
-- [ ] Add Lightning Staff ammunition definitions.
-- [ ] Add Lightning Staff projectile bursts.
-- [ ] Add Lightning Staff chain damage.
-- [ ] Add Lightning Staff charge levels.
-- [ ] Add Lightning Staff charged electrical fields.
-- [ ] Add Kimat's Bite weapon definition.
-- [ ] Add staff charge accumulation.
-- [ ] Add staff charge ammunition costs.
-- [ ] Cancel staff charging during weapon switches.
-- [ ] Add staff alternate-mode switching.
-- [ ] Add Sekhmet's Vigor projectile attacks.
-- [ ] Add Sekhmet's Vigor ammunition state.
-- [ ] Add source-defined staff melee damage.
-- [ ] Add elemental staff firing audio.
+- [ ] Add four soul chest placements.
+- [ ] Add soul chest collection volumes.
+- [ ] Add soul chest enemy death eligibility.
+- [ ] Add soul chest charge counters.
+- [ ] Add soul chest closure after completion.
+- [ ] Reset unfinished soul chests after robot stomps.
+- [ ] Add One Inch Punch melee behavior.
+- [ ] Add One Inch Punch reward pickup.
 - [ ] Add Rituals challenge state.
 - [ ] Add Rituals challenge chest placements.
 - [ ] Add generator activation challenge progress.
@@ -391,39 +397,31 @@
 - [ ] Add spending challenge progress.
 - [ ] Add soul chest challenge progress.
 - [ ] Add challenge reward eligibility.
-- [ ] Add challenge reward claiming.
 - [ ] Prevent duplicate challenge reward claims.
 - [ ] Add source-defined headshot challenge weapon rewards.
 - [ ] Add source-defined generator challenge Max Ammo rewards.
 - [ ] Add source-defined spending challenge Double Tap rewards.
 - [ ] Allow source-defined reward perks beyond purchase limits.
-- [ ] Add four soul chest placements.
-- [ ] Add soul chest collection volumes.
-- [ ] Add soul chest enemy death eligibility.
-- [ ] Add soul chest charge counters.
-- [ ] Add soul chest closure after completion.
-- [ ] Reset unfinished soul chests after robot stomps.
-- [ ] Add One Inch Punch reward pickup.
-- [ ] Add One Inch Punch melee behavior.
-- [ ] Add tablet pickup placements.
+- [ ] Add challenge reward claiming.
 - [ ] Add tablet ownership state.
+- [ ] Add tablet pickup placements.
 - [ ] Add tablet church basin placement.
 - [ ] Add tablet cleansing melee soul collection.
 - [ ] Add cleansed tablet pickup.
 - [ ] Contaminate carried tablets after touching mud.
 - [ ] Add tablet return placement.
 - [ ] Add returned tablet melee soul collection.
-- [ ] Add G-Strike reward claiming.
 - [ ] Add G-Strike equipment replacement.
 - [ ] Add G-Strike beacon throwing.
 - [ ] Add G-Strike zombie attraction.
 - [ ] Add G-Strike robot bombardment.
 - [ ] Add G-Strike equipment replenishment.
+- [ ] Add G-Strike reward claiming.
 - [ ] Add Iron Fists melee weapon definition.
 - [ ] Add elemental Iron Fists variants.
-- [ ] Add main quest stage state.
 - [ ] Unlock main quest progression after all staff upgrades.
 - [ ] Unlock source-defined staff placement pedestals.
+- [ ] Add robot staff placement interactions.
 - [ ] Add Ice Staff placement inside Freya.
 - [ ] Add Wind Staff placement inside Odin.
 - [ ] Add Lightning Staff placement inside Thor.
@@ -431,10 +429,12 @@
 - [ ] Complete Ascend From Darkness after correct placements.
 - [ ] Return deposited staffs to excavation pedestals.
 - [ ] Enable source-defined quest robot passes.
+- [ ] Add robot interior quest buttons.
 - [ ] Add robot button strike authorization.
 - [ ] Add strike authorization timeout.
 - [ ] Add seal-targeted G-Strike detection.
 - [ ] Break the seal after an authorized strike.
+- [ ] Add Maxis Drone quest destination overrides.
 - [ ] Add Maxis Drone deployment into the broken seal.
 - [ ] Spawn the solo quest Panzersoldat encounter.
 - [ ] Complete the encounter after required Panzersoldat deaths.
@@ -457,15 +457,15 @@
 - [ ] Stop Crazy Place barriers after finale completion.
 - [ ] Add final Maxis Drone portal deployment.
 - [ ] Add final portal entry interaction.
+- [ ] Add ending presentation state.
+- [ ] Add ending skip input.
+- [ ] Route ending completion into the final scoreboard.
 - [ ] Transition final portal entry into the ending.
-- [ ] Prevent main quest progression from invalid interactions.
-- [ ] Retire active quest timers after stage transitions.
-- [ ] Add source-defined stage completion announcements.
-- [ ] Add Archangel rock interaction placements.
 - [ ] Track activated Archangel rocks.
+- [ ] Add Archangel rock interaction placements.
 - [ ] Play Archangel after all required rock interactions.
-- [ ] Add Shepherd of Fire audio-log interaction placements.
 - [ ] Track activated Shepherd of Fire audio logs.
+- [ ] Add Shepherd of Fire audio-log interaction placements.
 - [ ] Play Shepherd of Fire after required log interactions.
 - [ ] Add Aether generator-floor interaction sequence.
 - [ ] Play Aether after the correct floor sequence.
@@ -473,12 +473,29 @@
 - [ ] Add Samantha doll timed shooting sequence.
 - [ ] Add Samantha doll reward spawning.
 - [ ] Play Samantha's song after completing its sequence.
+- [ ] Add free Zombie Blood reward cooldown.
 - [ ] Add free Zombie Blood fire-extinguishing interactions.
 - [ ] Spawn free Zombie Blood after required fires disappear.
-- [ ] Add free Zombie Blood reward cooldown.
 - [ ] Add free Magna Collider drone-seal progress.
 - [ ] Spawn free Magna Collider after collecting required seals.
 - [ ] Add free Magna Collider pickup interaction.
+- [ ] Bind cinematic audio aliases to frame sequences.
+- [ ] Add loading cinematic skip input.
+- [ ] Add ending audio synchronization.
+- [ ] Add round transition announcements.
+- [ ] Add generator attack notifications.
+- [ ] Add robot interior announcements.
+- [ ] Add robot pass audio.
+- [ ] Add tank boarding prompts.
+- [ ] Add tank route sounds.
+- [ ] Add weather-specific ambient audio.
+- [ ] Add digging sounds.
+- [ ] Add crafting progress sounds.
+- [ ] Add Maxis Drone spatial audio.
+- [ ] Add Crazy Place barrier movement sounds.
+- [ ] Add staff upgrade completion announcements.
+- [ ] Add elemental staff firing audio.
+- [ ] Add source-defined stage completion announcements.
 - [ ] Add Panzersoldat vocalizations.
 - [ ] Add box music playback.
 - [ ] Add portal spatial sounds.
@@ -509,20 +526,3 @@
 - [ ] Add original staff upgrade indicators.
 - [ ] Add original challenge progress display.
 - [ ] Add original quest progress indicators.
-- [ ] Add solo main menu state.
-- [ ] Add solo session start action.
-- [ ] Add Original difficulty menu selection.
-- [ ] Add Easy difficulty menu selection.
-- [ ] Add loading presentation state.
-- [ ] Add loading cinematic skip input.
-- [ ] Add restart menu action.
-- [ ] Add quit-to-menu action.
-- [ ] Add exit-application action.
-- [ ] Add ending presentation state.
-- [ ] Add ending audio synchronization.
-- [ ] Add ending skip input.
-- [ ] Route ending completion into the final scoreboard.
-- [ ] Add visible content loading error recovery.
-- [ ] Package newly referenced runtime asset types.
-- [ ] Preserve executable-relative discovery for expanded runtime packs.
-- [ ] Adapt the existing window driver to the new gameplay interfaces.
