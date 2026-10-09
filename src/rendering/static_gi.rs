@@ -144,8 +144,8 @@ impl LampGrid {
         let dimensions = extent.as_uvec3() + UVec3::ONE;
         let cells = u64::from(dimensions.x) * u64::from(dimensions.y) * u64::from(dimensions.z);
         // Bound preparation memory even for future widely separated lights.
-        // The shader falls back to the complete list for this case and for
-        // positions outside the grid; no light can disappear at its boundary.
+        // An unusable grid falls back to the complete list. A valid grid
+        // encloses all influence spheres, so positions beyond it have no lamps.
         if cells > 1_000_000 {
             return Self {
                 entries: vec![0],

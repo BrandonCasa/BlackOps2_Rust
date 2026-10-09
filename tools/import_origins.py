@@ -121,6 +121,7 @@ def read_json(path):
 
 
 def validate_gltf(root, relative, files, *, allow_native_transforms=False):
+    from fixture_emitters import FIXTURE_SURFACES
     path = safe_path(root, relative, {".gltf"})
     document = read_json(path)
     files.add(relative)
@@ -358,7 +359,7 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
             if key in node:
                 require(len(node[key]) == width and all(type(x) in (int, float) for x in node[key]), "invalid transform")
         extras = node.get("extras", {})
-        allowed_extras = {"static_instance", "brush_entity"}
+        allowed_extras = {"static_instance", "source_model", "fixture_emitter", "brush_entity"}
         if allow_native_transforms:
             # Optional source-library exchanges retain source joint arithmetic;
             # these fields are never accepted by the production runtime pack.
@@ -371,6 +372,16 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
         require(set(extras) <= allowed_extras, "baked node lighting is retired")
         if "static_instance" in extras:
             require(extras["static_instance"] is True, "invalid static instance marker")
+            require(isinstance(extras.get("source_model"), str) and re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", extras["source_model"]), "missing or invalid fixture model identity")
+            require(type(extras.get("fixture_emitter")) is bool, "missing or invalid fixture emitter ownership")
+            if extras["fixture_emitter"]:
+                mesh = ref(document.get("meshes", []), node.get("mesh"), "fixture mesh")
+                require(len(mesh["primitives"]) == 1, "fixture emitter must own one prepared surface")
+                material = document["materials"][mesh["primitives"][0]["material"]]
+                require(material.get("extras", {}).get("surface", {}).get("presentation", {}).get("lamp") is True, "fixture emitter lost its emitting surface")
+                require(FIXTURE_SURFACES.get(extras["source_model"]) == material.get("name"), "fixture emitter does not match its source model")
+        else:
+            require("source_model" not in extras and "fixture_emitter" not in extras, "fixture metadata requires a static instance")
         if "brush_entity" in extras:
             require(isinstance(extras["brush_entity"],str) and re.fullmatch(r"[A-Za-z0-9_.-]+",extras["brush_entity"]), "invalid brush entity marker")
         for child in node.get("children", []):
@@ -753,6 +764,7 @@ def external(path):
 
 def reconcile_sources(config, receipt, documents):
     """Verify receipt facts that grouping removes from runtime glTF against retained inputs."""
+    from fixture_emitters import emitter_surface
     root = external(config["assets"]["inspection_output"])
     settings = config.get("preparation", {})
     scene = external(settings.get("scene", root / "full-scene-assets/texture-preview.json"))
@@ -773,12 +785,15 @@ def reconcile_sources(config, receipt, documents):
     render_doc = documents[next(iter(documents))][0]
     nodes = [n for n in render_doc["nodes"] if n.get("name") == "static_instance"]
     providers = {}
+    fixture_surfaces = {}
     cursor = 0
     basis = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=float)
     for item in instances:
         name = item["model"]
         if name not in providers:
             model = json.loads(read_bytes(safe_path(model_root, f"model_export/{name}_lod0.gltf", {".gltf"})))
+            fixture_surfaces[name] = [{"material": model["materials"][primitive["material"]]["name"]}
+                                      for mesh in model["meshes"] for primitive in mesh["primitives"]]
             count = sum(len(mesh["primitives"]) for mesh in model["meshes"])
             require(count > 0 and cursor + count <= len(nodes), "missing model placement meshes")
             providers[name] = [n["mesh"] for n in nodes[cursor:cursor + count]]
@@ -792,6 +807,9 @@ def reconcile_sources(config, receipt, documents):
         require(all(np.allclose(n["matrix"], matrix.T.flatten(), rtol=1e-7, atol=1e-7) for n in placed),
                 "model placement transform differs from source")
         require(all(n.get("extras", {}).get("static_instance") is True for n in placed), "static instance marker lost")
+        emitter = emitter_surface(name, fixture_surfaces[name])
+        require(all(n["extras"]["source_model"] == name and n["extras"]["fixture_emitter"] == (index == emitter)
+                    for index, n in enumerate(placed)), "fixture emitter ownership differs from source")
         cursor += len(shared)
     require(cursor == len(nodes), "extra model placements")
     all_meshes = [mesh for group in providers.values() for mesh in group]

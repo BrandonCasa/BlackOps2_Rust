@@ -382,3 +382,37 @@ preparation, direct drawing, broad material invalidation, slot remapping and
 global pipeline readiness. Individual savings remain unmeasured. No fixes,
 implementation plan, compiler gates, new captures or performance claims are
 completed by this document.
+
+## Implementation tracking
+
+The lantern-focused goal replaces the previous whole-renderer task. These entries
+track implementations separately from the source findings above.
+
+- [x] Separate physical fixture emitters from material glow (findings 1-3, 6-7).
+  Source-validated metadata retains model identity and one emitting glass surface;
+  dedicated ECS creation waits for preparation. Full 1080p/DDGI game and focused
+  inventory checks pass with 117 lights. Existing emissive brightness and caster
+  rules remain; fixture-specific tuning and housing self-occlusion (4-5, 8, 43-44)
+  require separate quality work because source geometry does not establish flux.
+- [x] Return no lamps outside a valid influence grid; retain unusable-grid
+  fallback (40). Compiler and actual DDGI/reflection shader execution pass.
+- [ ] Retain unchanged extraction, attachment/view preparation and slot ownership
+  (17-19), accounting for resource replacement and admission remaps.
+- [ ] Narrow material invalidation to shadow depth coverage (21-24, 30), keeping
+  alpha generations, growing bounds and off-screen blockers correct.
+- [ ] Replace global readiness with complete per-shadow readiness (20), including
+  pending caster queues and GPU preparation; retire completed-light records (34).
+- [ ] Reduce direct submission, repeated deformation and first-person directional
+  work (15-16, 25-29) after shared preparation is correct. The previous indirect
+  candidate failed its game deadline and remains excluded.
+- [ ] Reduce redundant receiving/visibility and streaming demand (32, 35-37, 41,
+  45); qualify changes against thin blockers, transmission and hidden fixtures.
+- [ ] Establish matched release gains and audit renderer memory accounting
+  (46-51). The new development combat survey records 12.8623 FPS and 92283 fresh
+  cube faces; these are unmatched against the earlier 8.4957 / 176221 survey.
+
+Evidence: E:/Coding/Captures/origins-lantern-optimization-20261008, including source
+metadata preparation, full import receipt, two builds, frozen executable hashes,
+full game-1 and focused game-2. Game-2's inventory is 117 throughout; its timed view
+uses render diagnostics and is not a diagnostic-free release measurement. No
+overall goal completion, release speedup or minimum-FPS claim is established.

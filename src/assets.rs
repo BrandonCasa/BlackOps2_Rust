@@ -410,12 +410,25 @@ fn scene_ready(
     };
     if !root.collision {
         for entity in children.iter_descendants(event.entity) {
-            let Some(id) = extras
+            let Some(metadata) = extras
                 .get(entity)
                 .ok()
                 .and_then(|e| serde_json::from_str::<serde_json::Value>(&e.value).ok())
-                .and_then(|e| e["brush_entity"].as_str().map(str::to_owned))
             else {
+                continue;
+            };
+            if metadata["static_instance"].as_bool() == Some(true)
+                && metadata["fixture_emitter"].as_bool() == Some(true)
+            {
+                for surface in children.iter_descendants(entity) {
+                    if mesh_entities.contains(surface) {
+                        commands
+                            .entity(surface)
+                            .insert(crate::rendering::FixtureEmitter);
+                    }
+                }
+            }
+            let Some(id) = metadata["brush_entity"].as_str() else {
                 continue;
             };
             if let Some(source) = definition

@@ -28,9 +28,12 @@ struct Lamp { position_range: vec4<f32>, radiance_radius: vec4<f32> }
 fn lamp_range(position: vec3<f32>) -> vec2<u32> {
     let cell = vec3<i32>(floor((position-constants.lamp_grid_origin.xyz)/constants.lamp_grid_origin.w));
     let extent = constants.lamp_grid_extent.xyz;
-    if any(extent == vec3(0u)) || any(cell < vec3(0i)) || any(cell >= vec3<i32>(extent)) {
+    if any(extent == vec3(0u)) {
         return vec2(0xffffffffu,constants.batch_lamps.y);
     }
+    // A valid grid encloses every lamp's complete influence sphere. Beyond it
+    // there are no contributing lamps; an unusable grid retains full fallback.
+    if any(cell < vec3(0i)) || any(cell >= vec3<i32>(extent)) { return vec2(0u); }
     let index = u32(cell.x)+extent.x*(u32(cell.y)+extent.y*u32(cell.z));
     return vec2(lamp_grid[index*2u],lamp_grid[index*2u+1u]);
 }

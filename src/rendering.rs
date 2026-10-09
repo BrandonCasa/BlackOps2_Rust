@@ -56,6 +56,13 @@ pub(crate) struct ActorSurface;
 #[derive(Component)]
 struct LanternLight;
 
+/// Prepared source fixture owns one analytic emitter; shared glow is separate.
+#[derive(Component)]
+pub(crate) struct FixtureEmitter;
+
+#[derive(Component)]
+struct FixtureLightReady;
+
 pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
@@ -91,7 +98,7 @@ impl Plugin for GameRenderingPlugin {
                     sky::prepare,
                     shadows::prepare.before(opaque::prepare_shaders),
                     opaque::prepare_shaders,
-                    (pbr::prepare, surfaces, opaque::convert).chain(),
+                    (pbr::prepare, surfaces, fixture_lights, opaque::convert).chain(),
                 ),
             )
             .add_systems(
@@ -245,7 +252,6 @@ fn surfaces(
             Entity,
             &MeshMaterial3d<StandardMaterial>,
             &GltfMaterialName,
-            &Aabb,
             Has<bevy::mesh::skinning::SkinnedMesh>,
         ),
         (
@@ -273,7 +279,7 @@ fn surfaces(
     >,
 ) {
     let Some(library) = library else { return };
-    for (entity, handle, name, bounds, skinned) in &surfaces {
+    for (entity, handle, name, skinned) in &surfaces {
         let mut ancestor = Some(entity);
         // Animated providers retain Bevy's native skinning and PBR shader.
         let mut dynamic = skinned;
@@ -328,7 +334,31 @@ fn surfaces(
         }
         if state["lamp"].as_bool() == Some(true) {
             commands.entity(entity).insert(NotShadowCaster);
-            commands.entity(entity).with_children(|parent| {
+        }
+        commands.entity(entity).insert(SurfaceReady);
+    }
+}
+
+fn fixture_lights(
+    mut commands: Commands,
+    fixtures: Query<
+        (Entity, &Aabb),
+        (
+            With<FixtureEmitter>,
+            With<PbrReady>,
+            Without<FixtureLightReady>,
+        ),
+    >,
+    profile: Res<profile::VisualProfile>,
+) {
+    // Scene readiness and material preparation may complete on different frames.
+    // Dedicated ownership retries until the selected surface's bounds are ready;
+    // marking ordinary surface presentation ready cannot lose a fixture light.
+    for (entity, bounds) in &fixtures {
+        commands
+            .entity(entity)
+            .insert(FixtureLightReady)
+            .with_children(|parent| {
                 parent.spawn((
                     PointLight {
                         color: profile::color(profile.lantern_color),
@@ -352,7 +382,5 @@ fn surfaces(
                     Name::new("Origins warm lantern"),
                 ));
             });
-        }
-        commands.entity(entity).insert(SurfaceReady);
     }
 }

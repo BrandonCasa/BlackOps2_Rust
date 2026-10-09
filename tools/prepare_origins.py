@@ -70,7 +70,8 @@ def presentation(source, technique):
 
 
 def apply_presentation(material, state):
-    # Explicit scene-light providers, distinct from radios, glyphs and other glow.
+    # Surface glow only. Analytic emitters are owned by prepared fixture nodes;
+    # these shared materials also occur on radios and speaker-tube decorations.
     state["lamp"] = material["name"] in {"mc/mtl_p6_zm_tm_gas_lamp_glass_on", "mc/mtl_p6_zm_tm_lantern_glass_on_01",
         "mc/mtl_p6_zm_tm_hanging_light_fixture_on", "mc/mtl_p6_zm_tm_portable_lantern_on"}
     material["extras"]["surface"]["presentation"] = state
@@ -379,6 +380,7 @@ def model_accessor(document, index):
 
 
 def static_models(gltf, instances_path, model_root, output, world_root):
+    from fixture_emitters import emitter_surface
     instances = json.loads(external(instances_path).read_text())
     surface_data = json.loads(external(instances_path.parent / "model-surfaces.json").read_text())
     providers = {}
@@ -501,8 +503,10 @@ def static_models(gltf, instances_path, model_root, output, world_root):
         matrix[:3, 3] = coordinates(item["origin"])
         if not np.isfinite(matrix).all() or item["scale"] <= 0:
             raise ValueError("invalid static model placement")
-        for mesh in providers[name]:
-            gltf.node(mesh, "static_instance", 0, matrix=matrix.T.flatten().tolist(), extras={"static_instance": True})
+        emitter = emitter_surface(name, surface_data[name])
+        for surface, mesh in enumerate(providers[name]):
+            gltf.node(mesh, "static_instance", 0, matrix=matrix.T.flatten().tolist(),
+                      extras={"static_instance": True, "source_model": name, "fixture_emitter": surface == emitter})
             # Foliage and hanging cloth are visible decorations, not solid walls.
             if gltf.collidable[mesh] and not any(token in name.lower() for token in ("grass", "foliage", "vine", "cloth", "flag")):
                 gltf.node(mesh, "collision_static", 1, matrix=matrix.T.flatten().tolist())
@@ -676,6 +680,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=WORKSPACE / "config/local_assets.toml")
     parser.add_argument("--content-only", action="store_true", help="regenerate game.json from map entities, preserving prepared geometry coverage")
+    parser.add_argument("--prepare-fixture-emitters", action="store_true", help="retain fixture identity and analytic emitter ownership in an external prepared map")
     parser.add_argument("--recover-gameplay-content", action="store_true", help="recover patch-resolved weapon/attachment definitions and map entities externally")
     parser.add_argument("--prepare-actors", action="store_true", help="convert recovered starter skeletal actors into the external runtime pack")
     parser.add_argument("--prepare-weapon-assemblies", action="store_true", help="assemble every native weapon and attachment with authored bind poses")
@@ -698,6 +703,10 @@ def main():
     parser.add_argument("--prepare-player-health", action="store_true", help="recover standing player regeneration and immunity")
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
+    if args.prepare_fixture_emitters:
+        from fixture_emitters import prepare
+        prepare(config)
+        return
     if args.prepare_locomotion:
         from prepare_locomotion import prepare
         prepare(config)
