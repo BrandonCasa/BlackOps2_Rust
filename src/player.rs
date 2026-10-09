@@ -153,6 +153,7 @@ pub(crate) fn look(
 
 pub fn move_player(
     mut input: ResMut<GameInput>,
+    settings: Res<crate::input::ControlSettings>,
     mut actions: ResMut<TickActions>,
     definition: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
@@ -405,6 +406,7 @@ pub fn move_player(
         tuning.sprint_minimum,
         tuning.sprint_recovery_rate,
         tuning.sprint_recovery_delay,
+        settings.sprint_mode == crate::input::PressMode::Hold,
     );
     let speed = if downed {
         definition.solo_revive.downed_speed

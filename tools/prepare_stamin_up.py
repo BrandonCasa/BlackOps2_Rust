@@ -28,7 +28,7 @@ def prepare(config):
     for table,row in rows.items():
         content[table][:] = [r for r in content[table] if r["id"] != row["id"]]
         content[table].append(row)
-    game["tuning"].update({"sprint_seconds":4., "sprint_minimum":0.25, "sprint_recovery_rate":1., "sprint_recovery_delay":0.})
+    game["tuning"].update({"sprint_seconds":4., "sprint_minimum":1., "sprint_recovery_rate":1., "sprint_recovery_delay":0.})
     (pack / "game.json").write_text(json.dumps(game,indent=2)+"\n")
     report = {"perk":rows["perks"],"machine":machine,"script_sha256":hashlib.sha256(script.read_bytes()).hexdigest(),"bottle_sha256":bottle["sha256"],
         "approximations":["Double endurance and 7 percent uncrouched speed reconstruct Stamin-Up engine modifiers; native arithmetic is unrecovered.","Base four-second endurance, one second recovered per second and release-to-rearm exhaustion are explicit sprint reconstructions.","Generator gating, machine collision/zone metadata and original audio remain unfinished or reconstructed."]}

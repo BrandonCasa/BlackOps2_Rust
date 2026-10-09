@@ -175,6 +175,7 @@ def prepare(config):
                 "spread": [number(k) for k in ("hipSpreadStandMin", "hipSpreadDuckedMin", "hipSpreadProneMin", "adsSpread")],
                 "ads_fov": max(1., math.degrees(2 * math.atan(math.tan(math.radians(max(1., min(179., number("adsZoomFov1", 50.)))) / 2) * 0.75))),
                 "ads_seconds": [positive("adsTransInTime", 0.2), positive("adsTransOutTime", 0.2)],
+                "sprint_seconds": [number(k) for k in ("sprintInTime", "sprintLoopTime", "sprintOutTime")],
                 "ads_zoom_fraction": [min(1., max(0., number(k, 1.))) for k in ("adsZoomInFrac", "adsZoomOutFrac")],
                 "ads_pose": ads_pose(f, inspection),
                 "ads_sight": optics(f, pack, ads_pose(f, inspection), name),

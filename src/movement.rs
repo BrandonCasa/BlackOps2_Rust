@@ -8,6 +8,7 @@ pub struct SprintState {
     pub last_run_seconds: f32,
     active_seconds: f32,
     recovery_age: f32,
+    restart_blocked: bool,
 }
 impl SprintState {
     pub fn new(capacity: f32) -> Self {
@@ -26,17 +27,23 @@ impl SprintState {
         minimum: f32,
         recovery_rate: f32,
         recovery_delay: f32,
+        latch_interruptions: bool,
     ) {
         if self.capacity != capacity {
             self.remaining = (self.remaining + capacity - self.capacity).clamp(0., capacity);
             self.capacity = capacity;
             self.exhausted |= self.remaining == 0.;
         }
-        if !requested && self.remaining >= minimum {
+        if !requested {
             self.exhausted = false;
+            self.restart_blocked = false;
         }
         let was_sprinting = self.sprinting;
-        self.sprinting = requested && eligible && !self.exhausted && self.remaining > 0.;
+        self.sprinting = requested
+            && eligible
+            && !self.exhausted
+            && !self.restart_blocked
+            && self.remaining > if was_sprinting { 0. } else { minimum };
         if self.sprinting {
             self.remaining = (self.remaining - dt).max(0.);
             self.active_seconds += dt;
@@ -44,6 +51,7 @@ impl SprintState {
             self.exhausted |= self.remaining == 0.;
         } else {
             if was_sprinting {
+                self.restart_blocked = requested && latch_interruptions;
                 self.last_run_seconds = self.active_seconds;
                 self.active_seconds = 0.;
             }

@@ -317,7 +317,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.935,
+            0.15
+          ]
         }
       },
       {
@@ -648,7 +653,12 @@
               0.0,
               0.999998911617279
             ]
-          }
+          },
+          "sprint_seconds": [
+            0.15,
+            0.935,
+            0.15
+          ]
         }
       },
       {
@@ -907,7 +917,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -1250,7 +1265,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -1509,7 +1529,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -1852,7 +1877,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -2197,7 +2227,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.25,
+            0.8,
+            0.25
+          ]
         }
       },
       {
@@ -2542,7 +2577,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.25,
+            0.8,
+            0.25
+          ]
         }
       },
       {
@@ -2694,7 +2734,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.5,
+            0.08
+          ]
         }
       },
       {
@@ -2927,7 +2972,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         }
       },
       {
@@ -3161,7 +3211,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         }
       },
       {
@@ -3394,7 +3449,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         }
       },
       {
@@ -3641,7 +3701,12 @@
               0.0,
               0.9999988007722759
             ]
-          }
+          },
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         }
       },
       {
@@ -3742,7 +3807,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.18,
+            0.9,
+            0.23
+          ]
         }
       },
       {
@@ -3973,7 +4043,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         },
         "ads_presentation": "actor.weapon_82e5045b27556061fc0e9d3d"
       },
@@ -4219,7 +4294,12 @@
               0.0,
               0.9999983963695994
             ]
-          }
+          },
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         }
       },
       {
@@ -4334,7 +4414,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.3
+          ]
         },
         "mine": {
           "stock": 2,
@@ -4464,7 +4549,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.5,
+            0.08
+          ]
         },
         "throwable": {
           "slot": "tactical",
@@ -4597,7 +4687,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -4698,7 +4793,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -5008,7 +5108,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -5367,7 +5472,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.25,
+            1.1,
+            0.25
+          ]
         }
       },
       {
@@ -5726,7 +5836,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.25,
+            1.1,
+            0.25
+          ]
         }
       },
       {
@@ -5870,7 +5985,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -6213,7 +6333,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.65,
+            0.2
+          ]
         }
       },
       {
@@ -6556,7 +6681,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.65,
+            0.2
+          ]
         }
       },
       {
@@ -6697,7 +6827,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            1.1,
+            0.3
+          ]
         }
       },
       {
@@ -6930,7 +7065,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         }
       },
       {
@@ -7163,7 +7303,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         }
       },
       {
@@ -7311,7 +7456,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         },
         "dual_weapon": "weapon.fivesevenlh_upgraded_zm"
       },
@@ -7460,7 +7610,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         },
         "dual_weapon": "weapon.fivesevenlh_zm"
       },
@@ -7577,7 +7732,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         },
         "dual_weapon": null
       },
@@ -7694,7 +7854,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         },
         "dual_weapon": null
       },
@@ -8025,7 +8190,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.9,
+            0.3
+          ]
         }
       },
       {
@@ -8354,7 +8524,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.9,
+            0.3
+          ]
         }
       },
       {
@@ -8463,7 +8638,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         },
         "throwable": {
           "slot": "lethal",
@@ -8819,7 +8999,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.9,
+            0.3
+          ]
         }
       },
       {
@@ -9149,7 +9334,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.9,
+            0.3
+          ]
         }
       },
       {
@@ -9296,7 +9486,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.775,
+            0.3
+          ]
         }
       },
       {
@@ -9612,7 +9807,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.275,
+            0.978,
+            0.275
+          ]
         }
       },
       {
@@ -9928,7 +10128,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.275,
+            0.978,
+            0.275
+          ]
         }
       },
       {
@@ -10161,7 +10366,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         }
       },
       {
@@ -10394,7 +10604,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.55,
+            0.2
+          ]
         }
       },
       {
@@ -10497,7 +10712,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -10843,7 +11063,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.75,
+            0.15
+          ]
         }
       },
       {
@@ -11189,7 +11414,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.75,
+            0.15
+          ]
         }
       },
       {
@@ -11491,7 +11721,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.9,
+            0.3
+          ]
         }
       },
       {
@@ -11806,7 +12041,12 @@
               0.0,
               0.9999999860848369
             ]
-          }
+          },
+          "sprint_seconds": [
+            0.3,
+            0.9,
+            0.3
+          ]
         }
       },
       {
@@ -12179,7 +12419,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            1.0,
+            0.35
+          ]
         },
         "ads_presentation": "actor.weapon_6c215a707faa6257c5ae70ab"
       },
@@ -12553,7 +12798,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            1.0,
+            0.35
+          ]
         },
         "ads_presentation": "actor.weapon_6c215a707faa6257c5ae70ab"
       },
@@ -12814,7 +13064,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.275,
+            0.98,
+            0.275
+          ]
         }
       },
       {
@@ -13074,7 +13329,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.275,
+            0.98,
+            0.275
+          ]
         }
       },
       {
@@ -13418,7 +13678,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.2
+          ]
         }
       },
       {
@@ -13762,7 +14027,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.2
+          ]
         }
       },
       {
@@ -14106,7 +14376,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.2
+          ]
         }
       },
       {
@@ -14463,7 +14738,12 @@
               0.0,
               0.9999933475294625
             ]
-          }
+          },
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.2
+          ]
         }
       },
       {
@@ -14792,7 +15072,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.9,
+            0.3
+          ]
         }
       },
       {
@@ -15121,7 +15406,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.9,
+            0.3
+          ]
         }
       },
       {
@@ -15225,7 +15515,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -15329,7 +15624,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -15433,7 +15733,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -15537,7 +15842,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -15641,7 +15951,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -15745,7 +16060,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -16101,7 +16421,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.7,
+            0.15
+          ]
         }
       },
       {
@@ -16457,7 +16782,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.7,
+            0.15
+          ]
         }
       },
       {
@@ -16689,7 +17019,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.6,
+            0.3
+          ]
         }
       },
       {
@@ -16922,7 +17257,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.6,
+            0.3
+          ]
         }
       },
       {
@@ -17196,7 +17536,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.7,
+            0.15
+          ]
         }
       },
       {
@@ -17470,7 +17815,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.7,
+            0.15
+          ]
         }
       },
       {
@@ -17571,7 +17921,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.0,
+            0.0,
+            0.0
+          ]
         }
       },
       {
@@ -17672,7 +18027,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.0,
+            0.0,
+            0.0
+          ]
         }
       },
       {
@@ -17903,7 +18263,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.6,
+            0.2
+          ]
         }
       },
       {
@@ -18134,7 +18499,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.6,
+            0.2
+          ]
         }
       },
       {
@@ -18506,7 +18876,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.65,
+            0.2
+          ]
         }
       },
       {
@@ -18878,7 +19253,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.65,
+            0.2
+          ]
         }
       },
       {
@@ -19222,7 +19602,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.8,
+            0.25
+          ]
         }
       },
       {
@@ -19566,7 +19951,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.8,
+            0.25
+          ]
         }
       },
       {
@@ -19839,7 +20229,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.7,
+            0.15
+          ]
         }
       },
       {
@@ -20168,7 +20563,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.55,
+            0.15
+          ]
         }
       },
       {
@@ -20497,7 +20897,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.55,
+            0.15
+          ]
         }
       },
       {
@@ -20826,7 +21231,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -21170,7 +21580,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -21514,7 +21929,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -21858,7 +22278,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -22201,7 +22626,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -22530,7 +22960,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -22874,7 +23309,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -23218,7 +23658,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -23562,7 +24007,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -23905,7 +24355,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -24234,7 +24689,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -24578,7 +25038,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -24922,7 +25387,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -25266,7 +25736,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -25609,7 +26084,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -25952,7 +26432,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -26053,7 +26538,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -26154,7 +26644,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -26483,7 +26978,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -26827,7 +27327,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -27171,7 +27676,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -27515,7 +28025,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -27858,7 +28373,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -28201,7 +28721,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -28310,7 +28835,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.0,
+            0.0,
+            0.0
+          ]
         },
         "throwable": {
           "slot": "lethal",
@@ -28445,7 +28975,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -28788,7 +29323,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.65,
+            0.2
+          ]
         }
       },
       {
@@ -29131,7 +29671,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.15,
+            0.65,
+            0.2
+          ]
         }
       },
       {
@@ -29274,7 +29819,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.3,
+            0.7,
+            0.3
+          ]
         }
       },
       {
@@ -29589,7 +30139,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.775,
+            0.2
+          ]
         }
       },
       {
@@ -29904,7 +30459,12 @@
               ]
             }
           ],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.2,
+            0.775,
+            0.2
+          ]
         }
       },
       {
@@ -30013,7 +30573,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -30116,7 +30681,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.5,
+            0.5,
+            0.5
+          ]
         }
       },
       {
@@ -30225,7 +30795,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -30326,7 +30901,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.0,
+            0.0,
+            0.0
+          ]
         }
       },
       {
@@ -30427,7 +31007,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.0,
+            0.0,
+            0.0
+          ]
         }
       },
       {
@@ -30528,7 +31113,12 @@
             0.1
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.0,
+            0.0,
+            0.0
+          ]
         }
       },
       {
@@ -30637,7 +31227,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -30746,7 +31341,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -30855,7 +31455,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -30964,7 +31569,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -31073,7 +31683,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -31182,7 +31797,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -31291,7 +31911,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -31400,7 +32025,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -31509,7 +32139,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -31618,7 +32253,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       },
       {
@@ -31727,7 +32367,12 @@
             0.0
           ],
           "ads_pose": [],
-          "ads_sight": null
+          "ads_sight": null,
+          "sprint_seconds": [
+            0.08,
+            0.7,
+            0.08
+          ]
         }
       }
     ],
@@ -572462,7 +573107,7 @@
       80
     ],
     "sprint_seconds": 4.0,
-    "sprint_minimum": 0.25,
+    "sprint_minimum": 1.0,
     "sprint_recovery_rate": 1.0,
     "sprint_recovery_delay": 0.0
   },

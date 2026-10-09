@@ -77,6 +77,8 @@ pub(crate) struct Rig {
     pub(crate) left: bool,
     dual: bool,
     playback: Option<WeaponAnimation>,
+    sprinting: bool,
+    sprint_phase: Option<(WeaponAnimation, f32)>,
 }
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
@@ -369,6 +371,8 @@ fn spawn_viewmodels(
                             left: is_left,
                             dual: weapon.dual_weapon.is_some(),
                             playback: None,
+                            sprinting: false,
+                            sprint_phase: None,
                         },
                         Transform::default(),
                         if is_arms {
@@ -858,9 +862,11 @@ pub(crate) fn hand_action(
 }
 fn animate(
     mut commands: Commands,
+    time: Res<Time>,
     state: Res<State<GameState>>,
     definition: Option<Res<GameDefinition>>,
     inventories: offhand::Inventories,
+    sprints: Query<&crate::movement::SprintState>,
     mut evidence: ResMut<EquipmentPresentationEvidence>,
     mut rigs: Query<(&mut Rig, &mut Visibility)>,
     clips: Res<Assets<AnimationClip>>,
@@ -891,6 +897,8 @@ fn animate(
             rig.phase = None;
             rig.playback = None;
             rig.sampled_phase = None;
+            rig.sprinting = false;
+            rig.sprint_phase = None;
             continue;
         }
         let Some(weapon) = definition
@@ -923,10 +931,80 @@ fn animate(
         let Some(graph) = rig.graph.clone() else {
             continue;
         };
-        let (action, shot_seek) = selected.as_ref().map_or_else(
+        let (mut action, mut shot_seek) = selected.as_ref().map_or_else(
             || hand_action(inventory, weapon, &definition, rig.left),
             |s| (s.action, None),
         );
+        let sprint_duration = |action, index: usize| {
+            let name = weapon
+                .animation_actions
+                .get(&action)?
+                .0
+                .rsplit('.')
+                .next()?;
+            rig.nodes.get(name)?;
+            let handle = gltfs.get(&rig.source)?.named_animations.get(name)?;
+            let duration = clips.get(handle)?.duration();
+            (duration > 0.).then_some(if weapon.mechanics.sprint_seconds[index] > 0. {
+                weapon.mechanics.sprint_seconds[index]
+            } else {
+                duration
+            })
+        };
+        let enter = sprint_duration(WeaponAnimation::SprintEnter, 0);
+        let looping = sprint_duration(WeaponAnimation::SprintLoop, 1);
+        let leave = sprint_duration(WeaponAnimation::SprintLeave, 2);
+        let sprinting = sprints.get(rig.owner).is_ok_and(|s| s.sprinting);
+        let idle = selected.is_none()
+            && matches!(action, WeaponAnimation::Idle | WeaponAnimation::IdleEmpty);
+        let sprint_fraction = if !idle {
+            rig.sprinting = false;
+            rig.sprint_phase = None;
+            None
+        } else {
+            if sprinting != rig.sprinting {
+                rig.sprint_phase = if sprinting {
+                    enter
+                        .map(|_| (WeaponAnimation::SprintEnter, 0.))
+                        .or_else(|| looping.map(|_| (WeaponAnimation::SprintLoop, 0.)))
+                } else {
+                    leave.map(|_| (WeaponAnimation::SprintLeave, 0.))
+                };
+                rig.sprinting = sprinting;
+            } else if let Some((phase, elapsed)) = rig.sprint_phase {
+                let elapsed = elapsed
+                    + if **state == GameState::Playing {
+                        time.delta_secs()
+                    } else {
+                        0.
+                    };
+                rig.sprint_phase = match phase {
+                    WeaponAnimation::SprintEnter if enter.is_none_or(|d| elapsed >= d) => looping
+                        .map(|duration| {
+                            (
+                                WeaponAnimation::SprintLoop,
+                                (elapsed - enter.unwrap_or(0.)).rem_euclid(duration),
+                            )
+                        }),
+                    WeaponAnimation::SprintLoop => looping.map(|duration| {
+                        (WeaponAnimation::SprintLoop, elapsed.rem_euclid(duration))
+                    }),
+                    WeaponAnimation::SprintLeave if leave.is_none_or(|d| elapsed >= d) => None,
+                    _ => Some((phase, elapsed)),
+                };
+            }
+            rig.sprint_phase.and_then(|(phase, elapsed)| {
+                let duration = match phase {
+                    WeaponAnimation::SprintEnter => enter,
+                    WeaponAnimation::SprintLoop => looping,
+                    WeaponAnimation::SprintLeave => leave,
+                    _ => None,
+                }?;
+                action = phase;
+                shot_seek = None;
+                Some(elapsed / duration)
+            })
+        };
         if !rig.arms {
             let ads =
                 selected.is_none() && inventory.ads >= 0.99 && weapon.ads_presentation.is_some();
@@ -992,7 +1070,12 @@ fn animate(
                     .insert(AnimationGraphHandle(graph.clone()));
                 player.stop_all();
                 let active = player.play(node);
-                if matches!(action, WeaponAnimation::Idle | WeaponAnimation::IdleEmpty) {
+                if matches!(
+                    action,
+                    WeaponAnimation::Idle
+                        | WeaponAnimation::IdleEmpty
+                        | WeaponAnimation::SprintLoop
+                ) {
                     active.repeat();
                 }
                 if selected.is_some() {
@@ -1009,7 +1092,9 @@ fn animate(
                 .or_else(|| inventory.hand_reload_timing(rig.left))
                 .or_else(|| inventory.presentation_timing(weapon, melee));
             let seek = native_clip.and_then(|clip| {
-                if let Some((duration, remaining)) = timing {
+                if let Some(fraction) = sprint_fraction {
+                    Some(fraction.clamp(0., 1.) * clip.duration())
+                } else if let Some((duration, remaining)) = timing {
                     Some(
                         ((duration - remaining).max(0.) / duration * clip.duration())
                             .min(clip.duration()),

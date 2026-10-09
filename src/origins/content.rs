@@ -189,6 +189,7 @@ pub struct WeaponMechanics {
     pub spread: [f32; 4],
     pub ads_fov: f32,
     pub ads_seconds: [f32; 2],
+    pub sprint_seconds: [f32; 3],
     pub ads_zoom_fraction: [f32; 2],
     pub ads_pose: Vec<AdsPoseSample>,
     pub ads_sight: Option<AdsSight>,
@@ -230,6 +231,7 @@ impl Default for WeaponMechanics {
             spread: [3., 2., 1., 0.],
             ads_fov: 50.,
             ads_seconds: [0.2, 0.2],
+            sprint_seconds: [0.; 3],
             ads_zoom_fraction: [1., 1.],
             ads_pose: Vec::new(),
             ads_sight: None,
@@ -1032,7 +1034,8 @@ impl ContentCatalog {
                     ]
                     .into_iter()
                     .all(nonnegative)
-                    && m.melee_seconds.iter().all(|v| nonnegative(*v)),
+                    && m.melee_seconds.iter().all(|v| nonnegative(*v))
+                    && m.sprint_seconds.iter().all(|v| nonnegative(*v)),
                 "Invalid weapon tuning",
             )?;
             if let FirePattern::Burst { shots } = m.fire {

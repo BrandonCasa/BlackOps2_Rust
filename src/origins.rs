@@ -70,7 +70,7 @@ impl Default for Tuning {
             walk_speed: 4.8,
             sprint_speed: 7.2,
             sprint_seconds: 4.,
-            sprint_minimum: 0.25,
+            sprint_minimum: 1.,
             sprint_recovery_rate: 1.,
             sprint_recovery_delay: 0.,
             crouch_speed: 2.4,
