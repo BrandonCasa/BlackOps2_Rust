@@ -59,9 +59,17 @@ pub(super) fn record(
         Res<crate::rendering::RaySurfaceStats>,
         Res<crate::audio::AudioDecodeStats>,
         Res<crate::rendering::FirstPersonDepthStats>,
+        Res<bevy::light::ShadowVisibilityWorkCounts>,
     ),
 ) {
-    let (shared_gi, contributors, ray_feedback, audio_decode, first_person_depth) = shared_lighting;
+    let (
+        shared_gi,
+        contributors,
+        ray_feedback,
+        audio_decode,
+        first_person_depth,
+        shadow_visibility,
+    ) = shared_lighting;
     let Some(verification) = verification else {
         return;
     };
@@ -145,7 +153,7 @@ pub(super) fn record(
             .iter()
             .map(|(name, values)| (name, summary(values, false)))
             .collect();
-        let report = serde_json::json!({
+        let mut report = serde_json::json!({
             "physical_resolution": windows.single().ok().map(|window| [window.resolution.physical_width(), window.resolution.physical_height()]),
             "logical_resolution": windows.single().ok().map(|window| [window.resolution.width(), window.resolution.height()]),
             "adapter": adapter.as_ref().map(|info| format!("{:?}", &***info)),
@@ -183,6 +191,18 @@ pub(super) fn record(
             "mesh_preprocessing": preprocessing.report(),
             "first_person_depth": first_person_depth.report(),
             "combat": if samples.combat.is_empty() { serde_json::Value::Null } else { summary(&samples.combat, true) },
+        });
+        report["shadow_visibility"] = serde_json::json!({
+            "enabled": shadow_visibility.enabled,
+            "tracked_casters": shadow_visibility.tracked_casters,
+            "global_casters": shadow_visibility.global_casters,
+            "occupied_cells": shadow_visibility.occupied_cells,
+            "membership_changes": shadow_visibility.membership_changes,
+            "candidate_queries": shadow_visibility.candidate_queries,
+            "candidate_casters": shadow_visibility.candidate_casters,
+            "exhaustive_queries": shadow_visibility.exhaustive_queries,
+            "exhaustive_casters": shadow_visibility.exhaustive_casters,
+            "possible_caster_visits": shadow_visibility.possible_caster_visits,
         });
         match std::fs::write(
             verification.output.join("performance.json"),

@@ -1,6 +1,6 @@
 Pinned Bevy engine patches
 
-bevy_render, bevy_pbr and bevy_solari originate from crates.io Bevy 0.20.0-rc.2,
+bevy_render, bevy_pbr, bevy_solari and bevy_light originate from crates.io Bevy 0.20.0-rc.2,
 upstream tag commit 343a0233d6788a49f224a3684c8995e246663df3.
 The MIT and Apache-2.0 licenses remain alongside each copied production source.
 Only manifests, licenses, upstream README files and production src trees are
@@ -12,8 +12,18 @@ Original crates.io package SHA256 checksums:
 bevy_render 85dec5029f3bd8ca09f584f24df77d1bd096906062aa4377bc8af95d60f50136
 bevy_pbr 69a4a0e861abccd2ff8c655415ab3981f401a83b930a4c5c7227a0b6297f709e
 bevy_solari d3b48f81a2d3fa80a171fdb8b2655182f2b272dd17da05776b31b875810eee91
+bevy_light 0bc5b5af22aa7380852dcab45c71a77f6c94d98436e93e903e06c5fdf861cc77
 
 Local changes:
+bevy_light: local-light visibility retains bounded 16-meter spatial membership
+for native casters. Native point/spot range, layer, visibility-range and frustum
+checks receive deduplicated nearby candidates instead of scanning every caster
+for each dirty light. Missing/invalid/large/forced-visible bounds remain global;
+oversized light queries fall back to all native casters. Membership follows
+current transforms/bounds and authoritative query retirement, independently of
+camera visibility. Work counters default off. The upstream cluster test module
+and test.rs are excluded; no test suite or fixture is added. Three upstream
+light-cookie documentation lines have trailing Markdown spaces trimmed.
 bevy_render: frame/workload-associated raw diagnostic records, bounded paired
 query banks/readbacks, completed FIFO, earlier recording and coverage reporting.
 bevy_pbr: stable per-shadow-view/face timing and invocation context; the native

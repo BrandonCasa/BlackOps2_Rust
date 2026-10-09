@@ -234,6 +234,16 @@ struct ParkedSpecialization {
 pub(super) struct ShadowCachePlugin;
 impl Plugin for ShadowCachePlugin {
     fn build(&self, app: &mut App) {
+        let record_visibility = cfg!(debug_assertions)
+            && app
+                .world()
+                .resource::<crate::assets::LaunchOptions>()
+                .verify
+                .is_some();
+        app.init_resource::<bevy::light::ShadowVisibilityWorkCounts>();
+        app.world_mut()
+            .resource_mut::<bevy::light::ShadowVisibilityWorkCounts>()
+            .enabled = record_visibility;
         let enabled = !app
             .world()
             .resource::<crate::assets::LaunchOptions>()

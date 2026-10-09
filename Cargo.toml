@@ -8,7 +8,7 @@ default-run = "origins"
 
 [workspace]
 members = ["."]
-exclude = ["vendor/bevy_render", "vendor/bevy_pbr", "vendor/bevy_solari"]
+exclude = ["vendor/bevy_render", "vendor/bevy_pbr", "vendor/bevy_solari", "vendor/bevy_light"]
 resolver = "3"
 
 # Focused, source-pinned engine patches preserve Bevy ownership while exposing
@@ -17,6 +17,7 @@ resolver = "3"
 bevy_render = { path = "vendor/bevy_render" }
 bevy_pbr = { path = "vendor/bevy_pbr" }
 bevy_solari = { path = "vendor/bevy_solari" }
+bevy_light = { path = "vendor/bevy_light" }
 
 [features]
 default = []

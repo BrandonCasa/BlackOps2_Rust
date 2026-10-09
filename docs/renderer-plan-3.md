@@ -219,10 +219,24 @@ executable-23 passes combat, ADS, Round 2, all 17 views and restart. Resets are
 12144 versus 45534 in the preceding survey; specialization invalidations are
 1285231. These are separate survey work counts, not matched release speedup.
 Combat averages 8.4972 FPS and all 493 samples exceed 10 ms. Further reset causes
-and native per-light whole-caster visibility scans remain open. The world map
-already has spatial chunks; sample inspected chunks have compact positions.
-Use those bounds when investigating per-light candidate admission rather than
-duplicating the existing map partitioning. Recoil was not observed in this run.
+remain open. The world map already has spatial chunks; sample inspected chunks
+have compact positions. Recoil was not observed in this run.
+
+Native local-light visibility now retains a conservative 16-meter caster grid,
+refreshing changed bounds/transforms and retiring departed query members once
+per frame. Native range/layer/visibility/frustum tests receive deduplicated nearby
+candidates. Missing, invalid, oversized or forced-visible bounds remain global;
+oversized light queries retain exhaustive fallback. Frozen executable-24 passes
+combat, ADS, Round 2, all 17 views and restart. It retains 18188 casters, eight
+global casters and 1063 occupied cells. Across 34074 spatial queries, 28679813
+candidates replace 621875810 possible exhaustive visits, a 95.388% reduction;
+no exhaustive fallback occurs. Combat averages 8.4957 FPS, effectively unchanged
+from the preceding unmatched survey. Median/p95/p99/worst are
+79.3587/268.2606/323.1268/661.7119 ms; all 497 samples exceed 10 ms. The grid adds
+hash lookup/membership and candidate collection costs. These work counts prove
+pruning, not a frame speedup or optional release adoption. Both FPS targets remain
+open. Removing this repeated scan alone is insufficient; proceed to replacing
+fresh multi-bounce DDGI work and reducing the remaining frame critical path.
 
 - [ ] Late first-person HDR phase replaces auxiliary full view, with separate
   cleared depth and ordinary internal depth testing. Preserve world depth.

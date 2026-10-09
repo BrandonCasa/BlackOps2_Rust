@@ -1108,8 +1108,6 @@ dependencies = [
 [[package]]
 name = "bevy_light"
 version = "0.20.0-rc.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bc5b5af22aa7380852dcab45c71a77f6c94d98436e93e903e06c5fdf861cc77"
 dependencies = [
  "bevy_app",
  "bevy_asset",
