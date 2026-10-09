@@ -46,7 +46,7 @@
     1.12463927,
     1.47757721
   ],
-  "fog_brightness": 0.2,
+  "fog_brightness": 1.0,
   "fog_base_distance": 3.81,
   "fog_half_distance": 25.393016,
   "fog_distance_scale": 3.0,
