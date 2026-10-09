@@ -25,11 +25,12 @@ pub enum Action {
     Lethal,
     Tactical,
     Mine,
+    Scoreboard,
     Pause,
     Restart,
 }
 impl Action {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::Forward,
         Self::Backward,
         Self::Left,
@@ -50,6 +51,7 @@ impl Action {
         Self::Lethal,
         Self::Tactical,
         Self::Mine,
+        Self::Scoreboard,
         Self::Pause,
         Self::Restart,
     ];
@@ -75,6 +77,7 @@ impl Action {
             Self::Lethal => "Lethal equipment",
             Self::Tactical => "Tactical equipment",
             Self::Mine => "Claymore",
+            Self::Scoreboard => "Scoreboard",
             Self::Pause => "Pause",
             Self::Restart => "Restart after game over",
         }
@@ -195,6 +198,7 @@ impl Default for ControlSettings {
             (Lethal, KeyCode::KeyG),
             (Tactical, KeyCode::KeyT),
             (Mine, KeyCode::Digit4),
+            (Scoreboard, KeyCode::Tab),
             (Pause, KeyCode::Escape),
             (Restart, KeyCode::KeyR),
         ]

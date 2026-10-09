@@ -122,7 +122,7 @@ pub fn install(app: &mut App) {
             FixedUpdate,
             replenish
                 .in_set(GameStep::Rounds)
-                .after(crate::gameplay::rounds)
+                .after(crate::rounds::advance)
                 .run_if(in_state(crate::GameState::Playing)),
         );
 }

@@ -2,6 +2,7 @@ use crate::{GameState, assets::GameDefinition, gameplay::GameStep, player::Playe
 use avian3d::prelude::*;
 use bevy::prelude::*;
 pub mod brushes;
+pub mod hazards;
 pub mod triggers;
 #[derive(Clone, Default, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -104,8 +105,18 @@ pub struct EnvironmentPlugin;
 impl Plugin for EnvironmentPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Footstep>()
-            .add_systems(OnEnter(GameState::Playing), triggers::spawn)
-            .add_systems(OnEnter(GameState::Playing), spawn)
+            .register_required_components::<Player, hazards::BoundaryMonitor>()
+            .add_systems(
+                OnEnter(GameState::Playing),
+                (triggers::spawn, spawn, hazards::spawn)
+                    .in_set(crate::session::SessionSetup::World),
+            )
+            .add_systems(
+                FixedUpdate,
+                (hazards::boundaries, hazards::damage)
+                    .in_set(GameStep::Combat)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(
                 FixedUpdate,
                 feedback

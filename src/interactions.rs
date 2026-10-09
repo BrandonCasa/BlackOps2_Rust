@@ -22,10 +22,20 @@ pub struct Usable {
 pub struct InteractionFocus {
     pub target: Option<Entity>,
     pub progress: f32,
+    pub hold_seconds: f32,
     pub prompt: String,
     pub rejection: Option<InteractionRejection>,
     latched: bool,
     pub accepted: u32,
+}
+impl InteractionFocus {
+    fn cancel(&mut self) {
+        self.target = None;
+        self.progress = 0.;
+        self.hold_seconds = 0.;
+        self.prompt.clear();
+        self.rejection = None;
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InteractionRejection {
@@ -53,7 +63,18 @@ impl Plugin for InteractionPlugin {
         app.init_resource::<InteractionFocus>()
             .init_resource::<WallMaterials>()
             .init_resource::<PointLedger>()
-            .add_systems(OnEnter(GameState::Playing), assemble)
+            .add_systems(
+                OnEnter(GameState::Playing),
+                assemble.in_set(crate::session::SessionSetup::World),
+            )
+            .add_systems(OnExit(GameState::Playing), clear_focus)
+            .add_systems(
+                FixedUpdate,
+                suppress_focus
+                    .after(GameStep::PlayerLife)
+                    .before(GameStep::Rewards)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_observer(wall_ready)
             .add_systems(
                 FixedUpdate,
@@ -61,6 +82,31 @@ impl Plugin for InteractionPlugin {
                     .in_set(GameStep::Interactions)
                     .run_if(in_state(GameState::Playing)),
             );
+    }
+}
+fn clear_focus(mut focus: ResMut<InteractionFocus>) {
+    focus.cancel();
+    focus.latched = false;
+}
+fn suppress_focus(
+    mut focus: ResMut<InteractionFocus>,
+    input: Res<GameInput>,
+    players: Query<&Vitality, With<Player>>,
+    targets: Query<&Usable>,
+) {
+    if !players
+        .single()
+        .is_ok_and(|v| v.state() == LifeState::Standing)
+    {
+        focus.cancel();
+        focus.latched = input.use_held;
+        focus.rejection = Some(InteractionRejection::Downed);
+    } else if focus
+        .target
+        .and_then(|e| targets.get(e).ok())
+        .is_some_and(|u| u.source.hidden_prompt)
+    {
+        focus.prompt.clear();
     }
 }
 fn assemble(
@@ -223,6 +269,7 @@ pub(crate) fn interact(
         drinking,
     )) = players.single_mut()
     else {
+        focus.cancel();
         return;
     };
     if !input.use_held {
@@ -230,9 +277,8 @@ pub(crate) fn interact(
         focus.progress = 0.;
     }
     if vitality.state() != LifeState::Standing {
-        focus.target = None;
-        focus.progress = 0.;
-        focus.prompt.clear();
+        focus.cancel();
+        focus.latched = input.use_held;
         focus.rejection = Some(InteractionRejection::Downed);
         return;
     }
@@ -280,9 +326,7 @@ pub(crate) fn interact(
         })
         .max_by(|a, b| a.0.total_cmp(&b.0).then_with(|| b.1.total_cmp(&a.1)));
     let Some((_, _, entity, usable)) = candidate else {
-        focus.target = None;
-        focus.progress = 0.;
-        focus.prompt.clear();
+        focus.cancel();
         return;
     };
     if focus.target != Some(entity) {
@@ -290,6 +334,12 @@ pub(crate) fn interact(
         focus.rejection = None;
     }
     focus.target = Some(entity);
+    focus.hold_seconds = usable.source.hold_seconds;
+    let busy = inventory.action != WeaponAction::Ready
+        || grenades.busy()
+        || mines.busy()
+        || tactical.busy()
+        || drinking;
     if let InteractionAction::Generator { generator } = &usable.source.action {
         let Some(d) = definition
             .content
@@ -313,12 +363,7 @@ pub(crate) fn interact(
         focus.latched = true;
         let purchase = ledger.command(d.price);
         let result = ledger.accept(&mut session.points, purchase, || {
-            if inventory.action != WeaponAction::Ready
-                || grenades.busy()
-                || mines.busy()
-                || tactical.busy()
-                || drinking
-            {
+            if busy {
                 return Err(InteractionRejection::Busy);
             }
             generators.activate(generator, player_entity)
@@ -337,17 +382,12 @@ pub(crate) fn interact(
         if !input.use_held {
             return;
         }
-        if inventory.action != WeaponAction::Ready
-            || grenades.busy()
-            || mines.busy()
-            || tactical.busy()
-            || drinking
-            || input.fire_held
-        {
+        if busy || input.fire_held {
             focus.progress = 0.;
             focus.rejection = Some(InteractionRejection::Busy);
             return;
         }
+        focus.rejection = None;
         focus.progress += time.delta_secs();
         if focus.progress >= usable.source.hold_seconds {
             focus.progress = 0.;
@@ -431,21 +471,20 @@ pub(crate) fn interact(
         if !input.use_held || focus.latched {
             return;
         }
+        if busy {
+            focus.progress = 0.;
+            focus.rejection = Some(InteractionRejection::Busy);
+            return;
+        }
+        focus.rejection = None;
         focus.progress += time.delta_secs();
         if focus.progress < usable.source.hold_seconds {
             return;
         }
         focus.latched = true;
+        focus.progress = 0.;
         let purchase = ledger.command(perk.price);
         let result = ledger.accept(&mut session.points, purchase, || {
-            if inventory.action != WeaponAction::Ready
-                || grenades.busy()
-                || mines.busy()
-                || tactical.busy()
-                || drinking
-            {
-                return Err(InteractionRejection::Busy);
-            }
             if perk.id == definition.solo_revive.perk {
                 perks.can_buy_solo(&definition.solo_revive)?;
             } else if perks.owned.contains(&perk.id) {
@@ -507,21 +546,20 @@ pub(crate) fn interact(
     if !input.use_held || focus.latched {
         return;
     }
+    if busy {
+        focus.progress = 0.;
+        focus.rejection = Some(InteractionRejection::Busy);
+        return;
+    }
+    focus.rejection = None;
     focus.progress += time.delta_secs();
     if focus.progress < usable.source.hold_seconds {
         return;
     }
     focus.latched = true;
+    focus.progress = 0.;
     let purchase = ledger.command(cost);
     let result = ledger.accept(&mut session.points, purchase, || {
-        if inventory.action != WeaponAction::Ready
-            || grenades.busy()
-            || mines.busy()
-            || tactical.busy()
-            || drinking
-        {
-            return Err(InteractionRejection::Busy);
-        }
         if weapon.mine.is_some() {
             mines.receive(weapon)?;
         } else if weapon.throwable.is_some() {
@@ -572,6 +610,7 @@ pub(crate) fn interact(
             crate::audio::voice(
                 &mut commands,
                 &definition,
+                &session,
                 "generic_wall_buy",
                 player_entity,
                 session.kills,

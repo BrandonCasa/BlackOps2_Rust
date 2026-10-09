@@ -49,11 +49,12 @@ pub(super) fn install(app: &mut App) {
 pub(crate) fn voice(
     commands: &mut Commands,
     game: &GameDefinition,
+    session: &Session,
     event: &str,
     speaker: Entity,
     index: u32,
 ) {
-    let prefix = format!("vox_plr_{}_{}", game.audio.character, event);
+    let prefix = format!("vox_plr_{}_{}", session.character, event);
     let choices: Vec<_> = game
         .audio
         .aliases
@@ -70,6 +71,7 @@ pub(crate) fn voice(
 }
 fn actions(
     mut commands: Commands,
+    session: Res<Session>,
     game: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
     mut state: ResMut<AudioState>,
@@ -160,7 +162,14 @@ fn actions(
                     &format!("{}.dry_fire", weapon.id.0),
                     SoundSource::attached(owner),
                 );
-                voice(&mut commands, &game, "ammo_out", owner, sequence as u32);
+                voice(
+                    &mut commands,
+                    &game,
+                    &session,
+                    "ammo_out",
+                    owner,
+                    sequence as u32,
+                );
             }
         }
         let native_duration = game
@@ -374,7 +383,14 @@ fn world(
             "chr_revive_gasp",
             SoundSource::attached(player),
         );
-        voice(&mut commands, &game, "heal_revived", player, session.kills);
+        voice(
+            &mut commands,
+            &game,
+            &session,
+            "heal_revived",
+            player,
+            session.kills,
+        );
     }
     state.downed = downed;
     if state.round != session.round {
@@ -385,7 +401,7 @@ fn world(
         );
         state.round = session.round;
         if session.round == 1 {
-            voice(&mut commands, &game, "during_round_1", player, 0);
+            voice(&mut commands, &game, &session, "during_round_1", player, 0);
         }
     }
     if session.intermission.is_some() && !state.intermission {
@@ -395,7 +411,14 @@ fn world(
             SoundSource::World(position),
         );
         if session.round == 1 {
-            voice(&mut commands, &game, "end_round_1", player, session.round);
+            voice(
+                &mut commands,
+                &game,
+                &session,
+                "end_round_1",
+                player,
+                session.round,
+            );
         }
     }
     state.intermission = session.intermission.is_some();
@@ -421,7 +444,7 @@ fn world(
                 _ => None,
             };
             if let Some(event) = event {
-                voice(&mut commands, &game, event, player, 0);
+                voice(&mut commands, &game, &session, event, player, 0);
             }
         }
     }
@@ -585,7 +608,7 @@ fn feedback(
             None
         };
         if let Some(event) = event {
-            voice(&mut commands, &game, event, player, session.kills);
+            voice(&mut commands, &game, &session, event, player, session.kills);
         }
     }
     for damage in damages.read() {
@@ -593,6 +616,7 @@ fn feedback(
             voice(
                 &mut commands,
                 &game,
+                &session,
                 if damage.after < 25 {
                     "exert_pain_high"
                 } else {

@@ -16,6 +16,8 @@ pub enum ImpactSource {
     Projectile(WeaponId),
     Enemy(ContentId),
     Fall,
+    Environment(String),
+    OutOfBounds,
     Perk(crate::origins::PerkId),
 }
 impl ImpactSource {
@@ -24,6 +26,8 @@ impl ImpactSource {
             Self::Weapon(id) | Self::Projectile(id) => &id.0,
             Self::Enemy(id) => &id.0,
             Self::Fall => "hazard.fall",
+            Self::Environment(id) => id,
+            Self::OutOfBounds => "hazard.out_of_bounds",
             Self::Perk(id) => &id.0,
         }
     }
@@ -115,6 +119,8 @@ fn resolve(
             ImpactSource::Weapon(_)
             | ImpactSource::Projectile(_)
             | ImpactSource::Perk(_)
+            | ImpactSource::Environment(_)
+            | ImpactSource::OutOfBounds
             | ImpactSource::Fall => players.contains(impact.attacker),
             ImpactSource::Enemy(id) => enemies
                 .get(impact.attacker)
@@ -128,7 +134,11 @@ fn resolve(
             continue;
         };
         let player = players.contains(impact.target);
-        if player && health.state() != crate::life::LifeState::Standing {
+        let out_of_bounds = matches!(impact.source, ImpactSource::OutOfBounds);
+        if player
+            && health.state() != crate::life::LifeState::Standing
+            && !(out_of_bounds && health.state() == crate::life::LifeState::Downed)
+        {
             evidence.terminal_rejections += 1;
             continue;
         }
@@ -146,7 +156,7 @@ fn resolve(
                 .record(serde_json::json!({"event":"fall_protected","amount":impact.amount}));
             continue;
         }
-        if player && recovery.as_ref().is_some_and(|r| r.immunity > 0.) {
+        if player && !out_of_bounds && recovery.as_ref().is_some_and(|r| r.immunity > 0.) {
             evidence.immunity_rejections += 1;
             continue;
         }
@@ -167,7 +177,11 @@ fn resolve(
             continue;
         };
         let before = health.current().unwrap_or(0);
-        let Ok(outcome) = health.apply(amount) else {
+        let Ok(outcome) = (if out_of_bounds {
+            health.kill_human()
+        } else {
+            health.apply(amount)
+        }) else {
             continue;
         };
         if player {

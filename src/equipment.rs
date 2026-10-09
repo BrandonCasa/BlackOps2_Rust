@@ -242,7 +242,7 @@ impl Plugin for EquipmentPlugin {
                 FixedUpdate,
                 replenish
                     .in_set(GameStep::Rounds)
-                    .after(crate::gameplay::rounds)
+                    .after(crate::rounds::advance)
                     .run_if(in_state(GameState::Playing)),
             );
     }

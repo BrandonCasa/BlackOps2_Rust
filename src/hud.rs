@@ -226,6 +226,7 @@ fn update(
     inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
     players: Query<&Vitality, With<Player>>,
     focus: Res<crate::interactions::InteractionFocus>,
+    input: Res<crate::input::GameInput>,
     grenades: Query<&crate::equipment::GrenadeInventory, With<Player>>,
     mines: Query<&crate::mines::MineInventory, With<Player>>,
     tactical: Query<&crate::equipment::TacticalInventory, With<Player>>,
@@ -286,8 +287,22 @@ fn update(
             }
         ),
     };
+    if **state == GameState::Playing && input.scoreboard {
+        value = format!(
+            "Scoreboard\nRound {}    Kills {}    Points {}",
+            session.round, session.kills, session.points
+        );
+        **text = value;
+        return;
+    }
     if **state == GameState::Playing && !focus.prompt.is_empty() {
         value.push_str(&format!("\n{}", focus.prompt));
+        if focus.progress > 0. && focus.hold_seconds > 0. {
+            value.push_str(&format!(
+                "  {:.0}%",
+                (focus.progress / focus.hold_seconds).clamp(0., 1.) * 100.
+            ));
+        }
         if let Some(reason) = focus.rejection {
             let reason = match reason {
                 crate::interactions::InteractionRejection::InsufficientPoints => {

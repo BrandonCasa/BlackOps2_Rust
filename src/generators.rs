@@ -133,7 +133,10 @@ impl Plugin for GeneratorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Generators>()
             .init_resource::<GeneratorGraphs>()
-            .add_systems(OnEnter(GameState::Playing), assemble)
+            .add_systems(
+                OnEnter(GameState::Playing),
+                assemble.in_set(crate::session::SessionSetup::World),
+            )
             .add_observer(visual_ready)
             .add_systems(
                 FixedUpdate,
@@ -493,6 +496,7 @@ fn audio_evidence(
 }
 fn presentation(
     mut commands: Commands,
+    session: Res<Session>,
     definition: Res<GameDefinition>,
     mut generators: ResMut<Generators>,
     gltfs: Res<Assets<Gltf>>,
@@ -560,6 +564,7 @@ fn presentation(
                         crate::audio::voice(
                             &mut commands,
                             &definition,
+                            &session,
                             "capture_zones",
                             speaker,
                             u32::from(d.number),

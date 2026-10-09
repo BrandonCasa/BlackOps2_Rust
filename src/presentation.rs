@@ -211,6 +211,7 @@ pub(crate) fn first_person_light(
 }
 fn spawn_viewmodels(
     mut commands: Commands,
+    session: Res<crate::gameplay::Session>,
     server: Res<AssetServer>,
     definition: Option<Res<GameDefinition>>,
     state: Res<State<GameState>>,
@@ -276,7 +277,8 @@ fn spawn_viewmodels(
             else {
                 continue;
             };
-            let arms = "actors/c_zom_dempsey_viewhands_lod0.gltf#Scene0";
+            let character = ["dempsey", "nikolai", "richtofen", "takeo"][session.character];
+            let arms = format!("actors/c_zom_{character}_viewhands_lod0.gltf#Scene0");
             let root = commands
                 .spawn((
                     FirstPerson {
@@ -320,7 +322,7 @@ fn spawn_viewmodels(
                 })
                 .and_then(|p| p.scene.as_deref());
             for (is_arms, is_knife, is_ads, scene) in [
-                (true, false, false, Some(arms)),
+                (true, false, false, Some(arms.as_str())),
                 (false, false, false, Some(scene.as_str())),
                 (false, true, false, knife),
                 (false, false, true, ads_scene),

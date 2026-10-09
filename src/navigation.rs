@@ -439,7 +439,10 @@ pub struct NavigationPlugin;
 impl Plugin for NavigationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Navigation>()
-            .add_systems(OnEnter(GameState::Playing), reset)
+            .add_systems(
+                OnEnter(GameState::Playing),
+                reset.in_set(crate::session::SessionSetup::World),
+            )
             .add_systems(
                 FixedUpdate,
                 refresh

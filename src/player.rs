@@ -49,7 +49,10 @@ impl Plugin for PlayerPlugin {
         app.init_resource::<TickActions>()
             .init_resource::<crate::movement::MovementEvidence>()
             .add_message::<crate::movement::Landing>()
-            .add_systems(OnEnter(GameState::Playing), spawn_player)
+            .add_systems(
+                OnEnter(GameState::Playing),
+                spawn_player.in_set(crate::session::SessionSetup::Player),
+            )
             .add_systems(
                 PreUpdate,
                 look.after(crate::input::collect)

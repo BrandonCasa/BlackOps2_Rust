@@ -265,6 +265,20 @@ impl Vitality {
         }
     }
 
+    pub(crate) fn kill_human(&mut self) -> Result<DamageOutcome, LifeStateError> {
+        if !matches!(self.route, DamageRoute::Human { .. }) {
+            return Err(LifeStateError::NotHuman);
+        }
+        if self.state == LifeState::HumanTerminal {
+            return Ok(DamageOutcome::Ignored { state: self.state });
+        }
+        let before = self.current;
+        self.state = LifeState::HumanTerminal;
+        self.active_revive = None;
+        self.active_self_revive = None;
+        Ok(DamageOutcome::HumanDied { before })
+    }
+
     pub fn regenerate(&mut self, amount: u32) -> Result<u32, LifeStateError> {
         if !matches!(self.route, DamageRoute::Human { .. }) {
             return Err(LifeStateError::NotHuman);
@@ -568,6 +582,10 @@ pub struct LifeCommandQueue {
 }
 
 impl LifeCommandQueue {
+    pub(crate) fn clear(&mut self) {
+        self.pending.clear();
+    }
+
     pub fn submit_next(
         &mut self,
         target: Entity,

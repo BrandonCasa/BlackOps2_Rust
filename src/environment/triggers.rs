@@ -145,7 +145,7 @@ pub(super) fn spawn(
     }
     for trigger in &game.environment.triggers {
         if let Some(shape) = trigger.collider() {
-            commands.spawn((
+            let mut entity = commands.spawn((
                 MapTrigger(trigger.id.clone()),
                 shape,
                 Sensor,
@@ -153,6 +153,9 @@ pub(super) fn spawn(
                 Transform::from_translation(Vec3::from_array(trigger.position)),
                 Name::new(trigger.id.clone()),
             ));
+            if let Some(boundary) = super::hazards::boundary(trigger) {
+                entity.insert(boundary);
+            }
         }
     }
 }

@@ -44,6 +44,7 @@ pub mod presentation;
 pub mod rendering;
 pub mod rounds;
 mod run_environment;
+mod session;
 pub mod solo_revive;
 pub mod verification;
 pub mod weapons;
@@ -130,6 +131,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
         gameplay::GameplayPlugin,
         damage::DamagePlugin,
         (
+            session::SessionPlugin,
             life::LifeStatePlugin,
             solo_revive::SoloRevivePlugin,
             perks::PerkPlugin,

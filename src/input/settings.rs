@@ -48,10 +48,21 @@ pub fn read(path: &Path) -> Result<ControlSettings, String> {
         Ok(meta) if meta.len() > 65536 => return Err("Settings exceed 64 KiB.".into()),
         _ => {}
     }
-    let settings: ControlSettings = serde_json::from_slice(
+    let mut settings: ControlSettings = serde_json::from_slice(
         &std::fs::read(path).map_err(|e| format!("Cannot read settings: {e}"))?,
     )
     .map_err(|e| format!("Invalid settings: {e}"))?;
+    if !settings.bindings.contains_key(&super::Action::Scoreboard) {
+        let binding = super::Binding::Key(KeyCode::Tab);
+        let available = !settings
+            .bindings
+            .values()
+            .any(|bindings| bindings.contains(&binding));
+        settings.bindings.insert(
+            super::Action::Scoreboard,
+            available.then_some(binding).into_iter().collect(),
+        );
+    }
     if !settings.valid() {
         return Err("Settings contain unsupported values or conflicting bindings.".into());
     }

@@ -116,6 +116,7 @@ pub struct GameInput {
     pub melee: bool,
     pub reload: bool,
     pub use_held: bool,
+    pub scoreboard: bool,
     pub grenade_held: bool,
     pub mine_held: bool,
     pub tactical_held: bool,
@@ -246,6 +247,7 @@ pub(crate) fn collect(
     input.fire_held = actions.active(Fire);
     input.ads = actions.active(Aim);
     input.use_held = actions.active(Interact);
+    input.scoreboard = actions.active(Scoreboard);
     input.grenade_held = actions.active(Lethal);
     input.mine_held = actions.active(Mine);
     input.tactical_held = actions.active(Tactical);
@@ -270,6 +272,7 @@ fn finish_tick(mut actions: ResMut<Actions>, mut input: ResMut<GameInput>) {
     for (action, held) in [
         (Action::Fire, &mut input.fire_held),
         (Action::Interact, &mut input.use_held),
+        (Action::Scoreboard, &mut input.scoreboard),
         (Action::Lethal, &mut input.grenade_held),
         (Action::Tactical, &mut input.tactical_held),
         (Action::Mine, &mut input.mine_held),
@@ -302,13 +305,10 @@ pub(crate) fn pause_and_restart(
     mut next: ResMut<NextState<GameState>>,
     mut cursors: Query<(&Window, &mut CursorOptions)>,
     mut commands: Commands,
-    session: Query<Entity, With<crate::gameplay::SessionEntity>>,
     options: Res<crate::assets::LaunchOptions>,
     settings: Res<ControlSettings>,
     menu: Res<menu::ControlMenu>,
     mut restart: MessageReader<RestartGame>,
-    mut life_queue: ResMut<crate::life::LifeCommandQueue>,
-    mut life_results: ResMut<crate::life::LifeCommandResults>,
 ) {
     if menu.capturing.is_none()
         && !menu.handled_input
@@ -331,11 +331,7 @@ pub(crate) fn pause_and_restart(
         && (settings.just_pressed(Action::Restart, &keys, &mouse)
             || restart.read().next().is_some())
     {
-        for entity in &session {
-            life_queue.retire_pending_target(entity);
-            commands.entity(entity).despawn();
-        }
-        life_results.drain().for_each(drop);
+        commands.queue(crate::session::teardown);
         next.set(GameState::Playing);
     }
     for (window, mut cursor) in &mut cursors {
