@@ -58,9 +58,10 @@ pub(super) fn record(
         Res<crate::rendering::RayContributorStats>,
         Res<crate::rendering::RaySurfaceStats>,
         Res<crate::audio::AudioDecodeStats>,
+        Res<crate::rendering::FirstPersonDepthStats>,
     ),
 ) {
-    let (shared_gi, contributors, ray_feedback, audio_decode) = shared_lighting;
+    let (shared_gi, contributors, ray_feedback, audio_decode, first_person_depth) = shared_lighting;
     let Some(verification) = verification else {
         return;
     };
@@ -180,6 +181,7 @@ pub(super) fn record(
             "ray_feedback": &*ray_feedback,
             "audio_decode": &*audio_decode,
             "mesh_preprocessing": preprocessing.report(),
+            "first_person_depth": first_person_depth.report(),
             "combat": if samples.combat.is_empty() { serde_json::Value::Null } else { summary(&samples.combat, true) },
         });
         match std::fs::write(

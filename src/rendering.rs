@@ -11,6 +11,7 @@ use bevy::{
     prelude::*,
 };
 mod budget;
+mod first_person;
 pub(crate) mod grading;
 mod lighting_inspection;
 mod opaque;
@@ -28,6 +29,7 @@ mod sky;
 mod sky_lighting;
 mod static_gi;
 mod streaming;
+pub(crate) use first_person::FirstPersonDepthStats;
 pub(crate) use opaque::OpaqueSurfaceStatus;
 pub(crate) use opaque::{LAYER_UV, LAYER3_UV, ROTATION1, ROTATION2};
 pub(crate) use pbr::PbrReady;
@@ -58,6 +60,7 @@ pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<opaque::OpaqueMaterial>::default())
+            .add_plugins(first_person::FirstPersonRenderPlugin)
             .add_plugins(bevy::post_process::auto_exposure::AutoExposurePlugin)
             .add_plugins(MaterialPlugin::<pbr::DiagnosticMaterial>::default())
             .add_plugins(preprocessing::PreprocessingPlugin)

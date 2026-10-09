@@ -176,6 +176,15 @@ presentation projection and single final post chain while replacing that
 shared depth with owned first-person storage and removing duplicate view work.
 First-person geometry is still explicitly excluded from ray-scene admission.
 
+Owned first-person depth now overrides native target-shared depth after core
+preparation. Storage survives ordinary movement/ADS/animation, and retires on
+view removal, target suspension, size/sample/usage changes or device recovery.
+Frozen executable-19 passes the full actual-game survey with 1630 checked views,
+zero world-depth aliases or shared-HDR mismatches, one 8294400-byte allocation
+and 1629 reuses. The separate late camera and its directional cascades remain;
+the architectural checklist below is still partial. Existing actor garment
+artifacts remain open. Debug combat averages 8.1943 FPS; targets are unmet.
+
 - [ ] Late first-person HDR phase replaces auxiliary full view, with separate
   cleared depth and ordinary internal depth testing. Preserve world depth.
 - [ ] Preserve FOV, hip/ADS framing, animation, recoil, attachments and muzzle

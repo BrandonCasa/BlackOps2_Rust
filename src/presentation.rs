@@ -37,7 +37,8 @@ pub(crate) struct CameraPose;
 // removes its FOV correction at full ADS; the hip origin bias fades out too.
 const VIEWMODEL_FOV_DEGREES: f32 = 65.;
 const VIEWMODEL_ORIGIN: Vec3 = Vec3::new(0., 0.025, 0.);
-#[derive(Component)]
+#[derive(Component, Clone, bevy::render::extract_component::ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct ViewModelCamera;
 #[derive(Component)]
 struct AimingJoint {
