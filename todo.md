@@ -1,9 +1,6 @@
 - [ ] Preserve executable-relative discovery for expanded runtime packs.
 - [ ] Package newly referenced runtime asset types.
 - [ ] Add deferred boundaries before changed colliders enter queries.
-- [ ] Add session IDs to delayed gameplay events.
-- [ ] Discard delayed events from retired sessions.
-- [ ] Pause gameplay timers with session simulation.
 - [ ] Add Original difficulty profiles.
 - [ ] Add Easy difficulty profiles.
 - [ ] Add solo main menu state.
@@ -111,7 +108,6 @@
 - [ ] Add generator one initial reward behavior.
 - [ ] Add generator six Fire Staff part reward.
 - [ ] Add generator attack wave completion rewards.
-- [ ] Add default perk purchase limits.
 - [ ] Add earned perk purchase slots.
 - [ ] Preserve source-defined earned slot persistence.
 - [ ] Connect perk machines to local generator power.

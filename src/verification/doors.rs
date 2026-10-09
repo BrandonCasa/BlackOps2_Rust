@@ -86,6 +86,7 @@ fn drive(
         Res<crate::damage::CombatHistory>,
         Res<crate::mines::MineEvidence>,
         Query<Entity, With<ControlledMine>>,
+        Res<crate::session::SessionId>,
     ),
 ) {
     let (
@@ -98,6 +99,7 @@ fn drive(
         history,
         mine_evidence,
         controlled_mines,
+        session_id,
     ) = inspection;
     let (Some(v), Some(game), Ok((owner, mut p, mut pose, health, mut mobility))) =
         (v, game, players.single_mut())
@@ -434,7 +436,7 @@ fn drive(
                     c.traversal_blast = vitality.current();
                     blasts
                         .0
-                        .push(combat_blast(owner, body.translation, 0.5, 10));
+                        .push(combat_blast(*session_id, owner, body.translation, 0.5, 10));
                 } else if !c.traversal_hit
                     && let Some(before) = c.traversal_blast
                     && vitality.current() == Some(before - 10)
@@ -554,8 +556,14 @@ fn drive(
                 } else {
                     let point = body.translation;
                     let request = match c.combat_case {
-                        0 => Some(combat_blast(owner, point, 0.5, 10)),
-                        1 => Some(combat_blast(owner, point + Vec3::X * 2., 0.1, 10)),
+                        0 => Some(combat_blast(*session_id, owner, point, 0.5, 10)),
+                        1 => Some(combat_blast(
+                            *session_id,
+                            owner,
+                            point + Vec3::X * 2.,
+                            0.1,
+                            10,
+                        )),
                         2 => [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z, Vec3::Y]
                             .into_iter()
                             .find_map(|axis| {
@@ -567,10 +575,16 @@ fn drive(
                                     &crate::environment::solids([actor, owner]),
                                 )?;
                                 let center = point + axis * (hit.distance + 0.3);
-                                Some(combat_blast(owner, center, hit.distance + 1., 10))
+                                Some(combat_blast(
+                                    *session_id,
+                                    owner,
+                                    center,
+                                    hit.distance + 1.,
+                                    10,
+                                ))
                             }),
-                        3 => Some(combat_blast(owner, point, 0.5, 200)),
-                        _ => Some(combat_blast(owner, point, 0.5, 10)),
+                        3 => Some(combat_blast(*session_id, owner, point, 0.5, 200)),
+                        _ => Some(combat_blast(*session_id, owner, point, 0.5, 10)),
                     };
                     if let Some(request) = request {
                         blasts.0.push(request);
@@ -763,12 +777,14 @@ fn drive(
 }
 
 fn combat_blast(
+    session: crate::session::SessionId,
     owner: Entity,
     center: Vec3,
     radius: f32,
     amount: u32,
 ) -> crate::equipment::BlastRequest {
     crate::equipment::BlastRequest {
+        session,
         owner,
         definition: crate::origins::WeaponId("weapon.frag_grenade_zm".into()),
         center,

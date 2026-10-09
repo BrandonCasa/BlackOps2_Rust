@@ -271,6 +271,7 @@ fn place(
 }
 fn detect(
     mut commands: Commands,
+    session: Res<crate::session::SessionId>,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     query: SpatialQuery,
@@ -294,6 +295,7 @@ fn detect(
             *remaining -= time.delta_secs();
             if *remaining <= 0. {
                 blasts.0.push(crate::equipment::BlastRequest {
+                    session: *session,
                     owner: mine.owner,
                     definition: mine.definition.clone(),
                     center: pose.translation,

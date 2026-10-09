@@ -10,6 +10,7 @@ use serde::Deserialize;
 
 #[derive(Message, Clone, Copy)]
 pub struct RoundStarted {
+    pub(crate) session: crate::session::SessionId,
     pub round: u32,
 }
 
@@ -193,6 +194,7 @@ pub struct RoundEvidence {
 }
 
 pub(crate) fn advance(
+    session_id: Res<crate::session::SessionId>,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
@@ -239,6 +241,7 @@ pub(crate) fn advance(
             session.intermission = None;
             session.spawn_timer = Timer::from_seconds(profile.first_spawn_seconds, TimerMode::Once);
             started.write(RoundStarted {
+                session: *session_id,
                 round: session.round,
             });
             info!("Round {} begins, budget {}", session.round, session.pending);

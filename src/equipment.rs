@@ -189,6 +189,7 @@ struct Blast {
     remaining: f32,
 }
 pub struct BlastRequest {
+    pub(crate) session: crate::session::SessionId,
     pub owner: Entity,
     pub definition: WeaponId,
     pub center: Vec3,
@@ -202,6 +203,7 @@ pub struct BlastRequest {
 pub struct BlastQueue(pub Vec<BlastRequest>);
 #[derive(Resource, Default)]
 pub struct EquipmentEvidence {
+    pub retired_blasts: u32,
     pub round_awards: u32,
     pub primed: u32,
     pub thrown: u32,
@@ -248,12 +250,16 @@ impl Plugin for EquipmentPlugin {
     }
 }
 fn replenish(
+    session: Res<crate::session::SessionId>,
     mut started: MessageReader<crate::rounds::RoundStarted>,
     definition: Res<GameDefinition>,
     mut players: Query<(&mut GrenadeInventory, &Vitality), With<Player>>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
     for event in started.read() {
+        if event.session != *session {
+            continue;
+        }
         for (mut inventory, vitality) in &mut players {
             if vitality.state() != LifeState::Standing {
                 continue;
@@ -496,6 +502,7 @@ pub(crate) fn throw_input(
 }
 fn flight(
     mut commands: Commands,
+    session: Res<crate::session::SessionId>,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     mut grenades: Query<(Entity, &mut Grenade, &mut Transform)>,
@@ -645,6 +652,7 @@ fn flight(
         evidence.detonations += 1;
         let center = transform.translation;
         blasts.0.push(BlastRequest {
+            session: *session,
             owner: grenade.owner,
             definition: grenade.definition.clone(),
             center,
@@ -674,6 +682,7 @@ fn blast_lifetime(
 
 pub(crate) fn resolve_blasts(
     mut commands: Commands,
+    session: Res<crate::session::SessionId>,
     game: Res<GameDefinition>,
     mut queue: ResMut<BlastQueue>,
     query: SpatialQuery,
@@ -684,6 +693,10 @@ pub(crate) fn resolve_blasts(
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
     for blast in queue.0.drain(..) {
+        if blast.session != *session {
+            evidence.retired_blasts += 1;
+            continue;
+        }
         let center = blast.center;
         crate::audio::binding(
             &mut commands,

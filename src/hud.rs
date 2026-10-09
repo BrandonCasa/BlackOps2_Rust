@@ -330,6 +330,9 @@ fn update(
                     "Not enough points"
                 }
                 crate::interactions::InteractionRejection::FullAmmo => "Ammo full",
+                crate::interactions::InteractionRejection::PerkLimit => {
+                    "Perk purchase limit reached (4)"
+                }
                 crate::interactions::InteractionRejection::Busy => "Weapon busy",
                 _ => "Unavailable",
             };

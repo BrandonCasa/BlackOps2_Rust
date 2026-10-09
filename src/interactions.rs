@@ -43,6 +43,7 @@ pub enum InteractionRejection {
     Downed,
     InsufficientPoints,
     FullAmmo,
+    PerkLimit,
     Unavailable,
     Duplicate,
 }
@@ -489,6 +490,9 @@ pub(crate) fn interact(
                 perks.can_buy_solo(&definition.solo_revive)?;
             } else if perks.owned.contains(&perk.id) {
                 return Err(InteractionRejection::Duplicate);
+            }
+            if perks.owned.len() >= 4 {
+                return Err(InteractionRejection::PerkLimit);
             }
             let drink = crate::perks::PerkDrinking::new(perk, &inventory, &definition)?;
             inventory.cancel_action();

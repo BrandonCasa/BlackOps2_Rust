@@ -129,6 +129,7 @@ fn timers(world: &World) -> [f32; 3] {
     ]
 }
 fn blast(world: &mut World, owner: Entity, target: Entity, damage: u32) {
+    let session = *world.resource::<crate::session::SessionId>();
     let center = world.get::<Transform>(target).unwrap().translation;
     let definition = world
         .get::<crate::equipment::GrenadeInventory>(owner)
@@ -139,6 +140,7 @@ fn blast(world: &mut World, owner: Entity, target: Entity, damage: u32) {
         .resource_mut::<crate::equipment::BlastQueue>()
         .0
         .push(crate::equipment::BlastRequest {
+            session,
             owner,
             definition,
             center,

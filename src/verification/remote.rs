@@ -72,6 +72,23 @@ struct Setup {
     pending: Option<u32>,
     pause_spawning_seconds: Option<f32>,
     enemies: Vec<Actor>,
+    blast: Option<RemoteBlast>,
+    owned_perks: Option<Vec<String>>,
+    round_event: Option<RemoteRound>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemoteRound {
+    session_id: u64,
+    round: u32,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemoteBlast {
+    session_id: u64,
+    center: [f32; 3],
+    damage: u32,
+    radius: f32,
 }
 pub(super) fn install(app: &mut App, port: u16) {
     app.init_resource::<RemoteState>()
@@ -185,12 +202,12 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
         "endpoints":{"main":format!("http://127.0.0.1:{}",port.0),"render":"http://127.0.0.1:15703"},
         "discovery":{"methods":"rpc.discover","schemas":"registry.schema"},
         "methods":{
-            "origins/state":{"params":{},"result":"fixed_tick, epoch, state, queued_inputs, held_inputs, session, player, enemies, generators, population, round_evidence, drops, audio, controls, focus"},
+            "origins/state":{"params":{},"result":"fixed_tick, epoch, session_id, state, queued_inputs, held_inputs, session, player, enemies, generators, population, round_evidence, equipment, drops, audio, controls, focus"},
             "origins/reset":{"params":{},"effect":"Release inputs, transition to GameOver, send normal RestartGame"},
             "origins/input":{"params":{"events":[{"tick":"relative integer 1..3600","key":"Bevy KeyCode name or MouseLeft/MouseRight/MouseMiddle","pressed":"boolean"}]},"max_events":512,"effect":"Queue native input messages; automatic release after final scheduled tick"},
             "origins/release":{"params":{},"effect":"Cancel queued input and release remotely held buttons"},
             "origins/quit":{"params":{},"effect":"Release remote inputs and emit normal AppExit"},
-            "origins/setup":{"params":{"points":"optional u32","position":"optional [x,y,z] player center","yaw":"optional radians","pitch":"optional radians","weapons":"optional 1..2 native weapon IDs","clear_enemies":"optional bool","pending":"optional 0..10000","pause_spawning_seconds":"optional 0..300","enemies":[{"position":"[x,y,z]","health":"1..1000000, default100","defender":"optional generator ID"}]},"max_enemies":64,"effect":"Direct scenario setup only; not evidence of gameplay"}
+            "origins/setup":{"params":{"points":"optional u32","position":"optional [x,y,z] player center","yaw":"optional radians","pitch":"optional radians","weapons":"optional 1..2 native weapon IDs","owned_perks":"optional 0..8 unique native perk IDs","blast":{"session_id":"u64","center":"[x,y,z]","damage":"0..1000000","radius":"0.01..100"},"round_event":{"session_id":"u64","round":"1..10000"},"clear_enemies":"optional bool","pending":"optional 0..10000","pause_spawning_seconds":"optional 0..300","enemies":[{"position":"[x,y,z]","health":"1..1000000, default100","defender":"optional generator ID"}]},"max_enemies":64,"effect":"Direct scenario setup only; not evidence of gameplay"}
         }
     }))
 }
@@ -266,6 +283,9 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     let remote = world.resource::<RemoteState>();
     let mut result = json!({"fixed_tick":remote.tick,"epoch":remote.epoch,"reset_pending":remote.reset,"state":format!("{:?}",world.resource::<State<GameState>>().get()),"queued_inputs":remote.queue.values().map(Vec::len).sum::<usize>(),"held_inputs":remote.held.keys().collect::<Vec<_>>(),"player":null});
     let session = world.resource::<Session>();
+    result["session_id"] = json!(world.resource::<crate::session::SessionId>().0);
+    let equipment = world.resource::<crate::equipment::EquipmentEvidence>();
+    result["equipment"] = json!({"retired_blasts":equipment.retired_blasts,"self_impacts":equipment.self_impacts,"enemy_impacts":equipment.enemy_impacts,"round_awards":equipment.round_awards});
     result["session"] = json!({"round":session.round,"pending":session.pending,"points":session.points,"score":session.score,"kills":session.kills,"shots":session.shots,"downs":session.downs,"spawn_remaining":session.spawn_timer.remaining_secs()});
     let entities: Vec<_> = world
         .query_filtered::<Entity, With<Player>>()
@@ -280,6 +300,21 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
             json!({"slot":slot,"id":w.definition.0,"magazine":w.magazine,"left_magazine":w.left_magazine,"reserve":inventory.reserve(definition)})
         }).collect();
         result["player"] = json!({"entity":entity.to_bits(),"position":pose.translation.to_array(),"yaw":player.yaw,"pitch":player.pitch,"height":player.height,"eye_height":player.eye_height,"health":world.get::<Vitality>(entity).and_then(|v| v.current()),"active_slot":inventory.active_slot(),"action":format!("{:?}",inventory.action),"weapons":weapons,"right_reload":inventory.hand_reload_timing(false),"left_reload":inventory.hand_reload_timing(true)});
+    }
+    if let Some(&entity) = entities.first() {
+        let perks = world
+            .get::<crate::solo_revive::PerkInventory>(entity)
+            .unwrap();
+        result["player"]["perks"] = json!(perks.owned.iter().map(|p| &p.0).collect::<Vec<_>>());
+        result["player"]["solo_charges"] = json!(perks.solo_charges);
+        result["player"]["drinking"] =
+            json!(world.get::<crate::perks::PerkDrinking>(entity).is_some());
+        result["player"]["grenades"] = json!(
+            world
+                .get::<crate::equipment::GrenadeInventory>(entity)
+                .unwrap()
+                .count
+        );
     }
     result["enemies"] = json!(world.query::<(Entity,&Zombie,&Transform,Option<&Vitality>,Option<&crate::generators::GeneratorDefender>,Has<avian3d::prelude::ColliderDisabled>)>().iter(world).map(|(e,_,p,v,d,c)|json!({"entity":e.to_bits(),"position":p.translation.to_array(),"health":v.and_then(|v| v.current()),"defender":d.map(|d|&d.generator.0),"collider_disabled":c})).collect::<Vec<_>>());
     if let Some(g) = world.get_resource::<crate::generators::Generators>() {
@@ -322,6 +357,16 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         .single(world)
         .map_err(|_| error("Player unavailable"))?;
     if request.enemies.len() > 64
+        || request
+            .round_event
+            .as_ref()
+            .is_some_and(|r| !(1..=10000).contains(&r.round))
+        || request.blast.as_ref().is_some_and(|b| {
+            b.center.iter().any(|n| !n.is_finite())
+                || !b.radius.is_finite()
+                || !(0.01..=100.).contains(&b.radius)
+                || b.damage > 1000000
+        })
         || request.pending.is_some_and(|n| n > 10000)
         || request
             .pause_spawning_seconds
@@ -337,6 +382,29 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         return Err(error("Setup outside bounds"));
     }
     let game = world.resource::<GameDefinition>();
+    let perks = request
+        .owned_perks
+        .as_ref()
+        .map(|ids| {
+            if ids.len() > 8
+                || ids
+                    .iter()
+                    .any(|id| !game.content.perks.iter().any(|p| p.id.0 == *id))
+            {
+                return Err(error("Unknown perk or too many perks"));
+            }
+            let owned: std::collections::BTreeSet<_> =
+                ids.iter().cloned().map(crate::origins::PerkId).collect();
+            if owned.len() != ids.len() {
+                return Err(error("Duplicate setup perks"));
+            }
+            Ok(crate::solo_revive::PerkInventory {
+                solo_charges: u32::from(owned.contains(&game.solo_revive.perk)),
+                owned,
+                ..default()
+            })
+        })
+        .transpose()?;
     let inventory = if let Some(ids) = &request.weapons {
         if ids.is_empty() || ids.len() > 2 {
             return Err(error("Expected 1..2 weapons"));
@@ -377,8 +445,26 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         .ok_or_else(|| error("Native German actor unavailable"))?
         .id
         .clone();
+    let blast = request.blast.map(|b| crate::equipment::BlastRequest {
+        session: crate::session::SessionId(b.session_id),
+        owner,
+        definition: world
+            .get::<crate::equipment::GrenadeInventory>(owner)
+            .unwrap()
+            .definition
+            .clone(),
+        center: Vec3::from_array(b.center),
+        radius: b.radius,
+        inner_radius: 0.,
+        inner_damage: b.damage,
+        outer_damage: b.damage,
+        direction: None,
+    });
     if let Some(inventory) = inventory {
         world.entity_mut(owner).insert(inventory);
+    }
+    if let Some(perks) = perks {
+        world.entity_mut(owner).insert(perks);
     }
     if let Some(position) = request.position {
         world.get_mut::<Transform>(owner).unwrap().translation = Vec3::from_array(position);
@@ -440,6 +526,18 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
     }
     if let Some(seconds) = request.pause_spawning_seconds {
         session.spawn_timer = Timer::from_seconds(seconds, TimerMode::Once);
+    }
+    if let Some(blast) = blast {
+        world
+            .resource_mut::<crate::equipment::BlastQueue>()
+            .0
+            .push(blast);
+    }
+    if let Some(event) = request.round_event {
+        world.write_message(crate::rounds::RoundStarted {
+            session: crate::session::SessionId(event.session_id),
+            round: event.round,
+        });
     }
     Ok(json!({"setup_applied":true,"gameplay_evidence":false,"enemies":spawned}))
 }

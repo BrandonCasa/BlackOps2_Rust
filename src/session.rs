@@ -7,6 +7,9 @@ use crate::{
 use bevy::prelude::*;
 use std::hash::BuildHasher;
 
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct SessionId(pub u64);
+
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum SessionSetup {
     Initialize,
@@ -17,19 +20,20 @@ pub(crate) enum SessionSetup {
 pub(crate) struct SessionPlugin;
 impl Plugin for SessionPlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(
-            OnEnter(GameState::Playing),
-            (
-                SessionSetup::Initialize,
-                SessionSetup::World,
-                SessionSetup::Player,
+        app.init_resource::<SessionId>()
+            .configure_sets(
+                OnEnter(GameState::Playing),
+                (
+                    SessionSetup::Initialize,
+                    SessionSetup::World,
+                    SessionSetup::Player,
+                )
+                    .chain(),
             )
-                .chain(),
-        )
-        .add_systems(
-            OnEnter(GameState::Playing),
-            initialize.in_set(SessionSetup::Initialize),
-        );
+            .add_systems(
+                OnEnter(GameState::Playing),
+                initialize.in_set(SessionSetup::Initialize),
+            );
     }
 }
 
@@ -43,6 +47,12 @@ fn initialize(world: &mut World) {
         return;
     }
     teardown(world);
+    let next = world
+        .resource::<SessionId>()
+        .0
+        .checked_add(1)
+        .expect("Session identity exhausted");
+    world.insert_resource(SessionId(next));
     let definition = world.resource::<GameDefinition>();
     let mut session = Session {
         character: definition.audio.character,

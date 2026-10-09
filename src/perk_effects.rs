@@ -346,6 +346,7 @@ impl DiveDefinition {
 }
 fn land(
     mut commands: Commands,
+    session: Res<crate::session::SessionId>,
     mut landings: MessageReader<crate::movement::Landing>,
     players: Query<(&Vitality, &PerkInventory), With<Player>>,
     game: Res<GameDefinition>,
@@ -395,6 +396,7 @@ fn land(
                     crate::audio::SoundSource::World(landing.position),
                 );
                 blasts.0.push(crate::equipment::BlastRequest {
+                    session: *session,
                     owner: landing.owner,
                     definition: drink.bottle.clone(),
                     center: landing.position + Vec3::Y * 0.15,
