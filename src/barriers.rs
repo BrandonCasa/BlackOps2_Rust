@@ -305,6 +305,7 @@ fn tick(
     definition: Res<GameDefinition>,
     mut barriers: ResMut<Barriers>,
     mut session: ResMut<Session>,
+    effects: Res<crate::powerups::PowerupEffects>,
     blockers: Query<(Entity, &BarrierBlocker, Option<&ColliderDisabled>)>,
     enemies: Query<&crate::life::Vitality, With<crate::enemies::Zombie>>,
 ) {
@@ -384,8 +385,9 @@ fn tick(
             barriers.repaired += 1;
             barriers.reward_counter = barriers.reward_counter.saturating_add(10);
             if barriers.reward_counter < session.round.saturating_mul(50).min(500) {
-                session.points = session.points.saturating_add(10);
-                barriers.awarded += 10;
+                let points = 10 * effects.multiplier();
+                session.award(points);
+                barriers.awarded += points;
                 if let Some(repairer) = repairer {
                     crate::audio::emit(
                         &mut commands,

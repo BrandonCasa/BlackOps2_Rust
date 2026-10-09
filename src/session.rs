@@ -60,6 +60,8 @@ fn initialize(world: &mut World) {
     }
     world.insert_resource(session);
     world.insert_resource(crate::damage::CombatHistory::default());
+    world.insert_resource(crate::powerups::PowerupEffects::default());
+    world.insert_resource(crate::powerups::Drops::default());
     world.insert_resource(crate::generators::Generators::default());
     world.insert_resource(crate::rounds::Population::default());
     world.insert_resource(crate::economy::PointLedger::default());

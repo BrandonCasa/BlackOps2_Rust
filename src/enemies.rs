@@ -270,6 +270,7 @@ pub(crate) fn lifecycle(
     mut navigation: ResMut<Navigation>,
     access: Res<crate::access::ZoneAccess>,
     attractions: Res<crate::lures::Attractions>,
+    effects: Res<crate::powerups::PowerupEffects>,
     player: Single<(Entity, &Transform, &Vitality), (With<Player>, Without<Zombie>)>,
     mut enemies: Query<
         (
@@ -462,7 +463,9 @@ pub(crate) fn lifecycle(
             zombie.transition(EnemyAnimation::Idle);
         }
         let goal = lure.is_none().then(|| goals.get(entity).ok()).flatten();
-        let ignored = lure.is_none() && goal.is_none() && health.state() != LifeState::Standing;
+        let ignored = lure.is_none()
+            && goal.is_none()
+            && (health.state() != LifeState::Standing || effects.zombie_blood > 0.);
         if ignored {
             zombie.transition(EnemyAnimation::Idle);
         }
@@ -503,6 +506,7 @@ pub(crate) fn lifecycle(
             {
                 zombie.next_hit += 1;
                 if goal.is_none()
+                    && !ignored
                     && distance < 1.5
                     && visible(transform.translation, target)
                     && health.state() == LifeState::Standing

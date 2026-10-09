@@ -421,6 +421,7 @@ fn tick(
     definition: Res<GameDefinition>,
     mut generators: ResMut<Generators>,
     mut session: ResMut<Session>,
+    effects: Res<crate::powerups::PowerupEffects>,
     players: Query<(Entity, &Player, &Transform, &Vitality)>,
 ) {
     let dt = time.delta_secs();
@@ -475,7 +476,7 @@ fn tick(
             *delay -= dt;
             if *delay <= 0. {
                 if inside(site.purchaser) {
-                    refund = d.price;
+                    refund = d.price / effects.multiplier();
                 }
                 site.refund = None;
                 site.purchaser = None;
@@ -483,9 +484,10 @@ fn tick(
         }
         generators.completions += u32::from(completed);
         generators.abandoned += u32::from(abandoned);
+        reward *= effects.multiplier();
         generators.rewards += reward;
         generators.refunds += refund;
-        session.points = session.points.saturating_add(reward).saturating_add(refund);
+        session.award(reward.saturating_add(refund));
     }
 }
 fn audio_evidence(

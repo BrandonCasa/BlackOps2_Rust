@@ -67,6 +67,7 @@ def prepare(config):
     pack = external(config['game']['asset_pack'])
     game = json.loads((pack/'game.json').read_text())
     content = game['content']
+    sound_order = {sound['id']: i for i, sound in enumerate(content['sounds'])}
     rows = {}
     if any(not list((base/'audio-recovery'/zone/'soundbank').glob('*.aliases.csv')) for zone in ('common_zm','zm_tomb','en_zm_tomb')):
         recover_aliases(config)
@@ -149,6 +150,9 @@ def prepare(config):
     wanted.update(n for n in rows if n.startswith(('fly_prone_','wpn_grenade_bounce_','wpn_sticky_gren_bounce_','zmb_monkey_land_')))
     wanted.update(n for n in rows if re.match(r'mus_perks_.*_(jingle|sting)$',n))
     wanted.add('mus_zombie_game_over')
+    if content.get('powerups'):
+        wanted.update(('zmb_spawn_powerup', 'zmb_spawn_powerup_loop', 'zmb_powerup_grabbed', 'zmb_full_ammo', 'evt_nuke_flash', 'evt_nuked', 'zmb_insta_kill_loop', 'zmb_insta_kill', 'zmb_double_point_loop', 'zmb_points_loop_off', 'zmb_zombieblood_3rd_loop'))
+        wanted.update(n for n in rows if re.match(r'vox_(plr_[0-3]|zmba)_powerup_', n))
     if content.get('generators'):
         wanted.update(n for n in rows if n.startswith(('zmb_capturezone_', 'zmb_vocals_capzomb_', 'mus_event_generator_')))
         wanted.update(n for n in rows if re.match(r'vox_plr_[0-3]_capture_zones_', n))
@@ -194,6 +198,7 @@ def prepare(config):
     for material in collision.get('materials',[]):
         name=material['name'].lower()
         surfaces[material['name']]=next((surface for tokens,surface in [(('water','puddle'),'water'),(('mud',),'mud'),(('wood','board','plank'),'wood'),(('metal','steel','iron','pipe'),'metal'),(('brick',),'brick'),(('concrete','cement'),'concrete'),(('gravel',),'gravel'),(('grass',),'grass'),(('dirt','soil','earth'),'dirt'),(('rock','stone'),'rock')] if any(token in name for token in tokens)),'default')
+    content['sounds'].sort(key=lambda sound: sound_order.get(sound['id'], len(sound_order)))
     game['audio']={'aliases':aliases,'bindings':bindings,'timelines':timelines,'emitters':[e for e in emitters if e['alias'] in aliases],'character':0,'surfaces':surfaces}
     (pack/'game.json').write_text(json.dumps(game,indent=2)+'\n')
     report={'aliases':len(aliases),'samples':len(samples),'bindings':len(bindings),'timelines':len(timelines),'emitters':len(game['audio']['emitters']),'missing':missing,'missing_aliases':sorted(wanted-aliases.keys()),'provenance':provenance,'promoted_primary_layers':promoted,

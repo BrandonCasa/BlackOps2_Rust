@@ -137,6 +137,7 @@ fn discharge(
         &Transform,
         &Vitality,
         &PerkInventory,
+        &WeaponInventory,
         &mut CherryState,
     )>,
     enemies: Query<(Entity, &Transform, &Vitality), With<crate::enemies::Zombie>>,
@@ -146,11 +147,22 @@ fn discharge(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for event in events.read() {
-        let Ok((player, pose, health, owned, mut state)) = players.get_mut(event.owner) else {
+        let Ok((player, pose, health, owned, inventory, mut state)) = players.get_mut(event.owner)
+        else {
             continue;
         };
+        let weapon = game
+            .content
+            .weapons
+            .iter()
+            .find(|w| w.dual_weapon.as_ref() == Some(&event.weapon))
+            .map_or(&event.weapon, |w| &w.id);
         if event.start.is_none() {
-            state.blocked.remove(&event.weapon);
+            if inventory.hand_reload_timing(false).is_none()
+                && inventory.hand_reload_timing(true).is_none()
+            {
+                state.blocked.remove(weapon);
+            }
             continue;
         }
         let Some(perk) = game
@@ -164,13 +176,19 @@ fn discharge(
         if health.state() != LifeState::Standing {
             continue;
         }
-        if !state.blocked.insert(event.weapon.clone()) {
-            evidence.record(
-                serde_json::json!({"event":"cherry_reload_blocked","weapon":event.weapon.0}),
-            );
+        if !state.blocked.insert(weapon.clone()) {
+            evidence.record(serde_json::json!({"event":"cherry_reload_blocked","weapon":weapon.0}));
             continue;
         }
         let (magazine, capacity, reload) = event.start.unwrap();
+        let magazine = if *weapon != event.weapon {
+            inventory
+                .owned()
+                .find(|(_, w)| w.definition == *weapon)
+                .map_or(magazine, |(_, w)| w.magazine)
+        } else {
+            magazine
+        };
         let fraction = (magazine as f32 / capacity.max(1) as f32).clamp(0., 1.);
         let settings = perk.cherry.as_ref().unwrap();
         let radius = settings.radius[1] + (settings.radius[0] - settings.radius[1]) * fraction;
@@ -198,7 +216,7 @@ fn discharge(
                 .then_with(|| a.0.to_bits().cmp(&b.0.to_bits()))
         });
         targets.truncate(limit);
-        evidence.record(serde_json::json!({"event":"cherry_discharge","weapon":event.weapon.0,"fraction":fraction,"radius":radius,"damage":amount,"consecutive":state.consecutive,"limit":if limit==usize::MAX{None}else{Some(limit)},"targets":targets.len(),"cooldown":state.cooldown}));
+        evidence.record(serde_json::json!({"event":"cherry_discharge","weapon":weapon.0,"fraction":fraction,"radius":radius,"damage":amount,"consecutive":state.consecutive,"limit":if limit==usize::MAX{None}else{Some(limit)},"targets":targets.len(),"cooldown":state.cooldown}));
         for (i, (target, _)) in targets.into_iter().enumerate() {
             commands.spawn((
                 SessionEntity,

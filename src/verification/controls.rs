@@ -289,7 +289,67 @@ fn drive(world: &mut World) {
             *world.resource_mut::<crate::audio::AudioSettings>() =
                 crate::audio::AudioSettings::default();
             world.get_mut::<Window>(window).unwrap().focused = true;
-            advance(&mut run);
+            go(&mut run, 100);
+        }
+        100 => {
+            let mut session = world.resource_mut::<Session>();
+            session.award(120);
+            session.points -= 90;
+            session.kills = 7;
+            session.downs = 2;
+            world
+                .resource_mut::<crate::damage::CombatHistory>()
+                .headshot_kills = 3;
+            key(world, window, KeyCode::Tab, true);
+            go(&mut run, 101);
+        }
+        101 => {
+            let hud = world
+                .query_filtered::<&Text, With<crate::hud::HudText>>()
+                .iter(world)
+                .next()
+                .map(|v| v.0.clone())
+                .unwrap_or_default();
+            run.record(
+                "held scoreboard shows statistics",
+                world.resource::<GameInput>().scoreboard
+                    && hud.contains("Scoreboard")
+                    && hud.contains("Score 530")
+                    && hud.contains("Kills 7")
+                    && hud.contains("Headshots 3")
+                    && hud.contains("Downs 2"),
+                serde_json::json!({"hud":hud}),
+            );
+            picture(world, &run, "scoreboard.png");
+            go(&mut run, 1010);
+        }
+        1010 => {
+            key(world, window, KeyCode::Tab, false);
+            go(&mut run, 102);
+        }
+        102 => {
+            let hud = world
+                .query_filtered::<&Text, With<crate::hud::HudText>>()
+                .iter(world)
+                .next()
+                .map(|v| v.0.clone())
+                .unwrap_or_default();
+            run.record(
+                "released scoreboard restores nonnumeric health HUD",
+                !world.resource::<GameInput>().scoreboard
+                    && !hud.contains("Scoreboard")
+                    && !hud.contains("Health "),
+                serde_json::json!({"hud":hud}),
+            );
+            let mut session = world.resource_mut::<Session>();
+            session.points = 500;
+            session.score = 500;
+            session.kills = 0;
+            session.downs = 0;
+            world
+                .resource_mut::<crate::damage::CombatHistory>()
+                .headshot_kills = 0;
+            go(&mut run, 1);
         }
         1 => {
             if state != GameState::Playing {
@@ -715,7 +775,7 @@ fn drive(world: &mut World) {
             advance(&mut run);
         }
         39 => {
-            if run.phase != 99 && click_row(world, window, 12) {
+            if run.phase != 99 && click_row(world, window, 13) {
                 go(&mut run, 390);
             }
         }
@@ -802,8 +862,60 @@ fn drive(world: &mut World) {
             picture(world, &run, "controls-final.png");
             advance(&mut run);
         }
-        50 | 99 => {
-            let passed = run.phase == 50 && run.rows.iter().all(|r| r["passed"] == true);
+        50 => {
+            let mut session = world.resource_mut::<Session>();
+            session.points = 40;
+            session.score = 2300;
+            session.kills = 12;
+            session.downs = 4;
+            world
+                .resource_mut::<crate::damage::CombatHistory>()
+                .headshot_kills = 8;
+            world
+                .resource_mut::<NextState<GameState>>()
+                .set(GameState::GameOver);
+            advance(&mut run);
+        }
+        51 => {
+            let hud = world
+                .query_filtered::<&Text, With<crate::hud::HudText>>()
+                .iter(world)
+                .next()
+                .map(|v| v.0.clone())
+                .unwrap_or_default();
+            let session = world.resource::<Session>();
+            run.record(
+                "game over shows cumulative score and statistics",
+                state == GameState::GameOver
+                    && hud.contains(&format!("Score {}", session.score))
+                    && hud.contains("Kills 12")
+                    && hud.contains("Headshots 8")
+                    && hud.contains("Downs 4"),
+                serde_json::json!({"hud":hud}),
+            );
+            picture(world, &run, "game-over.png");
+            advance(&mut run);
+        }
+        52 => {
+            tap(world, window, KeyCode::KeyR);
+            advance(&mut run);
+        }
+        53 => {
+            let session = world.resource::<Session>();
+            run.record(
+                "game-over restart restores a fresh session",
+                state == GameState::Playing
+                    && session.points == 500
+                    && session.score == 500
+                    && session.kills == 0
+                    && session.downs == 0
+                    && world.resource::<crate::damage::CombatHistory>().headshot_kills == 0,
+                serde_json::json!({"state":format!("{state:?}"),"points":session.points,"score":session.score,"kills":session.kills,"downs":session.downs}),
+            );
+            advance(&mut run);
+        }
+        54 | 99 => {
+            let passed = run.phase == 54 && run.rows.iter().all(|r| r["passed"] == true);
             let receipt = serde_json::json!({"passed":passed,"phase":run.phase,"rows":run.rows,"startup_loaded":run.loaded,"startup_settings":run.initial_settings,
                 "startup_audio":run.startup_audio,"startup_error":run.startup_error,
                 "elapsed_seconds":run.started.elapsed().as_secs_f32(),"native_equivalence":false});

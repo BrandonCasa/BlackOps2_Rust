@@ -44,7 +44,13 @@ const POSES: [(WeaponAnimation, WeaponSignal); 15] = [
     (WeaponAnimation::Unequip, WeaponSignal::Unequip),
     (WeaponAnimation::Idle, WeaponSignal::Idle),
 ];
+#[path = "dual_wield.rs"]
+mod dual_wield;
 pub fn install(app: &mut App) {
+    if std::env::args().any(|a| a == "--dual-wield-only") {
+        dual_wield::install(app);
+        return;
+    }
     app.init_resource::<Survey>()
         .add_systems(
             PreUpdate,
@@ -334,7 +340,7 @@ fn drive(
         };
         *inv = WeaponInventory::temporary(&staged, 3);
         inv.action = WeaponAction::Ready;
-        inv.signal = POSES[survey.phase].1;
+        inv.survey_signal(POSES[survey.phase].1);
         inv.sequence = (survey.cursor as u64) * 100 + survey.phase as u64 + 1;
         if matches!(survey.phase, 3 | 8 | 10) {
             inv.tick(

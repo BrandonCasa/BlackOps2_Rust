@@ -57,7 +57,7 @@ struct FirstPerson {
 pub(crate) struct ViewModelGroup {
     owner: Entity,
 }
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub(crate) struct Rig {
     owner: Entity,
     pub(crate) weapon: WeaponId,
@@ -67,13 +67,15 @@ pub(crate) struct Rig {
     source: Handle<Gltf>,
     graph: Option<Handle<AnimationGraph>>,
     nodes: BTreeMap<String, AnimationNodeIndex>,
-    players: Vec<Entity>,
+    pub(crate) players: Vec<Entity>,
     sequence: Option<u64>,
     pub(crate) arms: bool,
     pub(crate) attached: bool,
     pub(crate) ready: bool,
     pub(crate) knife: bool,
     ads: bool,
+    pub(crate) left: bool,
+    dual: bool,
     playback: Option<WeaponAnimation>,
 }
 impl Plugin for PresentationPlugin {
@@ -321,11 +323,25 @@ fn spawn_viewmodels(
                         .find(|p| p.id == *id)
                 })
                 .and_then(|p| p.scene.as_deref());
-            for (is_arms, is_knife, is_ads, scene) in [
-                (true, false, false, Some(arms.as_str())),
-                (false, false, false, Some(scene.as_str())),
-                (false, true, false, knife),
-                (false, false, true, ads_scene),
+            let left_scene = weapon
+                .dual_weapon
+                .as_ref()
+                .and_then(|id| definition.content.weapons.iter().find(|w| w.id == *id))
+                .and_then(|w| w.presentation.as_ref())
+                .and_then(|id| {
+                    definition
+                        .content
+                        .presentations
+                        .iter()
+                        .find(|p| p.id == *id)
+                })
+                .and_then(|p| p.scene.as_deref());
+            for (is_arms, is_knife, is_ads, is_left, scene) in [
+                (true, false, false, false, Some(arms.as_str())),
+                (false, false, false, false, Some(scene.as_str())),
+                (false, true, false, false, knife),
+                (false, false, true, false, ads_scene),
+                (false, false, false, true, left_scene),
             ] {
                 let Some(scene) = scene else {
                     continue;
@@ -350,6 +366,8 @@ fn spawn_viewmodels(
                             ready: false,
                             knife: is_knife,
                             ads: is_ads,
+                            left: is_left,
+                            dual: weapon.dual_weapon.is_some(),
                             playback: None,
                         },
                         Transform::default(),
@@ -374,7 +392,7 @@ fn attach_weapons(
 ) {
     let sockets: Vec<_> = rigs
         .iter()
-        .filter(|(_, rig)| rig.arms && rig.ready)
+        .filter(|(_, rig)| rig.arms && !rig.left && rig.ready)
         .filter_map(|(entity, rig)| {
             let find = |tag: &str| {
                 children
@@ -383,18 +401,33 @@ fn attach_weapons(
             };
             find("tag_weapon")
                 .zip(find("tag_knife_attach"))
-                .map(|(weapon, knife)| (rig.owner, rig.weapon.clone(), weapon, knife))
+                .map(|(weapon, knife)| {
+                    (
+                        rig.owner,
+                        rig.weapon.clone(),
+                        weapon,
+                        knife,
+                        find("tag_weapon1"),
+                    )
+                })
         })
         .collect();
     for (entity, mut rig) in &mut rigs {
         if rig.arms || !rig.ready {
             continue;
         }
-        if let Some((_, _, weapon, knife)) = sockets
+        if let Some((_, _, weapon, knife, left)) = sockets
             .iter()
-            .find(|(owner, id, _, _)| *owner == rig.owner && *id == rig.weapon)
+            .find(|(owner, id, _, _, _)| *owner == rig.owner && *id == rig.weapon)
         {
-            let socket = if rig.knife { knife } else { weapon };
+            let socket = if rig.knife {
+                knife
+            } else if rig.left {
+                let Some(left) = left else { continue };
+                left
+            } else {
+                weapon
+            };
             if bindings
                 .get(entity)
                 .is_ok_and(|binding| binding.0 == *socket)
@@ -496,6 +529,34 @@ fn rig_ready(
                 .entity(child)
                 .insert((RenderLayers::layer(1), crate::rendering::ForegroundTexture))
                 .remove::<NoFrustumCulling>();
+        }
+    }
+    if rig.arms && rig.dual && !rig.left {
+        let left_player = commands.spawn(AnimationPlayer::default()).id();
+        let mut left_rig = rig.clone();
+        left_rig.left = true;
+        left_rig.players = vec![left_player];
+        left_rig.tracked.clear();
+        commands.entity(left_player).insert((
+            left_rig,
+            Transform::default(),
+            Visibility::Inherited,
+        ));
+        commands.entity(event.entity).add_child(left_player);
+        for child in children.iter_descendants(event.entity) {
+            if names
+                .get(child)
+                .is_ok_and(|n| matches!(n.as_str(), "j_shoulder_le" | "tag_weapon1"))
+            {
+                commands
+                    .entity(child)
+                    .insert(bevy::animation::AnimatedBy(left_player));
+                for bone in children.iter_descendants(child) {
+                    commands
+                        .entity(bone)
+                        .insert(bevy::animation::AnimatedBy(left_player));
+                }
+            }
         }
     }
     info!(
@@ -726,12 +787,20 @@ fn build_graphs(
         rig.graph = Some(graph);
     }
 }
-pub(crate) fn primary_action(
+pub(crate) fn hand_action(
     inventory: &WeaponInventory,
     weapon: &crate::origins::content::WeaponDefinition,
     game: &GameDefinition,
+    left: bool,
 ) -> (WeaponAnimation, Option<f32>) {
-    let empty = inventory.active().is_some_and(|w| w.magazine == 0);
+    let signal = inventory.hand_signal(left);
+    let empty = inventory.active().is_some_and(|w| {
+        if left {
+            w.left_magazine == Some(0)
+        } else {
+            w.magazine == 0
+        }
+    });
     let idle = if empty
         && weapon
             .animation_actions
@@ -750,7 +819,7 @@ pub(crate) fn primary_action(
     } else {
         WeaponAnimation::Fire
     };
-    let action = match inventory.signal {
+    let action = match signal {
         WeaponSignal::Prime => WeaponAnimation::Prime,
         WeaponSignal::Equip => WeaponAnimation::Equip,
         WeaponSignal::Unequip => WeaponAnimation::Unequip,
@@ -763,8 +832,8 @@ pub(crate) fn primary_action(
         WeaponSignal::Melee => WeaponAnimation::Melee,
         _ => idle,
     };
-    if matches!(inventory.signal, WeaponSignal::Fire | WeaponSignal::Idle)
-        && let Some(age) = inventory.shot_elapsed()
+    if matches!(signal, WeaponSignal::Fire | WeaponSignal::Idle)
+        && let Some(age) = inventory.hand_shot_elapsed(left)
     {
         let duration = |action| {
             weapon
@@ -832,6 +901,17 @@ fn animate(
         else {
             continue;
         };
+        let weapon = if rig.left {
+            weapon
+                .dual_weapon
+                .as_ref()
+                .and_then(|id| definition.content.weapons.iter().find(|w| w.id == *id))
+                .unwrap_or(weapon)
+        } else {
+            weapon
+        };
+        let sequence = inventory.hand_sequence(rig.left);
+        let signal = inventory.hand_signal(rig.left);
         if rig.knife {
             *visibility = if inventory.signal == WeaponSignal::Melee && rig.attached {
                 Visibility::Inherited
@@ -844,7 +924,7 @@ fn animate(
             continue;
         };
         let (action, shot_seek) = selected.as_ref().map_or_else(
-            || primary_action(inventory, weapon, &definition),
+            || hand_action(inventory, weapon, &definition, rig.left),
             |s| (s.action, None),
         );
         if !rig.arms {
@@ -902,8 +982,8 @@ fn animate(
                 continue;
             };
             let finishing_shot =
-                selected.is_none() && shot_seek.is_some() && inventory.signal == WeaponSignal::Idle;
-            if (rig.sequence != Some(inventory.sequence) && !finishing_shot)
+                selected.is_none() && shot_seek.is_some() && signal == WeaponSignal::Idle;
+            if (rig.sequence != Some(sequence) && !finishing_shot)
                 || rig.playback != Some(action)
                 || rig.phase != selected.as_ref().map(|s| s.action)
             {
@@ -926,6 +1006,7 @@ fn animate(
             let timing = holding_throwable
                 .then_some((1., 0.))
                 .or_else(|| selected.as_ref().and_then(|s| s.timing))
+                .or_else(|| inventory.hand_reload_timing(rig.left))
                 .or_else(|| inventory.presentation_timing(weapon, melee));
             let seek = native_clip.and_then(|clip| {
                 if let Some((duration, remaining)) = timing {
@@ -960,7 +1041,7 @@ fn animate(
                 player.pause_all();
             }
         }
-        rig.sequence = Some(inventory.sequence);
+        rig.sequence = Some(sequence);
         rig.phase = selected.as_ref().map(|s| s.action);
         rig.playback = Some(action);
     }

@@ -23,6 +23,7 @@ mod equipment_presentation;
 mod equipment_refills;
 mod firing_perks;
 mod generators;
+mod hazards;
 mod health_recovery;
 mod locomotion;
 mod mobility;
@@ -33,6 +34,7 @@ mod performance;
 mod perk_health;
 mod pipelines;
 mod placements;
+mod powerups;
 mod release_performance;
 pub(crate) use pipelines::error_layer;
 mod semtex;
@@ -141,6 +143,16 @@ impl Plugin for VerificationPlugin {
         if app.world().resource::<LaunchOptions>().release_benchmark {
             pipelines::install(app);
             release_performance::install(app);
+            return;
+        }
+        if app.world().resource::<LaunchOptions>().verify_powerups {
+            pipelines::install(app);
+            powerups::install(app);
+            return;
+        }
+        if app.world().resource::<LaunchOptions>().verify_hazards {
+            pipelines::install(app);
+            hazards::install(app);
             return;
         }
         if app.world().resource::<LaunchOptions>().verify_controls {

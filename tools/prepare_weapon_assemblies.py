@@ -7,8 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from prepare_actors import convert
-from prepare_arsenal import ACTIONS
+from prepare_actors import append_clips, convert
+from prepare_arsenal import animation_fields
 from prepare_gameplay_content import external
 
 DTYPES = {5121: "u1", 5123: "<u2", 5125: "<u4", 5126: "<f4"}
@@ -212,7 +212,7 @@ def composition(fields, world=False, ads=False):
     return result
 
 
-def prepare(config):
+def prepare(config, dual_only=False):
     inspection = external(config["assets"]["inspection_output"])
     pack = external(config["game"]["asset_pack"])
     settings = config.get("preparation", {})
@@ -246,9 +246,12 @@ def prepare(config):
         generated = [{"id": "animation."+identity.removeprefix("actor.")+"."+name,
                       "path": "actors/"+relative+f"#Animation{i}", "skeleton": identity, "notifications": notifications}
                      for i, (name, notifications) in enumerate(notes)]
-        content["animations"][:] = [a for a in content["animations"] if a["skeleton"] != identity] + generated
+        replacements = {a["id"]: a for a in generated}
+        content["animations"][:] = [replacements.pop(a["id"], a) for a in content["animations"] if a["skeleton"] != identity or a["id"] in replacements] + list(replacements.values())
         presentation = {"id": identity, "scene": "actors/"+relative+"#Scene0", "animations": [a["id"] for a in generated], "sounds": []}
-        content["presentations"][:] = [p for p in content["presentations"] if p["id"] != identity] + [presentation]
+        previous = next((i for i, p in enumerate(content["presentations"]) if p["id"] == identity), None)
+        if previous is None: content["presentations"].append(presentation)
+        else: content["presentations"][previous] = presentation
         for animation in generated:
             sounds = [{"seconds": n["seconds"], "alias": n["event"].split("#", 1)[1]}
                       for n in animation["notifications"] if n["event"].startswith("sndnt#")]
@@ -260,23 +263,48 @@ def prepare(config):
     for a in content["animations"]:
         if a["skeleton"].startswith("actor."):
             rig_clips.setdefault(a["skeleton"][6:], set()).add(a["id"].rsplit(".", 1)[1])
-    extra = {f.get(k) for f in rows.values() for k in ACTIONS.values()} - {"", None}
+    extra = {f.get(k) for f in rows.values() for k in animation_fields(f).values()} - {"", None}
     for character in ("dempsey", "nikolai", "richtofen", "takeo"):
         name = "c_zom_"+character+"_viewhands"
         names = sorted(rig_clips.get(name, set()) | extra)
-        relative, notes = convert(model_path(name), pack / "actors", fallback, [clips_root / n for n in names], native_translations=native(name))
+        if dual_only:
+            path = pack / "actors" / (name+"_lod0.gltf")
+            document = json.loads(path.read_text())
+            binary_path = path.parent / document["buffers"][0]["uri"]
+            binary = bytearray(binary_path.read_bytes())
+            existing = {a["name"] for a in document.get("animations", [])}
+            notifications = {a["id"].rsplit(".", 1)[1]: a["notifications"] for a in content["animations"] if a["skeleton"] == "actor."+name}
+            notes = [(a["name"], notifications[a["name"]]) for a in document.get("animations", [])]
+            notes += append_clips(document, binary, [clips_root / n for n in names if n not in existing], native_translations=native(name))
+            document["buffers"][0]["byteLength"] = len(binary)
+            path.write_text(json.dumps(document, separators=(",", ":")))
+            binary_path.write_bytes(binary)
+            relative = path.name
+        else:
+            relative, notes = convert(model_path(name), pack / "actors", fallback, [clips_root / n for n in names], native_translations=native(name))
         register("actor."+name, relative, notes)
     cache, report = {}, []
     for weapon in content["weapons"]:
         fields = rows[weapon["id"]]
+        if dual_only and not fields.get("DualWieldWeapon"):
+            continue
+        weapon["dual_weapon"] = "weapon." + fields["DualWieldWeapon"] if fields.get("DualWieldWeapon") and fields.get("idleAnim") else None
+        if dual_only and fields.get("idleAnim"):
+            continue
+        retained = None
+        if dual_only:
+            scene = next(p["scene"] for p in content["presentations"] if p["id"] == weapon["presentation"])
+            retained = json.loads((pack / scene.split("#", 1)[0]).read_text())
         if not fields.get("gunModel") or fields.get("gunModel") in {"defaultweapon", "viewmodel_default"}:
             report.append({"weapon": weapon["id"], "status": "native_definition_has_no_viewmodel", "source_model": fields.get("gunModel")})
             continue
-        names = sorted({fields.get(k) for k in ACTIONS.values()} - {"", None})
+        names = sorted({fields.get(k) for k in animation_fields(fields).values()} - {"", None})
         names = sorted(set(names) | {a.rsplit(".", 1)[1] for a in weapon.get("animation_actions", {}).values()})
         hidden = fields.get("hideTags", "").split()
         evidence = {"weapon": weapon["id"], "status": "assembled", "compositions": []}
         for mode in ("view", "world", "ads"):
+            if dual_only and mode != "view":
+                continue
             world, ads = mode == "world", mode == "ads"
             if ads and not fields.get("attachViewModel8"):
                 weapon.pop("ads_presentation", None); continue
@@ -296,6 +324,13 @@ def prepare(config):
                     assembly.add(model_path(part["model"]), images_out, fallback, part["socket"], part["offset"], part["rotation"], hidden)
                 raw = source_out / ("weapon_"+digest+".gltf"); assembly.write(raw)
                 relative, notes = convert(raw, pack / "actors", fallback, [clips_root / n for n in (world_names if world else names)], translation_offsets=assembly.offsets, native_translations=assembly.native_translations)
+                if retained is not None:
+                    path = pack / "actors" / relative
+                    document = json.loads(path.read_text())
+                    for key in ("materials", "images", "textures", "samplers"):
+                        if key in retained: document[key] = retained[key]
+                        else: document.pop(key, None)
+                    path.write_text(json.dumps(document, separators=(",", ":")))
                 actions = register(identity, relative, notes)
                 cache[digest] = (actions, assembly.hidden_triangles)
             actions, hidden_count = cache[digest]
@@ -306,7 +341,7 @@ def prepare(config):
                 weapon["mine"]["presentation"] = identity
             if mode == "view":
                 old = weapon.get("animation_actions", {})
-                weapon["animation_actions"] = {action: actions.get(fields.get(field), old.get(action)) for action, field in ACTIONS.items()
+                weapon["animation_actions"] = {action: actions.get(fields.get(field), old.get(action)) for action, field in animation_fields(fields).items()
                                                 if fields.get(field) in actions or action in old}
                 weapon["animation_actions"] = {action: actions.get(clip.rsplit(".", 1)[1], clip) for action, clip in weapon["animation_actions"].items()}
             evidence["compositions"].append({"mode": mode, "presentation": identity, "parts": parts, "hidden_triangles": hidden_count})

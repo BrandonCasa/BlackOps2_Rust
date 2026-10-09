@@ -102,6 +102,8 @@ pub struct WeaponDefinition {
     #[serde(default)]
     pub ads_presentation: Option<ContentId>,
     #[serde(default)]
+    pub dual_weapon: Option<WeaponId>,
+    #[serde(default)]
     pub pickup: Option<ContentId>,
     #[serde(default)]
     pub ammo_group: Option<ContentId>,
@@ -1038,6 +1040,16 @@ impl ContentCatalog {
             }
             if let Some(id) = &v.upgraded {
                 r(&v.id.0, &id.0, "weapon")?;
+            }
+            if let Some(id) = &v.dual_weapon {
+                r(&v.id.0, &id.0, "weapon")?;
+                let partner = self.weapons.iter().find(|w| w.id == *id).unwrap();
+                valid(
+                    m.dual_wield
+                        && partner.magazine == v.magazine
+                        && partner.ammo_group == v.ammo_group,
+                    "Invalid dual weapon pairing",
+                )?;
             }
             optional(&v.id.0, &v.presentation, "presentation")?;
             optional(&v.id.0, &v.ads_presentation, "presentation")?;

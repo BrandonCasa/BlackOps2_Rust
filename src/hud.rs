@@ -4,7 +4,7 @@ use bevy::prelude::*;
 mod performance;
 
 #[derive(Component)]
-struct HudText;
+pub(crate) struct HudText;
 #[derive(Component)]
 struct ReviveText;
 #[derive(Component)]
@@ -224,7 +224,10 @@ fn update(
     session: Res<Session>,
     definition: Option<Res<crate::assets::GameDefinition>>,
     inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
-    players: Query<&Vitality, With<Player>>,
+    (history, effects): (
+        Res<crate::damage::CombatHistory>,
+        Res<crate::powerups::PowerupEffects>,
+    ),
     focus: Res<crate::interactions::InteractionFocus>,
     input: Res<crate::input::GameInput>,
     grenades: Query<&crate::equipment::GrenadeInventory, With<Player>>,
@@ -247,31 +250,38 @@ fn update(
     if node.left != left {
         node.left = left;
     }
-    let health = players
-        .single()
-        .map(|v| v.current().unwrap_or(0))
-        .unwrap_or(0);
     let inventory = inventories.single().ok();
     let weapon = inventory.and_then(|i| {
         definition
             .as_ref()
             .and_then(|d| i.definition(&d.content.weapons))
     });
-    let ammo = inventory.and_then(|i| i.active()).map_or(0, |w| w.magazine);
+    let ammo = inventory.and_then(|i| i.active()).map_or_else(
+        || "0".into(),
+        |w| {
+            w.left_magazine.map_or_else(
+                || w.magazine.to_string(),
+                |left| format!("{left} | {}", w.magazine),
+            )
+        },
+    );
     let reserve = inventory.zip(weapon).map_or(0, |(i, w)| i.reserve(w));
     let mut value = match **state {
         GameState::Loading => "Loading Origins…".into(),
         GameState::LoadError => format!("Unable to load Origins\n{}", failure.0),
         GameState::Paused => String::new(),
         GameState::GameOver => format!(
-            "Game over — Round {}\nPress {} to restart",
+            "Game over — Round {}\nScore {}    Kills {}    Headshots {}    Downs {}\nPress {} to restart",
             session.round,
+            session.score,
+            session.kills,
+            history.headshot_kills,
+            session.downs,
             settings.label(crate::input::Action::Restart)
         ),
         GameState::Playing => format!(
-            "Round {}    Health {}    Points {}\n{}    Ammo {}/{}{}",
+            "Round {}    Points {}\n{}    Ammo {}/{}{}",
             session.round,
-            health,
             session.points,
             weapon.map_or("", |w| w.name.as_str()),
             ammo,
@@ -289,11 +299,22 @@ fn update(
     };
     if **state == GameState::Playing && input.scoreboard {
         value = format!(
-            "Scoreboard\nRound {}    Kills {}    Points {}",
-            session.round, session.kills, session.points
+            "Scoreboard\nRound {}    Score {}    Kills {}    Headshots {}    Downs {}",
+            session.round, session.points, session.kills, history.headshot_kills, session.downs
         );
         **text = value;
         return;
+    }
+    if **state == GameState::Playing {
+        for (label, seconds) in [
+            ("Double Points", effects.double_points),
+            ("Insta-Kill", effects.insta_kill),
+            ("Zombie Blood", effects.zombie_blood),
+        ] {
+            if seconds > 0. {
+                value.push_str(&format!("\n{label} {:.0}s", seconds.ceil()));
+            }
+        }
     }
     if **state == GameState::Playing && !focus.prompt.is_empty() {
         value.push_str(&format!("\n{}", focus.prompt));

@@ -26,6 +26,11 @@ ACTIONS = {
 }
 
 
+def animation_fields(fields):
+    return {action: field + "Left" if fields.get(field + "Left") and not fields.get(field) else field
+            for action, field in ACTIONS.items()}
+
+
 def localized_strings(directory):
     result = {}
     files = sorted(directory.glob("*.str"), key=lambda p: ("tomb" in p.name, "patch" in p.name, p.name))
@@ -122,7 +127,7 @@ def prepare(config):
         world_model = f.get("worldModel", "")
         pickup = "actor." + world_model if "actor." + world_model in presentations else None
         actions = {}
-        for action, field in ACTIONS.items():
+        for action, field in animation_fields(f).items():
             clip_id = "animation." + model + "." + f.get(field, "")
             if clip_id in clips:
                 actions[action] = clip_id
@@ -157,6 +162,7 @@ def prepare(config):
             "fire_interval": positive("fireTime", 0.1), "reload_seconds": positive("reloadTime", 1.),
             "upgraded": upgrade, "presentation": presentation, "pickup": pickup,
             "ammo_group": ammo_id, "animation_actions": actions,
+            "dual_weapon": "weapon." + f["DualWieldWeapon"] if f.get("DualWieldWeapon") and f.get("idleAnim") else None,
             "mechanics": {
                 "delivery": delivery, "fire": fire, "starting_reserve": starting,
                 "minimum_damage": integer("minDamage"),

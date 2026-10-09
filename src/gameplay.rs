@@ -28,6 +28,8 @@ pub struct Session {
     pub round: u32,
     pub pending: u32,
     pub points: u32,
+    pub score: u32,
+    pub downs: u32,
     pub spawn_timer: Timer,
     pub intermission: Option<Timer>,
     pub spawn_cursor: usize,
@@ -42,6 +44,8 @@ impl Default for Session {
             round: 1,
             pending: 6,
             points: 500,
+            score: 500,
+            downs: 0,
             spawn_timer: Timer::from_seconds(1., TimerMode::Once),
             intermission: None,
             spawn_cursor: 0,
@@ -54,6 +58,10 @@ impl Default for Session {
 }
 
 impl Session {
+    pub fn award(&mut self, points: u32) {
+        self.points = self.points.saturating_add(points);
+        self.score = self.score.saturating_add(points);
+    }
     pub fn random(&mut self) -> u32 {
         self.seed = self.seed.wrapping_mul(6364136223846793005).wrapping_add(1);
         (self.seed >> 32) as u32
@@ -97,6 +105,9 @@ impl Plugin for GameplayPlugin {
                 (
                     combat.in_set(GameStep::Combat),
                     crate::rounds::advance.in_set(GameStep::Rounds),
+                    crate::economy::record_downs
+                        .after(GameStep::PlayerLife)
+                        .before(GameStep::Rewards),
                 )
                     .run_if(in_state(GameState::Playing)),
             );
@@ -195,7 +206,13 @@ pub(crate) fn combat(
             }
             WeaponEmission::Shot(id) => {
                 session.shots += 1;
-                if inventory.active().is_some_and(|w| w.magazine == 1) {
+                if inventory.active().is_some_and(|w| {
+                    if w.definition == id {
+                        w.magazine == 1
+                    } else {
+                        w.left_magazine == Some(1)
+                    }
+                }) {
                     crate::audio::voice(
                         &mut commands,
                         &definition,

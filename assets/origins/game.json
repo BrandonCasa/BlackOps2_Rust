@@ -7312,7 +7312,8 @@
             }
           ],
           "ads_sight": null
-        }
+        },
+        "dual_weapon": "weapon.fivesevenlh_upgraded_zm"
       },
       {
         "id": "weapon.fivesevendw_zm",
@@ -7460,7 +7461,8 @@
             }
           ],
           "ads_sight": null
-        }
+        },
+        "dual_weapon": "weapon.fivesevenlh_zm"
       },
       {
         "id": "weapon.fivesevenlh_upgraded_zm",
@@ -7473,18 +7475,24 @@
         "fire_interval": 0.096,
         "reload_seconds": 1.9,
         "upgraded": null,
-        "presentation": "actor.weapon_5853cff991676681720c935c",
+        "presentation": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
         "pickup": "actor.weapon_6b9762b8140cd6b328c3ed78",
         "ammo_group": "ammo.1c5e15ae43127b161208",
         "animation_actions": {
-          "equip": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_pullout",
-          "unequip": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_putaway",
-          "sprint_enter": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_sprint_in",
-          "sprint_loop": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_left_idle",
-          "sprint_leave": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_sprint_out",
-          "dive_enter": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_d2p_in",
-          "dive_loop": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_d2p_loop",
-          "dive_leave": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_d2p_out"
+          "idle_empty": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_idle_empty",
+          "last_shot": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_lastshot",
+          "idle": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_idle",
+          "fire": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_fire",
+          "reload": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_reload",
+          "reload_empty": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_reload_empty",
+          "equip": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_pullout",
+          "unequip": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_putaway",
+          "sprint_enter": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_sprint_in",
+          "sprint_loop": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_idle",
+          "sprint_leave": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_sprint_out",
+          "dive_enter": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_in",
+          "dive_loop": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_loop",
+          "dive_leave": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_out"
         },
         "mechanics": {
           "delivery": "hitscan",
@@ -7570,7 +7578,8 @@
           ],
           "ads_pose": [],
           "ads_sight": null
-        }
+        },
+        "dual_weapon": null
       },
       {
         "id": "weapon.fivesevenlh_zm",
@@ -7583,18 +7592,24 @@
         "fire_interval": 0.096,
         "reload_seconds": 1.9,
         "upgraded": "weapon.fivesevenlh_upgraded_zm",
-        "presentation": "actor.weapon_5853cff991676681720c935c",
+        "presentation": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
         "pickup": "actor.weapon_6b9762b8140cd6b328c3ed78",
         "ammo_group": "ammo.1c5e15ae43127b161208",
         "animation_actions": {
-          "equip": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_pullout",
-          "unequip": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_putaway",
-          "sprint_enter": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_sprint_in",
-          "sprint_loop": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_left_idle",
-          "sprint_leave": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_sprint_out",
-          "dive_enter": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_d2p_in",
-          "dive_loop": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_d2p_loop",
-          "dive_leave": "animation.weapon_5853cff991676681720c935c.viewmodel_fn57_dw_d2p_out"
+          "idle_empty": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_idle_empty",
+          "last_shot": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_lastshot",
+          "idle": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_idle",
+          "fire": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_fire",
+          "reload": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_reload",
+          "reload_empty": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_reload_empty",
+          "equip": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_pullout",
+          "unequip": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_putaway",
+          "sprint_enter": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_sprint_in",
+          "sprint_loop": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_idle",
+          "sprint_leave": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_sprint_out",
+          "dive_enter": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_in",
+          "dive_loop": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_loop",
+          "dive_leave": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_out"
         },
         "mechanics": {
           "delivery": "hitscan",
@@ -7680,7 +7695,8 @@
           ],
           "ads_pose": [],
           "ads_sight": null
-        }
+        },
+        "dual_weapon": null
       },
       {
         "id": "weapon.fnfal_upgraded_zm",
@@ -113505,7 +113521,33 @@
         }
       }
     ],
-    "powerups": [],
+    "powerups": [
+      {
+        "id": "powerup.nuke",
+        "duration": 0,
+        "presentation": "presentation.powerup.nuke"
+      },
+      {
+        "id": "powerup.insta_kill",
+        "duration": 30,
+        "presentation": "presentation.powerup.insta_kill"
+      },
+      {
+        "id": "powerup.double_points",
+        "duration": 30,
+        "presentation": "presentation.powerup.double_points"
+      },
+      {
+        "id": "powerup.full_ammo",
+        "duration": 0,
+        "presentation": "presentation.powerup.full_ammo"
+      },
+      {
+        "id": "powerup.zombie_blood",
+        "duration": 30,
+        "presentation": "presentation.powerup.zombie_blood"
+      }
+    ],
     "zones": [
       {
         "id": "zone.air_stairs",
@@ -369044,7 +369086,12 @@
           "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_d2p_in",
           "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_d2p_loop",
           "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_d2p_out",
+          "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_fire",
           "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_idle",
+          "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_idle_empty",
+          "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_lastshot",
+          "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_reload",
+          "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_reload_empty",
           "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_pullout",
           "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_putaway",
           "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_right_fire",
@@ -369703,7 +369750,12 @@
           "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_d2p_in",
           "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_d2p_loop",
           "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_d2p_out",
+          "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_fire",
           "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_idle",
+          "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_idle_empty",
+          "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_lastshot",
+          "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_reload",
+          "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_reload_empty",
           "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_pullout",
           "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_putaway",
           "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_right_fire",
@@ -370362,7 +370414,12 @@
           "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_d2p_in",
           "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_d2p_loop",
           "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_d2p_out",
+          "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_fire",
           "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_idle",
+          "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_idle_empty",
+          "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_lastshot",
+          "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_reload",
+          "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_reload_empty",
           "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_pullout",
           "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_putaway",
           "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_right_fire",
@@ -371021,7 +371078,12 @@
           "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_d2p_in",
           "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_d2p_loop",
           "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_d2p_out",
+          "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_fire",
           "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_idle",
+          "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_idle_empty",
+          "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_lastshot",
+          "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_reload",
+          "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_reload_empty",
           "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_pullout",
           "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_putaway",
           "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_right_fire",
@@ -373283,6 +373345,56 @@
       {
         "id": "actor.weapon_0744eaaf3a24405116bd9501",
         "scene": "actors/weapon_0744eaaf3a24405116bd9501.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "scene": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Scene0",
+        "animations": [
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_in",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_loop",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_out",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_fire",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_idle",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_idle_empty",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_lastshot",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_reload",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_reload_empty",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_pullout",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_putaway",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_sprint_in",
+          "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_sprint_out"
+        ],
+        "sounds": []
+      },
+      {
+        "id": "presentation.powerup.nuke",
+        "scene": "powerups/common_zm/zombie_bomb_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "presentation.powerup.insta_kill",
+        "scene": "powerups/common_zm/zombie_skull_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "presentation.powerup.double_points",
+        "scene": "powerups/common_zm/zombie_x2_icon_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "presentation.powerup.full_ammo",
+        "scene": "powerups/zm_tomb/zombie_ammocan_lod0.gltf#Scene0",
+        "animations": [],
+        "sounds": []
+      },
+      {
+        "id": "presentation.powerup.zombie_blood",
+        "scene": "powerups/zm_tomb/p6_zm_tm_blood_power_up_lod0.gltf#Scene0",
         "animations": [],
         "sounds": []
       }
@@ -403406,6 +403518,1002 @@
         ],
         "distance_min": 2.54,
         "distance": 6.35,
+        "looping": true
+      },
+      {
+        "id": "sound.native.evt_nuke_flash.0",
+        "path": "audio/native/cbe6e12d777a40bb3fed73a1-stereo.ogg",
+        "volume": 0.22387211385683395,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.evt_dew_80hz.0",
+        "path": "audio/native/f7cde140de8dac71979a4b69-stereo.ogg",
+        "volume": 0.1,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.evt_nuked.0",
+        "path": "audio/native/8ee92c5b97decb465e5f7af8-mono.ogg",
+        "volume": 0.22387211385683395,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 50.8,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_ammo_0.0",
+        "path": "audio/native/e7afcb91c34a15b74a88bc1c-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_ammo_1.0",
+        "path": "audio/native/b2bfc9c974cd6eb51ac2ca78-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_ammo_2.0",
+        "path": "audio/native/12339edd45e33d9ffa9dea53-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_firesale_0.0",
+        "path": "audio/native/89ac01caa24aec1d9a4a4ab3-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_firesale_1.0",
+        "path": "audio/native/e71427ac90babc4e475bc328-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_firesale_2.0",
+        "path": "audio/native/13adac7b6092e9b2272a0c45-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_insta_0.0",
+        "path": "audio/native/d34368a83bb43f14601fc2d3-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_insta_1.0",
+        "path": "audio/native/d6aad0d06c0ad35e461582a2-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_insta_2.0",
+        "path": "audio/native/97f0e39cf2f06b2017566152-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_nuke_0.0",
+        "path": "audio/native/6eb6434f5d7c595b5dba9f6a-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_nuke_0.1",
+        "path": "audio/native/53863256fa0994aff8f49774-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_nuke_1.0",
+        "path": "audio/native/8d809c5e075c0044b31cd827-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_nuke_2.0",
+        "path": "audio/native/d3e66733d8c5a477a0e7b5c1-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_zombie_blood_0.0",
+        "path": "audio/native/38b9b7cbd81be7e2ffff034e-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_zombie_blood_1.0",
+        "path": "audio/native/4f4695dc8f493854ada39a1f-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_0_powerup_zombie_blood_2.0",
+        "path": "audio/native/d51c9b87b394763de6210bb6-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_ammo_0.0",
+        "path": "audio/native/f7d9b69434fbe168b4da4752-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_ammo_1.0",
+        "path": "audio/native/d6f504a96eef5f060d2c8c19-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_ammo_2.0",
+        "path": "audio/native/95845217ac6c33dbf6115e29-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_firesale_0.0",
+        "path": "audio/native/4adfbf393aa8176e42e4d499-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_firesale_1.0",
+        "path": "audio/native/a667128b36c9361e36b51239-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_firesale_2.0",
+        "path": "audio/native/c0c92741157d2c49c2c647e1-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_insta_0.0",
+        "path": "audio/native/0d65c536b4facc91403dd03b-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_insta_1.0",
+        "path": "audio/native/ad0b903a4f5bc590bc893727-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_insta_2.0",
+        "path": "audio/native/27afac27aa141cbecf132502-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_nuke_0.0",
+        "path": "audio/native/01b715e6775bf79824a360e8-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_nuke_1.0",
+        "path": "audio/native/4e8f91618d9afb6a5d424727-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_nuke_2.0",
+        "path": "audio/native/f6f9b24de17b1ad27355aefc-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_zombie_blood_0.0",
+        "path": "audio/native/bfd4e434ac92350f5588e0c3-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_zombie_blood_1.0",
+        "path": "audio/native/2b6c1d88cb6ad7cf922eaf5a-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_1_powerup_zombie_blood_2.0",
+        "path": "audio/native/1a3a120791e73b0c15187bac-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_ammo_0.0",
+        "path": "audio/native/aba385d7294380d1f8353430-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_ammo_1.0",
+        "path": "audio/native/248ac4a8a1bebfc9f2ae3387-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_ammo_2.0",
+        "path": "audio/native/097cd3b6707928628057bbb8-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_firesale_0.0",
+        "path": "audio/native/8c91d88a2ca9e697897387aa-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_firesale_1.0",
+        "path": "audio/native/c2902699e0cdc324331c985d-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_firesale_2.0",
+        "path": "audio/native/07f3f216d859929979d1885f-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_insta_0.0",
+        "path": "audio/native/bf85d543cb3e6be59dee957d-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_insta_1.0",
+        "path": "audio/native/408100ac14c6240da372eeec-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_insta_2.0",
+        "path": "audio/native/dcd6adc1733ec11f12605df7-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_nuke_0.0",
+        "path": "audio/native/7ab9e8361af696f76f5b4a13-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_nuke_1.0",
+        "path": "audio/native/bbab63fa162ea05af9b4a0d6-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_nuke_2.0",
+        "path": "audio/native/54dd5adab83cb828e2c19d12-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_zombie_blood_0.0",
+        "path": "audio/native/34e6ef0505f3612b9c587143-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_zombie_blood_1.0",
+        "path": "audio/native/45a5e48c41e519d044c16b7e-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_2_powerup_zombie_blood_2.0",
+        "path": "audio/native/573a117e9cb0fe0778fe1bd0-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_ammo_0.0",
+        "path": "audio/native/3a4f4b04267ddb160ab5804f-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_ammo_1.0",
+        "path": "audio/native/924c79b37f6705e415b65c67-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_ammo_2.0",
+        "path": "audio/native/da8f7fa0aad4481f9c2cf7b7-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_firesale_0.0",
+        "path": "audio/native/dd134675be051d6a4282df87-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_firesale_1.0",
+        "path": "audio/native/9a4a31fcddcbe1de36a97fb7-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_firesale_2.0",
+        "path": "audio/native/7329729f4e98b6211a7197e1-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_insta_0.0",
+        "path": "audio/native/b1d2af28d87281c7bfab643c-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_insta_1.0",
+        "path": "audio/native/30263eb1cfb38d8f82af4c61-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_insta_2.0",
+        "path": "audio/native/8939797c3679bcac78bbf760-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_nuke_0.0",
+        "path": "audio/native/7f002996c9341524dc4ed3af-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_nuke_1.0",
+        "path": "audio/native/9a255d95e217ac8e618ab1ac-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_nuke_2.0",
+        "path": "audio/native/ceb86b12dcf8e06b94e3bd1a-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_zombie_blood_0.0",
+        "path": "audio/native/e4051f9223a955ac046bcbd5-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_zombie_blood_1.0",
+        "path": "audio/native/7a689569edafabb55a9f134c-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_plr_3_powerup_zombie_blood_2.0",
+        "path": "audio/native/aed929a357b7ede238071a8d-mono.ogg",
+        "volume": 0.1778279410038923,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 40.64,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_zmba_powerup_blood_money_0.0",
+        "path": "audio/native/d55504309f8703768e1b50ae-stereo.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_zmba_powerup_carpenter_0.0",
+        "path": "audio/native/939a06cfcd38bdc6466a1b98-stereo.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_zmba_powerup_doublepoints_0.0",
+        "path": "audio/native/66922c15be1b700ed7d4ddbf-stereo.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_zmba_powerup_firesale_0.0",
+        "path": "audio/native/d0b633fafe9246d58bcac2af-stereo.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_zmba_powerup_instakill_0.0",
+        "path": "audio/native/ce98cc250bb12680611497cd-stereo.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_zmba_powerup_maxammo_0.0",
+        "path": "audio/native/64d741ca837991f657b75559-stereo.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_zmba_powerup_mystery_0.0",
+        "path": "audio/native/61b00966f789680f52c72865-stereo.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_zmba_powerup_nuke_0.0",
+        "path": "audio/native/7943b594706b939c5815bece-stereo.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_zmba_powerup_zombie_blood_0.0",
+        "path": "audio/native/a944a4f7a106301b608eb684-stereo.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.vox_zmba_powerup_zombie_cash_0.0",
+        "path": "audio/native/737add5a207802e82f1ea04c-stereo.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_double_point_loop.0",
+        "path": "audio/native/39f4cb6acd060c3dfce2b39b-stereo.ogg",
+        "volume": 0.039810717055349734,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": true
+      },
+      {
+        "id": "sound.native.zmb_full_ammo.0",
+        "path": "audio/native/9224fd74c9b86e1792b4ded8-stereo.ogg",
+        "volume": 0.039810717055349734,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_insta_kill.0",
+        "path": "audio/native/22dfeeeef9fc737d6cb1815e-stereo.ogg",
+        "volume": 0.039810717055349734,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_insta_kill_loop.0",
+        "path": "audio/native/1f5716418c7fa39c2820049e-stereo.ogg",
+        "volume": 0.039810717055349734,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": true
+      },
+      {
+        "id": "sound.native.zmb_points_loop_off.0",
+        "path": "audio/native/0131bfba2c9f61fd9c2f675e-stereo.ogg",
+        "volume": 0.039810717055349734,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.0,
+        "distance": 127.0,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_powerup_grabbed.0",
+        "path": "audio/native/ad1738089ba0bdf46c51fb99-stereo.ogg",
+        "volume": 0.08912509381337455,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 50.8,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_spawn_powerup.0",
+        "path": "audio/native/f683962842767ed6ac071a42-mono.ogg",
+        "volume": 0.08912509381337455,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 6.35,
+        "distance": 50.8,
+        "looping": false
+      },
+      {
+        "id": "sound.native.zmb_spawn_powerup_loop.0",
+        "path": "audio/native/6cda5b3d43b9f876952401df-mono.ogg",
+        "volume": 0.08912509381337455,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 0.635,
+        "distance": 10.16,
+        "looping": true
+      },
+      {
+        "id": "sound.native.zmb_zombieblood_3rd_loop.0",
+        "path": "audio/native/4473e8b169e40d9da8690938-mono.ogg",
+        "volume": 0.15848931924611134,
+        "pitch": [
+          1.0,
+          1.0
+        ],
+        "distance_min": 3.175,
+        "distance": 10.16,
         "looping": true
       }
     ],
@@ -491895,6 +493003,649 @@
           },
           {
             "seconds": 4.266666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_fire",
+        "path": "actors/c_zom_dempsey_viewhands_lod0.gltf#Animation652",
+        "skeleton": "actor.c_zom_dempsey_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_idle_empty",
+        "path": "actors/c_zom_dempsey_viewhands_lod0.gltf#Animation653",
+        "skeleton": "actor.c_zom_dempsey_viewhands",
+        "notifications": [
+          {
+            "seconds": 10.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_lastshot",
+        "path": "actors/c_zom_dempsey_viewhands_lod0.gltf#Animation654",
+        "skeleton": "actor.c_zom_dempsey_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_reload",
+        "path": "actors/c_zom_dempsey_viewhands_lod0.gltf#Animation655",
+        "skeleton": "actor.c_zom_dempsey_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#fly_gear_reload_plr"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#fly_fiveseven_mag_out"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "rmbnt#reload_clipout"
+          },
+          {
+            "seconds": 1.1333333333333333,
+            "event": "sndnt#fly_fiveseven_futz"
+          },
+          {
+            "seconds": 1.3666666666666667,
+            "event": "sndnt#fly_fiveseven_mag_in"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.3333333333333335,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_reload_empty",
+        "path": "actors/c_zom_dempsey_viewhands_lod0.gltf#Animation656",
+        "skeleton": "actor.c_zom_dempsey_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#fly_gear_reload_plr"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#fly_fiveseven_mag_out"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "rmbnt#reload_clipout"
+          },
+          {
+            "seconds": 1.2,
+            "event": "sndnt#fly_fiveseven_futz"
+          },
+          {
+            "seconds": 1.3666666666666667,
+            "event": "sndnt#fly_fiveseven_mag_in"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.3333333333333335,
+            "event": "sndnt#fly_fiveseven_slide_forward"
+          },
+          {
+            "seconds": 2.3666666666666667,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.6666666666666665,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_fire",
+        "path": "actors/c_zom_nikolai_viewhands_lod0.gltf#Animation652",
+        "skeleton": "actor.c_zom_nikolai_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_idle_empty",
+        "path": "actors/c_zom_nikolai_viewhands_lod0.gltf#Animation653",
+        "skeleton": "actor.c_zom_nikolai_viewhands",
+        "notifications": [
+          {
+            "seconds": 10.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_lastshot",
+        "path": "actors/c_zom_nikolai_viewhands_lod0.gltf#Animation654",
+        "skeleton": "actor.c_zom_nikolai_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_reload",
+        "path": "actors/c_zom_nikolai_viewhands_lod0.gltf#Animation655",
+        "skeleton": "actor.c_zom_nikolai_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#fly_gear_reload_plr"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#fly_fiveseven_mag_out"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "rmbnt#reload_clipout"
+          },
+          {
+            "seconds": 1.1333333333333333,
+            "event": "sndnt#fly_fiveseven_futz"
+          },
+          {
+            "seconds": 1.3666666666666667,
+            "event": "sndnt#fly_fiveseven_mag_in"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.3333333333333335,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_reload_empty",
+        "path": "actors/c_zom_nikolai_viewhands_lod0.gltf#Animation656",
+        "skeleton": "actor.c_zom_nikolai_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#fly_gear_reload_plr"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#fly_fiveseven_mag_out"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "rmbnt#reload_clipout"
+          },
+          {
+            "seconds": 1.2,
+            "event": "sndnt#fly_fiveseven_futz"
+          },
+          {
+            "seconds": 1.3666666666666667,
+            "event": "sndnt#fly_fiveseven_mag_in"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.3333333333333335,
+            "event": "sndnt#fly_fiveseven_slide_forward"
+          },
+          {
+            "seconds": 2.3666666666666667,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.6666666666666665,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_fire",
+        "path": "actors/c_zom_richtofen_viewhands_lod0.gltf#Animation652",
+        "skeleton": "actor.c_zom_richtofen_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_idle_empty",
+        "path": "actors/c_zom_richtofen_viewhands_lod0.gltf#Animation653",
+        "skeleton": "actor.c_zom_richtofen_viewhands",
+        "notifications": [
+          {
+            "seconds": 10.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_lastshot",
+        "path": "actors/c_zom_richtofen_viewhands_lod0.gltf#Animation654",
+        "skeleton": "actor.c_zom_richtofen_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_reload",
+        "path": "actors/c_zom_richtofen_viewhands_lod0.gltf#Animation655",
+        "skeleton": "actor.c_zom_richtofen_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#fly_gear_reload_plr"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#fly_fiveseven_mag_out"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "rmbnt#reload_clipout"
+          },
+          {
+            "seconds": 1.1333333333333333,
+            "event": "sndnt#fly_fiveseven_futz"
+          },
+          {
+            "seconds": 1.3666666666666667,
+            "event": "sndnt#fly_fiveseven_mag_in"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.3333333333333335,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_reload_empty",
+        "path": "actors/c_zom_richtofen_viewhands_lod0.gltf#Animation656",
+        "skeleton": "actor.c_zom_richtofen_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#fly_gear_reload_plr"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#fly_fiveseven_mag_out"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "rmbnt#reload_clipout"
+          },
+          {
+            "seconds": 1.2,
+            "event": "sndnt#fly_fiveseven_futz"
+          },
+          {
+            "seconds": 1.3666666666666667,
+            "event": "sndnt#fly_fiveseven_mag_in"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.3333333333333335,
+            "event": "sndnt#fly_fiveseven_slide_forward"
+          },
+          {
+            "seconds": 2.3666666666666667,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.6666666666666665,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_fire",
+        "path": "actors/c_zom_takeo_viewhands_lod0.gltf#Animation652",
+        "skeleton": "actor.c_zom_takeo_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_idle_empty",
+        "path": "actors/c_zom_takeo_viewhands_lod0.gltf#Animation653",
+        "skeleton": "actor.c_zom_takeo_viewhands",
+        "notifications": [
+          {
+            "seconds": 10.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_lastshot",
+        "path": "actors/c_zom_takeo_viewhands_lod0.gltf#Animation654",
+        "skeleton": "actor.c_zom_takeo_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_reload",
+        "path": "actors/c_zom_takeo_viewhands_lod0.gltf#Animation655",
+        "skeleton": "actor.c_zom_takeo_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#fly_gear_reload_plr"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#fly_fiveseven_mag_out"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "rmbnt#reload_clipout"
+          },
+          {
+            "seconds": 1.1333333333333333,
+            "event": "sndnt#fly_fiveseven_futz"
+          },
+          {
+            "seconds": 1.3666666666666667,
+            "event": "sndnt#fly_fiveseven_mag_in"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.3333333333333335,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_reload_empty",
+        "path": "actors/c_zom_takeo_viewhands_lod0.gltf#Animation656",
+        "skeleton": "actor.c_zom_takeo_viewhands",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#fly_gear_reload_plr"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#fly_fiveseven_mag_out"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "rmbnt#reload_clipout"
+          },
+          {
+            "seconds": 1.2,
+            "event": "sndnt#fly_fiveseven_futz"
+          },
+          {
+            "seconds": 1.3666666666666667,
+            "event": "sndnt#fly_fiveseven_mag_in"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.3333333333333335,
+            "event": "sndnt#fly_fiveseven_slide_forward"
+          },
+          {
+            "seconds": 2.3666666666666667,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.6666666666666665,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_in",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation0",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 0.16666666666666666,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_loop",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation1",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 0.5,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_d2p_out",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation2",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 0.3333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_fire",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation3",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_idle",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation4",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 10.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_idle_empty",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation5",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 10.0,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_lastshot",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation6",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 0.2,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_reload",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation7",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#fly_gear_reload_plr"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#fly_fiveseven_mag_out"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "rmbnt#reload_clipout"
+          },
+          {
+            "seconds": 1.1333333333333333,
+            "event": "sndnt#fly_fiveseven_futz"
+          },
+          {
+            "seconds": 1.3666666666666667,
+            "event": "sndnt#fly_fiveseven_mag_in"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.3333333333333335,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_reload_empty",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation8",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#fly_gear_reload_plr"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "sndnt#fly_fiveseven_mag_out"
+          },
+          {
+            "seconds": 0.43333333333333335,
+            "event": "rmbnt#reload_clipout"
+          },
+          {
+            "seconds": 1.2,
+            "event": "sndnt#fly_fiveseven_futz"
+          },
+          {
+            "seconds": 1.3666666666666667,
+            "event": "sndnt#fly_fiveseven_mag_in"
+          },
+          {
+            "seconds": 1.4666666666666666,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.3333333333333335,
+            "event": "sndnt#fly_fiveseven_slide_forward"
+          },
+          {
+            "seconds": 2.3666666666666667,
+            "event": "rmbnt#reload_medium"
+          },
+          {
+            "seconds": 2.6666666666666665,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_pullout",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation9",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 1.1666666666666667,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_putaway",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation10",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 0.8333333333333334,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_sprint_in",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation11",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 0.3333333333333333,
+            "event": "end"
+          }
+        ]
+      },
+      {
+        "id": "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_sprint_out",
+        "path": "actors/weapon_4dcfdc766a0fbb9eeeeaea0b.gltf#Animation12",
+        "skeleton": "actor.weapon_4dcfdc766a0fbb9eeeeaea0b",
+        "notifications": [
+          {
+            "seconds": 0.3333333333333333,
             "event": "end"
           }
         ]
@@ -635326,6 +637077,42 @@
         "priority": 50,
         "seconds": 0.7039791666666667
       },
+      "evt_dew_80hz": {
+        "sounds": [
+          "sound.native.evt_dew_80hz.0"
+        ],
+        "spatial": false,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 100,
+        "seconds": 2.3
+      },
+      "evt_nuke_flash": {
+        "sounds": [
+          "sound.native.evt_nuke_flash.0"
+        ],
+        "spatial": false,
+        "channel": "effects",
+        "secondary": "evt_dew_80hz",
+        "subtitle": "",
+        "limit": 1,
+        "priority": 100,
+        "seconds": 1.385
+      },
+      "evt_nuked": {
+        "sounds": [
+          "sound.native.evt_nuked.0"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 3,
+        "priority": 100,
+        "seconds": 1.6795833333333334
+      },
       "evt_perk_bottle_open": {
         "sounds": [
           "sound.native.evt_perk_bottle_open.0"
@@ -642072,6 +643859,187 @@
         "priority": 90,
         "seconds": 4.990083333333334
       },
+      "vox_plr_0_powerup_ammo_0": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_ammo_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 1.755875
+      },
+      "vox_plr_0_powerup_ammo_1": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_ammo_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.795625
+      },
+      "vox_plr_0_powerup_ammo_2": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_ammo_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 1.4013125
+      },
+      "vox_plr_0_powerup_firesale_0": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_firesale_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.497708333333333
+      },
+      "vox_plr_0_powerup_firesale_1": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_firesale_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.1229791666666666
+      },
+      "vox_plr_0_powerup_firesale_2": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_firesale_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.4659375
+      },
+      "vox_plr_0_powerup_insta_0": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_insta_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 1.8241458333333334
+      },
+      "vox_plr_0_powerup_insta_1": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_insta_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.630333333333333
+      },
+      "vox_plr_0_powerup_insta_2": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_insta_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 4.279229166666667
+      },
+      "vox_plr_0_powerup_nuke_0": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_nuke_0.0",
+          "sound.native.vox_plr_0_powerup_nuke_0.1"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.5778541666666666
+      },
+      "vox_plr_0_powerup_nuke_1": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_nuke_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.2758541666666665
+      },
+      "vox_plr_0_powerup_nuke_2": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_nuke_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 1.9462083333333333
+      },
+      "vox_plr_0_powerup_zombie_blood_0": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_zombie_blood_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.4986458333333332
+      },
+      "vox_plr_0_powerup_zombie_blood_1": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_zombie_blood_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.361458333333333
+      },
+      "vox_plr_0_powerup_zombie_blood_2": {
+        "sounds": [
+          "sound.native.vox_plr_0_powerup_zombie_blood_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.9657916666666666
+      },
       "vox_plr_1_ammo_low_0": {
         "sounds": [
           "sound.native.vox_plr_1_ammo_low_0.0"
@@ -642818,6 +644786,186 @@
         "priority": 90,
         "seconds": 4.175354166666667
       },
+      "vox_plr_1_powerup_ammo_0": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_ammo_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.1440625
+      },
+      "vox_plr_1_powerup_ammo_1": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_ammo_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.740875
+      },
+      "vox_plr_1_powerup_ammo_2": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_ammo_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.6228333333333333
+      },
+      "vox_plr_1_powerup_firesale_0": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_firesale_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 5.1949375
+      },
+      "vox_plr_1_powerup_firesale_1": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_firesale_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 4.044020833333334
+      },
+      "vox_plr_1_powerup_firesale_2": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_firesale_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.39175
+      },
+      "vox_plr_1_powerup_insta_0": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_insta_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.794770833333333
+      },
+      "vox_plr_1_powerup_insta_1": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_insta_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.5826875
+      },
+      "vox_plr_1_powerup_insta_2": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_insta_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.7792083333333335
+      },
+      "vox_plr_1_powerup_nuke_0": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_nuke_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.6930833333333335
+      },
+      "vox_plr_1_powerup_nuke_1": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_nuke_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.8609166666666668
+      },
+      "vox_plr_1_powerup_nuke_2": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_nuke_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.3004166666666666
+      },
+      "vox_plr_1_powerup_zombie_blood_0": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_zombie_blood_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 5.36475
+      },
+      "vox_plr_1_powerup_zombie_blood_1": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_zombie_blood_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.1122083333333332
+      },
+      "vox_plr_1_powerup_zombie_blood_2": {
+        "sounds": [
+          "sound.native.vox_plr_1_powerup_zombie_blood_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.3950833333333335
+      },
       "vox_plr_2_ammo_low_0": {
         "sounds": [
           "sound.native.vox_plr_2_ammo_low_0.0"
@@ -643525,6 +645673,186 @@
         "limit": 1,
         "priority": 90,
         "seconds": 3.8088125
+      },
+      "vox_plr_2_powerup_ammo_0": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_ammo_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.229416666666667
+      },
+      "vox_plr_2_powerup_ammo_1": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_ammo_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.656645833333333
+      },
+      "vox_plr_2_powerup_ammo_2": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_ammo_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.974875
+      },
+      "vox_plr_2_powerup_firesale_0": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_firesale_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.6896875
+      },
+      "vox_plr_2_powerup_firesale_1": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_firesale_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 4.309666666666667
+      },
+      "vox_plr_2_powerup_firesale_2": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_firesale_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 1.8321041666666666
+      },
+      "vox_plr_2_powerup_insta_0": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_insta_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.6960625
+      },
+      "vox_plr_2_powerup_insta_1": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_insta_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.2061875
+      },
+      "vox_plr_2_powerup_insta_2": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_insta_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 4.445125
+      },
+      "vox_plr_2_powerup_nuke_0": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_nuke_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.664125
+      },
+      "vox_plr_2_powerup_nuke_1": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_nuke_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.0793958333333333
+      },
+      "vox_plr_2_powerup_nuke_2": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_nuke_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 4.057291666666667
+      },
+      "vox_plr_2_powerup_zombie_blood_0": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_zombie_blood_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.843125
+      },
+      "vox_plr_2_powerup_zombie_blood_1": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_zombie_blood_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 4.1355208333333335
+      },
+      "vox_plr_2_powerup_zombie_blood_2": {
+        "sounds": [
+          "sound.native.vox_plr_2_powerup_zombie_blood_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.316666666666667
       },
       "vox_plr_3_ammo_low_0": {
         "sounds": [
@@ -644269,6 +646597,306 @@
         "limit": 1,
         "priority": 90,
         "seconds": 3.3232708333333334
+      },
+      "vox_plr_3_powerup_ammo_0": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_ammo_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.473104166666667
+      },
+      "vox_plr_3_powerup_ammo_1": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_ammo_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.9793333333333334
+      },
+      "vox_plr_3_powerup_ammo_2": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_ammo_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.6531666666666665
+      },
+      "vox_plr_3_powerup_firesale_0": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_firesale_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 4.595270833333333
+      },
+      "vox_plr_3_powerup_firesale_1": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_firesale_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 4.7866875
+      },
+      "vox_plr_3_powerup_firesale_2": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_firesale_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.2099375
+      },
+      "vox_plr_3_powerup_insta_0": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_insta_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.0305416666666667
+      },
+      "vox_plr_3_powerup_insta_1": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_insta_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.6691875
+      },
+      "vox_plr_3_powerup_insta_2": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_insta_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 4.024770833333333
+      },
+      "vox_plr_3_powerup_nuke_0": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_nuke_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.2310625
+      },
+      "vox_plr_3_powerup_nuke_1": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_nuke_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.8162083333333334
+      },
+      "vox_plr_3_powerup_nuke_2": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_nuke_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.949145833333333
+      },
+      "vox_plr_3_powerup_zombie_blood_0": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_zombie_blood_0.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 2.4101666666666666
+      },
+      "vox_plr_3_powerup_zombie_blood_1": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_zombie_blood_1.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 3.3979375
+      },
+      "vox_plr_3_powerup_zombie_blood_2": {
+        "sounds": [
+          "sound.native.vox_plr_3_powerup_zombie_blood_2.0"
+        ],
+        "spatial": true,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 1,
+        "priority": 90,
+        "seconds": 4.1423958333333335
+      },
+      "vox_zmba_powerup_blood_money_0": {
+        "sounds": [
+          "sound.native.vox_zmba_powerup_blood_money_0.0"
+        ],
+        "spatial": false,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 1.1508333333333334
+      },
+      "vox_zmba_powerup_carpenter_0": {
+        "sounds": [
+          "sound.native.vox_zmba_powerup_carpenter_0.0"
+        ],
+        "spatial": false,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 1.0619583333333333
+      },
+      "vox_zmba_powerup_doublepoints_0": {
+        "sounds": [
+          "sound.native.vox_zmba_powerup_doublepoints_0.0"
+        ],
+        "spatial": false,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 1.1999583333333332
+      },
+      "vox_zmba_powerup_firesale_0": {
+        "sounds": [
+          "sound.native.vox_zmba_powerup_firesale_0.0"
+        ],
+        "spatial": false,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 1.3282083333333334
+      },
+      "vox_zmba_powerup_instakill_0": {
+        "sounds": [
+          "sound.native.vox_zmba_powerup_instakill_0.0"
+        ],
+        "spatial": false,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 1.4351875
+      },
+      "vox_zmba_powerup_maxammo_0": {
+        "sounds": [
+          "sound.native.vox_zmba_powerup_maxammo_0.0"
+        ],
+        "spatial": false,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 1.3130416666666667
+      },
+      "vox_zmba_powerup_mystery_0": {
+        "sounds": [
+          "sound.native.vox_zmba_powerup_mystery_0.0"
+        ],
+        "spatial": false,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 1.3908541666666667
+      },
+      "vox_zmba_powerup_nuke_0": {
+        "sounds": [
+          "sound.native.vox_zmba_powerup_nuke_0.0"
+        ],
+        "spatial": false,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 1.5195416666666666
+      },
+      "vox_zmba_powerup_zombie_blood_0": {
+        "sounds": [
+          "sound.native.vox_zmba_powerup_zombie_blood_0.0"
+        ],
+        "spatial": false,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 1.6363541666666668
+      },
+      "vox_zmba_powerup_zombie_cash_0": {
+        "sounds": [
+          "sound.native.vox_zmba_powerup_zombie_cash_0.0"
+        ],
+        "spatial": false,
+        "channel": "dialogue",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 100,
+        "seconds": 1.573
       },
       "wpn_1911_fire_plr_decay": {
         "sounds": [
@@ -648085,6 +650713,54 @@
         "priority": 100,
         "seconds": 2.52
       },
+      "zmb_double_point_loop": {
+        "sounds": [
+          "sound.native.zmb_double_point_loop.0"
+        ],
+        "spatial": false,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 4,
+        "priority": 100,
+        "seconds": 2.4150833333333335
+      },
+      "zmb_full_ammo": {
+        "sounds": [
+          "sound.native.zmb_full_ammo.0"
+        ],
+        "spatial": false,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 4,
+        "priority": 100,
+        "seconds": 2.7178541666666667
+      },
+      "zmb_insta_kill": {
+        "sounds": [
+          "sound.native.zmb_insta_kill.0"
+        ],
+        "spatial": false,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 4,
+        "priority": 100,
+        "seconds": 2.1879583333333334
+      },
+      "zmb_insta_kill_loop": {
+        "sounds": [
+          "sound.native.zmb_insta_kill_loop.0"
+        ],
+        "spatial": false,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 4,
+        "priority": 100,
+        "seconds": 1.6508541666666667
+      },
       "zmb_monkey_anim_cymb": {
         "sounds": [
           "sound.native.zmb_monkey_anim_cymb.0"
@@ -648610,6 +651286,30 @@
         "priority": 100,
         "seconds": 4.0
       },
+      "zmb_points_loop_off": {
+        "sounds": [
+          "sound.native.zmb_points_loop_off.0"
+        ],
+        "spatial": false,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 4,
+        "priority": 100,
+        "seconds": 5.564395833333333
+      },
+      "zmb_powerup_grabbed": {
+        "sounds": [
+          "sound.native.zmb_powerup_grabbed.0"
+        ],
+        "spatial": false,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 3,
+        "priority": 100,
+        "seconds": 1.2932708333333334
+      },
       "zmb_repair_boards": {
         "sounds": [
           "sound.native.zmb_repair_boards.0"
@@ -648621,6 +651321,30 @@
         "limit": 4,
         "priority": 50,
         "seconds": 3.4531875
+      },
+      "zmb_spawn_powerup": {
+        "sounds": [
+          "sound.native.zmb_spawn_powerup.0"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 3,
+        "priority": 100,
+        "seconds": 0.95
+      },
+      "zmb_spawn_powerup_loop": {
+        "sounds": [
+          "sound.native.zmb_spawn_powerup_loop.0"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 4,
+        "priority": 100,
+        "seconds": 2.9407916666666667
       },
       "zmb_vocals_capzomb_ambience": {
         "sounds": [
@@ -648905,6 +651629,18 @@
         "limit": 6,
         "priority": 50,
         "seconds": 1.8554583333333334
+      },
+      "zmb_zombieblood_3rd_loop": {
+        "sounds": [
+          "sound.native.zmb_zombieblood_3rd_loop.0"
+        ],
+        "spatial": true,
+        "channel": "effects",
+        "secondary": null,
+        "subtitle": "",
+        "limit": 8,
+        "priority": 75,
+        "seconds": 6.0370625
       }
     },
     "bindings": {
@@ -662466,6 +665202,166 @@
         {
           "seconds": 1.9,
           "alias": "evt_bottle_break"
+        }
+      ],
+      "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_reload": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "fly_gear_reload_plr"
+        },
+        {
+          "seconds": 0.43333333333333335,
+          "alias": "fly_fiveseven_mag_out"
+        },
+        {
+          "seconds": 1.3666666666666667,
+          "alias": "fly_fiveseven_mag_in"
+        }
+      ],
+      "animation.c_zom_dempsey_viewhands.viewmodel_fn57_dw_left_reload_empty": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "fly_gear_reload_plr"
+        },
+        {
+          "seconds": 0.43333333333333335,
+          "alias": "fly_fiveseven_mag_out"
+        },
+        {
+          "seconds": 1.3666666666666667,
+          "alias": "fly_fiveseven_mag_in"
+        },
+        {
+          "seconds": 2.3333333333333335,
+          "alias": "fly_fiveseven_slide_forward"
+        }
+      ],
+      "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_reload": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "fly_gear_reload_plr"
+        },
+        {
+          "seconds": 0.43333333333333335,
+          "alias": "fly_fiveseven_mag_out"
+        },
+        {
+          "seconds": 1.3666666666666667,
+          "alias": "fly_fiveseven_mag_in"
+        }
+      ],
+      "animation.c_zom_nikolai_viewhands.viewmodel_fn57_dw_left_reload_empty": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "fly_gear_reload_plr"
+        },
+        {
+          "seconds": 0.43333333333333335,
+          "alias": "fly_fiveseven_mag_out"
+        },
+        {
+          "seconds": 1.3666666666666667,
+          "alias": "fly_fiveseven_mag_in"
+        },
+        {
+          "seconds": 2.3333333333333335,
+          "alias": "fly_fiveseven_slide_forward"
+        }
+      ],
+      "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_reload": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "fly_gear_reload_plr"
+        },
+        {
+          "seconds": 0.43333333333333335,
+          "alias": "fly_fiveseven_mag_out"
+        },
+        {
+          "seconds": 1.3666666666666667,
+          "alias": "fly_fiveseven_mag_in"
+        }
+      ],
+      "animation.c_zom_richtofen_viewhands.viewmodel_fn57_dw_left_reload_empty": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "fly_gear_reload_plr"
+        },
+        {
+          "seconds": 0.43333333333333335,
+          "alias": "fly_fiveseven_mag_out"
+        },
+        {
+          "seconds": 1.3666666666666667,
+          "alias": "fly_fiveseven_mag_in"
+        },
+        {
+          "seconds": 2.3333333333333335,
+          "alias": "fly_fiveseven_slide_forward"
+        }
+      ],
+      "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_reload": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "fly_gear_reload_plr"
+        },
+        {
+          "seconds": 0.43333333333333335,
+          "alias": "fly_fiveseven_mag_out"
+        },
+        {
+          "seconds": 1.3666666666666667,
+          "alias": "fly_fiveseven_mag_in"
+        }
+      ],
+      "animation.c_zom_takeo_viewhands.viewmodel_fn57_dw_left_reload_empty": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "fly_gear_reload_plr"
+        },
+        {
+          "seconds": 0.43333333333333335,
+          "alias": "fly_fiveseven_mag_out"
+        },
+        {
+          "seconds": 1.3666666666666667,
+          "alias": "fly_fiveseven_mag_in"
+        },
+        {
+          "seconds": 2.3333333333333335,
+          "alias": "fly_fiveseven_slide_forward"
+        }
+      ],
+      "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_reload": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "fly_gear_reload_plr"
+        },
+        {
+          "seconds": 0.43333333333333335,
+          "alias": "fly_fiveseven_mag_out"
+        },
+        {
+          "seconds": 1.3666666666666667,
+          "alias": "fly_fiveseven_mag_in"
+        }
+      ],
+      "animation.weapon_4dcfdc766a0fbb9eeeeaea0b.viewmodel_fn57_dw_left_reload_empty": [
+        {
+          "seconds": 0.03333333333333333,
+          "alias": "fly_gear_reload_plr"
+        },
+        {
+          "seconds": 0.43333333333333335,
+          "alias": "fly_fiveseven_mag_out"
+        },
+        {
+          "seconds": 1.3666666666666667,
+          "alias": "fly_fiveseven_mag_in"
+        },
+        {
+          "seconds": 2.3333333333333335,
+          "alias": "fly_fiveseven_slide_forward"
         }
       ]
     },

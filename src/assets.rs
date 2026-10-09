@@ -53,6 +53,8 @@ pub struct LaunchOptions {
     pub verify_audio: bool,
     pub verify_barriers: bool,
     pub verify_generators: bool,
+    pub verify_hazards: bool,
+    pub verify_powerups: bool,
     pub verify_hit_regions: bool,
     pub verify_grenades: bool,
     pub verify_semtex: bool,
@@ -93,12 +95,17 @@ impl LaunchOptions {
                 }
                 return result;
             }
-            if argument == "--verify-controls" {
-                result.verify_controls = true;
+            if argument == "--verify-controls"
+                || argument == "--verify-hazards"
+                || argument == "--verify-powerups"
+            {
+                result.verify_controls = argument == "--verify-controls";
+                result.verify_hazards = argument == "--verify-hazards";
+                result.verify_powerups = argument == "--verify-powerups";
                 result.verify = args.next().map(PathBuf::from);
                 if result.verify.is_none() || args.next().is_some() {
                     result.error =
-                        Some("Usage: origins --verify-controls external-output-folder".into());
+                        Some("Usage: origins --verify-controls|--verify-hazards|--verify-powerups external-output-folder".into());
                 }
                 return result;
             }
@@ -254,7 +261,7 @@ impl LaunchOptions {
                 {
                     result.mesh_preprocessing = MeshPreprocessing::GpuCulling;
                     preprocessing_override = true;
-                } else {
+                } else if !(result.verify_weapon_assemblies && remaining == "--dual-wield-only") {
                     result.error = Some("Unexpected or repeated launch argument".into());
                 }
             }

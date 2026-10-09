@@ -26,7 +26,7 @@ struct ActorClock {
 #[derive(Resource, Default)]
 struct AudioState {
     player: Option<Entity>,
-    actions: BTreeMap<Entity, ActionClock>,
+    actions: BTreeMap<(Entity, bool), ActionClock>,
     actors: BTreeMap<Entity, ActorClock>,
     loops: BTreeMap<String, Entity>,
     perks: BTreeSet<crate::origins::PerkId>,
@@ -87,7 +87,7 @@ fn actions(
         With<Player>,
     >,
 ) {
-    state.actions.retain(|e, _| players.contains(*e));
+    state.actions.retain(|(e, _), _| players.contains(*e));
     for (owner, inventory, lethal, tactical, mines, drinking) in &players {
         let selected = drinking
             .map(|d| d.selection())
@@ -102,107 +102,130 @@ fn actions(
         let Some(weapon) = game.content.weapons.iter().find(|w| w.id == *id) else {
             continue;
         };
-        let (action, shot_seek) = selected.as_ref().map_or_else(
-            || crate::presentation::primary_action(inventory, weapon, &game),
-            |s| (s.action, None),
-        );
-        let animation_weapon = if action == WeaponAnimation::Melee {
-            game.content
-                .weapons
-                .iter()
-                .find(|w| w.id.0 == "weapon.knife_zm")
-                .unwrap_or(weapon)
-        } else {
-            weapon
-        };
-        let Some(clip) = animation_weapon.animation_actions.get(&action) else {
-            continue;
-        };
-        let clock = state.actions.entry(owner).or_default();
-        let sequence = if selected.is_some() {
-            0
-        } else {
-            inventory.sequence
-        };
-        let timing = selected
-            .as_ref()
-            .and_then(|s| s.timing)
-            .or_else(|| inventory.presentation_timing(weapon, animation_weapon));
-        let backwards =
-            timing.is_some_and(|(duration, remaining)| duration - remaining + 0.001 < clock.age);
-        let finishing_shot =
-            selected.is_none() && shot_seek.is_some() && inventory.signal == WeaponSignal::Idle;
-        let changed =
-            clock.key != clip.0 || (clock.sequence != sequence && !finishing_shot) || backwards;
-        if changed {
-            clock.key = clip.0.clone();
-            clock.sequence = sequence;
-            clock.age = 0.;
-            clock.sampled = -0.001;
-            let event = match action {
-                WeaponAnimation::Equip => Some("equip"),
-                WeaponAnimation::Unequip => Some("unequip"),
-                WeaponAnimation::Prime => Some("prime"),
-                WeaponAnimation::Melee => Some("melee"),
-                WeaponAnimation::Fire if selected.is_some() => Some("throw"),
-                _ => None,
+        for left in [false, true] {
+            let weapon = if left {
+                if selected.is_some() {
+                    continue;
+                }
+                let Some(partner) = weapon
+                    .dual_weapon
+                    .as_ref()
+                    .and_then(|id| game.content.weapons.iter().find(|w| w.id == *id))
+                else {
+                    continue;
+                };
+                partner
+            } else {
+                weapon
             };
-            if let Some(event) = event {
-                binding(
-                    &mut commands,
-                    &game,
-                    &format!("{}.{}", weapon.id.0, event),
-                    SoundSource::attached(owner),
-                );
+            let signal = inventory.hand_signal(left);
+            let (action, shot_seek) = selected.as_ref().map_or_else(
+                || crate::presentation::hand_action(inventory, weapon, &game, left),
+                |s| (s.action, None),
+            );
+            if left && action == WeaponAnimation::Melee {
+                state.actions.remove(&(owner, left));
+                continue;
             }
-            if inventory.signal == WeaponSignal::DryFire && selected.is_none() {
-                binding(
-                    &mut commands,
-                    &game,
-                    &format!("{}.dry_fire", weapon.id.0),
-                    SoundSource::attached(owner),
-                );
-                voice(
-                    &mut commands,
-                    &game,
-                    &session,
-                    "ammo_out",
-                    owner,
-                    sequence as u32,
-                );
+            let animation_weapon = if action == WeaponAnimation::Melee {
+                game.content
+                    .weapons
+                    .iter()
+                    .find(|w| w.id.0 == "weapon.knife_zm")
+                    .unwrap_or(weapon)
+            } else {
+                weapon
+            };
+            let Some(clip) = animation_weapon.animation_actions.get(&action) else {
+                continue;
+            };
+            let clock = state.actions.entry((owner, left)).or_default();
+            let sequence = if selected.is_some() {
+                0
+            } else {
+                inventory.hand_sequence(left)
+            };
+            let timing = selected
+                .as_ref()
+                .and_then(|s| s.timing)
+                .or_else(|| inventory.hand_reload_timing(left))
+                .or_else(|| inventory.presentation_timing(weapon, animation_weapon));
+            let backwards = timing
+                .is_some_and(|(duration, remaining)| duration - remaining + 0.001 < clock.age);
+            let finishing_shot =
+                selected.is_none() && shot_seek.is_some() && signal == WeaponSignal::Idle;
+            let changed =
+                clock.key != clip.0 || (clock.sequence != sequence && !finishing_shot) || backwards;
+            if changed {
+                clock.key = clip.0.clone();
+                clock.sequence = sequence;
+                clock.age = 0.;
+                clock.sampled = -0.001;
+                let event = match action {
+                    WeaponAnimation::Equip => Some("equip"),
+                    WeaponAnimation::Unequip => Some("unequip"),
+                    WeaponAnimation::Prime => Some("prime"),
+                    WeaponAnimation::Melee => Some("melee"),
+                    WeaponAnimation::Fire if selected.is_some() => Some("throw"),
+                    _ => None,
+                };
+                if let Some(event) = event {
+                    binding(
+                        &mut commands,
+                        &game,
+                        &format!("{}.{}", weapon.id.0, event),
+                        SoundSource::attached(owner),
+                    );
+                }
+                if signal == WeaponSignal::DryFire && selected.is_none() {
+                    binding(
+                        &mut commands,
+                        &game,
+                        &format!("{}.dry_fire", weapon.id.0),
+                        SoundSource::attached(owner),
+                    );
+                    voice(
+                        &mut commands,
+                        &game,
+                        &session,
+                        "ammo_out",
+                        owner,
+                        sequence as u32,
+                    );
+                }
             }
-        }
-        let native_duration = game
-            .content
-            .animations
-            .iter()
-            .find(|a| a.id == *clip)
-            .and_then(|a| a.notifications.last())
-            .map_or(1., |n| n.seconds);
-        let sampled = if let Some((duration, remaining)) = timing {
-            clock.age = (duration - remaining).max(0.);
-            clock.age / duration * native_duration
-        } else if selected.is_none() && shot_seek.is_some() {
-            clock.age = shot_seek.unwrap_or(0.);
-            clock.age.min(native_duration)
-        } else {
-            clock.age += time.delta_secs();
-            clock.age
-        };
-        if let Some(notes) = game.audio.timelines.get(&clip.0) {
-            for note in notes
+            let native_duration = game
+                .content
+                .animations
                 .iter()
-                .filter(|n| n.seconds > clock.sampled && n.seconds <= sampled)
-            {
-                emit(
-                    &mut commands,
-                    note.alias.clone(),
-                    SoundSource::attached(owner),
-                );
+                .find(|a| a.id == *clip)
+                .and_then(|a| a.notifications.last())
+                .map_or(1., |n| n.seconds);
+            let sampled = if let Some((duration, remaining)) = timing {
+                clock.age = (duration - remaining).max(0.);
+                clock.age / duration * native_duration
+            } else if selected.is_none() && shot_seek.is_some() {
+                clock.age = shot_seek.unwrap_or(0.);
+                clock.age.min(native_duration)
+            } else {
+                clock.age += time.delta_secs();
+                clock.age
+            };
+            if let Some(notes) = game.audio.timelines.get(&clip.0) {
+                for note in notes
+                    .iter()
+                    .filter(|n| n.seconds > clock.sampled && n.seconds <= sampled)
+                {
+                    emit(
+                        &mut commands,
+                        note.alias.clone(),
+                        SoundSource::attached(owner),
+                    );
+                }
             }
+            clock.sampled = sampled;
+            clock.sequence = sequence;
         }
-        clock.sampled = sampled;
-        clock.sequence = sequence;
     }
 }
 fn actors(

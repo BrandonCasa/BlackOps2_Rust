@@ -40,6 +40,7 @@ pub mod perk_effects;
 pub mod perks;
 pub mod player;
 pub mod player_health;
+pub mod powerups;
 pub mod presentation;
 pub mod rendering;
 pub mod rounds;
@@ -137,6 +138,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
             perks::PerkPlugin,
             perk_effects::PerkEffectsPlugin,
             environment::EnvironmentPlugin,
+            powerups::PowerupPlugin,
             access::AccessPlugin,
             navigation::NavigationPlugin,
             barriers::BarrierPlugin,

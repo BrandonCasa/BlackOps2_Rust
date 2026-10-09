@@ -18,6 +18,7 @@ pub enum ImpactSource {
     Fall,
     Environment(String),
     OutOfBounds,
+    Powerup,
     Perk(crate::origins::PerkId),
 }
 impl ImpactSource {
@@ -25,6 +26,7 @@ impl ImpactSource {
         match self {
             Self::Weapon(id) | Self::Projectile(id) => &id.0,
             Self::Enemy(id) => &id.0,
+            Self::Powerup => "powerup.nuke",
             Self::Fall => "hazard.fall",
             Self::Environment(id) => id,
             Self::OutOfBounds => "hazard.out_of_bounds",
@@ -102,11 +104,12 @@ fn resolve(
     mut downed: MessageWriter<crate::solo_revive::PlayerDowned>,
     perks: Query<&crate::solo_revive::PerkInventory>,
     mut perk_evidence: ResMut<crate::perk_effects::EffectEvidence>,
+    effects: Res<crate::powerups::PowerupEffects>,
 ) {
     queue
         .0
         .sort_by_key(|impact| matches!(impact.source, ImpactSource::Enemy(_)));
-    for impact in queue.0.drain(..) {
+    for mut impact in queue.0.drain(..) {
         let sender_alive = targets.get(impact.attacker).is_ok_and(|(v, _)| {
             matches!(
                 v.state(),
@@ -116,7 +119,8 @@ fn resolve(
             )
         });
         let valid_source = match &impact.source {
-            ImpactSource::Weapon(_)
+            ImpactSource::Powerup
+            | ImpactSource::Weapon(_)
             | ImpactSource::Projectile(_)
             | ImpactSource::Perk(_)
             | ImpactSource::Environment(_)
@@ -126,7 +130,12 @@ fn resolve(
                 .get(impact.attacker)
                 .is_ok_and(|z| z.definition == *id),
         };
-        if (!sender_alive && !matches!(impact.source, ImpactSource::Projectile(_))) || !valid_source
+        if (!sender_alive
+            && !matches!(
+                impact.source,
+                ImpactSource::Projectile(_) | ImpactSource::Powerup
+            ))
+            || !valid_source
         {
             continue;
         }
@@ -172,6 +181,16 @@ fn resolve(
         {
             perk_evidence.record(serde_json::json!({"event":"explosive_protected","target":impact.target.to_bits(),"amount":impact.amount,"source":impact.source.id()}));
             continue;
+        }
+        if !player
+            && impact.amount > 0
+            && effects.insta_kill > 0.
+            && matches!(
+                impact.source,
+                ImpactSource::Weapon(_) | ImpactSource::Projectile(_)
+            )
+        {
+            impact.amount = impact.amount.max(health.current().unwrap_or(0));
         }
         let Ok(amount) = ResolvedDamage::new(impact.amount) else {
             continue;
@@ -239,6 +258,7 @@ fn rewards(
     mut history: ResMut<CombatHistory>,
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
+    effects: Res<crate::powerups::PowerupEffects>,
 ) {
     for applied in applied.read() {
         let impact = applied.impact.clone();
@@ -254,7 +274,9 @@ fn rewards(
         } else {
             0
         };
-        let points = if matches!(&impact.source,ImpactSource::Perk(id) if definition.content.perks.iter().any(|p|p.id==*id && p.cherry.is_some()))
+        let points = if matches!(impact.source, ImpactSource::Powerup) {
+            0
+        } else if matches!(&impact.source,ImpactSource::Perk(id) if definition.content.perks.iter().any(|p|p.id==*id && p.cherry.is_some()))
         {
             if lethal { 40 } else { 0 }
         } else if lethal {
@@ -262,8 +284,9 @@ fn rewards(
         } else {
             hit
         };
+        let points = points.saturating_mul(effects.multiplier());
         if !lethal {
-            session.points = session.points.saturating_add(points);
+            session.award(points);
             history.awarded_points = history.awarded_points.saturating_add(points);
         }
         if is_melee {
@@ -290,7 +313,10 @@ fn reward_deaths(
     mut session: ResMut<Session>,
 ) {
     for EnemyDeath(receipt) in deaths.read() {
-        session.points = session.points.saturating_add(receipt.points);
+        if matches!(receipt.impact.source, ImpactSource::Powerup) {
+            continue;
+        }
+        session.award(receipt.points);
         history.awarded_points = history.awarded_points.saturating_add(receipt.points);
         session.kills = session.kills.saturating_add(1);
         if matches!(receipt.impact.category, DamageCategory::Melee) {

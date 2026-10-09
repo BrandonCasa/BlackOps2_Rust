@@ -1,6 +1,31 @@
 use bevy::prelude::*;
 use std::collections::BTreeMap;
 
+pub(crate) fn record_downs(
+    mut downs: MessageReader<crate::solo_revive::PlayerDowned>,
+    mut deaths: MessageReader<crate::player_health::PlayerDeath>,
+    players: Query<(Entity, &crate::life::Vitality), With<crate::player::Player>>,
+    mut session: ResMut<crate::gameplay::Session>,
+    mut counted: Local<Option<Entity>>,
+) {
+    if players
+        .iter()
+        .any(|(_, health)| health.state() == crate::life::LifeState::Standing)
+    {
+        *counted = None;
+    }
+    for target in downs
+        .read()
+        .map(|event| event.target)
+        .chain(deaths.read().map(|event| event.target))
+    {
+        if players.contains(target) && *counted != Some(target) {
+            session.downs = session.downs.saturating_add(1);
+            *counted = Some(target);
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TransactionId(pub u64);
 #[derive(Clone, Copy, Debug)]

@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 pub struct OwnedWeapon {
     pub definition: WeaponId,
     pub magazine: u32,
+    pub left_magazine: Option<u32>,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WeaponAction {
@@ -42,6 +43,14 @@ struct AmmoPool {
     rounds: u32,
     capacity: u32,
 }
+#[derive(Clone, Default)]
+struct WeaponHand {
+    cooldown: f32,
+    reload: Option<(f32, f32)>,
+    signal: WeaponSignal,
+    sequence: u64,
+    shot_elapsed: Option<f32>,
+}
 #[derive(Component, Clone)]
 pub struct WeaponInventory {
     slots: [Option<OwnedWeapon>; 3],
@@ -50,6 +59,8 @@ pub struct WeaponInventory {
     ammunition: BTreeMap<ContentId, AmmoPool>,
     pub action: WeaponAction,
     cooldown: f32,
+    hands: [WeaponHand; 2],
+    next_hand: usize,
     burst: u32,
     pub sequence: u64,
     pub signal: WeaponSignal,
@@ -70,6 +81,8 @@ impl Default for WeaponInventory {
             ammunition: BTreeMap::new(),
             action: WeaponAction::Ready,
             cooldown: 0.,
+            hands: default(),
+            next_hand: 0,
             burst: 0,
             sequence: 0,
             signal: WeaponSignal::Idle,
@@ -225,9 +238,18 @@ impl WeaponInventory {
     pub fn shot_elapsed(&self) -> Option<f32> {
         self.shot_elapsed
     }
+    pub(crate) fn survey_signal(&mut self, signal: WeaponSignal) {
+        self.emit(signal);
+        for hand in &mut self.hands {
+            hand.signal = signal;
+            hand.sequence = self.sequence;
+        }
+    }
     pub(crate) fn survey_shot_pose(&mut self, elapsed: f32, empty: bool) {
         self.shot_elapsed = Some(elapsed);
         self.signal = WeaponSignal::Fire;
+        self.hands[0].shot_elapsed = Some(elapsed);
+        self.hands[0].signal = WeaponSignal::Fire;
         if let Some(weapon) = &mut self.slots[self.active] {
             weapon.magazine = if empty { 0 } else { 2 };
         }
@@ -324,6 +346,7 @@ impl WeaponInventory {
         self.slots[slot] = Some(OwnedWeapon {
             definition: definition.id.clone(),
             magazine: definition.magazine,
+            left_magazine: definition.dual_weapon.as_ref().map(|_| definition.magazine),
         });
         Ok(slot)
     }
@@ -353,6 +376,7 @@ impl WeaponInventory {
         self.slots[slot] = Some(OwnedWeapon {
             definition: definition.id.clone(),
             magazine: definition.magazine,
+            left_magazine: definition.dual_weapon.as_ref().map(|_| definition.magazine),
         });
         let pool = self.ammunition.entry(Self::group(definition)).or_default();
         pool.capacity = pool.capacity.max(definition.reserve);
@@ -361,6 +385,8 @@ impl WeaponInventory {
             .max(definition.mechanics.starting_reserve)
             .min(pool.capacity);
         if slot == self.active {
+            self.hands = default();
+            self.next_hand = 0;
             self.action = WeaponAction::Equipping {
                 remaining: definition.mechanics.equip_seconds,
             };
@@ -435,6 +461,8 @@ impl WeaponInventory {
             Err(error) => return Err(error),
         };
         self.active = slot;
+        self.hands = default();
+        self.next_hand = 0;
         self.cooldown = 0.;
         self.burst = 0;
         self.action = WeaponAction::Equipping {
@@ -444,6 +472,8 @@ impl WeaponInventory {
         Ok(slot)
     }
     pub fn cancel_action(&mut self) {
+        self.hands = default();
+        self.next_hand = 0;
         self.shot_elapsed = None;
         self.action = WeaponAction::Ready;
         self.burst = 0;
@@ -484,6 +514,145 @@ impl WeaponInventory {
         weapon.magazine += transfer;
         pool.rounds -= transfer;
     }
+    pub fn hand_signal(&self, left: bool) -> WeaponSignal {
+        if self.active().is_some_and(|w| w.left_magazine.is_some())
+            && self.action == WeaponAction::Ready
+        {
+            self.hands[usize::from(left)].signal
+        } else {
+            self.signal
+        }
+    }
+    pub fn hand_sequence(&self, left: bool) -> u64 {
+        if self.active().is_some_and(|w| w.left_magazine.is_some())
+            && self.action == WeaponAction::Ready
+        {
+            self.hands[usize::from(left)].sequence
+        } else {
+            self.sequence
+        }
+    }
+    pub fn hand_shot_elapsed(&self, left: bool) -> Option<f32> {
+        if self.active().is_some_and(|w| w.left_magazine.is_some()) {
+            self.hands[usize::from(left)].shot_elapsed
+        } else {
+            self.shot_elapsed
+        }
+    }
+    pub fn hand_reload_timing(&self, left: bool) -> Option<(f32, f32)> {
+        self.hands[usize::from(left)].reload
+    }
+    fn tick_dual(
+        &mut self,
+        dt: f32,
+        intent: WeaponIntent,
+        definitions: [&WeaponDefinition; 2],
+        emissions: &mut Vec<WeaponEmission>,
+    ) {
+        let Some(weapon) = self.slots[self.active].as_mut() else {
+            return;
+        };
+        let Some(left) = weapon.left_magazine.as_mut() else {
+            return;
+        };
+        let magazines = [&mut weapon.magazine, left];
+        let pool = self
+            .ammunition
+            .entry(Self::group(definitions[0]))
+            .or_default();
+        for (hand, (magazine, definition)) in self
+            .hands
+            .iter_mut()
+            .zip(magazines.into_iter().zip(definitions))
+        {
+            hand.cooldown = (hand.cooldown - dt).max(0.);
+            if let Some(age) = &mut hand.shot_elapsed {
+                *age += dt;
+            }
+            if let Some((_, remaining)) = &mut hand.reload {
+                *remaining = (*remaining - dt / self.reload_duration_scale).max(0.);
+                if *remaining == 0. {
+                    let transfer = definition
+                        .magazine
+                        .saturating_sub(*magazine)
+                        .min(pool.rounds);
+                    *magazine += transfer;
+                    pool.rounds -= transfer;
+                    hand.reload = None;
+                    hand.signal = WeaponSignal::Idle;
+                    hand.sequence = hand.sequence.wrapping_add(1);
+                    emissions.push(WeaponEmission::ReloadCompleted(definition.id.clone()));
+                }
+            }
+            if intent.reload
+                && hand.reload.is_none()
+                && *magazine < definition.magazine
+                && pool.rounds > 0
+            {
+                let empty = *magazine == 0;
+                let duration = if empty {
+                    definition.mechanics.empty_reload
+                } else {
+                    definition.reload_seconds
+                };
+                hand.reload = Some((duration, duration));
+                hand.signal = if empty {
+                    WeaponSignal::ReloadEmpty
+                } else {
+                    WeaponSignal::Reload
+                };
+                hand.sequence = hand.sequence.wrapping_add(1);
+                hand.shot_elapsed = None;
+                emissions.push(WeaponEmission::ReloadStarted {
+                    weapon: definition.id.clone(),
+                    magazine: *magazine,
+                    capacity: definition.magazine,
+                    seconds: duration * self.reload_duration_scale,
+                });
+            }
+        }
+        let firing = intent.pressed
+            || intent.held && matches!(definitions[0].mechanics.fire, FirePattern::Automatic);
+        if !firing || self.cooldown > 0. {
+            return;
+        }
+        let available =
+            |index: usize| self.hands[index].reload.is_none() && self.hands[index].cooldown == 0.;
+        let loaded = |index: usize| {
+            if index == 0 {
+                weapon.magazine > 0
+            } else {
+                weapon.left_magazine.is_some_and(|n| n > 0)
+            }
+        };
+        let selected = [self.next_hand, 1 - self.next_hand]
+            .into_iter()
+            .find(|&i| available(i) && loaded(i));
+        let Some(index) = selected else {
+            if available(self.next_hand) {
+                self.hands[self.next_hand].signal = WeaponSignal::DryFire;
+                self.hands[self.next_hand].sequence =
+                    self.hands[self.next_hand].sequence.wrapping_add(1);
+                self.cooldown = 0.18;
+                self.emit(WeaponSignal::DryFire);
+            }
+            return;
+        };
+        if index == 0 {
+            weapon.magazine -= 1;
+        } else if let Some(n) = &mut weapon.left_magazine {
+            *n -= 1;
+        }
+        let hand = &mut self.hands[index];
+        hand.cooldown = definitions[index].fire_interval * self.firing.interval_scale;
+        hand.signal = WeaponSignal::Fire;
+        hand.sequence = hand.sequence.wrapping_add(1);
+        hand.shot_elapsed = Some(0.);
+        self.cooldown = hand.cooldown;
+        self.next_hand = 1 - index;
+        self.emit(WeaponSignal::Fire);
+        emissions.push(WeaponEmission::Shot(definitions[index].id.clone()));
+    }
     pub fn select(
         &mut self,
         slot: usize,
@@ -501,6 +670,8 @@ impl WeaponInventory {
         let definition = self
             .definition(definitions)
             .ok_or(InventoryError::MissingDefinition)?;
+        self.hands = default();
+        self.next_hand = 0;
         self.burst = 0;
         self.action = WeaponAction::Unequipping {
             remaining: definition.mechanics.unequip_seconds,
@@ -716,6 +887,7 @@ impl WeaponInventory {
             return emissions;
         }
         if intent.melee {
+            self.hands = default();
             self.burst = 0;
             self.action = WeaponAction::Melee {
                 remaining: melee_definition.mechanics.melee_seconds[1]
@@ -723,6 +895,14 @@ impl WeaponInventory {
                 hit: false,
             };
             self.emit(WeaponSignal::Melee);
+            return emissions;
+        }
+        if let Some(partner) = definition
+            .dual_weapon
+            .as_ref()
+            .and_then(|id| definitions.iter().find(|w| w.id == *id))
+        {
+            self.tick_dual(dt, intent, [definition, partner], &mut emissions);
             return emissions;
         }
         if intent.reload
