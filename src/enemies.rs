@@ -10,8 +10,11 @@ use crate::{
 };
 use avian3d::prelude::*;
 use bevy::{
-    camera::{primitives::Aabb, visibility::VisibilitySystems},
-    mesh::skinning::SkinnedMesh,
+    camera::{
+        primitives::Aabb,
+        visibility::{DynamicSkinnedMeshBounds, VisibilitySystems},
+    },
+    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     prelude::*,
     world_serialization::WorldInstanceReady,
 };
@@ -180,6 +183,8 @@ pub struct EnemyEvidence {
     pub deaths: u32,
     pub corpses_removed: u32,
     pub bounds_updates: u64,
+    pub native_bounds_frames: u64,
+    pub fallback_bounds_frames: u64,
     pub traversals_started: u32,
     pub traversals_finished: u32,
     pub traversal_blocked_landings: u32,
@@ -1211,19 +1216,64 @@ fn partial_roots(mut roots: Query<&mut Transform, With<PartialRoot>>) {
     }
 }
 fn animated_bounds(
-    mut meshes: Query<(&ActorMesh, &SkinnedMesh, &GlobalTransform, &mut Aabb)>,
+    mut meshes: Query<(
+        &ActorMesh,
+        &Mesh3d,
+        &SkinnedMesh,
+        &GlobalTransform,
+        Has<DynamicSkinnedMeshBounds>,
+        &mut Aabb,
+    )>,
     joints: Query<&GlobalTransform>,
     enemies: Query<&Zombie>,
+    mesh_assets: Res<Assets<Mesh>>,
+    inverse_binds: Res<Assets<SkinnedMeshInverseBindposes>>,
     definition: Option<Res<GameDefinition>>,
     mut evidence: ResMut<EnemyEvidence>,
 ) {
     let Some(definition) = definition else {
         return;
     };
-    for (mesh, skin, transform, mut aabb) in &mut meshes {
+    for (mesh, geometry, skin, transform, dynamic, mut aabb) in &mut meshes {
         let Ok(zombie) = enemies.get(mesh.owner) else {
             continue;
         };
+        // Bevy's CalculateBounds has already transformed each influencing
+        // joint's vertex envelope. Do not overwrite it with an envelope of
+        // every joint in the multipart rig plus an unrelated limb margin.
+        // Missing data or unsupported morph deformation keeps the old fallback.
+        let native_ready = dynamic
+            && aabb.center.is_finite()
+            && aabb.half_extents.is_finite()
+            && transform.to_matrix().is_finite()
+            && transform.affine().matrix3.determinant().abs() > 1e-8
+            && mesh_assets.get(&geometry.0).is_some_and(|geometry| {
+                geometry.morph_targets().is_none()
+                    && geometry.skinned_mesh_bounds().is_some_and(|bounds| {
+                        !bounds.aabbs.is_empty()
+                            && inverse_binds
+                                .get(&skin.inverse_bindposes)
+                                .is_some_and(|binds| {
+                                    bounds.iter().all(|(index, _)| {
+                                        let index = usize::from(index.0);
+                                        binds.get(index).is_some_and(|bind| bind.is_finite())
+                                            && skin.joints.get(index).is_some_and(|joint| {
+                                                joints
+                                                    .get(*joint)
+                                                    .is_ok_and(|pose| pose.to_matrix().is_finite())
+                                            })
+                                    })
+                                })
+                    })
+            });
+        if native_ready {
+            evidence.native_bounds_frames += 1;
+            if aabb.is_changed() {
+                evidence.bounds_updates += 1;
+            }
+            continue;
+        }
+        evidence.fallback_bounds_frames += 1;
         let margin = definition
             .content
             .enemies

@@ -1260,6 +1260,10 @@ fn check(
             "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances,
             "survey_views":verification.camera_views.len(), "water_animation_seconds":verification.water_times,
             "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
+        receipt["enemy_bounds"] = serde_json::json!({
+            "native_frames": enemy_evidence.native_bounds_frames,
+            "fallback_frames": enemy_evidence.fallback_bounds_frames,
+        });
         receipt["navigation"] = serde_json::json!({"nodes":navigation.node_count(),"links":navigation.link_count(),"rejected_nodes":navigation.rejected_nodes,"rejected_links":navigation.rejected_links,"requests":navigation.requests,"cache_hits":navigation.cache_hits,"fallbacks":navigation.fallbacks,"admissions":navigation.admissions.len()});
         receipt["placement_identities"] = serde_json::json!({
             "preserved_on_restart":placement_ids_preserved,

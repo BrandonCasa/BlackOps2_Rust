@@ -194,8 +194,23 @@ the full survey with all 177530 fresh cube faces routed and zero fallbacks;
 first-person depth/HDR checks remain valid. Debug combat averages 8.7830 FPS,
 without matched release adoption or a causal speedup claim. The cache still
 forces direct point-face batches. Native mesh drawing explicitly cannot
-multi-draw in that mode; restoring GPU indirect shadow batches with coherent
-retained resources is the next larger CPU/submission candidate.
+multi-draw in that mode. A five-stage native indirect candidate compiles, but
+frozen executable-21 fails the 180-second game deadline with one kill and no
+shots; the combat HUD shows about 3.9 FPS. No completed performance receipt is
+available. The candidate is removed and its patch/failure preserved externally.
+Per-face uniform allocation, bin unpacking and indirect construction can outweigh
+CPU batching savings. Reduce/group this work before another indirect trial.
+
+Actor bounds now retain Bevy's native DynamicSkinnedMeshBounds instead of
+overwriting the influencing-joint envelopes with all rig joints plus a margin.
+Missing/invalid skin data or morph deformation retains the former fallback.
+Frozen executable-22 passes combat, ADS/recoil, Round 2, all 17 views and restart:
+24201 native mesh-frames and no fallback. Debug combat averages 8.1691 FPS;
+this qualifies behavior, not matched performance adoption. Native bounds still
+include unindexed accessor vertices; body primitives share 6221 source vertices,
+so indexed-envelope tightening remains open. The run also records 45534 phase
+resets and 1613271 invalidated specialization entries. Audit deferred view
+restoration against cache retention before adding another GPU path.
 
 - [ ] Late first-person HDR phase replaces auxiliary full view, with separate
   cleared depth and ordinary internal depth testing. Preserve world depth.
