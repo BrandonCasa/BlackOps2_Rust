@@ -16,14 +16,14 @@ use bevy::{
         BinUnpackingBindGroups, ExtractedDirectionalLight, ExtractedPointLight, LightEntity,
         MeshInputUniform, MeshUniform, PendingShadowQueues, Shadow, ShadowView,
         SpecializedShadowMaterialPipelineCache, SpecializedShadowMaterialViewPipelineCache,
-        ViewLightEntities, ViewShadowBindings,
+        ViewLightEntities, ViewShadowBindings, early_gpu_preprocess, shared_shadow_pass,
     },
     prelude::*,
     render::{
         Render, RenderApp, RenderSystems,
         batching::gpu_preprocessing::{
             BatchedInstanceBuffers, GpuPreprocessingMode, GpuPreprocessingSupport,
-            SceneUnpackingBuffers, SceneUnpackingBuffersKey,
+            PreprocessWorkItemBuffers, SceneUnpackingBuffers, SceneUnpackingBuffersKey,
         },
         camera::{DirtySpecializations, ViewPendingQueues},
         extract_resource::{ExtractResource, ExtractResourcePlugin},
@@ -80,12 +80,16 @@ pub(crate) struct ShadowCacheStats {
     indirect_stage_fallbacks: [Arc<AtomicU64>; 3],
     removed_directional_roots: Arc<AtomicU64>,
     restored_directional_children: Arc<AtomicU64>,
+    direct_schedule_views: Arc<AtomicU64>,
+    full_schedule_fallbacks: Arc<AtomicU64>,
 }
 
 impl ShadowCacheStats {
     pub(crate) fn report(&self) -> serde_json::Value {
         serde_json::json!({
             "rendered_directional_cascades": self.directional_rendered.load(Ordering::Relaxed),
+            "direct_shadow_schedule_views": self.direct_schedule_views.load(Ordering::Relaxed),
+            "full_shadow_schedule_fallback_views": self.full_schedule_fallbacks.load(Ordering::Relaxed),
             "reused_directional_cascades": self.directional_reused.load(Ordering::Relaxed),
             "rendered_cube_faces": self.rendered.load(Ordering::Relaxed),
             "reused_cube_faces": self.reused.load(Ordering::Relaxed),
@@ -133,6 +137,11 @@ struct CacheEnabled(bool);
 // NoIndirectDrawing tag alone doesn't establish the phase's private mode.
 #[derive(Component)]
 struct DirectShadowPhase(GpuPreprocessingMode);
+
+/// A native direct shadow phase needs mesh preprocessing and one depth pass,
+/// without invoking the full camera graph for every point/spot shadow face.
+#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+struct DirectShadowRender;
 
 #[derive(Resource, Default, Clone)]
 struct CompletedLights(Arc<Mutex<HashMap<Entity, (u64, u64)>>>);
@@ -297,6 +306,12 @@ impl Plugin for ShadowCachePlugin {
                         .before(RenderSystems::QueueMeshes),
                 )
                 .add_systems(Render, complete.after(RenderSystems::Render))
+                .add_systems(
+                    Render,
+                    route_direct_shadow_roots
+                        .after(RenderSystems::Prepare)
+                        .before(RenderSystems::Render),
+                )
                 .edit_schedule(Core3d, |schedule| {
                     // Shadow views have very short passes. Repeated worker dispatch
                     // dominated their schedule; other render preparation stays parallel.
@@ -340,6 +355,17 @@ impl Plugin for ShadowCachePlugin {
                 .get_resource::<bevy::pbr::RenderMeshInstances>(),
             Some(bevy::pbr::RenderMeshInstances::GpuBuilding(_))
         );
+        let mut direct_schedule = Schedule::new(DirectShadowRender);
+        direct_schedule.set_executor(SingleThreadedExecutor::new());
+        if gpu_meshes {
+            // Direct batches still require current native MeshUniforms. Their
+            // CPU work lists do not use bin unpacking or uniform allocation.
+            direct_schedule
+                .add_systems((early_gpu_preprocess, shared_shadow_pass::<false>).chain());
+        } else {
+            direct_schedule.add_systems(shared_shadow_pass::<false>);
+        }
+        render.add_schedule(direct_schedule);
         render.edit_schedule(Core3d, |schedule| {
             let keys: Vec<_> = schedule
                 .graph()
@@ -408,6 +434,65 @@ impl Plugin for ShadowCachePlugin {
                 }
             }
         });
+    }
+}
+
+fn route_direct_shadow_roots(
+    mut views: Query<(
+        &LightEntity,
+        &ExtractedView,
+        Option<&DirectShadowPhase>,
+        Has<NoIndirectDrawing>,
+        Has<OcclusionCulling>,
+        &mut RootNonCameraView,
+    )>,
+    buffers: Option<Res<BatchedInstanceBuffers<MeshUniform, MeshInputUniform>>>,
+    unpacking: Option<Res<SceneUnpackingBuffers>>,
+    stats: Res<ShadowCacheStats>,
+) {
+    let shadow_type = TypeId::of::<Shadow>();
+    for (kind, view, phase, direct, occlusion, mut root) in &mut views {
+        if !matches!(kind, LightEntity::Point { .. } | LightEntity::Spot { .. }) {
+            continue;
+        }
+        let direct_work = buffers.as_ref().is_none_or(|buffers| {
+            buffers
+                .phase_instance_buffers
+                .get(&shadow_type)
+                .is_none_or(|phase| {
+                    phase
+                        .work_item_buffers
+                        .get(&view.retained_view_entity)
+                        .is_none_or(|work| matches!(work, PreprocessWorkItemBuffers::Direct(_)))
+                })
+        });
+        let no_unpack_jobs = unpacking.as_ref().is_none_or(|unpacking| {
+            unpacking
+                .view_phase_buffers
+                .get(&SceneUnpackingBuffersKey {
+                    phase: shadow_type,
+                    view: view.retained_view_entity,
+                })
+                .is_none_or(|jobs| {
+                    jobs.indexed_unpacking_jobs.is_empty()
+                        && jobs.non_indexed_unpacking_jobs.is_empty()
+                })
+        });
+        let proven_direct = direct
+            && !occlusion
+            && phase.is_some_and(|phase| phase.0 != GpuPreprocessingMode::Culling)
+            && direct_work
+            && no_unpack_jobs;
+        if proven_direct {
+            root.0 = DirectShadowRender.intern();
+            stats.direct_schedule_views.fetch_add(1, Ordering::Relaxed);
+        } else {
+            // New modes or unsupported native work stay on the complete graph.
+            root.0 = Core3d.intern();
+            stats
+                .full_schedule_fallbacks
+                .fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 

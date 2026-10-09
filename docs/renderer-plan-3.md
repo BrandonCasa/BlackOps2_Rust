@@ -185,6 +185,18 @@ and 1629 reuses. The separate late camera and its directional cascades remain;
 the architectural checklist below is still partial. Existing actor garment
 artifacts remain open. Debug combat averages 8.1943 FPS; targets are unmet.
 
+Point/spot faces with proven direct work and no occlusion now use a two-system
+native schedule: early mesh preprocessing, then shared shadow drawing. Routing
+checks actual phase/work-item mode and absence of unpacking jobs after resource
+preparation; unsupported cases keep Core3d. This removes unused camera-stage
+invocations and empty uniform-allocation passes. Frozen executable-20 passes
+the full survey with all 177530 fresh cube faces routed and zero fallbacks;
+first-person depth/HDR checks remain valid. Debug combat averages 8.7830 FPS,
+without matched release adoption or a causal speedup claim. The cache still
+forces direct point-face batches. Native mesh drawing explicitly cannot
+multi-draw in that mode; restoring GPU indirect shadow batches with coherent
+retained resources is the next larger CPU/submission candidate.
+
 - [ ] Late first-person HDR phase replaces auxiliary full view, with separate
   cleared depth and ordinary internal depth testing. Preserve world depth.
 - [ ] Preserve FOV, hip/ADS framing, animation, recoil, attachments and muzzle
