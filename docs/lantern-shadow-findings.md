@@ -385,8 +385,9 @@ completed by this document.
 
 ## Implementation tracking
 
-The lantern-focused goal replaces the previous whole-renderer task. These entries
-track implementations separately from the source findings above.
+The lantern findings are the starting audit. Every supported fix must be checked
+against other affected rendering systems and applied there when appropriate.
+These entries track implementations separately from the source findings above.
 
 - [x] Separate physical fixture emitters from material glow (findings 1-3, 6-7).
   Source-validated metadata retains model identity and one emitting glass surface;
@@ -398,10 +399,23 @@ track implementations separately from the source findings above.
   fallback (40). Compiler and actual DDGI/reflection shader execution pass.
 - [ ] Retain unchanged extraction, attachment/view preparation and slot ownership
   (17-19), accounting for resource replacement and admission remaps.
-- [ ] Narrow material invalidation to shadow depth coverage (21-24, 30), keeping
-  alpha generations, growing bounds and off-screen blockers correct.
+- [x] Narrow material invalidation to shadow depth coverage (21, 30). The renderer
+  retains native depth signatures for standard, layered and diagnostic
+  materials; actors and first-person meshes use these same paths. Unknown/removal
+  events, alpha-image generations, geometry growth, poses and shaders remain
+  conservative. Extension-only layer images are not native shadow inputs. This
+  does not suppress material updates for DDGI, reflections or color rendering.
+  Locked development compilation/metadata/format and the full native 1080p/DDGI
+  combat/ADS/17-view/Round 2/restart game pass. The run classifies 3159 initial or
+  changed signatures and avoids depth invalidation for 32460 equivalent material
+  events. This is workload evidence, not a measured FPS gain. Specialization
+  churn/global invalidation/animation bounds (22-24) remain separate work.
 - [ ] Replace global readiness with complete per-shadow readiness (20), including
-  pending caster queues and GPU preparation; retire completed-light records (34).
+  pending caster queues and GPU preparation.
+- [x] Retire completed-light records independently of pipeline readiness (34).
+  The system covers departed point/spot/directional owners. Compiler and full
+  actual-game/restart gates pass; this run observes zero departed light records,
+  so it does not dynamically qualify the removal branch or prove a speedup.
 - [ ] Reduce direct submission, repeated deformation and first-person directional
   work (15-16, 25-29) after shared preparation is correct. The previous indirect
   candidate failed its game deadline and remains excluded.
@@ -416,3 +430,12 @@ metadata preparation, full import receipt, two builds, frozen executable hashes,
 full game-1 and focused game-2. Game-2's inventory is 117 throughout; its timed view
 uses render diagnostics and is not a diagnostic-free release measurement. No
 overall goal completion, release speedup or minimum-FPS claim is established.
+
+The shared shadow-coverage milestone is frozen in executable-3 and full game-3
+in the same archive. Build-coverage-3.log passes after JSON macro-depth and UV
+ownership corrections; metadata-coverage.json and format pass. Game-3 exits zero
+in 158.058 seconds with 2482 DDGI batches, 1057 fresh reflection frames, 93874
+fresh/278750 reused cube faces, zero streaming errors and zero first-person
+world-depth aliases/HDR mismatches. Combat is 12.6880 FPS, median 56.0129 ms,
+p95 181.1741, p99 215.4041 and worst 319.3733; all 707 samples exceed 10 ms.
+This is unmatched development evidence; matched release adoption remains open.

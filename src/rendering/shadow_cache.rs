@@ -1,5 +1,5 @@
 //! Retain Bevy-owned shadow maps while their projection, light and casters are unchanged.
-use super::opaque::OpaqueMaterial;
+use super::{opaque::OpaqueMaterial, pbr::DiagnosticMaterial};
 use crate::assets::WorldCollider;
 use bevy::{
     camera::primitives::{Aabb, CubemapFrusta, Sphere},
@@ -82,11 +82,14 @@ pub(crate) struct ShadowCacheStats {
     restored_directional_children: Arc<AtomicU64>,
     direct_schedule_views: Arc<AtomicU64>,
     full_schedule_fallbacks: Arc<AtomicU64>,
+    material_coverage_changes: Arc<AtomicU64>,
+    material_shading_changes: Arc<AtomicU64>,
+    retired_completed_lights: Arc<AtomicU64>,
 }
 
 impl ShadowCacheStats {
     pub(crate) fn report(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut report = serde_json::json!({
             "rendered_directional_cascades": self.directional_rendered.load(Ordering::Relaxed),
             "direct_shadow_schedule_views": self.direct_schedule_views.load(Ordering::Relaxed),
             "full_shadow_schedule_fallback_views": self.full_schedule_fallbacks.load(Ordering::Relaxed),
@@ -126,7 +129,16 @@ impl ShadowCacheStats {
             "native_early_indirect_conservative_fallbacks": self.indirect_stage_fallbacks[2].load(Ordering::Relaxed),
             "removed_duplicate_directional_roots": self.removed_directional_roots.load(Ordering::Relaxed),
             "restored_native_directional_children": self.restored_directional_children.load(Ordering::Relaxed),
-        })
+        });
+        report["material_coverage_changes"] = self
+            .material_coverage_changes
+            .load(Ordering::Relaxed)
+            .into();
+        report["material_shading_changes_without_depth_invalidation"] =
+            self.material_shading_changes.load(Ordering::Relaxed).into();
+        report["retired_completed_light_records"] =
+            self.retired_completed_lights.load(Ordering::Relaxed).into();
+        report
     }
 }
 
@@ -175,6 +187,92 @@ struct ShadowRevisions {
     casters: u64,
     lights: HashMap<Entity, u64>,
     faces: HashMap<Entity, [u64; 6]>,
+}
+
+/// Inputs consumed by Bevy's native shadow prepass, rather than the forward
+/// surface shader. Premultiplied alpha tests all four color components.
+#[derive(PartialEq)]
+struct MaterialCoverage {
+    alpha_mode: AlphaMode,
+    color: Vec4,
+    texture: Option<AssetId<Image>>,
+    uv_transform: bevy::math::Affine2,
+    channel: bevy::mesh::UvChannel,
+    cull_mode: Option<bevy::render::render_resource::Face>,
+    depth_bias: i32,
+}
+
+impl MaterialCoverage {
+    fn new(material: &StandardMaterial, extended: bool) -> Self {
+        let discard = !matches!(material.alpha_mode, AlphaMode::Opaque | AlphaMode::Multiply);
+        let texture = discard
+            .then(|| material.base_color_texture.as_ref().map(Handle::id))
+            .flatten();
+        Self {
+            alpha_mode: material.alpha_mode,
+            color: if !discard {
+                Vec4::ONE
+            } else if matches!(material.alpha_mode, AlphaMode::Premultiplied) {
+                material.base_color.to_linear().to_vec4()
+            } else {
+                Vec4::new(1.0, 1.0, 1.0, material.base_color.alpha())
+            },
+            uv_transform: if texture.is_some() {
+                material.uv_transform
+            } else {
+                bevy::math::Affine2::IDENTITY
+            },
+            channel: if texture.is_some() {
+                material.base_color_channel.clone()
+            } else {
+                bevy::mesh::UvChannel::Uv0
+            },
+            texture,
+            // OpaqueSurface deliberately overrides native shadow culling. Its
+            // layer/response textures and forward vertex shader are not used.
+            cull_mode: if extended { None } else { material.cull_mode },
+            depth_bias: material.depth_bias as i32,
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+struct ShadowMaterialCoverage {
+    standard: HashMap<AssetId<StandardMaterial>, MaterialCoverage>,
+    extended: HashMap<AssetId<OpaqueMaterial>, MaterialCoverage>,
+    diagnostic: HashMap<AssetId<DiagnosticMaterial>, MaterialCoverage>,
+}
+
+fn changed_material_coverage<'a, A: Asset>(
+    events: impl Iterator<Item = &'a AssetEvent<A>>,
+    mut current: impl FnMut(AssetId<A>) -> Option<MaterialCoverage>,
+    retained: &mut HashMap<AssetId<A>, MaterialCoverage>,
+    stats: &ShadowCacheStats,
+) -> HashSet<AssetId<A>> {
+    events
+        .filter_map(|event| {
+            let id = changed_asset_id(event)?;
+            let Some(coverage) =
+                current(id).filter(|_| !matches!(event, AssetEvent::Removed { .. }))
+            else {
+                retained.remove(&id);
+                return Some(id);
+            };
+            let unchanged = retained.get(&id) == Some(&coverage);
+            retained.insert(id, coverage);
+            if unchanged {
+                stats
+                    .material_shading_changes
+                    .fetch_add(1, Ordering::Relaxed);
+                None
+            } else {
+                stats
+                    .material_coverage_changes
+                    .fetch_add(1, Ordering::Relaxed);
+                Some(id)
+            }
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy)]
@@ -256,6 +354,7 @@ impl Plugin for ShadowCachePlugin {
             .init_resource::<SuspendedVisibility>();
         app.init_resource::<ShadowRevisions>()
             .init_resource::<Casters>()
+            .init_resource::<ShadowMaterialCoverage>()
             .add_plugins(ExtractResourcePlugin::<ShadowRevisions>::default())
             .add_systems(
                 PostUpdate,
@@ -271,6 +370,7 @@ impl Plugin for ShadowCachePlugin {
                 PostUpdate,
                 culling_changes.after(changes).before(suspend_visibility),
             )
+            .add_systems(PostUpdate, retire_completed_lights.after(changes))
             .add_systems(
                 PostUpdate,
                 suspend_visibility
@@ -884,28 +984,53 @@ fn changed_asset_id<A: Asset>(event: &AssetEvent<A>) -> Option<AssetId<A>> {
         AssetEvent::Unused { .. } | AssetEvent::LoadedWithDependencies { .. } => None,
     }
 }
+
+fn retire_completed_lights(
+    lights: Query<Entity, Or<(With<PointLight>, With<SpotLight>, With<DirectionalLight>)>>,
+    completed: Res<CompletedLights>,
+    stats: Res<ShadowCacheStats>,
+) {
+    // Completion is shared with the render world. Retire despawned owners even
+    // while pipeline compilation prevents that world from publishing new maps.
+    if let Ok(mut completed) = completed.0.lock() {
+        let previous = completed.len();
+        completed.retain(|entity, _| lights.contains(*entity));
+        if completed.len() != previous {
+            stats
+                .retired_completed_lights
+                .fetch_add((previous - completed.len()) as u64, Ordering::Relaxed);
+        }
+    }
+}
 fn asset_changes(
     mut mesh_events: MessageReader<AssetEvent<Mesh>>,
     mut material_events: MessageReader<AssetEvent<StandardMaterial>>,
     mut surface_events: MessageReader<AssetEvent<OpaqueMaterial>>,
+    mut diagnostic_events: MessageReader<AssetEvent<DiagnosticMaterial>>,
     mut shader_events: MessageReader<AssetEvent<Shader>>,
     mut image_events: MessageReader<AssetEvent<Image>>,
     mut inverse_bind_events: MessageReader<
         AssetEvent<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
     >,
-    materials: Res<Assets<StandardMaterial>>,
-    surfaces: Res<Assets<OpaqueMaterial>>,
+    material_assets: (
+        Res<Assets<StandardMaterial>>,
+        Res<Assets<OpaqueMaterial>>,
+        Res<Assets<DiagnosticMaterial>>,
+    ),
     mesh_assets: Res<Assets<Mesh>>,
     mut revisions: ResMut<ShadowRevisions>,
     mut casters: ResMut<Casters>,
+    mut coverage: ResMut<ShadowMaterialCoverage>,
     meshes: Query<(
         &Mesh3d,
         Option<&MeshMaterial3d<StandardMaterial>>,
         Option<&MeshMaterial3d<OpaqueMaterial>>,
+        Option<&MeshMaterial3d<DiagnosticMaterial>>,
     )>,
     lights: Query<(Entity, &GlobalTransform, &PointLight, &CubemapFrusta)>,
     stats: Res<ShadowCacheStats>,
 ) {
+    let (materials, surfaces, diagnostics) = material_assets;
     // Asset messages are published in PostUpdate, before extraction. A material or
     // newly available mesh affects its users, not every lantern in the map.
     if inverse_bind_events.read().any(|event| {
@@ -965,16 +1090,42 @@ fn asset_changes(
             changed_asset_id(event)
         })
         .collect();
-    let material_ids: HashSet<_> = material_events
-        .read()
-        .filter_map(changed_asset_id)
-        .collect();
-    let surface_ids: HashSet<_> = surface_events.read().filter_map(changed_asset_id).collect();
+    let material_ids = changed_material_coverage(
+        material_events.read(),
+        |id| {
+            materials
+                .get(id)
+                .map(|material| MaterialCoverage::new(material, false))
+        },
+        &mut coverage.standard,
+        &stats,
+    );
+    let surface_ids = changed_material_coverage(
+        surface_events.read(),
+        |id| {
+            surfaces
+                .get(id)
+                .map(|material| MaterialCoverage::new(&material.base, true))
+        },
+        &mut coverage.extended,
+        &stats,
+    );
+    let diagnostic_ids = changed_material_coverage(
+        diagnostic_events.read(),
+        |id| {
+            diagnostics
+                .get(id)
+                .map(|material| MaterialCoverage::new(&material.base, false))
+        },
+        &mut coverage.diagnostic,
+        &stats,
+    );
     let image_ids: HashSet<_> = image_events.read().filter_map(changed_asset_id).collect();
     let mut geometry_modified = false;
     let dirty: Vec<_> = if mesh_ids.is_empty()
         && material_ids.is_empty()
         && surface_ids.is_empty()
+        && diagnostic_ids.is_empty()
         && image_ids.is_empty()
     {
         Vec::new()
@@ -983,7 +1134,7 @@ fn asset_changes(
             .0
             .iter()
             .filter_map(|(entity, bounds)| {
-                let Ok((mesh, standard, surface)) = meshes.get(*entity) else {
+                let Ok((mesh, standard, surface, diagnostic)) = meshes.get(*entity) else {
                     return None;
                 };
                 // Ray-only pose providers have no raster caster and cannot
@@ -993,7 +1144,7 @@ fn asset_changes(
                 let coverage_changed = standard
                     .and_then(|handle| materials.get(&handle.0))
                     .is_some_and(|material| {
-                        !matches!(material.alpha_mode, AlphaMode::Opaque)
+                        !matches!(material.alpha_mode, AlphaMode::Opaque | AlphaMode::Multiply)
                             && material
                                 .base_color_texture
                                 .as_ref()
@@ -1002,15 +1153,31 @@ fn asset_changes(
                     || surface
                         .and_then(|handle| surfaces.get(&handle.0))
                         .is_some_and(|surface| {
-                            !matches!(surface.base.alpha_mode, AlphaMode::Opaque)
-                                && surface.extension.ray_textures(&surface.base)[7..11]
-                                    .iter()
-                                    .flatten()
-                                    .any(|image| image_ids.contains(&image.id()))
+                            !matches!(
+                                surface.base.alpha_mode,
+                                AlphaMode::Opaque | AlphaMode::Multiply
+                            ) && surface
+                                .base
+                                .base_color_texture
+                                .as_ref()
+                                .is_some_and(|image| image_ids.contains(&image.id()))
+                        })
+                    || diagnostic
+                        .and_then(|handle| diagnostics.get(&handle.0))
+                        .is_some_and(|material| {
+                            !matches!(
+                                material.base.alpha_mode,
+                                AlphaMode::Opaque | AlphaMode::Multiply
+                            ) && material
+                                .base
+                                .base_color_texture
+                                .as_ref()
+                                .is_some_and(|image| image_ids.contains(&image.id()))
                         });
                 (mesh_ids.contains(&mesh.0.id())
                     || standard.is_some_and(|material| material_ids.contains(&material.0.id()))
                     || surface.is_some_and(|material| surface_ids.contains(&material.0.id()))
+                    || diagnostic.is_some_and(|material| diagnostic_ids.contains(&material.0.id()))
                     || coverage_changed)
                     .then_some(*bounds)
             })
