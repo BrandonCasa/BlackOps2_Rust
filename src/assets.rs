@@ -55,6 +55,8 @@ pub struct LaunchOptions {
     pub verify_generators: bool,
     pub verify_hazards: bool,
     pub verify_powerups: bool,
+    pub verify_weapon_actions: bool,
+    pub verify_replacements: bool,
     pub verify_hit_regions: bool,
     pub verify_grenades: bool,
     pub verify_semtex: bool,
@@ -98,14 +100,19 @@ impl LaunchOptions {
             if argument == "--verify-controls"
                 || argument == "--verify-hazards"
                 || argument == "--verify-powerups"
+                || argument == "--verify-weapon-actions"
+                || argument == "--verify-replacements"
             {
                 result.verify_controls = argument == "--verify-controls";
                 result.verify_hazards = argument == "--verify-hazards";
                 result.verify_powerups = argument == "--verify-powerups";
+                result.verify_weapon_actions = argument == "--verify-weapon-actions";
+                result.verify_replacements = argument == "--verify-replacements";
                 result.verify = args.next().map(PathBuf::from);
                 if result.verify.is_none() || args.next().is_some() {
-                    result.error =
-                        Some("Usage: origins --verify-controls|--verify-hazards|--verify-powerups external-output-folder".into());
+                    result.error = Some(
+                        "Expected one external output folder after the verification flag".into(),
+                    );
                 }
                 return result;
             }

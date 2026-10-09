@@ -36,6 +36,8 @@ mod pipelines;
 mod placements;
 mod powerups;
 mod release_performance;
+mod replacements;
+mod weapon_actions;
 pub(crate) use pipelines::error_layer;
 mod semtex;
 mod solo_revive;
@@ -148,6 +150,20 @@ impl Plugin for VerificationPlugin {
         if app.world().resource::<LaunchOptions>().verify_powerups {
             pipelines::install(app);
             powerups::install(app);
+            return;
+        }
+        if app
+            .world()
+            .resource::<LaunchOptions>()
+            .verify_weapon_actions
+        {
+            pipelines::install(app);
+            weapon_actions::install(app);
+            return;
+        }
+        if app.world().resource::<LaunchOptions>().verify_replacements {
+            pipelines::install(app);
+            replacements::install(app);
             return;
         }
         if app.world().resource::<LaunchOptions>().verify_hazards {

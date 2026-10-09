@@ -169,13 +169,24 @@ impl Population {
         self.ordinary + self.special + self.defenders
     }
 }
+#[derive(Component)]
+pub(crate) struct ReplacementHealth {
+    pub current: u32,
+    pub sequence: u64,
+}
+
 #[derive(Resource, Default)]
 pub struct RoundEvidence {
+    pub distance_checks: u64,
+    pub retired: u64,
+    pub requeued: u64,
+    pub replacement_admissions: u64,
     pub attempts: u64,
     pub failed_admissions: u64,
     pub budget_consumed_on_failure: u64,
     pub peak_ordinary: usize,
     pub cap_waits: u64,
+    pub corpses_cleared_for_cap: u64,
     pub transitions: u32,
     pub intermission_seconds: f32,
     pub admitted: Vec<serde_json::Value>,
@@ -185,7 +196,13 @@ pub(crate) fn advance(
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
-    enemies: Query<(&Vitality, &PopulationKind, &Transform, Option<&Zombie>)>,
+    enemies: Query<(
+        Entity,
+        &Vitality,
+        &PopulationKind,
+        &Transform,
+        Option<&Zombie>,
+    )>,
     mut commands: Commands,
     query: SpatialQuery,
     navigation: Res<Navigation>,
@@ -194,9 +211,10 @@ pub(crate) fn advance(
     mut started: MessageWriter<RoundStarted>,
     players: Query<(&Player, &Transform)>,
     generators: Res<crate::generators::Generators>,
+    replacements: Query<(Entity, &ReplacementHealth)>,
 ) {
     *population = default();
-    for (vitality, kind, _, _) in &enemies {
+    for (_, vitality, kind, _, _) in &enemies {
         if vitality.state() != LifeState::ActorAlive {
             continue;
         }
@@ -232,10 +250,19 @@ pub(crate) fn advance(
         return;
     }
     let reserve = if generators.busy() { 4 } else { 0 };
-    if population.ordinary
-        >= (profile.ordinary_cap as usize).min((profile.actor_cap as usize).saturating_sub(reserve))
-        || population.total() >= profile.actor_cap as usize
+    if population.ordinary + population.special
+        >= (profile.ordinary_cap as usize).saturating_sub(reserve)
     {
+        evidence.cap_waits += 1;
+        return;
+    }
+    if enemies.iter().count() >= profile.actor_cap as usize {
+        for (entity, health, _, _, _) in &enemies {
+            if health.state() == LifeState::ActorDead {
+                commands.entity(entity).despawn();
+                evidence.corpses_cleared_for_cap += 1;
+            }
+        }
         evidence.cap_waits += 1;
         return;
     }
@@ -248,6 +275,9 @@ pub(crate) fn advance(
         .iter()
         .filter(|e| e.family == "german")
         .collect();
+    let replacement = replacements
+        .iter()
+        .min_by_key(|(_, health)| health.sequence);
     let candidate = (|| {
         let (player, body) = players.single().ok()?;
         let forward = Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z;
@@ -264,7 +294,7 @@ pub(crate) fn advance(
             return None;
         }
         let position = base + Vec3::Y * 0.85;
-        if enemies.iter().any(|(health, _, body, zombie)| {
+        if enemies.iter().any(|(_, health, _, body, zombie)| {
             let delta = body.translation - position;
             health.state() == LifeState::ActorAlive
                 && ((delta.xz().length_squared() < 0.5625 && delta.y.abs() < 1.)
@@ -285,7 +315,11 @@ pub(crate) fn advance(
             return None;
         }
         let amount = profile.health(session.round);
-        let health = Vitality::ordinary_actor(amount, amount).ok()?;
+        let health = Vitality::ordinary_actor(
+            replacement.map_or(amount, |(_, health)| health.current),
+            amount,
+        )
+        .ok()?;
         let enemy = variants.get(session.spawn_cursor % variants.len().max(1))?;
         let gait = profile.gait(session.round, session.random());
         Some((
@@ -309,8 +343,12 @@ pub(crate) fn advance(
     if !session.admitted_spawn() {
         return;
     }
+    if let Some((entity, _)) = replacement {
+        commands.entity(entity).despawn();
+        evidence.replacement_admissions += 1;
+    }
     if evidence.admitted.len() < 256 {
-        evidence.admitted.push(serde_json::json!({"round":session.round,"health":profile.health(session.round),
+        evidence.admitted.push(serde_json::json!({"round":session.round,"health":health.current(),"maximum_health":health.maximum(),
             "gait":format!("{gait:?}"),"speed":profile.speed(gait),"time":time.elapsed_secs_f64(),"position":position.to_array(),"spawn_source":spawn_source,"spawn_zone":spawn_zone,"rising_source":rising,
             "spawn_delay":profile.spawn_delay(session.round),"pending_before":pending,"pending_after":session.pending}));
     }

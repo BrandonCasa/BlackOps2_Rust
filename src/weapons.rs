@@ -133,6 +133,7 @@ pub enum InventoryError {
 #[derive(Clone)]
 pub enum WeaponEmission {
     Shot(WeaponId),
+    DryFire(WeaponId),
     Melee,
     ReloadStarted {
         weapon: WeaponId,
@@ -146,6 +147,7 @@ pub enum WeaponEmission {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HitRegion {
+    None,
     Head,
     UpperTorso,
     Torso,
@@ -162,6 +164,7 @@ pub fn damage_at(definition: &WeaponDefinition, distance: f32, region: HitRegion
     let damage = definition.damage as f32
         + (definition.mechanics.minimum_damage as f32 - definition.damage as f32) * fraction;
     let index = match region {
+        HitRegion::None => return damage.round().max(1.) as u32,
         HitRegion::Head => 0,
         HitRegion::UpperTorso => 1,
         HitRegion::Torso => 2,
@@ -364,13 +367,10 @@ impl WeaponInventory {
         {
             return Err(InventoryError::AlreadyOwned);
         }
-        if matches!(
+        if !matches!(
             self.action,
-            WeaponAction::Reloading { .. } | WeaponAction::ShellReload { .. }
+            WeaponAction::Ready | WeaponAction::Reloading { .. } | WeaponAction::ShellReload { .. }
         ) {
-            self.cancel_action();
-        }
-        if self.action != WeaponAction::Ready {
             return Err(InventoryError::Busy);
         }
         self.slots[slot] = Some(OwnedWeapon {
@@ -385,8 +385,8 @@ impl WeaponInventory {
             .max(definition.mechanics.starting_reserve)
             .min(pool.capacity);
         if slot == self.active {
-            self.hands = default();
-            self.next_hand = 0;
+            self.cancel_action();
+            self.cooldown = 0.;
             self.action = WeaponAction::Equipping {
                 remaining: definition.mechanics.equip_seconds,
             };
@@ -449,20 +449,22 @@ impl WeaponInventory {
         true
     }
     pub fn receive(&mut self, definition: &WeaponDefinition) -> Result<usize, InventoryError> {
-        if self.action != WeaponAction::Ready {
+        if !matches!(
+            self.action,
+            WeaponAction::Ready | WeaponAction::Reloading { .. } | WeaponAction::ShellReload { .. }
+        ) {
             return Err(InventoryError::Busy);
         }
         let slot = match self.grant(definition) {
             Ok(slot) => slot,
             Err(InventoryError::Full) => {
                 self.replace(self.active, definition)?;
-                self.active
+                return Ok(self.active);
             }
             Err(error) => return Err(error),
         };
+        self.cancel_action();
         self.active = slot;
-        self.hands = default();
-        self.next_hand = 0;
         self.cooldown = 0.;
         self.burst = 0;
         self.action = WeaponAction::Equipping {
@@ -635,6 +637,9 @@ impl WeaponInventory {
                     self.hands[self.next_hand].sequence.wrapping_add(1);
                 self.cooldown = 0.18;
                 self.emit(WeaponSignal::DryFire);
+                emissions.push(WeaponEmission::DryFire(
+                    definitions[self.next_hand].id.clone(),
+                ));
             }
             return;
         };
@@ -966,6 +971,7 @@ impl WeaponInventory {
                 self.burst = 0;
                 self.cooldown = 0.18;
                 self.emit(WeaponSignal::DryFire);
+                emissions.push(WeaponEmission::DryFire(definition.id.clone()));
             } else {
                 weapon.magazine -= 1;
                 self.burst = self.burst.saturating_sub(1);

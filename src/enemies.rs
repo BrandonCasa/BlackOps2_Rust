@@ -42,6 +42,7 @@ pub struct Zombie {
     pub action: EnemyAnimation,
     pub elapsed: f32,
     pub stunned: f32,
+    pub(crate) known_damage: bool,
     locomotion_seed: u32,
     next_hit: usize,
     lure: Option<Entity>,
@@ -70,6 +71,7 @@ impl Zombie {
             action: EnemyAnimation::Idle,
             elapsed: 0.,
             stunned: 0.,
+            known_damage: false,
             locomotion_seed: position
                 .x
                 .to_bits()
@@ -231,7 +233,7 @@ impl Plugin for EnemyPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                corpses
+                (corpses, replace_distant)
                     .in_set(GameStep::Zombies)
                     .run_if(in_state(GameState::Playing)),
             )
@@ -827,6 +829,7 @@ fn spawn_actors(
                         part.root_joint.clone(),
                     )
                 }));
+        let mut pending = Vec::new();
         for (id, socket, partial_root) in scenes {
             let Some(scene) = definition
                 .content
@@ -839,8 +842,7 @@ fn spawn_actors(
             };
             let body = socket.is_none();
             let source = server.load(scene.split('#').next().unwrap_or(scene).to_owned());
-            commands.spawn((
-                ChildOf(owner),
+            pending.push((
                 WorldAssetRoot(server.load(scene.to_owned())),
                 ActorRig {
                     presentation: id.clone(),
@@ -867,7 +869,15 @@ fn spawn_actors(
                 },
             ));
         }
-        commands.entity(owner).insert(HasActor);
+        commands.queue(move |world: &mut World| {
+            if world.get::<Zombie>(owner).is_none() {
+                return;
+            }
+            for bundle in pending {
+                world.spawn((ChildOf(owner), bundle));
+            }
+            world.entity_mut(owner).insert(HasActor);
+        });
         evidence.variants.insert(zombie.definition.0.clone());
     }
 }
@@ -1263,5 +1273,106 @@ fn animated_bounds(
                 evidence.bounds_updates += 1;
             }
         }
+    }
+}
+
+#[derive(Default)]
+struct DistanceClock {
+    player: Option<Entity>,
+    remaining: f32,
+}
+
+fn replace_distant(
+    mut commands: Commands,
+    time: Res<Time<Fixed>>,
+    mut clock: Local<DistanceClock>,
+    mut hits: MessageReader<crate::damage::DamageApplied>,
+    mut enemies: Query<(
+        Entity,
+        &mut Zombie,
+        &Transform,
+        &Vitality,
+        &crate::rounds::PopulationKind,
+    )>,
+    players: Query<(Entity, &Player, &Transform), Without<Zombie>>,
+    query: SpatialQuery,
+    volumes: Query<&crate::environment::hazards::BoundaryVolume>,
+    mut session: ResMut<crate::gameplay::Session>,
+    definition: Res<GameDefinition>,
+    mut barriers: ResMut<crate::barriers::Barriers>,
+    mut evidence: ResMut<crate::rounds::RoundEvidence>,
+) {
+    for hit in hits.read() {
+        if let Ok((_, mut zombie, _, _, _)) = enemies.get_mut(hit.impact.target) {
+            zombie.known_damage = matches!(
+                hit.impact.source,
+                crate::damage::ImpactSource::Weapon(_) | crate::damage::ImpactSource::Projectile(_)
+            );
+        }
+    }
+    let Ok((entity, player, body)) = players.single() else {
+        return;
+    };
+    if clock.player != Some(entity) {
+        clock.player = Some(entity);
+        clock.remaining = 10.;
+    }
+    clock.remaining -= time.delta_secs();
+    if clock.remaining > 0. {
+        return;
+    }
+    clock.remaining += 10.;
+    evidence.distance_checks += 1;
+    let tunnel = query.shape_intersections(
+        &Collider::sphere(0.03), body.translation - Vec3::Y * player.height * 0.5,
+        Quat::IDENTITY, &SpatialQueryFilter::from_mask(crate::environment::triggers::TRIGGER_LAYER),
+    ).into_iter().any(|entity| matches!(volumes.get(entity),
+        Ok(crate::environment::hazards::BoundaryVolume::Playable(zone))
+        if matches!(zone.0.as_str(), "zone.air_stairs" | "zone.bolt_stairs" | "zone.fire_stairs" | "zone.ice_stairs")));
+    let fov = crate::rendering::BASE_FOV_DEGREES.to_radians();
+    let forward = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
+    let origin = body.translation - Vec3::Y * player.height * 0.5;
+    let mut living = enemies
+        .iter()
+        .filter(|(_, _, _, health, _)| health.state() == LifeState::ActorAlive)
+        .count();
+    for (entity, zombie, pose, health, kind) in &mut enemies {
+        if health.state() != LifeState::ActorAlive
+            || *kind != crate::rounds::PopulationKind::Ordinary
+            || zombie.stunned > 0.
+            || zombie.traversal.as_ref().is_some_and(|m| m.alias == "rise")
+        {
+            continue;
+        }
+        let delta = pose.translation - Vec3::Y * 0.85 - origin;
+        let distance = delta.length_squared();
+        let radius = 38.608_f32.powi(2);
+        if (distance < radius * if tunnel { 2.25 } else { 1. } && delta.y.abs() < 25.4)
+            || (distance < radius * 3.
+                && forward.dot(delta.normalize_or_zero()) >= (fov * 0.4).cos())
+        {
+            continue;
+        }
+        let current = health.current().unwrap_or(0);
+        let unknown_damage = !zombie.known_damage && current < health.maximum();
+        let replace =
+            unknown_damage || living + session.pending as usize > 24 || current >= health.maximum();
+        evidence.retired += 1;
+        if replace {
+            session.pending += 1;
+            evidence.requeued += 1;
+            if unknown_damage || current < definition.rounds.health(session.round) {
+                commands.spawn((
+                    crate::rounds::ReplacementHealth {
+                        current,
+                        sequence: evidence.retired,
+                    },
+                    crate::gameplay::SessionEntity,
+                ));
+            }
+        }
+        living = living.saturating_sub(1);
+        barriers.release(entity);
+        commands.entity(entity).despawn();
     }
 }

@@ -71,7 +71,6 @@ pub(crate) fn voice(
 }
 fn actions(
     mut commands: Commands,
-    session: Res<Session>,
     game: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
     mut state: ResMut<AudioState>,
@@ -175,22 +174,6 @@ fn actions(
                         &game,
                         &format!("{}.{}", weapon.id.0, event),
                         SoundSource::attached(owner),
-                    );
-                }
-                if signal == WeaponSignal::DryFire && selected.is_none() {
-                    binding(
-                        &mut commands,
-                        &game,
-                        &format!("{}.dry_fire", weapon.id.0),
-                        SoundSource::attached(owner),
-                    );
-                    voice(
-                        &mut commands,
-                        &game,
-                        &session,
-                        "ammo_out",
-                        owner,
-                        sequence as u32,
                     );
                 }
             }

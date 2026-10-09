@@ -31,6 +31,8 @@ pub(crate) use preprocessing::PreprocessingStatus;
 pub(crate) use streaming::{ForegroundTexture, TextureUse};
 pub(crate) use streaming::{TextureStreamingStats, TextureStreams};
 
+pub(crate) const BASE_FOV_DEGREES: f32 = 55.;
+
 #[derive(Component)]
 pub struct GameCamera;
 
@@ -213,8 +215,8 @@ fn camera_follow(
     {
         perspective.fov = inventory
             .definition(&definition.content.weapons)
-            .map_or(55_f32.to_radians(), |w| {
-                inventory.ads_fov(55., &w.mechanics)
+            .map_or(BASE_FOV_DEGREES.to_radians(), |w| {
+                inventory.ads_fov(BASE_FOV_DEGREES, &w.mechanics)
             });
     }
 }

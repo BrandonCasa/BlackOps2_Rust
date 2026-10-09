@@ -735,7 +735,7 @@ pub(crate) fn resolve_blasts(
                 target,
                 source: crate::damage::ImpactSource::Projectile(blast.definition.clone()),
                 category: DamageCategory::Explosive,
-                region: HitRegion::Torso,
+                region: HitRegion::None,
                 amount: damage,
             });
             if player {

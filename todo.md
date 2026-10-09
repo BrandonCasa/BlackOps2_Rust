@@ -16,11 +16,8 @@
 - [ ] Clear platform support when players jump.
 - [ ] Exclude first-person meshes from movement collisions.
 - [ ] Add purchase refund handling.
-- [ ] Add source-defined explosive point awards.
 - [ ] Add source-defined purchase discounts.
 - [ ] Bind weapon upgrade names to localized strings.
-- [ ] Add shared ammunition groups.
-- [ ] Add empty weapon firing feedback.
 - [ ] Add projectile weapon spawning.
 - [ ] Add projectile swept collision.
 - [ ] Add projectile impact resolution.
@@ -28,7 +25,6 @@
 - [ ] Add material penetration resistance.
 - [ ] Add penetration damage attenuation.
 - [ ] Prevent repeated hits on one penetrated actor.
-- [ ] Add reload cancellation during weapon replacement.
 - [ ] Add attachment-specific weapon modifiers.
 - [ ] Add upgraded weapon attachment rotation.
 - [ ] Add tactical equipment replacement.
@@ -50,8 +46,6 @@
 - [ ] Add zombie distraction targeting.
 - [ ] Add round-dependent zombie speed selection.
 - [ ] Preserve pending budget after failed admission.
-- [ ] Track special living population separately.
-- [ ] Add population admission caps.
 - [ ] Add source-defined zombie replacement rules.
 - [ ] Preserve replacement enemy health.
 - [ ] Add round transition announcements.
@@ -92,6 +86,7 @@
 - [ ] Replace static duplicates of dynamic gameplay objects.
 - [ ] Add generator shutdown progress.
 - [ ] Add generator recapture interactions.
+- [ ] Retire excess round enemies when reserving generator defender slots.
 - [ ] Add local power availability.
 - [ ] Connect perk machines to local generator power.
 - [ ] Connect wall interactions to source-defined power requirements.

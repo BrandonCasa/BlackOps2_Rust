@@ -128,6 +128,27 @@ fn timers(world: &World) -> [f32; 3] {
         effects.zombie_blood,
     ]
 }
+fn blast(world: &mut World, owner: Entity, target: Entity, damage: u32) {
+    let center = world.get::<Transform>(target).unwrap().translation;
+    let definition = world
+        .get::<crate::equipment::GrenadeInventory>(owner)
+        .unwrap()
+        .definition
+        .clone();
+    world
+        .resource_mut::<crate::equipment::BlastQueue>()
+        .0
+        .push(crate::equipment::BlastRequest {
+            owner,
+            definition,
+            center,
+            radius: 0.5,
+            inner_radius: 0.25,
+            inner_damage: damage,
+            outer_damage: damage,
+            direction: None,
+        });
+}
 fn drive(world: &mut World) {
     world.resource_scope(|world, mut run: Mut<Run>| {
         let state = *world.resource::<State<GameState>>().get();
@@ -358,6 +379,61 @@ fn drive(world: &mut World) {
                     &mut run,
                     "fresh_session_clears_effects_and_drop_budget",
                     timers(world) == [0.; 3] && world.resource::<Drops>().spawned == 0,
+                );
+                run.baseline = world.resource::<Session>().points;
+                run.kills = world.resource::<Session>().kills;
+                let target = actor(world, position + Vec3::X * 3.);
+                run.target = Some(target);
+                blast(world, owner, target, 10);
+                next(&mut run);
+            }
+            14 if run.age > 0.4 => {
+                let target = run.target.unwrap();
+                row(
+                    &mut run,
+                    "nonlethal_explosion_awards_ten_points",
+                    world.resource::<Session>().points == baseline + 10
+                        && world.get::<Vitality>(target).and_then(|v| v.current()) == Some(90),
+                );
+                blast(world, owner, target, 100);
+                next(&mut run);
+            }
+            15 if run.age > 0.4 => {
+                row(
+                    &mut run,
+                    "explosive_kill_awards_fifty_without_location_bonus",
+                    world.resource::<Session>().points == baseline + 60
+                        && world.resource::<Session>().kills == kills + 1
+                        && world
+                            .resource::<crate::damage::CombatHistory>()
+                            .headshot_kills
+                            == 0,
+                );
+                world.resource_mut::<PowerupEffects>().double_points = 30.;
+                let target = actor(world, position - Vec3::X * 3.);
+                run.target = Some(target);
+                blast(world, owner, target, 10);
+                next(&mut run);
+            }
+            16 if run.age > 0.4 => {
+                row(
+                    &mut run,
+                    "double_points_applies_to_explosive_damage",
+                    world.resource::<Session>().points == baseline + 80,
+                );
+                blast(world, owner, run.target.unwrap(), 100);
+                next(&mut run);
+            }
+            17 if run.age > 0.4 => {
+                row(
+                    &mut run,
+                    "double_points_applies_to_explosive_kill",
+                    world.resource::<Session>().points == baseline + 180
+                        && world.resource::<Session>().kills == kills + 2
+                        && world
+                            .resource::<crate::damage::CombatHistory>()
+                            .headshot_kills
+                            == 0,
                 );
                 finish(world, &run);
             }

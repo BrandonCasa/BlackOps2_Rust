@@ -183,6 +183,29 @@ pub(crate) fn combat(
             weapon.map_or(1, |w| w.mechanics.pellets)
         };
         let (melee, damage, weapon_id) = match emission {
+            WeaponEmission::DryFire(id) => {
+                crate::audio::binding(
+                    &mut commands,
+                    &definition,
+                    &format!("{}.dry_fire", id.0),
+                    crate::audio::SoundSource::attached(entity),
+                );
+                if weapon.is_some_and(|w| inventory.reserve(w) == 0)
+                    && inventory
+                        .active()
+                        .is_some_and(|w| w.magazine == 0 && w.left_magazine.is_none_or(|n| n == 0))
+                {
+                    crate::audio::voice(
+                        &mut commands,
+                        &definition,
+                        &session,
+                        "ammo_out",
+                        entity,
+                        inventory.sequence as u32,
+                    );
+                }
+                continue;
+            }
             WeaponEmission::ReloadStarted {
                 weapon,
                 magazine,
