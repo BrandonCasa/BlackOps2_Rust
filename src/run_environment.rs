@@ -14,7 +14,8 @@ pub(crate) struct UnattendedRunPlugin;
 impl Plugin for UnattendedRunPlugin {
     fn build(&self, app: &mut App) {
         let options = app.world().resource::<LaunchOptions>();
-        let unattended = options.benchmark || options.verify.is_some();
+        let unattended =
+            options.benchmark || options.verify.is_some() || options.validation_remote.is_some();
         app.insert_resource(RunEnvironment {
             continuous_window_updates: unattended,
             ..default()

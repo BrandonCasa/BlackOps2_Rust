@@ -36,6 +36,8 @@ mod pipelines;
 mod placements;
 mod powerups;
 mod release_performance;
+#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+mod remote;
 mod replacements;
 mod weapon_actions;
 pub(crate) use pipelines::error_layer;
@@ -118,6 +120,11 @@ pub(crate) struct Verification {
 pub struct VerificationPlugin;
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+        if let Some(port) = app.world().resource::<LaunchOptions>().validation_remote {
+            remote::install(app, port);
+            return;
+        }
         if app.world().resource::<LaunchOptions>().verify_locomotion {
             pipelines::install(app);
             locomotion::install(app);

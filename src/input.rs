@@ -157,8 +157,20 @@ impl Plugin for GameInputPlugin {
             .init_resource::<Actions>();
         app.init_resource::<GameInput>()
             .add_message::<RestartGame>()
-            .add_systems(PreUpdate, collect.after(InputSystems))
-            .add_systems(Update, pause_and_restart)
+            .add_systems(
+                PreUpdate,
+                collect
+                    .after(InputSystems)
+                    .run_if(|options: Res<crate::assets::LaunchOptions>| {
+                        options.validation_remote.is_none()
+                    }),
+            )
+            .add_systems(
+                Update,
+                pause_and_restart.run_if(|options: Res<crate::assets::LaunchOptions>| {
+                    options.validation_remote.is_none()
+                }),
+            )
             .add_systems(
                 FixedUpdate,
                 finish_tick
@@ -187,6 +199,7 @@ pub(crate) fn collect(
 ) {
     let active = **state == GameState::Playing
         && ((options.verify.is_some() && !options.verify_controls)
+            || options.validation_remote.is_some()
             || windows.iter().any(|(window, cursor)| {
                 window.focused && cursor.grab_mode != CursorGrabMode::None
             }));
@@ -321,7 +334,8 @@ pub(crate) fn pause_and_restart(
             _ => {}
         }
     }
-    if (options.verify.is_none() || options.verify_controls)
+    if options.validation_remote.is_none()
+        && (options.verify.is_none() || options.verify_controls)
         && **state == GameState::Playing
         && cursors.iter().any(|(w, _)| !w.focused)
     {

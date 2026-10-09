@@ -19,6 +19,7 @@ pub enum MeshPreprocessing {
 
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
+    pub validation_remote: Option<u16>,
     pub material_debug: u32,
     pub verify: Option<PathBuf>,
     pub verify_controls: bool,
@@ -71,6 +72,21 @@ impl LaunchOptions {
     pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
         let mut result = Self::default();
         if let Some(argument) = args.next() {
+            if argument == "--validation-remote" {
+                let port = args
+                    .next()
+                    .map_or(Some(15702), |v| v.to_str()?.parse::<u16>().ok());
+                if cfg!(all(debug_assertions, feature = "dev-dynamic"))
+                    && port.is_some_and(|p| p > 0 && p != 15703)
+                    && args.next().is_none()
+                {
+                    result.validation_remote = port;
+                } else {
+                    result.error =
+                        Some("Usage: development origins --validation-remote [port]; port 15703 is reserved for render BRP".into());
+                }
+                return result;
+            }
             if argument == "--verify-texture-streaming"
                 || argument == "--verify-viewmodel-shadows"
                 || argument == "--verify-actor-shadows"

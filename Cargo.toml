@@ -12,7 +12,7 @@ resolver = "3"
 
 [features]
 default = []
-dev-dynamic = ["bevy/dynamic_linking"]
+dev-dynamic = ["bevy/dynamic_linking", "bevy/bevy_remote"]
 profile-tracy = ["bevy/trace_tracy", "bevy/debug", "dep:tracy-client"]
 profile-tracy-memory = ["profile-tracy", "bevy/trace_tracy_memory"]
 profile-chrome = ["bevy/trace_chrome", "bevy/debug"]
