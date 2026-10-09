@@ -670,6 +670,7 @@ def main():
     parser.add_argument("--prepare-equipment", action="store_true", help="prepare recovered fragmentation grenade tuning")
     parser.add_argument("--prepare-rounds", action="store_true", help="recover native solo Original round health, populations, pacing and locomotion")
     parser.add_argument("--prepare-player-health", action="store_true", help="recover standing player regeneration and immunity")
+    parser.add_argument("--prepare-sky", action="store_true", help="decode the original Origins HDR sky cubemap")
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
     if args.prepare_fixture_emitters:
@@ -758,6 +759,12 @@ def main():
         return
     root = Path(config["assets"]["inspection_output"])
     settings = config.get("preparation", {})
+    from prepare_sky import SKY_PATH, prepare as prepare_sky
+    sky_source = external(root / "bo2-library-extraction/zone/all/zm_tomb/images/skybox_zm_tomb_ft.dds")
+    sky_destination = external(Path(config["game"]["asset_pack"])) / SKY_PATH
+    if args.prepare_sky:
+        prepare_sky(sky_source, sky_destination)
+        return
     entities_path = Path(settings.get("entities", root / "game-prepare/entities/maps/mp/zm_tomb.d3dbsp.ents"))
     if args.content_only:
         output = external(Path(config["game"]["asset_pack"]))
@@ -786,6 +793,7 @@ def main():
         source = external(Path(settings.get("oat_source", root / "tooling/OAT/surface-7d027e8/source")))
         instances_path = export(source, zone, external(instances_path.parent), external(model_root / "images"))
         (model_root / ".surface-data-ready").touch()
+    prepare_sky(sky_source, sky_destination)
     prepare(Path(settings.get("scene", root / "full-scene-assets/texture-preview.json")),
             entities_path, Path(config["game"]["asset_pack"]), instances_path, model_root)
 

@@ -23,12 +23,14 @@ try:
     from .texture_streaming import validate as validate_texture_streaming
     from .trigger_volumes import validate as validate_trigger_volumes
     from .brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
+    from .prepare_sky import SKY_PATH, validate_sky
 except ImportError:
     from fixture_emitters import FIXTURE_SURFACES
     from content_contract import validate_content, validate_rounds, validate_player_health
     from texture_streaming import validate as validate_texture_streaming
     from trigger_volumes import validate as validate_trigger_volumes
     from brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
+    from prepare_sky import SKY_PATH, validate_sky
 
 import numpy as np
 from PIL import Image
@@ -543,7 +545,8 @@ def validate_tuning(tuning):
 
 def validate_pack(root, receipt=None, exact=False):
     root = root.resolve()
-    files = {"game.json"}
+    files = {"game.json", SKY_PATH}
+    validate_sky(read_bytes(safe_path(root, SKY_PATH, {".dds"})))
     game = read_json(safe_path(root, "game.json", {".json"}))
     require(set(game) <= {"version", "scene", "collision_scene", "spawn", "yaw", "spawn_points",
                           "waypoints", "survey_views", "source_surfaces", "render_meshes",

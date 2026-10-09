@@ -1,26 +1,42 @@
 use super::{GameCamera, profile::VisualProfile};
 use bevy::{
-    light::{Atmosphere, AtmosphereEnvironmentMapLight, atmosphere::ScatteringMedium},
-    pbr::{
-        AtmosphereSettings, ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel,
-    },
+    light::{GeneratedEnvironmentMapLight, Skybox},
+    pbr::{ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel},
     prelude::*,
 };
 
 pub(super) fn setup(
     mut commands: Commands,
     cameras: Query<Entity, With<GameCamera>>,
-    mut media: ResMut<Assets<ScatteringMedium>>,
+    server: Res<AssetServer>,
     profile: Res<VisualProfile>,
 ) {
     let Ok(camera) = cameras.single() else { return };
-    let atmosphere = Atmosphere::earth(media.add(ScatteringMedium::earth(256, 256)));
-    let center = GlobalTransform::from_translation(Vec3::Y * (-atmosphere.inner_radius - 64.));
-    commands.spawn((atmosphere, center, Name::new("Origins atmosphere")));
+    let image = server
+        .load_builder()
+        .with_settings(|settings: &mut bevy::image::ImageLoaderSettings| settings.is_srgb = false)
+        .load("sky/zm_tomb.dds");
+    let (sin, cos) = 48_f32.to_radians().sin_cos();
+    let rotation = Quat::from_mat3(&Mat3::from_cols(
+        Vec3::new(cos, 0., sin),
+        Vec3::new(sin, 0., -cos),
+        Vec3::Y,
+    ));
+    let brightness = 1.0
+        / bevy::camera::Exposure {
+            ev100: profile.outdoor_ev100,
+        }
+        .exposure();
     commands.entity(camera).insert((
-        AtmosphereSettings::default(),
-        AtmosphereEnvironmentMapLight {
-            intensity: profile.environment_intensity,
+        Skybox {
+            image: Some(image.clone()),
+            brightness,
+            rotation,
+        },
+        GeneratedEnvironmentMapLight {
+            environment_map: image,
+            intensity: brightness * profile.environment_intensity,
+            rotation,
             ..default()
         },
         ScreenSpaceAmbientOcclusion {
@@ -28,10 +44,9 @@ pub(super) fn setup(
             ..default()
         },
         DistanceFog {
-            color: super::profile::color(profile.fog_color),
-            falloff: FogFalloff::Exponential {
-                density: profile.fog_density,
-            },
+            color: profile.fog_color(),
+            falloff: profile.fog_falloff(),
+            directional_light_color: Color::NONE,
             ..default()
         },
     ));

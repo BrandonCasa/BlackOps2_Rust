@@ -86,6 +86,7 @@ fn release(
         .iter()
         .filter_map(|(id, image)| {
             (server.get_path(id).is_some()
+                && image.texture_descriptor.size.depth_or_array_layers == 1
                 && image.data.is_some()
                 && image.asset_usage.contains(RenderAssetUsages::MAIN_WORLD))
             .then_some(id)

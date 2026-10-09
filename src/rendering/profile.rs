@@ -36,8 +36,11 @@ pub(crate) struct VisualProfile {
     pub comparison_fov_degrees: f32,
     pub antialiasing: Antialiasing,
     pub bloom_intensity: f32,
-    pub fog_color: [f32; 3],
-    pub fog_density: f32,
+    pub fog_color_linear: [f32; 3],
+    pub fog_brightness: f32,
+    pub fog_base_distance: f32,
+    pub fog_half_distance: f32,
+    pub fog_distance_scale: f32,
     pub sun_shadow_map_size: usize,
     pub sun_shadow_distance: f32,
     pub lantern_color: [f32; 3],
@@ -61,6 +64,23 @@ impl Default for VisualProfile {
     fn default() -> Self {
         serde_json::from_str(include_str!("../../config/origins-visual.json"))
             .expect("The committed visual profile must be valid")
+    }
+}
+
+impl VisualProfile {
+    pub(super) fn fog_color(&self) -> Color {
+        Color::linear_rgb(
+            self.fog_color_linear[0] * self.fog_brightness,
+            self.fog_color_linear[1] * self.fog_brightness,
+            self.fog_color_linear[2] * self.fog_brightness,
+        )
+    }
+
+    pub(super) fn fog_falloff(&self) -> FogFalloff {
+        FogFalloff::ExponentialSquared {
+            density: std::f32::consts::LN_2.sqrt()
+                / ((self.fog_base_distance + self.fog_half_distance) * self.fog_distance_scale),
+        }
     }
 }
 
