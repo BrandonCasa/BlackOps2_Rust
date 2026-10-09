@@ -397,8 +397,18 @@ These entries track implementations separately from the source findings above.
   require separate quality work because source geometry does not establish flux.
 - [x] Return no lamps outside a valid influence grid; retain unusable-grid
   fallback (40). Compiler and actual DDGI/reflection shader execution pass.
-- [ ] Retain unchanged extraction, attachment/view preparation and slot ownership
-  (17-19), accounting for resource replacement and admission remaps.
+- [x] Retain native attachment/view preparation (18). Point and spot metadata
+  compares projection/frusta, layers, preprocessing mode, backing texture and
+  packed array slot. Re-admission and resource replacement refresh the metadata.
+  Array sample views and point/spot/directional attachments survive frames;
+  directional cameras retain separate clear state while using current matrices.
+  Native per-frame clear re-arming remains. Full 1080p/DDGI combat/ADS/recoil,
+  17-view/Round 2/restart validation passes: 355500 retained versus 13842 prepared
+  local view records, 962 attachment allocations and 33368 attachment reuses.
+  These counters measure preparation, not saved GPU draws or elapsed cost.
+- [ ] Retain unchanged extraction and stabilize slot ownership (17, 19).
+  Preparation now handles remaps correctly; it does not prevent native index churn
+  or repeated light/visibility extraction.
 - [x] Narrow material invalidation to shadow depth coverage (21, 30). The renderer
   retains native depth signatures for standard, layered and diagnostic
   materials; actors and first-person meshes use these same paths. Unknown/removal
@@ -439,3 +449,14 @@ fresh/278750 reused cube faces, zero streaming errors and zero first-person
 world-depth aliases/HDR mismatches. Combat is 12.6880 FPS, median 56.0129 ms,
 p95 181.1741, p99 215.4041 and worst 319.3733; all 707 samples exceed 10 ms.
 This is unmatched development evidence; matched release adoption remains open.
+
+The native preparation milestone is frozen in executable-4 and full game-4.
+Build-preparation-4.log, metadata-preparation.json, workspace/vendor format and
+whitespace gates pass. Game-4 exits zero without interference in 157.688 seconds:
+2482 DDGI batches, 1047 fresh reflection frames, 68776 fresh/300566 reused cube
+faces, zero streaming errors and zero first-person depth aliases/HDR mismatches.
+Combat is 12.8726 FPS, median 57.7813 ms, p95 175.4816, p99 216.8401 and worst
+332.2607; all 713 samples exceed 10 ms. Assets and quality settings are unchanged.
+The difference from game-3 is unmatched and is not release adoption. Spot-specific
+behavior and device/resolution replacement have source/compiler evidence but no
+dedicated actual-game exercise. Broader rendering optimization remains active.

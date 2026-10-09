@@ -85,6 +85,10 @@ pub(crate) struct ShadowCacheStats {
     material_coverage_changes: Arc<AtomicU64>,
     material_shading_changes: Arc<AtomicU64>,
     retired_completed_lights: Arc<AtomicU64>,
+    native_prepared_views: Arc<AtomicU64>,
+    native_retained_views: Arc<AtomicU64>,
+    native_attachment_allocations: Arc<AtomicU64>,
+    native_attachment_reuses: Arc<AtomicU64>,
 }
 
 impl ShadowCacheStats {
@@ -138,6 +142,16 @@ impl ShadowCacheStats {
             self.material_shading_changes.load(Ordering::Relaxed).into();
         report["retired_completed_light_records"] =
             self.retired_completed_lights.load(Ordering::Relaxed).into();
+        report["native_prepared_local_shadow_views"] =
+            self.native_prepared_views.load(Ordering::Relaxed).into();
+        report["native_retained_local_shadow_views"] =
+            self.native_retained_views.load(Ordering::Relaxed).into();
+        report["native_shadow_attachment_allocations"] = self
+            .native_attachment_allocations
+            .load(Ordering::Relaxed)
+            .into();
+        report["native_shadow_attachment_reuses"] =
+            self.native_attachment_reuses.load(Ordering::Relaxed).into();
         report
     }
 }
@@ -1464,8 +1478,23 @@ fn select(
         Option<ResMut<SceneUnpackingBuffers>>,
         Option<ResMut<BinUnpackingBindGroups>>,
     ),
-    mut retained_views: Local<HashSet<RetainedViewEntity>>,
+    (mut retained_views, light_meta): (
+        Local<HashSet<RetainedViewEntity>>,
+        Res<bevy::pbr::LightMeta>,
+    ),
 ) {
+    stats
+        .native_prepared_views
+        .store(light_meta.local_shadow_views_prepared, Ordering::Relaxed);
+    stats
+        .native_retained_views
+        .store(light_meta.local_shadow_views_reused, Ordering::Relaxed);
+    stats
+        .native_attachment_allocations
+        .store(light_meta.shadow_attachment_allocations, Ordering::Relaxed);
+    stats
+        .native_attachment_reuses
+        .store(light_meta.shadow_attachment_reuses, Ordering::Relaxed);
     let _span = info_span!("shadow_cache_select").entered();
     cache.pending.clear();
     // First-person overlays have a separate camera and no world shadow casters.
