@@ -103,7 +103,6 @@
 - [ ] Add generator recapture interactions.
 - [ ] Add generator defender capture-zone targeting.
 - [ ] Add generator defender attack behavior.
-- [ ] Retire excess round enemies when reserving generator defender slots.
 - [ ] Add generator attacker route selection.
 - [ ] Add generator attacker shutdown behavior.
 - [ ] Add generator attacker progression between generators.

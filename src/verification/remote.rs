@@ -290,7 +290,7 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
             let reach = d.and_then(|d|definitions?.content.interactions.iter().find(|i|i.placement==d.placement)).map(|i|i.reach);
             json!({"id":id.0,"number":d.map(|d|d.number),"state":format!("{:?}",s.state),"progress":s.progress,"position":position,"interaction_reach":reach,"model_position":d.map(|d|d.model_position),"radius":d.map(|d|d.radius),"price":d.map(|d|d.price),"zones":d.map(|d|&d.zones)})
         }).collect();
-        result["generators"] = json!({"sites":sites,"activations":g.activations,"completions":g.completions,"reserve":if g.busy() {4} else {0}});
+        result["generators"] = json!({"sites":sites,"activations":g.activations,"completions":g.completions,"excess_retired":g.excess_retired,"reserve":g.reserve()});
     }
     if let Some(p) = world.get_resource::<crate::rounds::Population>() {
         result["population"] =

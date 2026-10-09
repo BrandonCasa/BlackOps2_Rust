@@ -249,7 +249,7 @@ pub(crate) fn advance(
     if session.pending == 0 || !session.spawn_timer.is_finished() {
         return;
     }
-    let reserve = if generators.busy() { 4 } else { 0 };
+    let reserve = generators.reserve();
     if population.ordinary + population.special
         >= (profile.ordinary_cap as usize).saturating_sub(reserve)
     {

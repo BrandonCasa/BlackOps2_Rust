@@ -219,6 +219,8 @@ struct Graphs(
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) struct EnemyBounds;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub(crate) struct EnemyRetirement;
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) struct EnemyAnimationPlayback;
 pub struct EnemyPlugin;
 impl Plugin for EnemyPlugin {
@@ -235,6 +237,7 @@ impl Plugin for EnemyPlugin {
                 FixedUpdate,
                 (corpses, replace_distant)
                     .in_set(GameStep::Zombies)
+                    .in_set(EnemyRetirement)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(

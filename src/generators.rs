@@ -57,6 +57,8 @@ pub struct Generators {
     pub defenders_admitted: u32,
     pub defender_failures: u32,
     pub defenders_cleared: u32,
+    pub excess_retired: u32,
+    retirement_pending: bool,
     spawn_clock: f32,
     spawn_cursor: usize,
 }
@@ -70,6 +72,9 @@ impl Generators {
         self.sites
             .values()
             .any(|s| s.state == GeneratorState::Capturing)
+    }
+    pub fn reserve(&self) -> usize {
+        if self.busy() { 4 } else { 0 }
     }
     pub fn activate(
         &mut self,
@@ -92,6 +97,7 @@ impl Generators {
             ..default()
         };
         self.activations += 1;
+        self.retirement_pending = true;
         Ok(())
     }
     pub fn powered(&self, id: &ContentId) -> bool {
@@ -124,6 +130,9 @@ struct GeneratorPlayback;
 #[derive(Component)]
 struct GeneratorAudio(ContentId, ContentId);
 #[derive(Component)]
+struct CaptureRetirement;
+
+#[derive(Component)]
 pub struct GeneratorDefender {
     pub generator: ContentId,
     pub slot: usize,
@@ -152,10 +161,11 @@ impl Plugin for GeneratorPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (clear_defenders, defenders)
+                (retire_excess, clear_defenders, defenders)
                     .chain()
                     .in_set(GameStep::Zombies)
                     .after(tick)
+                    .before(crate::enemies::EnemyRetirement)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
@@ -223,6 +233,46 @@ fn defender_intent(
         }
     }
 }
+fn retire_excess(
+    mut commands: Commands,
+    mut generators: ResMut<Generators>,
+    definition: Res<GameDefinition>,
+    mut session: ResMut<Session>,
+    actors: Query<
+        (Entity, &Vitality, &crate::rounds::PopulationKind),
+        With<crate::enemies::Zombie>,
+    >,
+    retiring: Query<Entity, With<CaptureRetirement>>,
+    mut barriers: ResMut<crate::barriers::Barriers>,
+) {
+    for entity in &retiring {
+        commands.entity(entity).despawn();
+        generators.excess_retired += 1;
+    }
+    if !generators.retirement_pending {
+        return;
+    }
+    let candidates: Vec<_> = actors
+        .iter()
+        .filter_map(|(entity, health, kind)| {
+            (health.state() == LifeState::ActorAlive
+                && *kind != crate::rounds::PopulationKind::GeneratorDefender)
+                .then_some(entity)
+        })
+        .collect();
+    let cap = (definition.rounds.ordinary_cap as usize).saturating_sub(generators.reserve());
+    if candidates.len() <= cap {
+        generators.retirement_pending = false;
+        return;
+    }
+    let entity = candidates[session.random() as usize % candidates.len()];
+    barriers.release(entity);
+    commands
+        .entity(entity)
+        .remove::<Vitality>()
+        .insert((CaptureRetirement, avian3d::prelude::ColliderDisabled));
+}
+
 fn clear_defenders(
     mut generators: ResMut<Generators>,
     mut defenders: Query<
