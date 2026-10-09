@@ -1287,6 +1287,7 @@ fn select(
         Option<ResMut<SceneUnpackingBuffers>>,
         Option<ResMut<BinUnpackingBindGroups>>,
     ),
+    mut retained_views: Local<HashSet<RetainedViewEntity>>,
 ) {
     let _span = info_span!("shadow_cache_select").entered();
     cache.pending.clear();
@@ -1320,6 +1321,7 @@ fn select(
         cache.phase_modes.clear();
         stats.allocations.fetch_add(1, Ordering::Relaxed);
     }
+    retained_views.clear();
     for (entity, kind, shadow, live_view, no_indirect_drawing, is_root) in &views {
         // Native directional cascades belong to ViewLightEntities of their
         // parent camera. An auxiliary root would preprocess and draw the same
@@ -1335,6 +1337,10 @@ fn select(
             continue;
         };
         let retained = view.retained_view_entity;
+        // Restoring ExtractedView is deferred. This query still sees None for
+        // a revived view until commands apply, but the phase already belongs
+        // to that live view. Preserve ownership through end-of-system cleanup.
+        retained_views.insert(retained);
         let direct_shadow = matches!(kind, LightEntity::Point { .. } | LightEntity::Spot { .. });
         let mode = support.min(if direct_shadow || no_indirect_drawing {
             GpuPreprocessingMode::PreprocessingOnly
@@ -1546,17 +1552,12 @@ fn select(
     cache
         .suspended_views
         .retain(|entity, _| views.contains(*entity));
-    let retained: HashSet<_> = views
-        .iter()
-        .filter_map(|(entity, _, _, view, _, _)| {
-            view.or(cache.suspended_views.get(&entity))
-                .map(|view| view.retained_view_entity)
-        })
-        .collect();
     cache
         .suspended_phases
-        .retain(|view, _| retained.contains(view));
-    cache.phase_modes.retain(|view, _| retained.contains(view));
+        .retain(|view, _| retained_views.contains(view));
+    cache
+        .phase_modes
+        .retain(|view, _| retained_views.contains(view));
 }
 
 fn restore_specializations(

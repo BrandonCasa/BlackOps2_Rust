@@ -209,8 +209,20 @@ Frozen executable-22 passes combat, ADS/recoil, Round 2, all 17 views and restar
 this qualifies behavior, not matched performance adoption. Native bounds still
 include unindexed accessor vertices; body primitives share 6221 source vertices,
 so indexed-envelope tightening remains open. The run also records 45534 phase
-resets and 1613271 invalidated specialization entries. Audit deferred view
-restoration against cache retention before adding another GPU path.
+resets and 1613271 invalidated specialization entries. Deferred restoration
+exposed lost phase-mode ownership; the following milestone repairs it.
+
+Deferred revival retention is repaired: select records every retained view it
+processes before queuing restoration, rather than pruning mode ownership from
+the not-yet-updated query. Its set reuses allocation capacity. Frozen
+executable-23 passes combat, ADS, Round 2, all 17 views and restart. Resets are
+12144 versus 45534 in the preceding survey; specialization invalidations are
+1285231. These are separate survey work counts, not matched release speedup.
+Combat averages 8.4972 FPS and all 493 samples exceed 10 ms. Further reset causes
+and native per-light whole-caster visibility scans remain open. The world map
+already has spatial chunks; sample inspected chunks have compact positions.
+Use those bounds when investigating per-light candidate admission rather than
+duplicating the existing map partitioning. Recoil was not observed in this run.
 
 - [ ] Late first-person HDR phase replaces auxiliary full view, with separate
   cleared depth and ordinary internal depth testing. Preserve world depth.
