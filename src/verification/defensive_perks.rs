@@ -1,4 +1,3 @@
-//! Actual-window reload discharges, native actor damage, cooked frags and loss/reset.
 use super::*;
 use crate::{
     life::{LifeState, Vitality},

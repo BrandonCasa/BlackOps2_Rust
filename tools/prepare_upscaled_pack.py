@@ -1,4 +1,3 @@
-"""Assemble qualified candidates into the existing PBR pack without geometry edits."""
 import argparse
 import copy
 import hashlib
@@ -16,7 +15,6 @@ from compressed_texture_cache import ENCODER_SHA256, FORMATS, MASK_MARGINS, mask
 
 
 def verify_quality(entry, record, info, source_info):
-    """Validate the numerical receipt for the exact final hashed mip chain."""
     quality = record.get("quality", {})
     if quality.get("output_sha256") != info["sha256"]:
         raise ValueError("Candidate quality/integrity receipt refers to different bytes")
@@ -197,8 +195,6 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
                     (kind == "cutout" and (entry["role"] != "color" or not entry.get("mask_cutoffs"))) or \
                     (kind not in ("constant", "cutout") and entry["role"] != kind):
                 raise ValueError(f"Missing actual qualified representative for {kind}")
-    # Original glTF buffer bytes, transforms, skins and clips are copied without
-    # conversion. Only prepared texture metadata is updated below.
     def copy_file(source_file, destination_file):
         resources.wait()
         relative = Path(source_file).relative_to(source).as_posix()
@@ -234,8 +230,6 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
             for channel in surface["channels"]:
                 uri = channel["uri"]
                 if uri not in bootstrap:
-                    # Inventory covers placed geometry. Unused glTF materials
-                    # retain their authored dependencies without neural work.
                     continue
                 entry = bootstrap[uri]
                 mip = entry["mips"][entry["bootstrap_mip"]]
@@ -251,8 +245,6 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
         scene_hashes[relative.as_posix()] = hashlib.sha256(original.read_bytes()).hexdigest()
     hashes = validate(destination, resources=resources)
     _, _, complete_closure = validate_pack(destination, exact=True)
-    # Model buffers are unchanged byte-for-byte; preserve proof in the external
-    # preparation receipt rather than adding research files to the runtime.
     buffer_hashes = {}
     for original in sorted(source.rglob("*.bin")):
         resources.wait()
@@ -288,7 +280,7 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Assemble qualified candidates into the existing PBR pack without geometry edits.')
     for name in ("source", "candidates", "inventory", "destination", "receipt", "masters"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--pause-file", type=Path)

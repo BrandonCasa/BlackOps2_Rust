@@ -2,11 +2,6 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy>=2,<3", "pillow>=12,<13", "soundfile>=0.13,<0.14"]
 # ///
-"""Cook the existing complete pack into Bevy PBR metadata and native GPU DDS.
-
-Original data is read only. All work/receipts stay external; import validates the
-runtime closure. Source recipes and exact material classifications stay in Git.
-"""
 import argparse
 import copy
 from functools import lru_cache
@@ -45,7 +40,6 @@ EFFECT_CONSTANT_HASHES = {
 
 
 def prepared_effect(original, surface):
-    """Retain native effect parameters without altering images or geometry."""
     if not original or "unlit_3layer_nofog_" not in original["family"] or "zfeather" in original["family"]:
         return None
     constants = {c.get("hash", EFFECT_CONSTANT_HASHES.get(c.get("name"))):
@@ -62,8 +56,6 @@ def prepared_effect(original, surface):
                "alpha": value(f"Layer{i}Alpha", 1), "depth": value(f"Layer{i}Depth", 1)}
               for i in (1, 2, 3)]
     coverage = [0, 1, 2]
-    # Older opaque cooking replaced base alpha with one. A second native binding
-    # to the same image retains its coverage; use that existing qualified map.
     bindings = [b for b in original.get("textures", []) if b["semantic"] == 2]
     if surface["presentation"]["alpha"] == "opaque" and len(bindings) == 3:
         duplicate = next((i for i in (1, 2) if bindings[i]["image"] == bindings[0]["image"]), None)
@@ -78,7 +70,6 @@ def prepared_effect(original, surface):
 
 
 def retain_effects(config):
-    """Enrich the external prepared pack; preserve every map and mesh byte."""
     pack = Path(config["game"]["asset_pack"]).resolve()
     if pack == WORKSPACE or WORKSPACE in pack.parents:
         raise ValueError("effect preparation must remain external")
@@ -104,8 +95,6 @@ def retain_effects(config):
             changes.append({"uri": path.relative_to(pack).as_posix(), "materials": identities,
                             "before_sha256": hashlib.sha256(raw).hexdigest(),
                             "sha256": hashlib.sha256(updated).hexdigest(), "bytes": len(updated)})
-    # Compute every candidate before mutation. Replace sibling entries atomically
-    # so no external/source/worktree hardlink can be modified in place.
     for path, original, updated in candidates:
         if path.read_bytes() != original:
             raise ValueError(f"Prepared record changed during effect retention: {path.name}")
@@ -156,7 +145,6 @@ def classification(name):
 
 def originals(inspection, extraction):
     result = {}
-    # Later patch definitions win; retain zone identity in the external receipt.
     for zone in ("common_zm", "zm_tomb", "patch_zm", "zm_tomb_patch"):
         path = extraction / zone / "material-definitions.json"
         if path.exists():
@@ -164,7 +152,6 @@ def originals(inspection, extraction):
                 result[name] = dict(definition, zone=zone)
     inventory = json.loads((inspection / "full-scene-assets/inventory.private.json").read_text())
     for definition in inventory["materials"]:
-        # The retained world exchange is joined by binding hash and native identity.
         if definition["name"] not in result:
             textures = [dict(t, image=inventory["images"][t["image"]]["name"])
                         for t in definition["textures"]]
@@ -229,9 +216,7 @@ class Cooker:
         path = self.image_paths.get(binding["image"])
         if path is None:
             raise ValueError(f"Native image {binding['image']} is missing; recover the declared zone DDS")
-        # A patch may reuse a name with different bytes. Provenance follows the
-        # resolved zone image, rather than silently keeping the first revision.
-        key = str(path.resolve())  # Receipt only; never exported to runtime descriptors.
+        key = str(path.resolve())
         if key not in self.sources:
             try:
                 self.sources[key] = dict(inspect_dds(path.read_bytes(), allow_non_2d=True),
@@ -239,7 +224,7 @@ class Cooker:
             except ValueError as error:
                 raise ValueError(f"Source image {binding['image']} ({path.name}): {error}") from error
         if self.sources[key]["dimension"] != "2d" or self.sources[key]["surfaces"] != 1 or self.sources[key]["dxgi"] in {2, 10, 11, 54, 56}:
-            return None  # Precision data is retained separately, never quantized as albedo.
+            return None
         return self.pixels(path)
 
     def texture(self, levels, role, srgb=False):
@@ -250,7 +235,6 @@ class Cooker:
         name = f"pbr-{digest}.dds"
         w, h = levels[0].shape[1], levels[0].shape[0]
         fmt = "BC7_UNORM_SRGB" if srgb else "BC5_UNORM" if role == "normal" else "BC4_UNORM" if role in ("coating", "mask") else "BC7_UNORM"
-        # Block encoders require aligned top levels. Preserve tiny/odd native sizes.
         if w % 4 or h % 4:
             fmt = "R8G8B8A8_UNORM_SRGB" if srgb else "R8G8B8A8_UNORM"
         master = self.work / name
@@ -266,8 +250,6 @@ class Cooker:
         channel = {"uri": uri, "role": role, "color_space": "srgb" if srgb else "linear",
                    "format": fmt, "width": w, "height": h, "mip_count": len(levels)}
         self.entries.setdefault(uri, channel.copy())
-        # Coverage qualification belongs to the shared registry, not emitted
-        # surface channels (whose schema does not contain mask_cutoffs).
         return channel
 
     def material(self, material, document, path, original):
@@ -362,13 +344,11 @@ class Cooker:
         if emissive is not None:
             c = self.texture(color_levels(emissive, True), "emissive", True)
             cooked.append(dict(c, layer=0, channels="rgb:emissive,a:unused"))
-        # Macro-mask R/G is data. Replace the duplicate sRGB entry with linear BC7.
         if surface.get("preparation") and pixels("color", 2) is not None:
             mask = pixels("color", 2)
             cooked = [c for c in cooked if not (c["role"] == "color" and c["layer"] == 2)]
             c = self.texture(color_levels(mask, False), "control")
             cooked.append(dict(c, layer=2, channels="rg:core_coating_weights"))
-        # Water uses a second normal even when it has no matching color layer.
         for layer in (1, 2):
             if not any(c["role"] == "normal" and c["layer"] == layer for c in cooked):
                 normal = pixels("normal", layer)
@@ -456,7 +436,6 @@ def prepare(config, source_pack=None, write_catalog=False):
         shutil.copytree(source, output)
     cooker = Cooker(output, work, Path(settings["encoder"]), catalog, inspection, extraction)
     cooker.materials = []
-    # Convert documents in memory first; leave readable source pack untouched.
     documents = []
     for path in sorted(output.rglob("*.gltf")):
         doc = json.loads(path.read_text())
@@ -476,10 +455,8 @@ def prepare(config, source_pack=None, write_catalog=False):
         from surface_frames import repair_document
     for path, _ in documents:
         repair_document(output, path, catalog)
-    # Remove only copied, now-unreferenced images inside this external destination.
     kept = set(cooker.entries)
     game = json.loads((output / "game.json").read_text())
-    # Content may contain UI images independent of glTF materials.
     def image_refs(value):
         if isinstance(value, dict):
             for v in value.values(): image_refs(v)
@@ -504,7 +481,6 @@ def prepare(config, source_pack=None, write_catalog=False):
 
 
 def qualification_entries(documents, extra_channels=None):
-    """Collect every authored coverage threshold before qualifying shared maps."""
     entries = {}
     for document in documents:
         for material in document.get("materials", []):
@@ -525,7 +501,6 @@ def qualification_entries(documents, extra_channels=None):
 
 
 def qualify(config, extra_channels=None, document_paths=None, prune=True):
-    """Qualify legacy callers through the same GPU semantic cache, without fallback."""
     pack = Path(config["game"]["asset_pack"]).resolve()
     work = Path(config["materials"]["work"]).resolve()
     if pack.is_relative_to(WORKSPACE) or work.is_relative_to(WORKSPACE):
@@ -578,11 +553,6 @@ def qualify(config, extra_channels=None, document_paths=None, prune=True):
 
 
 def migrate_assemblies(config):
-    """Bring newer native weapon assemblies into the existing PBR material pack.
-
-    Join known identities to canonical maps; cook new native materials without
-    touching assembly geometry, skeletons or animation data.
-    """
     pack = Path(config["game"]["asset_pack"]).resolve()
     if pack == WORKSPACE or WORKSPACE in pack.parents:
         raise ValueError("assembly material preparation must remain external")
@@ -613,8 +583,6 @@ def migrate_assemblies(config):
                 cooker.material(material, doc, path, native)
                 known[name] = copy.deepcopy(material)
             material = copy.deepcopy(known[name])
-            # Image indexes belonged to another document. Canonical DDS bindings
-            # are pack-relative; only the local tangent scaffold needs glTF images.
             for key in ("normalTexture", "emissiveTexture", "occlusionTexture"):
                 material.pop(key, None)
             pbr = material.get("pbrMetallicRoughness", {})
@@ -647,12 +615,6 @@ def migrate_assemblies(config):
 
 
 def normal_scaffold(path, document):
-    """Retain Bevy glTF's MikkTSpace preparation for tangentless source rigs.
-
-    DDS isn't a standard glTF image. A valid neutral normal fallback requests
-    Bevy's existing tangent generator; actual shading replaces it with the
-    canonical DDS map before surface readiness. Authored tangents are untouched.
-    """
     required = {p["material"] for mesh in document.get("meshes", []) for p in mesh["primitives"]
                 if "TANGENT" not in p["attributes"] and "TEXCOORD_0" in p["attributes"]}
     required = {i for i in required if any(c["role"] == "normal" for c in
@@ -676,7 +638,6 @@ def normal_scaffold(path, document):
 
 
 def retune_identities(config):
-    """Apply explicit reviewed catalog edits without rewriting source geometry."""
     pack, settings = Path(config["game"]["asset_pack"]), config["materials"]
     inspection, extraction = Path(config["assets"]["inspection_output"]), Path(settings["extraction"])
     catalog = json.loads((WORKSPACE / "config/origins-materials.json").read_text())
@@ -701,7 +662,6 @@ def retune_identities(config):
 
 
 def retune_response_mips(config):
-    """Repair normal/response footprint alignment without changing top levels."""
     pack = Path(config["game"]["asset_pack"])
     work = Path(config["materials"]["work"])
     catalog = json.loads((WORKSPACE / "config/origins-materials.json").read_text())
@@ -756,7 +716,7 @@ def prune_runtime_pack(config):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Cook the existing complete pack into Bevy PBR metadata and native GPU DDS.\n\nOriginal data is read only. All work/receipts stay external; import validates the\nruntime closure. Source recipes and exact material classifications stay in Git.\n')
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--write-catalog", action="store_true")
     parser.add_argument("--qualify-existing", action="store_true")

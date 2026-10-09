@@ -1,4 +1,3 @@
-"""Prepare native solo door groups, collision hulls and zone adjacency."""
 import hashlib,json,math,re
 import numpy as np
 from prepare_gameplay_content import external
@@ -11,8 +10,6 @@ def zone_id(name):
 
 def door_zones(links,existing):
     authored=sorted({zone_id(s) for a,b,f in links for s in (a,b)})
-    # Navigation's fallback has no native door edge, but retained nodes still
-    # own this zone. Preserve its existing state when refreshing adjacency.
     retained=[z for z in existing if z['id']=='zone.unassigned' and z['id'] not in authored]
     return [{'id':s,'initially_open':s=='zone.start'} for s in authored]+retained
 
@@ -51,7 +48,6 @@ def prepare(config):
         identity='presentation.door.'+model;props[model]=identity
         content['presentations'][:]=[x for x in content['presentations'] if x['id']!=identity]
         content['presentations'].append({'id':identity,'scene':'props/'+relative+'#Scene0','animations':[],'sounds':[]})
-    # Native aliases are prepared centrally; never regenerate substitute audio.
     groups={};triggers=[e for e in records if e.get('targetname') in ('zombie_door','zombie_debris')]
     for e in triggers:groups.setdefault(e['target'],[]).append(e)
     doors=[]

@@ -21,7 +21,6 @@ pub struct ActionState {
     pub released: bool,
     toggled: bool,
 }
-/// Edges survive rendered frames until the complete fixed gameplay tick finishes.
 #[derive(Resource)]
 pub struct Actions {
     states: [ActionState; Action::ALL.len()],
@@ -142,7 +141,6 @@ pub struct GameInputPlugin;
 pub struct RestartGame;
 impl Plugin for GameInputPlugin {
     fn build(&self, app: &mut App) {
-        // Verification has its own local settings file and never changes the user's controls.
         let options = app.world().resource::<crate::assets::LaunchOptions>();
         let path = options
             .verify
@@ -212,7 +210,6 @@ pub(crate) fn collect(
     if *settings != actions.settings {
         actions.settings = settings.clone();
     }
-    // Process each transition, including a complete tap within one rendered frame.
     for event in key_events.read().filter(|e| !e.repeat) {
         actions.event(Binding::Key(event.key_code), event.state.is_pressed());
     }
@@ -228,7 +225,6 @@ pub(crate) fn collect(
         actions.event(binding, true);
         actions.event(binding, false);
     }
-    // Reconcile missed OS releases without manufacturing presses after focus loss.
     let stale = actions
         .physical
         .iter()
@@ -271,7 +267,6 @@ pub(crate) fn collect(
 
 fn finish_tick(mut actions: ResMut<Actions>, mut input: ResMut<GameInput>) {
     let input = &mut *input;
-    // A quick tap must reach the equipment systems for one tick, then release.
     for (action, held) in [
         (Action::Fire, &mut input.fire_held),
         (Action::Interact, &mut input.use_held),

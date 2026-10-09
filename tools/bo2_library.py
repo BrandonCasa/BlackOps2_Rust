@@ -2,11 +2,6 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
 # ///
-"""Inventory every installed BO2 texture/model, retaining original containers.
-
-Extraction is resumable and external. The inspected library is copied into
-assets/source/bo2 separately from the validated Origins runtime closure.
-"""
 import argparse
 import hashlib
 import json
@@ -31,7 +26,6 @@ def digest(path):
 
 
 def copy_detached(source, target, expected, link_from=None):
-    """Replace one validated output without modifying any linked working copy."""
     target.parent.mkdir(parents=True, exist_ok=True)
     descriptor, name = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=target.parent)
     os.close(descriptor)
@@ -40,9 +34,6 @@ def copy_detached(source, target, expected, link_from=None):
         if link_from is None:
             shutil.copyfile(source, temporary)
         else:
-            # Only the identical, already-validated converted project output
-            # may supply a link. Originals, external masters and LFS objects
-            # remain independent. Replacing the name detaches future recooks.
             temporary.unlink()
             os.link(link_from, temporary)
         if digest(temporary) != expected:
@@ -65,7 +56,6 @@ def extract(config):
         raise ValueError("installed fastfiles or the existing external OAT build are unavailable")
     os.environ["ORIGINS_INCLUDE_ALL_IMAGES"] = "1"
     first = extraction / zones[0].relative_to(installation).with_suffix("")
-    # Compile once; all following zones use the same read-only callback binary.
     export(oat, zones[0], first, first / "images", True)
     reader = first / "Unlinker.exe"
     callback_hash = digest(callback)
@@ -162,7 +152,6 @@ def check_library_index():
 
 
 def retain_extracted(config):
-    """Retain native exchanges and mip chains; this performs no PBR cooking."""
     inspection = Path(config["assets"]["inspection_output"]).resolve()
     extraction, library = inspection / "bo2-library-extraction", WORKSPACE / "assets/source/bo2"
     receipt = json.loads((extraction / "extraction.json").read_text())
@@ -218,7 +207,6 @@ def retain_extracted(config):
 
 
 def check_model_sources(extraction, zone, model, record):
-    """Bind every prepared LOD to the native exchange that produced it."""
     try:
         from .import_origins import safe_path, require
     except ImportError:
@@ -298,7 +286,6 @@ def import_library(config):
     require(actual == files, f"library closure mismatch: {sorted(actual ^ files)[:20]}")
     hashes = {uri: digest(prepared / uri) for uri in sorted(files)}
     library = WORKSPACE / "assets/source/bo2"
-    # Originals include named material/model exchanges and every package entry.
     original_files = {}
     selected = {"images", "model_export", "xmodel", "materials", "techsets", "techniques", "shader_bin", "packages", "loose"}
     for path in sorted(extraction.rglob("*")):
@@ -306,8 +293,6 @@ def import_library(config):
         if not path.is_file() or not (set(relative.parts) & selected or path.name in {"asset-inventory.json", "material-definitions.json", "extraction-receipt.json", "extraction.json"}):
             continue
         target = library / "originals/extracted" / relative
-        # Preserve the preparation-time model hash through retention rather
-        # than accepting a different source revision after the preflight.
         expected_model = model_hashes.get(relative.as_posix())
         sha = digest(path)
         require(expected_model is None or sha == expected_model, f"original model changed: {relative.as_posix()}")
@@ -340,7 +325,7 @@ def import_library(config):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Inventory every installed BO2 texture/model, retaining original containers.\n\nExtraction is resumable and external. The inspected library is copied into\nassets/source/bo2 separately from the validated Origins runtime closure.\n')
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--retain", action="store_true")
     parser.add_argument("--retain-extracted", action="store_true")

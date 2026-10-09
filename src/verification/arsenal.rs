@@ -1,4 +1,3 @@
-//! Bounded input-driven wall-buy coverage in the actual game and original map.
 use super::Verification;
 use crate::{
     GameState,
@@ -75,8 +74,6 @@ fn drive(
         return;
     }
     if !coverage.isolated {
-        // Normal combat already advanced the round. Isolate the subsequent
-        // input-driven weapon segment from unrelated enemy attacks.
         for (entity, health) in &enemies {
             if health.state() == crate::life::LifeState::ActorAlive {
                 commands.entity(entity).despawn();

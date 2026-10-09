@@ -1,4 +1,3 @@
-//! Bounded sprint endurance, independent of map/perk identity.
 use bevy::prelude::*;
 #[derive(Component)]
 pub struct SprintState {
@@ -33,7 +32,6 @@ impl SprintState {
         recovery_delay: f32,
     ) {
         if self.capacity != capacity {
-            // Preserve spent seconds rather than refill endurance on perk changes.
             self.remaining = (self.remaining + capacity - self.capacity).clamp(0., capacity);
             self.capacity = capacity;
             self.exhausted |= self.remaining == 0.;

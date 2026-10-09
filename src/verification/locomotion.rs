@@ -1,4 +1,3 @@
-//! Controlled native poses on all live multipart zombie rigs in the actual window.
 use super::*;
 use crate::{
     enemies,

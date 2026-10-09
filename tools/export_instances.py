@@ -1,8 +1,3 @@
-"""Compile the read-only callback against an existing external OAT build.
-
-All intermediate files and extracted metadata are written to the supplied external
-directory. Requires OAT's Release x86 libraries and Visual Studio C++ tools.
-"""
 import os
 from pathlib import Path
 import subprocess

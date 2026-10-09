@@ -1,4 +1,3 @@
-//! Controlled resolved impacts in the actual game, after normal wound recovery/combat.
 use super::*;
 use crate::{
     damage::{DamageQueue, Impact, ImpactSource},
@@ -31,7 +30,6 @@ fn strike(queue: &mut DamageQueue, owner: Entity, amount: u32) {
         region: HitRegion::Torso,
         amount,
     };
-    // The second impact must be rejected by the first one's immunity interval.
     queue.0.extend([impact.clone(), impact]);
 }
 fn drive(
@@ -150,7 +148,6 @@ fn drive(
             verification.health_recovery_exercised = true;
             verification.stage = 1;
             verification.playing = 0.;
-            // Resume natural admission for the later fatal/restart workload.
             session.pending = 1;
             session.intermission = None;
             session.spawn_timer = Timer::from_seconds(0.1, TimerMode::Once);

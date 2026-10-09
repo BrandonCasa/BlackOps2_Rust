@@ -1,4 +1,3 @@
-//! Tactical points of interest and original Bevy-owned grounded equipment animation.
 use crate::{
     GameState,
     assets::GameDefinition,

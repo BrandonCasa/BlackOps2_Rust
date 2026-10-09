@@ -1,4 +1,3 @@
-//! Fixed-step consumers of actual action, damage, movement, and round state.
 use super::*;
 use crate::{
     gameplay::{GameStep, Session},
@@ -181,7 +180,6 @@ fn actions(
             clock.age += time.delta_secs();
             clock.age
         };
-        // One timeline per owner, independent of duplicated arms/model scene players.
         if let Some(notes) = game.audio.timelines.get(&clip.0) {
             for note in notes
                 .iter()
@@ -428,7 +426,6 @@ fn world(
         }
     }
     state.perks = perks.owned.clone();
-    // Place loops only at native machine placements that are actually implemented.
     for placement in &game.content.placements {
         if placement.definition.0 == "perk.quick_revive"
             && perks.solo_purchases >= game.solo_revive.maximum_purchases
@@ -460,7 +457,6 @@ fn world(
             (emitter.alias.clone(), SoundSource::World(p)),
         );
     }
-    // Current procedural sky is rainy throughout: source outdoor rain bed follows it.
     wanted.insert(
         "weather".into(),
         (

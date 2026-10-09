@@ -1,9 +1,3 @@
-"""Validate Tracy CPU zone nesting and export a steady-view elapsed-time flamegraph.
-
-Input: tracy-csvexport -u -s ';' capture.tracy (inclusive zone times).
-GPU zones must be exported separately; they must never enter the CPU tree.
-This measures instrumented thread elapsed time, including blocking, not CPU samples.
-"""
 import argparse
 import csv
 import html
@@ -15,7 +9,6 @@ from pathlib import Path
 
 
 def gpu_summary(path, begin, end, frames):
-    """Keep GPU durations separate; nested pass durations are not additive."""
     zones = defaultdict(list)
     boundary_zones = 0
     with path.open(encoding="utf-8-sig", newline="") as stream:
@@ -65,7 +58,7 @@ def allocation_summary(path, begin, end, frames):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description="Validate Tracy CPU zone nesting and export a steady-view elapsed-time flamegraph.\n\nInput: tracy-csvexport -u -s ';' capture.tracy (inclusive zone times).\nGPU zones must be exported separately; they must never enter the CPU tree.\nThis measures instrumented thread elapsed time, including blocking, not CPU samples.\n")
     parser.add_argument("zones", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--view", type=int, default=8)

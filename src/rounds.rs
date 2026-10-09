@@ -1,8 +1,6 @@
-//! Reusable solo round profile and population accounting; map preparation supplies tuning.
 use bevy::prelude::*;
 use serde::Deserialize;
 
-/// Emitted only when an intermission finishes, including repeated capped rounds.
 #[derive(Message, Clone, Copy)]
 pub struct RoundStarted {
     pub round: u32,
@@ -81,7 +79,6 @@ impl RoundProfile {
             } else {
                 self.health_increase
             };
-            // Native scripts retain the prior health on signed integer overflow.
             let Some(next) = health
                 .checked_add(increment)
                 .filter(|v| *v <= i32::MAX as u32)
@@ -119,7 +116,6 @@ impl RoundProfile {
         delay
     }
     pub fn gait(&self, round: u32, random: u32) -> Gait {
-        // The native end-of-round callback sets speed before incrementing the round.
         let base = if round <= 1 {
             1
         } else {

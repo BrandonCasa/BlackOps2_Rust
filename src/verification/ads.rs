@@ -1,4 +1,3 @@
-//! Controlled actual-window ADS coverage and camera-projected source sight tags.
 use super::*;
 use crate::presentation::{Rig, ViewModelCamera};
 use crate::weapons::{WeaponAction, WeaponInventory};
@@ -136,8 +135,6 @@ fn drive(
     coverage.age += time.delta_secs();
     let step = coverage.step;
     input.ads = !matches!(step, 0 | 6 | 10);
-    // A shader/loading stall may advance several fixed ticks before a frame.
-    // Warm that path and retry entry so the capture observes the actual ramp.
     if step == 1 && !coverage.captured {
         if coverage.age > 0.15 && inventory.ads >= 1. {
             coverage.entry_resetting = true;

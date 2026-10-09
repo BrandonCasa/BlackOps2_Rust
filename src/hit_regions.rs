@@ -1,4 +1,3 @@
-//! Skeletal pose snapshots and Avian geometric hit queries, independent of movement colliders.
 use crate::{
     life::{LifeState, Vitality},
     player::Player,

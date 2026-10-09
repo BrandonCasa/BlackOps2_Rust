@@ -1,4 +1,3 @@
-//! Controlled physical-input workload in the actual game and Bevy UI.
 use crate::{
     GameState,
     assets::{GameDefinition, LaunchOptions},
@@ -244,9 +243,6 @@ fn drive(world: &mut World) {
         31 => 3.,
         _ => 0.3,
     };
-    // First observes the preceding PreUpdate input. StateTransition runs after
-    // PreUpdate, and cursor capture runs in Update, so resume checkpoints need
-    // one subsequent Playing input collection before judging posture/actions.
     let settled_frames = if matches!(run.phase, 201 | 23 | 25) {
         3
     } else {
@@ -594,8 +590,6 @@ fn drive(world: &mut World) {
             mouse(world, window, MouseButton::Left, false);
             world
                 .resource_mut::<Time<Fixed>>()
-                // Leave several bounded virtual frame deltas before the next
-                // tick even when real rendered frames are slow during loading.
                 .set_timestep_seconds(2.0);
             advance(&mut run);
         }

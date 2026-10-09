@@ -1,9 +1,3 @@
-"""Read licensed SAB banks, resolve native aliases, and prepare current-game audio.
-
-SAB v14 layouts/hash follow retained OAT SoundBankTypes/CommonT6. Originals are
-read only. Alias CSVs come from OAT soundbank extraction, samples from all native
-bank dependencies (including common banks not loaded by a single zone export).
-"""
 import argparse
 import csv
 import hashlib
@@ -50,7 +44,6 @@ def sound_hash(name):
 def bank_index(installation):
     result = {}
     paths = sorted((installation/'sound').glob('*.sab*'))
-    # Tomb/patch variants override shared entries, with both stream/load banks retained.
     paths.sort(key=lambda p: ('tomb' in p.name, 'patch' in p.name, p.name))
     for path in paths:
         with path.open('rb') as stream:
@@ -117,7 +110,6 @@ def prepare(config):
                 else: raise ValueError(f'unsupported native audio format {kind}: {name}')
                 if len(wave)!=frames or not np.isfinite(wave).all():
                     raise ValueError(f'invalid decoded sample: {name} ({len(wave)} != {frames})')
-                # Bevy spatial stereo sums ears, so positional samples are prepared mono.
                 digest = hashlib.sha256(raw).hexdigest()[:24]
                 relative = f'audio/native/{digest}-'+('mono' if spatial else 'stereo')+'.ogg'
                 if spatial:wave=wave.mean(axis=1)
@@ -153,7 +145,6 @@ def prepare(config):
     bindings={};timelines={}
     wanted = {'zmb_board_slam','zmb_boards_float','zmb_repair_boards','zmb_break_boards','zmb_pneumatic_door','amb_rock_fall','zmb_vocals_zombie_ambience','zmb_vocals_zombie_attack','zmb_vocals_zombie_death','zmb_vocals_zombie_teardown','zmb_vocals_zombie_sprint',
         'zmb_attack_whoosh','zmb_monkey_song','wpn_semtex_alert','wpn_semtex_charge','mus_zombie_round_start','mus_zombie_round_over','chr_breathing_hurt','chr_breathing_hurt_start','chr_breathing_better','chr_revive_gasp','zmb_cherry_explode','zmb_phdflop_explo','amb_weather_2d_rain_outdoor','amb_weather_2d_rain_indoor','amb_cave_wind','zmb_cha_ching','zmb_perk_bottle_open','zmb_perk_bottle_drink'}
-    # Retain all footstep surfaces; active collision metadata selects the surface.
     wanted.update(n for n in rows if re.match(r'fly_step_(walk|run|sprint|crouch_walk)_(plr|npc)_',n))
     wanted.update(n for n in rows if n.startswith(('fly_prone_','wpn_grenade_bounce_','wpn_sticky_gren_bounce_','zmb_monkey_land_')))
     wanted.update(n for n in rows if re.match(r'mus_perks_.*_(jingle|sting)$',n))
@@ -175,7 +166,6 @@ def prepare(config):
                     promoted.append({'weapon':w['id'],'exported':sound,'primary':parents[0]})
                     sound=parents[0]
             if sound: bindings[w['id']+'.'+event]=sound;wanted.add(sound)
-    # Native sndnt animation notifies provide actual reload/equipment/perk sound timing.
     for animation in content['animations']:
         notes=[{'seconds':n['seconds'],'alias':n['event'].split('#',1)[1]} for n in animation['notifications'] if n['event'].startswith('sndnt#')]
         if notes:
@@ -189,7 +179,6 @@ def prepare(config):
     for name in sorted(wanted):alias(name)
     bindings={key:value for key,value in bindings.items() if value in aliases}
     timelines={key:[n for n in notes if n['alias'] in aliases] for key,notes in timelines.items()}
-    # Replace every previously generated current-game cue with native recordings.
     replacements = {'sound.barrier.repair':'zmb_board_slam','sound.barrier.break':'zmb_break_boards','sound.door.bunker':'zmb_pneumatic_door','sound.door.debris':'amb_rock_fall'}
     if content.get('generators'):
         replacements.update({'sound.generator.capture':'zmb_capturezone_rise', 'sound.generator.active':'zmb_capturezone_vat_loop'})

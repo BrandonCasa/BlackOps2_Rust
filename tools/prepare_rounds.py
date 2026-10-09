@@ -1,4 +1,3 @@
-"""Recover the solo Original round profile from installed BO2 script/table exchanges."""
 import csv
 import hashlib
 import json
@@ -28,7 +27,6 @@ def prepare(config):
         if not match:
             raise ValueError("missing native round variable " + name)
         return float(match[1])
-    # Fail useful recovery rather than silently treating a different script as this profile.
     for text, fragment in [(script, "if ( i >= 10 )"), (script, "timer * 0.95"),
             (script, "0.5 * level.zombie_vars"), (utility, "level.zombie_move_speed + 35"),
             (utility, "rand <= 35"), (utility, "rand <= 70")]:

@@ -163,8 +163,6 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 }
 
 fn initial_physical_resolution(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>) {
-    // Winit initially interprets the requested size as logical pixels. Resize
-    // after creation, when the native DPI is known, without overriding UI scaling.
     if let Ok(mut window) = windows.single_mut()
         && (window.physical_width(), window.physical_height()) != (1920, 1080)
     {

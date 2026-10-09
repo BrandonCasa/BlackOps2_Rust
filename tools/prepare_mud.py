@@ -1,4 +1,3 @@
-"""Prepare the authored Origins slow-area collision brush union and script rules."""
 import hashlib,json,re
 from pathlib import Path
 import numpy as np

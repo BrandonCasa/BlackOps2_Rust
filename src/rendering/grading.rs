@@ -1,5 +1,3 @@
-//! Bake the art direction into Bevy's display-transform LUT once, rather than
-//! applying camera-position overrides or another image-filtering pass.
 use super::profile::{ColorGrade, VisualProfile};
 use bevy::{core_pipeline::tonemapping::TonemappingLuts, prelude::*};
 
@@ -12,8 +10,6 @@ pub(crate) fn install(
         .get(&luts.agx)
         .expect("Bevy's enabled AgX display LUT must exist")
         .clone();
-    // The pinned native AgX shader uses a 32-cubed log-domain table. Retain its
-    // scene-linear domain, highlight compression and linear display encoding.
     let size = graded.texture_descriptor.size;
     assert_eq!(
         [size.width, size.height, size.depth_or_array_layers],
@@ -32,8 +28,6 @@ pub(crate) fn install(
             }
         }
     }
-    // Keep the native LUT and its sampler unchanged. The small cloned table
-    // retains MAIN_WORLD data, as Bevy requires for render-device recovery.
     luts.agx = images.add(graded);
 }
 
@@ -41,9 +35,6 @@ fn grade(original: Color, settings: &ColorGrade) -> Color {
     let display = original.to_srgba();
     let rgb = Vec3::new(display.red, display.green, display.blue).clamp(Vec3::ZERO, Vec3::ONE);
     let luma = luminance(rgb);
-    // A continuous, monotonic contrast curve fixes black, white and perceptual
-    // middle gray. Finite shadow slopes preserve visibility rather than crush
-    // dark texels; bright scene values still use AgX's original shoulder.
     const PIVOT: f32 = 0.46;
     let curved = if luma > 0. && luma < 1. {
         let odds = PIVOT / (1. - PIVOT);
@@ -54,8 +45,6 @@ fn grade(original: Color, settings: &ColorGrade) -> Color {
     };
     let contrasted = rgb * (curved / luma.max(1e-6));
     let saturation = (rgb.max_element() - rgb.min_element()) / rgb.max_element().max(1e-6);
-    // Vibrance favors muted wood, cloth and terrain over already saturated
-    // lanterns or blood. One smooth global look applies to every scene/rig.
     let vibrance = 1. + (settings.vibrance.clamp(0., 2.) - 1.) * (1. - saturation);
     let vibrant = Vec3::splat(curved) + (contrasted - Vec3::splat(curved)) * vibrance;
     let shadow_weight = smooth(1. - luma * 2.);
@@ -78,8 +67,6 @@ fn smooth(value: f32) -> f32 {
 }
 
 fn fit_gamut(rgb: Vec3) -> Vec3 {
-    // Compress toward the same luminance instead of clipping individual
-    // channels, which would introduce abrupt hue shifts at display boundaries.
     let luma = luminance(rgb).clamp(0., 1.);
     let mut scale = 1_f32;
     for channel in rgb.to_array() {

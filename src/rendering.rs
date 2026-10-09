@@ -39,14 +39,12 @@ struct SurfaceReady;
 #[derive(Component)]
 pub(crate) struct DynamicSurface;
 
-/// World actors share native maps, but need close-combat texture admission.
 #[derive(Component)]
 pub(crate) struct ActorSurface;
 
 #[derive(Component)]
 struct LanternLight;
 
-/// Prepared source fixture owns one analytic emitter; shared glow is separate.
 #[derive(Component)]
 pub(crate) struct FixtureEmitter;
 
@@ -95,9 +93,6 @@ impl Plugin for GameRenderingPlugin {
 }
 
 fn cluster_capacity(mut settings: ResMut<bevy::light::cluster::GlobalClusterSettings>) {
-    // Keep Bevy's device-qualified GPU clustering and its CPU fallback. Reserve
-    // bounded initial lists for the complete scene before its first visible view
-    // rather than relying on delayed overflow readbacks during camera movement.
     if let Some(gpu) = settings.gpu_clustering.as_mut() {
         gpu.initial_z_slice_list_capacity = gpu.initial_z_slice_list_capacity.max(8192);
         gpu.initial_index_list_capacity = gpu.initial_index_list_capacity.max(262144);
@@ -124,10 +119,7 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
             affects_lightmapped_mesh_diffuse: true,
             contact_shadows_enabled: true,
             shadow_maps_enabled: true,
-            // Small native receiver bias preserves thin wall occluders.
             shadow_depth_bias: 0.002,
-            // Bias is in texels: scale with map resolution to retain
-            // the accepted world-space displacement at thin blockers.
             shadow_normal_bias: 0.25,
             ..default()
         },
@@ -152,16 +144,12 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
         bevy::pbr::ScreenSpaceTransmission::default(),
         GameCamera,
         bevy::light::ShadowFilteringMethod::Gaussian,
-        // Native depth supports SSAO and contact shadows. Bevy handles
-        // frustum culling and indirect batching on supported devices.
         DepthPrepass,
         Transform::from_xyz(0., 2., 0.),
         Hdr,
         Exposure {
             ev100: profile.outdoor_ev100,
         },
-        // Stacked views share this HDR target. The final overlay camera owns
-        // tone mapping, grading, bloom and antialiasing after compositing.
         Tonemapping::None,
         match profile.antialiasing {
             profile::Antialiasing::Msaa4 => Msaa::Sample4,
@@ -267,7 +255,6 @@ fn surfaces(
     let Some(library) = library else { return };
     for (entity, handle, name, skinned) in &surfaces {
         let mut ancestor = Some(entity);
-        // Animated providers retain Bevy's native skinning and PBR shader.
         let mut dynamic = skinned;
         let mut actor = false;
         while let Some(e) = ancestor {
@@ -281,8 +268,6 @@ fn surfaces(
         if dynamic {
             commands.entity(entity).insert(DynamicSurface);
             if actor {
-                // Use the same native skinned surface path as layered rigs:
-                // prepared normals/response and two-sided shadow specialization.
                 commands.entity(entity).insert(ActorSurface);
             }
             if actor || opaque::requires_extension(&library, &name.0) {
@@ -307,9 +292,6 @@ fn surfaces(
             Some("front") => Some(bevy::render::render_resource::Face::Front),
             _ => Some(bevy::render::render_resource::Face::Back),
         };
-        // PbrReady guarantees pbr::prepare already selected the coverage mode.
-        // In particular, prepared DDS albedo needs Blend for authored
-        // premultiplied surfaces; replaying the source mode undoes that fix.
         if state["emissive"].as_bool() == Some(true) {
             material.emissive_exposure_weight = 1.;
             material.emissive = if state["lamp"].as_bool() == Some(true) {
@@ -337,9 +319,6 @@ fn fixture_lights(
     >,
     profile: Res<profile::VisualProfile>,
 ) {
-    // Scene readiness and material preparation may complete on different frames.
-    // Dedicated ownership retries until the selected surface's bounds are ready;
-    // marking ordinary surface presentation ready cannot lose a fixture light.
     for (entity, bounds) in &fixtures {
         commands
             .entity(entity)
@@ -351,11 +330,7 @@ fn fixture_lights(
                         intensity: profile.lantern_lumens,
                         range: profile.lantern_range,
                         radius: 0.12,
-                        // Native defaults displace receivers eight centimeters
-                        // toward a lamp, enough to cross this map's thin walls.
                         shadow_depth_bias: 0.005,
-                        // Preserve physical receiver displacement with the
-                        // local maps (bias is in texels).
                         shadow_normal_bias: 0.3,
                         shadow_maps_enabled: false,
                         ..default()

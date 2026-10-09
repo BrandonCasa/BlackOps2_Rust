@@ -1,4 +1,3 @@
-//! Origins content definition and tunable practical gameplay profile.
 use bevy::prelude::*;
 use serde::Deserialize;
 use std::path::Path;
@@ -119,7 +118,6 @@ impl GameDefinition {
                 "Gameplay definition exceeds 32 MiB.".into(),
             ));
         }
-        // Version is checked before parsing a newer/older schema's required fields.
         let header: serde_json::Value =
             serde_json::from_slice(&bytes).map_err(|source| ContentError::Json {
                 path: path.into(),

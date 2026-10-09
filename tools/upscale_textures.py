@@ -1,9 +1,3 @@
-"""Qualified neural preparation with semantic channels and original mip tails.
-
-DeepBump uses ONNX Runtime CPU/CUDA for every inferred detail level.
-Model weights, candidates and
-receipts remain external. This command never writes into its source pack.
-"""
 import argparse
 import hashlib
 import json
@@ -29,12 +23,6 @@ RECIPE_VERSION = 5
 
 
 class DeepBumpUpscaler:
-    """Original DeepBump ONNX weights with deterministic contextual tile edges.
-
-    Its published wrapper has nonoverlapping tiles and random edge shuffling.
-    Here every output cell comes from a 256-pixel context with a retained halo,
-    so periodic textures and atlas borders remain deterministic.
-    """
     def __init__(self, weights, tile=256, halo=64, pause_file=None, device="cpu", saturate=True, cuda_graph=True,
                  math_mode="fp32", prefer_nhwc=False):
         if hashlib.sha256(weights.read_bytes()).hexdigest() != DEEPBUMP_UPSCALE_SHA256:
@@ -43,9 +31,6 @@ class DeepBumpUpscaler:
             raise ValueError("DeepBump 256-pixel model requires a halo below 128")
         self.backend = DeepBumpSession(weights, pause_file, device, saturate, cuda_graph,
                                       math_mode, prefer_nhwc)
-        # One persistent inference thread owns the graph and fixed buffers.
-        # CPU tile extraction/filtering overlaps the next GPU run; calls on a
-        # captured session remain strictly sequential.
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="deepbump")
         self.halo, self.tile, self.pause_file = halo, 256 - 2*halo, pause_file
 
@@ -97,8 +82,6 @@ class DeepBumpUpscaler:
             if not np.isfinite(crop).all():
                 raise ValueError("DeepBump produced nonfinite material data")
             if scale == 2:
-                # The ONNX model still infers 4x. Reduce each retained tile
-                # before allocating the final image, including 16K outputs.
                 rgba = np.empty((*crop.shape[:2], 4), np.uint8)
                 rgba[..., :3] = np.rint(crop*255).astype(np.uint8)
                 rgba[..., 3] = 255
@@ -115,7 +98,6 @@ class DeepBumpUpscaler:
 
 
 def preserve_low_frequency(candidate, source):
-    """Keep the original texel average, while retaining inferred subtexel detail."""
     height, width, channels = source.shape
     scale = candidate.shape[0]//height
     result = candidate.reshape(height, scale, width, scale, channels)
@@ -125,7 +107,6 @@ def preserve_low_frequency(candidate, source):
             error = source[start:start+16] - block.mean(axis=(1, 3))
             block += error[:, None, :, None, :]
             np.clip(block, 0, 1, out=block)
-    # Identical disjoint row operations; no change to per-cell arithmetic.
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as workers:
         list(workers.map(preserve_rows, range(0, height, 16)))
     return result.reshape(height*scale, width*scale, channels)
@@ -139,14 +120,10 @@ def upscale_channel(model, pixels, entry, scale=4):
     if len(addresses) != 1:
         raise ValueError(f"{entry['uri']}: conflicting clamp/repeat uses; split the material recipe explicitly")
     if role not in ("color", "emissive"):
-        # Physical fields are sampled data, not RGB artwork. Interpolate
-        # authored slopes/GGX moments independently without hallucinating masks.
         width, height = pixels.shape[1]*scale, pixels.shape[0]*scale
         result = np.zeros((height, width, 4), np.uint8)
         result[..., 3] = 255
         def resized(plane):
-            # Periodic fields interpolate across the authored seam. Clamped
-            # atlases retain edge values. Only one scalar plane is resized.
             pad = np.pad(plane, ((1, 1), (0, 0)), mode="edge" if samplers[0]&64 else "wrap")
             pad = np.pad(pad, ((0, 0), (1, 1)), mode="edge" if samplers[0]&32 else "wrap")
             enlarged = Image.fromarray(pad).resize(((pixels.shape[1]+2)*scale,
@@ -190,8 +167,6 @@ def upscale_channel(model, pixels, entry, scale=4):
         rgb = model.upscale(values[..., :3], repeat_u, repeat_v, scale=scale, entry=entry,
                             progress=f"{entry['uri']} {role} RGB")
         rgb = preserve_low_frequency(rgb, values[..., :3])
-        # Authored coverage is geometrical data, including opaque zero alpha.
-        # Preserve every source coverage cell exactly at the finer resolution.
         encode(rgb, slice(0, 3))
         result[..., 3] = np.repeat(np.repeat(pixels[..., 3], scale, axis=0), scale, axis=1)
     return result
@@ -205,7 +180,6 @@ def top_levels(pixels, entry, count=None):
 
 
 def downsample(pixels, entry):
-    """Material-aware area reduction with bounded floating-point scratch."""
     height, width = pixels.shape[:2]
     nh, nw = max(1, height//2), max(1, width//2)
     output = np.empty((nh, nw, 4), np.uint8)
@@ -234,12 +208,6 @@ def downsample(pixels, entry):
 
 
 def prepare_levels(model, levels, entry):
-    """Infer 4x stages, then reduce to the smallest sufficient 2^n extent.
-
-    Color artwork uses neural inference. Physical fields use their explicit
-    slope/GGX/scalar interpolation; coverage retains authored source cells.
-    All original lossless mip levels are appended at their exact texel size.
-    """
     scale = entry["scale"]
     if scale < 1 or scale & (scale-1):
         raise ValueError("Density output scale must be a positive power of two")
@@ -289,7 +257,7 @@ def source_levels(pack, masters, entry):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Qualified neural preparation with semantic channels and original mip tails.\n\nDeepBump uses ONNX Runtime CPU/CUDA for every inferred detail level.\nModel weights, candidates and\nreceipts remain external. This command never writes into its source pack.\n')
     parser.add_argument("--pack", type=Path, required=True)
     parser.add_argument("--inventory", type=Path, required=True)
     parser.add_argument("--masters", type=Path, required=True)
@@ -459,7 +427,6 @@ def main():
         temporary = receipt.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(record, indent=2) + "\n")
         temporary.replace(receipt)
-        # Qualification previews are evidence, never runtime source selection.
         if args.previews:
             Image.fromarray(levels[0]).save(output.with_suffix(".source.png"))
             with open_validated_dds(raw) as preview:

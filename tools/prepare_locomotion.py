@@ -1,4 +1,3 @@
-"""Append recovered Origins locomotion clips to canonical multipart zombie rigs."""
 import hashlib
 import json
 from pathlib import Path
@@ -22,7 +21,7 @@ def state_clips(text):
         names = matches[0].split()
         if not names or any(not re.fullmatch(r"ai_zombie_[a-z0-9_]+", n) for n in names):
             raise ValueError(f"invalid native locomotion substate: {state}")
-        states[state] = names  # Retain order and duplicate entries (walk_v9 occurs twice).
+        states[state] = names
     return states
 
 

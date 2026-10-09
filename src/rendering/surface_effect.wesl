@@ -1,6 +1,4 @@
 
-// Parameter order mirrors the retained T6 shader constant buffer. Bevy owns
-// skinning, scene transforms, exposure and all final post processing.
 struct Effect {
     scale_scroll: array<vec4<f32>,3>,
     origin_offset: array<vec4<f32>,3>,
@@ -27,10 +25,6 @@ fn effect_gradient(gradient: mat2x2<f32>, layer: u32, effect: Effect, time: f32)
     return mat2x2(turn*(gradient[0]*effect.scale_scroll[layer].xy),turn*(gradient[1]*effect.scale_scroll[layer].xy));
 }
 fn effect_color(samples: array<vec4<f32>,3>, coverage: vec3<f32>, effect: Effect, facing: f32) -> vec4<f32> {
-    // Native CSO: field layer, then the two bubble layers, accumulated alpha,
-    // authored facing falloff and HDR. Source script-vector suppression is zero
-    // until corresponding gameplay controls are reconstructed. Work in modern
-    // linear color rather than the original square/square-root HDR encoding.
     let second = coverage.y*effect.alpha_hdr.y;
     let first = coverage.x*effect.alpha_hdr.x;
     var rgb = samples[2].rgb*coverage.z;

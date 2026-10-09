@@ -1,4 +1,3 @@
-//! Bounded actual-window purchase/down/revive/restart workload, with controlled travel/budget.
 use super::*;
 use crate::{
     life::{LifeState, Vitality},
@@ -227,7 +226,6 @@ fn drive(
             coverage.phase = 5;
         }
         5 => {
-            // Deliberately request prohibited controls alongside crawl/fire.
             if episode.as_ref().is_some_and(|e| e.remaining > 0.2) {
                 input.movement = Vec2::X;
                 input.sprint = true;
@@ -376,8 +374,6 @@ fn drive(
         }
         12 if health.state() == LifeState::Downed => {
             if let Some(episode) = episode.as_mut() {
-                // Controlled delay exposes the otherwise unreachable 45-second deadline;
-                // production settings retain normal ten-second self revival.
                 episode.remaining = 100.;
                 coverage.heals = health_evidence.heals.len();
                 coverage.phase = 13;

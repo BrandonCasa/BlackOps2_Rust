@@ -53,8 +53,6 @@ fn vertex(input: SurfaceVertex) -> SurfaceOutput {
     @if(SKINNED) standard.joint_indices = input.joint_indices;
     @if(SKINNED) standard.joint_weights = input.joint_weights;
     @if(MORPH_TARGETS) standard.index = input.index;
-    // Use native mesh/skin/morph helpers without calling an @vertex entry point.
-    // WESL entry points cannot be called as functions by a material extension.
     let uncompressed = decompress_vertex(standard, input.instance_index);
     @if(MORPH_TARGETS) let vertex = morph_vertex(uncompressed, input.instance_index);
     @if(!MORPH_TARGETS) let vertex = uncompressed;

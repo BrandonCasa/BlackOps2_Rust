@@ -1,4 +1,3 @@
-//! Native-window mip qualification, with explicit controlled inventory grants.
 use crate::{
     GameState,
     assets::{GameDefinition, LaunchOptions},
@@ -202,7 +201,6 @@ fn observe(
         return;
     }
     if **state == GameState::Playing && !run.scene_started && run.phase == 0 {
-        // Start the scene clock only once the real gameplay session is present.
         run.scene_started = true;
         run.changed = Instant::now();
         return;
@@ -290,7 +288,6 @@ fn observe(
                     })
             })
         });
-    // Allow bounded slow startup uploads; retain the failed observation at 30s.
     if !full && age < 30. {
         return;
     }

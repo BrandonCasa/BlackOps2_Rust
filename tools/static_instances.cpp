@@ -1,4 +1,3 @@
-// Read-only OAT content-list callback. Emits metadata externally, never game code.
 #include "ContentPrinter.h"
 #include "Game/T6/T6_Assets.h"
 #include "Game/T6/T6.h"
@@ -29,8 +28,6 @@ void ContentPrinter::PrintContent() const {
         (world && (world->dpvs.smodelCount > 100000 || !world->dpvs.smodelDrawInsts)))
         throw std::runtime_error("missing or invalid world static instances");
     const unsigned instance_count = world && !library ? world->dpvs.smodelCount : 0;
-    // Material tables for every model/world material, including late actor rigs.
-    // DDS extraction below retains the complete native mip chain unchanged.
     std::ofstream definitions("material-definitions.json");
     definitions << std::setprecision(9) << '{';
     bool first_material = true;
@@ -239,9 +236,6 @@ void ContentPrinter::PrintContent() const {
         if (asset->m_type != ASSET_TYPE_IMAGE || asset->IsReference()) continue;
         const auto* image = static_cast<const GfxImage*>(asset->m_ptr);
         if (!required.contains(image) && !std::getenv("ORIGINS_INCLUDE_ALL_IMAGES")) continue;
-        // Generated reflection targets have no authored IWI/load-def payload.
-        // Preserve their declaration in the inventory, without decoding a live
-        // texture handle as if it were an offline load definition.
         if (library && image->name[0] == '*') continue;
         auto relative = std::filesystem::path(std::string(image->name) + ".dds");
         if (relative.is_absolute()) throw std::runtime_error("absolute image name");

@@ -1,4 +1,3 @@
-"""Prepare the twelve authored wood windows and their native board/tear clips."""
 import json, math
 import numpy as np
 from prepare_actors import convert
@@ -53,13 +52,11 @@ def prepare(config):
         node=candidates[0];links=[l for l in node['links'] if l['negotiation']];assert len(links)==1
         entry='node.native.'+str(node['index']);exit='node.native.'+str(links[0]['to'])
         interior=next(n for n in c['navigation_nodes'] if n['id']==exit);z=interior['zone'];assert z!='zone.unassigned'
-        # Only the authored ingress node inherits its linked interior activation zone.
         next(n for n in c['navigation_nodes'] if n['id']==entry)['zone']=z
         placement='placement.barrier.'+name
         c['placements'].append({'id':placement,'definition':identity,'position':position,'yaw':math.radians(float(e['angles'].split()[1])),'zone':z})
         c['interactions'].append({'id':'interaction.barrier.'+name,'placement':placement,'action':{'kind':'barrier','barrier':identity},'reach':94.21*.0254,'hold_seconds':1.,'hidden_prompt':False})
         c['barriers'].append({'id':identity,'placement':placement,'entry':entry,'exit':exit,'boards':boards,'repair_sound':'sound.barrier.repair','break_sound':'sound.barrier.break'})
-    # Native aliases/sample preparation is shared with all current-game audio.
     (pack/'game.json').write_text(json.dumps(game,indent=2)+'\n')
     from prepare_audio import prepare as prepare_audio
     prepare_audio(config)

@@ -1,4 +1,3 @@
-//! Bevy-owned first-person scenes and action-driven animation playback.
 use crate::{
     GameState,
     assets::{GameDefinition, LaunchOptions},
@@ -33,8 +32,6 @@ pub struct PresentationPlugin;
 pub(crate) struct PresentationAnimation;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct CameraPose;
-// Retained hip framing is a reconstruction. Native CG positioning (00533090)
-// removes its FOV correction at full ADS; the hip origin bias fades out too.
 const VIEWMODEL_FOV_DEGREES: f32 = 65.;
 const VIEWMODEL_ORIGIN: Vec3 = Vec3::new(0., 0.025, 0.);
 #[derive(Component, Clone, bevy::render::extract_component::ExtractComponent)]
@@ -140,9 +137,6 @@ pub(crate) fn first_person_light(
     mut luts: ResMut<TonemappingLuts>,
 ) {
     crate::rendering::grading::install(&mut images, &mut luts, &profile);
-    // Meter the composed linear HDR image once. A roof is not a light meter:
-    // bright ruins must not receive the dark-room exposure boost. Target
-    // photographic middle gray and bound adaptation using the authored EVs.
     let middle_gray = 0.18_f32.log2();
     let brighten = (profile.outdoor_ev100 - profile.indoor_ev100).clamp(0., 5.);
     let compensation = curves.add(
@@ -155,9 +149,6 @@ pub(crate) fn first_person_light(
         .expect("Monotonic exposure compensation curve"),
     );
     for (camera, mut world_camera) in &mut cameras {
-        // Both views already compose into the same linear HDR intermediate.
-        // Publish only the completed image; alpha-blending it over an earlier
-        // untonemapped world output makes translucent surfaces reveal that copy.
         world_camera.output_mode = CameraOutputMode::Skip;
         commands.entity(camera).with_children(|parent| {
             let mut final_camera = parent.spawn((
@@ -201,9 +192,6 @@ pub(crate) fn first_person_light(
                 bevy::render::view::NoIndirectDrawing,
                 Name::new("First-person camera"),
             ));
-            // A frozen shadow comparison must never allocate adaptive GPU
-            // state: removing AutoExposure later does not clear every native
-            // render-world cache on this pinned Bevy release.
             if !options.verify_viewmodel_shadows {
                 final_camera.insert(AutoExposure {
                     speed_brighten: profile.adaptation_speed,
@@ -405,11 +393,6 @@ fn attach_weapons(
             .find(|(owner, id, _, _)| *owner == rig.owner && *id == rig.weapon)
         {
             let socket = if rig.knife { knife } else { weapon };
-            // The hand socket is already in OAT's Y-up basis. Undo that basis on
-            // the gun scene root before inheriting the authored socket pose.
-            // Keep owned rigs outside the native arm scene's entity hierarchy.
-            // Bevy reinstantiates a modified WorldAsset by despawning all its
-            // descendants; nesting a gun beneath a scene bone destroys it too.
             if bindings
                 .get(entity)
                 .is_ok_and(|binding| binding.0 == *socket)
@@ -518,10 +501,6 @@ fn rig_ready(
         rig.players.len()
     );
 }
-// Sparse clips omit channels that stay at their authored baseline. Bevy leaves
-// those channels untouched, so a melee lunge otherwise survives into idle.
-// Reset before sampling, then apply ADS once afterwards. Pausing retains the
-// sampled native pose and only removes/reapplies our previous ADS modifier.
 fn clear_aim_pose(
     state: Res<State<GameState>>,
     mut bones: Query<(&mut Transform, &RigRestPose, Option<&mut AimingJoint>)>,
@@ -601,8 +580,6 @@ fn aim_pose(
         }
         for mut projection in &mut cameras {
             if let Projection::Perspective(p) = &mut *projection {
-                // CG_CalcFov (004a0890/004a10a0): weapon zoom fractions and
-                // reference 4:3 horizontal FOV. Keep the reconstructed hip lens.
                 p.fov = if equipment.is_none() {
                     inventory.ads_fov(VIEWMODEL_FOV_DEGREES, &weapon.mechanics)
                 } else {
@@ -612,9 +589,6 @@ fn aim_pose(
         }
     }
 }
-// CG camera-tag composition (004a0730): the weapon is assembled in the base
-// view frame, then tag_camera supplies the animated eye. Undo that eye motion
-// on the model parent so it is not applied to both the eye and the weapon.
 fn camera_pose(
     state: Res<State<GameState>>,
     rigs: Query<(Entity, &Rig)>,
@@ -662,7 +636,7 @@ fn camera_pose(
             let transforms = poses.p0();
             while cursor != root {
                 if rigs.contains(cursor) {
-                    break; // Attached model tags do not supply the hand rig's eye.
+                    break;
                 }
                 let Ok((pose, Some(parent))) = transforms.get(cursor) else {
                     break;
@@ -707,8 +681,6 @@ fn camera_pose(
             if camera.is_some() {
                 *pose = pose.mul_transform(eye);
             } else if group.is_some_and(|g| g.owner == owner) {
-                // Bounded reconstruction derived from the authored front post.
-                // Rotate about the eye so calibration is independent of FOV/depth.
                 *pose = inverse
                     .mul_transform(Transform::from_rotation(
                         Quat::IDENTITY.slerp(calibration, ads),
@@ -752,7 +724,6 @@ fn build_graphs(
         rig.graph = Some(graph);
     }
 }
-/// One native action selection and fixed-step shot clock for meshes and audio.
 pub(crate) fn primary_action(
     inventory: &WeaponInventory,
     weapon: &crate::origins::content::WeaponDefinition,
@@ -893,8 +864,6 @@ fn animate(
         } else {
             weapon
         };
-        // A primed throwable holds the last pull-pin pose. Its native idle is
-        // the unprimed pose; replaying it resets the hands and replaces the pin.
         let holding_throwable =
             selected.is_some() && action == WeaponAnimation::Idle && weapon.throwable.is_some();
         let clip_action = if holding_throwable {
@@ -951,7 +920,6 @@ fn animate(
                         if rig.arms { "arms" } else { "model" }
                     ));
                 }
-                // Action timers remain authoritative; pause preserves the current pose.
             }
             let timing = holding_throwable
                 .then_some((1., 0.))
@@ -984,9 +952,6 @@ fn animate(
                 clock[1] = clock[1].max(seek);
                 clock[2] += 1.;
             }
-            // Bevy wraps seek_time == duration even at speed zero. Paused
-            // players still evaluate their curves, without advancing/wrapping
-            // the gameplay-owned clock or losing its terminal held pose.
             if **state == GameState::Playing && seek.is_none() {
                 player.resume_all();
             } else {

@@ -1,4 +1,3 @@
-"""Build-time BCn cache with one recoverable failed semantic candidate."""
 import hashlib
 import io
 import json
@@ -38,7 +37,6 @@ def quality_limits(role):
 
 
 def sampled_channels(role):
-    # Prepared material declarations and native raster/ray consumers agree.
     return {"control": (0, 1), "coating": (0,), "emissive": (0, 1, 2)}.get(role, (0, 1, 2, 3))
 
 
@@ -49,8 +47,6 @@ def open_validated_dds(raw):
         raise ValueError("DDS decode exceeds the approved renderer extent")
     previous = Image.MAX_IMAGE_PIXELS
     try:
-        # Raise only for this verified extent; keep a finite ceiling and restore
-        # Pillow's prior guard even when decoding or qualification fails.
         Image.MAX_IMAGE_PIXELS = max(previous or 0, info["width"]*info["height"])
         with Image.open(io.BytesIO(raw)) as image:
             yield image
@@ -59,12 +55,8 @@ def open_validated_dds(raw):
 
 
 def target_format(entry):
-    # Explicit preparation choice for a bounded reauthored material set whose
-    # packed response exceeds the BC7 error ceiling. Never silently fall back.
     if entry.get('lossless', False):
         return "R8G8B8A8_UNORM_SRGB" if entry["color_space"] == "srgb" else "R8G8B8A8_UNORM"
-    # A constant 1x1 field occupies four bytes; BC requires a sixteen/eight-byte
-    # block and a block-aligned resource extent. Keep tiny fields explicit.
     width, height = entry["width"]*entry["scale"], entry["height"]*entry["scale"]
     if width % 4 or height % 4 or not entry.get("density_applicable", True):
         return "R8G8B8A8_UNORM_SRGB" if entry["color_space"] == "srgb" else "R8G8B8A8_UNORM"
@@ -88,7 +80,6 @@ def stored_bytes(entry):
 
 
 def write_master(path, levels, srgb, cutoffs=(), margins=None, generated_count=None, channels=None):
-    # Avoid rgba_dds's full-chain join: a 16K chain already owns 1.33 GiB.
     header = bytearray(rgba_dds([levels[-1]], srgb)[:148])
     height, width = levels[0].shape[:2]
     struct.pack_into("<III", header, 12, height, width, width*4)
@@ -103,9 +94,6 @@ def write_master(path, levels, srgb, cutoffs=(), margins=None, generated_count=N
             if not constrained and not unused:
                 stream.write(memoryview(np.ascontiguousarray(level)).cast("B"))
                 continue
-            # Constrain the encoder near actual surface cutoffs. Keep each
-            # reference pixel on its original side of every cutoff, and bound
-            # scratch to rows. Final quality still compares UNCHANGED levels.
             for start in range(0, len(level), 32):
                 rows = level[start:start+32].copy()
                 for channel in unused:
@@ -128,7 +116,6 @@ def write_master(path, levels, srgb, cutoffs=(), margins=None, generated_count=N
 
 
 def qualify(raw, levels, role, legacy_start=None, cutoffs=()):
-    """Compare each compressed mip with its semantic master in row chunks."""
     info = inspect_dds(raw)
     cursor, rows = 148, []
     rms_limit, max_limit = quality_limits(role)
@@ -170,10 +157,6 @@ def qualify(raw, levels, role, legacy_start=None, cutoffs=()):
         rows.append(dict(level=index, rms=rms, maximum=maximum, samples=count,
                          retained_source_mip=retained, generated_limits_passed=passed,
                          alpha_coverage=[dict(cutoff=cutoff, **value) for cutoff, value in coverage.items()]))
-        # Retained source bytes cannot acquire a new codec error. Record their
-        # master differences separately; reject generated/recompressed errors.
-        # Packed-response codec errors are diagnostics for the required visual
-        # gate. The user explicitly keeps GPU BC7 despite its numerical ceiling.
         if not retained and not numerical_passed and role != "response":
             raise ValueError(f"{role} mip {index} block compression failed quality/coverage limits: "
                              f"rms={rms:.6f}, max={maximum:.6f}, alpha={coverage}")
@@ -230,7 +213,6 @@ class CompressedTextureCache:
         temporary.replace(receipt)
 
     def release_prepared(self, key):
-        # Only this task-owned keyed intermediate is removed after acceptance.
         for suffix in (".dds", ".json", ".encoded.dds"):
             (self.root/"pending"/(key+suffix)).unlink(missing_ok=True)
 
@@ -294,7 +276,6 @@ class CompressedTextureCache:
                 if (info["width"], info["height"], info["mip_count"], info["dxgi"]) != (
                         entry["width"]*entry["scale"], entry["height"]*entry["scale"], len(levels), FORMATS[fmt]):
                     raise ValueError("Compression changed the material extent, transfer or mip chain")
-                # Preserve exact authored compressed tails before qualification.
                 if retained:
                     cut = 148+sum(m["bytes"] for m in info["mips"][:prefix])
                     raw = raw[:cut]+source_raw[148:]
@@ -306,8 +287,6 @@ class CompressedTextureCache:
                                    policy="representative-material-types", checked_mips=0)
                     break
                 if prepared_key is not None:
-                    # A rejected codec can be inspected/replaced without
-                    # discarding expensive, unchanged neural semantic levels.
                     (self.root/"pending"/(prepared_key+".encoded.dds")).write_bytes(raw)
                 try:
                     quality = qualify(raw, levels, entry["role"], prefix if retained else None, cutoffs)

@@ -1,4 +1,3 @@
-//! Lifetime-scoped OS power requests for unattended actual-window workloads.
 use bevy::prelude::*;
 
 use crate::assets::LaunchOptions;
@@ -28,8 +27,6 @@ impl Plugin for UnattendedRunPlugin {
     }
 }
 
-// SetThreadExecutionState is thread-scoped. Keep acquisition and destruction on
-// the Winit/main thread, even though the dependency's guard implements Send/Sync.
 #[cfg(windows)]
 struct PowerGuard {
     _request: keepawake::KeepAwake,
@@ -53,8 +50,6 @@ fn inhibit_sleep(world: &mut World) {
             }
         }
         Err(error) => {
-            // Release disables logging, so startup failure must remain visible
-            // through stderr and the process exit status as well as the receipt.
             eprintln!("Unattended run cannot inhibit display/system sleep: {error}");
             if let Some(output) = world.resource::<LaunchOptions>().verify.as_ref()
                 && !output.starts_with(env!("CARGO_MANIFEST_DIR"))
@@ -81,8 +76,6 @@ fn write_environment(world: &World) -> std::io::Result<()> {
         return Ok(());
     };
     if !output.is_absolute() || output.starts_with(env!("CARGO_MANIFEST_DIR")) {
-        // The ordinary driver owns argument validation. Never write a receipt to
-        // the source tree or an invalid output location during PreStartup.
         return Ok(());
     }
     let receipt =

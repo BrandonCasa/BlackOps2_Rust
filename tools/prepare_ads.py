@@ -1,9 +1,3 @@
-"""Derive a bounded optical calibration from original authored sight geometry.
-
-This reconstruction aligns the front post with the aim ray without changing
-the recovered native torso trajectory. Regions identify sight parts, not the
-whole weapon's highest vertex. Points use the actual skinned joint's local meters.
-"""
 import json
 import math
 import numpy as np
@@ -79,7 +73,7 @@ def optics(fields, pack, curve, identity):
     if identity not in {"c96_zm", "m14_zm", "mp40_zm", "870mcs_zm", "beretta93r_zm"} or model not in REGIONS or not curve:
         return None
     if not (pack / "actors" / (model + "_lod0.gltf")).is_file():
-        return None  # --prepare-ads refreshes calibration after actor assembly.
+        return None
     document, buffers, gun = load(pack, model, fields["idleAnim"])
     primitives = [p for m in document["meshes"] for p in m["primitives"]]
     points = np.concatenate([values(document, buffers, p["attributes"]["POSITION"]) for p in primitives])
@@ -103,15 +97,12 @@ def optics(fields, pack, curve, identity):
     skin = document["skins"][0]
     joint = document["nodes"][skin["joints"][int(binding[0])]]["name"]
     inverse = values(document, buffers, skin["inverseBindMatrices"])[int(binding[0])].reshape(4, 4).T
-    # Symmetric post center in the authored Y-up mesh, transformed by its
-    # inverse bind into the joint used by actual GPU skinning.
     point = inverse @ np.array([float(edge[:, 0].mean()), float(height), 0., 1.])
     _, _, arms = load(pack, "c_zom_dempsey_viewhands", fields["idleAnim"])
     half = math.sqrt(.5)
     frame = globals_of(arms, quaternion([0., half, 0., half]), curve[-1])
     posed = globals_of(gun, frame["tag_weapon"] @ quaternion([half, 0., 0., half]))
     eye = posed[joint] @ point
-    # Small rotation about the eye, rather than a depth-dependent screen offset.
     direction = eye[:3] / np.linalg.norm(eye[:3])
     target = np.array([0., 0., -1.])
     cross = np.cross(direction, target)

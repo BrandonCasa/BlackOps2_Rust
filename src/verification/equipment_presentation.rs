@@ -1,4 +1,3 @@
-//! Bounded captures of native first-person equipment phases in existing game runs.
 use super::*;
 use crate::{
     equipment::{GrenadeInventory, TacticalInventory},

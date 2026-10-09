@@ -1,4 +1,3 @@
-"""Prepare intact Origins zombie variants and source animation-driven tuning."""
 import json
 import numpy as np
 from pathlib import Path
@@ -10,7 +9,6 @@ CLIPS = {"idle":"ai_zombie_idle_v1_delta", "walk":"ai_zombie_walk_v1", "run":"ai
          "attack":"ai_zombie_attack_v1", "death":"ai_zombie_firestaff_death_collapse_a"}
 
 def hit_regions(enemy):
-    """Tunable capsules on original joints; radii reconstruct anatomical coverage."""
     regions = [("head", "head", "j_head", "j_head_end", .105, enemy["parts"][0]["presentation"]),
         ("chest", "upper_torso", "j_spineupper", "j_spine4", .21, enemy["presentation"]),
         ("abdomen", "torso", "j_spinelower", "j_spineupper", .20, enemy["presentation"]),
@@ -38,7 +36,6 @@ def prepare_hit_regions(config):
         "approximation":"Anatomical capsule radii, bound to original animated joints; not recovered native collision surfaces."}))
 
 def skin_margin(path):
-    """Bound every positively weighted vertex offset from its influencing joint."""
     doc = json.loads(path.read_text())
     buffers = [(path.parent / b["uri"]).read_bytes() for b in doc["buffers"]]
     def array(index):

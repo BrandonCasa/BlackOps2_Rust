@@ -1,4 +1,3 @@
-//! Actual-window purchases across every authored blocker group, then session reset.
 use super::*;
 use crate::{
     access::{DoorBlocker, DoorEvidence, DoorProp, ZoneAccess},
@@ -316,8 +315,6 @@ fn drive(
                 .iter()
                 .map(|d| d.props.len())
                 .sum::<usize>() as u32;
-            // Native same-alias limits replace overlapping leaf emitters before
-            // every leaf necessarily acquires a sink. All leaf events still fire.
             c.rows.push(serde_json::json!({"case":"all_groups","passed":access.purchases as usize==game.access.doors.len() && blockers.is_empty() && props.is_empty() && evidence.animated==expected && evidence.sounds==expected && evidence.playing_sounds>0 && evidence.playing_sounds<=expected && access.reachable.len()>3,"purchases":access.purchases,"buy_cues":audio.events.get("zmb_cha_ching"),"removed":evidence.removed,"animated":evidence.animated,"sounds":evidence.sounds,"playing_sounds":evidence.playing_sounds}));
             if v.traversal {
                 if let Some((start, end, alias)) = nav.inspect_traversal(&access) {
@@ -385,7 +382,6 @@ fn drive(
         10 => {
             pose.translation = c.center;
             if enemy_evidence.traversal_blocked_landings > c.traversal_blocked_start {
-                // Occupy the landing first, then clear it without changing the active route.
                 pose.translation += Vec3::Y * 2.;
             }
             p.velocity = Vec3::ZERO;
@@ -498,7 +494,6 @@ fn drive(
                 enemy.speed,
             )
             .rising(&enemy.traversals["rise"]);
-            // Hold the native rising pose while checking geometric boundaries.
             zombie.stunned = 100.;
             c.actor = Some(
                 commands
@@ -586,8 +581,6 @@ fn drive(
             }
         }
         13 => {
-            // A native rising actor is kept collision-disabled in the real map.
-            // Check the same trigger cylinder, cone and cover before admission.
             let enemy = game
                 .content
                 .enemies
@@ -647,7 +640,6 @@ fn drive(
                         c.combat_before = None;
                         c.combat_case += 1;
                         c.age = 0.;
-                        // Retire each controlled trap before checking another boundary.
                         for entity in &controlled_mines {
                             commands.entity(entity).despawn();
                         }

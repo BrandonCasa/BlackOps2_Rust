@@ -1,4 +1,3 @@
-//! Authored query volumes extend Avian; source profiles supply map-specific rules.
 use crate::{GameState, assets::GameDefinition, gameplay::GameStep, player::Player};
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -66,12 +65,9 @@ impl EnvironmentDefinition {
             })
     }
 }
-/// Default Avian membership is solid; query-only sensors occupy a separate layer.
 pub fn solids(excluded: impl IntoIterator<Item = Entity>) -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(LayerMask::DEFAULT).with_excluded_entities(excluded)
 }
-/// Zombie ingress clips stop the player capsule without obstructing actors,
-/// projectiles, repair targeting or navigation queries.
 pub const PLAYER_INGRESS_LAYER: u32 = 4;
 pub fn player_solids(excluded: impl IntoIterator<Item = Entity>) -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(1u32 | PLAYER_INGRESS_LAYER).with_excluded_entities(excluded)
@@ -189,7 +185,6 @@ pub(crate) fn slow(
             motion.muddy = muddy;
             evidence.record(serde_json::json!({"event":if muddy {"mud_enter"}else{"mud_leave"},"owner":owner.to_bits(),"area":area.map(|v|&v.0),"scale":motion.scale}));
         }
-        // Retain native 100 ms staircase rather than smooth the intended decrement.
         motion.clock += time.delta_secs();
         while motion.clock + 1e-6 >= mud.interval {
             motion.clock = (motion.clock - mud.interval).max(0.);

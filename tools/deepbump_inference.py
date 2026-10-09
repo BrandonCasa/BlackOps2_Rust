@@ -1,4 +1,3 @@
-"""Original DeepBump ONNX inference with cooperative CPU/CUDA ownership."""
 import gc
 import os
 import subprocess
@@ -29,8 +28,6 @@ class DeepBumpSession:
         self.session = None
 
     def offload(self):
-        # Destroy the provider session/arena rather than retaining its CPU/GPU
-        # allocations while another task owns the game or profiling workload.
         self.binding = self.input_value = self.output_value = None
         self.session = None
         gc.collect()

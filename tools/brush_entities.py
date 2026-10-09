@@ -1,4 +1,3 @@
-"""Prepare complete native brush entities, preserving canonical mesh attributes/materials."""
 from collections import Counter, defaultdict
 import hashlib
 import itertools
@@ -31,7 +30,6 @@ def convert(records, models):
         occurrences[identity] = occurrence + 1
         identity += f".{occurrence}"
         model = models[source["model"][1:]]
-        # Convert Euler rotation into the runtime basis, without baking it into geometry.
         pitch, yaw, roll = np.radians(vector(source.get("angles", "0 0 0"))) / 2
         cp, sp, cy, sy, cr, sr = math.cos(pitch), math.sin(pitch), math.cos(yaw), math.sin(yaw), math.cos(roll), math.sin(roll)
         xyz = BASIS @ np.array([sr*cp*cy-cr*sp*sy, cr*sp*cy+sr*cp*sy, cr*cp*sy-sr*sp*cy])
@@ -162,7 +160,6 @@ def separate_geometry(pack, brushes, ownership, scene):
         if remaining:
             mesh["primitives"] = remaining
         else:
-            # Keep unreferenced original data valid; retire every old render/collision instance.
             retired.add(mesh_id)
     if any(wanted.values()):
         raise ValueError("canonical world does not contain every original brush triangle")
@@ -183,7 +180,6 @@ def separate_geometry(pack, brushes, ownership, scene):
                                   "children":children,"extras":{"brush_entity":brush["id"]}})
         document["scenes"][0]["nodes"].append(root)
     document["buffers"][0]["byteLength"] = len(binary)
-    # Preparation operates on an external pack; original source/retained material bytes are untouched.
     (pack / "map.bin").write_bytes(binary)
     (pack / "map.gltf").write_text(json.dumps(document,separators=(",", ":")), encoding="utf-8")
     return document, {"owned_surfaces":len(owned_surfaces),"moved_triangles":moved,"visual_meshes":sum(b["visual_meshes"] for b in brushes),

@@ -1,4 +1,3 @@
-//! Explicit solo revival, without a fabricated standing reviver.
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,10 +1,3 @@
-"""Recover native skeleton baselines outside the workspace.
-
-Build a retained OAT checkout with tools/oat-native-skeleton.patch applied (git apply --unidiff-zero),
-then set preparation.native_unlinker to that external Unlinker executable.
-The patch retains XModel.trans alongside OAT's baseMat-derived glTF locals.
-Original installation files are read only; every output is external.
-"""
 import re
 import subprocess
 from pathlib import Path

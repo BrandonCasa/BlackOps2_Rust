@@ -1,4 +1,3 @@
-"""Decode OAT's BO2 version-19 animation exchange using its retained loader contract."""
 import math
 import struct
 
@@ -40,7 +39,7 @@ def decode(raw):
     last_frame = loop_frames - 1
     duration = max(last_frame, 1) / rate
     if flags & 8 and not flags & 128:
-        reader.unpack("f")  # T5-compatible streamable priming duration.
+        reader.unpack("f")
 
     def indices(count):
         if count >= loop_frames:
@@ -88,7 +87,6 @@ def decode(raw):
 
     delta = None
     if flags & 2 or (flags & 128 and flags & 4):
-        # Locomotion delta is retained separately; fixed-step gameplay owns world motion.
         delta = {"rotation": rotations(not (flags & 128 and flags & 4)), "translation": translations()}
     mask_size = math.ceil(bone_count / 8)
     flip, half = reader.take(mask_size), reader.take(mask_size)

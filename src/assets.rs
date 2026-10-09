@@ -362,8 +362,6 @@ fn begin_load(
                 commands.spawn((
                     WorldAssetRoot(handle.clone()),
                     MapRoot { collision },
-                    // Reveal geometry after canonical textures and extended
-                    // material layouts have finished their scene assembly.
                     Visibility::Hidden,
                 ));
                 handles.push(handle);

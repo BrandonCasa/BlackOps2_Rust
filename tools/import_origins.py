@@ -2,12 +2,6 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy>=2,<3", "pillow>=12,<13", "soundfile>=0.13,<0.14"]
 # ///
-"""Validate and copy the prepared runtime closure; never rewrite source assets.
-
-uv run tools/import_origins.py --config config/local_assets.toml
-Add --check to validate an existing import against its external source.
-Only the deliberately limited glTF profile emitted by prepare_origins is supported.
-"""
 import argparse
 from functools import lru_cache
 import hashlib
@@ -51,7 +45,6 @@ def require(condition, message):
 
 @lru_cache(maxsize=65536)
 def dds_layout(path, modified, size):
-    # Shared actor/world maps are inspected once per immutable file revision.
     try:
         from .material_textures import inspect_dds
     except ImportError:
@@ -135,7 +128,6 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
             <= {"KHR_materials_unlit"}, "unsupported glTF extension")
 
     def dependency(uri, suffix):
-        # Resolve each URI relative to its glTF while preserving the pack-relative path.
         safe_path(path.parent, uri, {suffix})
         name = (PurePosixPath(relative).parent / uri).as_posix()
         result = safe_path(root, name, {suffix})
@@ -268,9 +260,6 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                 for layer in effect["layers"]:
                     require(set(layer) == {"scale", "origin", "offset", "scroll", "rotation", "alpha", "depth"}, "invalid effect layer")
                     require(all(len(layer[k]) == 2 and all(effect_number(v) for v in layer[k]) for k in ("scale", "origin", "offset", "scroll", "rotation")), "invalid effect UV transform")
-                    # These are native coverage multipliers, not normalized
-                    # opacity. The retained spawn glow uses Layer1Alpha=1.5;
-                    # the shader saturates the final accumulated coverage only.
                     require(all(effect_number(layer[k]) for k in ("alpha", "depth")) and layer["alpha"] >= 0, "invalid effect coverage/depth")
                 require(all(("color", i) in {(c["role"], c["layer"]) for c in surface["channels"]} for i in range(3)), "missing effect color binding")
             require(surface["identity"] == material.get("name") and isinstance(surface["family"], str), "invalid material identity")
@@ -362,8 +351,6 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
         extras = node.get("extras", {})
         allowed_extras = {"static_instance", "source_model", "fixture_emitter", "brush_entity"}
         if allow_native_transforms:
-            # Optional source-library exchanges retain source joint arithmetic;
-            # these fields are never accepted by the production runtime pack.
             allowed_extras.update({"origins_native_rotation", "origins_native_translation"})
             for key, width in (("origins_native_rotation", 4), ("origins_native_translation", 3)):
                 if key in extras:
@@ -479,7 +466,6 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
             visited.add(index)
             pending.extend(node.get("children", []))
         scene_meshes.append([nodes[i] for i in sorted(visited) if "mesh" in nodes[i]])
-    # Also check cycles in nodes not attached to a scene.
     done = set()
     def visit(index, active):
         require(index not in active, "cyclic node graph")
@@ -494,7 +480,6 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
 
 
 def validate_tuning(tuning):
-    """Mirror Tuning/MobilityTuning serde defaults and startup constraints."""
     scalars = {"walk_speed": 4.8, "sprint_speed": 7.2, "sprint_seconds": 4.,
         "sprint_minimum": .25, "sprint_recovery_rate": 1., "sprint_recovery_delay": 0.,
         "crouch_speed": 2.4, "gravity": 20., "jump_speed": 6., "step_height": .45,
@@ -509,8 +494,6 @@ def validate_tuning(tuning):
 
     def number(value, key, nonnegative=False):
         require(type(value) in (int, float), f"invalid tuning number: {key}")
-        # Startup deserializes f32, so overflow, underflow to zero and rounded
-        # cross-field comparisons must use that representation here too.
         try:
             with np.errstate(over="ignore", under="ignore", invalid="ignore"):
                 value = np.float32(value)
@@ -679,8 +662,6 @@ def validate_pack(root, receipt=None, exact=False):
         if receipt is not None:
             require(count == receipt[receipt_key], "preparation receipt count mismatch")
     validate_brush_scene(environment.get("brush_entities", []), documents[game["scene"].split("#",1)[0]][0], require)
-    # Additional presentation dependencies belong to the runtime closure. Raw source
-    # inputs and preparation receipts are never traversed here.
     map_documents = dict(documents)
     map_files = set(files)
     for reference in dependencies:
@@ -706,7 +687,6 @@ def validate_pack(root, receipt=None, exact=False):
                 with Image.open(dependency) as pixels:
                     pixels.load()
             elif suffix == ".ogg":
-                # Stream-decode rather than accepting a valid header with damaged packets.
                 import soundfile
                 with soundfile.SoundFile(dependency) as sound:
                     require(sound.format == "OGG" and sound.subtype == "VORBIS" and sound.frames > 0, "unsupported or empty runtime audio")
@@ -764,7 +744,6 @@ def external(path):
 
 
 def reconcile_sources(config, receipt, documents):
-    """Verify receipt facts that grouping removes from runtime glTF against retained inputs."""
     from fixture_emitters import emitter_surface
     root = external(config["assets"]["inspection_output"])
     settings = config.get("preparation", {})
@@ -830,8 +809,6 @@ def import_pack(source, destination, receipt, check=False, validated_hashes=None
             existing = {p.relative_to(destination).as_posix() for p in destination.rglob("*") if p.is_file()}
             retired = existing - hashes.keys()
             if retired:
-                # Replace only a complete previously validated runtime closure.
-                # Arbitrary/unrelated files still fail exact validation before deletion.
                 _, _, previous = validate_pack(destination, None, exact=True)
                 require(existing == previous.keys(), "destination contains unrelated files")
                 for name in retired:
@@ -840,8 +817,6 @@ def import_pack(source, destination, receipt, check=False, validated_hashes=None
             target = safe_path(destination, name, RUNTIME_SUFFIXES)
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.is_file() or hashlib.sha256(read_bytes(target)).hexdigest() != hashes[name]:
-                # Replace only this checkout's directory entry. In-place writes
-                # would mutate another qualified checkout sharing a hardlink.
                 descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.import-", dir=target.parent)
                 os.close(descriptor)
                 try:
@@ -860,7 +835,6 @@ def import_pack(source, destination, receipt, check=False, validated_hashes=None
 
 
 def check_index(destination, hashes, ordinary=None):
-    """Inspect every staged candidate, its attributes, pointer bytes and local LFS object."""
     def git(*args, data=None):
         return subprocess.run(["git", *args], input=data, cwd=WORKSPACE,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True).stdout
@@ -882,8 +856,6 @@ def check_index(destination, hashes, ordinary=None):
     for name, key, value in zip(attributes[0:-1:3], attributes[1:-1:3], attributes[2:-1:3]):
         attrs.setdefault(name, {})[key] = value
     batch = io.BytesIO(git("cat-file", "--batch", data="".join(oid + "\n" for oid in entries.values()).encode()))
-    # Linked worktrees share LFS storage; --git-path points at the worktree's
-    # private Git directory and also ignores configured lfs.storage overrides.
     media = [line.removeprefix("LocalMediaDir=") for line in git("lfs", "env").decode().splitlines()
              if line.startswith("LocalMediaDir=")]
     require(len(media) == 1 and Path(media[0]).is_absolute(), "cannot resolve Git LFS storage")
@@ -916,7 +888,7 @@ def check_index(destination, hashes, ordinary=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Validate and copy the prepared runtime closure; never rewrite source assets.\n\nuv run tools/import_origins.py --config config/local_assets.toml\nAdd --check to validate an existing import against its external source.\nOnly the deliberately limited glTF profile emitted by prepare_origins is supported.\n')
     parser.add_argument("--config", type=Path, default=WORKSPACE / "config/local_assets.toml")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--check-index", action="store_true", help="also verify staged files and LFS objects; implies --check")

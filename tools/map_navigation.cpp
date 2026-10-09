@@ -1,4 +1,3 @@
-// Read-only compiled BO2 navigation export through existing OAT zone ownership.
 #include "ContentPrinter.h"
 #include "Game/T6/T6_Assets.h"
 #include "Game/T6/T6.h"

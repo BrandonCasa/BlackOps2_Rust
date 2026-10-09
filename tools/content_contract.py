@@ -1,7 +1,3 @@
-"""Version-two stable IDs and typed content dependency validation.
-
-Used by preparation, import, and packaging; never enumerates optional raw inputs.
-"""
 import math
 import re
 try:
@@ -40,7 +36,6 @@ TABLES = {
 
 
 def initial_catalog():
-    """Carry the existing playable starter data forward; unrecovered tables stay empty."""
     content = {table: [] for table in TABLES}
     content["definitions"] = []
     content["zones"] = [{"id": "zone.start", "initially_open": True}]

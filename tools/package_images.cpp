@@ -1,4 +1,3 @@
-// Read every image-package entry, including entries unreferenced by fastfiles.
 #include "ContentPrinter.h"
 #include "ObjContainer/IPak/IPak.h"
 #include "Image/IwiLoader.h"

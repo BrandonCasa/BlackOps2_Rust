@@ -1,4 +1,3 @@
-//! Controlled inventory branches across actual application round transitions.
 use super::Verification;
 use crate::{
     assets::GameDefinition,

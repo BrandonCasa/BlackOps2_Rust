@@ -1,4 +1,3 @@
-//! Source-informed opaque surfaces within Bevy's standard material pipeline.
 mod material;
 use super::{SurfaceReady, profile::VisualProfile};
 use crate::assets::{LoadConfiguration, LoadFailure, WorldCollider};
@@ -95,7 +94,6 @@ impl OpaqueSurfaceStatus {
     }
 }
 
-// Converted materials own the prepared texture handles after scene assembly.
 pub(super) fn release_preparation(library: &mut SurfaceLibrary) {
     for definition in library.definitions.values_mut() {
         definition.channels.clear();
@@ -109,8 +107,6 @@ pub(super) fn converted_source(
     library.materials.contains_key(&id)
 }
 
-// Canonical normal scale, coating roughness, material identity, tile repetitions.
-// Flags select authored texture layers; illumination always comes from Bevy.
 #[derive(Clone, Copy, Debug, Reflect, ShaderType)]
 pub(super) struct EffectParameters {
     pub scale_scroll: [Vec4; 3],
@@ -187,9 +183,6 @@ pub(super) struct SurfaceParameters {
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 #[data(100, SurfaceParameters, binding_array(125))]
-// Stay below StandardMaterial's 2048-entry shared texture-array layout. The
-// extension and base share an allocator; a larger extension limit can overflow
-// the base array as additional PBR maps become ready.
 #[bindless(limit(1024), index_table(range(100..124), binding(124)))]
 pub(super) struct OpaqueSurface {
     parameters: SurfaceParameters,
@@ -261,12 +254,7 @@ impl MaterialExtension for OpaqueSurface {
         layout: &MeshVertexBufferLayoutRef,
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        // Bevy's shadow/depth prepass uses its own locations (including color at 7).
-        // Only the forward adapter needs the additional authored layer attributes.
         if descriptor.vertex.shader != VERTEX_SHADER {
-            // Native shadow keys specify the light projection; camera prepass
-            // keys do not. Include alpha-tested casters without changing their
-            // discard shader or the camera's authored backface culling.
             let light_projection = key
                 .mesh_key
                 .intersection(MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS);
@@ -276,8 +264,6 @@ impl MaterialExtension for OpaqueSurface {
                     .contains(MeshPipelineKey::UNCLIPPED_DEPTH_ORTHO)
                     || light_projection == MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE);
             if shadow_view {
-                // Room-facing wall/ceiling sheets must also block light coming
-                // from their back. Match the ray scene's two-sided visibility.
                 descriptor.primitive.cull_mode = None;
             }
             return Ok(());
@@ -287,9 +273,6 @@ impl MaterialExtension for OpaqueSurface {
             Mesh::ATTRIBUTE_NORMAL.at_shader_location(1),
             Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
         ];
-        // Late scenes can specialize against the previous uploaded layout while
-        // conversion adds neutral attributes to their CPU mesh. Request only
-        // actual GPU inputs; the shader supplies the same defaults in that gap.
         for (attribute, location, define) in [
             (Mesh::ATTRIBUTE_TANGENT, 4, "ORIGINS_TANGENT"),
             (Mesh::ATTRIBUTE_UV_1, 3, "ORIGINS_UV_B"),
@@ -306,8 +289,6 @@ impl MaterialExtension for OpaqueSurface {
                 debug!("Surface vertex input {define} uses its neutral default");
             }
         }
-        // Keep Bevy's intermediate/output structs and our fragment interface
-        // stable even when the corresponding vertex input uses a default.
         for (attribute, define) in [
             (Mesh::ATTRIBUTE_TANGENT, "VERTEX_TANGENTS"),
             (Mesh::ATTRIBUTE_UV_1, "VERTEX_UVS_B"),
@@ -320,8 +301,6 @@ impl MaterialExtension for OpaqueSurface {
                 }
             }
         }
-        // Keep Bevy's native GPU joint lookup and weighted pose arithmetic.
-        // The wrapper must forward both inputs whenever SKINNED is selected.
         if layout.0.contains(Mesh::ATTRIBUTE_JOINT_INDEX)
             && layout.0.contains(Mesh::ATTRIBUTE_JOINT_WEIGHT)
         {
@@ -349,15 +328,11 @@ pub(super) struct SurfaceDefinition {
 #[derive(Resource)]
 pub(super) struct SurfaceLibrary {
     pub definitions: HashMap<String, SurfaceDefinition>,
-    // Providers outlive scene instances and their released CPU vertex copies.
     pub(super) prepared_meshes: HashSet<AssetId<Mesh>>,
-    // Static placements share their physical material; no instance lighting payloads.
     materials: HashMap<AssetId<StandardMaterial>, Handle<OpaqueMaterial>>,
     animation_clock: Handle<ShaderBuffer>,
 }
 
-/// Late animated scenes supply their own complete prepared channel ownership.
-/// World preparation may already have released its temporary channel table.
 pub(super) fn register_prepared(
     library: &mut SurfaceLibrary,
     surface: &Value,
@@ -579,8 +554,6 @@ pub(super) fn animate_water(
     mut buffers: ResMut<Assets<ShaderBuffer>>,
 ) {
     let Some(library) = library else { return };
-    // Updating material assets would churn bindless slabs and invalidate cached
-    // shadow queues. Bevy uploads one shared buffer in place; materials stay static.
     if let Some(mut clock) = buffers.get_mut(&library.animation_clock) {
         clock.clear();
         clock.extend_from_slice(&[Vec4::new(time.elapsed_secs(), mode.0 as f32, 0., 0.)]);
@@ -669,7 +642,6 @@ pub(super) fn convert(
                 }
             }
             let parameters = SurfaceParameters {
-                // Canonical maps already include family normal strength and roughness cooking.
                 response: Vec4::new(1., 0.12, definition.identity_hash, definition.tiles),
                 modes: UVec4::new(
                     tile as u32
@@ -755,9 +727,6 @@ pub(super) fn convert(
                 mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, vec![[0., 0.]; count]);
             }
             let count = mesh.count_vertices();
-            // glTF vertex colors are optional. The surface adapter requires
-            // them, so uncolored meshes use the neutral multiplicative tint.
-            // Preserve authored colors and alpha on meshes that supply them.
             if mesh.attribute(Mesh::ATTRIBUTE_COLOR).is_none() {
                 mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.; 4]; count]);
             }

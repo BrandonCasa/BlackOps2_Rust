@@ -1,4 +1,3 @@
-//! Origins solo perk ownership and episode-bound automatic revival.
 use crate::{
     GameState,
     assets::GameDefinition,

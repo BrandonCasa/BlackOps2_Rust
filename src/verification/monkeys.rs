@@ -1,4 +1,3 @@
-//! Real tactical input and naturally admitted actors, following the native developer grant.
 use super::{
     Verification,
     semtex::{aim, standing},
@@ -67,8 +66,6 @@ fn approach(
         let Ok(direction) = Dir3::new(delta) else {
             continue;
         };
-        // A clear eye-height route can still put a downward throw behind low cover.
-        // Choose open ground for the intended lethal-blast branch as well.
         let ground = center - Vec3::Y * (height * 0.5 - 0.10);
         let blast_line = target - ground;
         let filter = crate::environment::solids([owner, actor]);
@@ -277,7 +274,6 @@ fn drive(
                 let remaining = g.remaining;
                 let distance = coverage.first_distance;
                 coverage.records.push(serde_json::json!({"event":"active","remaining":remaining,"actor_distance":distance,"position":position.to_array()}));
-                // Outside the native 2.54 m blast, close enough to inspect original grounded animation.
                 if let Some(center) = approach(
                     &query,
                     owner,

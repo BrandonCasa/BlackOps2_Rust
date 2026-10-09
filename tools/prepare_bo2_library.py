@@ -2,7 +2,6 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
 # ///
-"""Prepare every extracted BO2 model LOD and texture, independently of runtime use."""
 import argparse
 import copy
 import hashlib
@@ -32,16 +31,12 @@ except ImportError:
 
 
 def material_converter_hash():
-    # Cached surfaces depend on native binding/physical-response interpretation
-    # and presentation rules as well as pixel cooking. Name each dependency so
-    # any change invalidates the previous material recipe.
     names = ("prepare_materials.py", "material_textures.py", "material_semantics.py", "prepare_origins.py")
     sources = {name: digest(Path(__file__).with_name(name)) for name in names}
     return hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()
 
 
 def revoke_qualification(pack):
-    """Withdraw approval before changing any previously qualified library data."""
     path = pack / "library.json"
     manifest = json.loads(path.read_text())
     manifest["qualified"] = False
@@ -141,9 +136,6 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
                 target = output / original.name
                 source_hash = digest(original)
                 previous_source = previous_sources.get((key, model["name"], lod), {})
-                # This recovery option reuses geometry emitted earlier in the
-                # same extraction, while cooking every material afresh. Changed
-                # exchanges and incomplete buffers always run conversion again.
                 previous = json.loads(target.read_text()) if (reuse_geometry and target.is_file()
                     and previous_source.get("source_sha256") == source_hash
                     and previous_source.get("uri") == target.relative_to(pack).as_posix()) else {}
@@ -154,9 +146,6 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
                     relative, _ = convert(original, output, zone / "images", [], prepare_images=False)
                     target = output / relative
                     doc = json.loads(target.read_text())
-                # Recover native standard references when a previous partial
-                # cook already removed them; all bindings remain in the native
-                # material definition and image resolver.
                 source_document = json.loads(original.read_text())
                 if any(m.get("extras", {}).get("surface", {}).get("version") == 2 for m in doc.get("materials", [])):
                     doc["materials"] = source_document.get("materials", [])
@@ -168,7 +157,6 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
                 target.write_text(json.dumps(doc, separators=(",", ":")) + "\n")
                 lods.append({"lod": lod, "uri": target.relative_to(pack).as_posix(), "source_sha256": source_hash})
             model_records.append({"zone": key, "identity": model["name"], "source_lods": model["lods"], "variants": lods})
-        # Materials used only by world surfaces also receive canonical maps.
         bank = {"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": []}], "nodes": [], "materials": []}
         for name in definitions[key]:
             material = {"name": name}
@@ -182,7 +170,6 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
     if missing:
         (work / "missing-models.json").write_text(json.dumps(missing, indent=2) + "\n")
         raise ValueError(f"{len(missing)} native model LODs were not exported")
-    # Associate indexed package entries with named native images/semantics.
     semantic_by_name = {}
     for mapping in definitions.values():
         for material in mapping.values():
@@ -208,8 +195,6 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
             try:
                 layout = inspect_dds(path.read_bytes())
             except ValueError:
-                # Precision/cube/volume data stays lossless. No flattening into a
-                # fictitious 2D albedo, quantization or normal conversion.
                 uri = "lighting/" + raw_hash[:32] + ".dds"
                 target = pack / uri
                 target.parent.mkdir(exist_ok=True)
@@ -252,7 +237,6 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
 
 
 def qualify_existing(config):
-    """Finish quality checks on an assembled library without recooking geometry."""
     inspection = Path(config["assets"]["inspection_output"]).resolve()
     pack, work = inspection / "bo2-library-prepared", inspection / "bo2-library-cooking"
     manifest = revoke_qualification(pack)
@@ -264,15 +248,8 @@ def qualify_existing(config):
 
 
 def retune_unbound(config):
-    """Recover normal encoding and gamma from unbound package-image headers.
-
-    Fastfiles do not name every package entry. DXN format and native IWI gamma
-    still provide a useful typed conversion without inventing surface identity.
-    """
     inspection = Path(config["assets"]["inspection_output"])
     source, pack, work = inspection / "bo2-library-extraction", inspection / "bo2-library-prepared", inspection / "bo2-library-cooking"
-    # Retuning changes the prepared closure before its all-mip qualification.
-    # An interrupted retry must never leave an earlier approval usable.
     manifest = revoke_qualification(pack)
     catalog = json.loads((WORKSPACE / "config/bo2-materials.json").read_text())
     overrides = json.loads((WORKSPACE / "config/origins-materials.json").read_text())
@@ -321,7 +298,6 @@ def retune_unbound(config):
             provenance.setdefault(record_key, {"zone": zone, "identity": identity, "physical_class": surface["physical_class"],
                 "provenance": surface["provenance"], "bindings": bindings,
                 "unresolved": not original or surface["physical_class"] == "unclassified"})
-            # Packed gloss never becomes coverage, including secondary layers.
             family = surface["provenance"]["source_family"]
             if "tile_blend" in family:
                 colors = [b for b in original.get("textures", []) if b["semantic"] == 2]
@@ -369,8 +345,6 @@ def retune_unbound(config):
         if texture["variant"].get("lossless"):
             continue
         path = source / texture["source"]
-        # The loose launcher bitmap was already cooked explicitly as color.
-        # It has no DDS format or IWI header to reinterpret on a retry.
         if path.suffix.lower() == ".bmp":
             continue
         record = inspect_dds(path.read_bytes())
@@ -395,7 +369,6 @@ def retune_unbound(config):
         texture["variant"] = cache[key]
         texture["interpretation"] = "native DXN slope normal" if role == "normal" else "native IWI gamma/color binding; physical identity unresolved" if role == "color" else "native scalar mask" if role == "mask" else "linear control data; physical identity unresolved"
         changed += 1
-    # The installation also includes a loose launcher bitmap.
     installation = Path(config["assets"]["installation_root"])
     loose = installation / "codlogo.bmp"
     if loose.is_file() and not any(t["source"] == "loose/codlogo.bmp" for t in manifest["textures"]):
@@ -421,7 +394,7 @@ def retune_unbound(config):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Prepare every extracted BO2 model LOD and texture, independently of runtime use.')
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--retune-unbound", action="store_true")
     parser.add_argument("--reuse-geometry", action="store_true")

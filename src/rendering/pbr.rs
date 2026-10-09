@@ -1,4 +1,3 @@
-//! Prepared PBR maps use Bevy's loaders and StandardMaterial, including actor rigs.
 use bevy::{
     asset::{AssetId, LoadState, uuid_handle},
     gltf::GltfMaterialExtras,
@@ -205,7 +204,6 @@ pub(super) fn diagnostics(
                 },
             })
         });
-        // A cached material can have been used in an earlier diagnostic mode.
         if let Some(mut material) = diagnostic_materials.get_mut(&*handle) {
             material.extension.parameters.x = mode.0 as f32;
         }
@@ -227,10 +225,6 @@ pub(super) fn load(server: &AssetServer, texture: &PreparedTexture) -> Handle<Im
         .with_settings(move |settings: &mut ImageLoaderSettings| {
             settings.is_srgb = srgb;
             let point = native & 7 == 1;
-            // Point/no-mip samplers are authored data contracts. Filtered
-            // materials use trilinear 16x anisotropy even when the legacy
-            // renderer selected nearest mip transitions: anisotropic filtering
-            // requires all three filters to be linear in wgpu.
             let filtered_mips = !point && native & 24 != 0;
             settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                 address_mode_u: if native & 32 != 0 {
@@ -311,14 +305,9 @@ pub(super) fn prepare(
             let Some(mut material) = materials.get_mut(&handle.0) else {
                 continue;
             };
-            // Instantiating a retained scene can restore its original glTF
-            // material into the same ID. Reapply the canonical maps before
-            // publishing readiness; a boolean cache alone leaves white rigs.
             if !cached.maps_match(&material) {
                 *material = cached.material.clone();
             }
-            // Materials are shared, but visibility belongs to each scene
-            // instance, including rigs spawned after initial preparation.
             if cached.hidden {
                 commands.entity(entity).insert(Visibility::Hidden);
             } else if let Some(original) = pending_visibility {
@@ -356,9 +345,6 @@ pub(super) fn prepare(
             .iter()
             .any(|(_, handle)| !server.is_loaded_with_dependencies(handle.id()))
         {
-            // Late rigs can become scene-ready before their external prepared
-            // maps. Preserve the primitive's authored visibility while its
-            // initial texture-less glTF material is being completed.
             if skinned
                 && pending_visibility.is_none()
                 && let Some(visibility) = visibility
@@ -420,9 +406,6 @@ pub(super) fn prepare(
             material.alpha_mode = match state["alpha"].as_str() {
                 Some("mask") => AlphaMode::Mask(state["cutoff"].as_f64().unwrap_or(0.5) as f32),
                 Some("blend") => AlphaMode::Blend,
-                // Prepared DDS color is straight albedo. StandardMaterial's
-                // premultiplied mode leaves the newly lit radiance unchanged,
-                // so alpha blending supplies the required coverage weighting.
                 Some("premultiplied") if !channels.is_empty() => AlphaMode::Blend,
                 Some("premultiplied") => AlphaMode::Premultiplied,
                 Some("add") => AlphaMode::Add,
@@ -442,8 +425,6 @@ pub(super) fn prepare(
         } else if let Some(original) = pending_visibility {
             commands.entity(entity).insert(original.0);
         }
-        // Prepared materials retain the maps; completed requests need not
-        // keep another strong owner of every texture and its source metadata.
         pending.remove(&handle.0.id());
         prepared.insert(
             handle.0.id(),

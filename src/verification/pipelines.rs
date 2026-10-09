@@ -1,4 +1,3 @@
-//! Fail verification on specialization and shader errors instead of timing missing draws.
 use bevy::{
     log::{
         BoxedLayer,
@@ -23,8 +22,6 @@ pub(super) struct RenderFailure {
     error: String,
 }
 
-/// LogPlugin runs before the verification/render plugins. They must retain the
-/// same resource so errors emitted during engine registration are not lost.
 pub(crate) fn error_layer(app: &mut App) -> Option<BoxedLayer> {
     if app
         .world()
@@ -60,9 +57,6 @@ impl Visit for Message {
 impl<S: Subscriber> Layer<S> for MaterialErrors {
     fn on_event(&self, event: &Event<'_>, _context: Context<'_, S>) {
         let metadata = event.metadata();
-        // Specialization errors are logged before PipelineCache receives a
-        // descriptor. These engine errors otherwise leave missing draws while
-        // the cached-shader inspection still reports success.
         if *metadata.level() != bevy::log::Level::ERROR
             || !(metadata.target().starts_with("bevy_pbr::")
                 || metadata.target().starts_with("bevy_render::")
@@ -88,8 +82,6 @@ pub(super) fn install(app: &mut App) {
     app.init_resource::<PipelineFailures>()
         .add_systems(Update, fail);
     let failures = app.world().resource::<PipelineFailures>().clone();
-    // Release frame measurements retain error reporting without walking the
-    // entire pipeline cache on every render frame.
     if app
         .world()
         .resource::<crate::assets::LaunchOptions>()

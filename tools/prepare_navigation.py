@@ -1,4 +1,3 @@
-"""Prepare compiled native routes, player zones and ordinary spawn identities."""
 import hashlib,json
 import numpy as np
 from prepare_gameplay_content import external
@@ -27,7 +26,6 @@ def prepare(config):
                 n=np.zeros(3);n[axis]=1;planes.extend([(n,b['max'][axis]),(-n,-b['min'][axis])])
             normals=np.array([p[0] for p in planes]);distances=np.array([p[1] for p in planes]);regions.append((z,origin,normals,distances,vertices.mean(axis=0)))
     def classify(point):
-        # Retain authored node origins for native zone classification.
         point=np.array(point);best=None
         for z,origin,normals,distances,center in regions:
             delta=point-origin;outside=max(0.,float(np.max(normals@delta-distances)))
@@ -38,7 +36,6 @@ def prepare(config):
     retained={n['index']:n for n in nodes}
     if not any(z['id']=='zone.unassigned' for z in content['zones']):content['zones'].append({'id':'zone.unassigned','initially_open':False})
     content['navigation_nodes']=[{'id':'node.native.'+str(i),'position':coordinate(n['position']).tolist(),'zone':classify(n['position']) or 'zone.unassigned'} for i,n in retained.items()]
-    # Identify crossings using native convex solid brushes, expanded by the actor radius.
     door_regions=[]
     for d in game['access']['doors']:
         from scipy.spatial import ConvexHull

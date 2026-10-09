@@ -1,11 +1,9 @@
-"""Offline DDS integrity, canonical normal decoding and material-aware mip cooking."""
 import hashlib
 import struct
 
 import numpy as np
 from PIL import Image
 
-# DXGI format -> bytes per block (or per pixel for uncompressed exceptions).
 FORMATS = {2: (16, False), 10: (8, False), 11: (8, False), 28: (4, False), 29: (4, False),
            49: (2, False), 54: (2, False), 56: (2, False), 61: (1, False), 65: (1, False),
            87: (4, False), 88: (4, False), 91: (4, False), 93: (4, False),
@@ -78,7 +76,6 @@ def rgba_dds(levels, srgb=False):
 
 
 def rgba_levels(raw):
-    """Read the cooker's lossless master, retaining every authored mip."""
     record = inspect_dds(raw)
     if record["dxgi"] not in (28, 29) or raw[84:88] != b"DX10":
         raise ValueError("canonical master must be DX10 RGBA8")
@@ -91,7 +88,7 @@ def rgba_levels(raw):
 
 def canonical_normal(pixels, strength=1.0):
     slopes = pixels[..., :2].astype(np.float32) / 255 * 4.015748 - 2.015748
-    slopes[..., 1] *= -1  # Native DirectX Y; prepared tangents already retain handedness.
+    slopes[..., 1] *= -1
     slopes *= strength
     normal = np.dstack((slopes, np.ones(pixels.shape[:2], np.float32)))
     return normal / np.linalg.norm(normal, axis=2, keepdims=True)
@@ -100,7 +97,6 @@ def canonical_normal(pixels, strength=1.0):
 def reduced(values):
     h, w = values.shape[:2]
     nh, nw = max(1, h // 2), max(1, w // 2)
-    # Area averaging includes odd trailing texels rather than dropping them.
     ys = np.linspace(0, h, nh + 1, dtype=int)
     xs = np.linspace(0, w, nw + 1, dtype=int)
     if h % 2 == 0 and w % 2 == 0:
@@ -153,15 +149,12 @@ def color_levels(pixels, srgb, cutoff=None):
 
 def response_levels(pixels, variances):
     values = pixels.astype(np.float32) / 255
-    # Filter GGX alpha squared; Bevy perceptual roughness is sqrt(alpha).
     values[..., 1] **= 4
     levels = []
     while True:
         result = values.copy()
         if variances:
             h, w = result.shape[:2]
-            # GPU mip choice follows each texture's native dimensions. Match
-            # normal variance by footprint, not equal ordinal mip numbers.
             variance = min(variances, key=lambda v: abs(np.log2(v.shape[0] / h)) + abs(np.log2(v.shape[1] / w)))
             if variance.shape != (h, w):
                 variance = np.asarray(Image.fromarray(variance).resize((w, h), Image.Resampling.BILINEAR))

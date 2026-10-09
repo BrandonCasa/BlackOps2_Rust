@@ -1,7 +1,3 @@
-"""Read-only BO2 gameplay recovery, preserving source fields and patch precedence.
-
-This manifest is an external preparation intermediate, not a runtime pack.
-"""
 import hashlib
 import json
 import math
@@ -21,7 +17,6 @@ def external(path):
 
 
 def info_string(path, expected):
-    """OAT exports complete resolved definitions as BO2 key/value info strings."""
     raw = path.read_bytes()
     tokens = raw.decode("utf-8-sig").rstrip("\r\n").split("\\")
     if tokens[0] != expected or len(tokens) % 2 != 1:
@@ -42,8 +37,6 @@ def recover(config):
     installation = Path(config["assets"]["installation_root"])
     zone_root = installation / "zone/all"
     unlinker = Path(settings.get("unlinker", inspection / "tooling/OAT/v0.33.0/Unlinker.exe"))
-    # Base exports are complete. Patch exports replace same-named files only after
-    # the base/common pools are loaded, resolving native cross-zone references.
     common, base, patch = [zone_root / name for name in ("common_zm.ff", "zm_tomb.ff", "zm_tomb_patch.ff")]
     for path in (common, base, patch, unlinker):
         if not path.is_file():
@@ -58,7 +51,6 @@ def recover(config):
         log_text = (output / f"recover-{name}.log").read_text(encoding="utf-8", errors="replace")
         if "ERROR:" in log_text or not re.search(r"Finished with \d+ warnings, 0 errors", log_text):
             raise ValueError(f"OAT reported extraction errors; inspect recover-{name}.log")
-    # Shared patched view/world models include the Mark II referenced by Origins.
     command = [str(unlinker), "--no-color", "--include-assets", "xmodel", "--model-format", "GLTF",
                "--load", str(common), "-o", str(output / "shared"), str(shared_patch)]
     with (output / "recover-shared-models.log").open("wb") as log:
@@ -99,8 +91,6 @@ def recover(config):
         if len(fields) != len(pairs):
             raise ValueError("duplicate map entity field")
         digest = hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:24]
-        # Authored GUIDs are not unique in this map. Content hashes disambiguate
-        # differing records; identical repeated records retain occurrence identity.
         identity = "entity." + fields.get("guid", "anonymous").lower() + "." + digest
         occurrence = occurrences.get(identity, 0)
         occurrences[identity] = occurrence + 1

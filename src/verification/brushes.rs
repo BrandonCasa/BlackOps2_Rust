@@ -1,4 +1,3 @@
-//! Observe converted brush scene roots and their Avian geometry in the actual application.
 use crate::{
     assets::GameDefinition,
     environment::brushes::{BRUSH_LAYER, BrushSites},

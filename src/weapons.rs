@@ -1,4 +1,3 @@
-//! Owned weapons and fixed-step action timing, independent of map configuration.
 use crate::origins::content::{ContentId, FirePattern, WeaponDefinition, WeaponId};
 use bevy::prelude::*;
 use std::collections::BTreeMap;
@@ -54,10 +53,8 @@ pub struct WeaponInventory {
     burst: u32,
     pub sequence: u64,
     pub signal: WeaponSignal,
-    // Shot presentation can outlive the minimum interval before another shot.
     shot_elapsed: Option<f32>,
     pub ads: f32,
-    // Native CG tracks the last endpoint to choose zoom-in versus zoom-out.
     ads_leaving: bool,
     pub recoil: Vec2,
     pending: WeaponIntent,
@@ -188,7 +185,6 @@ impl WeaponInventory {
         hip_vertical: f32,
         mechanics: &crate::origins::content::WeaponMechanics,
     ) -> f32 {
-        // CG interpolates reference horizontal degrees before aspect scaling.
         let horizontal = |vertical: f32| 2. * (vertical.to_radians() * 0.5).tan().atan2(0.75);
         let hip = horizontal(hip_vertical);
         let aimed = horizontal(mechanics.ads_fov);
@@ -202,8 +198,6 @@ impl WeaponInventory {
     pub fn reload_duration_scale(&self) -> f32 {
         self.reload_duration_scale
     }
-    /// Reload progress is expressed in native action seconds. Presentation
-    /// follows that progress even when a modifier changes its wall-clock rate.
     pub fn reload_timing(&self, definition: &WeaponDefinition) -> Option<(f32, f32)> {
         match self.action {
             WeaponAction::Reloading { remaining, empty } => Some((
@@ -231,8 +225,6 @@ impl WeaponInventory {
     pub fn shot_elapsed(&self) -> Option<f32> {
         self.shot_elapsed
     }
-    /// Controlled catalog poses use the same clock without simulating acquisition
-    /// or unsupported weapon mechanics (for example staff charge delivery).
     pub(crate) fn survey_shot_pose(&mut self, elapsed: f32, empty: bool) {
         self.shot_elapsed = Some(elapsed);
         self.signal = WeaponSignal::Fire;
@@ -300,7 +292,6 @@ impl WeaponInventory {
             .get(&Self::group(definition))
             .map_or(0, |p| p.rounds)
     }
-    /// An episode-owned weapon has its own ammo pool and never mutates the saved inventory.
     pub fn temporary(definition: &WeaponDefinition, reserve_clips: u32) -> Self {
         let mut inventory = Self::default();
         inventory
@@ -377,7 +368,6 @@ impl WeaponInventory {
         }
         Ok(())
     }
-    /// The third slot is always the perk-owned slot; loss removes that instance only.
     pub fn set_third_slot(
         &mut self,
         enabled: bool,
@@ -786,7 +776,7 @@ impl WeaponInventory {
             FirePattern::Semi => intent.pressed,
             FirePattern::Automatic => intent.held || intent.pressed,
             FirePattern::Burst { .. } => self.burst > 0,
-            FirePattern::Charge => false, // Staff charge effects own this action in their dedicated system.
+            FirePattern::Charge => false,
         };
         if firing && self.cooldown == 0. {
             let Some(weapon) = self.slots[self.active].as_mut() else {
@@ -807,8 +797,6 @@ impl WeaponInventory {
                     } else {
                         0.
                     };
-                // Preserve the portion of this fixed tick after the preceding
-                // cooldown expired; sustained cadence does not round every shot up.
                 self.cooldown = (self.cooldown * self.firing.interval_scale - fire_overrun).max(0.);
                 self.emit(WeaponSignal::Fire);
                 emissions.push(WeaponEmission::Shot(definition.id.clone()));

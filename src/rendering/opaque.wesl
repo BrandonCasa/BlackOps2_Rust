@@ -10,7 +10,6 @@ import origins::surface_bindings::{OriginsSurfaceData, animation_time, diagnosti
 import bevy_pbr::render::mesh_bindings::mesh;
 import origins::surface_effect::{effect_uv, effect_color};
 
-// Project-owned opaque response. Bevy retains PBR lights, shadows and post processing.
 
 
 fn effect_sample(slot: u32, layer: u32, uv: vec2<f32>) -> vec4<f32> {
@@ -20,7 +19,6 @@ fn effect_sample(slot: u32, layer: u32, uv: vec2<f32>) -> vec4<f32> {
 }
 
 fn normal_slope(sampled: vec4<f32>, strength: f32, two_component: bool) -> vec2<f32> {
-    // Offline preparation has already decoded native slopes and changed Y.
     let xy = sampled.rg * 2.0 - 1.0;
     let z = select(sqrt(max(1.0-dot(xy,xy),0.0001)), sampled.b*2.0-1.0, !two_component);
     return xy/max(z,0.01)*strength;
@@ -51,12 +49,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     set_surface_slot(slot);
     var standard = in;
     let layered = surface.layers.x > 1u;
-    standard.color = vec4(1.0); // Authored vertex G/B remain layer controls only.
+    standard.color = vec4(1.0);
     var pbr = pbr_input_from_standard_material(standard, is_front);
     let face_sign = select(1.0, -1.0, !is_front && (pbr.material.flags & STANDARD_MATERIAL_FLAGS_DOUBLE_SIDED_BIT) != 0u);
-    // Bevy conditionally flips its prepared normal when no base normal map is
-    // bound. Our layered map uses the original interpolated frame, then orients
-    // the entire resolved normal once, independently of that base shader flag.
     pbr.world_normal = in.world_normal * face_sign;
     pbr.N = normalize(pbr.world_normal);
     if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
@@ -71,11 +66,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     if tile_macro {
         let mask = sample_control_map(slot, in.uv).rg;
         weights = select(vec3(1.0,0.0,0.0),vec3(mask.g,mask.r,0.0)/max(mask.r+mask.g,0.0001),mask.r+mask.g > 0.0001);
-        // Normal 0 describes the whole object's shape at authored UVs.
-        // Normals 1/2 accompany coating/core (color 1/0), respectively.
         uv1 = in.uv * surface.response.w;
-        // Control magnitudes used to include macro darkness. Only normalized
-        // material coverage survives; scene illumination is evaluated now.
         pbr.material.base_color = vec4(sample_color_base(slot, uv1).rgb*weights.x + sample_color_first(slot, uv1).rgb*weights.y, 1.0);
     }
     var slope0 = select(vec2(0.0), normal_slope(sample_normal_map(slot, uv0), surface.response.x, (surface.modes.w & 1u) != 0u), (surface.modes.x & 2u) != 0u);
@@ -92,11 +83,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         let c1 = sample_color_first(slot, uv1);
         let c2 = sample_color_second(slot, uv2);
         let c3 = sample_color_third(slot, layer3_uv);
-        // Authored vertex G/B control consecutive overlays. Alpha is the retained
-        // texture reveal/macro mask, sampled as data by the sRGB texture's alpha.
-        // Reveal controls coverage, but cannot replace texture opacity. Blood,
-        // grime and other overlays retain their soft alpha even at full paint.
-        // The same effective coverage blends their normal/specular response.
         let w1 = reveal(in.color.g,c1.a,surface.reveal.xy)*clamp(c1.a,0.0,1.0);
         let w2 = select(0.0,reveal(in.color.b,c2.a,surface.reveal.zw)*clamp(c2.a,0.0,1.0),surface.layers.x > 2u);
         var albedo = layer_color(c0.rgb,c1,w1,surface.layers.y);
@@ -116,12 +102,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     if tile_macro {
         let coating = select(vec2(0.0),normal_slope(sample_second_normal(slot, uv1), surface.response.x, (surface.modes.w & 2u) != 0u),(surface.modes.x & 4u) != 0u);
         let core = select(vec2(0.0),normal_slope(sample_third_normal(slot, uv1), surface.response.x, (surface.modes.w & 4u) != 0u),(surface.modes.x & 8u) != 0u);
-        // Blend detail slopes onto the unscaled macro normal.
         slope = slope0 + core*weights.x + coating*weights.y;
         s0 = select(vec4(1.0,0.8,0.0,0.0),sample_specular_map(slot, uv1),surface.modes.y != 0u);
         s1 = select(s0,sample_second_specular(slot, uv1),(surface.modes.z & 1u) != 0u);
-        // Prepared response layers follow color layers (core/coating); their
-        // normals retain the separate macro/coating/core native binding order.
         sg = s0*weights.x+s1*weights.y;
     }
     if water {
@@ -131,7 +114,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         let b = normal_slope(sample_second_normal(slot, wuv*1.37+t*surface.velocity.zw), surface.response.x, (surface.modes.w & 2u) != 0u);
         slope = (a+b)*surface.water.x;
         sg = vec4(1.0,surface.water.y,0.0,0.0);
-        // Transparent tint approximates shallow refraction; no opaque scene copy.
         pbr.material.base_color.a = surface.water.w;
     }
     if effect {
@@ -149,8 +131,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         }
         let resolved = effect_color(samples,coverage,surface.effect,facing);
         pbr.material.base_color = vec4(resolved.rgb*in.color.rgb,resolved.a*in.color.a);
-        // Opaque source effects write full coverage; blended variants retain
-        // their native accumulated alpha and source blend/cull disposition.
         if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == 0u {
             pbr.material.base_color.a = 1.0;
         }
@@ -162,8 +142,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     pbr.material.metallic = clamp(sg.b,0.0,1.0);
     pbr.material.clearcoat = clamp(sg.a,0.0,1.0);
     if (surface.modes.x & 128u) != 0u {
-        // Actor conversion removes the StandardMaterial response binding;
-        // preserve authored cavity occlusion from the already sampled map.
         let cavity = clamp(sg.r,0.0,1.0);
         pbr.diffuse_occlusion *= vec3(cavity);
         pbr.specular_occlusion *= cavity;
@@ -177,7 +155,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     } else {
         out.color = apply_pbr_lighting(pbr);
     }
-    // The diagnostic adapter isolates the same realtime IBL used by Bevy.
     let view_mode = diagnostic_mode(slot);
     if view_mode == 6u || view_mode >= 8u {
         if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
@@ -196,8 +173,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         return out;
     }
     out.color = main_pass_post_lighting_processing(pbr, out.color);
-    // Source ONE/INV_SRC_ALPHA describes the blend state, not premultiplied DDS
-    // albedo. Our freshly evaluated lighting must supply premultiplied radiance.
     if (pbr.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
         out.color = vec4(out.color.rgb*out.color.a, out.color.a);
     }

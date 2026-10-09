@@ -69,17 +69,12 @@ try {
     } | ConvertTo-Json | Set-Content -LiteralPath "$outputPath/profiling-run.json" -Encoding utf8
     $env:NO_COLOR = '1'
     $env:RUST_LOG = 'info,wgpu=error,naga=warn'
-    # Named ECS/GPU zones remain enabled; ETW sampling and online symbols are optional.
     $env:TRACY_NO_SYS_TRACE = '1'
     $env:TRACY_SYMBOL_OFFLINE_RESOLVE = '1'
-    # Preserved older executables also use loopback, without requesting firewall
-    # access. Current profiling builds enforce this through the native feature.
     $env:TRACY_ONLY_LOCALHOST = '1'
     if (-not $NoTracy) {
         $captureProcess = Start-Process $capture -ArgumentList @('-o', "`"$outputPath/capture.tracy`"", '-a', '127.0.0.1', '-s', $CaptureSeconds) -WindowStyle Hidden -RedirectStandardOutput "$outputPath/capture.log" -RedirectStandardError "$outputPath/capture-errors.log" -PassThru
     }
-    # Observe only this driver's child. Sampling is external to the Rust
-    # allocator and establishes process RAM separately from traced heap bytes.
     $memoryObserver = Start-ThreadJob -ArgumentList $gameExecutable, $PID, $outputPath, $CaptureSeconds -ScriptBlock {
         param($executable, $ownerPid, $reportPath, $deadlineSeconds)
         $samples = [Collections.Generic.List[object]]::new()
@@ -165,8 +160,6 @@ try {
     & python tools/profile_rendering.py "$outputPath/cpu-zones.csv" "$outputPath/analysis" --view $analyzedView --markers "$outputPath/markers.csv" --gpu "$outputPath/gpu-zones.csv" --performance "$outputPath/performance.json"
     if ($LASTEXITCODE -ne 0) { throw 'Flamegraph nesting/conservation validation failed' }
     if ($Memory -and $AllocationExporter) {
-        # Native MemEvent data is allocator evidence. Tracy -p exports user plots
-        # and duplicates CPU zones; it does not expose these allocation events.
         $analysis = Get-Content -LiteralPath "$outputPath/analysis/flamegraph.json" -Raw | ConvertFrom-Json
         & $AllocationExporter -a $analysis.window_ns[0] -b $analysis.window_ns[1] "$outputPath/capture.tracy" > "$outputPath/allocations.csv"
         if ($LASTEXITCODE -ne 0) { throw 'Bounded native allocation export failed' }

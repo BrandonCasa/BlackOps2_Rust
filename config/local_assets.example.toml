@@ -1,26 +1,6 @@
-# Offline preparation/import only; the game does not read this config. Copy to ignored local_assets.toml. Preparation inputs/outputs stay external; import copies validated runtime files into assets/origins/.
 [assets]
 installation_root = "<absolute path to your licensed BO2 installation>"
 inspection_output = "<absolute external directory containing retained world exports and OAT>"
 
 [game]
 asset_pack = "<absolute external directory for the prepared game pack>"
-
-# Optional input overrides, all outside the repository:
-# [preparation]
-# scene = "<external texture-preview.json>"
-# entities = "<external map entity file>"
-# models = "<external OAT export directory>"
-# instances = "<external static-instances.json>"
-# unlinker = "<external OAT Unlinker.exe>"
-# oat_source = "<external compiled OAT source directory>"
-
-# Optional PBR cooking: uv run tools/prepare_materials.py --config config/local_assets.toml
-# [materials]
-# source_pack = "<complete external source pack>"
-# extraction = "<external per-zone material-definitions.json and native DDS tree>"
-# work = "<external canonical DDS masters and receipts>"
-# encoder = "<external pinned DirectXTex may2026 texconv.exe>"
-# oat_source = "<external compiled OAT source directory>"
-# Whole installed-library extraction/conversion uses the same installation and
-# inspection roots: bo2_library.py, prepare_bo2_library.py, bo2_library.py --import.

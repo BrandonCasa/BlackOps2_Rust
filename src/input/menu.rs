@@ -1,4 +1,3 @@
-//! A Bevy UI editor for the same settings consumed by gameplay and prompts.
 use super::{Action, Binding, ControlSettings, PressMode, settings::SettingsStore};
 use crate::GameState;
 use bevy::{
@@ -123,7 +122,6 @@ fn label(choice: Choice, settings: &ControlSettings) -> String {
 }
 pub(super) fn install(app: &mut App) {
     app.init_resource::<ControlMenu>();
-    // Existing scene surveys pause gameplay while capturing unobscured views.
     let options = app.world().resource::<crate::assets::LaunchOptions>();
     if options.verify.is_some() && !options.verify_controls {
         return;
@@ -379,8 +377,6 @@ fn navigate(
     }
 }
 fn pointer_activate(event: On<PointerPress>, rows: Query<&MenuRow>, mut menu: ResMut<ControlMenu>) {
-    // Every native press is actionable, including repeated complete taps in
-    // one frame. A deferred Pressed marker must not suppress later clicks.
     if event.button == PointerButton::Primary
         && menu.capturing.is_none()
         && let Ok(row) = rows.get(event.entity)

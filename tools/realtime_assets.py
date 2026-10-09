@@ -2,7 +2,6 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
 # ///
-"""Retire native incident-light data from a prepared runtime closure, preserving originals."""
 from pathlib import Path
 import json
 import os
@@ -15,7 +14,6 @@ except ImportError:
 
 
 def replace_bytes(path, raw):
-    """Replace the candidate entry without writing through an immutable hardlink."""
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.migration-", dir=path.parent)
     try:
         with os.fdopen(descriptor, "wb") as stream:
@@ -40,8 +38,6 @@ def strip_lighting(document):
     for node in document.get("nodes", []):
         extras = node.get("extras", {})
         was_lit_instance = "lighting_id" in extras.get("lighting", {})
-        # Brush ownership and other scene metadata belong to their consumers;
-        # this migration retires only the incident-light member.
         extras.pop("lighting", None)
         if extras.get("static_instance") is True or was_lit_instance or node.get("name") == "static_instance":
             extras["static_instance"] = True
@@ -52,7 +48,6 @@ def strip_lighting(document):
 
 
 def compact_geometry(document, pack):
-    """Remove orphaned instance-irradiance streams without altering live vertex bytes."""
     used = set()
     for mesh in document.get("meshes", []):
         for primitive in mesh["primitives"]:
@@ -102,9 +97,6 @@ def compact_geometry(document, pack):
 
 def migrate(pack):
     pack = Path(pack).resolve()
-    # Full mip chains are owned by the streaming index, not glTF. Validate
-    # that closure before changing files and retain both full and bootstrap
-    # dependencies when pruning retired incident-light images.
     kept = {(pack / uri).resolve() for uri in validate_streaming(pack)}
     removed_bytes = 0
     for path in sorted(pack.rglob("*.gltf")):
@@ -135,13 +127,12 @@ def migrate(pack):
             removed.append(path.relative_to(pack).as_posix())
             removed_bytes += path.stat().st_size
             path.unlink()
-    # Source receipt describes retired atlas/probe partitions, not this closure.
     (pack / "preparation.json").unlink(missing_ok=True)
     return {"removed_images": removed, "removed_bytes": removed_bytes}
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Retire native incident-light data from a prepared runtime closure, preserving originals.')
     parser.add_argument("pack", type=Path)
     print(json.dumps(migrate(parser.parse_args().pack)))

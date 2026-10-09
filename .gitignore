@@ -1,4 +1,3 @@
-# Cargo and generated build products. Keep the application Cargo.lock when generated.
 **/target/
 /build/
 /dist/
@@ -13,7 +12,6 @@
 *.a
 *.o
 
-# Runtime closure and optional licensed source library are kept separately.
 /assets/*
 !/assets/origins/
 /assets/origins/**
@@ -56,7 +54,6 @@
 *.fx
 **/preparation.json
 
-# Machine-specific configuration and credentials.
 /config/local*.toml
 !/config/local_assets.example.toml
 .env
@@ -69,7 +66,6 @@
 *.p12
 *.keystore
 
-# Local diagnostics, caches, and editor state.
 *.log
 *.profraw
 *.profdata
@@ -82,8 +78,6 @@
 .DS_Store
 Thumbs.db
 
-# Optional preparation inputs are separate from runtime assets. Original
-# installations and generated build products remain outside this allowance.
 !/assets/source/
 !/assets/source/**/
 !/assets/source/**/*.ff
@@ -98,5 +92,4 @@ Thumbs.db
 !/assets/source/**/*.dds
 !/assets/source/**/*.wav
 !/assets/source/**/*.zip
-# The complete local-only source library includes native formats and exchanges.
 !/assets/source/bo2/**

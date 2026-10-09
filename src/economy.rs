@@ -1,4 +1,3 @@
-//! Atomic point purchases; item ownership accepts the operation before charging.
 use bevy::prelude::*;
 use std::collections::BTreeMap;
 

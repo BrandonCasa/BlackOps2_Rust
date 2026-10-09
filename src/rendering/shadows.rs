@@ -1,11 +1,7 @@
-//! A small light budget; Bevy owns culling, shadow maps, filtering and drawing.
 use super::{GameCamera, LanternLight, profile::VisualProfile};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-/// Bound cubemap rendering even in rooms containing many fixtures. Retiring
-/// lights keep their shadows until fully faded; new lights wait for a free slot.
-/// Never turn a shadowed lamp into an unshadowed wall-leaking light.
 pub(super) fn select_local_lights(
     camera: Query<&GlobalTransform, With<GameCamera>>,
     mut lights: Query<
@@ -22,7 +18,6 @@ pub(super) fn select_local_lights(
         .iter()
         .filter_map(|(entity, pose, _, _)| {
             let distance = pose.translation().distance(eye);
-            // Keep existing owners through small camera movements at a rank boundary.
             let retained = weights.get(&entity).is_some_and(|weight| *weight > 0.);
             (distance < profile.local_light_distance)
                 .then_some((entity, distance * if retained { 0.8 } else { 1. }))

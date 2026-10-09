@@ -1,4 +1,3 @@
-//! Small game-loop timing display. These are frame intervals, not GPU timings.
 use std::{collections::VecDeque, fmt::Write};
 
 use bevy::{prelude::*, window::PrimaryWindow};
@@ -138,7 +137,6 @@ fn update(
     if !interval.is_finite() || interval <= 0. {
         return;
     }
-    // Every frame performs only bounded queue/sum work. Allocate once at startup.
     if stats.intervals.len() == CAPACITY {
         stats.elapsed -= stats.intervals.pop_front().unwrap_or(0.);
     }
@@ -163,7 +161,6 @@ fn update(
     } = &mut *stats;
     sorted.clear();
     sorted.extend(intervals.iter().copied());
-    // Same percentile-index convention as the existing benchmark summary.
     let index = ((sorted.len() - 1) as f64 * 0.95).round() as usize;
     let (_, p95, _) = sorted.select_nth_unstable_by(index, f64::total_cmp);
     let p95 = *p95;

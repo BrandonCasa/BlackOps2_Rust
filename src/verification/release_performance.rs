@@ -1,6 +1,3 @@
-//! Opt-in measurements of the shipping application with live simulation and UI.
-//! Setup is controlled; movement, admission, animation, combat and rendering use
-//! production systems. No captures or report serialization occur while sampling.
 use crate::{
     GameState,
     assets::{GameDefinition, LaunchOptions, LoadFailure},
@@ -14,8 +11,6 @@ use bevy::prelude::*;
 use std::time::Instant;
 
 const WARMUP_SECONDS: f64 = 10.;
-// Visit the entire camera sweep twice before measuring. First-use texture reads
-// otherwise dominate a short spawn warmup and change the path through time loss.
 const MOVING_PREP_SECONDS: f32 = 36.;
 const SAMPLE_SECONDS: f64 = 30.;
 const SEED: u64 = 0xB02;
@@ -114,7 +109,6 @@ fn drive(
         return;
     };
     if !run.configured {
-        // A repeatable sustained encounter, not a survival or progression claim.
         session.seed = SEED;
         session.round = if options.benchmark_combat { 8 } else { 1 };
         session.pending = if options.benchmark_combat {
@@ -145,8 +139,6 @@ fn drive(
                 return;
             }
             *inventory = owned;
-            // Keep the production perk maximum reconciliation consistent with
-            // this explicitly recorded benchmark-only starting health.
             game.player_health.maximum = 10000;
             *health = Vitality::human(
                 10000,
@@ -170,8 +162,6 @@ fn drive(
             }
             living += 1;
             if prepared.is_none() {
-                // Preserve the production actor, gait, navigation and damage path.
-                // High health holds the cohort constant during sustained hits.
                 *health = Vitality::ordinary_actor(COMBAT_ACTOR_HEALTH, COMBAT_ACTOR_HEALTH)
                     .expect("valid benchmark actor health");
                 commands.entity(entity).insert(CombatPrepared);
@@ -190,8 +180,6 @@ fn drive(
     if !options.benchmark_combat {
         let sample_seconds = run.sample_start.map(|start| start.elapsed().as_secs_f32());
         let camera_seconds = sample_seconds.unwrap_or(seconds);
-        // Look across the actual spawn surroundings while the ordinary renderer,
-        // environment, first-person animation and HUD continue to run.
         player.yaw = game.yaw + camera_seconds * 0.35;
         player.pitch = (camera_seconds * 0.4).sin() * 0.2;
         if let Some(seconds) = sample_seconds {
@@ -213,7 +201,6 @@ fn drive(
         let delta = target.translation + Vec3::Y * 0.35 - eye;
         player.yaw = (-delta.x).atan2(-delta.z);
         player.pitch = delta.y.atan2(delta.xz().length());
-        // Recoil still renders; compensate aim exactly as an ordinary input driver.
         player.yaw -= inventory.recoil.x;
         player.pitch -= inventory.recoil.y;
         input.ads = true;

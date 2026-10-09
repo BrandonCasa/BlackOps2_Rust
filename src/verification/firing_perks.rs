@@ -1,4 +1,3 @@
-//! Actual-window firing comparisons; controlled awards isolate engine modifiers.
 use super::*;
 use crate::{
     life::{LifeState, Vitality},

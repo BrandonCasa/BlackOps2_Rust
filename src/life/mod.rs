@@ -1,16 +1,5 @@
 #![forbid(unsafe_code)]
 
-//! Reusable resolved damage, revival and bleedout state.
-//!
-//! Resolved damage, admitted coop revival and bleedout disposition. Ordinary positive
-//! player subtraction has static evidence and one scoped live comparison. Native
-//! actor subtraction is qualified before notifications; final ActorDead health is unknown.
-//! Active original dispatch is unqualified; revival configuration is external.
-//! Coop timing admission is a separate Bevy clock; terminal human health is
-//! preserved pending qualification.
-//! See docs/reverse_engineering/gameplay.md for retained observations.
-//! Solo session assembly is owned by the game application.
-
 pub mod revive_clock;
 pub use revive_clock::{
     ReviveClock, ReviveClockError, ReviveDecision, ReviveEligibility, ReviveTiming,
@@ -33,9 +22,7 @@ pub enum LifeStateError {
     InvalidCurrent,
     ZeroDamage,
     InvalidDownedHealth,
-    /// A supplied current, maximum or downed health exceeds i32::MAX.
     HealthOutOfRange,
-    /// A supplied resolved damage amount exceeds i32::MAX.
     DamageOutOfRange,
     UnsupportedPlayerPolicy,
     MissingTarget,
@@ -59,8 +46,6 @@ impl std::fmt::Display for LifeStateError {
 
 impl std::error::Error for LifeStateError {}
 
-/// Admits only positive signed-32-bit integer payloads, matching the inspected
-/// native player entry. Upstream conversion and active VM dispatch remain unqualified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResolvedDamage(NonZeroU32);
 
@@ -81,11 +66,8 @@ impl ResolvedDamage {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerLethalPolicy {
-    /// Caller has established another eligible human teammate remains alive.
     DownWithEligibleTeammate,
-    /// Session/game-end behavior must be resolved by a later task.
     SoloOrLastEligiblePlayer,
-    /// Caller has established a current, owned solo self-revival charge.
     SoloSelfRevive,
 }
 
@@ -93,8 +75,6 @@ pub enum PlayerLethalPolicy {
 pub enum LifeState {
     Standing,
     Downed,
-    /// No longer damageable/revivable; numeric health is not an alive predicate.
-    /// Spectator/session assembly and final native health effects are outside this state.
     HumanTerminal,
     ActorAlive,
     ActorDead,
@@ -109,16 +89,8 @@ enum DamageRoute {
     OrdinaryActor,
 }
 
-/// Private fields keep life-state/health invariants together without a registry.
-/// Admitted current/maximum/downed health is in 1..=i32::MAX. ActorDead has
-/// unresolved final current health; its signed subtraction stage is separate.
-/// Before removing/replacing this component on a living Entity, assembly must
-/// retire pending commands and all externally held tokens/episode references.
-/// Bevy entity generations do not change when components are replaced. Counters
-/// apply only to this continuous component lifetime, not a replacement's lifetime.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Vitality {
-    // Last modeled positive health; retained on ActorDead, never exposed as final.
     current: u32,
     maximum: NonZeroU32,
     state: LifeState,
@@ -191,21 +163,16 @@ impl Vitality {
         )
     }
 
-    /// Current modeled health is unknown after actor terminal routing. No numeric
-    /// zero or subtraction-stage value is substituted for post-callback health.
     pub fn current(self) -> Option<u32> {
         (self.state != LifeState::ActorDead).then_some(self.current)
     }
 
-    /// Last modeled direct actor subtraction, before notification/callback effects.
-    /// It is not a measurement or the actor's final post-callback current health.
     pub fn actor_subtraction(self) -> Option<ActorSubtraction> {
         self.actor_subtraction
     }
     pub fn maximum(self) -> u32 {
         self.maximum.get()
     }
-    /// Human perk changes adjust the ceiling without granting health or reviving.
     pub fn set_human_maximum(&mut self, maximum: u32) -> Result<(), LifeStateError> {
         if !matches!(self.route, DamageRoute::Human { .. }) {
             return Err(LifeStateError::NotHuman);
@@ -227,18 +194,12 @@ impl Vitality {
         self.state
     }
 
-    /// The assembly must refresh this policy before admitting an impact if the
-    /// eligible teammate set changes. No session eligibility is inferred here.
     pub fn set_player_policy(&mut self, policy: PlayerLethalPolicy) {
         if let DamageRoute::Human { policy: stored, .. } = &mut self.route {
             *stored = policy;
         }
     }
 
-    /// Lethal player classification/downed assignment follow inspected scripts.
-    /// Actor subtraction models native14's direct instruction before notifications.
-    /// Caller admits ordinary lethal routing; final actor health remains unresolved.
-    /// No later -999 floor is applied across unqualified notification side effects.
     pub fn apply(&mut self, damage: ResolvedDamage) -> Result<DamageOutcome, LifeStateError> {
         if matches!(
             self.state,
@@ -285,7 +246,6 @@ impl Vitality {
                     });
                 }
                 if policy == PlayerLethalPolicy::SoloOrLastEligiblePlayer {
-                    // Practical solo admission: lethal damage ends this session.
                     self.state = LifeState::HumanTerminal;
                     return Ok(DamageOutcome::HumanDied { before });
                 }
@@ -305,7 +265,6 @@ impl Vitality {
         }
     }
 
-    /// Bounded healing changes only a standing human's current health.
     pub fn regenerate(&mut self, amount: u32) -> Result<u32, LifeStateError> {
         if !matches!(self.route, DamageRoute::Human { .. }) {
             return Err(LifeStateError::NotHuman);
@@ -325,18 +284,12 @@ impl Vitality {
         (self.state == LifeState::Downed).then_some(DownedEpisode(self.episode))
     }
 
-    /// Bind an externally resolved expiry to this Entity and downed episode.
-    /// This creates no timer or scheduled retry. Retire it before component replacement.
     pub fn downed_expiry(self, target: Entity) -> Result<DownedExpiry, LifeStateError> {
         let episode = DownedEpisode(self.episode);
         self.check_episode(episode)?;
         Ok(DownedExpiry { target, episode })
     }
 
-    /// Caller admits ordinary coop expiry timing. The source notification/network-frame
-    /// interval is collapsed into this resolved transition, an explicit approximation.
-    /// Active revival defers without mutation or retry scheduling. Current/max remain
-    /// the last qualified values; native spectator-spawn health is not established.
     pub fn expire_downed(
         &mut self,
         target: Entity,
@@ -354,7 +307,6 @@ impl Vitality {
         if self.state == LifeState::HumanTerminal {
             return Ok(ExpiryOutcome::Ignored);
         }
-        // A successful revive retires this episode's expiry even before redown.
         if self.state != LifeState::Downed {
             return Err(LifeStateError::StaleEpisode);
         }
@@ -392,7 +344,6 @@ impl Vitality {
         Ok(())
     }
 
-    /// Eligibility/timing is externally resolved. No raw revive interaction is modeled.
     pub fn begin_revive(
         &mut self,
         target: Entity,
@@ -451,7 +402,6 @@ impl Vitality {
         Ok(())
     }
 
-    /// Qualified restoration is supplied by assembly; current/max are not assumed equal.
     pub fn complete_revive(
         &mut self,
         target: Entity,
@@ -472,8 +422,6 @@ impl Vitality {
     }
 }
 
-/// Tokens are scoped to the continuous lifetime of a Vitality component.
-/// Removing/replacing that component invalidates its external outstanding inputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DownedEpisode(u64);
 
@@ -483,8 +431,6 @@ impl DownedEpisode {
     }
 }
 
-/// Episode and Entity generation bind expiry to one continuous component lifetime.
-/// Timing/coop admission is external; this is not a deadline or raw timer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DownedExpiry {
     target: Entity,
@@ -502,13 +448,8 @@ impl DownedExpiry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpiryOutcome {
-    /// Producer may retain/retry this input with a new request ID after cancellation.
     Deferred(DownedExpiry),
-    Terminated {
-        current: u32,
-        maximum: u32,
-    },
-    /// The same episode is already terminal; no state or health changed.
+    Terminated { current: u32, maximum: u32 },
     Ignored,
 }
 
@@ -551,8 +492,6 @@ impl ReviveRestoration {
     }
 }
 
-/// Model of the qualified direct SUB instruction, before any native notification.
-/// Negative/zero after values are not final health or an automatic -999 floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ActorSubtraction {
     pub before: u32,
@@ -622,9 +561,6 @@ pub enum LifeCommandOutcome {
     Revived { current: u32, maximum: u32 },
 }
 
-/// Explicit caller order: IDs strictly increase for this resource's lifetime.
-/// Duplicate or reordered submissions are rejected without changing admission.
-/// Submit before FixedUpdate; producer systems must define their own ordering.
 #[derive(Resource, Default)]
 pub struct LifeCommandQueue {
     last_id: Option<u64>,
@@ -632,7 +568,6 @@ pub struct LifeCommandQueue {
 }
 
 impl LifeCommandQueue {
-    /// Allocate from the queue's shared lifetime sequence for ordered in-app producers.
     pub fn submit_next(
         &mut self,
         target: Entity,
@@ -659,9 +594,6 @@ impl LifeCommandQueue {
         Ok(())
     }
 
-    /// Return pending inputs for explicit retirement before component replacement.
-    /// Caller must also retire held tokens/episode references and old result receipts.
-    /// This does not change the globally increasing request-ID admission history.
     pub fn retire_pending_target(&mut self, target: Entity) -> Vec<LifeCommandRequest> {
         let (retired, retained) = std::mem::take(&mut self.pending)
             .into_iter()
@@ -678,7 +610,6 @@ pub struct LifeCommandResult {
     pub result: Result<LifeCommandOutcome, LifeStateError>,
 }
 
-/// Consumers drain after the fixed step; results persist across empty steps.
 #[derive(Resource, Default)]
 pub struct LifeCommandResults(Vec<LifeCommandResult>);
 
@@ -712,7 +643,6 @@ fn apply_life_commands(
             LifeCommand::CompleteRevive { token, .. } => Some(token.reviver),
             _ => None,
         };
-        // The resolved boundary checks entity/life admissibility, not team/geometry/timing.
         let reviver_valid = reviver.is_none_or(|id| {
             targets.get(id).is_ok_and(|v| {
                 matches!(v.route, DamageRoute::Human { .. }) && v.state == LifeState::Standing
@@ -721,50 +651,45 @@ fn apply_life_commands(
         let result = targets
             .get_mut(request.target)
             .map_err(|_| LifeStateError::MissingTarget)
-            .and_then(|mut target| {
-                match request.command {
-                    LifeCommand::Damage(damage) => {
-                        target.apply(damage).map(LifeCommandOutcome::Damage)
+            .and_then(|mut target| match request.command {
+                LifeCommand::Damage(damage) => target.apply(damage).map(LifeCommandOutcome::Damage),
+                LifeCommand::ExpireDowned(expiry) => target
+                    .expire_downed(request.target, expiry)
+                    .map(LifeCommandOutcome::Expiry),
+                LifeCommand::BeginRevive { reviver, episode } => {
+                    if !reviver_valid {
+                        return Err(LifeStateError::InvalidReviver);
                     }
-                    LifeCommand::ExpireDowned(expiry) => target
-                        .expire_downed(request.target, expiry)
-                        .map(LifeCommandOutcome::Expiry),
-                    LifeCommand::BeginRevive { reviver, episode } => {
-                        if !reviver_valid {
-                            return Err(LifeStateError::InvalidReviver);
-                        }
-                        target
-                            .begin_revive(request.target, reviver, episode)
-                            .map(LifeCommandOutcome::ReviveBegan)
+                    target
+                        .begin_revive(request.target, reviver, episode)
+                        .map(LifeCommandOutcome::ReviveBegan)
+                }
+                LifeCommand::CancelRevive(token) => target
+                    .cancel_revive(request.target, token)
+                    .map(|()| LifeCommandOutcome::ReviveCanceled),
+                LifeCommand::CompleteRevive { token, restore } => {
+                    target.check_token(request.target, token)?;
+                    if !reviver_valid {
+                        return Err(LifeStateError::InvalidReviver);
                     }
-                    LifeCommand::CancelRevive(token) => target
-                        .cancel_revive(request.target, token)
-                        .map(|()| LifeCommandOutcome::ReviveCanceled),
-                    LifeCommand::CompleteRevive { token, restore } => {
-                        // Validate target/token before checking current reviver admission.
-                        target.check_token(request.target, token)?;
-                        if !reviver_valid {
-                            return Err(LifeStateError::InvalidReviver);
-                        }
-                        target.complete_revive(request.target, token, restore)?;
-                        Ok(LifeCommandOutcome::Revived {
-                            current: target.current,
-                            maximum: target.maximum.get(),
-                        })
-                    }
-                    LifeCommand::BeginSelfRevive { episode } => target
-                        .begin_self_revive(request.target, episode)
-                        .map(LifeCommandOutcome::SelfReviveBegan),
-                    LifeCommand::CancelSelfRevive(token) => target
-                        .cancel_self_revive(request.target, token)
-                        .map(|()| LifeCommandOutcome::ReviveCanceled),
-                    LifeCommand::CompleteSelfRevive { token, restore } => {
-                        target.complete_self_revive(request.target, token, restore)?;
-                        Ok(LifeCommandOutcome::Revived {
-                            current: target.current,
-                            maximum: target.maximum.get(),
-                        })
-                    }
+                    target.complete_revive(request.target, token, restore)?;
+                    Ok(LifeCommandOutcome::Revived {
+                        current: target.current,
+                        maximum: target.maximum.get(),
+                    })
+                }
+                LifeCommand::BeginSelfRevive { episode } => target
+                    .begin_self_revive(request.target, episode)
+                    .map(LifeCommandOutcome::SelfReviveBegan),
+                LifeCommand::CancelSelfRevive(token) => target
+                    .cancel_self_revive(request.target, token)
+                    .map(|()| LifeCommandOutcome::ReviveCanceled),
+                LifeCommand::CompleteSelfRevive { token, restore } => {
+                    target.complete_self_revive(request.target, token, restore)?;
+                    Ok(LifeCommandOutcome::Revived {
+                        current: target.current,
+                        maximum: target.maximum.get(),
+                    })
                 }
             });
         results.0.push(LifeCommandResult {

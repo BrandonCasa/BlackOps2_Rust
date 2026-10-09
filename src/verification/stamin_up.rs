@@ -1,4 +1,3 @@
-//! Actual-window endurance/recovery around paid Stamin-Up and Quick Revive.
 use super::*;
 use crate::{
     life::{LifeState, Vitality},
@@ -106,7 +105,6 @@ fn drive(
         1 | 8 | 14 => {
             input.sprint = true;
             input.movement = Vec2::Y;
-            // Continuous input traverses a small circle on the actual map, avoiding a straight run into a wall.
             player.yaw = c.elapsed * 4.;
             player.pitch = 0.;
             if let Some(previous) = c.previous {

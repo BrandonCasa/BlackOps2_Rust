@@ -1,4 +1,3 @@
-"""Prepare retained defensive-perk rules; Originals stay read-only."""
 import hashlib
 import json
 import re

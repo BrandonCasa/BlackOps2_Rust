@@ -1,4 +1,3 @@
-"""Convert authored T6 trigger entities and clip-submodel brush unions."""
 import hashlib
 import itertools
 import json
@@ -46,7 +45,6 @@ def vector(value):
 def rotation(angles):
     pitch, yaw, roll = np.radians(vector(angles))
     cp, sp, cy, sy, cr, sr = math.cos(pitch), math.sin(pitch), math.cos(yaw), math.sin(yaw), math.cos(roll), math.sin(roll)
-    # T6 forward is (cp*cy, cp*sy, -sp). Convert its Z-up basis once.
     return np.array([[cy, -sy, 0.], [sy, cy, 0.], [0., 0., 1.]]) @ np.array(
         [[cp, 0., sp], [0., 1., 0.], [-sp, 0., cp]]) @ np.array(
         [[1., 0., 0.], [0., cr, -sr], [0., sr, cr]])
@@ -90,7 +88,6 @@ def convert(records, models):
             corners = [np.array(signs) * extents for signs in itertools.product((-1., 1.), repeat=3)]
             shape = {"kind": "convex", "volumes": [piece(identity + ".box", corners, transform)]}
         elif source["classname"] == "trigger_radius":
-            # Native unitrigger debug draws radius triggers from origin to origin+height.
             if np.any(vector(source.get("angles", "0 0 0")) != 0):
                 raise ValueError("rotated radius trigger requires native orientation recovery")
             shape = {"kind": "cylinder", "radius": float(source["radius"]) * SCALE,

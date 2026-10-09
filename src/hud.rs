@@ -107,7 +107,6 @@ fn setup(
             ..default()
         },
     ));
-    // Reconstructed peripheral red feedback; Bevy UI owns compositing and lifetime.
     commands
         .spawn((
             Node {

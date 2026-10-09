@@ -1,4 +1,3 @@
-//! Authored mud, rendered motion feedback and native clearance in the game window.
 use super::*;
 use crate::{
     environment::{Footstep, FootstepSurface, TerrainMotion},

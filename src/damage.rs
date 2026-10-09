@@ -1,4 +1,3 @@
-//! Fixed-step attributed impacts and once-only solo combat rewards.
 use crate::{
     GameState,
     assets::GameDefinition,
@@ -100,7 +99,6 @@ fn resolve(
     perks: Query<&crate::solo_revive::PerkInventory>,
     mut perk_evidence: ResMut<crate::perk_effects::EffectEvidence>,
 ) {
-    // Resolve weapon combat first: a lethal shot cancels that enemy's queued impact.
     queue
         .0
         .sort_by_key(|impact| matches!(impact.source, ImpactSource::Enemy(_)));
@@ -242,7 +240,6 @@ fn rewards(
         } else {
             0
         };
-        // Original death replaces a damage award; it does not add a second hit award.
         let points = if matches!(&impact.source,ImpactSource::Perk(id) if definition.content.perks.iter().any(|p|p.id==*id && p.cherry.is_some()))
         {
             if lethal { 40 } else { 0 }

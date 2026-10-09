@@ -1,4 +1,3 @@
-"""Prepare throwable tuning from retained resolved weapon definitions."""
 import json
 import re
 import math
@@ -14,8 +13,6 @@ def prepare_monkey_world(content,monkey,inspection,pack):
         if (presentation is None or len(clips)!=1 or clips[0]["id"] not in presentation["animations"] or
                 clips[0]["path"].split("#",1)[0]!=presentation["scene"].split("#",1)[0]):
             raise ValueError("assembled Monkey Bomb lacks its native world loop: "+owner)
-        # Assembly preparation already applies its attachment/bind transforms.
-        # Retain that rig and animation rather than rebinding to the bare model.
         return clips[0]["id"]
     from prepare_actors import convert
     model="t6_wpn_zmb_monkey_bomb_world"
@@ -35,8 +32,6 @@ def prepare_prime_clips(content, rows, inspection, pack):
     equipment=[w for w in content["weapons"] if w["id"] in (
         "weapon.frag_grenade_zm","weapon.sticky_grenade_zm","weapon.cymbal_monkey_zm","weapon.claymore_zm")]
     primes={rows[w["id"]]["fields"]["holdFireAnim"] for w in equipment}
-    # Viewhand shoulders are authored behind the eye. Moving the rig forward
-    # exposes the open sleeve during release; use the shared native camera origin.
     for w in equipment:
         w["view_offset"] = [0.,0.,0.]
     models={rows[w["id"]]["fields"]["gunModel"]:{rows[w["id"]]["fields"]["holdFireAnim"]} for w in equipment}

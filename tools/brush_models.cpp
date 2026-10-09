@@ -1,4 +1,3 @@
-// Read-only T6 brush-model surface ownership; output stays outside the repository.
 #include "ContentPrinter.h"
 #include "Game/T6/T6_Assets.h"
 #include "Game/T6/T6.h"

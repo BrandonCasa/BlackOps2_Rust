@@ -503,7 +503,6 @@ pub fn move_player(
     }
 }
 
-/// Shared capsule stepping over ordinary map obstacles using Avian queries.
 pub struct MotionShape<'a> {
     pub collider: &'a Collider,
     pub radius: f32,

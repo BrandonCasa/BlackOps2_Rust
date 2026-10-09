@@ -1,4 +1,3 @@
-//! Read-only presentation of authoritative equipment state; no inventory switching.
 use super::*;
 use crate::equipment::{GrenadeInventory, TacticalInventory, ThrowState};
 use crate::mines::MineInventory;
@@ -38,7 +37,6 @@ pub struct EquipmentPresentationEvidence {
     pub frames: u32,
     pub phase_frames: BTreeMap<String, u32>,
     pub views: BTreeMap<String, serde_json::Value>,
-    // Native clip duration, greatest sampled time, and sample count.
     pub clocks: BTreeMap<String, [f32; 3]>,
     pub sampled_clocks: BTreeMap<String, f32>,
 }
@@ -173,8 +171,6 @@ pub(super) fn select_visible(
                 target,
                 1. - (-tuning.sway_response * time.delta_secs()).exp(),
             );
-            // BG_CalculateWeaponPosition (008ed6c0/008ed300) removes this
-            // look-lag contribution by half ADS, rather than retaining 25%.
             sway = motion.sway * (1. - primary.ads * 2.).max(0.);
         }
         for (view, mut visibility, mut pose) in &mut views {

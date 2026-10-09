@@ -1,4 +1,3 @@
-//! Native late HDR rendering with depth owned by the first-person view.
 use crate::{assets::LaunchOptions, presentation::ViewModelCamera};
 use bevy::{
     core_pipeline::{
@@ -83,7 +82,6 @@ impl Plugin for FirstPersonRenderPlugin {
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render
                 .insert_resource(stats)
-                // RenderStartup resets handles after device recovery.
                 .init_gpu_resource::<FirstPersonDepths>()
                 .add_systems(
                     Render,
@@ -112,8 +110,6 @@ fn prepare_depth(
         With<ViewModelCamera>,
     >,
 ) {
-    // Removing a camera or suspending its target retires its storage. Ordinary
-    // camera motion, ADS and animation preserve allocation and depth identity.
     depths.0.retain(|entity, _| {
         views
             .get(*entity)
@@ -165,8 +161,6 @@ fn prepare_depth(
         }
         commands.entity(entity).insert(ViewDepthStencilTexture::new(
             depths.0[&entity].texture.clone(),
-            // Bevy's reverse-Z clear preserves normal self-occlusion. This
-            // attachment never participates in the world camera's depth.
             Some(0.0),
             None,
         ));

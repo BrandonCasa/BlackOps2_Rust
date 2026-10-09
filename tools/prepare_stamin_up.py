@@ -1,4 +1,3 @@
-"""Prepare native Origins Stamin-Up acquisition with explicit reload tuning."""
 import hashlib
 import json
 import math

@@ -1,4 +1,3 @@
-"""Native binding interpretation and explicit physical recipes; no ordinal guesses."""
 import re
 
 import numpy as np
@@ -76,7 +75,6 @@ def meanings(family, surface, layer, has_specular):
 
 
 def physical_response(color, gloss, normal, recipe, authored=None):
-    """Fit native gloss to bounded GGX and apply reviewed masks, never albedo shadows."""
     template = color if color is not None else normal if normal is not None else gloss
     h, w = template.shape[:2]
     profile = dict(recipe, **{k: v for k, v in (authored or {}).items() if k != "regions"})

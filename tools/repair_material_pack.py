@@ -1,8 +1,3 @@
-"""Repair selected native material sets in an external, otherwise unchanged pack.
-
-Recover full chains first, then repair, measure, cook, assemble and visually
-qualify. All four steps reuse the common semantic/DDS/cache helpers.
-"""
 import argparse
 import copy
 import hashlib
@@ -76,12 +71,9 @@ def repair(source, destination, masters, inspection, extraction, encoder, catalo
             if original_surface.get("version") != 2:
                 raise ValueError(f"{identity}: selected repair requires existing version-two declarations")
             candidate = copy.deepcopy(material)
-            # Fallback images are lossless masters, never decoded bootstrap tails.
             cooker.material(candidate, document, scene, definitions.get(identity))
             proposed = candidate["extras"]["surface"]
             channels = {(c["role"], c["layer"]): c for c in proposed["channels"]}
-            # Replace only existing runtime channels; preserve controls/effects
-            # outside the native physical fit and every glTF declaration.
             repaired = []
             for old in original_surface["channels"]:
                 key = old["role"], old["layer"]
@@ -106,8 +98,6 @@ def repair(source, destination, masters, inspection, extraction, encoder, catalo
             updates[scene.relative_to(source).as_posix()] = document
     if not identities:
         raise ValueError("Selection matched no native material identities")
-    # Only descriptors after compression succeeds; interrupted cooking reuses
-    # source-addressed masters and verified compressed cache objects.
     cooker.compress()
     for uri, document in updates.items():
         for material in document["materials"]:
@@ -116,8 +106,6 @@ def repair(source, destination, masters, inspection, extraction, encoder, catalo
                 if metadata:
                     channel.update({key: metadata[key] for key in ("format", "width", "height", "mip_count")})
         atomic_json(destination / uri, document)
-    # Remove only copied material DDS that have no remaining declaration. No
-    # game-owned dependency, geometry, clip, audio or original can be removed.
     used = {c["uri"] for scene in destination.rglob("*.gltf")
             for m in json.loads(scene.read_text()).get("materials", [])
             for c in m.get("extras", {}).get("surface", {}).get("channels", [])}
@@ -154,7 +142,7 @@ def repair(source, destination, masters, inspection, extraction, encoder, catalo
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Repair selected native material sets in an external, otherwise unchanged pack.\n\nRecover full chains first, then repair, measure, cook, assemble and visually\nqualify. All four steps reuse the common semantic/DDS/cache helpers.\n')
     for name in ("source", "destination", "masters", "inspection", "extraction", "encoder", "receipt"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--catalog", type=Path, default=Path(__file__).resolve().parents[1]/"config/origins-materials.json")

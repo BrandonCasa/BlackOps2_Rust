@@ -1,4 +1,3 @@
-"""Prepare native bottle identity and tunable engine-effect reconstructions."""
 import hashlib
 import json
 from prepare_gameplay_content import external

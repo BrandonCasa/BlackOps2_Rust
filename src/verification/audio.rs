@@ -1,4 +1,3 @@
-//! Inspect sinks and lifecycle in the actual game; receipts stay outside the pack.
 use super::*;
 use bevy::audio::AudioSinkPlayback;
 #[derive(Resource, Default)]
@@ -125,7 +124,6 @@ fn record(
     let _ = std::fs::write(output.join("audio.json"), receipt.to_string());
 }
 
-/// Controlled source travel in the real game, using native recordings and sinks.
 #[derive(Resource, Default)]
 struct SourceExercise {
     phase: u8,

@@ -1,4 +1,3 @@
-"""Prepare authored generator placements and original articulated pump clips."""
 import json
 import math
 import numpy as np
@@ -24,8 +23,6 @@ def prepare(config):
     identity = 'presentation.generator.pump'
     relative, notes = convert(base / 'game-prepare/models/model_export/fxanim_zom_tomb_generator_pump_mod_lod0.gltf',
                               pack / 'props', base / 'solo-content/actor-images', [source / n for n in CLIPS])
-    # OAT's skeletal glTF omits native alpha state. Reuse retained material
-    # state where available; otherwise preserve the source texture's opacity.
     surfaces = json.loads((base / 'game-prepare/instances/model-surfaces.json').read_text())
     retained = {s['material']: s for model in surfaces.values() for s in model}
     prop = pack / 'props' / relative
@@ -85,8 +82,6 @@ def prepare(config):
                                 'capture_sound': 'sound.generator.capture', 'active_sound': 'sound.generator.active'})
     assert len(c['generators']) == 6
     (pack / 'game.json').write_text(json.dumps(game, indent=2) + '\n')
-    # Current-game audio is prepared from licensed native banks, including the
-    # generator definition's required loop references and pump notifications.
     from prepare_audio import prepare as prepare_audio
     prepare_audio(config)
     report = {'generators': 6, 'native_clips': CLIPS, 'emergence_points': 24,

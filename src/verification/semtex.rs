@@ -1,4 +1,3 @@
-//! Input-driven Semtex purchase, holding, attachment and real-map cover workload.
 use super::Verification;
 use crate::{
     GameState,

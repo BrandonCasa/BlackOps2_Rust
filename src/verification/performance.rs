@@ -1,4 +1,3 @@
-//! Bounded actual-window measurements; loading, view changes and captures are excluded.
 use super::Verification;
 use crate::assets::LaunchOptions;
 use bevy::prelude::*;

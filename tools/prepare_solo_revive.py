@@ -1,4 +1,3 @@
-"""Prepare retained solo Quick Revive rules and its original Origins machine."""
 import hashlib
 import json
 import math

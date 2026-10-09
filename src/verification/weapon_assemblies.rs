@@ -1,4 +1,3 @@
-//! Opt-in catalog pose survey inside origins.exe; controlled poses are explicit.
 use super::*;
 use crate::{
     origins::content::{WeaponAnimation, WeaponId},
@@ -115,7 +114,6 @@ fn world_ready(
             bevy::camera::visibility::RenderLayers::layer(1),
             bevy::light::NotShadowCaster,
         ));
-        // Match the production wall-pickup material preparation.
         if let Ok(material) = meshes.get(entity)
             && let Some(source) = materials.get(&material.0)
         {
@@ -308,8 +306,6 @@ fn drive(
                     .spawn(Screenshot::primary_window())
                     .observe(save_to_disk(v.output.join(&name)));
                 survey.rows.push(serde_json::json!({"weapon":weapon.id.0,"phase":"World","image":name,"visible":true}));
-                // Keep the scene alive through render extraction and screenshot
-                // readback; immediate despawn produces an empty world capture.
                 survey.world_captured = true;
                 survey.age = 0.;
                 return;
@@ -331,8 +327,6 @@ fn drive(
     if !survey.begun {
         survey.sample = 0;
         let mut staged = weapon.clone();
-        // Ammo-free native helper definitions must still stage the requested
-        // nonempty Idle/Fire pose, rather than implicitly selecting IdleEmpty.
         staged.magazine = match survey.phase {
             8 => 1,
             9 => 0,
@@ -356,7 +350,6 @@ fn drive(
         survey.begun = true;
         survey.age = 0.;
     }
-    // Hold the selected pose independent of normal action/gameplay progression.
     input.ads = survey.phase == 2;
     if survey.phase == 2 {
         inv.ads = 1.;
@@ -417,8 +410,6 @@ fn drive(
                 .spawn(Screenshot::primary_window())
                 .observe(save_to_disk(v.output.join(&name)));
             survey.rows.push(serde_json::json!({"weapon":weapon.id.0,"phase":label,"fraction":fraction,"image":name,"visible":visible,"view":view}));
-            // Preserve this action/sample until the requested screenshot has
-            // passed through extraction and readback.
             survey.capture_pending = Some((survey.age + 0.12, moving));
         }
     }

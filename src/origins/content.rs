@@ -1,4 +1,3 @@
-//! Versioned offline content contract. IDs remain independent of ECS entities.
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt};
 
@@ -11,7 +10,6 @@ macro_rules! identifiers {
 }
 identifiers!(ContentId, ZoneId, WeaponId, PerkId, QuestId, InteractionId);
 
-/// Authored gameplay-site identity, preserved when its session entity is replaced.
 #[derive(
     bevy::prelude::Component,
     Debug,
@@ -565,7 +563,6 @@ pub struct NavigationLink {
     #[serde(default)]
     pub negotiation: Option<NativeNegotiation>,
 }
-/// Compiled path-node constants. Positions/distances use meters; yaw uses radians.
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NegotiationNode {
@@ -618,7 +615,6 @@ impl NegotiationNode {
 #[serde(deny_unknown_fields)]
 pub struct NativeNegotiation {
     pub cost: f32,
-    /// Native bits remain source data until their engine semantics are recovered.
     pub flags: u8,
     pub disconnect_count: u8,
     pub start: NegotiationNode,
@@ -801,7 +797,6 @@ pub struct ContentCatalog {
     pub localized_strings: Vec<LocalizedString>,
 }
 
-/// A validated index rejects a reference to an existing ID of the wrong kind.
 pub struct ContentIndex<'a>(BTreeMap<&'a str, &'static str>);
 impl<'a> ContentIndex<'a> {
     fn insert(&mut self, id: &'a str, kind: &'static str) -> Result<(), ContentError> {

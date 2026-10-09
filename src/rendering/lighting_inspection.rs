@@ -1,5 +1,3 @@
-//! One-shot actual-GPU radiance evidence for functional window verification.
-//! Disabled in profiling runs so readback does not contaminate timing captures.
 use bevy::{
     prelude::*,
     render::gpu_readback::{Readback, ReadbackComplete},

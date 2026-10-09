@@ -1,4 +1,3 @@
-"""Prepare Juggernog's native machine/bottle and explicit effective-health reconstruction."""
 import hashlib
 import json
 import math

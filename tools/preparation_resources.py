@@ -1,4 +1,3 @@
-"""Cooperative admission for offline preparation alongside the shared game task."""
 import os
 import subprocess
 import threading
@@ -12,8 +11,6 @@ _pressure_sample = threading.local()
 
 
 def resource_pressure(now):
-    # psutil's nonblocking percentages share a per-thread previous sample.
-    # All guards on that thread must also share the sampling cadence.
     if not hasattr(_pressure_sample, "last_check"):
         psutil.cpu_percent()
         _pressure_sample.last_check = now
@@ -53,20 +50,13 @@ class PreparationResources:
         self.shared_slot_busy = bool(names & ACTIVE_CAPTURE_PROCESSES)
         self.shared_slot_busy |= self.pause_file is not None and self.pause_file.exists()
         self.busy = self.shared_slot_busy
-        # Nonblocking CPU percentages compare successive samples. File copies
-        # can call wait milliseconds apart; sample pressure over a real interval
-        # while still checking game/capture processes immediately.
         if not self.saturate:
             self.busy |= resource_pressure(now)
-        # A newly started preparation or compiler belongs to the other task.
-        # Yield even after admission rather than waiting for resource overload.
         if (gpu_owned or gpu_admission) and not self.saturate:
             self.busy |= bool(names & {"texconv.exe", "cargo.exe", "rustc.exe"})
         if gpu_admission and not self.busy and not self.saturate:
             result = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.free",
                 "--format=csv,noheader,nounits"], capture_output=True, text=True, check=True)
-            # Admission is separate from performance comparison. Once our job
-            # owns the GPU, its own utilization must not make it pause itself.
             for row in result.stdout.strip().splitlines():
                 utilization, free = [float(x.strip()) for x in row.split(",")]
                 self.busy |= utilization >= 30. or free < self.gpu_memory_mib
@@ -75,14 +65,8 @@ class PreparationResources:
 
     def wait(self, gpu_admission=False, on_pause=None, gpu_owned=False):
         announced = False
-        # File copies and tiled inference can call this thousands of times.
-        # Share the half-second admission snapshot rather than enumerating
-        # every Windows process for each mip, region and dependency.
         while self.refresh(gpu_admission, gpu_owned=gpu_owned):
             if self.shared_slot_busy and self.exit_for_shared_slot:
-                # A destroyed inference session can leave its native CUDA
-                # context and partially cooked host arrays allocated. Exit the
-                # candidate worker; its completed hash receipts support resume.
                 print("Preparation yielded the shared game/capture slot; resume from saved candidates", flush=True)
                 raise SystemExit(75)
             if not announced:
@@ -98,7 +82,7 @@ def main():
     import json
     from pathlib import Path
     import shutil
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Cooperative admission for offline preparation alongside the shared game task.')
     parser.add_argument("--pause-file", type=Path)
     parser.add_argument("--snapshot", type=Path, nargs=2, metavar=("SOURCE", "DESTINATION"))
     args = parser.parse_args()

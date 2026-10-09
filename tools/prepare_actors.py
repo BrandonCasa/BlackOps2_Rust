@@ -1,4 +1,3 @@
-"""Convert recovered OAT skinned glTF into self-contained, meter-scale actor assets."""
 import base64
 import copy
 import hashlib
@@ -19,7 +18,6 @@ except ImportError:
 
 
 def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), board_delta=False, translation_offsets=None, native_translations=None):
-    """Append native channels without changing existing meshes, materials or clips."""
     skeleton_joints = {j for skin in document.get("skins", []) for j in skin["joints"]}
     children = {child for j in skeleton_joints for child in document["nodes"][j].get("children", [])}
     roots = skeleton_joints - children
@@ -55,7 +53,7 @@ def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), 
                              'output': animation_accessor(values, 'VEC3'), 'interpolation': 'LINEAR'})
         for bone, tracks in clip["tracks"].items():
             if in_place and bone == "tag_sync":
-                continue  # Authoring synchronization marker is not an actor pose joint.
+                continue
             if bone not in by_name or by_name[bone] not in skeleton_joints:
                 continue
             node = by_name[bone]
@@ -65,9 +63,6 @@ def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), 
                     bind = document["nodes"][node].get(target, [0,0,0] if target=="translation" else [0,0,0,1])
                     values = np.repeat(np.asarray(bind).reshape(1,-1),len(values),axis=0)
                 elif target == "translation":
-                    # XModel.trans supplies the native translation baseline.
-                    # Arms generally store zero; weapon parts retain offsets.
-                    # OAT glTF rest locals are rebuilt from baseMat instead.
                     if native_translations and bone in native_translations:
                         values += np.asarray(native_translations[bone])
                     if node in roots:
@@ -76,12 +71,9 @@ def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), 
                     if translation_offsets and bone in translation_offsets:
                         values += np.asarray(translation_offsets[bone]) * 0.0254
                     if in_place:
-                        # Retain bind offsets; native actor channels carry motion about that pose.
                         anchor = values[-1] if bone == "j_mainroot" and clip_path.name in end_aligned_clips else values[0]
                         values += np.asarray(document["nodes"][node].get("translation", [0,0,0])) - anchor
                 elif node in roots:
-                    # OAT premultiplies root orientations by a -90-degree X basis.
-                    # Parent-relative rotations retain their native local basis.
                     x, y, z, w = values.T.copy()
                     c = np.sqrt(0.5)
                     values = np.stack((c * (x - w), c * (y + z), c * (z - y), c * (w + x)), axis=1)
@@ -90,7 +82,7 @@ def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), 
                 channels.append({"sampler": len(samplers), "target": {"node": node, "path": target}})
                 samplers.append({"input": input_index, "output": output_index, "interpolation": "LINEAR"})
         if not channels:
-            continue  # Camera/socket-only clips have no channels for this mesh's rig.
+            continue
         animations.append({"name": clip_path.name, "channels": channels, "samplers": samplers})
         notifications.append((clip_path.name, clip["notifications"]))
     if animations:
@@ -137,9 +129,9 @@ def convert(source_path, output, additional_images, clips, in_place=False, end_a
             values = (values.astype(np.float32) / np.iinfo(dtype).max).astype("<f4")
             result["componentType"] = 5126
         if index in positions:
-            values *= 0.0254  # OAT already converted source coordinates to Y-up.
+            values *= 0.0254
         if index in inverse_binds:
-            values[:, 12:15] *= 0.0254  # Conjugate inverse binds by uniform unit scale.
+            values[:, 12:15] *= 0.0254
         if index in weights:
             totals = values.sum(axis=1, keepdims=True)
             if (values < 0).any() or (totals <= 0).any():
@@ -166,9 +158,8 @@ def convert(source_path, output, additional_images, clips, in_place=False, end_a
                      for m in document.get("materials", []) if "normalTexture" in m}
     for index, image in enumerate(document.get("images", [])):
         if not prepare_images:
-            continue  # The library cooker reads native bindings before removing DDS glTF image references.
+            continue
         path = (source_path.parent / image["uri"]).resolve()
-        # Only the recovered model export tree supplies texture input.
         model_root = source_path.parent.parent.resolve()
         if model_root not in path.parents:
             raise ValueError("actor texture escaped recovered model tree")
@@ -210,7 +201,6 @@ def prepare(config):
         zone = Path(config["assets"]["installation_root"]) / "zone/all/zm_tomb.ff"
         export(oat_source, zone, inspection / "solo-content/actor-image-export", image_root, include_actor_images=True)
     shared_image = image_root / "~-gmtl_t6_wpn_zmb_raygun2_col1.dds"
-    # A separate callback reads shared patch images even though that zone has no world.
     if not shared_image.is_file():
         from export_instances import export
         oat_source = external(settings.get("oat_source", inspection / "tooling/OAT/surface-7d027e8/source"))

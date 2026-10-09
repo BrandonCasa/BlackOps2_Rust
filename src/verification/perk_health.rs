@@ -1,4 +1,3 @@
-//! Actual-window paid acquisition, health recovery, perk loss and session reset.
 use super::*;
 use crate::{
     life::{LifeState, Vitality},
@@ -137,7 +136,6 @@ fn drive(
                 if focus.rejection == Some(crate::interactions::InteractionRejection::Duplicate) {
                     coverage.duplicate = session.points == 2500;
                 }
-                // Regeneration must fill the increased ceiling, not an activation-time heal.
                 coverage.healed = health.current() == Some(250);
                 if coverage.elapsed > 7. && coverage.duplicate && coverage.healed {
                     session.points = 500;

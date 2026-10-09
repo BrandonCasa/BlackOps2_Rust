@@ -1,4 +1,3 @@
-//! Named actions and physical bindings shared by gameplay, prompts and settings.
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -166,7 +165,6 @@ pub enum PressMode {
 pub struct ControlSettings {
     pub version: u32,
     pub bindings: BTreeMap<Action, Vec<Binding>>,
-    /// Multipliers preserve the prepared map's hip/ADS defaults at 1.0.
     pub sensitivity: f32,
     pub ads_sensitivity: f32,
     pub invert_mouse_y: bool,

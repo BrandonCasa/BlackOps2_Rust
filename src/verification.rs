@@ -1,4 +1,3 @@
-//! Opt-in bounded verification of the actual application, never a second viewer.
 use crate::{
     GameState,
     assets::{GameDefinition, LaunchOptions, LoadFailure},
@@ -585,7 +584,6 @@ pub(crate) fn drive(
     } else if verification.stage == 0
         && let Some(initial) = verification.initial
     {
-        // Leave a cleared entrance so its minimum spawn clearance can recover.
         let delta = initial - transform.translation;
         if delta.xz().length_squared() > 1. {
             let local = Quat::from_rotation_y(-player.yaw) * delta.normalize_or_zero();
@@ -853,8 +851,6 @@ fn check(
         && verification.stage == 0
         && **state == GameState::Playing
     {
-        // Rendering measurements use an isolated paused survey. Combat remains
-        // exercised separately by --verify, at the optimized frame rate.
         verification.stage = 1;
         verification.playing = 0.;
         next.set(GameState::Paused);
@@ -870,9 +866,6 @@ fn check(
                 Visibility::Inherited
             };
     }
-    // Allocation-instrumented captures include loading and full combat before
-    // their sampled window. Keep a bounded deadline without discarding a slow
-    // but advancing workload before the round transition and restart receipts.
     if verification.started.elapsed().as_secs() > if verification.benchmark { 900 } else { 180 }
         || **state == GameState::LoadError
         || (**state == GameState::GameOver && verification.stage == 0)
@@ -1030,7 +1023,6 @@ fn check(
             if let Ok((_, mut projection)) = cameras.single_mut()
                 && let Projection::Perspective(perspective) = &mut *projection
             {
-                // Comparison-only projection; ordinary player projection is unchanged.
                 perspective.fov = profile.comparison_fov_degrees.to_radians();
             }
             let sweep = if verification.moving_view {
@@ -1076,7 +1068,6 @@ fn check(
                 }
             }
             let water_view = verification.survey >= definition.survey_views.len() + 5;
-            // Allow exposure to settle before judging atmosphere/animation.
             if verification.playing
                 > if verification.moving_view {
                     66.
@@ -1299,12 +1290,7 @@ fn check(
     }
 }
 
-// Additional actual-map views target the supplied spawn-room references and a
-// retained puddle. The repeated water view checks animation at a stationary camera.
 fn capture(commands: &mut Commands, frame: &mut Option<Entity>, path: PathBuf) {
-    // All labels requested during this check observe the same rendered frame.
-    // Share its native capture instead of submitting duplicate window targets,
-    // which Bevy drops before either observer can save the skipped request.
     let entity = *frame.get_or_insert_with(|| commands.spawn(Screenshot::primary_window()).id());
     commands.entity(entity).observe(save_to_disk(path));
 }
@@ -1334,12 +1320,8 @@ fn visual_view(
         5..=6 => Some((Vec3::new(-38.7, 4.5, -13.), 0., -0.6)),
         7..=8 if brush_views => brush_view(definition, local == 8),
         10..=11 if only_view => brush_view(definition, local == 11),
-        // Opt-in close views of probe-only radios beside authored lanterns.
-        // Additional ordinary views above qualify authored brush placements.
         7 if only_view => Some((Vec3::new(72.0, -9.0, -130.0), 3.75, 0.1)),
         8 if only_view => Some((Vec3::new(-7.5, 1.8, -4.0), 1.92, -0.28)),
-        // The reported thin-wall leak is beside the original Quick Revive
-        // placement. Reuse the survey's settling/capture path at its real pose.
         9 if only_view => {
             let placement = definition
                 .content
@@ -1381,8 +1363,6 @@ fn brush_view(definition: &GameDefinition, ice: bool) -> Option<(Vec3, f32, f32)
     let (position, target) = if ice {
         (origin + Vec3::new(0., -2.5, 3.), origin)
     } else {
-        // Native chamber_entrance_position is (-339, 110.5, 69.5) inches/Z-up.
-        // Stand beside the authored gramophone site, outside the entrance brush.
         (Vec3::new(-8.6106, 2.3, -2.8067), origin + Vec3::Y * 3.1)
     };
     let delta = target

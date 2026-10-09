@@ -1,4 +1,3 @@
-"""Prepare native zombie negotiation clips and collider-owned root-motion samples."""
 import json
 import numpy as np
 from prepare_actors import convert

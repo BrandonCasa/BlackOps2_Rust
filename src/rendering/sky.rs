@@ -1,4 +1,3 @@
-//! Native atmosphere, environment lighting, SSAO and inexpensive distance fog.
 use super::{GameCamera, profile::VisualProfile};
 use bevy::{
     light::{Atmosphere, AtmosphereEnvironmentMapLight, atmosphere::ScatteringMedium},
@@ -16,7 +15,6 @@ pub(super) fn setup(
 ) {
     let Ok(camera) = cameras.single() else { return };
     let atmosphere = Atmosphere::earth(media.add(ScatteringMedium::earth(256, 256)));
-    // The map extends below zero; keep all playable areas above the planet.
     let center = GlobalTransform::from_translation(Vec3::Y * (-atmosphere.inner_radius - 64.));
     commands.spawn((atmosphere, center, Name::new("Origins atmosphere")));
     commands.entity(camera).insert((

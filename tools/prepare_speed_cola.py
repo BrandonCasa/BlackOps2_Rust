@@ -1,4 +1,3 @@
-"""Prepare native Origins Speed Cola acquisition with explicit reload tuning."""
 import hashlib
 import json
 import math

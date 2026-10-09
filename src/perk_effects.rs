@@ -1,4 +1,3 @@
-//! Source-driven reload discharges extend shared inventory, enemy and damage systems.
 use crate::{
     GameState,
     assets::GameDefinition,

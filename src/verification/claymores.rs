@@ -1,4 +1,3 @@
-//! Actual-window equipment workload; native stock/limit and naturally admitted actors.
 use super::{
     Verification,
     semtex::{aim, standing},
@@ -202,7 +201,6 @@ fn drive(
             body.translation = coverage.home;
             player.yaw = coverage.yaw;
             player.pitch = -0.5;
-            // A competing lethal gesture during placement/recovery must preserve its stock.
             input.grenade_held = inventory.busy();
             if evidence.placed < 12 && inventory.count > 0 && !inventory.busy() {
                 coverage.press = !coverage.press;
@@ -261,9 +259,6 @@ fn drive(
             let Ok((_, enemy, _, _)) = enemies.get(actor) else {
                 return;
             };
-            // Admission and movement stay native. Control trap headings so this
-            // damage workload admits the actor into both authored cones; the
-            // traversal driver separately qualifies cone/cover exclusions.
             let delta = enemy.translation - mine_pose.translation;
             let Some(forward) = Vec3::new(delta.x, 0., delta.z).try_normalize() else {
                 return;
@@ -274,9 +269,6 @@ fn drive(
                 commands.entity(entity).insert(controlled);
             }
             let distance = (enemy.translation - mine_pose.translation).length();
-            // A failed retreat clearance probe must not leave the player in
-            // front, where the actor can stop outside the trigger cylinder.
-            // This standing home position was exercised during initial combat.
             body.translation = coverage.home;
             let probe = mine_pose.translation + forward * if distance > 4. { 2. } else { -1.5 };
             if let Some(center) = standing(
@@ -332,8 +324,6 @@ fn drive(
                     commands.write_message(AppExit::error());
                     return;
                 }
-                // The burst scenario has already completed before the limit workload.
-                // The fixed-step driver performs the ordinary survey/reset transition.
                 coverage.phase = 16;
             }
         }

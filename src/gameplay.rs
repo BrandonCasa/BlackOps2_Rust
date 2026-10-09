@@ -275,8 +275,6 @@ pub(crate) fn combat(
             firing_evidence.shots.push(serde_json::json!({"weapon":weapon_id.0,"seconds":time.elapsed_secs_f64(),"pellets":pellets,"copies":copies,"rays":pellets*copies,"spread":spread,"ads":inventory.ads,"interval_scale":inventory.firing.interval_scale,"hip_spread_scale":inventory.firing.hip_spread_scale}));
         }
         for ray in 0..pellets * copies {
-            // Paired bullets share their originating pellet direction. They resolve
-            // independently through damage/life, with one ammunition/recoil debit.
             let pellet = ray / copies;
             let direction = if melee {
                 direction
@@ -361,7 +359,6 @@ pub(crate) fn rounds(
     }
     evidence.peak_ordinary = evidence.peak_ordinary.max(population.ordinary);
     let profile = &definition.rounds;
-    // Generator attacks run independently; ordinary and scheduled special actors hold the round.
     if session.round_complete(population.ordinary + population.special) {
         let timer = session.intermission.get_or_insert_with(|| {
             Timer::from_seconds(profile.between_round_seconds, TimerMode::Once)
@@ -417,9 +414,7 @@ pub(crate) fn rounds(
         if floor.normal.y < 0.5 {
             return None;
         }
-        // Preserve capsule clearance already admitted by the map graph.
         let position = base + Vec3::Y * 0.85;
-        // Noclip traversal still reserves its landing; never admit overlapping risers.
         if enemies.iter().any(|(health, _, body, zombie)| {
             let delta = body.translation - position;
             health.state() == LifeState::ActorAlive

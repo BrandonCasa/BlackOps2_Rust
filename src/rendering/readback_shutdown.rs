@@ -1,4 +1,3 @@
-//! Complete native GPU readback callbacks before their receivers are dropped.
 use bevy::{
     ecs::message::Messages,
     prelude::*,
@@ -33,10 +32,6 @@ fn finish_readbacks(requested: Res<ExitRequested>, device: Res<RenderDevice>) {
     if !requested.0 {
         return;
     }
-    // Bevy maps native readback buffers in Cleanup, after submitting their
-    // copies. Poll here while the render world's channel receivers still live.
-    // The pipelined renderer returns this world before the application drops it.
-    // Ordinary frames retain asynchronous GPU execution and never wait here.
     if let Err(error) = device.poll(PollType::Wait {
         submission_index: None,
         timeout: Some(Duration::from_secs(30)),

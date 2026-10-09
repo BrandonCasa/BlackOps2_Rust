@@ -1,4 +1,3 @@
-//! Session-owned blockers and monotonic reachability through authored zone edges.
 use crate::{
     GameState,
     assets::GameDefinition,
@@ -196,7 +195,6 @@ fn audio_evidence(
 }
 #[derive(Resource, Default)]
 pub struct CurrentZone(pub Option<ZoneId>);
-// Query-only zone hulls must not alias the player's solid ingress clips.
 const ZONE_SENSOR_LAYER: u32 = 8;
 #[derive(Component)]
 struct ZoneSensor {
@@ -372,10 +370,8 @@ fn opening(
             continue;
         };
         if prop.age == 0. {
-            // One bounded emitter per authored leaf, matching native door_move sound placement.
             if let Some(alias) = definition.audio.bindings.get(&door.sound.0) {
                 let source = if door.debris {
-                    // Debris retires in this fixed step; its impact remains in place.
                     crate::audio::SoundSource::World(prop.start)
                 } else {
                     crate::audio::SoundSource::attached(entity)
@@ -387,7 +383,6 @@ fn opening(
         }
         prop.age += time.delta_secs();
         let t = (prop.age / door.seconds).clamp(0., 1.);
-        // Native quarter-duration acceleration/deceleration; uniform central velocity.
         let ease = if t < 0.25 {
             t * t * (8. / 3.)
         } else if t > 0.75 {

@@ -1,4 +1,3 @@
-"""Assemble standard DDS bootstrap tails and a validated range-streaming index."""
 import hashlib
 import json
 import math
@@ -21,7 +20,6 @@ def mip_ranges(raw):
 
 
 def tail(raw, record, first):
-    """Retain bytes verbatim, updating only the standard DDS dimensions."""
     if not 0 <= first < record["mip_count"]:
         raise ValueError("Invalid first resident mip")
     start = record["mips"][first]
@@ -29,7 +27,6 @@ def tail(raw, record, first):
     header = bytearray(raw[:header_bytes])
     struct.pack_into("<II", header, 12, start["height"], start["width"])
     struct.pack_into("<I", header, 28, record["mip_count"] - first)
-    # DDSD_PITCH and DDSD_LINEARSIZE use different meanings.
     flags = struct.unpack_from("<I", header, 8)[0]
     if flags & 0x80000:
         struct.pack_into("<I", header, 20, start["bytes"])
@@ -55,9 +52,6 @@ def assemble(pack, textures, bootstrap_extent=128, provenance=None, resources=No
         if full in full_sources and full_sources[full] != record["sha256"]:
             raise ValueError("Distinct streaming sources share a filename")
         full_sources[full] = record["sha256"]
-        # Move the immutable cooked file rather than duplicating an entire BC
-        # chain. Candidate/cache hard links remain immutable; the bootstrap is
-        # a newly created, independent file at the original URI.
         path.replace(full)
         bootstrap = tail(raw, record, first)
         path.write_bytes(bootstrap)
@@ -84,7 +78,6 @@ def assemble(pack, textures, bootstrap_extent=128, provenance=None, resources=No
 
 
 def validate(pack, resources=None):
-    """Importer hook: verify the complete closure, headers and every byte range."""
     index = pack / "texture-streaming.json"
     if not index.exists():
         return {}

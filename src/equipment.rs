@@ -1,4 +1,3 @@
-//! Fixed-step throwable equipment and attributed radial damage in the game world.
 use crate::{
     GameState,
     assets::GameDefinition,
@@ -318,7 +317,6 @@ pub(crate) fn throw_input(
         if health.state() != LifeState::Standing || drinking.is_some() {
             continue;
         }
-        // Lethal input wins simultaneous requests; active equipment always finishes its state.
         for tactical_slot in [false, true] {
             let other_busy = if tactical_slot {
                 lethal.busy()
@@ -693,8 +691,6 @@ pub(crate) fn resolve_blasts(
             &format!("{}.explode", blast.definition.0),
             crate::audio::SoundSource::World(center),
         );
-        // Movement colliders are disabled during native traversal/rising, but
-        // living actors remain combat targets. Cover still uses live geometry.
         for (target, vitality, pose, player) in &targets {
             if !matches!(
                 vitality.state(),
@@ -749,7 +745,6 @@ pub(crate) fn resolve_blasts(
             }
             evidence.record(serde_json::json!({"event":"blast_impact","target":target.to_bits(),"self":player.is_some(),"distance":distance,"damage":damage}));
         }
-        // Reconstructed transient flash; Bevy owns mesh, material and lifetime.
         commands.spawn((
             SessionEntity,
             Blast { remaining: 0.25 },

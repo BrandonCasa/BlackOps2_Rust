@@ -1,4 +1,3 @@
-//! Opt-in exercise of production captures in the actual game window.
 use super::*;
 use crate::{
     generators::{GeneratorState, Generators},
@@ -80,8 +79,6 @@ fn drive(
         write_progress(&v, c, &game, &generators, &focus);
         return;
     }
-    // Allocation instrumentation can slow a still-advancing fixed-step run.
-    // Bound wall time independently from all original scenario clocks.
     if v.started.elapsed().as_secs() > 900 {
         c.rows.push(
             serde_json::json!({"case":"timeout","passed":false,"phase":c.phase,"site":c.site}),
@@ -264,8 +261,6 @@ fn drive(
     }
     write_progress(&v, c, &game, &generators, &focus);
 }
-/// Keep inspection receipts useful without 60 synchronous JSON writes per
-/// second contaminating the gameplay workload being measured.
 fn write_progress(
     v: &Verification,
     c: &mut Coverage,

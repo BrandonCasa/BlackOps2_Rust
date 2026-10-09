@@ -1,8 +1,3 @@
-"""Inventory the complete runtime texture closure and its physical UV density.
-
-Reads prepared scenes only. Geometry and original files are never modified.
-The receipt lives outside the repository and drives DeepBump preparation.
-"""
 import argparse
 from collections import Counter
 import hashlib
@@ -11,8 +6,6 @@ import math
 import os
 from pathlib import Path, PurePosixPath
 
-# Allow the preparation math to use the installed host; explicit user-set
-# BLAS/OpenMP limits still take precedence.
 os.environ.setdefault("OMP_NUM_THREADS", str(os.cpu_count() or 1))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", str(os.cpu_count() or 1))
 import numpy as np
@@ -45,7 +38,6 @@ def accessor(document, scene, index):
 
 
 def mesh_transforms(document):
-    """Actual placement metrics, including nonuniform scale and parent shear."""
     result = {}
     def visit(index, parent):
         node = document["nodes"][index]
@@ -63,9 +55,6 @@ def mesh_transforms(document):
             gram = transform.T @ transform
             diagonal = np.trace(gram) / 3
             if np.allclose(gram, np.eye(3)*diagonal, rtol=1e-5, atol=max(diagonal, 1e-12)*1e-5):
-                # Serialized rotations have tiny orthogonality error. Use an
-                # upper singular scale so equivalent placements share work
-                # without ever overstating their physical density.
                 scale = float(np.linalg.svd(transform, compute_uv=False).max())
                 scale = math.ceil(scale*1e6)/1e6
                 metric, transform = ("uniform", scale), np.eye(3)*scale
@@ -82,9 +71,6 @@ def mesh_transforms(document):
 def channel_uv(document, scene, primitive, channel, surface):
     attrs = primitive["attributes"]
     layer = channel["layer"]
-    # Mirror the actual material shader, rather than assuming channel number
-    # always names a secondary UV set. Tile control uses unscaled primary UV;
-    # intrinsic tile colors/normals/response use primary UV times tile count.
     if surface["family"] == "tile_blend":
         uv = accessor(document, scene, attrs["TEXCOORD_0"])
         if channel["role"] != "control":
@@ -113,7 +99,6 @@ def density(document, scene, primitive, channel, surface, transform, resources, 
     indices = accessor(document, scene, primitive["indices"]).reshape(-1, 3)
     minimum_axis, maximum, area, texel_area = math.inf, 0., 0., 0.
     degenerate, patches = 0, {}
-    # Bound scratch RAM independently of the world mesh size.
     for start in range(0, len(indices), 8192):
         resources.wait()
         corners = indices[start:start + 8192]
@@ -129,15 +114,11 @@ def density(document, scene, primitive, channel, surface, transform, resources, 
         valid = (a > 1e-9) & (c > 1e-9)
         if not valid.any():
             continue
-        # UV Jacobian in an orthonormal surface frame. The smaller singular
-        # value covers anisotropic stretches rather than trusting area alone.
         u1, u2 = t[:, 1]-t[:, 0], t[:, 2]-t[:, 0]
         first = u1[valid] / a[valid, None]
         second = (u2[valid] - first*b[valid, None]) / c[valid, None]
         jacobian = np.stack((first, second), axis=2)
         singular = np.linalg.svd(jacobian, compute_uv=False)
-        # Degenerate UVs are constant across one direction, not evidence of
-        # low sampling density in the other direction.
         useful = np.where(singular[:, 1] > 1e-6, singular[:, 1], singular[:, 0])
         valid_uv = singular[:, 1] > 1e-6
         degenerate += int((~valid_uv).sum())
@@ -154,10 +135,6 @@ def density(document, scene, primitive, channel, surface, transform, resources, 
                 selected = inverse == group
                 key = tuple(cell)
                 low, high = local[selected].min(axis=(0, 1)), local[selected].max(axis=(0, 1))
-                # Native filtering is limited to 16x anisotropy. A nearly
-                # collapsed UV triangle cannot benefit from mips finer than
-                # the major axis divided by that limit; avoid loading a 16K
-                # map because of one numerically tiny minor singular value.
                 anisotropy = 16 if channel["sampler"] & 7 != 1 and channel["sampler"] & 24 else 1
                 filter_density = np.maximum(singular[:, 1], singular[:, 0]/anisotropy)
                 values = filter_density[selected]
@@ -167,9 +144,6 @@ def density(document, scene, primitive, channel, surface, transform, resources, 
                     low, high = np.minimum(low, previous[0]), np.maximum(high, previous[1])
                     value = min(value, previous[2])
                 patches[key] = (low, high, value)
-    # Standard area-equivalent material density. Sliver UV triangles must not
-    # turn a mostly well-unwrapped chart into an impossible multi-million-pixel
-    # texture. Degenerate UVs still contribute physical area and are reported.
     equivalent = math.sqrt(texel_area / area) if area > 0 and texel_area > 0 else math.inf
     return equivalent, minimum_axis, maximum, area, degenerate, patches
 
@@ -206,8 +180,6 @@ def inventory(root, high_density=2048., pause_file=None, close_density=2048., me
                 if surface.get("version") != 2:
                     raise ValueError(f"Scene requires canonical PBR migration: {scene}")
                 for channel in surface["channels"]:
-                    # Canonical surface URIs are AssetServer pack-relative,
-                    # unlike standard glTF image/buffer dependencies.
                     path = contained(root, root / channel["uri"])
                     if not path.is_file():
                         raise ValueError(f"Missing prepared texture: {path}")
@@ -284,7 +256,6 @@ def inventory(root, high_density=2048., pause_file=None, close_density=2048., me
                                        ("samplers", channel["sampler"])]:
                         if value not in entry[key]:
                             entry[key].append(value)
-                    # The user explicitly prioritizes these close-view assets.
                     relative = scene.relative_to(root).as_posix()
                     entry["protected_closeup"] |= relative.startswith("actors/")
                     for cell, (lo, hi, value) in local_measurements[footprint].items():
@@ -320,7 +291,7 @@ def inventory(root, high_density=2048., pause_file=None, close_density=2048., me
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Inventory the complete runtime texture closure and its physical UV density.\n\nReads prepared scenes only. Geometry and original files are never modified.\nThe receipt lives outside the repository and drives DeepBump preparation.\n')
     parser.add_argument("pack", type=Path)
     parser.add_argument("receipt", type=Path)
     parser.add_argument("--high-density", "--minimum-density", type=float, default=2048.)

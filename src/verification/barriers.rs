@@ -1,4 +1,3 @@
-//! Bounded actual-window exercise of the production window and shared use path.
 use super::*;
 use crate::{
     barriers::{Barriers, BoardState},
@@ -249,8 +248,6 @@ fn drive(
                 c.ingress_attempt += 1;
                 c.age = 0.;
                 if c.ingress_attempt == 9 {
-                    // Keep the actual safe-side endpoint rather than warping
-                    // to a ground probe beside the sandbags.
                     c.center =
                         pose.translation + Vec3::Y * (game.tuning.standing_height - p.height) * 0.5;
                     pose.translation = c.center;

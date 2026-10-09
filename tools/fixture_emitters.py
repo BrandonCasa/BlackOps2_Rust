@@ -1,4 +1,3 @@
-"""Analytic-light ownership for prepared static fixtures, separate from glow."""
 import json
 import os
 from pathlib import Path
@@ -6,8 +5,6 @@ import tempfile
 
 import numpy as np
 
-# Source model identity is retained offline; shared glass materials alone cannot
-# distinguish room lights from radio indicators and speaker-tube decorations.
 FIXTURE_SURFACES = {
     "p6_zm_tm_gas_lamp_straight_on": "mc/mtl_p6_zm_tm_gas_lamp_glass_on",
     "p6_zm_tm_hanging_light_fixture_on": "mc/mtl_p6_zm_tm_hanging_light_fixture_on",
@@ -28,7 +25,6 @@ def emitter_surface(model, surfaces):
 
 
 def prepare(config):
-    """Upgrade metadata in an external prepared pack without cooking its assets."""
     from prepare_origins import external
     root = external(Path(config["assets"]["inspection_output"]))
     settings = config.get("preparation", {})
@@ -61,8 +57,6 @@ def prepare(config):
         cursor += len(placed)
     if cursor != len(nodes):
         raise ValueError("Extra source fixture placements")
-    # Replace only the external pack's directory entry. Prepared candidates can
-    # share hardlinks with a qualified checkout; in-place writes would alter it.
     descriptor, temporary = tempfile.mkstemp(prefix=".fixture-", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:

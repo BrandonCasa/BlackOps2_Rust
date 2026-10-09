@@ -1,4 +1,3 @@
-//! Accepted player damage feedback and fixed-step recovery; never revives terminal actors.
 use crate::{
     GameState,
     assets::GameDefinition,

@@ -1,6 +1,3 @@
-//! Range-streamed standard DDS mip tails, using Bevy assets and task pools.
-//! Image IDs stay stable while Bevy replaces/reclaims differently sized GPU
-//! textures. Current coverage allocates detail within a driver-sized VRAM cap.
 mod memory;
 use bevy::{
     asset::{
@@ -43,8 +40,6 @@ enum DemandClass {
     Prefetch,
     Idle,
 }
-// Separate read/upload cursors reserve progress for every active producer.
-// Empty classes lend their slots; persistent per-image age orders each class.
 const SERVICE: [DemandClass; 6] = [
     DemandClass::Foreground,
     DemandClass::Camera,
@@ -81,8 +76,6 @@ fn order_candidates(candidates: &mut [Candidate]) {
         b.promotion
             .cmp(&a.promotion)
             .then_with(|| a.class.cmp(&b.class))
-            // Coverage orders current requests within a one-second age bucket;
-            // older buckets always win, retaining bounded FIFO aging.
             .then_with(|| a.since.floor().total_cmp(&b.since.floor()))
             .then_with(|| b.coverage.total_cmp(&a.coverage))
             .then_with(|| a.since.total_cmp(&b.since))
@@ -202,8 +195,6 @@ impl TextureEntry {
     }
 
     fn gpu_bytes(&self, mip: usize) -> u64 {
-        // Charge aligned storage plus per-texture padding, not just compressed
-        // payload bytes. Small tails still occupy native allocation space.
         self.resident_bytes(mip).div_ceil(65536) * 65536 + 65536
     }
 }
@@ -215,7 +206,6 @@ struct Request {
 }
 
 struct Resident {
-    // This handle owns the bootstrap throughout streaming and scene replacement.
     _handle: Handle<Image>,
     entry: TextureEntry,
     mip: usize,
@@ -406,8 +396,6 @@ pub(crate) struct TextureUse {
     regions: Arc<Vec<BoundRegion>>,
 }
 
-/// First-person overlay primitives are late-spawned and cannot wait behind
-/// the world/GI backlog. Visibility still retires inactive owned rigs.
 #[derive(Component)]
 pub(crate) struct ForegroundTexture;
 
@@ -433,9 +421,6 @@ impl Plugin for TextureStreamingPlugin {
             )
             .add_systems(
                 PostUpdate,
-                // Bevy computes visibility after asset events. Publish finished
-                // images above first, then queue next-frame reads from this
-                // frame's camera and shadow footprints without mutating assets.
                 (bind_uses, demand, shadow_demand, allocate_detail, schedule)
                     .chain()
                     .after(TextureStreamingSet)
@@ -484,9 +469,6 @@ impl Plugin for TextureStreamingPlugin {
     }
 }
 
-// Bevy's erased material plugin has no GpuImage preparation dependency. Keep
-// the existing native systems ordered so a same-frame material refresh binds
-// the replacement view, rather than the previous mip tail's valid GPU view.
 fn uploaded_images_ready() {}
 
 fn report_failure(
@@ -661,8 +643,6 @@ fn register_images(
     mut images: ResMut<Assets<Image>>,
     mut stats: ResMut<TextureStreamingStats>,
 ) {
-    // Drain events even while the optional index is loading; catch up once on
-    // receipt rather than repeatedly scanning the asset collection each frame.
     let changed = events
         .read()
         .filter_map(|event| match event {
@@ -673,9 +653,6 @@ fn register_images(
     if !streams.enabled {
         return;
     }
-    // Added events are emitted after this system. Catch new image counts here
-    // so a one-axis bootstrap receives its indexed 2D dimension before its
-    // very first native GPU preparation, rather than one frame afterwards.
     let new_images = streams.residents.is_empty() || streams.last_image_count != images.len();
     streams.last_image_count = images.len();
     let ids = if new_images {
@@ -718,8 +695,6 @@ fn register_images(
         let Some(handle) = server.get_id_handle(id) else {
             continue;
         };
-        // Bevy retains the descriptor/ID after moving pixel bytes to render.
-        // MAIN_WORLD would instead clone and retain a complete CPU mip chain.
         image.asset_usage = RenderAssetUsages::RENDER_WORLD;
         image.texture_descriptor.dimension = bevy::render::render_resource::TextureDimension::D2;
         let bootstrap_mip = entry.bootstrap_mip;
@@ -745,9 +720,6 @@ fn register_images(
             },
         );
     }
-    // Registration moves these bytes from future bootstrap reservations into
-    // resident allocations. Publish that transfer before this frame's upload;
-    // allocate_detail runs later and its previous-frame snapshot is stale here.
     streams.refresh_bootstrap_reservation(&mut stats);
 }
 
@@ -789,8 +761,6 @@ fn bind_uses(
             }
         }
         if !pending {
-            // A shared map may occupy several native material slots. Count
-            // this primitive's coverage once for its stable Image identity.
             ids.sort_unstable();
             ids.dedup();
             coverage.sort_unstable();
@@ -901,8 +871,6 @@ fn demand(
         .iter()
         .copied()
         .collect();
-    // World consumers request their footprint, including offscreen GI hits.
-    // Visible overlay rigs are close-view consumers of their complete maps.
     for resident in streams.residents.values_mut() {
         resident.requested = resident.entry.mips.len() - 1;
         resident.foreground = false;
@@ -926,9 +894,6 @@ fn demand(
             DemandClass::Prefetch
         };
         if foreground {
-            // Native skinned bounds reflect this frame's posed primitive.
-            // Offline density-region boxes are in the bind pose and cannot
-            // estimate animated hands' actual projected coverage.
             let center = bounds.map_or(Vec3::ZERO, |aabb| aabb.center.into());
             let half = bounds.map_or(Vec3::ONE, |aabb| aabb.half_extents.into());
             let (view_pose, view_projection, _) =
@@ -947,9 +912,6 @@ fn demand(
             continue;
         }
         if actor {
-            // Combat detail uses posed bounds, never native-unit bind-pose
-            // density. Shared head/body maps are promoted once per Image ID;
-            // the existing allocator and upload limits still enforce capacity.
             let center = bounds.map_or(Vec3::ZERO, |aabb| aabb.center.into());
             let half = bounds.map_or(Vec3::ONE, |aabb| aabb.half_extents.into());
             let distance = surface_distance(pose, center, half, position)
@@ -993,9 +955,6 @@ fn demand(
             continue;
         }
         if skinned && !usage.regions.is_empty() {
-            // Skinning moves triangles outside their offline bind-pose cells.
-            // Use native posed bounds once per primitive/Image for coverage,
-            // with the finest authored local sampling density for its maps.
             let center = bounds.map_or(Vec3::ZERO, |aabb| aabb.center.into());
             let half = bounds.map_or(Vec3::ONE, |aabb| aabb.half_extents.into());
             let distance = surface_distance(pose, center, half, position)
@@ -1039,8 +998,6 @@ fn demand(
             continue;
         }
         if !usage.regions.is_empty() {
-            // sqrt(||A||1 * ||A||inf) bounds the largest singular scale,
-            // including shear; rotation can conservatively increase demand.
             let scale = transform_scale(pose);
             for region in usage.regions.iter() {
                 let distance = surface_distance(pose, region.center, region.half_extents, position)
@@ -1106,8 +1063,6 @@ fn demand(
         } else {
             0.
         };
-        // Offscreen consumers add their own footprints below. Movement-prefetch
-        // keeps nearby surfaces ready before they enter the camera view.
         if !foreground && !camera_meshes.contains(&entity) && distance > 15. {
             continue;
         }
@@ -1155,9 +1110,6 @@ fn transform_scale(pose: &GlobalTransform) -> f32 {
         .max(0.00001)
 }
 
-/// Distance to a region's actual local box, transformed conservatively under
-/// nonuniform scale/shear. A large floor cell's enclosing sphere must not make
-/// a surface several meters away request the closest possible texel footprint.
 fn surface_distance(pose: &GlobalTransform, center: Vec3, half: Vec3, camera: Vec3) -> f32 {
     let inverse = pose.affine().inverse();
     let local = Vec3::from(inverse.transform_point3a(camera.into()));
@@ -1175,9 +1127,6 @@ fn surface_distance(pose: &GlobalTransform, center: Vec3, half: Vec3, camera: Ve
             .max(0.00001)
 }
 
-/// Clipped projected bounding-box area / viewport area. Shared uses of an Image
-/// accumulate coverage once per region and clamp to one; this is a conservative
-/// coverage estimate rather than a GPU pixel-count/occlusion readback.
 fn screen_fraction(
     pose: &GlobalTransform,
     center: Vec3,
@@ -1420,8 +1369,6 @@ fn detail_step(id: AssetId<Image>, resident: &Resident, mip: usize, previous: us
         DemandClass::Idle => 0.01,
     };
     let bytes = resident.entry.gpu_bytes(mip) - resident.entry.gpu_bytes(mip + 1);
-    // Diminishing projected detail benefit per additional allocated byte.
-    // Quantized coverage and a small residency preference avoid boundary churn.
     let benefit = 2_f64.powi(-((mip - resident.stabilized) as i32));
     let retained = if mip >= previous { 1.05 } else { 1. };
     DetailStep {
@@ -1433,9 +1380,6 @@ fn detail_step(id: AssetId<Image>, resident: &Resident, mip: usize, previous: us
     }
 }
 
-/// Select native mip tails under the capacity cap without discarding authored
-/// levels. Camera coverage and producer/action importance determine allocation;
-/// weighted FIFO determines bounded transfer progress independently afterwards.
 fn allocate_detail(
     time: Res<Time<Real>>,
     mut streams: ResMut<TextureStreams>,
@@ -1445,9 +1389,6 @@ fn allocate_detail(
         return;
     }
     let unregistered = streams.refresh_bootstrap_reservation(&mut stats);
-    // Charge one complete accepted replacement while the old allocation is
-    // in submitted work. Reserve accepted tails, rather than an unaffordable
-    // full source map; small adapters can still allocate useful native mips.
     let limit = streams.budget.saturating_sub(unregistered);
     stats.naturally_requested_bytes = streams
         .residents
@@ -1468,10 +1409,6 @@ fn allocate_detail(
         .map(|(id, resident)| (*id, resident.wanted))
         .collect();
     for (id, resident) in streams.residents.iter_mut() {
-        // Admit finer footprints immediately. A single missed stochastic hit
-        // or delayed readback must not demote a useful allocation. Retire the
-        // held target only after continuously coarser demand for four seconds;
-        // budget selection may trim it immediately at its current importance.
         if resident.requested <= resident.stabilized {
             resident.stabilized = resident.requested;
             resident.coarser_since = None;
@@ -1564,8 +1501,6 @@ fn upload(
         let Some(request) = resident.request.as_mut() else {
             continue;
         };
-        // A stale demotion must not discard detail newly required by any pass.
-        // Cancel every promotion exceeding the newly accepted allocation.
         if (request.mip > resident.wanted && request.mip >= resident.mip)
             || request.mip < resident.wanted
         {
@@ -1625,9 +1560,6 @@ fn upload(
         else {
             break;
         };
-        // Select before checking remaining room. Smaller uploads must not
-        // repeatedly bypass a large map: reserve this exact turn for the next
-        // frame, where even an oversize authored chain can upload alone.
         if frame_bytes != 0 && frame_bytes + candidate.bytes > UPLOAD_BYTES_PER_FRAME {
             streams.upload_reservation = Some((candidate.id, streams.upload_cursor));
             streams.upload_cursor = cursor;
@@ -1667,15 +1599,9 @@ fn upload(
         }
         resident.request = None;
     }
-    // Stable Image IDs do not preserve their GPU texture views when a mip tail
-    // changes size. Bevy prepares a material's bindings on material changes;
-    // refresh affected assets before native extraction, after replacing images.
-    // This applies equally to standard skinned rigs, world extensions and F11.
     if !replaced.is_empty() {
         let standard_count = refresh_materials(&mut standard, &replaced, dependencies_changed);
         let opaque_count = refresh_materials(&mut opaque, &replaced, |material, replaced| {
-            // ExtendedMaterial's pinned Asset visitor does not visit its
-            // inline base/extension. Traverse both declarations explicitly.
             dependencies_changed(&material.base, replaced)
                 || dependencies_changed(&material.extension, replaced)
         });
@@ -1758,7 +1684,6 @@ fn refresh_materials<M: Material>(
         .collect();
     for id in &affected {
         if let Some(material) = materials.get_mut(*id) {
-            // Emit Modified without changing authored material properties.
             let _ = material.into_inner();
         }
     }
@@ -1793,8 +1718,6 @@ fn schedule(
     let mut gpu_reserved = 0;
     stats.pending_by_class = [0; 4];
     for resident in streams.residents.values_mut() {
-        // Repeated camera/pass refreshes coalesce in this stable ID and must
-        // never reset the age of an outstanding promotion.
         if resident.wanted < resident.mip {
             resident.queued_since.get_or_insert(now);
             if resident.class != DemandClass::Idle {
@@ -1863,8 +1786,6 @@ fn schedule(
             streams.admission_reservation = Some((candidate.id, streams.read_cursor));
             streams.read_cursor = cursor;
             stats.gpu_budget_drains += 1;
-            // Memory pressure drains demotions and completed replacements;
-            // smaller promotions cannot steal this reserved producer's turn.
             if let Some(position) = candidates
                 .iter()
                 .position(|c| !c.promotion && accounted + c.gpu_bytes <= streams.budget)
@@ -1874,9 +1795,6 @@ fn schedule(
                 break;
             }
         }
-        // Reserve the next fair turn even when its native map cannot yet fit.
-        // Drain existing requests instead of allowing a stream of smaller
-        // newcomers to bypass it forever. One oversize map is admitted alone.
         if buffered != 0 && buffered + candidate.bytes > BUFFERED_READ_BYTES {
             streams.admission_reservation = Some((candidate.id, streams.read_cursor));
             streams.read_cursor = cursor;
@@ -1960,7 +1878,6 @@ async fn read_tail(
                 .map_err(|e| e.to_string())?;
         }
         Err(_) => {
-            // Virtual readers without seek support retain bounded scratch RAM.
             let mut remaining = start.offset - entry.header_bytes as u64;
             let mut scratch = [0u8; 8192];
             while remaining > 0 {
@@ -1998,9 +1915,6 @@ async fn read_tail(
         RenderAssetUsages::RENDER_WORLD,
     )
     .map_err(|e| e.to_string())?;
-    // A rectangular 2D tail can become 1xN. Bevy's generic DDS inference
-    // treats uncompressed strips as D1; this pack's surfaces stay 2D at every
-    // mip, including narrow response/coverage tails admitted during release.
     image.texture_descriptor.dimension = bevy::render::render_resource::TextureDimension::D2;
     Ok(image)
 }

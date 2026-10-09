@@ -1,4 +1,3 @@
-"""Prepare native Origins Mule Kick acquisition with explicit reload tuning."""
 import hashlib
 import json
 import math

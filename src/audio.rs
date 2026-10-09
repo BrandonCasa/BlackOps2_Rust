@@ -1,4 +1,3 @@
-//! Bounded Bevy playback of prepared source aliases; no gameplay RNG consumption.
 use crate::{GameState, assets::GameDefinition, gameplay::SessionEntity, origins::ContentId};
 use bevy::{
     audio::{AddAudioSource, AudioSinkPlayback, PlaybackMode, SpatialScale, Volume},
@@ -174,8 +173,6 @@ struct Mixer {
     voice_cooldown: f32,
     last_voice: BTreeMap<String, f32>,
 }
-/// Attachment is explicit: world events keep their location; entity events follow
-/// the current local-to-world transform while preserving their authored offset.
 #[derive(Clone, Copy, Debug)]
 pub enum SoundSource {
     World(Vec3),
@@ -204,7 +201,6 @@ pub struct SoundRequest {
     source: SoundSource,
     looping: bool,
 }
-/// Event requests are admitted together, including pending command spawns.
 pub fn emit(commands: &mut Commands, alias: impl Into<String>, source: SoundSource) -> Entity {
     commands
         .spawn((
@@ -247,7 +243,6 @@ pub(crate) struct PlayingSound {
     gain: f32,
     started: f32,
 }
-/// Native distance endpoints, with a reconstructed linear curve between them.
 pub(crate) fn attenuation(distance: f32, minimum: f32, maximum: f32) -> f32 {
     if distance >= maximum {
         0.
@@ -397,8 +392,6 @@ fn play(
             continue;
         }
         if concurrent >= alias.limit {
-            // Native same-alias limits replace older tails; rejecting new requests
-            // loses bullets during sustained fire. Include this frame's admissions.
             if let Some(entries) = live.get_mut(&request.alias)
                 && let Some((index, _)) = entries
                     .iter()
@@ -442,7 +435,6 @@ fn play(
                 .find(|s| s.key == alias.subtitle)
                 .map_or_else(|| alias.subtitle.clone(), |s| s.text.clone());
             if subtitle.text.is_empty() {
-                // Native aliases contain no speech transcripts. Caption the event honestly.
                 subtitle.text = if request.alias.starts_with("vox_plr_") {
                     "[Player dialogue]".into()
                 } else {
@@ -451,7 +443,6 @@ fn play(
             }
             subtitle.remaining = alias.seconds;
         }
-        // Independent deterministic variation cannot alter spawn selection/combat spread.
         mixer.sequence = mixer
             .sequence
             .wrapping_mul(6364136223846793005)
@@ -472,8 +463,6 @@ fn play(
             continue;
         };
         let looping = request.looping || sound.looping;
-        // Persistent emitters remain admitted so approaching their owner restores
-        // audibility without restarting the loop on every distant frame.
         if alias.spatial && !looping && listener.distance(position) > sound.distance {
             commands.entity(entity).try_despawn();
             evidence.rejected += 1;
@@ -511,8 +500,6 @@ fn play(
                     PlaybackMode::Despawn
                 },
                 spatial: alias.spatial,
-                // Scale both ears and emitter identically: retain panning but keep
-                // Rodio distances below one throughout the audible radius.
                 spatial_scale: Some(SpatialScale::new(1. / (sound.distance + 0.2))),
                 speed,
                 volume: Volume::Linear(sound.volume * gain),
@@ -594,7 +581,6 @@ fn maintain(
             evidence.owner_stops += 1;
             continue;
         } else {
-            // The owner retired. Keep a one-shot tail at its last valid position.
             sound.source = SoundSource::World(pose.translation);
             evidence.frozen_tails += 1;
         }
@@ -611,8 +597,6 @@ fn maintain(
             1.
         };
         let target = settings.gain(sound.channel) * falloff;
-        // Distance changes are immediate, including pending sinks. Only an
-        // explicitly retiring music tail fades, never world attenuation.
         if retiring.is_some() {
             if **state != GameState::Paused {
                 sound.gain *= (1. - time.delta_secs() * 5.).max(0.);

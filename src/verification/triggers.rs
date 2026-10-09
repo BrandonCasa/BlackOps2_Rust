@@ -1,4 +1,3 @@
-//! Observe every imported trigger union through the actual game's Avian queries.
 use crate::{
     assets::GameDefinition,
     environment::triggers::{TRIGGER_LAYER, TriggerSites},

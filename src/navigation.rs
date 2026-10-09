@@ -1,4 +1,3 @@
-//! Compiled map graph with Avian geometry admission and session access requirements.
 use crate::{
     GameState,
     access::{DoorBlocker, ZoneAccess},
@@ -93,7 +92,6 @@ impl Ord for Work {
     }
 }
 impl Navigation {
-    /// Observe prepared closure independently of geometry/zone admission in the real game.
     pub fn negotiation_observation(
         &self,
         game: &GameDefinition,
@@ -190,7 +188,6 @@ impl Navigation {
                 }
             }
         }
-        // Qualify the authored-angle consumer at a site that differs from endpoint facing.
         pairs.sort_by(|a, b| b.2.total_cmp(&a.2));
         pairs.into_iter().find_map(|(from, to, _)| {
             let destination = self.destination(from, to, access);
@@ -264,7 +261,6 @@ impl Navigation {
                     && access.reachable.contains(&self.nodes[b].zone)
             })
     }
-    /// Fit an authored emergence point onto an admitted, reachable native node.
     pub fn project_emergence(&self, source: Vec3, access: &ZoneAccess) -> Option<Vec3> {
         let node = self.nearest(source, access, true)?;
         let p = self.nodes[node].point;
@@ -495,9 +491,6 @@ fn refresh(
             .collect();
         let filter = crate::environment::solids(excluded);
         let shape = capsule(0.3, 1.7);
-        // Avian queries read one fixed-step geometry snapshot. Their independent
-        // admission checks can share Bevy's compute pool without moving physics
-        // or gameplay to another frame. ParallelSlice retains authored order.
         let pool = ComputeTaskPool::get();
         let admitted = {
             let _stage = bevy::log::info_span!("navigation_node_admission").entered();
@@ -521,8 +514,6 @@ fn refresh(
                             );
                             let feet = floor.filter(|f| f.normal.y > 0.65).and_then(|f| {
                                 let floor = point + Vec3::Y * (0.5 - f.distance + 0.03);
-                                // A center ray misses the capsule's uphill side on
-                                // stairs/slopes. Retain every original support step.
                                 (0..=6)
                                     .map(|i| floor + Vec3::Y * (i as f32 * 0.05))
                                     .find(|feet| {
@@ -675,7 +666,6 @@ fn refresh(
     let mut work = vec![start];
     reachable[start] = true;
     while let Some(to) = work.pop() {
-        // Admission requires an enemy route toward the player, including one-way links.
         for &(from, ordinal) in &nav.incoming[to] {
             if !reachable[from] && nav.allowed(from, &nav.edges[from][ordinal], &access) {
                 reachable[from] = true;
@@ -709,8 +699,6 @@ fn refresh(
             admission.node = node;
             admission.zone = n.zone.clone();
             admission.position = if let Some(outward) = nav.ingress.get(&node) {
-                // A path node sits in the opening. Native exterior spawning must
-                // clear its intact boards before the enemy approaches that node.
                 [0.6, 0.75, 1.0].into_iter().find_map(|distance| {
                     let candidate = n.point + *outward * distance;
                     let floor = query.cast_ray(
@@ -749,8 +737,6 @@ fn clear_shape(
     center: Vec3,
     filter: &SpatialQueryFilter,
 ) -> bool {
-    // Clearance is existential: no caller uses the obstructing entity list.
-    // Stop native narrow-phase traversal at its first hit and allocate no list.
     let mut clear = true;
     query.shape_intersections_callback(shape, center, Quat::IDENTITY, filter, |_| {
         clear = false;

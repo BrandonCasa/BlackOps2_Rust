@@ -1,4 +1,3 @@
-//! Observe authored placement bindings in the actual game before and after restart.
 use crate::{
     assets::GameDefinition,
     interactions::Usable,

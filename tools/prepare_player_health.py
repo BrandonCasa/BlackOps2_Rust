@@ -1,4 +1,3 @@
-"""Prepare source-defined standing-player recovery and immunity settings."""
 import hashlib
 import json
 import re

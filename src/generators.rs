@@ -1,4 +1,3 @@
-//! Session-owned capture state; Origins supplies placements and native timings.
 use crate::{
     GameState,
     assets::GameDefinition,
@@ -12,7 +11,6 @@ use bevy::prelude::*;
 use bevy::world_serialization::WorldInstanceReady;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// Aim at the near side of the authored use volume, ahead of its solid stand.
 pub(crate) fn use_point(origin: Vec3, eye: Vec3, box_size: f32) -> Vec3 {
     let center = origin + Vec3::Y * box_size * 0.5;
     let delta = eye - center;
@@ -399,8 +397,6 @@ fn assemble(
         ));
     }
 }
-/// Scene ownership gives us a single discovery point. The cached IDs belong to
-/// this session's visual root, so restart naturally retires the entire binding.
 fn visual_ready(
     event: On<WorldInstanceReady>,
     mut visuals: Query<&mut GeneratorVisual>,
@@ -617,8 +613,6 @@ fn presentation(
             GeneratorState::Disabled if age < d.clip_seconds[3] => (3, age),
             _ => (2, age % d.clip_seconds[2]),
         };
-        // Read the same pump timeline once per visual root, independent of rig
-        // child count. Wraps and state transitions start a new notification range.
         if matches!(state, GeneratorState::Capturing | GeneratorState::Active)
             || (state == GeneratorState::Disabled && age < d.clip_seconds[3])
         {
@@ -652,7 +646,6 @@ fn presentation(
         let Some((graph, nodes)) = &visual.graph else {
             continue;
         };
-        // Native pump and vat tracks are disjoint; Bevy blends their two layers.
         let (fluid, fluid_age) = match state {
             GeneratorState::Capturing => (4, progress * d.clip_seconds[4]),
             GeneratorState::Active => (6, age % d.clip_seconds[6]),
@@ -699,8 +692,6 @@ fn presentation(
             if !player.all_paused() {
                 player.pause_all();
             }
-            // At most eight owned strings per generator, rather than two new
-            // strings per player on every presentation frame.
             for clip in [index, fluid] {
                 if recorded_clips & (1 << clip) == 0 {
                     generators.playback.insert(format!("{}:{clip}", d.id.0));

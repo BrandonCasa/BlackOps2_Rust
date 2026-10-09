@@ -1,8 +1,3 @@
-"""Recover an external full-resolution source from a validated streaming pack.
-
-Only standard DDS tails and material descriptors are expanded. Mesh buffers,
-scene structure, content and the input pack remain unchanged.
-"""
 import argparse
 import hashlib
 import json
@@ -17,7 +12,6 @@ FORMATS = {28: "R8G8B8A8_UNORM", 29: "R8G8B8A8_UNORM_SRGB", 80: "BC4_UNORM",
 
 
 def copy_verified(source, output, expected):
-    """Bind copied bytes to the initially validated source closure."""
     shutil.copyfile(source, output)
     for path in (source, output):
         with path.open("rb") as stream:
@@ -41,7 +35,6 @@ def prepare(source, destination, receipt):
     retired = {entry["full_uri"] for entry in index["textures"]} | {"texture-streaming.json"}
     expected_copies = {}
     for uri, digest in hashes.items():
-        # Snapshotting bytes is CPU/file work and does not own the GPU slot.
         if uri in retired:
             continue
         output = destination / uri
@@ -78,7 +71,7 @@ def prepare(source, destination, receipt):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Recover an external full-resolution source from a validated streaming pack.\n\nOnly standard DDS tails and material descriptors are expanded. Mesh buffers,\nscene structure, content and the input pack remain unchanged.\n')
     for name in ("source", "destination", "receipt"):
         parser.add_argument(name, type=Path)
     args = parser.parse_args()

@@ -1,9 +1,3 @@
-"""Reconstruct qualified broken surface frames from geometry and authored UVs.
-
-Only material recipes explicitly requesting reconstruction are changed. Source
-normals identify smoothing splits; source UVs retain texture seams. Positions,
-indices, UVs, materials and placements remain byte-identical.
-"""
 from collections import defaultdict
 import json
 import os
@@ -23,8 +17,6 @@ def reconstruct(positions, normals, uvs, tangents, indices):
     face[valid] /= areas[valid, None]
     face[~valid] = 0
     normal_sums, tangent_sums, bitangent_sums = defaultdict(lambda: np.zeros(3)), defaultdict(lambda: np.zeros(3)), defaultdict(lambda: np.zeros(3))
-    # Preserve the original smoothing groups rather than welding every touching
-    # face of a fractured chunk. UV seams split tangents, but not normals.
     normal_keys = [(tuple(p), tuple(n)) for p, n in zip(positions, normals)]
     tangent_keys = [(k, tuple(uv), float(t[3])) for k, uv, t in zip(normal_keys, uvs, tangents)]
     duv1 = uvs[triangles[:, 1]] - uvs[triangles[:, 0]]
@@ -108,7 +100,6 @@ def repair_document(pack, path, catalog):
             material['extras']['surface']['provenance']['surface_frame'] = 'angle-weighted geometry normals and UV tangents; retained smoothing and UV splits'
             receipt.append({'mesh': mesh_index, 'material': material['name'], 'vertices': len(positions),
                             'changed_normals': int(np.count_nonzero(np.linalg.norm(fixed_n - normals, axis=1) > .001))})
-    # Replace entries, never mutate an original or an immutable pack hardlink.
     for index, data in changed_buffers.items():
         replace(path.parent / document['buffers'][index]['uri'], data)
     if receipt:

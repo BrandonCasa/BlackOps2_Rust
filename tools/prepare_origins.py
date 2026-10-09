@@ -2,12 +2,6 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
 # ///
-"""Read retained external map exchanges and emit an external standard glTF pack.
-
-Reads geometry/UV/packed corner streams, DDS images, material metadata and map
-entities. Does not read captures or shaders and never modifies source inputs.
-Run: uv run tools/prepare_origins.py --config config/local_assets.toml
-"""
 import argparse
 import base64
 import hashlib
@@ -44,11 +38,6 @@ def material_family(technique, layered=False):
 
 
 def presentation(source, technique):
-    """Readable dispositions from the retained T6 TECH4 (or TECH2) state.
-
-    These are asset metadata, not runtime filename guesses. Tree-canopy coverage
-    is represented by a cutout in Bevy rather than sorted transparent cards.
-    """
     entries = source["state_entries"]
     index = next((entries[k] for k in (4, 2) if entries[k] != 255), None)
     if index is None or index >= len(source["states"]):
@@ -70,8 +59,6 @@ def presentation(source, technique):
 
 
 def apply_presentation(material, state):
-    # Surface glow only. Analytic emitters are owned by prepared fixture nodes;
-    # these shared materials also occur on radios and speaker-tube decorations.
     state["lamp"] = material["name"] in {"mc/mtl_p6_zm_tm_gas_lamp_glass_on", "mc/mtl_p6_zm_tm_lantern_glass_on_01",
         "mc/mtl_p6_zm_tm_hanging_light_fixture_on", "mc/mtl_p6_zm_tm_portable_lantern_on"}
     material["extras"]["surface"]["presentation"] = state
@@ -82,7 +69,6 @@ def apply_presentation(material, state):
 
 
 def world_layer_layout(technique):
-    # Authored operations refer to layer numbers, not texture-table order.
     return ["base"] + [dict(b="blend", m="multiply", a="add", t="blend")[m.group(1)]
                          for m in re.finditer(r"_([bmat])[123]c[123]", technique)]
 
@@ -97,7 +83,6 @@ def secondary_attributes(root, manifest, uv, ranges):
     layer3 = uv.copy()
     rotation1 = np.tile([1, 0, 0, 1], (len(uv), 1)).astype(np.float32)
     rotation2 = rotation1.copy()
-    # Half UVs followed by normalized signed 2x2 normal-basis rotations.
     layouts = {0: (0, 0, 0), 1: (4, 1, 0), 2: (8, 1, 1), 3: (8, 2, 0),
                4: (12, 2, 1), 5: (16, 2, 2), 7: (16, 3, 1)}
     for record, surface in zip(metadata["surfaces"], ranges, strict=True):
@@ -127,18 +112,11 @@ def secondary_attributes(root, manifest, uv, ranges):
 
 
 def tile_blend_color(core, surface, control, tiles=4):
-    """Bake the shared model tile/macro family to ordinary PBR, retaining raw inputs.
-
-    Red weights the coated surface; green weights exposed core. Normalize these
-    weights so native macro darkness never becomes incident lighting. Tiling is a tunable
-    reconstruction, not an attempt to reproduce the native shader constants.
-    """
     size = 2048
     def tiled(pixels):
         tile = np.asarray(Image.fromarray(pixels).resize((size // tiles, size // tiles), Image.Resampling.LANCZOS))
         return np.tile(tile, (tiles, tiles, 1))[..., :3].astype(np.float32) / 255
     mask = np.asarray(Image.fromarray(control).resize((size, size), Image.Resampling.BILINEAR)).astype(np.float32) / 255
-    # Blend diffuse reflectance in linear space, rather than blending sRGB bytes.
     total = mask[..., 0:1] + mask[..., 1:2]
     coating = np.divide(mask[..., 0:1], total, out=np.zeros_like(total), where=total > 1e-6)
     linear = tiled(surface) ** 2.2 * coating + tiled(core) ** 2.2 * (1 - coating)
@@ -147,7 +125,6 @@ def tile_blend_color(core, surface, control, tiles=4):
 
 
 def unit_vectors(words):
-    """T6 signed ten-bit direction, normalized for standard glTF."""
     values = np.stack([(words >> shift & 1023).astype(np.int32) for shift in (0, 10, 20)], axis=1)
     values = values - 2 * (values & 512)
     values = values[:, [0, 2, 1]].astype(np.float32) * [1, 1, -1]
@@ -160,7 +137,6 @@ def unit_vectors(words):
 def tangents(words, signs):
     if not np.isfinite(signs).all() or (signs == 0).any():
         raise ValueError("invalid source tangent handedness")
-    # Original B=-sign(h)*cross(N,T); converted normal maps also flip Y.
     return np.column_stack((unit_vectors(words), np.sign(signs))).astype(np.float32)
 
 
@@ -183,7 +159,6 @@ def converted_pixels(pixels, mode):
 
 
 def cube_faces(raw):
-    """Decode the six top-level DDS cube faces; keep native mip data external."""
     if raw[:4] != b"DDS " or not struct.unpack_from("<I", raw, 112)[0] & 0x200:
         raise ValueError("expected DDS cubemap")
     height, width = struct.unpack_from("<II", raw, 12)
@@ -278,7 +253,6 @@ def gameplay_definition(records, previous=None):
     points = []
     for entry in spawners:
         point = coordinates([float(x) for x in entry["origin"].split()])
-        # Use the nearest walkable map path node instead of implementing climb animations.
         if local:
             point = np.asarray(min(local, key=lambda p: np.linalg.norm(np.asarray(p) - point)))
         if not any(np.linalg.norm(np.asarray(p) - point) < 0.8 for p in points):
@@ -291,8 +265,6 @@ def gameplay_definition(records, previous=None):
             "source_surfaces": 0, "render_meshes": 0, "collision_meshes": 0,
             "static_model_instances": 0}
     if previous and previous.get("version") == 2:
-        # Geometry rebuilds must retain independently assembled gameplay.
-        # Source positions and the newly generated geometry counts stay fresh.
         for key in ("content", "survey_views", "tuning", "environment", "access",
                     "rounds", "player_health", "solo_revive", "audio"):
             if key in previous:
@@ -396,7 +368,7 @@ def static_models(gltf, instances_path, model_root, output, world_root):
             for source_index, mat in enumerate(source.get("materials", [])):
                 original = next((s for s in surface_data[name] if s["material"] == mat["name"]), None)
                 if original is None:
-                    continue  # OAT includes unused material slots from other LODs.
+                    continue
                 material = {"name": mat["name"], "extras": {"surface": {"identity": mat["name"],
                     "family": material_family(original["family"], sum(t["semantic"] == 2 for t in original["textures"]) > 1), "channels": []}}, "doubleSided": True, "pbrMetallicRoughness": {
                     "metallicFactor": 0, "roughnessFactor": 0.85}}
@@ -478,11 +450,11 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                     arrays = []
                     for attribute, accessor in primitive["attributes"].items():
                         if attribute.startswith(("JOINTS_", "WEIGHTS_")):
-                            continue  # Static providers retain the exported rest pose.
+                            continue
                         kind = source["accessors"][accessor]["type"]
                         values = model_accessor(source, primitive["attributes"][attribute])[indexes]
                         if attribute == "POSITION":
-                            values *= SCALE  # OAT already converted to Y-up, in source units.
+                            values *= SCALE
                         arrays.append((attribute, values, kind))
                     if not any(key == "COLOR_0" for key, _, _ in arrays):
                         words = vertices[:, 2].astype(np.uint32)[local]
@@ -507,7 +479,6 @@ def static_models(gltf, instances_path, model_root, output, world_root):
         for surface, mesh in enumerate(providers[name]):
             gltf.node(mesh, "static_instance", 0, matrix=matrix.T.flatten().tolist(),
                       extras={"static_instance": True, "source_model": name, "fixture_emitter": surface == emitter})
-            # Foliage and hanging cloth are visible decorations, not solid walls.
             if gltf.collidable[mesh] and not any(token in name.lower() for token in ("grass", "foliage", "vine", "cloth", "flag")):
                 gltf.node(mesh, "collision_static", 1, matrix=matrix.T.flatten().tolist())
     if missing:
@@ -644,8 +615,6 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
         key = (material, cell)
         groups.setdefault(key, []).extend(range(first, first+count))
     for (material, cell), indexes in groups.items():
-        # T6's world triangles are clockwise; glTF/Bevy front faces are CCW.
-        # Swap corners together (UVs/controls/bases included), preserving normals.
         selection = np.asarray(indexes).reshape(-1, 3)[:, [0, 2, 1]].reshape(-1)
         family = families[material]
         gltf.mesh([("POSITION", positions[selection], "VEC3"), ("NORMAL", normals[selection], "VEC3"),
@@ -677,7 +646,7 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Read retained external map exchanges and emit an external standard glTF pack.\n\nReads geometry/UV/packed corner streams, DDS images, material metadata and map\nentities. Does not read captures or shaders and never modifies source inputs.\nRun: uv run tools/prepare_origins.py --config config/local_assets.toml\n')
     parser.add_argument("--config", type=Path, default=WORKSPACE / "config/local_assets.toml")
     parser.add_argument("--content-only", action="store_true", help="regenerate game.json from map entities, preserving prepared geometry coverage")
     parser.add_argument("--prepare-fixture-emitters", action="store_true", help="retain fixture identity and analytic emitter ownership in an external prepared map")

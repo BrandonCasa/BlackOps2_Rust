@@ -1,4 +1,3 @@
-//! Owned placeable equipment; Bevy lifecycle and Avian ground/detection queries.
 use crate::{
     assets::GameDefinition,
     gameplay::{GameStep, SessionEntity},
@@ -199,7 +198,6 @@ fn place(
             inventory.placing = false;
             let forward = Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z;
             let origin = pose.translation + forward * 0.7;
-            // Support and clearance are reconstructed from the player's normal standing reach.
             let filter = crate::environment::solids([owner]);
             let Some(hit) = query.cast_ray(origin, Dir3::NEG_Y, player.height + 1., true, &filter)
             else {
@@ -312,8 +310,6 @@ fn detect(
             continue;
         }
         let trigger = Collider::cylinder(profile.trigger_radius, 4.8768);
-        // Direct geometry queries retain actors whose movement colliders are
-        // disabled for traversal, without widening the authored trigger volume.
         for (target, life, target_pose, collider) in &targets {
             if life.state() != LifeState::ActorAlive {
                 continue;

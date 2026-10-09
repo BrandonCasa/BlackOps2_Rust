@@ -1,4 +1,3 @@
-//! Purchased bottle actions keep primary ownership separate from visible presentation.
 use crate::{
     GameState,
     assets::GameDefinition,
@@ -71,8 +70,6 @@ impl PerkDrinking {
             } else {
                 WeaponAnimation::Equip
             },
-            // The retained lower asset aliases the entire drink animation. Hold
-            // its completed pose instead of replaying opening/swallowing twice.
             timing: Some((
                 self.duration,
                 if self.phase == DrinkPhase::Lowering {
@@ -261,7 +258,6 @@ fn cancel(
     }
 }
 
-/// Derive modifiers from current ownership each tick; loss cannot leave stale weapon state.
 pub fn firing_modifiers(
     perks: &PerkInventory,
     game: &GameDefinition,

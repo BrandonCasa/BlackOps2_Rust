@@ -1,4 +1,3 @@
-//! Frozen native scene comparisons for first-person rigs or world zombies.
 use crate::{
     GameState,
     assets::{GameDefinition, LaunchOptions},
@@ -168,13 +167,9 @@ fn observe(
             let Ok((mut player, mut body, _)) = players.single_mut() else {
                 return;
             };
-            // The existing native scene survey's outdoor vantage, with the
-            // authored sun direction. Physics/animation remain paused.
             body.translation =
                 Vec3::from_array(definition.survey_views[4]) + Vec3::Y * player.height * 0.5;
             if run.actor {
-                // Move frozen production rigs together into the outdoor survey.
-                // Keep their actual poses, materials and native shadow lights.
                 player.yaw = definition.yaw;
                 player.pitch = -0.05;
                 let forward = Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z;
@@ -231,8 +226,6 @@ fn observe(
             }
             player.yaw = (-delta.x).atan2(-delta.z);
             player.pitch = delta.y.atan2(delta.xz().length());
-            // Bring this native rig inside the lantern-lit room instead of
-            // observing it through the opaque barrier from outside lamp reach.
             let forward = Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z;
             target.translation = body.translation + forward * 1.75;
             target.rotation = Quat::from_rotation_y(player.yaw + std::f32::consts::PI);
@@ -250,8 +243,6 @@ fn observe(
         return;
     }
     if !run.initialized {
-        // Fixed native camera exposure makes shadow factors comparable across
-        // on/off/restored captures instead of metering each diagnostic anew.
         for camera in &exposure {
             commands.entity(camera).remove::<AutoExposure>();
         }
@@ -259,11 +250,7 @@ fn observe(
         run.changed = Instant::now();
         return;
     }
-    // Local mask weighting uses native BRDF/normal maps. Wait for the complete
-    // accepted stationary allocation, rather than only the foreground queue.
     let detail_ready = if run.actor {
-        // Probe feedback can keep unrelated world promotions active. Require
-        // the actual actor maps to finish instead of waiting on the whole map.
         visible
             .iter()
             .filter_map(|e| actor_meshes.get(*e).ok().flatten())
@@ -325,8 +312,6 @@ fn observe(
         );
     }
     run.rows.push(row);
-    // Changes below affect the following diagnostic only after this frozen
-    // scene has had time to render its requested screenshot.
     run.capture_pending = true;
     run.changed = Instant::now();
 }

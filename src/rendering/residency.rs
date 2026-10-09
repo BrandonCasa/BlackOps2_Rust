@@ -1,4 +1,3 @@
-//! Release preparation data while retaining Bevy's GPU assets and Avian colliders.
 use super::opaque::{self, OpaqueSurfaceStatus, SurfaceLibrary};
 use crate::{GameState, assets::WorldCollider};
 use bevy::{asset::RenderAssetUsages, prelude::*};
@@ -72,10 +71,6 @@ fn release(
         .collect();
     for id in source_ids {
         if let Some(mut material) = materials.get_mut(id) {
-            // Converted extended materials already own the textures they use.
-            // Only converted world templates have a replacement material.
-            // Inactive actor/weapon templates can spawn later and must retain
-            // their prepared maps even if no instance currently uses them.
             material.base_color_texture = None;
             material.normal_map_texture = None;
             material.metallic_roughness_texture = None;
@@ -97,19 +92,14 @@ fn release(
         })
         .collect();
     for id in image_ids {
-        // Generated font atlases remain CPU-accessible for new HUD glyphs.
         if let Some(mut image) = images.get_mut(id) {
             image_bytes += image.data.as_ref().map_or(0, Vec::len);
             image_count += 1;
-            // Native extraction takes bytes while retaining a small descriptor
-            // and the stable Image ID for later mip promotions.
             image.asset_usage = RenderAssetUsages::RENDER_WORLD;
         }
     }
     let mut mesh_bytes = 0;
     let mut mesh_count = 0;
-    // iter_mut emits modification events even for skipped assets. Inspect
-    // metadata immutably so render-only RT providers are never re-extracted.
     let mesh_ids: Vec<_> = meshes
         .iter()
         .filter_map(|(id, mesh)| {
@@ -122,8 +112,6 @@ fn release(
         })
         .collect();
     for id in mesh_ids {
-        // Late scene/weapon meshes may already be loaded without having had
-        // their surface attributes adapted. Release only completed providers.
         let Some(mut mesh) = meshes.get_mut(id) else {
             continue;
         };
@@ -141,8 +129,6 @@ fn release(
                 bevy::mesh::Indices::U32(values) => values.len() * 4,
             });
         mesh_count += 1;
-        // Let the engine move data during extraction; taking it here would
-        // invalidate the pending asset upload associated with this mutation.
         mesh.asset_usage = RenderAssetUsages::RENDER_WORLD;
     }
     for (entity, _) in &colliders {

@@ -1,4 +1,3 @@
-//! Selected-adapter capacity and reservations around native image replacement.
 use bevy::{
     asset::{AssetId, UntypedAssetId},
     pbr::PreparedMaterial,
@@ -43,7 +42,7 @@ fn query(mut command: Command) -> Result<String, CapacityError> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        command.creation_flags(0x08000000);
     }
     let mut child = command
         .stdout(Stdio::piped())
@@ -78,9 +77,6 @@ fn query(mut command: Command) -> Result<String, CapacityError> {
     }
 }
 
-/// Driver-reported dedicated memory, never the adapter's allocation limits or
-/// the truncated 32-bit WMI AdapterRAM field. Multiple identical selected-device
-/// matches use the smallest capacity, keeping the limit conservative.
 pub(super) fn detect(adapter: &RenderAdapterInfo) -> Result<Capacity, CapacityError> {
     if adapter.vendor == 0x10de {
         let mut command = Command::new("nvidia-smi");
@@ -114,8 +110,6 @@ pub(super) fn detect(adapter: &RenderAdapterInfo) -> Result<Capacity, CapacityEr
     }
     #[cfg(windows)]
     {
-        // Query the driver's 64-bit registry value, matched to the selected
-        // adapter's vendor/device and name. No installation paths are stored.
         let script = format!(
             "$ErrorActionPreference='Stop'; $name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{}')); $values=Get-ChildItem -LiteralPath 'HKLM:/SYSTEM/CurrentControlSet/Control/Video' | ForEach-Object {{ $p=Get-ItemProperty -LiteralPath ($_.PSPath+'/0000') -ErrorAction SilentlyContinue; $size=$p.'HardwareInformation.qwMemorySize'; if ($p.DriverDesc -eq $name -and $p.MatchingDeviceId -like '*VEN_{:04X}&DEV_{:04X}*' -and ($size -is [UInt64] -or $size -is [Int64]) -and $size -gt 0) {{ $size }} }}; $values | Measure-Object -Minimum | ForEach-Object {{$_.Minimum.ToString('0',[Globalization.CultureInfo]::InvariantCulture)}}",
             base64_name(&adapter.name),
@@ -182,10 +176,6 @@ struct Replacement {
     descriptor: TextureDescriptor<'static>,
 }
 
-/// Native extraction freezes main-owned mutation identity before the next
-/// pipelined update. Only byte credit is shared. Cumulative credit collapses
-/// multiple CPU replacements without losing reservations or acknowledging a
-/// future, not-yet-extracted descriptor.
 #[derive(Resource, Clone, Default, ExtractResource)]
 #[extract_app(bevy::render::RenderApp)]
 pub(super) struct Replacements(HashMap<AssetId<Image>, Replacement>);
@@ -228,8 +218,6 @@ pub(super) struct MatchedReplacements(HashMap<AssetId<Image>, u64>);
 #[derive(Resource, Default)]
 pub(super) struct RetiringTextures(Vec<Retirement>);
 
-/// Only image dependencies and native binding ownership are retained here.
-/// Bevy still owns source extraction, retries and material preparation.
 #[derive(Resource, Default)]
 pub(super) struct MaterialImages(HashMap<UntypedAssetId, Vec<UntypedAssetId>>);
 
@@ -260,11 +248,6 @@ fn image_dependencies<A: Asset>(asset: &A, images: &mut Vec<UntypedAssetId>) {
     });
 }
 
-/// A native retry leaves the previous binding allocated until all new maps
-/// exist. Its old view can therefore remain in a shared slab after GpuImage
-/// replacement. Free that binding before native preparation, including direct
-/// extension bindings whose pinned native update path does not free the old
-/// allocation. Missing maps then follow Bevy's ordinary RetryNextUpdate path.
 pub(super) fn invalidate_material_bindings(
     standard: Res<ExtractedMaterials<MeshMaterial3d<StandardMaterial>>>,
     opaque: Res<ExtractedMaterials<MeshMaterial3d<super::super::opaque::OpaqueMaterial>>>,
@@ -313,8 +296,6 @@ struct Retirement {
     materials: Vec<UntypedAssetId>,
 }
 
-/// Capture native old allocations before Bevy prepares the replacement. The
-/// existing material and Solari preparation then rebind every changed view.
 pub(super) fn capture_replaced(
     images: Res<RenderAssets<GpuImage>>,
     extracted: Res<ExtractedAssets<GpuImage>>,
@@ -345,9 +326,6 @@ pub(super) fn capture_replaced(
     }
 }
 
-/// Submitted work owns the old views until the native queue completes. Explicit
-/// destruction afterwards releases their GPU storage even if a retired cache
-/// still holds a handle. Reservations remain charged until that completion.
 pub(super) fn release_completed(
     queue: Res<RenderQueue>,
     ledger: Res<MemoryLedger>,
@@ -363,8 +341,6 @@ pub(super) fn release_completed(
     let mut textures = Vec::new();
     retiring.0.retain_mut(|retirement| {
         let Some(current) = images.get(retirement.id) else {
-            // Native preparation may defer or retry. Extraction is not proof
-            // that the replacement exists; retain its allocation reservation.
             return true;
         };
         if retirement.materials.iter().any(|id| {
@@ -375,9 +351,6 @@ pub(super) fn release_completed(
                     })
             })
         }) {
-            // A missing second map can postpone successful native material
-            // preparation after this image is ready. Wait for every surviving
-            // owner to complete its native rebind, not merely GpuImage identity.
             return true;
         }
         let reused = retirement
@@ -397,8 +370,6 @@ pub(super) fn release_completed(
         if reused && current.texture_descriptor != retirement.expected {
             return true;
         }
-        // Descriptor-identical updates can reuse the same native allocation.
-        // Release the duplicate credit, never destroy the current texture.
         textures.push((
             if reused {
                 None

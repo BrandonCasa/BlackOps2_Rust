@@ -1,4 +1,3 @@
-//! Authored wood windows, individual boards and fixed-step repair/tear ownership.
 use crate::{
     GameState,
     assets::GameDefinition,
@@ -233,10 +232,6 @@ fn assemble(
             Collider::cuboid(0.16, 1.5, 1.8),
             Transform::from_translation(origin + Vec3::Y * 0.75).with_rotation(rotation),
         ));
-        // Reconstructed player clip spans the window and its sandbag shoulders.
-        // Its top exceeds a full jump and its bottom closes the crouch/step path;
-        // the stacked bunker entrances retain their separate floor clearance.
-        // Board destruction never disables this actor-specific boundary.
         let interior = definition
             .content
             .navigation_nodes
@@ -244,8 +239,6 @@ fn assemble(
             .find(|n| n.id == d.exit)
             .map(|n| Vec3::from_array(n.position))
             .expect("validated barrier exit");
-        // The authored board pivot sits inside the exterior pocket. Seal its
-        // playable-side mouth at the native landing point.
         let clip_origin = interior;
         commands.spawn((
             SessionEntity,

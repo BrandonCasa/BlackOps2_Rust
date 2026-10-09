@@ -1,9 +1,3 @@
-"""Assemble native weapon compositions offline; originals are never modified.
-
-OAT meshes and bind matrices use Y-up coordinates, while child joint locals and
-weapon attachment offsets retain the native parent basis. Compose in that basis
-before the existing actor converter performs the single inches-to-meters step.
-"""
 import base64
 import copy
 import hashlib
@@ -36,7 +30,6 @@ def transform(node):
 
 
 def angles(pitch, yaw, roll):
-    # Native AngleVectors: Rz(yaw) Ry(pitch) Rx(roll), stored as xyzw.
     p, y, r = np.radians([pitch, yaw, roll]) * .5
     cp, cy, cr = np.cos([p, y, r]); sp, sy, sr = np.sin([p, y, r])
     return [float(sr*cp*cy-cr*sp*sy), float(cr*sp*cy+sr*cp*sy),
@@ -132,7 +125,7 @@ class Assembly:
         for j in sorted(joints):
             parent = mapped.get(parents.get(j), socket_node)
             if parent == mapped[j]:
-                continue  # A duplicate named attachment root shares the existing joint.
+                continue
             children = self.doc["nodes"][parent].setdefault("children", [])
             if mapped[j] not in children:
                 children.append(mapped[j])
@@ -263,8 +256,6 @@ def prepare(config):
             if sounds:
                 game.setdefault("audio", {}).setdefault("timelines", {})[animation["id"]] = [n for n in sounds if n["alias"] in game["audio"].get("aliases", {})]
         return {a["id"].rsplit(".", 1)[1]: a["id"] for a in generated}
-    # Regenerate existing first-person rigs with precisely their previous clips,
-    # preserving equipment/perk additions, and add native special shot/idle clips.
     rig_clips = {}
     for a in content["animations"]:
         if a["skeleton"].startswith("actor."):
@@ -282,7 +273,6 @@ def prepare(config):
             report.append({"weapon": weapon["id"], "status": "native_definition_has_no_viewmodel", "source_model": fields.get("gunModel")})
             continue
         names = sorted({fields.get(k) for k in ACTIONS.values()} - {"", None})
-        # Keep existing custom action bindings, including dedicated bottle/prime clips.
         names = sorted(set(names) | {a.rsplit(".", 1)[1] for a in weapon.get("animation_actions", {}).values()})
         hidden = fields.get("hideTags", "").split()
         evidence = {"weapon": weapon["id"], "status": "assembled", "compositions": []}
@@ -295,8 +285,6 @@ def prepare(config):
             parts = composition(fields, world, ads)
             world_names = sorted({weapon["lure"]["animation"].rsplit(".", 1)[1]} if world and weapon.get("lure") else ())
             if world and base == "weapon_parabolic_knife" and parts:
-                # Staff melee helper definitions name a knife world proxy with
-                # no crystal socket. It is not a collectible staff world rig.
                 evidence["world_proxy"] = "native melee knife proxy; staff attachments belong to its viewmodel"
                 parts = []
             signature = {"base": base, "parts": parts, "hidden": hidden, "clips": world_names if world else names}
@@ -320,7 +308,6 @@ def prepare(config):
                 old = weapon.get("animation_actions", {})
                 weapon["animation_actions"] = {action: actions.get(fields.get(field), old.get(action)) for action, field in ACTIONS.items()
                                                 if fields.get(field) in actions or action in old}
-                # Remap previously added bindings to the assembled rig.
                 weapon["animation_actions"] = {action: actions.get(clip.rsplit(".", 1)[1], clip) for action, clip in weapon["animation_actions"].items()}
             evidence["compositions"].append({"mode": mode, "presentation": identity, "parts": parts, "hidden_triangles": hidden_count})
         report.append(evidence)

@@ -1,4 +1,3 @@
-//! Fixed-step aiming/reach checks and one accepted action per held-use gesture.
 use crate::{
     GameState,
     assets::GameDefinition,
@@ -246,8 +245,6 @@ pub(crate) fn interact(
             let endpoint = if let InteractionAction::Barrier { barrier } = &usable.source.action {
                 let d = definition.content.barriers.iter().find(|d| d.id == *barrier)?;
                 let exit = definition.content.navigation_nodes.iter().find(|n| n.id == d.exit)?;
-                // Reconstructed use-volume front keeps repairs reachable from
-                // the playable side of the permanent zombie-ingress boundary.
                 let inward = (Vec3::from_array(exit.position) - transform.translation).with_y(0.).normalize_or_zero();
                 transform.translation + inward * 0.8 + Vec3::Y * 0.7
             } else if matches!(usable.source.action, InteractionAction::Generator { .. }) {crate::generators::use_point(transform.translation,origin,usable.source.reach)} else if matches!(usable.source.action, InteractionAction::Perk { .. }) { transform.translation + Vec3::Y + transform.rotation * Vec3::new(0., 0., 0.8) } else { transform.translation };

@@ -1,4 +1,3 @@
-"""Derive texture preparation scope from implemented Origins presentation paths."""
 import argparse
 import hashlib
 import json
@@ -12,8 +11,6 @@ def current_scenes(game):
     scenes = {game['scene'].split('#')[0], 'actors/c_zom_dempsey_viewhands_lod0.gltf'}
     used_weapons = {'weapon.c96_zm', 'weapon.frag_grenade_zm', 'weapon.knife_zm',
                     game['solo_revive']['downed_weapon']}
-    # Implemented equipment can be selected by the existing native drivers;
-    # weapon-box and staff catalogs have no current acquisition path.
     used_weapons.update(w['id'] for w in weapons.values()
                         if w.get('throwable') or w.get('mine') or w.get('lure'))
     used_perks, ids = set(), set()
@@ -50,7 +47,7 @@ def current_scenes(game):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='Derive texture preparation scope from implemented Origins presentation paths.')
     parser.add_argument('pack', type=Path)
     parser.add_argument('receipt', type=Path)
     args = parser.parse_args()

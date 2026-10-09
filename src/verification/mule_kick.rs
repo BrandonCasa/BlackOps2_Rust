@@ -1,4 +1,3 @@
-//! Paid native-machine and wall-buy coverage of third-slot ownership and loss.
 use super::*;
 use crate::{
     life::{LifeState, Vitality},

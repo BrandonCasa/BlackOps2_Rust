@@ -1,4 +1,3 @@
-//! Authored brush roots retain native data independently of their gameplay consumers.
 use super::VolumeDefinition;
 use crate::player::Player;
 use avian3d::prelude::*;
@@ -96,7 +95,6 @@ pub(super) fn valid(brushes: &[BrushDefinition]) -> bool {
 #[derive(Component)]
 pub struct MapBrush {
     pub id: String,
-    /// Counted from the loaded Bevy hierarchy when its scene becomes ready.
     pub visual_meshes: usize,
 }
 pub type BrushSites<'w, 's> = Query<
@@ -122,8 +120,6 @@ pub(crate) fn bind(
         visual_meshes,
     });
     if let Some(shape) = source.collider() {
-        // Preparation retains geometry; solid/hidden/moving rules belong to its source-script consumer.
-        // Existing doors keep their session-owned blockers rather than acquiring a second permanent one.
         commands.entity(entity).insert((
             shape,
             Sensor,

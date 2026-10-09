@@ -1,4 +1,3 @@
-"""Convert resolved BO2 weapon fields into typed, reusable runtime definitions."""
 import hashlib
 import json
 import math
@@ -29,7 +28,6 @@ ACTIONS = {
 
 def localized_strings(directory):
     result = {}
-    # Patch strings take precedence over base; map overrides take precedence last.
     files = sorted(directory.glob("*.str"), key=lambda p: ("tomb" in p.name, "patch" in p.name, p.name))
     for path in files:
         text = path.read_text(encoding="utf-8-sig")
@@ -41,7 +39,6 @@ def localized_strings(directory):
 
 
 def ads_pose(fields, inspection):
-    """Retain the authored torso trajectory in its parent-local native basis."""
     import numpy as np
     clips = inspection / "solo-content/source/xanim"
     idle_path, ads_path = [clips / fields.get(k, "") for k in ("idleAnim", "adsUpAnim")]
@@ -69,7 +66,6 @@ def ads_pose(fields, inspection):
 
 
 def prepare_ads(config):
-    """Refresh only ADS metadata in an already assembled external runtime pack."""
     inspection = external(config["assets"]["inspection_output"])
     source = json.loads((inspection / "solo-content/recovered-gameplay.json").read_text())
     fields = {"weapon." + w["source"]: w["fields"] for w in source["weapons"]}
@@ -131,7 +127,6 @@ def prepare(config):
             if clip_id in clips:
                 actions[action] = clip_id
         if delivery == "melee":
-            # Knife tracks animate the hands, not the rigid knife mesh.
             clip_id = "animation.c_zom_dempsey_viewhands." + f.get("meleeAnim", "")
             if clip_id in clips:
                 actions["melee"] = clip_id
@@ -140,8 +135,6 @@ def prepare(config):
         recoil_pitch = sorted([number("hipViewKickPitchMin") * 0.01, number("hipViewKickPitchMax") * 0.01])
         recoil_yaw = sorted([number("hipViewKickYawMin") * 0.01, number("hipViewKickYawMax") * 0.01])
         key = f.get("displayName", "")
-        # These tracks are local to tag_view's converted basis. Keep parent-local
-        # coordinates and derive a delta from the authored idle torso pose.
         ads_translation = [0., 0., 0.]
         ads_rotation = [0., 0., 0., 1.]
         native_clips = inspection / "solo-content/source/xanim"
@@ -154,7 +147,6 @@ def prepare(config):
                 ads_translation = ((ads["translation"][1][-1] - base) * 0.0254).tolist()
             if "rotation" in ads:
                 a, b = idle.get("rotation", ads["rotation"])[1][0], ads["rotation"][1][-1]
-                # inverse(a) * b, native normalized quaternions in xyzw order.
                 import numpy as np
                 vector = a[3] * b[:3] - b[3] * a[:3] - np.cross(a[:3], b[:3])
                 ads_rotation = [*vector.tolist(), float(a[3] * b[3] + np.dot(a[:3], b[:3]))]
@@ -175,7 +167,6 @@ def prepare(config):
                 "recoil_pitch": recoil_pitch, "recoil_yaw": recoil_yaw,
                 "recoil_recovery": positive("hipViewKickCenterSpeed", 800.) * 0.01,
                 "spread": [number(k) for k in ("hipSpreadStandMin", "hipSpreadDuckedMin", "hipSpreadProneMin", "adsSpread")],
-                # BO2 authored horizontal FOV uses its reference 4:3 aspect.
                 "ads_fov": max(1., math.degrees(2 * math.atan(math.tan(math.radians(max(1., min(179., number("adsZoomFov1", 50.)))) / 2) * 0.75))),
                 "ads_seconds": [positive("adsTransInTime", 0.2), positive("adsTransOutTime", 0.2)],
                 "ads_zoom_fraction": [min(1., max(0., number(k, 1.))) for k in ("adsZoomInFrac", "adsZoomOutFrac")],
@@ -198,13 +189,11 @@ def prepare(config):
             },
         }
         if delivery in ("hitscan", "projectile") and (weapon["damage"] == 0 or magazine == 0):
-            # Native script-only weapons are equipment commands, never fake gun ammo.
             weapon["mechanics"]["delivery"] = "equipment"
         if model and not presentation:
             unresolved.append({"weapon": name, "missing_model": model})
         weapons.append(weapon)
     content["weapons"] = weapons
-    # Retained decompilation is an offline research input, never a runtime script.
     script = external(config.get("preparation", {}).get("weapon_script", inspection / "damage-life-state-03/decompiled/t6/zm_tomb.gsc"))
     prices = {}
     for name, price, ammo in re.findall(r'add_zombie_weapon\(\s*"([^"]+)"\s*,[^,]*,[^,]*,\s*(\d+)\s*,[^,]*,[^,]*,\s*(undefined|\d+)', script.read_text()):
@@ -219,7 +208,6 @@ def prepare(config):
             for column in (1, 2):
                 if row[column]:
                     prices[row[0]][column-1] = math.ceil(int(row[column]) / 10) * 10
-    # Map initialization applies these overrides after the common CSV lookup.
     for name, price in re.findall(r'change_weapon_cost\(\s*"([^"]+)"\s*,\s*(\d+)\s*\)', script.read_text()):
         prices[name] = [int(price), math.ceil(int(int(price) * 0.5) / 10) * 10]
     catalog = {w["id"]: w for w in weapons}
@@ -231,7 +219,7 @@ def prepare(config):
             continue
         weapon = catalog["weapon." + name]
         if weapon["mechanics"]["delivery"] != "hitscan":
-            continue # Offhand equipment gets its dedicated inventory/action path.
+            continue
         if name not in prices:
             raise ValueError("Missing native wall price: " + name)
         price, ammo = prices[name]

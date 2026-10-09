@@ -1,4 +1,3 @@
-//! Input-driven reload comparisons around real paid perk acquisition and loss.
 use super::*;
 use crate::{
     life::{LifeState, Vitality},
@@ -110,7 +109,6 @@ fn drive(
             }
             session.pending = 0;
             session.intermission = Some(Timer::from_seconds(300., TimerMode::Once));
-            // Controlled second-weapon grant isolates reload families; perk purchases use normal F/economy.
             let w = game
                 .content
                 .weapons

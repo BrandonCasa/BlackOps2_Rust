@@ -1,4 +1,3 @@
-//! Bounded control of the real game window and ordinary movement/damage systems.
 use super::*;
 use crate::{
     life::Vitality,

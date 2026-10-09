@@ -65,7 +65,6 @@ foreach ($workload in $Workloads) {
                 }
                 if ($others -or $timer.Elapsed.TotalSeconds -gt 960) {
                     $collision = [bool]$others
-                    # The Process object is the owned launch, never another chat's process.
                     $owned.Kill()
                     throw 'Owned benchmark stopped: validation collision or timeout; retain failed run evidence'
                 }

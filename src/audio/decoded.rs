@@ -1,5 +1,3 @@
-//! Reuse decoded short clips through Bevy's native audio asset and sink path.
-//! Codec work runs on the async compute pool, never during sink admission.
 use bevy::{
     asset::{AssetLoader, LoadContext, LoadState, io::Reader},
     audio::{ChannelCount, Decodable, Sample, SampleRate, Source},
@@ -103,8 +101,6 @@ impl AssetLoader for DecodedClipLoader {
                 let source = AudioSource {
                     bytes: bytes.into(),
                 };
-                // Bevy's stock source uses unwrap for invalid codec input. Turn
-                // that failure into an asset error so playback can fall back.
                 let result = std::panic::catch_unwind(|| {
                     let mut decoder = source.decoder();
                     let channels = decoder.channels();
@@ -248,7 +244,6 @@ pub(super) fn maintain(
         }
     }
     stats.cache_owned_pcm_bytes = owned;
-    // Active sinks/assets can temporarily retain clips after LRU eviction.
     stats.resident_pcm_bytes = clips
         .iter()
         .map(|(_, clip)| clip.samples.len() * size_of::<Sample>())

@@ -1,4 +1,3 @@
-//! Bevy owns instance extraction, compute preprocessing and device fallback.
 use crate::assets::MeshPreprocessing;
 use bevy::{
     pbr::RenderMeshInstances,
@@ -57,16 +56,9 @@ impl Plugin for PreprocessingPlugin {
 struct RequestedMode(MeshPreprocessing);
 
 fn configure(mut support: ResMut<GpuPreprocessingSupport>, requested: Res<RequestedMode>) {
-    // The explicit CPU comparison must use CPU phase batches as well as CPU
-    // instance extraction; changing only PbrPlugin would leave them mismatched.
     support.max_supported_mode = support.min(match requested.0 {
         MeshPreprocessing::Cpu => GpuPreprocessingMode::None,
-        // Diagnostic comparison: keep visibility/direct batching while moving
-        // mesh-uniform expansion to compute.
         MeshPreprocessing::Gpu => GpuPreprocessingMode::PreprocessingOnly,
-        // Native indirect batching is the default on supported devices.
-        // Native GPU frustum culling and indirect batching retain the
-        // preprocessing/CPU fallback on less capable devices.
         MeshPreprocessing::GpuCulling => GpuPreprocessingMode::Culling,
     });
 }

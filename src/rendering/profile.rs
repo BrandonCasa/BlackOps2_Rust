@@ -1,5 +1,3 @@
-//! One embedded reconstruction profile. Surface/light colors are sRGB; the
-//! sky uses Bevy's physical scattering and sun illuminance.
 use bevy::prelude::*;
 use serde::Deserialize;
 

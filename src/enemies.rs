@@ -1,4 +1,3 @@
-//! Ordinary enemy lifecycle and Bevy-owned original multipart actor playback.
 use crate::hit_regions::SkeletalReady as ActorReady;
 use crate::{
     GameState,
@@ -20,7 +19,6 @@ use bevy::{
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// A positional objective uses the same navigation and attack lifecycle as pursuit.
 #[derive(Component)]
 pub struct EnemyGoal {
     pub position: Vec3,
@@ -100,8 +98,6 @@ impl Zombie {
         if clips.is_empty() {
             return None;
         }
-        // BO2's zm_run preserves ASD substates. Keep this actor's choice across
-        // stops, attacks and repeated movement updates, shared by body and head.
         let seed = self
             .locomotion_seed
             .wrapping_mul(1664525)
@@ -366,7 +362,6 @@ pub(crate) fn lifecycle(
                         break;
                     }
                 }
-                // Native aligned clips include the authoring origin's floor offset.
                 transform.translation = Vec3::from_array(placement.position)
                     + Vec3::Y * 0.85
                     + Quat::from_rotation_y(placement.yaw)
@@ -592,7 +587,6 @@ pub(crate) fn lifecycle(
                         zombie.transition(EnemyAnimation::Tear);
                         let delta = end - start;
                         transform.rotation = Quat::from_rotation_y((-delta.z).atan2(delta.x));
-                        // Source aligned tear clips and board delta curves share this origin.
                         if let Some(placement) = definition
                             .content
                             .placements
@@ -614,7 +608,6 @@ pub(crate) fn lifecycle(
                 barriers.entries += 1;
             }
             if let Some(profile) = enemy.traversals.get(&alias) {
-                // zm_shared::dotraverse faces the authored negotiation start angle.
                 let rotation = Quat::from_rotation_y(yaw);
                 zombie.traversal = Some(TraversalMotion {
                     start: start + Vec3::Y * 0.85,
@@ -937,8 +930,6 @@ fn ready(
         if rig.socket.is_none()
             && let Ok(name) = names.get(child)
         {
-            // Preserve the first matching native descendant, just as the
-            // attachment lookup did, but discover it once when the scene is ready.
             rig.sockets.entry(name.to_string()).or_insert(child);
         }
         if players.contains(child) {
@@ -1152,7 +1143,6 @@ fn animate(
         }
     }
 }
-/// Read the live multipart Bevy animation players for opt-in window validation.
 pub(crate) fn locomotion_observation(world: &mut World, owner: Entity) -> Vec<serde_json::Value> {
     let rigs: Vec<_> = world
         .query::<(Entity, &ActorRig)>()
@@ -1174,8 +1164,6 @@ pub(crate) fn locomotion_observation(world: &mut World, owner: Entity) -> Vec<se
         .collect();
     rigs.into_iter()
         .map(|(entity, rig, ready, clip, players, joint)| {
-            // Attachment rigs intentionally do not build the torso's socket
-            // lookup. Observe their actual named native descendant directly.
             let mut joint = joint;
             if joint.is_none() {
                 let mut descendants = vec![entity];
@@ -1238,10 +1226,6 @@ fn animated_bounds(
         let Ok(zombie) = enemies.get(mesh.owner) else {
             continue;
         };
-        // Bevy's CalculateBounds has already transformed each influencing
-        // joint's vertex envelope. Do not overwrite it with an envelope of
-        // every joint in the multipart rig plus an unrelated limb margin.
-        // Missing data or unsupported morph deformation keeps the old fallback.
         let native_ready = dynamic
             && aabb.center.is_finite()
             && aabb.half_extents.is_finite()

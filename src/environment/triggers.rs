@@ -1,4 +1,3 @@
-//! Prepared native trigger geometry; Avian owns query shapes and spatial indexing.
 use super::VolumeDefinition;
 use crate::{assets::GameDefinition, player::Player};
 use avian3d::prelude::*;
@@ -13,7 +12,6 @@ pub const TRIGGER_LAYER: u32 = 8;
 pub struct TriggerDefinition {
     pub id: String,
     pub position: [f32; 3],
-    /// Authored names, flags and script fields remain available to gameplay consumers.
     pub source: BTreeMap<String, String>,
     pub shape: TriggerShape,
 }
@@ -21,9 +19,7 @@ pub struct TriggerDefinition {
 #[derive(Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerShape {
-    /// Each brush position is relative to the trigger root; vertices are relative to that brush.
     Convex { volumes: Vec<VolumeDefinition> },
-    /// Native radius triggers extend upward from the authored root by their full height.
     Cylinder { radius: f32, height: f32 },
 }
 
