@@ -27,7 +27,7 @@ fn prepare(
             }) {
                 let level = lod["level"].as_u64().unwrap_or(0);
                 let levels = lod["levels"].as_u64().unwrap_or(1);
-                commands.entity(entity).insert(VisibilityRange {
+                commands.entity(entity).try_insert(VisibilityRange {
                     start_margin: match level {
                         0 => 0.0..0.0,
                         1 => 19.0..21.0,
@@ -46,6 +46,6 @@ fn prepare(
             }
             ancestor = parents.get(current).ok().map(ChildOf::parent);
         }
-        commands.entity(entity).insert(LodReady);
+        commands.entity(entity).try_insert(LodReady);
     }
 }
