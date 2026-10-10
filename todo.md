@@ -117,6 +117,7 @@
 - [ ] Add Wunderfizz bottle expiration.
 - [ ] Add Wunderfizz relocation.
 - [ ] Add random perk bottle collection.
+- [ ] Add one-time prone perk-machine spare-change rewards.
 - [ ] Add empty perk bottle slot rewards.
 - [ ] Add personal Blood Money rewards.
 - [ ] Add team Blood Money solo rewards.
@@ -291,6 +292,7 @@
 - [ ] Add Ice crystal pickup.
 - [ ] Add Wind crystal pickup.
 - [ ] Add Lightning crystal pickup.
+- [ ] Restore dropped elemental crystals to recoverable pickup locations.
 - [ ] Add Fire Staff plane-part spawning.
 - [ ] Add Fire Staff plane damage handling.
 - [ ] Add Fire Staff generator-part pickup.
@@ -315,6 +317,7 @@
 - [ ] Add staff pedestal storage.
 - [ ] Add staff pedestal retrieval.
 - [ ] Add source-defined staff exchange behavior.
+- [ ] Restore lost or abandoned staffs to available pickup pedestals.
 - [ ] Add Fire Staff projectile attacks.
 - [ ] Add Fire Staff impact burning.
 - [ ] Add Ice Staff projectile attacks.
@@ -453,6 +456,12 @@
 - [ ] Add ending skip input.
 - [ ] Route ending completion into the final scoreboard.
 - [ ] Transition final portal entry into the ending.
+- [ ] Add source-defined DSR-50 aiming jumpscare trigger.
+- [ ] Add jumpscare image and sound playback.
+- [ ] Add damage-triggered wall poster removal.
+- [ ] Add six Maxis story audio-log interaction placements.
+- [ ] Play each Maxis story audio log after interaction.
+- [ ] Preserve robot-interior audio-log availability across robot visits.
 - [ ] Track activated Archangel rocks.
 - [ ] Add Archangel rock interaction placements.
 - [ ] Play Archangel after all required rock interactions.
@@ -495,6 +504,13 @@
 - [ ] Add robot interior sound ambience.
 - [ ] Add Samantha round announcements.
 - [ ] Add Samantha quest announcements.
+- [ ] Add Samantha's staged opening introduction.
+- [ ] Add source-defined early-round story conversations.
+- [ ] Add discovery-triggered character dialogue.
+- [ ] Add quest-discovery character response conversations.
+- [ ] Track source-defined solo-eligible Origins achievement conditions.
+- [ ] Persist earned local Origins achievements.
+- [ ] Present newly earned Origins achievement notifications.
 - [ ] Add original round indicator.
 - [ ] Add original points indicator.
 - [ ] Add original magazine ammunition indicator.
