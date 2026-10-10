@@ -12,7 +12,7 @@ def actor(state, entity):
     return next((e for e in state['enemies'] if e['entity'] == entity), None)
 
 
-def prepare(client, health, nuked):
+def prepare(client, health, nuked, insta_kill=False, double_points=False):
     client.reset()
     fixture = {'clear_enemies': True, 'pending': 6, 'pause_spawning_seconds': 300,
                'weapons': ['weapon.c96_zm'], 'pitch': 0}
@@ -21,9 +21,17 @@ def prepare(client, health, nuked):
     home = state['player']['position']
     pickup = list(home)
     pickup[1] -= state['player']['height'] / 2 - 0.25
-    blood = {'pickups': [{'id': 'powerup.zombie_blood', 'position': pickup}]}
+    effects = ['powerup.zombie_blood']
+    if insta_kill:
+        effects.append('powerup.insta_kill')
+    if double_points:
+        effects.append('powerup.double_points')
+    blood = {'pickups': [{'id': effect, 'position': pickup} for effect in effects]}
     client.call('origins/setup', blood)
-    client.until(lambda s: s['drops']['collected'] == 1)
+    client.until(lambda s: s['drops']['collected'] == len(effects)
+                 and s['effects']['zombie_blood'] > 0
+                 and (not insta_kill or s['effects']['insta_kill'] > 0)
+                 and (not double_points or s['effects']['double_points'] > 0))
     target = [home[0], home[1], home[2] + 4.5]
     enemies = []
     if nuked:
@@ -34,25 +42,30 @@ def prepare(client, health, nuked):
     if len(result['enemies']) != len(enemies):
         raise RuntimeError('Scenario target count mismatch')
     target = result['enemies'][-1]
-    client.wait_ticks(30)
+    ready = client.until(lambda s: all(actor(s, entity) and actor(s, entity)['ready']
+                                      and actor(s, entity)['hit_regions'] for entity in result['enemies']), timeout=90)
     if nuked:
         client.call('origins/setup', {'pickups': [{'id': 'powerup.nuke', 'position': pickup}]})
-        client.until(lambda s: s['drops']['collected'] == 2)
+        client.until(lambda s: s['drops']['collected'] == len(effects) + 1)
         state = client.until(lambda s: actor(s, target) and actor(s, target).get('nuked')
                              and actor(s, target).get('health') == health)
     else:
         state = client.until(lambda s: actor(s, target) and actor(s, target).get('health') == health)
-    fixture.update({'blood_setup': blood, 'enemies': enemies, 'nuke_pickup': nuked})
+    fixture.update({'blood_setup': blood, 'enemies': enemies, 'nuke_pickup': nuked,
+                    'audio_baseline': ready['audio']})
     return state, target, fixture
 
 
-def aim(client, state, target):
+def aim(client, state, target, region=None):
     player = state['player']
     position = actor(state, target)['position']
+    if region:
+        volume = next(v for v in actor(state, target)['hit_regions'] if v['region'] == region)
+        position = [(start + end) / 2 for start, end in zip(volume['start'], volume['end'])]
     dx = position[0] - player['position'][0]
     dz = position[2] - player['position'][2]
     eye = player['position'][1] + player['eye_height'] - player['height'] / 2
-    dy = position[1] + 0.25 - eye
+    dy = position[1] + (0 if region else 0.25) - eye
     setup = {'yaw': math.atan2(-dx, -dz), 'pitch': math.atan2(dy, math.hypot(dx, dz))}
     client.call('origins/setup', setup)
     return setup

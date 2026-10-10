@@ -159,6 +159,9 @@ pub struct AudioEvidence {
     pub events: BTreeMap<String, u32>,
     pub sinks: BTreeMap<String, u32>,
 }
+#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+#[derive(Resource, Default)]
+pub(crate) struct RequestedAliases(pub BTreeMap<String, u32>);
 #[derive(Resource, Default)]
 pub struct Subtitle {
     pub text: String,
@@ -335,6 +338,9 @@ fn play(
     mut subtitle: ResMut<Subtitle>,
     mut clips: ResMut<decoded::ClipCache>,
     mut decode_stats: ResMut<AudioDecodeStats>,
+    #[cfg(all(debug_assertions, feature = "dev-dynamic"))] mut validation_requests: Option<
+        ResMut<RequestedAliases>,
+    >,
 ) {
     let Some(game) = game else {
         return;
@@ -372,6 +378,10 @@ fn play(
             continue;
         }
         evidence.requested += 1;
+        #[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+        if let Some(aliases) = validation_requests.as_mut() {
+            *aliases.0.entry(request.alias.clone()).or_default() += 1;
+        }
         let Some(alias) = game.audio.aliases.get(&request.alias) else {
             commands.entity(entity).try_despawn();
             evidence.rejected += 1;

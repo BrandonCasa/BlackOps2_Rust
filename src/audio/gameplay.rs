@@ -544,6 +544,7 @@ fn feedback(
     mut applied: MessageReader<crate::damage::DamageApplied>,
     poses: Query<&Transform>,
     defenders: Query<(), With<crate::generators::GeneratorDefender>>,
+    nuked: Query<(), With<crate::powerups::NukeTarget>>,
     players: Query<(Entity, &crate::movement::SprintState, &Player), With<Player>>,
     query: SpatialQuery,
     surfaces: Query<&SurfaceSound>,
@@ -598,6 +599,9 @@ fn feedback(
             },
             SoundSource::attached(receipt.impact.target),
         );
+        if nuked.contains(receipt.impact.target) {
+            continue;
+        }
         let event = if receipt.impact.region == crate::weapons::HitRegion::Head {
             Some("kill_headshot")
         } else if matches!(

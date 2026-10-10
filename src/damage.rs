@@ -46,17 +46,21 @@ pub struct Impact {
 #[derive(Clone, Debug)]
 pub struct DamageReceipt {
     pub impact: Impact,
+    pub base_amount: u32,
     pub lethal: bool,
     pub points: u32,
     pub aimed_bullet: bool,
+    pub insta_kill: bool,
 }
 #[derive(Message, Clone, Debug)]
 pub struct EnemyDeath(pub DamageReceipt);
 #[derive(Message, Clone, Debug)]
 pub(crate) struct DamageApplied {
     pub(crate) impact: Impact,
+    pub(crate) base_amount: u32,
     pub(crate) lethal: bool,
     pub(crate) aimed_bullet: bool,
+    pub(crate) insta_kill: bool,
 }
 #[derive(Resource, Default)]
 pub struct DamageQueue(pub Vec<Impact>);
@@ -107,6 +111,7 @@ fn resolve(
     perks: Query<&crate::solo_revive::PerkInventory>,
     mut perk_evidence: ResMut<crate::perk_effects::EffectEvidence>,
     effects: Res<crate::powerups::PowerupEffects>,
+    nuked: Query<(), With<crate::powerups::NukeTarget>>,
 ) {
     queue
         .0
@@ -184,20 +189,28 @@ fn resolve(
             perk_evidence.record(serde_json::json!({"event":"explosive_protected","target":impact.target.to_bits(),"amount":impact.amount,"source":impact.source.id()}));
             continue;
         }
-        if !player
-            && impact.amount > 0
+        let base_amount = impact.amount;
+        let before = health.current().unwrap_or(0);
+        let aimed_bullet = matches!(impact.category, DamageCategory::Bullet)
+            && players
+                .get(impact.attacker)
+                .is_ok_and(|inventory| inventory.ads > 0.5);
+        let insta_kill = !player
+            && sender_alive
+            && base_amount > 0
+            && base_amount < before
             && effects.insta_kill > 0.
             && matches!(
                 impact.source,
                 ImpactSource::Weapon(_) | ImpactSource::Projectile(_)
             )
-        {
-            impact.amount = impact.amount.max(health.current().unwrap_or(0));
+            && (!nuked.contains(impact.target) || aimed_bullet);
+        if insta_kill {
+            impact.amount = before;
         }
         let Ok(amount) = ResolvedDamage::new(impact.amount) else {
             continue;
         };
-        let before = health.current().unwrap_or(0);
         let Ok(outcome) = (if out_of_bounds {
             health.kill_human()
         } else {
@@ -251,14 +264,12 @@ fn resolve(
                 continue;
             }
         };
-        let aimed_bullet = matches!(impact.category, DamageCategory::Bullet)
-            && players
-                .get(impact.attacker)
-                .is_ok_and(|inventory| inventory.ads > 0.5);
         accepted.write(DamageApplied {
             impact,
+            base_amount,
             lethal,
             aimed_bullet,
+            insta_kill,
         });
     }
 }
@@ -290,10 +301,15 @@ fn rewards(
         } else if matches!(&impact.source,ImpactSource::Perk(id) if definition.content.perks.iter().any(|p|p.id==*id && p.cherry.is_some()))
         {
             if lethal { 40 } else { 0 }
-        } else if nuked.contains(impact.target) && (lethal || !applied.aimed_bullet) {
-            0
+        } else if nuked.contains(impact.target) {
+            if applied.aimed_bullet && (!lethal || applied.insta_kill) {
+                hit
+            } else {
+                0
+            }
         } else if lethal {
             kill.saturating_add(bonus)
+                .saturating_add(if applied.insta_kill { hit } else { 0 })
         } else {
             hit
         };
@@ -310,9 +326,11 @@ fn rewards(
         }
         let receipt = DamageReceipt {
             impact,
+            base_amount: applied.base_amount,
             lethal,
             points,
             aimed_bullet: applied.aimed_bullet,
+            insta_kill: applied.insta_kill,
         };
         if lethal {
             deaths.write(EnemyDeath(receipt.clone()));

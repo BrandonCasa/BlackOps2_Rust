@@ -101,6 +101,7 @@ struct RemoteBlast {
 }
 pub(super) fn install(app: &mut App, port: u16) {
     app.init_resource::<RemoteState>()
+        .init_resource::<crate::audio::RequestedAliases>()
         .configure_sets(PreUpdate, InputSystems.run_if(|| false))
         .add_plugins((
             RemotePlugin::default()
@@ -211,7 +212,7 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
         "endpoints":{"main":format!("http://127.0.0.1:{}",port.0),"render":"http://127.0.0.1:15703"},
         "discovery":{"methods":"rpc.discover","schemas":"registry.schema"},
         "methods":{
-            "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, lethal, tactical, mine), enemies (nuked), damage (recent, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), audio, controls, focus"},
+            "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, lethal, tactical, mine), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
             "origins/reset":{"params":{},"effect":"Release inputs, transition to GameOver, send normal RestartGame"},
             "origins/input":{"params":{"events":[{"tick":"relative integer 1..3600","key":"Bevy KeyCode name or MouseLeft/MouseRight/MouseMiddle","pressed":"boolean"}]},"max_events":512,"effect":"Queue native input messages; automatic release after final scheduled tick"},
             "origins/release":{"params":{},"effect":"Cancel queued input and release remotely held buttons"},
@@ -300,7 +301,7 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     result["session"] = json!({"round":session.round,"pending":session.pending,"points":session.points,"score":session.score,"kills":session.kills,"shots":session.shots,"downs":session.downs,"spawn_remaining":session.spawn_timer.remaining_secs()});
     let history = world.resource::<crate::damage::CombatHistory>();
     result["damage"] = json!({"awarded_points":history.awarded_points,"headshot_kills":history.headshot_kills,"melee_kills":history.melee_kills,
-        "recent":history.recent.iter().map(|receipt|json!({"attacker":receipt.impact.attacker.to_bits(),"target":receipt.impact.target.to_bits(),"source":receipt.impact.source.id(),"category":format!("{:?}",receipt.impact.category),"region":format!("{:?}",receipt.impact.region),"amount":receipt.impact.amount,"lethal":receipt.lethal,"points":receipt.points,"aimed_bullet":receipt.aimed_bullet})).collect::<Vec<_>>()});
+        "recent":history.recent.iter().map(|receipt|json!({"attacker":receipt.impact.attacker.to_bits(),"target":receipt.impact.target.to_bits(),"source":receipt.impact.source.id(),"category":format!("{:?}",receipt.impact.category),"region":format!("{:?}",receipt.impact.region),"amount":receipt.impact.amount,"base_amount":receipt.base_amount,"lethal":receipt.lethal,"points":receipt.points,"aimed_bullet":receipt.aimed_bullet,"insta_kill":receipt.insta_kill})).collect::<Vec<_>>()});
     result["equipment"]["active_grenades"] = json!(world.query::<(Entity, &crate::equipment::Grenade, &Transform)>().iter(world)
         .map(|(entity, grenade, pose)| json!({"entity":entity.to_bits(),"id":grenade.definition.0,"remaining":grenade.remaining,"position":pose.translation.to_array()})).collect::<Vec<_>>());
     result["equipment"]["mine_placed"] =
@@ -346,7 +347,7 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
                 .count
         );
     }
-    result["enemies"] = json!(world.query::<(Entity,&Zombie,&Transform,Option<&Vitality>,Option<&crate::generators::GeneratorDefender>,Has<avian3d::prelude::ColliderDisabled>,Has<crate::powerups::NukeTarget>)>().iter(world).map(|(e,_,p,v,d,c,n)|json!({"entity":e.to_bits(),"position":p.translation.to_array(),"health":v.and_then(|v| v.current()),"defender":d.map(|d|&d.generator.0),"collider_disabled":c,"nuked":n})).collect::<Vec<_>>());
+    result["enemies"] = json!(world.query::<(Entity,&Zombie,&Transform,Option<&Vitality>,Option<&crate::generators::GeneratorDefender>,Has<avian3d::prelude::ColliderDisabled>,Has<crate::powerups::NukeTarget>,Has<crate::hit_regions::SkeletalReady>,Option<&crate::hit_regions::Hitboxes>)>().iter(world).map(|(e,_,p,v,d,c,n,r,h)|json!({"entity":e.to_bits(),"position":p.translation.to_array(),"health":v.and_then(|v| v.current()),"defender":d.map(|d|&d.generator.0),"collider_disabled":c,"nuked":n,"ready":r,"hit_regions":h.map(|h|h.volumes.iter().map(|v|json!({"id":v.id,"region":format!("{:?}",v.region),"start":p.compute_affine().transform_point3(v.start).to_array(),"end":p.compute_affine().transform_point3(v.end).to_array()})).collect::<Vec<_>>()).unwrap_or_default()})).collect::<Vec<_>>());
     if let Some(g) = world.get_resource::<crate::generators::Generators>() {
         let definitions = world.get_resource::<GameDefinition>();
         let sites: Vec<_> = g.sites.iter().map(|(id,s)| {
@@ -372,6 +373,9 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     if let Some(a) = world.get_resource::<crate::audio::AudioEvidence>() {
         result["audio"] = json!({"events":a.events,"sinks":a.sinks});
     }
+    result["audio"]["requests"] = json!(world.resource::<crate::audio::RequestedAliases>().0);
+    let effects = world.resource::<crate::powerups::PowerupEffects>();
+    result["effects"] = json!({"double_points":effects.double_points,"insta_kill":effects.insta_kill,"zombie_blood":effects.zombie_blood});
     result["controls"] = serde_json::to_value(world.resource::<crate::input::ControlSettings>())
         .map_err(|e| error(e.to_string()))?;
     if let Some(f) = world.get_resource::<crate::interactions::InteractionFocus>() {

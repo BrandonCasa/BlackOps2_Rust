@@ -295,7 +295,7 @@ fn drive(world: &mut World) {
                 row(
                     &mut run,
                     "instakill_and_double_headshot_award",
-                    dead && session.points == baseline + 200 && session.kills == kills + 1,
+                    dead && session.points == baseline + 220 && session.kills == kills + 1,
                 );
                 row(
                     &mut run,
@@ -309,7 +309,7 @@ fn drive(world: &mut World) {
                 row(
                     &mut run,
                     "terminal_damage_awards_once",
-                    world.resource::<Session>().points == baseline + 200,
+                    world.resource::<Session>().points == baseline + 220,
                 );
                 let drops: Vec<_> = world
                     .query_filtered::<Entity, With<Pickup>>()
