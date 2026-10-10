@@ -136,8 +136,11 @@ fn drive(
                 );
                 let position = base + Vec3::Y * (floor.map_or(0., |h| 1. - h.distance) + 0.87);
                 let amount = if i == 0 { 500 } else { 10000 };
+                let mut zombie =
+                    Zombie::new(position, identity.clone(), crate::rounds::Gait::Walk, 0.);
+                zombie.stunned = 300.;
                 commands.spawn((
-                    Zombie::new(position, identity.clone(), crate::rounds::Gait::Walk, 0.),
+                    zombie,
                     crate::player::capsule(0.3, 1.7),
                     Vitality::ordinary_actor(amount, amount).unwrap(),
                     crate::rounds::PopulationKind::Ordinary,
@@ -307,7 +310,7 @@ fn drive(
             c.lost |= perks.owned.is_empty() && cherry.consecutive == 0 && cherry.cooldown == 0.;
             if health.state() == LifeState::Standing && c.elapsed > 10.5 {
                 let killed=history.recent.iter().filter(|r|matches!(&r.impact.source,crate::damage::ImpactSource::Perk(p) if p.0=="perk.electric_cherry") && r.lethal).count();
-                let native_reward=history.recent.iter().any(|r|matches!(&r.impact.source,crate::damage::ImpactSource::Perk(p) if p.0=="perk.electric_cherry") && r.lethal && r.points==40);
+                let native_reward=history.recent.iter().any(|r|matches!(&r.impact.source,crate::damage::ImpactSource::Perk(p) if p.0=="perk.electric_cherry") && r.lethal && r.points==90);
                 let speed = c.rows[7]["discharge"]["cooldown"].as_f64().unwrap();
                 let expected_speed = game
                     .content
@@ -339,7 +342,7 @@ fn drive(
                     && native_reward
                     && scaled
                     && (speed - f64::from(expected_speed)).abs() < 0.0001;
-                let _=std::fs::write(v.output.join("defensive-perks.json"),serde_json::json!({"passed":passed,"rows":c.rows,"protected":c.protected,"lost":c.lost,"cherry_kills":killed,"native_reward":native_reward,"scaled":scaled,"events":evidence.events,"scope":"actual input-driven shots/reloads and two cooked frags, native bottle/actor rendering and delayed shocks; controlled perk awards, ammo refill, controlled native actors/health/population, actor removal after target-limit coverage and PhD removal; legitimate acquisition/audio/native stun animation and interrupted latch remain unqualified"}).to_string());
+                let _=std::fs::write(v.output.join("defensive-perks.json"),serde_json::json!({"passed":passed,"rows":c.rows,"protected":c.protected,"lost":c.lost,"cherry_kills":killed,"native_reward":native_reward,"scaled":scaled,"events":evidence.events,"scope":"actual input-driven shots/reloads and two cooked frags, native bottle/actor rendering and delayed shocks; controlled perk awards, ammo refill, controlled native actors/health/population with bounded initial stun holding the target-limit cohort still, actor removal after target-limit coverage and PhD removal; legitimate acquisition/audio/native stun animation and interrupted latch remain unqualified"}).to_string());
                 if passed {
                     c.phase = 13;
                     c.elapsed = 0.;

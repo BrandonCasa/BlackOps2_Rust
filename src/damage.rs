@@ -33,6 +33,9 @@ impl ImpactSource {
             Self::Perk(id) => &id.0,
         }
     }
+    fn is_cherry(&self, definition: &GameDefinition) -> bool {
+        matches!(self, Self::Perk(id) if definition.content.perks.iter().any(|perk| perk.id == *id && perk.cherry.is_some()))
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Impact {
@@ -195,16 +198,17 @@ fn resolve(
             && players
                 .get(impact.attacker)
                 .is_ok_and(|inventory| inventory.ads > 0.5);
+        let cherry = impact.source.is_cherry(&definition);
         let insta_kill = !player
             && sender_alive
             && base_amount > 0
             && base_amount < before
             && effects.insta_kill > 0.
-            && matches!(
+            && (matches!(
                 impact.source,
                 ImpactSource::Weapon(_) | ImpactSource::Projectile(_)
-            )
-            && (!nuked.contains(impact.target) || aimed_bullet);
+            ) || cherry)
+            && (!nuked.contains(impact.target) || (!cherry && aimed_bullet));
         if insta_kill {
             impact.amount = before;
         }
@@ -287,7 +291,10 @@ fn rewards(
         let lethal = applied.lethal;
         let [hit, kill, head, torso, melee] = definition.tuning.combat_points;
         let is_melee = matches!(impact.category, DamageCategory::Melee);
-        let bonus = if is_melee {
+        let cherry = impact.source.is_cherry(&definition);
+        let bonus = if cherry {
+            0
+        } else if is_melee {
             melee
         } else if matches!(impact.region, HitRegion::Head) {
             head
@@ -298,11 +305,8 @@ fn rewards(
         };
         let points = if matches!(impact.source, ImpactSource::Powerup) {
             0
-        } else if matches!(&impact.source,ImpactSource::Perk(id) if definition.content.perks.iter().any(|p|p.id==*id && p.cherry.is_some()))
-        {
-            if lethal { 40 } else { 0 }
         } else if nuked.contains(impact.target) {
-            if applied.aimed_bullet && (!lethal || applied.insta_kill) {
+            if !cherry && applied.aimed_bullet && (!lethal || applied.insta_kill) {
                 hit
             } else {
                 0
@@ -313,7 +317,14 @@ fn rewards(
         } else {
             hit
         };
-        let points = points.saturating_mul(effects.multiplier());
+        let cherry_bonus = if cherry && lethal && !applied.insta_kill {
+            40
+        } else {
+            0
+        };
+        let points = points
+            .saturating_mul(effects.multiplier())
+            .saturating_add(cherry_bonus);
         if !lethal {
             session.award(points);
             history.awarded_points = history.awarded_points.saturating_add(points);
