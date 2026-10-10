@@ -44,7 +44,7 @@ def edge(tick, key, pressed):
 
 
 def run(client, report, game):
-    client.until(lambda s: s['state'] == 'Playing' and s.get('player'), timeout=180)
+    client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=180)
     frag = next(w['throwable'] for w in game['content']['weapons'] if w['id'] == 'weapon.frag_grenade_zm')
     revive = game['solo_revive']
     before, fixture = prepare(client)

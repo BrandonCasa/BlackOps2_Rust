@@ -21,7 +21,7 @@ def press(client, *keys):
 
 
 def run(client, report):
-    client.until(lambda s: s['state'] == 'Playing' and s.get('player'), timeout=120)
+    client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=120)
     client.reset()
     client.call('origins/setup', {'clear_enemies': True, 'pause_spawning_seconds': 30,
                                   'weapons': ['weapon.c96_zm']})

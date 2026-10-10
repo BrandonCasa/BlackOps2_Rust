@@ -34,7 +34,7 @@ def pickup(client, state, distance):
 
 
 def run(client, report, game):
-    client.until(lambda s: s['state'] == 'Playing' and s.get('player'), timeout=180)
+    client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=180)
     claymore = next(w['mine'] for w in game['content']['weapons'] if w['id'] == 'weapon.claymore_zm')
     stock = claymore['stock']
     before, fixture = prepare(client, stock)
