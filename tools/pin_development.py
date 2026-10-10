@@ -50,7 +50,7 @@ def snapshot(output):
     return result
 
 
-def pin(snapshot_path, output, target_dir=None):
+def pin(snapshot_path, output, target_dir=None, asset_root=None):
     import pefile
 
     expected = json.loads(Path(snapshot_path).read_text(encoding="utf-8"))
@@ -81,7 +81,7 @@ def pin(snapshot_path, output, target_dir=None):
                 if dependency is None:
                     raise FileNotFoundError(name)
                 pending.append(dependency)
-    asset_root = ROOT / "assets/origins"
+    asset_root = Path(asset_root or ROOT / "assets/origins").resolve()
     paths = sorted(path for path in asset_root.rglob("*") if path.is_file())
 
     def asset(path):
@@ -105,6 +105,7 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--snapshot")
     parser.add_argument("--target-dir", type=Path)
+    parser.add_argument("--asset-root", type=Path)
     args = parser.parse_args()
     if args.command == "snapshot":
         result = snapshot(args.output)
@@ -112,7 +113,7 @@ def main():
     else:
         if not args.snapshot:
             parser.error("pin requires --snapshot")
-        print(json.dumps(pin(args.snapshot, args.output, args.target_dir)))
+        print(json.dumps(pin(args.snapshot, args.output, args.target_dir, args.asset_root)))
 
 
 if __name__ == "__main__":

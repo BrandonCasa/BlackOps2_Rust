@@ -3,6 +3,7 @@
 # dependencies = ["numpy>=2,<3", "pillow>=12,<13", "soundfile>=0.13,<0.14"]
 # ///
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 import hashlib
 import io
@@ -83,6 +84,14 @@ def read_bytes(path):
     return raw
 
 
+def hash_closure(root, names):
+    def hashed(name):
+        with safe_path(root, name, RUNTIME_SUFFIXES).open('rb') as stream:
+            return name, hashlib.file_digest(stream, 'sha256').hexdigest()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return dict(pool.map(hashed, sorted(names)))
+
+
 def clean_strings(value, localized_text=False):
     if isinstance(value, dict):
         for key, item in value.items():
@@ -100,7 +109,7 @@ def clean_strings(value, localized_text=False):
                 "absolute or machine-specific path in JSON")
         require(localized_text or not value.startswith("/"), "absolute path in JSON")
     elif isinstance(value, float):
-        require(np.isfinite(value), "non-finite JSON number")
+        require(math.isfinite(value), "non-finite JSON number")
 
 
 def read_json(path):
@@ -173,7 +182,8 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
         require(np.isfinite(values).all(), "non-finite accessor")
         for key, actual in (("min", values.min(axis=0)), ("max", values.max(axis=0))):
             if key in accessor:
-                require(len(accessor[key]) == width and np.allclose(accessor[key], actual, rtol=1e-6, atol=1e-7),
+                require(len(accessor[key]) == width and all(abs(a-b) <= 1e-7 + 1e-6 * abs(b)
+                        for a, b in zip(accessor[key], actual.tolist())),
                         f"accessor {key} mismatch")
         arrays.append(values)
     decoded = set()
@@ -207,7 +217,23 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
         if "sampler" in texture:
             ref(document.get("samplers", []), texture["sampler"], "sampler")
     extras = document.get("extras", {})
-    require(not extras, "document lighting is retired; prepare a realtime pack")
+    require(set(extras) <= {'native_animation'}, "document lighting is retired; prepare a realtime pack")
+    if 'native_animation' in extras:
+        native = extras['native_animation']
+        require(isinstance(native, dict) and set(native) == {'source_sha256', 'sources', 'asset_type', 'looped', 'duration', 'channel_presence', 'notifications'},
+                'invalid native animation metadata')
+        require(re.fullmatch(r'[0-9a-f]{64}', native['source_sha256']) is not None
+                and type(native['asset_type']) is int and type(native['looped']) is bool
+                and type(native['duration']) in (int, float) and native['duration'] > 0,
+                'invalid native animation identity or timeline')
+        require(isinstance(native['sources'], list) and native['sources']
+                and all(isinstance(s, dict) and set(s) == {'zone', 'name'}
+                        and all(isinstance(v, str) and v for v in s.values()) for s in native['sources']),
+                'missing native animation source declarations')
+        require(isinstance(native['channel_presence'], dict)
+                and all(isinstance(v, dict) and set(v) == {'rotation', 'translation'}
+                        and all(type(b) is bool for b in v.values()) for v in native['channel_presence'].values()),
+                'invalid native animation sparse channels')
 
     def material_refs(value):
         for key, item in value.items():
@@ -354,9 +380,9 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                         weights /= np.iinfo(values.dtype).max
                     else:
                         require(values.dtype.kind == "f", "invalid skin weight type")
-                    require((weights >= 0).all() and (weights <= 1).all() and np.allclose(weights.sum(axis=1), 1, atol=1e-4), "invalid skin weight normalization")
+                    require((weights >= 0).all() and (weights <= 1).all() and (np.abs(weights.sum(axis=1) - 1) <= 1.1e-4).all(), "invalid skin weight normalization")
                 if semantic == "TANGENT":
-                    require(np.allclose(np.linalg.norm(values[:, :3], axis=1), 1, atol=1e-5)
+                    require((np.abs(np.linalg.norm(values[:, :3], axis=1) - 1) <= 2e-5).all()
                             and np.isin(values[:, 3], [-1, 1]).all(), "invalid tangent or handedness")
                 if semantic == "COLOR_0":
                     require(((values >= 0) & (values <= 1)).all(), "invalid vertex color")
@@ -380,7 +406,7 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
             if key in node:
                 require(len(node[key]) == width and all(type(x) in (int, float) for x in node[key]), "invalid transform")
         extras = node.get("extras", {})
-        allowed_extras = {"static_instance", "source_model", "fixture_emitter", "brush_entity", "prop_lod"}
+        allowed_extras = {"static_instance", "source_model", "fixture_emitter", "brush_entity", "prop_lod", "mesh_lod"}
         if allow_native_transforms:
             allowed_extras.update({"origins_native_rotation", "origins_native_translation"})
             for key, width in (("origins_native_rotation", 4), ("origins_native_translation", 3)):
@@ -389,6 +415,14 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                             and all(type(v) in (int, float) and math.isfinite(v) for v in extras[key]),
                             "invalid retained native joint transform")
         require(set(extras) <= allowed_extras, "baked node lighting is retired")
+        if 'mesh_lod' in extras:
+            lod = extras['mesh_lod']
+            require(isinstance(lod, dict) and set(lod) == {'level', 'distances'}
+                    and type(lod['level']) is int and isinstance(lod['distances'], list)
+                    and 1 <= len(lod['distances']) <= 3 and 0 <= lod['level'] <= len(lod['distances'])
+                    and all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in lod['distances'])
+                    and all(b >= a for a, b in zip(lod['distances'], lod['distances'][1:])),
+                    'invalid authored mesh LOD metadata')
         if "prop_lod" in extras:
             lod = extras["prop_lod"]
             require(isinstance(lod, dict) and set(lod) == {"level", "levels"}
@@ -414,7 +448,7 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
             ref(nodes, child, "child node")
     skins = document.get("skins", [])
     assembly_globals = None
-    if document.get("asset", {}).get("generator") == "Origins native weapon assembly":
+    if document.get("asset", {}).get("generator", "").startswith("Origins native weapon assembly"):
         assembly_globals = {}
         def joint_matrix(node):
             if "matrix" in node:
@@ -488,7 +522,7 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
             require(values.shape[1] == (4 if target["path"] == "rotation" else 3), "animation value width mismatch")
             if target["path"] == "rotation":
                 quaternions = values[1::3] if sampler.get("interpolation") == "CUBICSPLINE" else values
-                require(np.allclose(np.linalg.norm(quaternions, axis=1), 1, atol=1e-4), "invalid animation quaternion")
+                require((np.abs(np.linalg.norm(quaternions, axis=1) - 1) <= 1.1e-4).all(), "invalid animation quaternion")
     scenes = document.get("scenes", [])
     if "scene" in document:
         ref(scenes, document["scene"], "default scene")
@@ -613,7 +647,7 @@ def validate_weapon_camos(root, files):
             files.add(uri)
 
 
-def validate_pack(root, receipt=None, exact=False):
+def validate_pack(root, receipt=None, exact=False, progress=False):
     root = root.resolve()
     files = {"game.json", SKY_PATH}
     validate_sky(read_bytes(safe_path(root, SKY_PATH, {".dds"})))
@@ -737,13 +771,31 @@ def validate_pack(root, receipt=None, exact=False):
     validate_brush_scene(environment.get("brush_entities", []), documents[game["scene"].split("#",1)[0]][0], require)
     map_documents = dict(documents)
     map_files = set(files)
+    gltfs = {reference.split('#', 1)[0] for reference in dependencies
+             if reference.split('#', 1)[0].endswith('.gltf')} - documents.keys()
+    def validated_gltf(name):
+        closure = set()
+        try:
+            document = validate_gltf(root, name, closure, allow_native_transforms=name.startswith('library/models/'))
+        except ValueError as error:
+            raise ValueError(name + ': ' + str(error)) from error
+        return name, document, closure
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for index, (name, document, closure) in enumerate(pool.map(validated_gltf, sorted(gltfs)), 1):
+            documents[name] = document
+            files.update(closure)
+            if progress and index % 1000 == 0:
+                print(f'Validated glTF assets: {index}/{len(gltfs)}', flush=True)
     for reference in dependencies:
         name, _, label = reference.partition("#")
         dependency = safe_path(root, name, RUNTIME_SUFFIXES - {".json", ".bin"})
         suffix = dependency.suffix
         if suffix == ".gltf":
             if name not in documents:
-                documents[name] = validate_gltf(root, name, files)
+                try:
+                    documents[name] = validate_gltf(root, name, files, allow_native_transforms=name.startswith('library/models/'))
+                except ValueError as error:
+                    raise ValueError(name + ': ' + str(error)) from error
             if label:
                 match = re.fullmatch(r"(Scene|Animation)(0|[1-9][0-9]*)", label)
                 require(match is not None, "invalid glTF content label")
@@ -804,8 +856,7 @@ def validate_pack(root, receipt=None, exact=False):
     if exact:
         actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
         require(actual == files, f"unexpected or missing runtime files: {sorted(actual ^ files)}")
-    hashes = {name: hashlib.sha256(read_bytes(safe_path(root, name, RUNTIME_SUFFIXES))).hexdigest()
-              for name in sorted(files)}
+    hashes = hash_closure(root, files)
     return game, documents, hashes
 
 
@@ -885,9 +936,13 @@ def import_pack(source, destination, receipt, check=False, validated_hashes=None
                 require(existing == previous.keys(), "destination contains unrelated files")
                 for name in retired:
                     safe_path(destination, name, RUNTIME_SUFFIXES).unlink()
+        directories = {}
         for name in hashes:
+            directories.setdefault(PurePosixPath(name).parent, name)
+        for name in directories.values():
+            safe_path(destination, name, RUNTIME_SUFFIXES).parent.mkdir(parents=True, exist_ok=True)
+        def copy_runtime(name):
             target = safe_path(destination, name, RUNTIME_SUFFIXES)
-            target.parent.mkdir(parents=True, exist_ok=True)
             if not target.is_file() or hashlib.sha256(read_bytes(target)).hexdigest() != hashes[name]:
                 descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.import-", dir=target.parent)
                 os.close(descriptor)
@@ -897,9 +952,14 @@ def import_pack(source, destination, receipt, check=False, validated_hashes=None
                 finally:
                     if os.path.exists(temporary):
                         os.unlink(temporary)
-    _, _, imported = validate_pack(destination, receipt, exact=True)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for _ in pool.map(copy_runtime, hashes):
+                pass
+    actual = {p.relative_to(destination).as_posix() for p in destination.rglob('*') if p.is_file()}
+    require(actual == hashes.keys(), 'imported file list differs from validated source closure')
+    imported = hash_closure(destination, hashes)
     require(imported == hashes, "imported file hashes differ from source")
-    require(all(hashlib.sha256(read_bytes(source / name)).hexdigest() == digest for name, digest in hashes.items()),
+    require(hash_closure(source, hashes) == hashes,
             "source changed during import")
     return {"runtime_files": len(hashes), "png_textures": sum(n.endswith(".png") for n in hashes),
             "dds_textures": sum(n.endswith(".dds") for n in hashes),
@@ -911,7 +971,7 @@ def check_index(destination, hashes, ordinary=None):
         return subprocess.run(["git", *args], input=data, cwd=WORKSPACE,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True).stdout
     prefix = destination.relative_to(WORKSPACE).as_posix() + "/"
-    ordinary = {name for name in ("game.json",) if name in hashes} if ordinary is None else set(ordinary)
+    ordinary = {name for name in ("game.json", "weapon_camos.json") if name in hashes} if ordinary is None else set(ordinary)
     entries = {}
     for entry in git("ls-files", "--stage", "-z", "--", prefix).split(b"\0"):
         if not entry:
@@ -969,7 +1029,7 @@ def main():
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
     source = external(config["game"]["asset_pack"])
     receipt = read_json(source / "preparation.json") if (source / "preparation.json").exists() else None
-    _, documents, hashes = validate_pack(source, receipt, exact=receipt is None)
+    _, documents, hashes = validate_pack(source, receipt, exact=receipt is None, progress=True)
     if receipt is not None:
         reconcile_sources(config, receipt, documents)
     result = import_pack(source, WORKSPACE / "assets/origins", receipt, args.check or args.check_index, hashes)

@@ -113,6 +113,7 @@ pub(super) fn install(app: &mut App, port: u16) {
                 .with_method_main("origins/materials", materials)
                 .with_method_main("origins/capture", capture)
                 .with_method_main("origins/preview", preview)
+                .with_method_main("origins/assets", asset_observation)
                 .with_method_main("origins/animations", animations)
                 .with_method_main("origins/reset", reset)
                 .with_method_main("origins/input", input)
@@ -123,6 +124,7 @@ pub(super) fn install(app: &mut App, port: u16) {
                 .with_address(Ipv4Addr::LOCALHOST)
                 .with_port(port),
         ))
+        .add_systems(Update, preview_animation)
         .add_systems(
             FixedPreUpdate,
             (
@@ -222,7 +224,8 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
             "origins/animations":{"params":{},"result":"fixed_tick, weapons (ready, action, clip clocks, local bone poses), enemies (action, gait, native combat state, sequence, elapsed, notetracks, rig poses and clocks)"},
             "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, prone, crouched, velocity, lethal, tactical, mine), firing (shots with stance, speed, spread, ADS and perk scales; first 128), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
             "origins/materials":{"params":{},"result":"pending, first_person, world, inventory; native material, texture, tangent readiness"},
-            "origins/preview":{"params":{"weapon":"optional native ID; omitted clears preview"},"effect":"World-model scenario setup, attached to camera for inspection"},
+            "origins/preview":{"params":{"weapon":"optional native weapon ID","presentation":"optional content presentation ID","animation":"optional named clip","distance":"optional camera distance in metres"},"effect":"Asset scenario setup attached to camera; omitted IDs clear preview"},
+            "origins/assets":{"params":{},"result":"Preview load state, mesh visibility ranges, skin readiness, animation players and local bone poses"},
             "origins/capture":{"params":{"path":"absolute PNG path"},"result":"asynchronous screenshot request"},
             "origins/reset":{"params":{},"effect":"Release inputs, transition to GameOver, send normal RestartGame"},
             "origins/input":{"params":{"events":[{"tick":"relative integer 1..3600","key":"Bevy KeyCode name or MouseLeft/MouseRight/MouseMiddle","pressed":"boolean"}]},"max_events":512,"effect":"Queue native input messages; automatic release after final scheduled tick"},
@@ -749,14 +752,34 @@ fn capture(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
 
 #[derive(Component)]
 struct MaterialPreview;
+#[derive(Component)]
+struct AssetPreview {
+    source: Handle<bevy::gltf::Gltf>,
+    clip: Option<String>,
+    graph: Option<(
+        Handle<AnimationGraph>,
+        bevy::animation::graph::AnimationNodeIndex,
+    )>,
+}
 fn preview(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Preview {
         weapon: Option<String>,
+        presentation: Option<String>,
+        animation: Option<String>,
+        distance: Option<f32>,
     }
     let request: Preview = parse(value)?;
-    let scene = request
+    if request
+        .distance
+        .is_some_and(|d| !d.is_finite() || d <= 0.0 || d > 1000.0)
+    {
+        return Err(error(
+            "Preview distance must be between zero and 1000 metres",
+        ));
+    }
+    let mut scene = request
         .weapon
         .as_ref()
         .map(|id| {
@@ -773,9 +796,23 @@ fn preview(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
                 .and_then(|id| game.content.presentations.iter().find(|p| p.id == *id))
                 .and_then(|p| p.scene.clone())
                 .ok_or_else(|| error("Weapon has no world model"))?;
-            Ok::<_, BrpError>((weapon.id.clone(), scene))
+            Ok::<_, BrpError>((Some(weapon.id.clone()), scene))
         })
         .transpose()?;
+    if let Some(identity) = &request.presentation {
+        if request.weapon.is_some() {
+            return Err(error("Select one preview weapon or presentation"));
+        }
+        let game = world.resource::<GameDefinition>();
+        let path = game
+            .content
+            .presentations
+            .iter()
+            .find(|p| p.id.0 == *identity)
+            .and_then(|p| p.scene.clone())
+            .ok_or_else(|| error("Unknown preview presentation"))?;
+        scene = Some((None, path));
+    }
     let previous: Vec<_> = world
         .query_filtered::<Entity, With<MaterialPreview>>()
         .iter(world)
@@ -788,18 +825,113 @@ fn preview(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
             .query_filtered::<Entity, With<crate::rendering::GameCamera>>()
             .single(world)
             .map_err(|e| error(e.to_string()))?;
+        let source = world
+            .resource::<AssetServer>()
+            .load(scene.split('#').next().unwrap_or("").to_owned());
         let handle = world.resource::<AssetServer>().load(scene);
-        world.spawn((
+        let mut preview = world.spawn((
             bevy::world_serialization::WorldAssetRoot(handle),
-            crate::presentation::camo::WeaponMaterialContext(weapon),
             MaterialPreview,
+            AssetPreview {
+                source,
+                clip: request.animation.clone(),
+                graph: None,
+            },
             SessionEntity,
             ChildOf(camera),
-            Transform::from_xyz(0., -0.15, -0.9).with_rotation(Quat::from_rotation_y(0.8)),
+            Transform::from_xyz(0., -0.15, -request.distance.unwrap_or(0.9))
+                .with_rotation(Quat::from_rotation_y(0.8)),
             Visibility::Inherited,
         ));
+        if let Some(weapon) = weapon {
+            preview.insert(crate::presentation::camo::WeaponMaterialContext(weapon));
+        }
     }
     Ok(json!({"requested":true,"weapon":request.weapon}))
+}
+fn preview_animation(
+    mut commands: Commands,
+    mut previews: Query<(Entity, &mut AssetPreview)>,
+    sources: Res<Assets<bevy::gltf::Gltf>>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    children: Query<&Children>,
+    mut players: Query<&mut AnimationPlayer>,
+) {
+    for (entity, mut preview) in &mut previews {
+        let Some(name) = &preview.clip else { continue };
+        if preview.graph.is_none() {
+            let Some(source) = sources.get(&preview.source) else {
+                continue;
+            };
+            let Some(clip) = source.named_animations.get(name.as_str()) else {
+                continue;
+            };
+            let (graph, index) = AnimationGraph::from_clip(clip.clone());
+            preview.graph = Some((graphs.add(graph), index));
+        }
+        let Some((graph, index)) = &preview.graph else {
+            continue;
+        };
+        for child in children.iter_descendants(entity) {
+            if let Ok(mut player) = players.get_mut(child) {
+                commands
+                    .entity(child)
+                    .insert(AnimationGraphHandle(graph.clone()));
+                if !player.is_playing_animation(*index) {
+                    player.play(*index).repeat();
+                }
+            }
+        }
+    }
+}
+fn asset_observation(_: In<Option<Value>>, world: &mut World) -> BrpResult {
+    use bevy::camera::visibility::{ViewVisibility, VisibilityRange};
+    let previews: Vec<_> = world
+        .query::<(Entity, &AssetPreview)>()
+        .iter(world)
+        .map(|(e, p)| (e, p.source.clone(), p.clip.clone()))
+        .collect();
+    let mut result = Vec::new();
+    for (root, source, clip) in previews {
+        let mut descendants = Vec::new();
+        let mut pending = vec![root];
+        while let Some(parent) = pending.pop() {
+            if let Some(children) = world.get::<Children>(parent) {
+                for child in children.iter() {
+                    pending.push(child);
+                    descendants.push(child);
+                }
+            }
+        }
+        let mut meshes = Vec::new();
+        let mut bones = BTreeMap::new();
+        let mut players = 0;
+        for entity in descendants {
+            if world.get::<AnimationPlayer>(entity).is_some() {
+                players += 1;
+            }
+            if let (Some(name), Some(pose)) =
+                (world.get::<Name>(entity), world.get::<Transform>(entity))
+            {
+                bones.insert(name.as_str().to_owned(), json!({"translation":pose.translation.to_array(), "rotation":pose.rotation.to_array()}));
+            }
+            if world.get::<Mesh3d>(entity).is_some() {
+                let range = world.get::<VisibilityRange>(entity).map(|r| {
+                    json!({
+                    "start":[r.start_margin.start,r.start_margin.end],
+                    "end":[r.end_margin.start,r.end_margin.end]})
+                });
+                meshes.push(json!({"entity":entity.to_bits(),"visible":world.get::<ViewVisibility>(entity).is_some_and(|v| v.get()),
+                                   "range":range,"skinned":world.get::<bevy::mesh::skinning::SkinnedMesh>(entity).is_some()}));
+            }
+        }
+        let source_asset = world.resource::<Assets<bevy::gltf::Gltf>>().get(&source);
+        result.push(json!({"entity":root.to_bits(),"loaded":source_asset.is_some(),
+            "clip_exists":clip.as_ref().is_none_or(|name| source_asset.is_some_and(|s| s.named_animations.contains_key(name.as_str()))),
+            "players":players,"bones":bones,"meshes":meshes,
+            "load_state":format!("{:?}",world.resource::<AssetServer>().get_load_state(source.id()))}));
+    }
+    Ok(json!({"previews":result}))
 }
 fn preview_ready(
     event: On<bevy::world_serialization::WorldInstanceReady>,

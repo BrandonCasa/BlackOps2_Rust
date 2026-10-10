@@ -17,7 +17,7 @@ except ImportError:
     from xanim import decode
 
 
-def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), board_delta=False, translation_offsets=None, native_translations=None):
+def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), board_delta=False, translation_offsets=None, native_translations=None, preserve_native=False):
     skeleton_joints = {j for skin in document.get("skins", []) for j in skin["joints"]}
     children = {child for j in skeleton_joints for child in document["nodes"][j].get("children", [])}
     roots = skeleton_joints - children
@@ -40,7 +40,7 @@ def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), 
 
     for clip_path in clips:
         clip = decode(clip_path.read_bytes())
-        if clip['delta'] and np.max(np.abs(clip['delta']['translation'][1])) > 0.01 and not in_place and not board_delta:
+        if clip['delta'] and np.max(np.abs(clip['delta']['translation'][1])) > 0.01 and not in_place and not board_delta and not preserve_native:
             raise ValueError(f'unconsumed native root motion: {clip_path.name}; preserve the curve or declare gameplay-owned in-place playback')
         samplers, channels = [], []
         if board_delta:
@@ -52,14 +52,19 @@ def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), 
             samplers.append({'input': animation_accessor(times.reshape(-1, 1), 'SCALAR'),
                              'output': animation_accessor(values, 'VEC3'), 'interpolation': 'LINEAR'})
         for bone, tracks in clip["tracks"].items():
-            if in_place and bone == "tag_sync":
+            if in_place and bone == "tag_sync" and not preserve_native:
                 continue
             if bone not in by_name or by_name[bone] not in skeleton_joints:
                 continue
             node = by_name[bone]
             for target, (times, source_values) in tracks.items():
                 values = source_values.copy()
-                if not clip["channel_presence"][bone][target]:
+                if preserve_native:
+                    if not clip['channel_presence'][bone][target]:
+                        continue
+                    if target == 'translation':
+                        values *= .0254
+                elif not clip["channel_presence"][bone][target]:
                     bind = document["nodes"][node].get(target, [0,0,0] if target=="translation" else [0,0,0,1])
                     values = np.repeat(np.asarray(bind).reshape(1,-1),len(values),axis=0)
                 elif target == "translation":

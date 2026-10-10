@@ -151,8 +151,10 @@ def zombie_cases(client, report, game, states):
           before=frozen, after=later)
     report.setdefault('captures', {})['melee'] = capture(client, Path(report['output']) / 'melee.png')
     left = binding(after, 'left')
-    events = [edge(1, 'Escape', True), edge(2, 'Escape', False), edge(3, left, True),
-              edge(11, left, False), edge(13, 'Escape', True), edge(14, 'Escape', False)]
+    resume = [edge(1, 'Escape', True), edge(2, 'Escape', False)]
+    schedule(client, resume)
+    client.until(lambda s: s['state'] == 'Playing', timeout=5)
+    events = [edge(1, left, True), edge(9, left, False), edge(11, 'Escape', True), edge(12, 'Escape', False)]
     schedule(client, events)
     moved = client.until(lambda s: s['state'] == 'Paused', timeout=5)
     facing = enemy_animation(client, target)
@@ -162,7 +164,7 @@ def zombie_cases(client, report, game, states):
     check(report, 'melee_faces_player_after_normal_strafe', facing['action'] == 'Attack'
           and facing['sequence'] == frozen['sequence'] and alignment > 0.999
           and math.dist(after['player']['position'], moved['player']['position']) > 0.1,
-          alignment=alignment, before=after, after=moved, animation=facing, inputs=events)
+          alignment=alignment, before=after, after=moved, animation=facing, resume_inputs=resume, inputs=events)
     before, target, fixture = prepare(client, 1, False)
     observe(client, lambda o: any(e['entity'] == target and e['rigs'] and all(
         r['ready'] and r['clocks'] for r in e['rigs']) for e in o['enemies']), timeout=90)
