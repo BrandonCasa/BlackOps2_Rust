@@ -211,7 +211,6 @@ fn drop_powerups(
     for EnemyDeath(receipt) in deaths.read() {
         if drops.count >= 4
             || !players.contains(receipt.impact.attacker)
-            || matches!(receipt.impact.source, ImpactSource::Powerup)
             || definition.content.weapons.iter().any(|w| {
                 w.id.0 == receipt.impact.source.id()
                     && w.throwable

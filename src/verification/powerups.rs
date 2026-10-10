@@ -318,8 +318,8 @@ fn drive(world: &mut World) {
                 for drop in drops {
                     world.get_mut::<Pickup>(drop).unwrap().remaining = 0.01;
                 }
-                actor(world, position + Vec3::X * 2.);
-                actor(world, position - Vec3::X * 2.);
+                actor(world, position + Vec3::Z * 5.5);
+                actor(world, position + Vec3::Z * 6.5);
                 run.baseline = world.resource::<Session>().points;
                 run.kills = world.resource::<Session>().kills;
                 pickup(world, "powerup.nuke", position, 26.5);
