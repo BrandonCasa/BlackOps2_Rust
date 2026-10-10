@@ -229,8 +229,20 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
         require(set(metadata) <= {"surface"}, "unsupported material extras")
         if "surface" in metadata:
             surface = metadata["surface"]
-            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation", "presentation", "layers", "effect", "version", "physical_class", "coating_roughness", "provenance"}, "invalid surface metadata")
+            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation", "presentation", "layers", "effect", "version", "physical_class", "coating_roughness", "provenance", "native_weapon"}, "invalid surface metadata")
             require(surface.get("version") == 2, "prepare version-2 PBR materials before runtime import")
+            native = surface.get("native_weapon")
+            if native is not None:
+                require({"kind", "family", "constants", "source_zone", "source_sha256", "material_identity", "bindings"} <= set(native), "invalid native weapon metadata")
+                require(native["kind"] in {"lit", "cloth", "skin", "transparent", "unlit", "ember", "phong", "badge", "staff", "lens", "reticle", "camo"}, "unsupported native weapon kind")
+                require(all(isinstance(native[key], str) and native[key] for key in ("family", "source_zone", "material_identity")), "invalid native weapon source")
+                require(re.fullmatch(r"[0-9a-f]{64}", native["source_sha256"]) is not None, "invalid native material hash")
+                require(isinstance(native["constants"], dict) and all(isinstance(name, str) and name and isinstance(values, list) and 1 <= len(values) <= 4 and all(type(value) in (int, float) and math.isfinite(value) for value in values) for name, values in native["constants"].items()), "invalid native weapon constants")
+                require(isinstance(native["bindings"], list), "invalid native weapon binding table")
+                for binding in native["bindings"]:
+                    require(type(binding.get("active")) is bool and isinstance(binding.get("image"), str) and isinstance(binding.get("semantic"), str) and type(binding.get("hash")) is int and type(binding.get("sampler")) is int and 0 <= binding["sampler"] <= 255 and isinstance(binding.get("samplerState"), dict), "invalid retained native weapon binding")
+                    if binding["active"]:
+                        require(re.fullmatch(r"[0-9a-f]{64}", binding.get("sha256", "")) is not None and isinstance(binding.get("source_zone"), str), "invalid native texture provenance")
             if surface["version"] == 2:
                 require(surface["physical_class"] in {"concrete", "stone", "mud", "wood", "fabric", "skin", "glass", "painted_metal", "rust", "metal", "water", "unclassified"}, "invalid physical material class")
                 require(isinstance(surface["coating_roughness"], (int, float)) and 0 <= surface["coating_roughness"] <= 1, "invalid coating roughness")
@@ -248,7 +260,7 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                 require(len(layout["reveal"]) == 2 and all(len(x) == 2 and all(isinstance(v, (int, float)) and math.isfinite(v) for v in x) for x in layout["reveal"]), "invalid blend parameters")
             if "preparation" in surface:
                 require(surface["family"] == "tile_blend" and surface["preparation"] == {"kind": "tile_macro_layers", "tiles": 4}, "invalid material preparation")
-            if "effect" in surface:
+            if "effect" in surface and native is None:
                 def effect_number(value):
                     return type(value) in (int, float) and math.isfinite(value) and abs(value) <= np.finfo(np.float32).max
                 effect = surface["effect"]
@@ -275,6 +287,23 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                 require(set(channel) == {"uri", "role", "color_space", "format", "width", "height", "mip_count", "layer", "channels", "sampler"}, "invalid PBR texture metadata")
                 require(type(channel["sampler"]) is int and 0 <= channel["sampler"] <= 255, "invalid native sampler bits")
                 role = channel["role"]
+                if native is not None:
+                    try:
+                        from .prepare_native_weapons import CHANNELS, FORMATS
+                    except ImportError:
+                        from prepare_native_weapons import CHANNELS, FORMATS
+                    require(role in CHANNELS and channel["channels"] == CHANNELS[role], "invalid native texture interpretation")
+                    require(type(channel["layer"]) is int and 0 <= channel["layer"] <= 31 and channel["color_space"] == "linear", "invalid native texture layer or transfer")
+                    uri = channel["uri"]
+                    texture = safe_path(root, uri, {".dds"})
+                    files.add(uri)
+                    stat = texture.stat()
+                    dds = dds_layout(texture, stat.st_mtime_ns, stat.st_size)
+                    require(FORMATS.get(dds["dxgi"]) == channel["format"], "native DDS format mismatch")
+                    require((dds["width"], dds["height"], dds["mip_count"]) == (channel["width"], channel["height"], channel["mip_count"]), "native DDS layout mismatch")
+                    retained = [b for b in native["bindings"] if b["active"] and (b.get("role"), b.get("layer")) == binding]
+                    require(len(retained) == 1 and retained[0]["uri"] == uri and retained[0]["sha256"] == dds["sha256"] and retained[0]["sampler"] == channel["sampler"], "native DDS byte or sampler identity mismatch")
+                    continue
                 require(role in {"color", "normal", "response", "control", "emissive", "coating"}, "invalid PBR role")
                 require(channel["channels"] == {"color": "rgb:base_color,a:coverage",
                     "normal": "rg:unit_normal_xy", "response": "r:occlusion,g:perceptual_roughness,b:metallic,a:coating",
@@ -298,6 +327,8 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
             if "preparation" in surface:
                 bindings = {(c["role"], c["layer"]) for c in surface["channels"]}
                 require({("color", 0), ("color", 1), ("control", 2)} <= bindings, "tile material lacks intrinsic layers/control")
+            if native is not None:
+                require(bindings == {(b.get("role"), b.get("layer")) for b in native["bindings"] if b["active"]}, "native channel table mismatch")
     for mesh in document.get("meshes", []):
         require(set(mesh) <= {"name", "primitives", "extras"} and mesh["primitives"], "unsupported or empty mesh")
         metadata = mesh.get("extras", {})
@@ -548,6 +579,40 @@ def validate_tuning(tuning):
     return values
 
 
+def validate_weapon_camos(root, files):
+    path = root / "weapon_camos.json"
+    if not path.is_file():
+        return
+    library = read_json(path)
+    require(library.get("version") == 1 and library.get("camo_id") == 45, "invalid Origins camo library")
+    files.add("weapon_camos.json")
+    game = read_json(root / "game.json")["content"]
+    weapons = {w["id"] for w in game["weapons"]}
+    require(set(library["weapons"]) <= weapons, "unknown camo weapon")
+    require({i for m in library["weapons"].values() for i in m.values()} == set(library["surfaces"]), "unreferenced or missing camo surface")
+    for identity, surface in library["surfaces"].items():
+        require(surface["identity"] == identity and surface["version"] == 2, "invalid camo identity")
+        native = surface["native_weapon"]
+        require(native["kind"] == "camo" and native["camo_id"] == 45, "invalid camo source")
+        require(len(native["shader_consts"]) == 8 and all(type(v) in (int,float) and math.isfinite(v) for v in native["shader_consts"]), "invalid camo constants")
+        require(set(native["replace_flags"]) == {"color","normal","specular"} and all(type(v) is bool for v in native["replace_flags"].values()), "invalid camo flags")
+        for channel in surface["channels"]:
+            uri = channel["uri"]
+            raw = read_bytes(safe_path(root,uri,{".dds"}))
+            try:
+                from .prepare_native_weapons import CHANNELS, FORMATS
+                from .material_textures import inspect_dds
+            except ImportError:
+                from prepare_native_weapons import CHANNELS, FORMATS
+                from material_textures import inspect_dds
+            image = inspect_dds(raw)
+            require(channel["color_space"] == "linear" and channel["channels"] == CHANNELS[channel["role"]], "invalid camo channel transfer")
+            require(channel["format"] == FORMATS[image["dxgi"]] and (channel["width"],channel["height"],channel["mip_count"]) == (image["width"],image["height"],image["mip_count"]), "invalid camo DDS metadata")
+            bindings = [b for b in native["bindings"] if b["active"] and b["role"] == channel["role"] and b["layer"] == channel["layer"]]
+            require(len(bindings) == 1 and bindings[0]["sha256"] == image["sha256"] and bindings[0]["uri"] == uri and bindings[0]["sampler"] == channel["sampler"], "camo original DDS identity mismatch")
+            files.add(uri)
+
+
 def validate_pack(root, receipt=None, exact=False):
     root = root.resolve()
     files = {"game.json", SKY_PATH}
@@ -735,6 +800,7 @@ def validate_pack(root, receipt=None, exact=False):
         require(pngs == receipt["textures"] + receipt["model_textures"], "texture receipt count mismatch")
         require(sum(name.endswith(".png") and PurePosixPath(name).name.startswith("model-") for name in map_files)
                 == receipt["model_textures"], "model texture receipt count mismatch")
+    validate_weapon_camos(root, files)
     if exact:
         actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
         require(actual == files, f"unexpected or missing runtime files: {sorted(actual ^ files)}")

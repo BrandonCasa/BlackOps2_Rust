@@ -24,6 +24,7 @@ use bevy::{
 };
 use std::collections::BTreeMap;
 
+pub(crate) mod camo;
 pub(crate) mod offhand;
 pub use offhand::EquipmentPresentationEvidence;
 pub(crate) use offhand::selection as equipment_selection;
@@ -59,7 +60,7 @@ pub(crate) struct ViewModelGroup {
 }
 #[derive(Component, Clone)]
 pub(crate) struct Rig {
-    owner: Entity,
+    pub(crate) owner: Entity,
     pub(crate) weapon: WeaponId,
     phase: Option<WeaponAnimation>,
     tracked: Vec<(Entity, Option<(Vec3, Quat)>)>,
@@ -82,6 +83,7 @@ pub(crate) struct Rig {
 }
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
+        camo::install(app);
         app.init_resource::<offhand::GraphCache>()
             .init_resource::<EquipmentPresentationEvidence>()
             .add_systems(

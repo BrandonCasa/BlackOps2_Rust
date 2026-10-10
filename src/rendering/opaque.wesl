@@ -13,6 +13,7 @@ pbr_types::{STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_
 import origins::surface_bindings::{OriginsSurfaceData, animation_time, diagnostic_mode, set_surface_slot, parameters_for, sample_normal_map, sample_second_normal, sample_specular_map, sample_second_specular, sample_control_map, sample_third_normal, sample_third_specular, sample_color_base_grad, sample_color_first_grad, sample_color_second_grad, sample_color_third_grad};
 import bevy_pbr::render::mesh_bindings::mesh;
 import origins::surface_effect::{effect_uv, effect_color};
+import origins::native_weapon::native_fragment;
 
 
 
@@ -60,6 +61,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     let layered = surface.layers.x > 1u;
     standard.color = vec4(1.0);
     var pbr = pbr_input_from_standard_material(standard, is_front);
+    if surface.native.kind.x != 0u {
+        set_surface_slot(slot);
+        return native_fragment(in, is_front, slot, surface, pbr);
+    }
     let face_sign = select(1.0, -1.0, !is_front && (pbr.material.flags & STANDARD_MATERIAL_FLAGS_DOUBLE_SIDED_BIT) != 0u);
     pbr.world_normal = in.world_normal * face_sign;
     pbr.N = normalize(pbr.world_normal);

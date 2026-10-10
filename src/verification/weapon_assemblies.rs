@@ -269,6 +269,7 @@ fn drive(
                 let entity = commands
                     .spawn((
                         bevy::world_serialization::WorldAssetRoot(server.load(scene.clone())),
+                        crate::presentation::camo::WeaponMaterialContext(weapon.id.clone()),
                         Transform::from_xyz(0., -0.1, -1.)
                             .with_rotation(Quat::from_rotation_y(0.8)),
                         Visibility::Inherited,

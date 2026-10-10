@@ -14,6 +14,7 @@ mod first_person;
 pub(crate) mod grading;
 mod lighting_inspection;
 mod lod;
+mod native_weapon;
 pub(crate) mod opaque;
 mod pbr;
 pub(crate) mod postprocess;
@@ -25,6 +26,8 @@ mod shadows;
 mod sky;
 pub(crate) use first_person::FirstPersonDepthStats;
 pub(crate) use opaque::OpaqueSurfaceStatus;
+#[cfg(feature = "dev-dynamic")]
+pub(crate) use opaque::weapon_material_snapshot;
 pub(crate) use opaque::{LAYER_UV, LAYER3_UV, ROTATION1, ROTATION2};
 pub(crate) use pbr::PbrReady;
 pub(crate) use preprocessing::PreprocessingStatus;
@@ -44,6 +47,9 @@ pub(crate) struct FirstPersonSurface;
 
 #[derive(Component)]
 pub(crate) struct ActorSurface;
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct SurfacePreparation;
 
 #[derive(Component)]
 struct LanternLight;
@@ -85,12 +91,19 @@ impl Plugin for GameRenderingPlugin {
                     camera_follow,
                     sky::viewmodel_environment,
                     opaque::prepare_shaders,
-                    (pbr::prepare, surfaces, fixture_lights, opaque::convert).chain(),
+                    (pbr::prepare, surfaces, fixture_lights, opaque::convert)
+                        .chain()
+                        .in_set(SurfacePreparation),
                 ),
             )
             .add_systems(
                 PostUpdate,
-                (pbr::diagnostics, opaque::animate_water).chain(),
+                (
+                    pbr::diagnostics,
+                    opaque::animate_water,
+                    native_weapon::charge,
+                )
+                    .chain(),
             );
     }
 }

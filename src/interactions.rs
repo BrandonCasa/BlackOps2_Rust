@@ -186,7 +186,10 @@ fn assemble(
                 })
                 .and_then(|p| p.scene.as_ref());
             if let Some(scene) = scene {
-                entity.insert(WorldAssetRoot(server.load(scene.clone())));
+                entity.insert((
+                    WorldAssetRoot(server.load(scene.clone())),
+                    crate::presentation::camo::WeaponMaterialContext(weapon.clone()),
+                ));
             }
         }
     }

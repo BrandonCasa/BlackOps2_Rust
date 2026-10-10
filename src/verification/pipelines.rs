@@ -11,7 +11,18 @@ use bevy::{
     },
     shader::ShaderCacheError,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
+
+#[derive(Resource, Clone)]
+struct PipelineReadiness(Arc<AtomicUsize>);
+impl Default for PipelineReadiness {
+    fn default() -> Self {
+        Self(Arc::new(AtomicUsize::new(usize::MAX)))
+    }
+}
 
 #[derive(Resource, Default, Clone)]
 pub(super) struct PipelineFailures(pub Arc<Mutex<Option<RenderFailure>>>);
@@ -28,10 +39,16 @@ pub(crate) fn error_layer(app: &mut App) -> Option<BoxedLayer> {
         .resource::<crate::assets::LaunchOptions>()
         .verify
         .is_none()
+        && app
+            .world()
+            .resource::<crate::assets::LaunchOptions>()
+            .validation_remote
+            .is_none()
     {
         return None;
     }
-    app.init_resource::<PipelineFailures>();
+    app.init_resource::<PipelineReadiness>()
+        .init_resource::<PipelineFailures>();
     Some(Box::new(MaterialErrors(
         app.world().resource::<PipelineFailures>().clone(),
     )))
@@ -79,7 +96,8 @@ pub(super) fn install(app: &mut App) {
     if !cfg!(debug_assertions) {
         return;
     }
-    app.init_resource::<PipelineFailures>()
+    app.init_resource::<PipelineReadiness>()
+        .init_resource::<PipelineFailures>()
         .add_systems(Update, fail);
     let failures = app.world().resource::<PipelineFailures>().clone();
     if app
@@ -89,8 +107,10 @@ pub(super) fn install(app: &mut App) {
     {
         return;
     }
+    let readiness = app.world().resource::<PipelineReadiness>().clone();
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
         render
+            .insert_resource(readiness)
             .insert_resource(failures)
             .add_systems(Render, inspect.after(RenderSystems::Render));
     }
@@ -117,7 +137,18 @@ fn fail(
     }
 }
 
-fn inspect(cache: Res<PipelineCache>, failures: Res<PipelineFailures>) {
+fn inspect(
+    cache: Res<PipelineCache>,
+    failures: Res<PipelineFailures>,
+    readiness: Res<PipelineReadiness>,
+) {
+    readiness.0.store(
+        cache
+            .pipelines()
+            .filter(|p| !matches!(p.state, CachedPipelineState::Ok(_)))
+            .count(),
+        Ordering::Relaxed,
+    );
     let Ok(mut failure) = failures.0.lock() else {
         return;
     };
@@ -140,4 +171,9 @@ fn inspect(cache: Res<PipelineCache>, failures: Res<PipelineFailures>) {
             return;
         }
     }
+}
+
+#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+pub(super) fn snapshot(world: &World) -> serde_json::Value {
+    serde_json::json!({"pending":world.resource::<PipelineReadiness>().0.load(Ordering::Relaxed),"error":world.resource::<PipelineFailures>().0.lock().ok().and_then(|v|v.clone())})
 }

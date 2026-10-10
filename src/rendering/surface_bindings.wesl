@@ -14,6 +14,25 @@ struct OriginsSurfaceData {
     water: vec4<f32>,
     velocity: vec4<f32>,
     effect: Effect,
+    native: NativeWeaponParameters,
+}
+struct NativeWeaponParameters {
+    response: vec4<f32>,
+    detail: vec4<f32>,
+    ember: vec4<f32>,
+    motion: vec4<f32>,
+    flicker: vec4<f32>,
+    layer_scale_offset: array<vec4<f32>,3>,
+    layer_scroll_rotation: array<vec4<f32>,3>,
+    layer_origin_depth: array<vec4<f32>,3>,
+    layer_alpha: vec4<f32>,
+    staff: vec4<f32>,
+    staff_emission: vec4<f32>,
+    camo: vec4<f32>,
+    camo_extra: vec4<f32>,
+    camo_flags: vec4<u32>,
+    weapon_detail: vec4<f32>,
+    kind: vec4<u32>,
 }
 struct AnimationClock { elapsed: vec4<f32>, }
 @if(BINDLESS) struct SurfaceIndices {
@@ -130,3 +149,48 @@ fn reflection_diagnostic_enabled() -> bool {
 }
 
 fn surface_diagnostic_mode() -> u32 { return diagnostic_mode(current_surface_slot()); }
+var<private> native_lighting_scales: vec3<f32>;
+fn set_native_lighting_scales(scales: vec3<f32>) { native_lighting_scales = scales; }
+fn native_direct_specular_scale() -> f32 {
+    if parameters_for(current_surface_slot()).native.kind.x == 0u { return 1.0; }
+    return native_lighting_scales.x;
+}
+fn native_indirect_diffuse_scale() -> f32 {
+    if parameters_for(current_surface_slot()).native.kind.x == 0u { return 1.0; }
+    return native_lighting_scales.y;
+}
+fn native_reflection_scale() -> f32 {
+    if parameters_for(current_surface_slot()).native.kind.x == 0u { return 1.0; }
+    return native_lighting_scales.z;
+}
+var<private> native_diffuse_direction: vec3<f32>;
+fn set_native_diffuse_normal(normal: vec3<f32>) { native_diffuse_direction = normal; }
+fn native_diffuse_normal(normal: vec3<f32>) -> vec3<f32> {
+    if parameters_for(current_surface_slot()).native.kind.x == 0u { return normal; }
+    return native_diffuse_direction;
+}
+
+var<private> native_gloss_value: f32;
+fn set_native_gloss(gloss: f32) { native_gloss_value = gloss; }
+fn native_enabled() -> bool { return parameters_for(current_surface_slot()).native.kind.x != 0u; }
+fn native_gloss() -> f32 { return native_gloss_value; }
+fn native_mip(fallback: f32) -> f32 {
+    if !native_enabled() { return fallback; }
+    return max(4.0*(1.0-native_gloss_value),0.0);
+}
+fn native_environment_fresnel(f0: vec3<f32>, nv: f32) -> vec3<f32> {
+    let kind = parameters_for(current_surface_slot()).native.kind;
+    if kind.x == 7u || (kind.x == 10u && parameters_for(current_surface_slot()).native.camo_flags.w != 0u) {
+        return vec3(clamp(0.75+0.25*native_gloss_value,0.0,1.0));
+    }
+    let g = native_gloss_value;
+    let bias = g*1.041667*min(exp2(-9.28*nv),g*0.475)+g*0.018229-0.015625;
+    return clamp(f0*(0.75+0.25*g-bias)+vec3(bias),vec3(0.0),vec3(1.0));
+}
+
+fn native_specular(f0: vec3<f32>, nh: f32, lh: f32) -> vec3<f32> {
+    let exponent = exp2(13.0*native_gloss_value);
+    let distribution = pow(max(nh,0.0),exponent)*(0.25+0.125*exponent);
+    let visibility = 1.0/(1.01+(lh*lh-1.0)*clamp(native_gloss_value+0.545,0.0,1.0));
+    return (f0+(vec3(1.0)-f0)*exp2(-10.0*lh))*distribution*visibility;
+}

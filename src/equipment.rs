@@ -492,7 +492,10 @@ pub(crate) fn throw_input(
                     .and_then(|p| p.scene.as_ref())
                 {
                     commands.entity(entity).with_children(|parent| {
-                        let mut child = parent.spawn(WorldAssetRoot(server.load(scene.to_owned())));
+                        let mut child = parent.spawn((
+                            WorldAssetRoot(server.load(scene.to_owned())),
+                            crate::presentation::camo::WeaponMaterialContext(weapon.id.clone()),
+                        ));
                         if let Some(lure) = &weapon.lure
                             && let Some(clip) = definition
                                 .content

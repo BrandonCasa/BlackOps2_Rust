@@ -18,6 +18,7 @@
 !/assets/origins/**/
 !/assets/origins/game.json
 !/assets/origins/texture-streaming.json
+!/assets/origins/weapon_camos.json
 !/assets/origins/**/*.gltf
 !/assets/origins/**/*.bin
 !/assets/origins/**/*.png

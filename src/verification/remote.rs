@@ -64,6 +64,7 @@ impl Default for Actor {
 #[serde(default, deny_unknown_fields)]
 struct Setup {
     points: Option<u32>,
+    charge_level: Option<u32>,
     position: Option<[f32; 3]>,
     yaw: Option<f32>,
     pitch: Option<f32>,
@@ -100,13 +101,18 @@ struct RemoteBlast {
     radius: f32,
 }
 pub(super) fn install(app: &mut App, port: u16) {
-    app.init_resource::<RemoteState>()
+    super::pipelines::install(app);
+    app.add_observer(preview_ready)
+        .init_resource::<RemoteState>()
         .init_resource::<crate::audio::RequestedAliases>()
         .configure_sets(PreUpdate, InputSystems.run_if(|| false))
         .add_plugins((
             RemotePlugin::default()
                 .with_method_main("origins/schema", schema)
                 .with_method_main("origins/state", snapshot)
+                .with_method_main("origins/materials", materials)
+                .with_method_main("origins/capture", capture)
+                .with_method_main("origins/preview", preview)
                 .with_method_main("origins/reset", reset)
                 .with_method_main("origins/input", input)
                 .with_method_main("origins/release", release)
@@ -213,11 +219,14 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
         "discovery":{"methods":"rpc.discover","schemas":"registry.schema"},
         "methods":{
             "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, lethal, tactical, mine), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
+            "origins/materials":{"params":{},"result":"pending, first_person, world, inventory; native material, texture, tangent readiness"},
+            "origins/preview":{"params":{"weapon":"optional native ID; omitted clears preview"},"effect":"World-model scenario setup, attached to camera for inspection"},
+            "origins/capture":{"params":{"path":"absolute PNG path"},"result":"asynchronous screenshot request"},
             "origins/reset":{"params":{},"effect":"Release inputs, transition to GameOver, send normal RestartGame"},
             "origins/input":{"params":{"events":[{"tick":"relative integer 1..3600","key":"Bevy KeyCode name or MouseLeft/MouseRight/MouseMiddle","pressed":"boolean"}]},"max_events":512,"effect":"Queue native input messages; automatic release after final scheduled tick"},
             "origins/release":{"params":{},"effect":"Cancel queued input and release remotely held buttons"},
             "origins/quit":{"params":{},"effect":"Release remote inputs and emit normal AppExit"},
-            "origins/setup":{"params":{"points":"optional u32","position":"optional [x,y,z] player center","yaw":"optional radians","pitch":"optional radians","weapons":"optional 1..2 native weapon IDs","equipment":"optional up to 3 native IDs, one per lethal/tactical/mine slot","pickups":[{"id":"supported native powerup ID","position":"[x,y,z]"}],"owned_perks":"optional 0..8 unique native perk IDs","open_connections":"optional native door connection IDs","blast":{"session_id":"u64","center":"[x,y,z]","damage":"0..1000000","radius":"0.01..100"},"round_event":{"session_id":"u64","round":"1..10000"},"clear_enemies":"optional bool","pending":"optional 0..10000","pause_spawning_seconds":"optional 0..300","enemies":[{"position":"[x,y,z]","health":"1..1000000, default100","defender":"optional generator ID"}]},"max_enemies":64,"max_pickups":64,"effect":"Direct scenario setup only; not evidence of gameplay"}
+            "origins/setup":{"params":{"points":"optional u32","position":"optional [x,y,z] player center","yaw":"optional radians","pitch":"optional radians","weapons":"optional 1..2 native weapon IDs","charge_level":"optional 0..3 source staff charge level, scenario setup","equipment":"optional up to 3 native IDs, one per lethal/tactical/mine slot","pickups":[{"id":"supported native powerup ID","position":"[x,y,z]"}],"owned_perks":"optional 0..8 unique native perk IDs","open_connections":"optional native door connection IDs","blast":{"session_id":"u64","center":"[x,y,z]","damage":"0..1000000","radius":"0.01..100"},"round_event":{"session_id":"u64","round":"1..10000"},"clear_enemies":"optional bool","pending":"optional 0..10000","pause_spawning_seconds":"optional 0..300","enemies":[{"position":"[x,y,z]","health":"1..1000000, default100","defender":"optional generator ID"}]},"max_enemies":64,"max_pickups":64,"effect":"Direct scenario setup only; not evidence of gameplay"}
         }
     }))
 }
@@ -570,8 +579,17 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         outer_damage: b.damage,
         direction: None,
     });
+    if request.charge_level.is_some_and(|v| v > 3) {
+        return Err(error("Charge level must be 0..3"));
+    }
     if let Some(inventory) = inventory {
         world.entity_mut(owner).insert(inventory);
+    }
+    if let Some(level) = request.charge_level {
+        world
+            .get_mut::<WeaponInventory>(owner)
+            .unwrap()
+            .charge_level = level;
     }
     if let Some(inventory) = lethal {
         world.entity_mut(owner).insert(inventory);
@@ -688,4 +706,110 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
     Ok(
         json!({"setup_applied":true,"gameplay_evidence":false,"enemies":spawned,"pickups":spawned_pickups}),
     )
+}
+
+fn materials(_: In<Option<Value>>, world: &mut World) -> BrpResult {
+    let mut result = crate::rendering::weapon_material_snapshot(world);
+    result["pipelines"] = super::pipelines::snapshot(world);
+    Ok(result)
+}
+fn capture(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
+    use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Capture {
+        path: std::path::PathBuf,
+    }
+    let request: Capture = parse(value)?;
+    if !request.path.is_absolute()
+        || request.path.extension().and_then(|s| s.to_str()) != Some("png")
+    {
+        return Err(error("Capture requires an absolute PNG path"));
+    }
+    if request.path.exists() {
+        return Err(error("Capture target already exists"));
+    }
+    if let Some(parent) = request.path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| error(&e.to_string()))?;
+    }
+    window(world)?;
+    world
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk(request.path.clone()));
+    Ok(json!({"requested":true,"path":request.path}))
+}
+
+#[derive(Component)]
+struct MaterialPreview;
+fn preview(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Preview {
+        weapon: Option<String>,
+    }
+    let request: Preview = parse(value)?;
+    let scene = request
+        .weapon
+        .as_ref()
+        .map(|id| {
+            let game = world.resource::<GameDefinition>();
+            let weapon = game
+                .content
+                .weapons
+                .iter()
+                .find(|w| w.id.0 == *id)
+                .ok_or_else(|| error("Unknown preview weapon"))?;
+            let scene = weapon
+                .pickup
+                .as_ref()
+                .and_then(|id| game.content.presentations.iter().find(|p| p.id == *id))
+                .and_then(|p| p.scene.clone())
+                .ok_or_else(|| error("Weapon has no world model"))?;
+            Ok::<_, BrpError>((weapon.id.clone(), scene))
+        })
+        .transpose()?;
+    let previous: Vec<_> = world
+        .query_filtered::<Entity, With<MaterialPreview>>()
+        .iter(world)
+        .collect();
+    for entity in previous {
+        world.despawn(entity);
+    }
+    if let Some((weapon, scene)) = scene {
+        let camera = world
+            .query_filtered::<Entity, With<crate::rendering::GameCamera>>()
+            .single(world)
+            .map_err(|e| error(e.to_string()))?;
+        let handle = world.resource::<AssetServer>().load(scene);
+        world.spawn((
+            bevy::world_serialization::WorldAssetRoot(handle),
+            crate::presentation::camo::WeaponMaterialContext(weapon),
+            MaterialPreview,
+            SessionEntity,
+            ChildOf(camera),
+            Transform::from_xyz(0., -0.15, -0.9).with_rotation(Quat::from_rotation_y(0.8)),
+            Visibility::Inherited,
+        ));
+    }
+    Ok(json!({"requested":true,"weapon":request.weapon}))
+}
+fn preview_ready(
+    event: On<bevy::world_serialization::WorldInstanceReady>,
+    mut commands: Commands,
+    roots: Query<(), With<MaterialPreview>>,
+    children: Query<&Children>,
+    meshes: Query<(), With<Mesh3d>>,
+) {
+    if !roots.contains(event.entity) {
+        return;
+    }
+    for entity in children
+        .iter_descendants(event.entity)
+        .filter(|e| meshes.contains(*e))
+    {
+        commands.entity(entity).insert((
+            bevy::camera::visibility::RenderLayers::layer(1),
+            bevy::light::NotShadowCaster,
+        ));
+    }
 }

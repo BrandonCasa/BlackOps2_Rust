@@ -228,12 +228,18 @@ pub(super) fn diagnostics(
 pub(super) fn load(server: &AssetServer, texture: &PreparedTexture) -> Handle<Image> {
     let srgb = texture.color_space == "srgb";
     let native = texture.sampler;
+    let native_weapon = texture.uri.starts_with("textures/native-");
     server
         .load_builder()
         .with_settings(move |settings: &mut ImageLoaderSettings| {
             settings.is_srgb = srgb;
             let point = native & 7 == 1;
-            let filtered_mips = !point && native & 24 != 0;
+            let filtered_mips = !point
+                && if native_weapon {
+                    native & 24 == 16
+                } else {
+                    native & 24 != 0
+                };
             settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                 address_mode_u: if native & 32 != 0 {
                     ImageAddressMode::ClampToEdge
@@ -261,7 +267,19 @@ pub(super) fn load(server: &AssetServer, texture: &PreparedTexture) -> Handle<Im
                     ImageFilterMode::Nearest
                 },
                 lod_max_clamp: if native & 24 == 0 { 0. } else { 32. },
-                anisotropy_clamp: if filtered_mips { 16 } else { 1 },
+                anisotropy_clamp: if filtered_mips && native_weapon {
+                    match native & 7 {
+                        3 => 2,
+                        4 => 4,
+                        5 => 8,
+                        6 => 16,
+                        _ => 1,
+                    }
+                } else if filtered_mips {
+                    16
+                } else {
+                    1
+                },
                 ..ImageSamplerDescriptor::linear()
             });
         })
@@ -401,6 +419,15 @@ pub(super) fn prepare(
                 .as_f64()
                 .unwrap_or(0.12) as f32;
             material.flip_normal_map_y = false;
+            if !value["surface"]["native_weapon"].is_null() {
+                material.base_color_texture = None;
+                material.normal_map_texture = None;
+                material.metallic_roughness_texture = None;
+                material.occlusion_texture = None;
+                material.clearcoat_texture = None;
+                material.clearcoat = 0.;
+                material.unlit = false;
+            }
         }
         let state = &value["surface"]["presentation"];
         if !state.is_null() {

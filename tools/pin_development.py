@@ -50,7 +50,7 @@ def snapshot(output):
     return result
 
 
-def pin(snapshot_path, output):
+def pin(snapshot_path, output, target_dir=None):
     import pefile
 
     expected = json.loads(Path(snapshot_path).read_text(encoding="utf-8"))
@@ -59,7 +59,7 @@ def pin(snapshot_path, output):
         raise RuntimeError("Compiled inputs changed after the source snapshot; capture and build again")
     output = external(output)
     output.mkdir(parents=True, exist_ok=False)
-    executable = ROOT / "target/debug/origins.exe"
+    executable = Path(target_dir or ROOT / "target").resolve() / "debug/origins.exe"
     sysroot = Path(subprocess.check_output(["rustc", "--print", "sysroot"], cwd=ROOT).decode().strip())
     directories = [executable.parent, executable.parent / "deps", sysroot / "bin", sysroot / "lib/rustlib/x86_64-pc-windows-msvc/lib"]
     pending = [executable]
@@ -104,6 +104,7 @@ def main():
     parser.add_argument("command", choices=("snapshot", "pin"))
     parser.add_argument("--output", required=True)
     parser.add_argument("--snapshot")
+    parser.add_argument("--target-dir", type=Path)
     args = parser.parse_args()
     if args.command == "snapshot":
         result = snapshot(args.output)
@@ -111,7 +112,7 @@ def main():
     else:
         if not args.snapshot:
             parser.error("pin requires --snapshot")
-        print(json.dumps(pin(args.snapshot, args.output)))
+        print(json.dumps(pin(args.snapshot, args.output, args.target_dir)))
 
 
 if __name__ == "__main__":

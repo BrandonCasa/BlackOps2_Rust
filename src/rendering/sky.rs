@@ -74,7 +74,14 @@ pub(super) fn viewmodel_environment(
         if view_exposure.ev100 != exposure.ev100 {
             view_exposure.ev100 = exposure.ev100;
         }
-        if current.is_none_or(|current| current.specular_map != environment.specular_map) {
+        if current.is_none_or(|current| {
+            current.specular_map != environment.specular_map
+                || current.diffuse_map != environment.diffuse_map
+                || current.intensity != environment.intensity
+                || current.rotation != environment.rotation
+                || current.affects_lightmapped_mesh_diffuse
+                    != environment.affects_lightmapped_mesh_diffuse
+        }) {
             commands.entity(entity).insert(environment.clone());
         }
     }
