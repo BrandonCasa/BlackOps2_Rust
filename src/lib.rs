@@ -43,6 +43,7 @@ pub mod player;
 pub mod player_health;
 pub mod powerups;
 pub mod presentation;
+mod render_backend;
 pub mod rendering;
 pub mod rounds;
 mod run_environment;
@@ -74,7 +75,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let benchmark = options.benchmark;
     let release_benchmark = options.release_benchmark;
     let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
-    let ads_capture = options.verify_ads;
     let flythrough = options.flythrough;
     app.insert_resource(options);
     let default_plugins = DefaultPlugins.build();
@@ -83,6 +83,12 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     app.add_plugins(
         default_plugins
             .disable::<bevy::anti_alias::AntiAliasPlugin>()
+            .set(bevy::render::RenderPlugin {
+                render_creation: bevy::render::settings::RenderCreation::Automatic(Box::new(
+                    render_backend::settings(),
+                )),
+                ..default()
+            })
             .set(bevy::log::LogPlugin {
                 custom_layer: verification::error_layer,
                 ..default()
@@ -106,12 +112,11 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                         "Origins"
                     }
                     .into(),
-                    resolution: if ads_capture {
-                        bevy::window::WindowResolution::new(1920, 1080)
-                            .with_scale_factor_override(1.)
-                    } else {
-                        bevy::window::WindowResolution::new(1920, 1080)
-                    },
+                    mode: bevy::window::WindowMode::Windowed,
+                    decorations: false,
+                    resizable: true,
+                    resolution: bevy::window::WindowResolution::new(1920, 1080)
+                        .with_scale_factor_override(1.),
                     present_mode: if benchmark {
                         bevy::window::PresentMode::AutoNoVsync
                     } else {
@@ -133,7 +138,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     .add_plugins(bevy::anti_alias::taa::TemporalAntiAliasPlugin)
     .add_plugins(avian3d::prelude::PhysicsPlugins::default())
     .init_state::<GameState>()
-    .add_systems(Startup, initial_physical_resolution)
     .insert_resource(Time::<Fixed>::from_hz(60.0))
     .insert_resource(assets::LoadConfiguration(configuration))
     .add_plugins((
@@ -177,12 +181,4 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     }
     app.add_plugins(run_environment::UnattendedRunPlugin);
     app
-}
-
-fn initial_physical_resolution(mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>) {
-    if let Ok(mut window) = windows.single_mut()
-        && (window.physical_width(), window.physical_height()) != (1920, 1080)
-    {
-        window.resolution.set_physical_resolution(1920, 1080);
-    }
 }

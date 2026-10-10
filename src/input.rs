@@ -6,7 +6,10 @@ use bevy::{
         mouse::{MouseButtonInput, MouseMotion, MouseWheel},
     },
     prelude::*,
-    window::{CursorGrabMode, CursorOptions},
+    window::{
+        CursorGrabMode, CursorOptions, MonitorSelection, PrimaryWindow, VideoModeSelection,
+        WindowMode,
+    },
 };
 use std::collections::HashSet;
 mod bindings;
@@ -159,6 +162,10 @@ impl Plugin for GameInputPlugin {
             .add_message::<RestartGame>()
             .add_systems(
                 PreUpdate,
+                toggle_fullscreen.after(InputSystems).before(collect),
+            )
+            .add_systems(
+                PreUpdate,
                 collect
                     .after(InputSystems)
                     .run_if(|options: Res<crate::assets::LaunchOptions>| {
@@ -181,6 +188,30 @@ impl Plugin for GameInputPlugin {
             .add_systems(Last, (settings::capture_audio, settings::save).chain());
         menu::install(app);
     }
+}
+
+fn toggle_fullscreen(
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    if !keys.just_pressed(KeyCode::Enter)
+        || !(keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight))
+    {
+        return;
+    }
+    let Ok(mut window) = windows.single_mut() else {
+        return;
+    };
+    if !window.focused {
+        return;
+    }
+    window.mode = match window.mode {
+        WindowMode::Windowed => {
+            WindowMode::Fullscreen(MonitorSelection::Current, VideoModeSelection::Current)
+        }
+        _ => WindowMode::Windowed,
+    };
+    keys.clear_just_pressed(KeyCode::Enter);
 }
 
 pub(crate) fn collect(
@@ -225,6 +256,11 @@ pub(crate) fn collect(
         actions.settings = settings.clone();
     }
     for event in key_events.read().filter(|e| !e.repeat) {
+        if event.key_code == KeyCode::Enter
+            && (keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight))
+        {
+            continue;
+        }
         actions.event(Binding::Key(event.key_code), event.state.is_pressed());
     }
     for event in mouse_events.read() {

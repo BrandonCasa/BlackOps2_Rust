@@ -387,6 +387,7 @@ fn pointer_activate(event: On<PointerPress>, rows: Query<&MenuRow>, mut menu: Re
 }
 fn capture(
     state: Res<State<GameState>>,
+    held: Res<ButtonInput<KeyCode>>,
     mut menu: ResMut<ControlMenu>,
     mut settings: ResMut<ControlSettings>,
     mut keys: MessageReader<KeyboardInput>,
@@ -396,7 +397,12 @@ fn capture(
     menu.handled_input = false;
     let key = keys
         .read()
-        .find(|e| e.state.is_pressed() && !e.repeat)
+        .find(|e| {
+            e.state.is_pressed()
+                && !e.repeat
+                && !(e.key_code == KeyCode::Enter
+                    && (held.pressed(KeyCode::AltLeft) || held.pressed(KeyCode::AltRight)))
+        })
         .map(|e| e.key_code);
     let button = mouse
         .read()
