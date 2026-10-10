@@ -62,7 +62,7 @@ def bank_index(installation):
     return result
 
 
-def prepare(config):
+def prepare(config, additions=None):
     base = external(config['assets']['inspection_output'])
     pack = external(config['game']['asset_pack'])
     game = json.loads((pack/'game.json').read_text())
@@ -80,8 +80,9 @@ def prepare(config):
     if not rows:
         raise ValueError('extract OAT soundbank alias CSVs before preparing audio')
     banks = bank_index(Path(config['assets']['installation_root']))
-    aliases, missing, provenance, samples, visiting, promoted = {}, [], [], {}, set(), []
-    content['sounds'][:] = [s for s in content['sounds'] if not s['id'].startswith('sound.native.')]
+    aliases, missing, provenance, samples, visiting, promoted = (dict(game['audio']['aliases']) if additions is not None else {}), [], [], {}, set(), []
+    if additions is None:
+        content['sounds'][:] = [s for s in content['sounds'] if not s['id'].startswith('sound.native.')]
     directory = pack/'audio/native';directory.mkdir(parents=True,exist_ok=True)
 
     def alias(name):
@@ -143,6 +144,15 @@ def prepare(config):
         visiting.remove(name)
         return name
 
+    if additions is not None:
+        for name in sorted(additions):
+            if alias(name) is None:
+                missing.append({'alias': name})
+        game['audio']['aliases'] = aliases
+        content['sounds'].sort(key=lambda sound: sound_order.get(sound['id'], len(sound_order)))
+        (pack/'game.json').write_text(json.dumps(game,separators=(',', ':'))+'\n')
+        return {'missing': missing, 'provenance': provenance}
+
     bindings={};timelines={}
     wanted = {'zmb_board_slam','zmb_boards_float','zmb_repair_boards','zmb_break_boards','zmb_pneumatic_door','amb_rock_fall','zmb_vocals_zombie_ambience','zmb_vocals_zombie_attack','zmb_vocals_zombie_death','zmb_vocals_zombie_teardown','zmb_vocals_zombie_sprint',
         'zmb_attack_whoosh','zmb_monkey_song','wpn_semtex_alert','wpn_semtex_charge','mus_zombie_round_start','mus_zombie_round_over','chr_breathing_hurt','chr_breathing_hurt_start','chr_breathing_better','chr_revive_gasp','zmb_cherry_explode','zmb_phdflop_explo','amb_weather_2d_rain_outdoor','amb_weather_2d_rain_indoor','amb_cave_wind','zmb_cha_ching','zmb_perk_bottle_open','zmb_perk_bottle_drink'}
@@ -202,7 +212,7 @@ def prepare(config):
     game['audio']={'aliases':aliases,'bindings':bindings,'timelines':timelines,'emitters':[e for e in emitters if e['alias'] in aliases],'character':0,'surfaces':surfaces}
     (pack/'game.json').write_text(json.dumps(game,indent=2)+'\n')
     report={'aliases':len(aliases),'samples':len(samples),'bindings':len(bindings),'timelines':len(timelines),'emitters':len(game['audio']['emitters']),'missing':missing,'missing_aliases':sorted(wanted-aliases.keys()),'provenance':provenance,'promoted_primary_layers':promoted,
-        'approximations':['Native distance endpoints are retained; linear attenuation between endpoints and variant choice reconstruct acoustic curves/weights.','Collision material names classify footsteps offline; exact native physics surface flags remain unrecovered.','Rain follows the current static rainy sky; dynamic weather gameplay is pending.','Perk machines use a bounded ten-meter music radius.','Native alias subtitles are empty; event captions do not invent speech transcripts.','Debris uses native rock-fall samples; script sound-family indirection remains unrecovered.']}
+        'approximations':['Native distance endpoints are retained; linear attenuation between endpoints and variant choice reconstruct acoustic curves/weights.','Collision material names classify footsteps offline; exact native physics surface flags remain unrecovered.','Perk machines use a bounded ten-meter music radius.','Native alias subtitles are empty; event captions do not invent speech transcripts.','Debris uses native rock-fall samples; script sound-family indirection remains unrecovered.']}
     (base/'audio-recovery/preparation.json').write_text(json.dumps(report,indent=2)+'\n')
     print({k:v for k,v in report.items() if k not in ('provenance','missing')},'missing samples',len(missing))
 

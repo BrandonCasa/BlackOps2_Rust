@@ -486,13 +486,6 @@ fn world(
             (emitter.alias.clone(), SoundSource::World(p)),
         );
     }
-    wanted.insert(
-        "weather".into(),
-        (
-            "amb_weather_2d_rain_outdoor".into(),
-            SoundSource::attached(player),
-        ),
-    );
     for (e, bomb, _) in &bombs {
         if bomb.lure_active {
             wanted.insert(

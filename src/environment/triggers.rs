@@ -153,6 +153,17 @@ pub(super) fn spawn(
                 Transform::from_translation(Vec3::from_array(trigger.position)),
                 Name::new(trigger.id.clone()),
             ));
+            if let Some(owner) = game
+                .environment
+                .ownership
+                .iter()
+                .find(|o| o.id == trigger.id)
+            {
+                entity.insert(owner.owner);
+                if owner.shootable {
+                    entity.insert(super::support::ShootableEnvironment);
+                }
+            }
             if let Some(boundary) = super::hazards::boundary(trigger) {
                 entity.insert(boundary);
             }

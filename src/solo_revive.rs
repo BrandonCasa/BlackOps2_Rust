@@ -58,8 +58,12 @@ pub struct PerkInventory {
     pub owned: BTreeSet<PerkId>,
     pub solo_charges: u32,
     pub solo_purchases: u32,
+    pub earned_slots: u32,
 }
 impl PerkInventory {
+    pub fn purchase_limit(&self) -> usize {
+        (4 + self.earned_slots.min(4)) as usize
+    }
     pub fn can_buy_solo(
         &self,
         profile: &SoloReviveProfile,

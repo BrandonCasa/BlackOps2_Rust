@@ -502,7 +502,7 @@ pub(crate) fn interact(
             {
                 return Err(InteractionRejection::NoPower);
             }
-            if perks.owned.len() >= 4 {
+            if perks.owned.len() >= perks.purchase_limit() {
                 return Err(InteractionRejection::PerkLimit);
             }
             let drink = crate::perks::PerkDrinking::new(perk, &inventory, &definition)?;

@@ -2,14 +2,21 @@ use crate::{GameState, assets::GameDefinition, gameplay::GameStep, player::Playe
 use avian3d::prelude::*;
 use bevy::prelude::*;
 pub mod brushes;
+pub mod digging;
 pub mod hazards;
+pub mod parts;
+pub mod support;
 pub mod triggers;
+pub mod weather;
 #[derive(Clone, Default, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EnvironmentDefinition {
     pub mud: Option<MudDefinition>,
     pub triggers: Vec<triggers::TriggerDefinition>,
     pub brush_entities: Vec<brushes::BrushDefinition>,
+    pub ownership: Vec<support::OwnershipDefinition>,
+    pub digging: Option<digging::DigDefinition>,
+    pub parts: Vec<parts::PartDefinition>,
 }
 #[derive(Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -29,9 +36,12 @@ pub struct VolumeDefinition {
     pub vertices: Vec<[f32; 3]>,
 }
 impl EnvironmentDefinition {
-    pub fn valid(&self) -> bool {
+    pub fn valid(&self, game: &GameDefinition) -> bool {
         triggers::valid(&self.triggers)
             && brushes::valid(&self.brush_entities)
+            && support::valid(self)
+            && parts::valid(&self.parts, &game.content)
+            && self.digging.as_ref().is_none_or(|d| d.valid(game))
             && self.mud.as_ref().is_none_or(|m| {
                 [m.scale, m.stamin_scale, m.step, m.stamin_step, m.interval]
                     .iter()
@@ -105,6 +115,12 @@ pub struct EnvironmentPlugin;
 impl Plugin for EnvironmentPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Footstep>()
+            .add_plugins((
+                support::SupportPlugin,
+                weather::WeatherPlugin,
+                digging::DiggingPlugin,
+            ))
+            .init_resource::<parts::Parts>()
             .register_required_components::<Player, hazards::BoundaryMonitor>()
             .add_systems(
                 OnEnter(GameState::Playing),

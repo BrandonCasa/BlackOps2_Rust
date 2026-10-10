@@ -24,12 +24,14 @@ try:
     from .trigger_volumes import validate as validate_trigger_volumes
     from .brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
     from .prepare_sky import SKY_PATH, validate_sky
+    from .environment_content import validate as validate_environment
 except ImportError:
     from fixture_emitters import FIXTURE_SURFACES
     from content_contract import validate_content, validate_rounds, validate_player_health
     from trigger_volumes import validate as validate_trigger_volumes
     from brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
     from prepare_sky import SKY_PATH, validate_sky
+    from environment_content import validate as validate_environment
 
 import numpy as np
 from PIL import Image
@@ -684,7 +686,8 @@ def validate_pack(root, receipt=None, exact=False, progress=False):
         require(set(e)=={'alias','position'} and e['alias'] in aliases and len(e['position'])==3 and all(type(v) in (int,float) and math.isfinite(v) for v in e['position']),'invalid ambient emitter')
     tuning = validate_tuning(game.get("tuning", {}))
     environment = game.get("environment", {})
-    require(isinstance(environment,dict) and set(environment)<={"mud","triggers","brush_entities"},"unknown environment fields")
+    require(isinstance(environment,dict) and set(environment)<={"mud","triggers","brush_entities","ownership","parts","digging"},"unknown environment fields")
+    validate_environment(environment, game['content'], require)
     validate_trigger_volumes(environment.get("triggers", []), require)
     validate_brush_entities(environment.get("brush_entities", []), require)
     mud = environment.get("mud")

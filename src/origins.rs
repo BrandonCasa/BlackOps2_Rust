@@ -210,7 +210,7 @@ impl GameDefinition {
                 .chain(self.survey_views.iter().flatten())
                 .all(|v| v.is_finite())
             || !values.iter().all(|v| v.is_finite() && *v > 0.)
-            || !self.environment.valid()
+            || !self.environment.valid(self)
             || !self.access.valid(&self.content)
             || !self
                 .tuning

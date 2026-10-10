@@ -463,7 +463,17 @@ fn scene_ready(
                     .iter_descendants(entity)
                     .filter(|e| mesh_entities.contains(*e))
                     .count();
-                crate::environment::brushes::bind(&mut commands, entity, source, meshes);
+                crate::environment::brushes::bind(
+                    &mut commands,
+                    entity,
+                    source,
+                    meshes,
+                    definition
+                        .environment
+                        .ownership
+                        .iter()
+                        .find(|o| o.id == source.id),
+                );
             } else {
                 failure.0 = format!("Unknown brush entity {id}");
                 next.set(GameState::LoadError);

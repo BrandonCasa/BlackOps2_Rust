@@ -184,6 +184,48 @@ pub struct Grenade {
     radius: f32,
     pub lure_active: bool,
 }
+pub(crate) fn dig_grenade(
+    commands: &mut Commands,
+    server: &AssetServer,
+    game: &GameDefinition,
+    owner: Entity,
+    position: Vec3,
+    velocity: Vec3,
+) {
+    let Some(weapon) = game
+        .content
+        .weapons
+        .iter()
+        .find(|w| w.id.0 == "weapon.frag_grenade_zm")
+    else {
+        return;
+    };
+    let Some(tuning) = weapon.throwable.as_ref() else {
+        return;
+    };
+    let mut entity = commands.spawn((
+        SessionEntity,
+        Grenade {
+            owner,
+            definition: weapon.id.clone(),
+            motion: GrenadeMotion::Flying(velocity),
+            remaining: 3.,
+            elapsed: 0.,
+            radius: tuning.collision_radius,
+            lure_active: false,
+        },
+        Transform::from_translation(position),
+        Visibility::Inherited,
+    ));
+    if let Some(scene) = weapon
+        .pickup
+        .as_ref()
+        .and_then(|id| game.content.presentations.iter().find(|p| p.id == *id))
+        .and_then(|p| p.scene.as_ref())
+    {
+        entity.insert(WorldAssetRoot(server.load(scene.clone())));
+    }
+}
 #[derive(Component)]
 struct Blast {
     remaining: f32,

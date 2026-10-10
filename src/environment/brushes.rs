@@ -114,11 +114,20 @@ pub(crate) fn bind(
     entity: Entity,
     source: &BrushDefinition,
     visual_meshes: usize,
+    ownership: Option<&super::support::OwnershipDefinition>,
 ) {
     commands.entity(entity).insert(MapBrush {
         id: source.id.clone(),
         visual_meshes,
     });
+    if let Some(owner) = ownership {
+        commands.entity(entity).insert(owner.owner);
+        if owner.shootable {
+            commands
+                .entity(entity)
+                .insert(super::support::ShootableEnvironment);
+        }
+    }
     if let Some(shape) = source.collider() {
         commands.entity(entity).insert((
             shape,

@@ -75,6 +75,10 @@ fn initialize(world: &mut World) {
     world.insert_resource(crate::generators::Generators::default());
     world.insert_resource(crate::rounds::Population::default());
     world.insert_resource(crate::economy::PointLedger::default());
+    crate::environment::weather::reset(world);
+    world.insert_resource(crate::environment::parts::Parts::default());
+    world.insert_resource(crate::environment::digging::Digging::default());
+    world.insert_resource(crate::environment::support::EnvironmentEvidence::default());
 }
 
 pub(crate) fn teardown(world: &mut World) {
@@ -113,6 +117,8 @@ pub(crate) fn teardown(world: &mut World) {
     clear::<crate::input::RestartGame>(world);
     world.insert_resource(crate::lures::Attractions::default());
     clear::<crate::rounds::RoundStarted>(world);
+    clear::<crate::rounds::RoundEnding>(world);
+    clear::<crate::environment::support::EnvironmentalHit>(world);
 }
 
 fn clear<M: Message>(world: &mut World) {

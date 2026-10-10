@@ -14,6 +14,12 @@ pub struct RoundStarted {
     pub round: u32,
 }
 
+#[derive(Message, Clone, Copy)]
+pub struct RoundEnding {
+    pub(crate) session: crate::session::SessionId,
+    pub round: u32,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoundProfile {
@@ -210,11 +216,12 @@ pub(crate) fn advance(
     navigation: Res<Navigation>,
     mut population: ResMut<Population>,
     mut evidence: ResMut<RoundEvidence>,
-    mut started: MessageWriter<RoundStarted>,
+    events: (MessageWriter<RoundStarted>, MessageWriter<RoundEnding>),
     players: Query<(&Player, &Transform)>,
     generators: Res<crate::generators::Generators>,
     replacements: Query<(Entity, &ReplacementHealth)>,
 ) {
+    let (mut started, mut ending) = events;
     *population = default();
     for (_, vitality, kind, _, _) in &enemies {
         if vitality.state() != LifeState::ActorAlive {
@@ -229,6 +236,12 @@ pub(crate) fn advance(
     evidence.peak_ordinary = evidence.peak_ordinary.max(population.ordinary);
     let profile = &definition.rounds;
     if session.round_complete(population.ordinary + population.special) {
+        if session.intermission.is_none() {
+            ending.write(RoundEnding {
+                session: *session_id,
+                round: session.round,
+            });
+        }
         let timer = session.intermission.get_or_insert_with(|| {
             Timer::from_seconds(profile.between_round_seconds, TimerMode::Once)
         });

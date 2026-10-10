@@ -23,6 +23,7 @@ use bevy::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, net::Ipv4Addr};
+mod environment;
 
 #[derive(Resource, Default)]
 struct RemoteState {
@@ -110,6 +111,8 @@ pub(super) fn install(app: &mut App, port: u16) {
             RemotePlugin::default()
                 .with_method_main("origins/schema", schema)
                 .with_method_main("origins/state", snapshot)
+                .with_method_main("origins/environment/schema", environment::schema)
+                .with_method_main("origins/environment/setup", environment::setup)
                 .with_method_main("origins/materials", materials)
                 .with_method_main("origins/capture", capture)
                 .with_method_main("origins/preview", preview)
@@ -317,10 +320,10 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     let equipment = world.resource::<crate::equipment::EquipmentEvidence>();
     result["equipment"] = json!({"retired_blasts":equipment.retired_blasts,"self_impacts":equipment.self_impacts,"enemy_impacts":equipment.enemy_impacts,"round_awards":equipment.round_awards,
         "primed":equipment.primed,"thrown":equipment.thrown,"cooked_off":equipment.cooked_off,"detonations":equipment.detonations,"events":equipment.events});
-    result["session"] = json!({"round":session.round,"pending":session.pending,"points":session.points,"score":session.score,"kills":session.kills,"shots":session.shots,"downs":session.downs,"spawn_remaining":session.spawn_timer.remaining_secs()});
+    result["session"] = json!({"round":session.round,"pending":session.pending,"points":session.points,"score":session.score,"kills":session.kills,"shots":session.shots,"downs":session.downs,"spawn_remaining":session.spawn_timer.remaining_secs(),"intermission":session.intermission.is_some(),"random_state":session.seed});
     let history = world.resource::<crate::damage::CombatHistory>();
     result["damage"] = json!({"awarded_points":history.awarded_points,"headshot_kills":history.headshot_kills,"melee_kills":history.melee_kills,
-        "recent":history.recent.iter().map(|receipt|json!({"attacker":receipt.impact.attacker.to_bits(),"target":receipt.impact.target.to_bits(),"source":receipt.impact.source.id(),"category":format!("{:?}",receipt.impact.category),"region":format!("{:?}",receipt.impact.region),"amount":receipt.impact.amount,"base_amount":receipt.base_amount,"lethal":receipt.lethal,"points":receipt.points,"aimed_bullet":receipt.aimed_bullet,"insta_kill":receipt.insta_kill})).collect::<Vec<_>>()});
+        "recent":history.recent.iter().map(|receipt|json!({"attacker":receipt.impact.attacker.to_bits(),"target":receipt.impact.target.to_bits(),"source":receipt.impact.source.id(),"category":format!("{:?}",receipt.impact.category),"region":format!("{:?}",receipt.impact.region),"amount":receipt.impact.amount,"base_amount":receipt.base_amount,"lethal":receipt.lethal,"points":receipt.points,"aimed_bullet":receipt.aimed_bullet,"insta_kill":receipt.insta_kill,"soul_eligible":receipt.can_supply_soul()})).collect::<Vec<_>>()});
     result["equipment"]["active_grenades"] = json!(world.query::<(Entity, &crate::equipment::Grenade, &Transform)>().iter(world)
         .map(|(entity, grenade, pose)| json!({"entity":entity.to_bits(),"id":grenade.definition.0,"remaining":grenade.remaining,"position":pose.translation.to_array()})).collect::<Vec<_>>());
     result["equipment"]["mine_placed"] =
@@ -395,12 +398,13 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     result["audio"]["requests"] = json!(world.resource::<crate::audio::RequestedAliases>().0);
     let effects = world.resource::<crate::powerups::PowerupEffects>();
     result["firing"] = json!({"shots":world.resource::<crate::perks::FiringEvidence>().shots});
-    result["effects"] = json!({"double_points":effects.double_points,"insta_kill":effects.insta_kill,"zombie_blood":effects.zombie_blood});
+    result["effects"] = json!({"double_points":effects.double_points,"insta_kill":effects.insta_kill,"zombie_blood":effects.zombie_blood,"fire_sale":effects.fire_sale});
     result["controls"] = serde_json::to_value(world.resource::<crate::input::ControlSettings>())
         .map_err(|e| error(e.to_string()))?;
     if let Some(f) = world.get_resource::<crate::interactions::InteractionFocus>() {
         result["focus"] = json!({"target":f.target.map(Entity::to_bits),"prompt":f.prompt,"accepted":f.accepted,"rejection":f.rejection.map(|r|format!("{r:?}"))});
     }
+    result["environment"] = environment::snapshot(world);
     Ok(result)
 }
 fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {

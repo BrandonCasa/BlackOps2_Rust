@@ -7,8 +7,16 @@ use crate::{
     player::Player,
     weapons::HitRegion,
 };
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use std::collections::VecDeque;
+
+#[derive(SystemParam)]
+struct Attribution<'w, 's> {
+    players: Query<'w, 's, &'static crate::weapons::WeaponInventory, With<Player>>,
+    emitters: Query<'w, 's, &'static crate::environment::support::DamageEmitter>,
+    diggers: Query<'w, 's, &'static crate::environment::digging::Digger>,
+}
 
 #[derive(Clone, Debug)]
 pub enum ImpactSource {
@@ -17,6 +25,8 @@ pub enum ImpactSource {
     Enemy(ContentId),
     Fall,
     Environment(String),
+    Robot(String),
+    Vehicle(String),
     OutOfBounds,
     Powerup,
     Perk(crate::origins::PerkId),
@@ -28,13 +38,19 @@ impl ImpactSource {
             Self::Enemy(id) => &id.0,
             Self::Powerup => "powerup.nuke",
             Self::Fall => "hazard.fall",
-            Self::Environment(id) => id,
+            Self::Environment(id) | Self::Robot(id) | Self::Vehicle(id) => id,
             Self::OutOfBounds => "hazard.out_of_bounds",
             Self::Perk(id) => &id.0,
         }
     }
     fn is_cherry(&self, definition: &GameDefinition) -> bool {
         matches!(self, Self::Perk(id) if definition.content.perks.iter().any(|perk| perk.id == *id && perk.cherry.is_some()))
+    }
+    pub fn player_attributed(&self) -> bool {
+        matches!(
+            self,
+            Self::Weapon(_) | Self::Projectile(_) | Self::Perk(_) | Self::Powerup
+        )
     }
 }
 #[derive(Clone, Debug)]
@@ -54,6 +70,13 @@ pub struct DamageReceipt {
     pub points: u32,
     pub aimed_bullet: bool,
     pub insta_kill: bool,
+}
+impl DamageReceipt {
+    pub fn can_supply_soul(&self) -> bool {
+        self.lethal
+            && self.impact.source.player_attributed()
+            && !matches!(self.impact.source, ImpactSource::Powerup)
+    }
 }
 #[derive(Message, Clone, Debug)]
 pub struct EnemyDeath(pub DamageReceipt);
@@ -102,7 +125,7 @@ fn resolve(
     mut queue: ResMut<DamageQueue>,
     mut history: ResMut<CombatHistory>,
     mut targets: Query<(&mut Vitality, Option<&mut crate::player_health::Recovery>)>,
-    players: Query<&crate::weapons::WeaponInventory, With<Player>>,
+    attribution: Attribution,
     enemies: Query<&Zombie>,
     definition: Res<GameDefinition>,
     mut evidence: ResMut<crate::player_health::HealthEvidence>,
@@ -116,6 +139,11 @@ fn resolve(
     effects: Res<crate::powerups::PowerupEffects>,
     nuked: Query<(), With<crate::powerups::NukeTarget>>,
 ) {
+    let Attribution {
+        players,
+        emitters,
+        diggers,
+    } = attribution;
     queue
         .0
         .sort_by_key(|impact| matches!(impact.source, ImpactSource::Enemy(_)));
@@ -139,11 +167,17 @@ fn resolve(
             ImpactSource::Enemy(id) => enemies
                 .get(impact.attacker)
                 .is_ok_and(|z| z.definition == *id),
+            ImpactSource::Robot(_) | ImpactSource::Vehicle(_) => emitters
+                .get(impact.attacker)
+                .is_ok_and(|e| e.matches(&impact.source)),
         };
         if (!sender_alive
             && !matches!(
                 impact.source,
-                ImpactSource::Projectile(_) | ImpactSource::Powerup
+                ImpactSource::Projectile(_)
+                    | ImpactSource::Powerup
+                    | ImpactSource::Robot(_)
+                    | ImpactSource::Vehicle(_)
             ))
             || !valid_source
         {
@@ -153,6 +187,12 @@ fn resolve(
             continue;
         };
         let player = players.contains(impact.target);
+        if player
+            && matches!(impact.source, ImpactSource::Robot(_))
+            && diggers.get(impact.target).is_ok_and(|d| d.helmet)
+        {
+            continue;
+        }
         let out_of_bounds = matches!(impact.source, ImpactSource::OutOfBounds);
         if player
             && health.state() != crate::life::LifeState::Standing
@@ -303,7 +343,9 @@ fn rewards(
         } else {
             0
         };
-        let points = if matches!(impact.source, ImpactSource::Powerup) {
+        let points = if !impact.source.player_attributed()
+            || matches!(impact.source, ImpactSource::Powerup)
+        {
             0
         } else if nuked.contains(impact.target) {
             if !cherry && applied.aimed_bullet && (!lethal || applied.insta_kill) {
@@ -356,7 +398,9 @@ fn reward_deaths(
     mut session: ResMut<Session>,
 ) {
     for EnemyDeath(receipt) in deaths.read() {
-        if matches!(receipt.impact.source, ImpactSource::Powerup) {
+        if !receipt.impact.source.player_attributed()
+            || matches!(receipt.impact.source, ImpactSource::Powerup)
+        {
             continue;
         }
         session.award(receipt.points);

@@ -83,6 +83,7 @@ impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Session>()
             .add_message::<crate::rounds::RoundStarted>()
+            .add_message::<crate::rounds::RoundEnding>()
             .init_resource::<crate::rounds::Population>()
             .init_resource::<crate::rounds::RoundEvidence>()
             .configure_sets(
@@ -137,6 +138,8 @@ pub(crate) fn combat(
     mut hit_evidence: ResMut<crate::hit_regions::HitEvidence>,
     mut firing_evidence: ResMut<crate::perks::FiringEvidence>,
     mut reloads: MessageWriter<crate::perk_effects::ReloadEvent>,
+    environmental: crate::environment::support::ShootableTargets,
+    mut environment_hits: MessageWriter<crate::environment::support::EnvironmentalHit>,
 ) {
     let dt = time.delta_secs();
     let Ok((entity, player, transform, mut inventory, grenades, mines, tactical, drinking, perks)) =
@@ -306,14 +309,35 @@ pub(crate) fn combat(
                     session.shots as u64 * 137 + pellet as u64 * 19,
                 )
             };
-            if let Some(hit) = crate::hit_regions::cast(
+            let actor_hit = crate::hit_regions::cast(
                 &enemies,
                 &query,
                 entity,
                 origin,
                 direction,
                 if melee { 2.2 } else { 100. },
-            ) {
+            );
+            if let Some((target, distance)) = crate::environment::support::cast(
+                &environmental,
+                &query,
+                entity,
+                origin,
+                direction,
+                if melee { 2.2 } else { 100. },
+            ) && actor_hit.is_none_or(|hit| distance < hit.hit.distance)
+            {
+                environment_hits.write(crate::environment::support::EnvironmentalHit {
+                    target,
+                    attacker: entity,
+                    weapon: weapon_id.clone(),
+                    amount: weapon.map_or(damage, |w| {
+                        crate::weapons::damage_at(w, distance, crate::weapons::HitRegion::Torso)
+                    }),
+                    point: origin + direction.as_vec3() * distance,
+                });
+                continue;
+            }
+            if let Some(hit) = actor_hit {
                 let region = hit.hit.region;
                 if hit_evidence.hits.len() < 128 {
                     hit_evidence.hits.push(serde_json::json!({"target":hit.target.to_bits(),"region":format!("{region:?}"),

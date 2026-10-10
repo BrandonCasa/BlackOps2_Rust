@@ -17,6 +17,7 @@ pub struct PowerupEffects {
     pub double_points: f32,
     pub insta_kill: f32,
     pub zombie_blood: f32,
+    pub fire_sale: f32,
 }
 impl PowerupEffects {
     pub fn multiplier(&self) -> u32 {
@@ -34,7 +35,7 @@ pub struct Drops {
     pub collected: u32,
     pub expired: u32,
     round: u32,
-    count: u32,
+    pub count: u32,
     threshold: f64,
     increment: f64,
     earned: bool,
@@ -101,6 +102,7 @@ fn tick(
     let dt = time.delta_secs();
     effects.double_points = (effects.double_points - dt).max(0.);
     effects.insta_kill = (effects.insta_kill - dt).max(0.);
+    effects.fire_sale = (effects.fire_sale - dt).max(0.);
     effects.zombie_blood = if player.iter().any(|v| v.state() == LifeState::Standing) {
         (effects.zombie_blood - dt).max(0.)
     } else {
@@ -212,6 +214,7 @@ fn drop_powerups(
     }
     for EnemyDeath(receipt) in deaths.read() {
         if drops.count >= 4
+            || !receipt.impact.source.player_attributed()
             || !players.contains(receipt.impact.attacker)
             || definition.content.weapons.iter().any(|w| {
                 w.id.0 == receipt.impact.source.id()
@@ -315,8 +318,11 @@ fn collect(
     definition: Res<GameDefinition>,
     mut effects: ResMut<PowerupEffects>,
     mut drops: ResMut<Drops>,
-    session: Res<Session>,
-    pickups: Query<(Entity, &Pickup, &Transform)>,
+    mut session: ResMut<Session>,
+    pickups: Query<
+        (Entity, &Pickup, &Transform),
+        Without<crate::environment::digging::RisingPickup>,
+    >,
     mut players: Query<(
         Entity,
         &Player,
@@ -347,6 +353,14 @@ fn collect(
                 continue;
             }
             match d.id.0.as_str() {
+                "powerup.bonus_points_player" | "powerup.bonus_points_team" => {
+                    let _default_points = (1 + session.random() % 24) * 100;
+                    let points = (1 + session.random() % 5) * 50;
+                    if health.state() == LifeState::Standing {
+                        session.award(points * effects.multiplier());
+                    }
+                }
+                "powerup.fire_sale" => effects.fire_sale = d.duration,
                 "powerup.double_points" => effects.double_points = d.duration,
                 "powerup.insta_kill" => effects.insta_kill = d.duration,
                 "powerup.zombie_blood" => effects.zombie_blood = d.duration,
@@ -404,21 +418,27 @@ fn collect(
                 "powerup.full_ammo" => "powerup_ammo",
                 "powerup.double_points" => "powerup_doublepoints",
                 "powerup.zombie_blood" => "powerup_zombie_blood",
+                "powerup.fire_sale" => "powerup_firesale",
+                "powerup.bonus_points_player" | "powerup.bonus_points_team" => "",
                 _ => "powerup_nuke",
             };
-            crate::audio::voice(
-                &mut commands,
-                &definition,
-                &session,
-                voice,
-                owner,
-                drops.collected,
-            );
+            if !voice.is_empty() {
+                crate::audio::voice(
+                    &mut commands,
+                    &definition,
+                    &session,
+                    voice,
+                    owner,
+                    drops.collected,
+                );
+            }
             let announcer = match d.id.0.as_str() {
                 "powerup.insta_kill" => "instakill",
                 "powerup.full_ammo" => "maxammo",
                 "powerup.double_points" => "doublepoints",
                 "powerup.zombie_blood" => "zombie_blood",
+                "powerup.fire_sale" => "firesale",
+                "powerup.bonus_points_player" | "powerup.bonus_points_team" => "blood_money",
                 _ => "nuke",
             };
             sound(

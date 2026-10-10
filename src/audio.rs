@@ -228,6 +228,12 @@ pub fn emit_loop(commands: &mut Commands, alias: impl Into<String>, source: Soun
         ))
         .id()
 }
+#[derive(Component)]
+pub struct SoundFade {
+    pub remaining: f32,
+    pub duration: f32,
+    pub out: bool,
+}
 pub fn binding(commands: &mut Commands, game: &GameDefinition, key: &str, source: SoundSource) {
     if let Some(alias) = game.audio.bindings.get(key) {
         emit(commands, alias.clone(), source);
@@ -329,7 +335,7 @@ fn play(
     state: Res<State<GameState>>,
     settings: Res<AudioSettings>,
     time: Res<Time>,
-    requests: Query<(Entity, &SoundRequest)>,
+    requests: Query<(Entity, &SoundRequest, Option<&SoundFade>)>,
     playing: Query<(Entity, &PlayingSound)>,
     camera: Query<Entity, With<crate::rendering::GameCamera>>,
     transforms: TransformHelper,
@@ -346,7 +352,7 @@ fn play(
         return;
     };
     if **state != GameState::Playing && **state != GameState::GameOver {
-        for (e, _) in &requests {
+        for (e, ..) in &requests {
             commands.entity(e).try_despawn();
         }
         return;
@@ -372,7 +378,7 @@ fn play(
             voice.push((e, s.priority));
         }
     }
-    for (entity, request) in &requests {
+    for (entity, request, fade) in &requests {
         if **state == GameState::GameOver && request.alias != "mus_zombie_game_over" {
             commands.entity(entity).try_despawn();
             continue;
@@ -480,7 +486,8 @@ fn play(
         }
         let fraction = ((mixer.sequence >> 16) & 65535) as f32 / 65535.;
         let speed = sound.pitch[0] + (sound.pitch[1] - sound.pitch[0]) * fraction;
-        let gain = settings.gain(alias.channel)
+        let gain = if fade.is_some_and(|f| !f.out) { 0. } else { 1. }
+            * settings.gain(alias.channel)
             * if alias.spatial {
                 attenuation(
                     listener.distance(position),
@@ -560,6 +567,7 @@ fn maintain(
             Option<&mut SpatialAudioSink>,
             &mut PlaybackSettings,
             Option<&RetiringSound>,
+            Option<&mut SoundFade>,
         )>,
     )>,
     mut evidence: ResMut<AudioEvidence>,
@@ -582,7 +590,8 @@ fn maintain(
         .collect();
     let mut sounds = queries.p1();
     heard.retain(|e| sounds.contains(*e));
-    for (entity, mut sound, mut pose, regular, spatial, mut playback, retiring) in &mut sounds {
+    for (entity, mut sound, mut pose, regular, spatial, mut playback, retiring, fade) in &mut sounds
+    {
         playback.paused = **state == GameState::Paused;
         if let Some(position) = positions[&entity] {
             pose.translation = position;
@@ -613,6 +622,20 @@ fn maintain(
             }
         } else {
             sound.gain = target;
+        }
+        if let Some(mut fade) = fade {
+            if **state != GameState::Paused {
+                fade.remaining = (fade.remaining - time.delta_secs()).max(0.);
+            }
+            let fraction = (fade.remaining / fade.duration.max(0.001)).clamp(0., 1.);
+            sound.gain *= if fade.out { fraction } else { 1. - fraction };
+            if fade.remaining == 0. {
+                if fade.out {
+                    commands.entity(entity).try_despawn();
+                    continue;
+                }
+                commands.entity(entity).remove::<SoundFade>();
+            }
         }
         if retiring.is_some() && sound.gain < 0.002 {
             commands.entity(entity).try_despawn();
