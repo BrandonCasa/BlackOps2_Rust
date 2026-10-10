@@ -33,17 +33,24 @@ pub(super) fn prepare_shaders(
     mut commands: Commands,
     mut shaders: ResMut<Assets<Shader>>,
     ready: Option<Res<MaterialShadersReady>>,
+    mode: Res<super::pbr::MaterialDiagnostic>,
 ) {
-    if ready.is_some() {
+    if ready.is_some() || mode.0 == 0 {
         return;
     }
+    if prepare_diagnostic_shaders(&mut shaders) {
+        commands.insert_resource(MaterialShadersReady);
+    }
+}
+
+pub(super) fn prepare_diagnostic_shaders(shaders: &mut Assets<Shader>) -> bool {
     let Some(source) = shaders.iter().find_map(|(_, shader)| {
         (shader.import_path == ShaderImport::Custom("bevy_pbr::render::pbr_functions".into()))
             .then(|| shader.source.as_str().to_string())
     }) else {
-        return;
+        return false;
     };
-    super::pbr::diagnostic_shaders(&mut shaders, &source);
+    super::pbr::diagnostic_shaders(shaders, &source);
     let lighting = format!(
         "import origins::surface_bindings::{{reflection_diagnostic_enabled, surface_diagnostic_mode}};\n{}",
         source.replace("package::", "bevy_pbr::")
@@ -59,7 +66,7 @@ pub(super) fn prepare_shaders(
             Shader::from_wesl(lighting, "embedded://origins/surface_lighting.wesl"),
         )
         .expect("Valid shader UUID");
-    commands.insert_resource(MaterialShadersReady);
+    true
 }
 pub(crate) const LAYER_UV: MeshVertexAttribute =
     MeshVertexAttribute::new("OriginsLayerUv", 10001, VertexFormat::Float32x4);
@@ -182,10 +189,12 @@ pub(super) struct SurfaceParameters {
 }
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+#[bind_group_data(OpaqueSurfaceKey)]
 #[data(100, SurfaceParameters, binding_array(125))]
 #[bindless(limit(1024), index_table(range(100..124), binding(124)))]
 pub(super) struct OpaqueSurface {
     parameters: SurfaceParameters,
+    diagnostic: bool,
     #[texture(101)]
     #[sampler(102)]
     #[dependency]
@@ -235,6 +244,19 @@ pub(super) struct OpaqueSurface {
     animation_clock: Handle<ShaderBuffer>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct OpaqueSurfaceKey {
+    diagnostic: bool,
+}
+
+impl From<&OpaqueSurface> for OpaqueSurfaceKey {
+    fn from(surface: &OpaqueSurface) -> Self {
+        Self {
+            diagnostic: surface.diagnostic,
+        }
+    }
+}
+
 impl From<&OpaqueSurface> for SurfaceParameters {
     fn from(surface: &OpaqueSurface) -> Self {
         surface.parameters
@@ -267,6 +289,11 @@ impl MaterialExtension for OpaqueSurface {
                 descriptor.primitive.cull_mode = None;
             }
             return Ok(());
+        }
+        if key.bind_group_data.diagnostic
+            && let Some(fragment) = descriptor.fragment.as_mut()
+        {
+            fragment.shader_defs.push("ORIGINS_DIAGNOSTIC".into());
         }
         let mut attributes = vec![
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
@@ -569,7 +596,17 @@ pub(super) fn animate_water(
     mode: Res<super::pbr::MaterialDiagnostic>,
     library: Option<Res<SurfaceLibrary>>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
+    ready: Option<Res<MaterialShadersReady>>,
+    mut materials: ResMut<Assets<OpaqueMaterial>>,
+    mut diagnostic_active: Local<bool>,
 ) {
+    let diagnostic = mode.0 != 0 && ready.is_some();
+    if diagnostic != *diagnostic_active {
+        for (_, material) in materials.iter_mut() {
+            material.extension.diagnostic = diagnostic;
+        }
+        *diagnostic_active = diagnostic;
+    }
     let Some(library) = library else { return };
     if let Some(mut clock) = buffers.get_mut(&library.animation_clock) {
         clock.clear();
@@ -618,6 +655,8 @@ pub(super) fn convert(
     images: Res<Assets<Image>>,
     mut status: ResMut<OpaqueSurfaceStatus>,
     profile: Res<VisualProfile>,
+    mode: Res<super::pbr::MaterialDiagnostic>,
+    ready: Option<Res<MaterialShadersReady>>,
 ) {
     let Some(mut library) = library else { return };
     status.pending = 0;
@@ -689,6 +728,7 @@ pub(super) fn convert(
             };
             let extension = OpaqueSurface {
                 parameters,
+                diagnostic: mode.0 != 0 && ready.is_some(),
                 normal: channel("normal", 0),
                 second_normal: channel("normal", 1),
                 specular: channel("response", 0),

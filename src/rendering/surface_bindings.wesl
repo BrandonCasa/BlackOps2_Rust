@@ -73,49 +73,49 @@ fn parameters_for(slot: u32) -> OriginsSurfaceData {
     @if(BINDLESS) return surface_parameters[surface_indices[slot].parameters];
     @if(!BINDLESS) return surface_uniform;
 }
-fn sample_normal_map(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].normal_map], bindless_samplers_filtering[surface_indices[slot].normal_sampler], uv);
-    @if(!BINDLESS) return textureSample(normal_map, normal_sampler, uv);
+fn sample_normal_map(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].normal_map], bindless_samplers_filtering[surface_indices[slot].normal_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(normal_map, normal_sampler, uv, gradient[0], gradient[1]);
 }
-fn sample_second_normal(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].second_normal], bindless_samplers_filtering[surface_indices[slot].second_normal_sampler], uv);
-    @if(!BINDLESS) return textureSample(second_normal, second_normal_sampler, uv);
+fn sample_second_normal(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].second_normal], bindless_samplers_filtering[surface_indices[slot].second_normal_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(second_normal, second_normal_sampler, uv, gradient[0], gradient[1]);
 }
-fn sample_specular_map(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].specular_map], bindless_samplers_filtering[surface_indices[slot].specular_sampler], uv);
-    @if(!BINDLESS) return textureSample(specular_map, specular_sampler, uv);
+fn sample_specular_map(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].specular_map], bindless_samplers_filtering[surface_indices[slot].specular_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(specular_map, specular_sampler, uv, gradient[0], gradient[1]);
 }
-fn sample_second_specular(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].second_specular], bindless_samplers_filtering[surface_indices[slot].second_specular_sampler], uv);
-    @if(!BINDLESS) return textureSample(second_specular, second_specular_sampler, uv);
+fn sample_second_specular(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].second_specular], bindless_samplers_filtering[surface_indices[slot].second_specular_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(second_specular, second_specular_sampler, uv, gradient[0], gradient[1]);
 }
-fn sample_control_map(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].control_map], bindless_samplers_filtering[surface_indices[slot].control_sampler], uv);
-    @if(!BINDLESS) return textureSample(control_map, control_sampler, uv);
+fn sample_control_map(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].control_map], bindless_samplers_filtering[surface_indices[slot].control_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(control_map, control_sampler, uv, gradient[0], gradient[1]);
 }
-fn sample_color_base(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].color_base], bindless_samplers_filtering[surface_indices[slot].color0_sampler], uv);
-    @if(!BINDLESS) return textureSample(color_base, color0_sampler, uv);
+fn sample_color_base_grad(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].color_base], bindless_samplers_filtering[surface_indices[slot].color0_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(color_base, color0_sampler, uv, gradient[0], gradient[1]);
 }
-fn sample_color_first(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].color_first], bindless_samplers_filtering[surface_indices[slot].color1_sampler], uv);
-    @if(!BINDLESS) return textureSample(color_first, color1_sampler, uv);
+fn sample_color_first_grad(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].color_first], bindless_samplers_filtering[surface_indices[slot].color1_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(color_first, color1_sampler, uv, gradient[0], gradient[1]);
 }
-fn sample_color_second(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].color_second], bindless_samplers_filtering[surface_indices[slot].color2_sampler], uv);
-    @if(!BINDLESS) return textureSample(color_second, color2_sampler, uv);
+fn sample_color_second_grad(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].color_second], bindless_samplers_filtering[surface_indices[slot].color2_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(color_second, color2_sampler, uv, gradient[0], gradient[1]);
 }
-fn sample_color_third(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].color_third], bindless_samplers_filtering[surface_indices[slot].color3_sampler], uv);
-    @if(!BINDLESS) return textureSample(color_third, color3_sampler, uv);
+fn sample_color_third_grad(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].color_third], bindless_samplers_filtering[surface_indices[slot].color3_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(color_third, color3_sampler, uv, gradient[0], gradient[1]);
 }
-fn sample_third_normal(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].third_normal], bindless_samplers_filtering[surface_indices[slot].third_normal_sampler], uv);
-    @if(!BINDLESS) return textureSample(third_normal, third_normal_sampler, uv);
+fn sample_third_normal(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].third_normal], bindless_samplers_filtering[surface_indices[slot].third_normal_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(third_normal, third_normal_sampler, uv, gradient[0], gradient[1]);
 }
-fn sample_third_specular(slot: u32, uv: vec2<f32>) -> vec4<f32> {
-    @if(BINDLESS) return textureSample(bindless_textures_2d[surface_indices[slot].third_specular], bindless_samplers_filtering[surface_indices[slot].third_specular_sampler], uv);
-    @if(!BINDLESS) return textureSample(third_specular, third_specular_sampler, uv);
+fn sample_third_specular(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec4<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].third_specular], bindless_samplers_filtering[surface_indices[slot].third_specular_sampler], uv, gradient[0], gradient[1]);
+    @if(!BINDLESS) return textureSampleGrad(third_specular, third_specular_sampler, uv, gradient[0], gradient[1]);
 }
 fn animation_time(slot: u32) -> f32 {
     @if(BINDLESS) return animation_clocks[surface_indices[slot].animation_clock].elapsed.x;
