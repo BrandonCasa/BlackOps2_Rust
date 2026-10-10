@@ -119,6 +119,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
             }),
     )
     .add_plugins(bevy::anti_alias::smaa::SmaaPlugin)
+    .add_plugins(bevy::anti_alias::taa::TemporalAntiAliasPlugin)
     .add_plugins(avian3d::prelude::PhysicsPlugins::default())
     .init_state::<GameState>()
     .add_systems(Startup, initial_physical_resolution)
