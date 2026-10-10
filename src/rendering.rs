@@ -136,6 +136,7 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
                 affects_lightmapped_mesh_diffuse: true,
                 contact_shadows_enabled: true,
                 shadow_maps_enabled: true,
+                soft_shadow_size: Some(profile.sun_soft_shadow_size),
                 shadow_depth_bias: 0.002,
                 shadow_normal_bias: 0.25,
                 ..default()
@@ -165,7 +166,11 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
         bevy::pbr::ScreenSpaceTransmission::default(),
         GameCamera,
         bevy::camera::ShadowLodOrigin,
-        bevy::light::ShadowFilteringMethod::Gaussian,
+        match profile.antialiasing {
+            profile::Antialiasing::Taa => bevy::light::ShadowFilteringMethod::Temporal,
+            _ => bevy::light::ShadowFilteringMethod::Gaussian,
+        },
+        bevy::pbr::ContactShadows::default(),
         DepthPrepass,
         Transform::from_xyz(0., 2., 0.),
         Hdr,
@@ -176,9 +181,12 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
         bevy::core_pipeline::tonemapping::DebandDither::Disabled,
         match profile.antialiasing {
             profile::Antialiasing::Msaa4 => Msaa::Sample4,
-            profile::Antialiasing::Smaa => Msaa::Off,
+            profile::Antialiasing::Smaa | profile::Antialiasing::Taa => Msaa::Off,
         },
     ));
+    if matches!(profile.antialiasing, profile::Antialiasing::Taa) {
+        camera.insert(bevy::anti_alias::taa::TemporalAntiAliasing::default());
+    }
     camera.insert(bevy::audio::SpatialListener::new(0.2));
     camera.insert(bevy::render::occlusion_culling::OcclusionCulling);
 }
@@ -362,6 +370,8 @@ fn fixture_lights(
                         shadow_depth_bias: 0.005,
                         shadow_normal_bias: 0.3,
                         shadow_maps_enabled: false,
+                        contact_shadows_enabled: true,
+                        soft_shadows_enabled: true,
                         ..default()
                     },
                     Transform::from_translation(Vec3::from(bounds.center)),

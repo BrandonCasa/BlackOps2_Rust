@@ -39,7 +39,7 @@
     ]
   },
   "comparison_fov_degrees": 55.0,
-  "antialiasing": "Smaa",
+  "antialiasing": "Taa",
   "bloom_intensity": 0.14,
   "fog_color_linear": [
     0.690934002,
@@ -76,6 +76,7 @@
     0.016
   ],
   "sun_shadow_map_size": 2048,
+  "sun_soft_shadow_size": 1.0,
   "sun_shadow_distance": 60.0,
   "sun_shadow_cascades": 3,
   "sun_shadow_first_cascade": 8.0,

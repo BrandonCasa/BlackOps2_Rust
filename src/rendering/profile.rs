@@ -5,6 +5,7 @@ use serde::Deserialize;
 pub(crate) enum Antialiasing {
     Msaa4,
     Smaa,
+    Taa,
 }
 
 #[derive(Deserialize)]
@@ -42,6 +43,7 @@ pub(crate) struct VisualProfile {
     pub fog_half_distance: f32,
     pub fog_distance_scale: f32,
     pub sun_shadow_map_size: usize,
+    pub sun_soft_shadow_size: f32,
     pub sun_shadow_distance: f32,
     pub sun_shadow_cascades: usize,
     pub sun_shadow_first_cascade: f32,

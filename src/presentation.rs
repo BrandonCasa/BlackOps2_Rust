@@ -191,7 +191,8 @@ pub(crate) fn first_person_light(
                 crate::rendering::postprocess::bloom(&profile),
                 match profile.antialiasing {
                     crate::rendering::profile::Antialiasing::Msaa4 => Msaa::Sample4,
-                    crate::rendering::profile::Antialiasing::Smaa => Msaa::Off,
+                    crate::rendering::profile::Antialiasing::Smaa
+                    | crate::rendering::profile::Antialiasing::Taa => Msaa::Off,
                 },
                 RenderLayers::layer(1),
                 ViewModelCamera,
@@ -205,6 +206,16 @@ pub(crate) fn first_person_light(
                     compensation_curve: compensation.clone(),
                     ..default()
                 });
+            }
+            if matches!(
+                profile.antialiasing,
+                crate::rendering::profile::Antialiasing::Taa
+            ) {
+                final_camera.insert((
+                    bevy::anti_alias::taa::TemporalAntiAliasing::default(),
+                    bevy::light::ShadowFilteringMethod::Temporal,
+                    bevy::pbr::ContactShadows::default(),
+                ));
             }
             if matches!(
                 profile.antialiasing,
