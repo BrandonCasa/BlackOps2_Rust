@@ -1042,5 +1042,6 @@ pub(crate) fn weapon_material_snapshot(world: &mut World) -> Value {
         .iter()
         .map(|w| w.id.0.clone())
         .collect();
-    json!({"pending":pending,"first_person":first_person,"world":models,"inventory":inventory})
+    let shadows = super::shadows::snapshot(world);
+    json!({"pending":pending,"first_person":first_person,"world":models,"inventory":inventory,"shadows":shadows})
 }

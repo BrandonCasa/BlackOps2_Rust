@@ -7,7 +7,6 @@ use bevy::{
     camera::{Exposure, Hdr, primitives::Aabb},
     core_pipeline::{prepass::DepthPrepass, tonemapping::Tonemapping},
     gltf::GltfMaterialName,
-    light::NotShadowCaster,
     prelude::*,
 };
 mod first_person;
@@ -56,7 +55,23 @@ pub(crate) struct SurfacePreparation;
 struct LanternLight;
 
 #[derive(Component)]
-pub(crate) struct FixtureEmitter;
+pub(crate) struct FixtureEmitter(pub String);
+
+#[cfg(feature = "dev-dynamic")]
+#[derive(Resource)]
+pub(crate) struct ValidationView(pub Transform);
+
+impl FixtureEmitter {
+    fn radius(&self) -> f32 {
+        match self.0.as_str() {
+            "p6_zm_tm_lantern_01_on" => 0.025,
+            "p6_zm_tm_hanging_light_fixture_on" => 0.08,
+            "p6_zm_tm_robot_lamp" => 0.06,
+            "p6_zm_tm_portable_lantern_on" | "p6_zm_tm_gas_lamp_straight_on" => 0.02,
+            model => panic!("Unsupported fixture emitter: {model}"),
+        }
+    }
+}
 
 #[derive(Component)]
 struct FixtureLightReady;
@@ -79,6 +94,7 @@ impl Plugin for GameRenderingPlugin {
             .add_systems(Startup, (setup, opaque::initialize))
             .add_systems(PostStartup, sky::setup)
             .add_systems(Startup, cluster_capacity)
+            .add_systems(PostUpdate, shadows::restrict_contact_shadows)
             .add_systems(
                 PostUpdate,
                 shadows::select_local_lights
@@ -181,7 +197,6 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
             profile::Antialiasing::Taa => bevy::light::ShadowFilteringMethod::Temporal,
             _ => bevy::light::ShadowFilteringMethod::Gaussian,
         },
-        bevy::pbr::ContactShadows::default(),
         DepthPrepass,
         Transform::from_xyz(0., 2., 0.),
         Hdr,
@@ -203,6 +218,7 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
 }
 
 fn camera_follow(
+    #[cfg(feature = "dev-dynamic")] validation_view: Option<Res<ValidationView>>,
     players: Query<
         (
             &Player,
@@ -218,6 +234,13 @@ fn camera_follow(
     definition: Option<Res<GameDefinition>>,
     state: Res<State<GameState>>,
 ) {
+    #[cfg(feature = "dev-dynamic")]
+    if let Some(view) = validation_view {
+        for (mut transform, _) in &mut camera {
+            *transform = view.0;
+        }
+        return;
+    }
     if !matches!(
         **state,
         GameState::Playing | GameState::Paused | GameState::GameOver
@@ -348,9 +371,6 @@ fn surfaces(
                 LinearRgba::WHITE * profile.emissive_nits
             };
         }
-        if state["lamp"].as_bool() == Some(true) {
-            commands.entity(entity).insert(NotShadowCaster);
-        }
         commands.entity(entity).insert(SurfaceReady);
     }
 }
@@ -358,7 +378,7 @@ fn surfaces(
 fn fixture_lights(
     mut commands: Commands,
     fixtures: Query<
-        (Entity, &Aabb),
+        (Entity, &Aabb, &FixtureEmitter),
         (
             With<FixtureEmitter>,
             With<PbrReady>,
@@ -367,7 +387,7 @@ fn fixture_lights(
     >,
     profile: Res<profile::VisualProfile>,
 ) {
-    for (entity, bounds) in &fixtures {
+    for (entity, bounds, emitter) in &fixtures {
         commands
             .entity(entity)
             .insert(FixtureLightReady)
@@ -377,9 +397,10 @@ fn fixture_lights(
                         color: profile::color(profile.lantern_color),
                         intensity: profile.lantern_lumens,
                         range: profile.lantern_range,
-                        radius: 0.5,
+                        radius: emitter.radius(),
                         shadow_depth_bias: 0.005,
                         shadow_normal_bias: 0.3,
+                        shadow_map_near_z: 0.01,
                         shadow_maps_enabled: false,
                         contact_shadows_enabled: true,
                         soft_shadows_enabled: true,

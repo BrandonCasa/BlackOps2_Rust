@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 
-#[derive(Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Deserialize, serde::Serialize)]
 pub(crate) enum Antialiasing {
     Msaa4,
     Smaa,

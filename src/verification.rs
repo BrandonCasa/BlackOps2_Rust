@@ -38,6 +38,8 @@ mod powerups;
 mod release_performance;
 #[cfg(all(debug_assertions, feature = "dev-dynamic"))]
 mod remote;
+#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+mod rendering;
 mod replacements;
 mod weapon_actions;
 pub(crate) use pipelines::error_layer;
@@ -151,6 +153,7 @@ impl Plugin for VerificationPlugin {
         #[cfg(all(debug_assertions, feature = "dev-dynamic"))]
         if let Some(port) = app.world().resource::<LaunchOptions>().validation_remote {
             remote::install(app, port);
+            rendering::install(app);
             return;
         }
         if app.world().resource::<LaunchOptions>().verify_locomotion {
