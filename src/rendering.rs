@@ -107,6 +107,16 @@ impl Plugin for GameRenderingPlugin {
                     .chain(),
             );
     }
+
+    fn finish(&self, app: &mut App) {
+        if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            render
+                .add_observer(shadows::retire_hidden_light_views)
+                .edit_schedule(bevy::core_pipeline::schedule::Core3d, |schedule| {
+                    schedule.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
+                });
+        }
+    }
 }
 
 fn cluster_capacity(mut settings: ResMut<bevy::light::cluster::GlobalClusterSettings>) {

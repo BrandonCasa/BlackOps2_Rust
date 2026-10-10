@@ -2,6 +2,21 @@ use super::{GameCamera, LanternLight, profile::VisualProfile};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
+pub(super) fn retire_hidden_light_views(
+    removed: On<Remove<bevy::pbr::ExtractedPointLight>>,
+    views: Query<&bevy::pbr::PointAndSpotLightViewEntities>,
+    mut commands: Commands,
+) {
+    if let Ok(views) = views.get(removed.entity) {
+        if !views.is_empty() {
+            info!(views = views.len(), "Retiring hidden-light shadow views");
+        }
+        commands
+            .entity(removed.entity)
+            .remove::<bevy::pbr::PointAndSpotLightViewEntities>();
+    }
+}
+
 pub(super) fn select_local_lights(
     camera: Query<&GlobalTransform, With<GameCamera>>,
     mut lights: Query<
