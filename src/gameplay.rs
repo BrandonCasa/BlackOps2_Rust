@@ -177,12 +177,7 @@ pub(crate) fn combat(
     let direction = Dir3::new(rotation * Vec3::NEG_Z).unwrap_or(Dir3::NEG_Z);
     for emission in emissions {
         let weapon = inventory.definition(&definition.content.weapons);
-        let pellets = if matches!(emission, WeaponEmission::Melee) {
-            1
-        } else {
-            weapon.map_or(1, |w| w.mechanics.pellets)
-        };
-        let (melee, damage, weapon_id) = match emission {
+        let (melee, damage, weapon_id, weapon) = match emission {
             WeaponEmission::DryFire(id) => {
                 crate::audio::binding(
                     &mut commands,
@@ -257,7 +252,7 @@ pub(crate) fn combat(
                 let Some(weapon) = definition.content.weapons.iter().find(|w| w.id == id) else {
                     continue;
                 };
-                (false, weapon.damage, id)
+                (false, weapon.damage, id, Some(weapon))
             }
             WeaponEmission::Melee => (
                 true,
@@ -268,10 +263,23 @@ pub(crate) fn combat(
                     .find(|w| w.id.0 == "weapon.knife_zm")
                     .map_or(definition.tuning.melee_damage, |w| w.damage),
                 crate::origins::content::WeaponId("weapon.knife_zm".into()),
+                weapon,
             ),
         };
+        let pellets = if melee {
+            1
+        } else {
+            weapon.map_or(1, |w| w.mechanics.pellets)
+        };
         let spread = weapon.map_or(0., |w| {
-            let hip = w.mechanics.spread[if player.crouched { 1 } else { 0 }]
+            let stance = if player.prone {
+                2
+            } else if player.crouched {
+                1
+            } else {
+                0
+            };
+            let hip = w.mechanics.spread[stance]
                 * inventory.firing.hip_spread_scale
                 * (1. + player.velocity.xz().length().min(6.) / 6.);
             hip + (w.mechanics.spread[3] - hip) * inventory.ads
@@ -285,7 +293,7 @@ pub(crate) fn combat(
             weapon.map_or(1, |w| inventory.firing.copies(w))
         };
         if !melee && firing_evidence.shots.len() < 128 {
-            firing_evidence.shots.push(serde_json::json!({"weapon":weapon_id.0,"seconds":time.elapsed_secs_f64(),"pellets":pellets,"copies":copies,"rays":pellets*copies,"spread":spread,"ads":inventory.ads,"interval_scale":inventory.firing.interval_scale,"hip_spread_scale":inventory.firing.hip_spread_scale}));
+            firing_evidence.shots.push(serde_json::json!({"weapon":weapon_id.0,"seconds":time.elapsed_secs_f64(),"pellets":pellets,"copies":copies,"rays":pellets*copies,"spread":spread,"ads":inventory.ads,"prone":player.prone,"crouched":player.crouched,"speed":player.velocity.xz().length(),"interval_scale":inventory.firing.interval_scale,"hip_spread_scale":inventory.firing.hip_spread_scale}));
         }
         for ray in 0..pellets * copies {
             let pellet = ray / copies;
@@ -314,11 +322,9 @@ pub(crate) fn combat(
                 let damage = if melee {
                     damage
                 } else {
-                    inventory
-                        .definition(&definition.content.weapons)
-                        .map_or(damage, |weapon| {
-                            crate::weapons::damage_at(weapon, hit.hit.distance, region)
-                        })
+                    weapon.map_or(damage, |weapon| {
+                        crate::weapons::damage_at(weapon, hit.hit.distance, region)
+                    })
                 };
                 impacts.0.push(crate::damage::Impact {
                     attacker: entity,

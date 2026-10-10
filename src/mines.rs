@@ -127,12 +127,16 @@ pub fn install(app: &mut App) {
         );
 }
 fn replenish(
+    session: Res<crate::session::SessionId>,
     mut started: MessageReader<crate::rounds::RoundStarted>,
     definition: Res<GameDefinition>,
     mut players: Query<&mut MineInventory>,
     mut evidence: ResMut<MineEvidence>,
 ) {
     for event in started.read() {
+        if event.session != *session {
+            continue;
+        }
         for mut inventory in &mut players {
             if let Some(profile) = inventory
                 .definition

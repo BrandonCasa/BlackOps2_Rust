@@ -218,7 +218,7 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
         "endpoints":{"main":format!("http://127.0.0.1:{}",port.0),"render":"http://127.0.0.1:15703"},
         "discovery":{"methods":"rpc.discover","schemas":"registry.schema"},
         "methods":{
-            "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, lethal, tactical, mine), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
+            "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, prone, crouched, velocity, lethal, tactical, mine), firing (shots with stance, speed, spread, ADS and perk scales; first 128), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
             "origins/materials":{"params":{},"result":"pending, first_person, world, inventory; native material, texture, tangent readiness"},
             "origins/preview":{"params":{"weapon":"optional native ID; omitted clears preview"},"effect":"World-model scenario setup, attached to camera for inspection"},
             "origins/capture":{"params":{"path":"absolute PNG path"},"result":"asynchronous screenshot request"},
@@ -327,7 +327,7 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
             let definition = world.resource::<GameDefinition>().content.weapons.iter().find(|d|d.id==w.definition).unwrap();
             json!({"slot":slot,"id":w.definition.0,"magazine":w.magazine,"left_magazine":w.left_magazine,"reserve":inventory.reserve(definition)})
         }).collect();
-        result["player"] = json!({"entity":entity.to_bits(),"position":pose.translation.to_array(),"yaw":player.yaw,"pitch":player.pitch,"height":player.height,"eye_height":player.eye_height,"health":world.get::<Vitality>(entity).and_then(|v| v.current()),"active_slot":inventory.active_slot(),"action":format!("{:?}",inventory.action),"weapons":weapons,"ads":inventory.ads,"right_reload":inventory.hand_reload_timing(false),"left_reload":inventory.hand_reload_timing(true)});
+        result["player"] = json!({"entity":entity.to_bits(),"position":pose.translation.to_array(),"yaw":player.yaw,"pitch":player.pitch,"height":player.height,"eye_height":player.eye_height,"prone":player.prone,"crouched":player.crouched,"velocity":player.velocity.to_array(),"health":world.get::<Vitality>(entity).and_then(|v| v.current()),"active_slot":inventory.active_slot(),"action":format!("{:?}",inventory.action),"weapons":weapons,"ads":inventory.ads,"right_reload":inventory.hand_reload_timing(false),"left_reload":inventory.hand_reload_timing(true)});
     }
     if let Some(&entity) = entities.first() {
         result["player"]["life"] = json!(format!(
@@ -384,6 +384,7 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     }
     result["audio"]["requests"] = json!(world.resource::<crate::audio::RequestedAliases>().0);
     let effects = world.resource::<crate::powerups::PowerupEffects>();
+    result["firing"] = json!({"shots":world.resource::<crate::perks::FiringEvidence>().shots});
     result["effects"] = json!({"double_points":effects.double_points,"insta_kill":effects.insta_kill,"zombie_blood":effects.zombie_blood});
     result["controls"] = serde_json::to_value(world.resource::<crate::input::ControlSettings>())
         .map_err(|e| error(e.to_string()))?;
