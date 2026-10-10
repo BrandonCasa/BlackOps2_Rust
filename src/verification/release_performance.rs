@@ -225,7 +225,6 @@ fn record(
     enemies: Query<&Vitality, With<Zombie>>,
     windows: Query<&Window>,
     adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
-    streaming: Res<crate::rendering::TextureStreamingStats>,
     audio: Res<crate::audio::AudioDecodeStats>,
     profile: Res<crate::rendering::profile::VisualProfile>,
     preprocessing: Res<crate::rendering::PreprocessingStatus>,
@@ -240,11 +239,10 @@ fn record(
     let failed = matches!(
         **state,
         GameState::GameOver | GameState::LoadError | GameState::Paused
-    ) || run.started.elapsed().as_secs() > 900
-        || streaming.errors > 0;
+    ) || run.started.elapsed().as_secs() > 900;
     if failed {
         let receipt = serde_json::json!({"passed":false, "state":format!("{:?}", **state),
-            "load_failure": failure.0, "streaming": &*streaming,
+            "load_failure": failure.0, "texture_loading":"resident",
             "elapsed_seconds": run.started.elapsed().as_secs_f64()});
         let _ = std::fs::write(output.join("failure.json"), receipt.to_string());
         run.finished = true;
@@ -260,9 +258,7 @@ fn record(
     }
     if run.sample_start.is_none()
         && !options.benchmark_combat
-        && (run.ticks < (MOVING_PREP_SECONDS * 60.) as u64
-            || streaming.pending_detail > 0
-            || streaming.queued_reads > 0)
+        && run.ticks < (MOVING_PREP_SECONDS * 60.) as u64
     {
         return;
     }
@@ -311,7 +307,7 @@ fn record(
         "controlled_setup":{"round":if options.benchmark_combat {8} else {1},
             "pending":if options.benchmark_combat {COMBAT_ACTORS} else {1000},
             "combat_actor_health":if options.benchmark_combat {Some(COMBAT_ACTOR_HEALTH)} else {None},
-            "warmup_begins":if options.benchmark_combat {"after complete cohort admission"} else {"two complete camera sweeps, no movement, zero pending texture reads"},
+            "warmup_begins":if options.benchmark_combat {"after complete cohort admission"} else {"two complete camera sweeps after resident asset loading, no movement"},
             "player_health":if options.benchmark_combat {10000} else {100},
             "weapon":if options.benchmark_combat {"weapon.mg08_zm"} else {"weapon.c96_zm"},
             "enemy_admission":"production navigation and population cap", "moving_spawns_disabled":!options.benchmark_combat},
@@ -328,7 +324,7 @@ fn record(
         "run_environment": &*environment,
         "antialiasing":profile.antialiasing,"preprocessing":preprocessing.report(),
         "shared_lighting":{"method":"native_raster","ray_tracing":false,"local_light_limit":profile.max_local_lights},
-        "streaming":&*streaming,"audio_decode":&*audio,
+        "texture_loading":"resident","audio_decode":&*audio,
     });
     match std::fs::write(output.join("performance.json"), receipt.to_string()) {
         Ok(()) if passed => {

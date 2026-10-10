@@ -24,7 +24,7 @@ pub struct LaunchOptions {
     pub verify: Option<PathBuf>,
     pub verify_controls: bool,
     pub verify_locomotion: bool,
-    pub verify_texture_streaming: bool,
+    pub verify_resident_textures: bool,
     pub verify_viewmodel_shadows: bool,
     pub verify_actor_shadows: bool,
     pub benchmark: bool,
@@ -87,17 +87,17 @@ impl LaunchOptions {
                 }
                 return result;
             }
-            if argument == "--verify-texture-streaming"
+            if argument == "--verify-resident-textures"
                 || argument == "--verify-viewmodel-shadows"
                 || argument == "--verify-actor-shadows"
             {
-                result.verify_texture_streaming = argument == "--verify-texture-streaming";
+                result.verify_resident_textures = argument == "--verify-resident-textures";
                 result.verify_viewmodel_shadows = argument == "--verify-viewmodel-shadows";
                 result.verify_actor_shadows = argument == "--verify-actor-shadows";
                 result.verify = args.next().map(PathBuf::from);
                 if result.verify.is_none() || args.next().is_some() {
                     result.error = Some(
-                        "Usage: origins --verify-texture-streaming/--verify-viewmodel-shadows/--verify-actor-shadows external-output-folder".into(),
+                        "Usage: origins --verify-resident-textures/--verify-viewmodel-shadows/--verify-actor-shadows external-output-folder".into(),
                     );
                 }
                 return result;
@@ -506,7 +506,7 @@ fn finish_load(
     mut commands: Commands,
     roots: Query<(Entity, &MapRoot)>,
     surfaces: Res<crate::rendering::OpaqueSurfaceStatus>,
-    streams: Res<crate::rendering::TextureStreams>,
+    library: Option<Res<crate::rendering::opaque::SurfaceLibrary>>,
     loading: Option<ResMut<Loading>>,
     definition: Option<Res<GameDefinition>>,
     config: Res<LoadConfiguration>,
@@ -546,7 +546,16 @@ fn finish_load(
             next.set(GameState::LoadError);
             return;
         }
-        if !surfaces.ready() || !streams.ready() {
+        let Some(library) = library else { return };
+        let textures_ready = match library.textures_ready(&server) {
+            Ok(ready) => ready,
+            Err(error) => {
+                failure.0 = error;
+                next.set(GameState::LoadError);
+                return;
+            }
+        };
+        if !surfaces.ready() || !textures_ready {
             return;
         }
         if loading

@@ -2,7 +2,7 @@ use crate::{
     GameState,
     assets::{GameDefinition, LaunchOptions},
     player::Player,
-    rendering::{ForegroundTexture, TextureStreamingStats, TextureStreams},
+    rendering::FirstPersonSurface,
     weapons::{WeaponAction, WeaponInventory},
 };
 use bevy::{
@@ -72,8 +72,6 @@ fn observe(
     mut next: ResMut<NextState<GameState>>,
     mut options: ResMut<LaunchOptions>,
     definition: Option<Res<GameDefinition>>,
-    streams: Res<TextureStreams>,
-    streaming: Res<TextureStreamingStats>,
     exposure: Query<Entity, With<AutoExposure>>,
     casters: Query<
         (
@@ -83,14 +81,11 @@ fn observe(
             Option<&RenderLayers>,
         ),
         Or<(
-            With<ForegroundTexture>,
+            With<FirstPersonSurface>,
             With<crate::rendering::ActorSurface>,
         )>,
     >,
-    actor_meshes: Query<
-        Option<&crate::rendering::TextureUse>,
-        With<crate::rendering::ActorSurface>,
-    >,
+    actor_meshes: Query<(), With<crate::rendering::ActorSurface>>,
     mut zombies: Query<
         (
             &mut crate::gameplay::Zombie,
@@ -117,11 +112,8 @@ fn observe(
         Query<(Entity, &PointLight, &CubemapVisibleEntities, &RenderLayers)>,
     ),
 ) {
-    if run.started.elapsed().as_secs() > 300
-        || streams.failure().is_some()
-        || **state == GameState::LoadError
-    {
-        finish(&mut commands, &run, &streaming, false);
+    if run.started.elapsed().as_secs() > 300 || **state == GameState::LoadError {
+        finish(&mut commands, &run, false);
         return;
     }
     if run.stage == LABELS.len() {
@@ -130,7 +122,7 @@ fn observe(
                 .rows
                 .iter()
                 .all(|r| r["native_admission_passed"] == true);
-            finish(&mut commands, &run, &streaming, passed);
+            finish(&mut commands, &run, passed);
         }
         return;
     }
@@ -250,19 +242,7 @@ fn observe(
         run.changed = Instant::now();
         return;
     }
-    let detail_ready = if run.actor {
-        visible
-            .iter()
-            .filter_map(|e| actor_meshes.get(*e).ok().flatten())
-            .flat_map(|usage| usage.textures.iter().copied())
-            .filter_map(|id| streams.residency(id))
-            .all(|r| {
-                r["pending_mip"].is_null() && r["resident_mip"].as_u64() <= r["wanted_mip"].as_u64()
-            })
-    } else {
-        streaming.settled()
-    };
-    if run.changed.elapsed().as_secs_f32() < 5. || !detail_ready {
+    if run.changed.elapsed().as_secs_f32() < 5. {
         return;
     }
     let sun_rows: Vec<_> = lights.0.iter().map(|(entity, light, entities, layers, _)| {
@@ -292,36 +272,22 @@ fn observe(
     };
     let passed = all_excluded && admitted;
     let label = LABELS[run.stage];
-    let row = serde_json::json!({"case":label,"material_debug":options.material_debug,"automatic_exposure_cameras":exposure.iter().count(),"player_pose":players.iter().map(|(player,body,inventory)|serde_json::json!({"position":body.translation.to_array(),"yaw":player.yaw,"pitch":player.pitch,"action":format!("{:?}",inventory.action)})).collect::<Vec<_>>(),"native_admission_passed":passed,"casters":visible.iter().map(|e|e.to_bits()).collect::<Vec<_>>(),"sun":sun_rows,"points":point_rows,"streaming":&*streaming});
+    let row = serde_json::json!({"case":label,"material_debug":options.material_debug,"automatic_exposure_cameras":exposure.iter().count(),"player_pose":players.iter().map(|(player,body,inventory)|serde_json::json!({"position":body.translation.to_array(),"yaw":player.yaw,"pitch":player.pitch,"action":format!("{:?}",inventory.action)})).collect::<Vec<_>>(),"native_admission_passed":passed,"casters":visible.iter().map(|e|e.to_bits()).collect::<Vec<_>>(),"sun":sun_rows,"points":point_rows,"texture_loading":"resident"});
     let _ = std::fs::write(run.output.join(format!("{label}.json")), row.to_string());
     commands
         .spawn(Screenshot::primary_window())
         .observe(save_to_disk(run.output.join(format!("{label}.png"))));
-    let mut row = row;
-    if run.actor {
-        let textures: HashSet<_> = visible
-            .iter()
-            .filter_map(|e| actor_meshes.get(*e).ok().flatten())
-            .flat_map(|usage| usage.textures.iter().copied())
-            .collect();
-        row["actor_texture_residency"] = serde_json::json!(
-            textures
-                .into_iter()
-                .filter_map(|id| streams.residency(id))
-                .collect::<Vec<_>>()
-        );
-    }
     run.rows.push(row);
     run.capture_pending = true;
     run.changed = Instant::now();
 }
-fn finish(commands: &mut Commands, run: &Run, stats: &TextureStreamingStats, passed: bool) {
+fn finish(commands: &mut Commands, run: &Run, passed: bool) {
     let name = if run.actor {
         "actor-shadows.json"
     } else {
         "viewmodel-shadows.json"
     };
-    let _ = std::fs::write(run.output.join(name), serde_json::json!({"world_actors":run.actor,"native_admission_passed":passed,"scope":"native shadow caster admission and frozen on/off/restored screenshots; inspect receiver occlusion in captures","cases":run.rows,"streaming":stats}).to_string());
+    let _ = std::fs::write(run.output.join(name), serde_json::json!({"world_actors":run.actor,"native_admission_passed":passed,"scope":"native shadow caster admission and frozen on/off/restored screenshots; inspect receiver occlusion in captures","cases":run.rows,"texture_loading":"resident"}).to_string());
     commands.write_message(if passed {
         AppExit::Success
     } else {

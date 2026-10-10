@@ -326,11 +326,28 @@ pub(super) struct SurfaceDefinition {
     effect: Option<EffectParameters>,
 }
 #[derive(Resource)]
-pub(super) struct SurfaceLibrary {
-    pub definitions: HashMap<String, SurfaceDefinition>,
+pub(crate) struct SurfaceLibrary {
+    pub(super) definitions: HashMap<String, SurfaceDefinition>,
     pub(super) prepared_meshes: HashSet<AssetId<Mesh>>,
     materials: HashMap<AssetId<StandardMaterial>, Handle<OpaqueMaterial>>,
     animation_clock: Handle<ShaderBuffer>,
+}
+
+impl SurfaceLibrary {
+    pub(crate) fn textures_ready(&self, server: &AssetServer) -> Result<bool, String> {
+        let mut ready = true;
+        for definition in self.definitions.values() {
+            for handle in definition.channels.values() {
+                if let Some(bevy::asset::LoadState::Failed(error)) =
+                    server.get_load_state(handle.id())
+                {
+                    return Err(format!("Resident texture {:?}: {error}", handle.path()));
+                }
+                ready &= server.is_loaded_with_dependencies(handle.id());
+            }
+        }
+        Ok(ready)
+    }
 }
 
 pub(super) fn register_prepared(

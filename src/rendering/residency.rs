@@ -6,12 +6,7 @@ use std::collections::HashSet;
 pub(super) struct ResidencyPlugin;
 impl Plugin for ResidencyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            PostUpdate,
-            release
-                .after(super::streaming::TextureStreamingSet)
-                .before(bevy::asset::AssetEventSystems),
-        );
+        app.add_systems(PostUpdate, release.before(bevy::asset::AssetEventSystems));
     }
 }
 

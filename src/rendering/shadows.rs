@@ -11,6 +11,7 @@ pub(super) fn select_local_lights(
     profile: Res<VisualProfile>,
     time: Res<Time<Real>>,
     mut weights: Local<HashMap<Entity, f32>>,
+    mut shadowed: Local<HashSet<Entity>>,
 ) {
     let Ok(camera) = camera.single() else { return };
     let eye = camera.translation();
@@ -49,6 +50,35 @@ pub(super) fn select_local_lights(
             slots -= 1;
         }
     }
+    shadowed.retain(|entity| {
+        lights.get(*entity).is_ok_and(|(_, pose, _, _)| {
+            weights.get(entity).is_some_and(|weight| *weight > 0.)
+                && pose.translation().distance(eye) < profile.local_shadow_retention_distance
+        })
+    });
+    let mut shadow_ranked: Vec<_> = lights
+        .iter()
+        .filter_map(|(entity, pose, _, _)| {
+            let distance = pose.translation().distance(eye);
+            (weights.get(&entity).is_some_and(|weight| *weight > 0.)
+                && (shadowed.contains(&entity)
+                    || distance < profile.local_shadow_admission_distance))
+                .then_some((entity, distance, shadowed.contains(&entity)))
+        })
+        .collect();
+    shadow_ranked.sort_by(|a, b| {
+        (a.1 * if a.2 { 0.8 } else { 1.0 })
+            .total_cmp(&(b.1 * if b.2 { 0.8 } else { 1.0 }))
+            .then_with(|| b.2.cmp(&a.2))
+            .then_with(|| a.0.to_bits().cmp(&b.0.to_bits()))
+    });
+    shadowed.clear();
+    shadowed.extend(
+        shadow_ranked
+            .iter()
+            .take(profile.max_local_shadows)
+            .map(|entry| entry.0),
+    );
     for (entity, pose, mut light, mut visibility) in &mut lights {
         let weight = weights.get(&entity).copied().unwrap_or(0.);
         let distance = pose.translation().distance(eye);
@@ -58,8 +88,9 @@ pub(super) fn select_local_lights(
             light.intensity = intensity;
         }
         let enabled = intensity > 0.;
-        if light.shadow_maps_enabled != enabled {
-            light.shadow_maps_enabled = enabled;
+        let cast_shadows = enabled && shadowed.contains(&entity);
+        if light.shadow_maps_enabled != cast_shadows {
+            light.shadow_maps_enabled = cast_shadows;
         }
         visibility.set_if_neq(if enabled {
             Visibility::Inherited

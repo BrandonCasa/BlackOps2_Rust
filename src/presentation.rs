@@ -531,7 +531,7 @@ fn rig_ready(
         if meshes.contains(child) {
             commands
                 .entity(child)
-                .insert((RenderLayers::layer(1), crate::rendering::ForegroundTexture))
+                .insert((RenderLayers::layer(1), crate::rendering::FirstPersonSurface))
                 .remove::<NoFrustumCulling>();
         }
     }

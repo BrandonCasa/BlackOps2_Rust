@@ -2,4 +2,3 @@
 
 assets/source/bo2/**/*.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 assets/origins/game.json !filter !diff !merge -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
-assets/origins/texture-streaming.json !filter !diff !merge -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

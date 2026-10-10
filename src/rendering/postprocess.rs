@@ -16,6 +16,6 @@ pub(crate) fn bloom(profile: &VisualProfile) -> Bloom {
 
 pub(crate) fn smaa() -> Smaa {
     Smaa {
-        preset: SmaaPreset::Ultra,
+        preset: SmaaPreset::High,
     }
 }
