@@ -36,7 +36,6 @@
 - [ ] Add projectile weapon spawning.
 - [ ] Add projectile swept collision.
 - [ ] Add projectile impact resolution.
-- [ ] Add stance spread modifiers.
 - [ ] Add material penetration resistance.
 - [ ] Add penetration damage attenuation.
 - [ ] Prevent repeated hits on one penetrated actor.
