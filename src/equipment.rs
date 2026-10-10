@@ -320,7 +320,8 @@ pub(crate) fn throw_input(
         drinking,
     ) in &mut players
     {
-        if health.state() != LifeState::Standing || drinking {
+        let standing = health.state() == LifeState::Standing;
+        if standing && drinking {
             continue;
         }
         for tactical_slot in [false, true] {
@@ -342,6 +343,8 @@ pub(crate) fn throw_input(
             } else {
                 &mut *lethal
             };
+            let pressed = held && !inventory.held;
+            inventory.held = held;
             let Some(weapon) = definition
                 .content
                 .weapons
@@ -353,11 +356,25 @@ pub(crate) fn throw_input(
             let Some(tuning) = &weapon.throwable else {
                 continue;
             };
-            let pressed = held && !inventory.held;
-            inventory.held = held;
             let dt = time.delta_secs();
             let mut launch = None;
             match inventory.state {
+                state if !standing => {
+                    let fuse = match state {
+                        ThrowState::Priming { .. } => Some(tuning.fuse_seconds),
+                        ThrowState::Cooking { remaining } => Some(remaining),
+                        ThrowState::Releasing { fuse, .. } => Some(fuse),
+                        ThrowState::Ready | ThrowState::Recovery { .. } => None,
+                    };
+                    if !matches!(state, ThrowState::Ready) {
+                        evidence.record(
+                            serde_json::json!({"event":"interrupted","weapon":weapon.id.0,
+                            "state":format!("{state:?}"),"fuse":fuse}),
+                        );
+                    }
+                    inventory.state = ThrowState::Ready;
+                    launch = fuse.map(|fuse| (fuse, false, true));
+                }
                 ThrowState::Ready
                     if pressed && inventory.count > 0 && !mines.busy() && !other_busy =>
                 {
@@ -381,7 +398,7 @@ pub(crate) fn throw_input(
                 }
                 ThrowState::Cooking { remaining } => {
                     if tuning.cook_in_hand && remaining <= dt {
-                        launch = Some((0., true));
+                        launch = Some((0., true, false));
                         evidence.cooked_off += 1;
                     } else if !held {
                         inventory.state = ThrowState::Releasing {
@@ -408,10 +425,10 @@ pub(crate) fn throw_input(
                 ThrowState::Releasing { remaining, fuse } => {
                     let fuse = if tuning.cook_in_hand { fuse - dt } else { fuse };
                     if tuning.cook_in_hand && fuse <= 0. {
-                        launch = Some((0., true));
+                        launch = Some((0., true, false));
                         evidence.cooked_off += 1;
                     } else if remaining <= dt {
-                        launch = Some((fuse, false));
+                        launch = Some((fuse, false, false));
                     } else {
                         inventory.state = ThrowState::Releasing {
                             remaining: remaining - dt,
@@ -430,14 +447,14 @@ pub(crate) fn throw_input(
                 }
                 _ => {}
             }
-            if let Some((fuse, cooked)) = launch {
+            if let Some((fuse, cooked, dropped)) = launch {
                 let rotation =
                     Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch);
                 let forward = rotation * Vec3::NEG_Z;
                 let eye =
                     transform.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
-                let position = eye + forward * if cooked { 0. } else { 0.25 };
-                let velocity = if cooked {
+                let position = eye + forward * if cooked || dropped { 0. } else { 0.25 };
+                let velocity = if cooked || dropped {
                     Vec3::ZERO
                 } else {
                     forward * tuning.speed + Vec3::Y * tuning.up_speed + player.velocity
@@ -490,12 +507,16 @@ pub(crate) fn throw_input(
                         }
                     });
                 }
-                inventory.state = ThrowState::Recovery {
-                    remaining: tuning.throw_seconds
-                        - if cooked { 0. } else { tuning.release_delay },
+                inventory.state = if dropped {
+                    ThrowState::Ready
+                } else {
+                    ThrowState::Recovery {
+                        remaining: tuning.throw_seconds
+                            - if cooked { 0. } else { tuning.release_delay },
+                    }
                 };
-                evidence.thrown += u32::from(!cooked);
-                evidence.record(serde_json::json!({"event":"launch","weapon":weapon.id.0,"cooked":cooked,"fuse":fuse,"release_delay":tuning.release_delay,"position":position.to_array(),"velocity":velocity.to_array(),"count":inventory.count}));
+                evidence.thrown += u32::from(!cooked && !dropped);
+                evidence.record(serde_json::json!({"event":"launch","weapon":weapon.id.0,"cooked":cooked,"dropped":dropped,"fuse":fuse,"release_delay":tuning.release_delay,"position":position.to_array(),"velocity":velocity.to_array(),"count":inventory.count}));
             }
         }
     }
