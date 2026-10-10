@@ -324,6 +324,7 @@ fn collect(
         &mut WeaponInventory,
         &mut crate::equipment::GrenadeInventory,
         &mut crate::equipment::TacticalInventory,
+        &mut crate::mines::MineInventory,
     )>,
 ) {
     for (entity, pickup, transform) in &pickups {
@@ -333,7 +334,9 @@ fn collect(
         let Some(d) = definition.content.powerups.get(pickup.definition) else {
             continue;
         };
-        for (owner, player, pose, health, mut weapons, mut grenades, mut tactical) in &mut players {
+        for (owner, player, pose, health, mut weapons, mut grenades, mut tactical, mut mines) in
+            &mut players
+        {
             if !matches!(health.state(), LifeState::Standing | LifeState::Downed)
                 || (d.id.0 == "powerup.zombie_blood" && health.state() != LifeState::Standing)
                 || (pose.translation - Vec3::Y * (player.height * 0.5))
@@ -352,6 +355,14 @@ fn collect(
                         grenades.count = grenades.capacity;
                         if let Some(tactical) = tactical.0.as_mut() {
                             tactical.count = tactical.capacity;
+                        }
+                        if let Some(profile) = mines
+                            .definition
+                            .as_ref()
+                            .and_then(|id| definition.content.weapons.iter().find(|w| w.id == *id))
+                            .and_then(|w| w.mine.as_ref())
+                        {
+                            mines.count = profile.stock;
                         }
                     }
                     sound(
