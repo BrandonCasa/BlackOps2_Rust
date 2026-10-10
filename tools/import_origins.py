@@ -20,14 +20,12 @@ import tomllib
 try:
     from .fixture_emitters import FIXTURE_SURFACES
     from .content_contract import validate_content, validate_rounds, validate_player_health
-    from .texture_streaming import validate as validate_texture_streaming
     from .trigger_volumes import validate as validate_trigger_volumes
     from .brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
     from .prepare_sky import SKY_PATH, validate_sky
 except ImportError:
     from fixture_emitters import FIXTURE_SURFACES
     from content_contract import validate_content, validate_rounds, validate_player_health
-    from texture_streaming import validate as validate_texture_streaming
     from trigger_volumes import validate as validate_trigger_volumes
     from brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
     from prepare_sky import SKY_PATH, validate_sky
@@ -351,7 +349,7 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
             if key in node:
                 require(len(node[key]) == width and all(type(x) in (int, float) for x in node[key]), "invalid transform")
         extras = node.get("extras", {})
-        allowed_extras = {"static_instance", "source_model", "fixture_emitter", "brush_entity"}
+        allowed_extras = {"static_instance", "source_model", "fixture_emitter", "brush_entity", "prop_lod"}
         if allow_native_transforms:
             allowed_extras.update({"origins_native_rotation", "origins_native_translation"})
             for key, width in (("origins_native_rotation", 4), ("origins_native_translation", 3)):
@@ -360,6 +358,13 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                             and all(type(v) in (int, float) and math.isfinite(v) for v in extras[key]),
                             "invalid retained native joint transform")
         require(set(extras) <= allowed_extras, "baked node lighting is retired")
+        if "prop_lod" in extras:
+            lod = extras["prop_lod"]
+            require(isinstance(lod, dict) and set(lod) == {"level", "levels"}
+                    and type(lod["level"]) is int and type(lod["levels"]) is int
+                    and 2 <= lod["levels"] <= 3 and 0 <= lod["level"] < lod["levels"]
+                    and extras.get("static_instance") is True and extras.get("fixture_emitter") is False,
+                    "invalid static prop LOD metadata")
         if "static_instance" in extras:
             require(extras["static_instance"] is True, "invalid static instance marker")
             require(isinstance(extras.get("source_model"), str) and re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", extras["source_model"]), "missing or invalid fixture model identity")
@@ -730,8 +735,6 @@ def validate_pack(root, receipt=None, exact=False):
         require(pngs == receipt["textures"] + receipt["model_textures"], "texture receipt count mismatch")
         require(sum(name.endswith(".png") and PurePosixPath(name).name.startswith("model-") for name in map_files)
                 == receipt["model_textures"], "model texture receipt count mismatch")
-    streaming = validate_texture_streaming(root)
-    files.update(streaming)
     if exact:
         actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
         require(actual == files, f"unexpected or missing runtime files: {sorted(actual ^ files)}")
@@ -842,7 +845,7 @@ def check_index(destination, hashes, ordinary=None):
         return subprocess.run(["git", *args], input=data, cwd=WORKSPACE,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True).stdout
     prefix = destination.relative_to(WORKSPACE).as_posix() + "/"
-    ordinary = {name for name in ("game.json", "texture-streaming.json") if name in hashes} if ordinary is None else set(ordinary)
+    ordinary = {name for name in ("game.json",) if name in hashes} if ordinary is None else set(ordinary)
     entries = {}
     for entry in git("ls-files", "--stage", "-z", "--", prefix).split(b"\0"):
         if not entry:

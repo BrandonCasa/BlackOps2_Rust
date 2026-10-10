@@ -1,3 +1,6 @@
+@if(VISIBILITY_RANGE_DITHER)
+import bevy_pbr::render::pbr_functions::visibility_range_dither;
+
 import bevy_pbr::render::{
 forward_io::{VertexOutput, FragmentOutput},
 pbr_fragment::pbr_input_from_standard_material,
@@ -9,6 +12,7 @@ import origins::diagnostic_lighting::apply_pbr_lighting;
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> FragmentOutput {
+    @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
     var pbr = pbr_input_from_standard_material(in, front);
     pbr.material.base_color = alpha_discard(pbr.material.flags, pbr.material.alpha_cutoff, pbr.material.base_color);
     let view_mode = material_diagnostic_mode();

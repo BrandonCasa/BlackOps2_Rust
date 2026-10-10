@@ -1,3 +1,6 @@
+@if(VISIBILITY_RANGE_DITHER)
+import bevy_pbr::render::pbr_functions::visibility_range_dither;
+
 import bevy_pbr::render::{
 forward_io::{VertexOutput, FragmentOutput},
 pbr_fragment::pbr_input_from_standard_material,
@@ -43,6 +46,7 @@ fn layer_color(base: vec3<f32>, overlay: vec4<f32>, weight: f32, operation: u32)
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     @location(8) layer_uv: vec4<f32>, @location(9) layer3_uv: vec2<f32>,
     @location(10) rotation_first: vec4<f32>, @location(11) rotation_second: vec4<f32>) -> FragmentOutput {
+    @if(VISIBILITY_RANGE_DITHER) visibility_range_dither(in.position, in.visibility_range_dither);
     @if(BINDLESS) let slot = mesh[in.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
     @if(!BINDLESS) let slot = 0u;
     let surface = parameters_for(slot);

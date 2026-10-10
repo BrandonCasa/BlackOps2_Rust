@@ -13,7 +13,8 @@ use bevy::{
 mod first_person;
 pub(crate) mod grading;
 mod lighting_inspection;
-mod opaque;
+mod lod;
+pub(crate) mod opaque;
 mod pbr;
 pub(crate) mod postprocess;
 mod preprocessing;
@@ -22,14 +23,11 @@ mod readback_shutdown;
 mod residency;
 mod shadows;
 mod sky;
-mod streaming;
 pub(crate) use first_person::FirstPersonDepthStats;
 pub(crate) use opaque::OpaqueSurfaceStatus;
 pub(crate) use opaque::{LAYER_UV, LAYER3_UV, ROTATION1, ROTATION2};
 pub(crate) use pbr::PbrReady;
 pub(crate) use preprocessing::PreprocessingStatus;
-pub(crate) use streaming::{ForegroundTexture, TextureUse};
-pub(crate) use streaming::{TextureStreamingStats, TextureStreams};
 
 pub(crate) const BASE_FOV_DEGREES: f32 = 55.;
 
@@ -40,6 +38,9 @@ pub struct GameCamera;
 struct SurfaceReady;
 #[derive(Component)]
 pub(crate) struct DynamicSurface;
+
+#[derive(Component)]
+pub(crate) struct FirstPersonSurface;
 
 #[derive(Component)]
 pub(crate) struct ActorSurface;
@@ -58,10 +59,10 @@ impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<opaque::OpaqueMaterial>::default())
             .add_plugins(first_person::FirstPersonRenderPlugin)
+            .add_plugins(lod::PropLodPlugin)
             .add_plugins(bevy::post_process::auto_exposure::AutoExposurePlugin)
             .add_plugins(MaterialPlugin::<pbr::DiagnosticMaterial>::default())
             .add_plugins(preprocessing::PreprocessingPlugin)
-            .add_plugins(streaming::TextureStreamingPlugin)
             .add_plugins(residency::ResidencyPlugin)
             .init_resource::<profile::VisualProfile>()
             .add_plugins(lighting_inspection::LightingInspectionPlugin)
@@ -114,37 +115,43 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
         brightness: profile.ambient_brightness,
         affects_lightmapped_meshes: false,
     });
-    commands.spawn((
-        DirectionalLight {
-            illuminance: profile.sun_illuminance,
-            color: profile::color(profile.sun_color),
-            affects_lightmapped_mesh_diffuse: true,
-            contact_shadows_enabled: true,
-            shadow_maps_enabled: true,
-            shadow_depth_bias: 0.002,
-            shadow_normal_bias: 0.25,
-            ..default()
-        },
-        bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
-        bevy::light::CascadeShadowConfigBuilder {
-            num_cascades: 3,
-            maximum_distance: profile.sun_shadow_distance,
-            first_cascade_far_bound: 12.,
-            ..default()
-        }
-        .build(),
-        Transform::from_rotation(Quat::from_euler(
-            EulerRot::XYZ,
-            profile.sun_rotation[0],
-            profile.sun_rotation[1],
-            profile.sun_rotation[2],
-        )),
-        Name::new("Origins sunlight"),
-    ));
+    let sun = commands
+        .spawn((
+            DirectionalLight {
+                illuminance: profile.sun_illuminance,
+                color: profile::color(profile.sun_color),
+                affects_lightmapped_mesh_diffuse: true,
+                contact_shadows_enabled: true,
+                shadow_maps_enabled: true,
+                shadow_depth_bias: 0.002,
+                shadow_normal_bias: 0.25,
+                ..default()
+            },
+            bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
+            bevy::light::CascadeShadowConfigBuilder {
+                num_cascades: profile.sun_shadow_cascades,
+                maximum_distance: profile.sun_shadow_distance,
+                first_cascade_far_bound: profile.sun_shadow_first_cascade,
+                ..default()
+            }
+            .build(),
+            Transform::from_rotation(Quat::from_euler(
+                EulerRot::XYZ,
+                profile.sun_rotation[0],
+                profile.sun_rotation[1],
+                profile.sun_rotation[2],
+            )),
+            Name::new("Origins sunlight"),
+        ))
+        .id();
+    commands
+        .entity(sun)
+        .insert(bevy::render::occlusion_culling::OcclusionCulling);
     let mut camera = commands.spawn((
         Camera3d::default(),
         bevy::pbr::ScreenSpaceTransmission::default(),
         GameCamera,
+        bevy::camera::ShadowLodOrigin,
         bevy::light::ShadowFilteringMethod::Gaussian,
         DepthPrepass,
         Transform::from_xyz(0., 2., 0.),
@@ -159,6 +166,7 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
         },
     ));
     camera.insert(bevy::audio::SpatialListener::new(0.2));
+    camera.insert(bevy::render::occlusion_culling::OcclusionCulling);
 }
 
 fn camera_follow(

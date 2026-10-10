@@ -7,10 +7,6 @@ import json
 import os
 import tempfile
 
-try:
-    from .texture_streaming import validate as validate_streaming
-except ImportError:
-    from texture_streaming import validate as validate_streaming
 
 
 def replace_bytes(path, raw):
@@ -97,7 +93,7 @@ def compact_geometry(document, pack):
 
 def migrate(pack):
     pack = Path(pack).resolve()
-    kept = {(pack / uri).resolve() for uri in validate_streaming(pack)}
+    kept = set()
     removed_bytes = 0
     for path in sorted(pack.rglob("*.gltf")):
         document = json.loads(path.read_text())

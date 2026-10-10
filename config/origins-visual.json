@@ -75,9 +75,14 @@
     -0.013,
     0.016
   ],
-  "sun_shadow_map_size": 4096,
-  "sun_shadow_distance": 100.0,
+  "sun_shadow_map_size": 2048,
+  "sun_shadow_distance": 60.0,
+  "sun_shadow_cascades": 3,
+  "sun_shadow_first_cascade": 8.0,
   "max_local_lights": 8,
+  "max_local_shadows": 4,
+  "local_shadow_admission_distance": 14.0,
+  "local_shadow_retention_distance": 18.0,
   "local_light_distance": 28.0,
   "local_light_fade_seconds": 0.3
 }

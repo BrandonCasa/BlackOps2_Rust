@@ -4,7 +4,6 @@ use crate::{
     input::GameInput,
     player::Player,
     presentation::ViewModelGroup,
-    rendering::{TextureStreamingStats, TextureStreams, TextureUse},
     weapons::{WeaponAction, WeaponInventory},
 };
 use bevy::{
@@ -23,15 +22,9 @@ struct Run {
     rows: Vec<serde_json::Value>,
     failures: Vec<String>,
     restart_sent: bool,
-    competition_frames: [u64; 16],
-    peak_pending: [usize; 4],
-    native_passes_active: bool,
     capture_pending: bool,
     scene_started: bool,
     last_status: Instant,
-    bootstrap_conservation_frames: u64,
-    bootstrap_registration_frames: u64,
-    last_registered_bootstrap_bytes: u64,
 }
 const LABELS: [&str; 5] = [
     "mauser-arms",
@@ -64,15 +57,9 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
         rows: vec![],
         failures: vec![],
         restart_sent: false,
-        competition_frames: [0; 16],
-        peak_pending: [0; 4],
-        native_passes_active: false,
         capture_pending: false,
         scene_started: false,
         last_status: Instant::now(),
-        bootstrap_conservation_frames: 0,
-        bootstrap_registration_frames: 0,
-        last_registered_bootstrap_bytes: 0,
     });
 }
 fn input(run: Res<Run>, mut input: ResMut<GameInput>) {
@@ -88,8 +75,6 @@ fn observe(
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
     game: Option<Res<GameDefinition>>,
-    streams: Res<TextureStreams>,
-    stats: Res<TextureStreamingStats>,
     server: Res<AssetServer>,
     materials: Res<Assets<StandardMaterial>>,
     parents: Query<&ChildOf>,
@@ -105,7 +90,6 @@ fn observe(
         (
             Entity,
             &GltfMaterialExtras,
-            Option<&TextureUse>,
             Option<&MeshMaterial3d<StandardMaterial>>,
             &GlobalTransform,
             &InheritedVisibility,
@@ -116,22 +100,6 @@ fn observe(
     cameras: Query<&bevy::camera::visibility::VisibleEntities, With<crate::rendering::GameCamera>>,
     mut players: Query<(&mut WeaponInventory, &mut Player)>,
 ) {
-    if stats.indexed_bootstrap_gpu_bytes > 0 {
-        run.bootstrap_conservation_frames += 1;
-        if stats.registered_bootstrap_gpu_bytes + stats.bootstrap_reserved_bytes
-            != stats.indexed_bootstrap_gpu_bytes
-        {
-            run.failures.push(
-                "bootstrap resident/reservation transfer did not conserve indexed bytes".into(),
-            );
-            finish(&mut commands, &run, &stats);
-            return;
-        }
-        if stats.registered_bootstrap_gpu_bytes > run.last_registered_bootstrap_bytes {
-            run.bootstrap_registration_frames += 1;
-        }
-        run.last_registered_bootstrap_bytes = stats.registered_bootstrap_gpu_bytes;
-    }
     let rig_rows: Vec<_> = rigs.iter().map(|(entity, rig, visibility, inherited, root)| {
         let mut ancestry = vec![];
         let mut ancestor = Some(entity);
@@ -142,28 +110,12 @@ fn observe(
         serde_json::json!({"entity":entity.to_bits(),"ancestry":ancestry,"weapon":rig.weapon.0,"arms":rig.arms,"knife":rig.knife,"ready":rig.ready,"attached":rig.attached,"visibility":format!("{visibility:?}"),"inherited_visibility":inherited.map(|v|v.get()),"scene_loaded":root.map(|r|server.is_loaded_with_dependencies(r.0.id())),"scene_load_state":root.map(|r|format!("{:?}",server.get_load_state(r.0.id())))})
     }).collect();
     if run.last_status.elapsed().as_secs_f32() > 5. {
-        let _ = std::fs::write(run.output.join("live-state.json"), serde_json::json!({"phase":run.phase,"state":format!("{:?}",**state),"age":run.changed.elapsed().as_secs_f32(),"rigs":rig_rows,"players":players.iter().map(|(inventory,_)|format!("{:?} {:?}",inventory.action,inventory.signal)).collect::<Vec<_>>(),"streaming":&*stats}).to_string());
+        let _ = std::fs::write(run.output.join("live-state.json"), serde_json::json!({"phase":run.phase,"state":format!("{:?}",**state),"age":run.changed.elapsed().as_secs_f32(),"rigs":rig_rows,"players":players.iter().map(|(inventory,_)|format!("{:?} {:?}",inventory.action,inventory.signal)).collect::<Vec<_>>(),"texture_loading":"resident"}).to_string());
         run.last_status = Instant::now();
     }
-    let mut active = 0;
-    for index in 0..4 {
-        if stats.pending_by_class[index] > 0 {
-            active |= 1 << index;
-        }
-        run.peak_pending[index] = run.peak_pending[index].max(stats.pending_by_class[index]);
-    }
-    run.competition_frames[active] += 1;
-    run.native_passes_active |= stats.shadow_requests > 0;
-    if run.started.elapsed().as_secs() > 240
-        || streams.failure().is_some()
-        || **state == GameState::LoadError
-    {
-        run.failures.push(format!(
-            "deadline/state/streaming: {:?} {:?}",
-            **state,
-            streams.failure()
-        ));
-        finish(&mut commands, &run, &stats);
+    if run.started.elapsed().as_secs() > 240 || **state == GameState::LoadError {
+        run.failures.push(format!("deadline/state: {:?}", **state));
+        finish(&mut commands, &run);
         return;
     }
     if run.phase == 5 {
@@ -177,16 +129,7 @@ fn observe(
         return;
     }
     if run.phase == 6 {
-        let settled = stats.settled();
-        if (settled && run.changed.elapsed().as_secs_f32() > 3.)
-            || run.changed.elapsed().as_secs_f32() > 40.
-        {
-            if !settled {
-                run.failures
-                    .push("stationary native demand did not drain in 40 seconds".into());
-            }
-            finish(&mut commands, &run, &stats);
-        }
+        finish(&mut commands, &run);
         return;
     }
     let Some(game) = game else { return };
@@ -233,7 +176,7 @@ fn observe(
         .single()
         .ok()
         .map(|v| v.get(std::any::TypeId::of::<Mesh3d>()));
-    for (entity, extras, usage, material, pose, visible, excluded) in &meshes {
+    for (entity, extras, material, pose, visible, excluded) in &meshes {
         if !visible.get() {
             continue;
         }
@@ -257,7 +200,7 @@ fn observe(
         let metadata: serde_json::Value = serde_json::from_str(&extras.value).unwrap_or_default();
         let channels=metadata["surface"]["channels"].as_array().map(|channels|channels.iter().map(|channel| {
             let handle=channel["uri"].as_str().and_then(|uri|server.get_handle::<Image>(uri.to_owned()));
-            serde_json::json!({"role":channel["role"],"uri":channel["uri"],"residency":handle.and_then(|h|streams.residency(h.id()))})
+            serde_json::json!({"role":channel["role"],"uri":channel["uri"],"residency":handle.map(|h|texture(&server, &h))})
         }).collect::<Vec<_>>()).unwrap_or_default();
         let sampled = material.and_then(|m| materials.get(&m.0)).map(|m| {
             [
@@ -269,10 +212,10 @@ fn observe(
             ]
             .into_iter()
             .flatten()
-            .map(|h| streams.residency(h.id()))
+            .map(|h| texture(&server, h))
             .collect::<Vec<_>>()
         });
-        let row = serde_json::json!({"entity":entity.to_bits(),"weapon":rig_weapon,"arms":arms,"casts_shadows":!excluded,"identity":metadata["surface"]["identity"],"position":pose.translation().to_array(),"usage":usage.map(|u|u.textures.iter().map(|id|streams.residency(*id)).collect::<Vec<_>>()),"channels":channels,"sampled":sampled});
+        let row = serde_json::json!({"entity":entity.to_bits(),"weapon":rig_weapon,"arms":arms,"casts_shadows":!excluded,"identity":metadata["surface"]["identity"],"position":pose.translation().to_array(),"channels":channels,"sampled":sampled});
         if viewmodel {
             first_person.push(row);
         } else if world.len() < 40 && camera_meshes.is_some_and(|meshes| meshes.contains(&entity)) {
@@ -281,12 +224,9 @@ fn observe(
     }
     let full = !first_person.is_empty()
         && first_person.iter().all(|r| {
-            r["sampled"].as_array().is_some_and(|v| {
-                !v.is_empty()
-                    && v.iter().all(|t| {
-                        t["resident_mip"] == 0 && t["wanted_mip"] == 0 && t["foreground"] == true
-                    })
-            })
+            r["sampled"]
+                .as_array()
+                .is_some_and(|v| !v.is_empty() && v.iter().all(|t| t["loaded"] == true))
         });
     if !full && age < 30. {
         return;
@@ -297,23 +237,27 @@ fn observe(
     if !visible_weapon && age < 30. {
         return;
     }
-    let world_detail = world
-        .iter()
-        .filter(|row| {
-            row["usage"].as_array().is_some_and(|maps| {
-                !maps.is_empty()
-                    && maps.iter().all(|map| {
-                        map["resident_mip"]
-                            .as_u64()
-                            .zip(map["wanted_mip"].as_u64())
-                            .is_some_and(|(resident, wanted)| resident <= wanted)
-                    })
+    let world_detail = world.iter().all(|row| {
+        row["channels"].as_array().is_some_and(|channels| {
+            channels
+                .iter()
+                .all(|channel| channel["residency"]["loaded"] == true)
+        })
+    });
+    let passed = full
+        && visible_weapon
+        && !first_person.is_empty()
+        && first_person.iter().all(|row| {
+            row["channels"].as_array().is_some_and(|channels| {
+                !channels.is_empty()
+                    && channels
+                        .iter()
+                        .all(|channel| channel["residency"]["loaded"] == true)
             })
         })
-        .count();
-    let passed = full && visible_weapon && streams.failure().is_none() && world_detail > 0;
+        && world_detail;
     let label = LABELS[run.phase];
-    let row = serde_json::json!({"case":label,"passed":passed,"first_person":first_person,"rigs":rig_rows,"world":world,"world_meshes_at_requested_detail":world_detail,"camera_yaw":player.yaw,"streaming":&*stats,"age_seconds":age});
+    let row = serde_json::json!({"case":label,"passed":passed,"first_person":first_person,"rigs":rig_rows,"world":world,"world_meshes_at_requested_detail":world_detail,"camera_yaw":player.yaw,"texture_loading":"resident","age_seconds":age});
     let _ = std::fs::write(run.output.join(format!("{label}.json")), row.to_string());
     commands
         .spawn(Screenshot::primary_window())
@@ -365,7 +309,7 @@ fn advance(
         _ => unreachable!(),
     }
 }
-fn finish(commands: &mut Commands, run: &Run, stats: &TextureStreamingStats) {
+fn finish(commands: &mut Commands, run: &Run) {
     let arm_ids = |row: &serde_json::Value| {
         let mut ids = std::collections::BTreeMap::new();
         if let Some(meshes) = row["first_person"].as_array() {
@@ -403,28 +347,11 @@ fn finish(commands: &mut Commands, run: &Run, stats: &TextureStreamingStats) {
     let passed = run.rows.len() == LABELS.len()
         && run.rows.iter().all(|r| r["passed"] == true)
         && run.failures.is_empty()
-        && stats.errors == 0
-        && stats.standard_refreshes > 0
-        && stats.opaque_refreshes > 0
         && stable_arms
-        && restart_retired
-        && run.native_passes_active
-        && run
-            .competition_frames
-            .iter()
-            .enumerate()
-            .any(|(mask, frames)| mask & 1 != 0 && mask & 6 != 0 && *frames > 0)
-        && stats.uploads_by_class[1] > 0
-        && stats.uploads_by_class[2] > 0
-        && stats.peak_active_workers <= 4
-        && stats.detected_vram_bytes > 0
-        && run.bootstrap_conservation_frames > 0
-        && run.bootstrap_registration_frames > 1
-        && stats.residency_budget_bytes <= stats.detected_vram_bytes / 4 * 3
-        && stats.peak_accounted_gpu_bytes <= stats.residency_budget_bytes;
-    let receipt = serde_json::json!({"passed":passed,"scope":"native first-person and camera-visible world mip residency with three camera turns, explicit controlled MP40 grant and ADS pose, real Frag prime and session restart under native GI/shadows; no combat, acquisition or throughput benchmark", "bootstrap_conservation_frames":run.bootstrap_conservation_frames,"bootstrap_registration_frames":run.bootstrap_registration_frames,"stable_arm_image_ids":stable_arms,"restart_retired_old_meshes":restart_retired,"native_lighting_and_shadow_demand":run.native_passes_active,"competition_frames_by_class_bitmask":run.competition_frames,"peak_pending_by_class":run.peak_pending,"class_order":["foreground","camera","indirect","prefetch"],"cases":run.rows,"failures":run.failures,"streaming":stats});
+        && restart_retired;
+    let receipt = serde_json::json!({"passed":passed,"scope":"resident first-person and world texture dependencies, MP40, ADS, Frag prime and restart", "stable_arm_image_ids":stable_arms,"restart_retired_old_meshes":restart_retired,"cases":run.rows,"failures":run.failures,"texture_loading":"resident"});
     let _ = std::fs::write(
-        run.output.join("texture-streaming.json"),
+        run.output.join("resident-textures.json"),
         receipt.to_string(),
     );
     commands.write_message(if passed {
@@ -432,4 +359,12 @@ fn finish(commands: &mut Commands, run: &Run, stats: &TextureStreamingStats) {
     } else {
         AppExit::error()
     });
+}
+
+fn texture(server: &AssetServer, handle: &Handle<Image>) -> serde_json::Value {
+    serde_json::json!({
+        "id": format!("{:?}", handle.id()),
+        "uri": handle.path().map(ToString::to_string),
+        "loaded": server.is_loaded_with_dependencies(handle.id()),
+    })
 }

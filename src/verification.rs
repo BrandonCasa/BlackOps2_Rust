@@ -41,11 +41,11 @@ mod remote;
 mod replacements;
 mod weapon_actions;
 pub(crate) use pipelines::error_layer;
+mod resident_textures;
 mod semtex;
 mod solo_revive;
 mod speed_cola;
 mod stamin_up;
-mod texture_streaming;
 mod triggers;
 mod viewmodel_shadows;
 mod weapon_assemblies;
@@ -171,10 +171,10 @@ impl Plugin for VerificationPlugin {
         if app
             .world()
             .resource::<LaunchOptions>()
-            .verify_texture_streaming
+            .verify_resident_textures
         {
             pipelines::install(app);
-            texture_streaming::install(app);
+            resident_textures::install(app);
             return;
         }
         if app.world().resource::<LaunchOptions>().release_benchmark {
@@ -697,7 +697,6 @@ fn check(
     query: avian3d::prelude::SpatialQuery,
     render_status: (
         Res<crate::rendering::OpaqueSurfaceStatus>,
-        Res<crate::rendering::TextureStreamingStats>,
         Res<crate::rendering::profile::VisualProfile>,
     ),
     mut cameras: Query<
@@ -719,7 +718,7 @@ fn check(
 ) {
     let mut screenshot = None;
     let (sites, trigger_sites, brush_sites) = map_sites;
-    let (surfaces, streaming, profile) = render_status;
+    let (surfaces, profile) = render_status;
     let (
         session,
         history,
@@ -1262,7 +1261,6 @@ fn check(
             && restart_damage_clear
             && surfaces.pending == 0
             && surfaces.straight_alpha_mismatches == 0
-            && streaming.errors == 0
             && if verification.benchmark {
                 (!verification.combat || verification.round_two)
                     && verification.camera_views.len()
@@ -1328,8 +1326,8 @@ fn check(
             "restarted":restarted_brushes});
         receipt["traversal_links"] = serde_json::json!({"initial": verification.negotiation_observation,
             "restarted":restarted_negotiations});
-        receipt["texture_streaming"] =
-            serde_json::to_value(&*streaming).expect("Serializable streaming counters");
+        receipt["texture_loading"] =
+            serde_json::json!({"method":"resident", "runtime_mip_replacement":false});
         receipt["shared_lighting"] = serde_json::json!({
             "method": "native_raster", "ray_tracing": false,
             "indirect": "atmosphere_environment_and_ssao",

@@ -573099,7 +573099,7 @@
     ]
   ],
   "source_surfaces": 6469,
-  "render_meshes": 18244,
+  "render_meshes": 20616,
   "collision_meshes": 15209,
   "static_model_instances": 14480,
   "tuning": {

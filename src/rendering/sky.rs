@@ -40,7 +40,7 @@ pub(super) fn setup(
             ..default()
         },
         ScreenSpaceAmbientOcclusion {
-            quality_level: ScreenSpaceAmbientOcclusionQualityLevel::High,
+            quality_level: ScreenSpaceAmbientOcclusionQualityLevel::Medium,
             ..default()
         },
         DistanceFog {

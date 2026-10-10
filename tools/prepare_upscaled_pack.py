@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 
 from material_textures import inspect_dds
-from texture_streaming import assemble, validate
+from resident_textures import assemble
 from preparation_resources import PreparationResources
 from import_origins import validate_pack
 from upscale_textures import DEEPBUMP_UPSCALE_SHA256, RECIPE_VERSION, source_levels
@@ -214,9 +214,9 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
                   results=[dict(uri=entry["uri"], density=entry["output_texels_per_meter"],
                                 applicable=entry["density_applicable"], exception=entry.get("density_exception", False))
                            for entry in entries if entry["uri"] in adopted])
-    stream_index = assemble(destination, entries, provenance=provenance, resources=resources,
+    resident_index = assemble(destination, entries, provenance=provenance, resources=resources,
                             meshes=inventory_document.get("meshes"), density_policy=policy)
-    bootstrap = {entry["uri"]: entry for entry in stream_index["textures"]}
+    resident = {entry["uri"]: entry for entry in resident_index["textures"]}
     scene_hashes = {}
     for original in sorted(source.rglob("*.gltf")):
         resources.wait()
@@ -229,12 +229,11 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
                 raise ValueError("Upscaling requires the canonical version-2 material pack")
             for channel in surface["channels"]:
                 uri = channel["uri"]
-                if uri not in bootstrap:
+                if uri not in resident:
                     continue
-                entry = bootstrap[uri]
-                mip = entry["mips"][entry["bootstrap_mip"]]
-                channel.update(width=mip["width"], height=mip["height"],
-                    mip_count=len(entry["mips"])-entry["bootstrap_mip"],
+                entry = resident[uri]
+                channel.update(width=entry["width"], height=entry["height"],
+                    mip_count=entry["mip_count"],
                     format={28: "R8G8B8A8_UNORM", 29: "R8G8B8A8_UNORM_SRGB", 80: "BC4_UNORM",
                             83: "BC5_UNORM", 98: "BC7_UNORM", 99: "BC7_UNORM_SRGB"}[entry["format"]])
         for key, original_value in original_geometry.items():
@@ -243,7 +242,6 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
         relative = original.relative_to(source)
         (destination / relative).write_text(json.dumps(document, separators=(",", ":")) + "\n")
         scene_hashes[relative.as_posix()] = hashlib.sha256(original.read_bytes()).hexdigest()
-    hashes = validate(destination, resources=resources)
     _, _, complete_closure = validate_pack(destination, exact=True)
     buffer_hashes = {}
     for original in sorted(source.rglob("*.bin")):
@@ -253,7 +251,7 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
         if hashlib.sha256((destination / relative).read_bytes()).hexdigest() != digest:
             raise ValueError(f"Mesh buffer changed: {relative}")
         buffer_hashes[relative.as_posix()] = digest
-    result = dict(version=1, texture_count=len(entries), streaming_files=len(hashes),
+    result = dict(version=1, texture_count=len(entries), resident_textures=len(resident),
                   validated_files=len(complete_closure),
                   runtime_bytes=sum((destination/uri).stat().st_size for uri in complete_closure),
                   bulk_cook_complete=not pending,
@@ -276,7 +274,7 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
             raise ValueError(f"Canonical source changed during assembly: {uri}")
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(json.dumps(result, indent=2) + "\n")
-    print(json.dumps({key: result[key] for key in ("texture_count", "streaming_files")}), flush=True)
+    print(json.dumps({key: result[key] for key in ("texture_count", "resident_textures")}), flush=True)
 
 
 def main():
