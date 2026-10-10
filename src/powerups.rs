@@ -62,6 +62,8 @@ struct Nuke {
     remaining: f32,
     targets: Option<VecDeque<Entity>>,
 }
+#[derive(Component)]
+pub(crate) struct NukeTarget;
 pub struct PowerupPlugin;
 impl Plugin for PowerupPlugin {
     fn build(&self, app: &mut App) {
@@ -467,6 +469,7 @@ fn detonate(
                     .into_iter()
                     .map(|(e, _, _)| {
                         claimed.insert(e);
+                        commands.entity(e).insert(NukeTarget);
                         e
                     })
                     .collect(),

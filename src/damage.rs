@@ -48,6 +48,7 @@ pub struct DamageReceipt {
     pub impact: Impact,
     pub lethal: bool,
     pub points: u32,
+    pub aimed_bullet: bool,
 }
 #[derive(Message, Clone, Debug)]
 pub struct EnemyDeath(pub DamageReceipt);
@@ -55,6 +56,7 @@ pub struct EnemyDeath(pub DamageReceipt);
 pub(crate) struct DamageApplied {
     pub(crate) impact: Impact,
     pub(crate) lethal: bool,
+    pub(crate) aimed_bullet: bool,
 }
 #[derive(Resource, Default)]
 pub struct DamageQueue(pub Vec<Impact>);
@@ -93,7 +95,7 @@ fn resolve(
     mut queue: ResMut<DamageQueue>,
     mut history: ResMut<CombatHistory>,
     mut targets: Query<(&mut Vitality, Option<&mut crate::player_health::Recovery>)>,
-    players: Query<(), With<Player>>,
+    players: Query<&crate::weapons::WeaponInventory, With<Player>>,
     enemies: Query<&Zombie>,
     definition: Res<GameDefinition>,
     mut evidence: ResMut<crate::player_health::HealthEvidence>,
@@ -249,7 +251,15 @@ fn resolve(
                 continue;
             }
         };
-        accepted.write(DamageApplied { impact, lethal });
+        let aimed_bullet = matches!(impact.category, DamageCategory::Bullet)
+            && players
+                .get(impact.attacker)
+                .is_ok_and(|inventory| inventory.ads > 0.5);
+        accepted.write(DamageApplied {
+            impact,
+            lethal,
+            aimed_bullet,
+        });
     }
 }
 fn rewards(
@@ -259,6 +269,7 @@ fn rewards(
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
     effects: Res<crate::powerups::PowerupEffects>,
+    nuked: Query<(), With<crate::powerups::NukeTarget>>,
 ) {
     for applied in applied.read() {
         let impact = applied.impact.clone();
@@ -279,6 +290,8 @@ fn rewards(
         } else if matches!(&impact.source,ImpactSource::Perk(id) if definition.content.perks.iter().any(|p|p.id==*id && p.cherry.is_some()))
         {
             if lethal { 40 } else { 0 }
+        } else if nuked.contains(impact.target) && (lethal || !applied.aimed_bullet) {
+            0
         } else if lethal {
             kill.saturating_add(bonus)
         } else {
@@ -299,6 +312,7 @@ fn rewards(
             impact,
             lethal,
             points,
+            aimed_bullet: applied.aimed_bullet,
         };
         if lethal {
             deaths.write(EnemyDeath(receipt.clone()));
