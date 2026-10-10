@@ -1,4 +1,5 @@
 import argparse
+import http.client
 import itertools
 import json
 from pathlib import Path
@@ -57,17 +58,26 @@ class Client:
         return self.call("origins/release")
 
     def quit(self, timeout=15):
-        result = self.call("origins/quit")
-        if not result.get("exit_requested"):
-            raise RuntimeError(f"Game did not accept shutdown: {result}")
         endpoint = urllib.parse.urlparse(self.url)
+        address = (endpoint.hostname, endpoint.port or 80)
+        with socket.create_connection(address, timeout=3):
+            pass
+        try:
+            result = self.call("origins/quit")
+        except (TimeoutError, ConnectionError, urllib.error.URLError, http.client.RemoteDisconnected) as error:
+            result = {"exit_requested": None, "response_error": f"{type(error).__name__}: {error}"}
+        else:
+            if not result.get("exit_requested"):
+                raise RuntimeError(f"Game did not accept shutdown: {result}")
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                with socket.create_connection((endpoint.hostname, endpoint.port or 80), timeout=1):
+                with socket.create_connection(address, timeout=min(3, max(0.01, deadline - time.monotonic()))):
                     pass
             except ConnectionRefusedError:
                 return {**result, "endpoint_closed": True}
+            except (TimeoutError, ConnectionResetError):
+                pass
             time.sleep(0.05)
         raise TimeoutError(f"BRP endpoint remained open after shutdown: {self.url}")
 
