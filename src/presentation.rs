@@ -166,7 +166,7 @@ pub(crate) fn first_person_light(
                     clear_color: ClearColorConfig::None,
                     output_mode: CameraOutputMode::Write {
                         blend_state: Some(BlendState::REPLACE),
-                        clear_color: ClearColorConfig::None,
+                        clear_color: ClearColorConfig::Custom(Color::BLACK),
                     },
                     ..default()
                 },

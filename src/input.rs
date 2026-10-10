@@ -162,7 +162,10 @@ impl Plugin for GameInputPlugin {
             .add_message::<RestartGame>()
             .add_systems(
                 PreUpdate,
-                toggle_fullscreen.after(InputSystems).before(collect),
+                toggle_fullscreen
+                    .after(InputSystems)
+                    .before(collect)
+                    .run_if(|options: Res<crate::assets::LaunchOptions>| !options.verify_ads),
             )
             .add_systems(
                 PreUpdate,

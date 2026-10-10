@@ -75,6 +75,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let benchmark = options.benchmark;
     let release_benchmark = options.release_benchmark;
     let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
+    let ads_capture = options.verify_ads;
     let flythrough = options.flythrough;
     app.insert_resource(options);
     let default_plugins = DefaultPlugins.build();
@@ -114,9 +115,17 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                     .into(),
                     mode: bevy::window::WindowMode::Windowed,
                     decorations: false,
-                    resizable: true,
-                    resolution: bevy::window::WindowResolution::new(1920, 1080)
-                        .with_scale_factor_override(1.),
+                    resizable: !ads_capture,
+                    enabled_buttons: bevy::window::EnabledButtons {
+                        maximize: !ads_capture,
+                        ..default()
+                    },
+                    resolution: if ads_capture {
+                        bevy::window::WindowResolution::new(1920, 1080)
+                            .with_scale_factor_override(1.)
+                    } else {
+                        bevy::window::WindowResolution::new(1920, 1080)
+                    },
                     present_mode: if benchmark {
                         bevy::window::PresentMode::AutoNoVsync
                     } else {

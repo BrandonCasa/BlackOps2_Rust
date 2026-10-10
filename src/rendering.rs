@@ -24,6 +24,7 @@ mod readback_shutdown;
 mod residency;
 mod shadows;
 mod sky;
+mod viewport;
 pub(crate) use first_person::FirstPersonDepthStats;
 pub(crate) use opaque::OpaqueSurfaceStatus;
 #[cfg(feature = "dev-dynamic")]
@@ -79,6 +80,10 @@ impl Plugin for GameRenderingPlugin {
             .add_systems(Startup, (setup, opaque::initialize))
             .add_systems(PostStartup, sky::setup)
             .add_systems(Startup, cluster_capacity)
+            .add_systems(
+                PostUpdate,
+                viewport::fit.before(bevy::camera::CameraUpdateSystems),
+            )
             .add_systems(
                 PostUpdate,
                 shadows::select_local_lights
