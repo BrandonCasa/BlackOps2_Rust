@@ -793,6 +793,24 @@ fn build_graphs(
         rig.graph = Some(graph);
     }
 }
+#[cfg(debug_assertions)]
+pub(crate) fn animation_observation(world: &mut World) -> Vec<serde_json::Value> {
+    let rigs: Vec<_> = world.query::<&Rig>().iter(world).cloned().collect();
+    rigs.iter().filter(|r| r.playback.is_some() && !r.knife).map(|rig| {
+        let clocks: Vec<_> = rig.players.iter().filter_map(|e| world.get::<AnimationPlayer>(*e))
+            .flat_map(|p| p.playing_animations().map(|(node, active)| {
+                serde_json::json!({"clip":rig.nodes.iter().find(|(_,n)| **n == *node).map(|(name,_)|name),
+                    "seconds":active.seek_time(),"paused":active.is_paused()})
+            })).collect();
+        let bones: BTreeMap<_,_> = rig.tracked.iter().filter_map(|(e,_)| {
+            let name = world.get::<Name>(*e)?;
+            let pose = world.get::<Transform>(*e)?;
+            Some((name.as_str().to_owned(), serde_json::json!({"translation":pose.translation.to_array(),"rotation":pose.rotation.to_array()})))
+        }).collect();
+        serde_json::json!({"weapon":rig.weapon.0,"arms":rig.arms,"left":rig.left,"ready":rig.ready && (rig.arms || rig.attached),
+            "action":rig.playback.map(|a|format!("{a:?}")),"clocks":clocks,"bones":bones})
+    }).collect()
+}
 pub(crate) fn hand_action(
     inventory: &WeaponInventory,
     weapon: &crate::origins::content::WeaponDefinition,
@@ -816,12 +834,26 @@ pub(crate) fn hand_action(
     } else {
         WeaponAnimation::Idle
     };
+    let aimed = inventory.ads >= 0.99;
     let fire = if empty
+        && aimed
+        && weapon
+            .animation_actions
+            .contains_key(&WeaponAnimation::AdsLastShot)
+    {
+        WeaponAnimation::AdsLastShot
+    } else if empty
         && weapon
             .animation_actions
             .contains_key(&WeaponAnimation::LastShot)
     {
         WeaponAnimation::LastShot
+    } else if aimed
+        && weapon
+            .animation_actions
+            .contains_key(&WeaponAnimation::AdsFire)
+    {
+        WeaponAnimation::AdsFire
     } else {
         WeaponAnimation::Fire
     };
@@ -853,10 +885,19 @@ pub(crate) fn hand_action(
         if age < fire_duration {
             return (fire, Some(age));
         }
-        if fire == WeaponAnimation::Fire
-            && age - fire_duration < duration(WeaponAnimation::Rechamber)
+        let rechamber = if aimed
+            && weapon
+                .animation_actions
+                .contains_key(&WeaponAnimation::AdsRechamber)
         {
-            return (WeaponAnimation::Rechamber, Some(age - fire_duration));
+            WeaponAnimation::AdsRechamber
+        } else {
+            WeaponAnimation::Rechamber
+        };
+        if matches!(fire, WeaponAnimation::Fire | WeaponAnimation::AdsFire)
+            && age - fire_duration < duration(rechamber)
+        {
+            return (rechamber, Some(age - fire_duration));
         }
         return (idle, None);
     }

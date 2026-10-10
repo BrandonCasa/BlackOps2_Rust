@@ -291,6 +291,11 @@ fn surfaces(
         }
         if dynamic {
             commands.entity(entity).insert(DynamicSurface);
+            if skinned {
+                commands
+                    .entity(entity)
+                    .insert(bevy::render::batching::NoAutomaticBatching);
+            }
             if actor {
                 commands.entity(entity).insert(ActorSurface);
             }

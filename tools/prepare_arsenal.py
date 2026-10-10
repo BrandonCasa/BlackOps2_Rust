@@ -15,6 +15,7 @@ except ImportError:
     from prepare_ads import optics
 
 ACTIONS = {
+    "ads_fire": "adsFireAnim", "ads_last_shot": "adsLastShotAnim", "ads_rechamber": "adsRechamberAnim",
     "idle_empty": "emptyIdleAnim", "last_shot": "lastShotAnim", "rechamber": "rechamberAnim",
     "prime": "holdFireAnim",
     "idle": "idleAnim", "fire": "fireAnim", "reload": "reloadAnim", "reload_empty": "reloadEmptyAnim",

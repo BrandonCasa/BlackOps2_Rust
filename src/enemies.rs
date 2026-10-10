@@ -4,7 +4,9 @@ use crate::{
     assets::GameDefinition,
     gameplay::{GameStep, Navigation},
     life::{LifeState, Vitality},
-    origins::content::{ContentId, EnemyAnimation, EnemyDefinition, EnemyLocomotion},
+    origins::content::{
+        ContentId, EnemyAnimation, EnemyCombat, EnemyCombatClip, EnemyDefinition, EnemyLocomotion,
+    },
     player::Player,
 };
 use avian3d::prelude::*;
@@ -45,6 +47,8 @@ pub struct Zombie {
     pub(crate) known_damage: bool,
     locomotion_seed: u32,
     next_hit: usize,
+    animation_sequence: u64,
+    combat: Option<(EnemyCombat, usize)>,
     lure: Option<Entity>,
     last_target: Vec3,
     route_revision: u32,
@@ -77,6 +81,8 @@ impl Zombie {
                 .to_bits()
                 .wrapping_add(position.z.to_bits().rotate_left(13)),
             next_hit: 0,
+            animation_sequence: 0,
+            combat: None,
             lure: None,
             last_target: position,
             route_revision: u32::MAX,
@@ -128,7 +134,21 @@ impl Zombie {
             self.action = action;
             self.elapsed = 0.;
             self.next_hit = 0;
+            self.animation_sequence = self.animation_sequence.wrapping_add(1);
+            self.combat = None;
         }
+    }
+    fn start_combat(&mut self, enemy: &EnemyDefinition, state: EnemyCombat) {
+        let Some(clips) = enemy.combat_states.get(&state).filter(|c| !c.is_empty()) else {
+            return;
+        };
+        let seed = (self.locomotion_seed as u64)
+            .wrapping_add(self.animation_sequence.wrapping_mul(1664525));
+        self.combat = Some((state, seed as usize % clips.len()));
+    }
+    fn combat_clip<'a>(&self, enemy: &'a EnemyDefinition) -> Option<&'a EnemyCombatClip> {
+        let (state, index) = self.combat?;
+        enemy.combat_states.get(&state)?.get(index)
     }
 }
 struct BoardTear {
@@ -202,6 +222,7 @@ struct ActorRig {
     sockets: HashMap<String, Entity>,
     action: Option<EnemyAnimation>,
     clip: Option<String>,
+    sequence: Option<u64>,
 }
 #[derive(Component)]
 struct PartialRoot;
@@ -499,16 +520,21 @@ pub(crate) fn lifecycle(
             && visible(transform.translation, target)
         {
             zombie.transition(EnemyAnimation::Attack);
+            let state = if goal.is_some() {
+                EnemyCombat::GeneratorMelee
+            } else if zombie.gait == crate::rounds::Gait::Walk {
+                EnemyCombat::WalkMelee
+            } else {
+                EnemyCombat::RunMelee
+            };
+            zombie.start_combat(enemy, state);
             evidence.attacks_started += 1;
         }
         if zombie.action == EnemyAnimation::Attack {
-            if let Some(goal) = goal {
-                let facing = goal.face - transform.translation;
-                transform.rotation = Quat::from_rotation_y((-facing.z).atan2(facing.x));
-            }
-            while zombie.next_hit < enemy.attack_hits.len()
-                && zombie.elapsed >= enemy.attack_hits[zombie.next_hit]
-            {
+            let clip = zombie.combat_clip(enemy);
+            let hits = clip.map_or(enemy.attack_hits.as_slice(), |c| c.hits.as_slice());
+            let seconds = clip.map_or(enemy.attack_seconds, |c| c.seconds);
+            while zombie.next_hit < hits.len() && zombie.elapsed >= hits[zombie.next_hit] {
                 zombie.next_hit += 1;
                 if goal.is_none()
                     && !ignored
@@ -526,7 +552,7 @@ pub(crate) fn lifecycle(
                     });
                 }
             }
-            if zombie.elapsed >= enemy.attack_seconds {
+            if zombie.elapsed >= seconds {
                 zombie.transition(EnemyAnimation::Idle);
             }
         }
@@ -655,8 +681,13 @@ pub(crate) fn lifecycle(
             }
         }
         zombie.velocity.y = (zombie.velocity.y - definition.tuning.gravity * dt).max(-30.);
-        if direction.length_squared() > 0.001 {
-            transform.rotation = Quat::from_rotation_y((-direction.z).atan2(direction.x));
+        let facing = if zombie.action == EnemyAnimation::Attack {
+            goal.map_or(target, |g| g.face) - transform.translation
+        } else {
+            direction
+        };
+        if facing.xz().length_squared() > 0.001 {
+            transform.rotation = Quat::from_rotation_y((-facing.z).atan2(facing.x));
         }
         let filter = crate::environment::solids([entity]);
         let support = query.cast_ray(feet + Vec3::Y * 0.1, Dir3::NEG_Y, 0.25, false, &filter);
@@ -791,11 +822,15 @@ fn corpses(
         };
         if zombie.action != EnemyAnimation::Death {
             zombie.transition(EnemyAnimation::Death);
+            zombie.start_combat(enemy, EnemyCombat::Death);
             commands.entity(entity).insert(ColliderDisabled);
             evidence.deaths += 1;
         }
         zombie.elapsed += time.delta_secs();
-        if zombie.elapsed >= enemy.death_seconds + enemy.corpse_seconds {
+        let death_seconds = zombie
+            .combat_clip(enemy)
+            .map_or(enemy.death_seconds, |c| c.seconds);
+        if zombie.elapsed >= death_seconds + enemy.corpse_seconds {
             commands.entity(entity).despawn();
             evidence.corpses_removed += 1;
         }
@@ -859,6 +894,7 @@ fn spawn_actors(
                     sockets: HashMap::new(),
                     action: None,
                     clip: None,
+                    sequence: None,
                 },
                 if body {
                     Transform::from_xyz(0., -0.85, 0.)
@@ -1037,10 +1073,11 @@ fn admit_ready(
 }
 fn animate(
     mut commands: Commands,
-    state: Res<State<GameState>>,
     definition: Option<Res<GameDefinition>>,
     enemies: Query<&Zombie>,
     cache: Res<Graphs>,
+    gltfs: Res<Assets<Gltf>>,
+    clips: Res<Assets<AnimationClip>>,
     mut rigs: Query<&mut ActorRig>,
     mut players: Query<&mut AnimationPlayer>,
     mut evidence: ResMut<EnemyEvidence>,
@@ -1071,6 +1108,8 @@ fn animate(
             EnemyAnimation::Traverse | EnemyAnimation::Tear
         ) {
             zombie.traversal_clip.as_deref()
+        } else if let Some(clip) = zombie.combat_clip(enemy) {
+            clip.animation.0.rsplit('.').next()
         } else if let Some(name) = zombie.locomotion_clip(enemy) {
             Some(name)
         } else {
@@ -1089,7 +1128,30 @@ fn animate(
         let Some(&node) = nodes.get(name) else {
             continue;
         };
-        let changed = rig.action != Some(zombie.action) || rig.clip.as_deref() != Some(name);
+        let changed = rig.action != Some(zombie.action)
+            || rig.clip.as_deref() != Some(name)
+            || rig.sequence != Some(zombie.animation_sequence);
+        let Some(duration) = gltfs
+            .get(&rig.source)
+            .and_then(|g| g.named_animations.get(name))
+            .and_then(|h| clips.get(h))
+            .map(AnimationClip::duration)
+            .filter(|d| *d > 0.)
+        else {
+            continue;
+        };
+        let looping = matches!(
+            zombie.action,
+            EnemyAnimation::Idle
+                | EnemyAnimation::Walk
+                | EnemyAnimation::Run
+                | EnemyAnimation::Sprint
+        );
+        let seek = if looping {
+            zombie.elapsed.rem_euclid(duration)
+        } else {
+            zombie.elapsed.min(duration)
+        };
         for &entity in &rig.players {
             let Ok(mut player) = players.get_mut(entity) else {
                 continue;
@@ -1099,42 +1161,20 @@ fn animate(
                     .entity(entity)
                     .insert(AnimationGraphHandle(graph.clone()));
                 player.stop_all();
-                let active = player.play(node);
-                if matches!(
-                    zombie.action,
-                    EnemyAnimation::Idle
-                        | EnemyAnimation::Walk
-                        | EnemyAnimation::Run
-                        | EnemyAnimation::Sprint
-                ) {
-                    active.repeat();
-                }
+                player.play(node);
                 evidence.animations.insert(format!("{:?}", zombie.action));
                 if EnemyLocomotion::for_action(zombie.action).is_some() {
                     evidence.locomotion_clips.insert(name.to_owned());
                 }
             }
-            if player
-                .animation(node)
-                .is_some_and(|active| active.seek_time() != zombie.elapsed)
-                && let Some(active) = player.animation_mut(node)
-            {
-                active.seek_to(zombie.elapsed);
-            }
-            if **state == GameState::Playing && zombie.stunned <= 0. {
-                if player
-                    .playing_animations()
-                    .any(|(_, active)| active.is_paused())
-                {
-                    player.resume_all();
-                }
-            } else if !player.all_paused() {
-                player.pause_all();
+            if let Some(active) = player.animation_mut(node) {
+                active.set_seek_time(seek).pause();
             }
         }
         if changed {
             rig.action = Some(zombie.action);
             rig.clip = Some(name.to_owned());
+            rig.sequence = Some(zombie.animation_sequence);
         }
     }
 }
@@ -1184,6 +1224,25 @@ pub(crate) fn locomotion_observation(world: &mut World, owner: Entity) -> Vec<se
                 .and_then(|e| world.get::<Transform>(e))
                 .map(|t| t.rotation.to_array());
             serde_json::json!({"rig":rig,"ready":ready,"clip":clip,"clocks":clocks,"pose":pose})
+        })
+        .collect()
+}
+#[cfg(debug_assertions)]
+pub(crate) fn animation_observation(world: &mut World) -> Vec<serde_json::Value> {
+    let actors: Vec<_> = world.query::<(Entity, &Zombie, &Transform)>().iter(world).map(|(entity,zombie,transform)| {
+        let game = world.resource::<GameDefinition>();
+        let clip = game.content.enemies.iter().find(|e|e.id == zombie.definition).and_then(|e|zombie.combat_clip(e));
+        (entity, serde_json::json!({"entity":entity.to_bits(),"action":format!("{:?}",zombie.action),
+            "position":transform.translation.to_array(),"forward":(transform.rotation * Vec3::X).to_array(),
+            "gait":format!("{:?}",zombie.gait),"elapsed":zombie.elapsed,"sequence":zombie.animation_sequence,
+            "combat_state":zombie.combat.map(|(s,_)|format!("{s:?}")),"combat_clip":clip.map(|c|&c.animation.0),
+            "seconds":clip.map(|c|c.seconds),"hits":clip.map(|c|&c.hits)}))
+    }).collect();
+    actors
+        .into_iter()
+        .map(|(entity, mut observation)| {
+            observation["rigs"] = serde_json::json!(locomotion_observation(world, entity));
+            observation
         })
         .collect()
 }

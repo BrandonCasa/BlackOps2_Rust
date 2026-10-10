@@ -113,6 +113,7 @@ pub(super) fn install(app: &mut App, port: u16) {
                 .with_method_main("origins/materials", materials)
                 .with_method_main("origins/capture", capture)
                 .with_method_main("origins/preview", preview)
+                .with_method_main("origins/animations", animations)
                 .with_method_main("origins/reset", reset)
                 .with_method_main("origins/input", input)
                 .with_method_main("origins/release", release)
@@ -218,6 +219,7 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
         "endpoints":{"main":format!("http://127.0.0.1:{}",port.0),"render":"http://127.0.0.1:15703"},
         "discovery":{"methods":"rpc.discover","schemas":"registry.schema"},
         "methods":{
+            "origins/animations":{"params":{},"result":"fixed_tick, weapons (ready, action, clip clocks, local bone poses), enemies (action, gait, native combat state, sequence, elapsed, notetracks, rig poses and clocks)"},
             "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, prone, crouched, velocity, lethal, tactical, mine), firing (shots with stance, speed, spread, ADS and perk scales; first 128), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
             "origins/materials":{"params":{},"result":"pending, first_person, world, inventory; native material, texture, tangent readiness"},
             "origins/preview":{"params":{"weapon":"optional native ID; omitted clears preview"},"effect":"World-model scenario setup, attached to camera for inspection"},
@@ -297,6 +299,11 @@ fn quit(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     release(In(None), world)?;
     world.write_message(AppExit::Success);
     Ok(json!({"exit_requested":true}))
+}
+fn animations(_: In<Option<Value>>, world: &mut World) -> BrpResult {
+    Ok(json!({"fixed_tick":world.resource::<RemoteState>().tick,
+        "weapons":crate::presentation::animation_observation(world),
+        "enemies":crate::enemies::animation_observation(world)}))
 }
 fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     let remote = world.resource::<RemoteState>();

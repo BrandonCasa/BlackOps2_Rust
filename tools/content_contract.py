@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation", "dual_weapon"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals", "locomotion_states"} if table == "enemies" else {"generator", "presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"distance_min"} if table=="sounds" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation", "dual_weapon"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals", "locomotion_states", "combat_states"} if table == "enemies" else {"generator", "presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"distance_min"} if table=="sounds" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -153,6 +153,17 @@ def validate_content(content, require):
                     for identity in clips:
                         resolve(owner, identity, "animation")
                         require(any(a["id"] == identity and a["skeleton"] == row["presentation"] for a in content["animations"]), "locomotion animation belongs to another rig")
+                combat = row.get("combat_states", {})
+                require(isinstance(combat, dict) and set(combat) <= {"walk_melee", "run_melee", "generator_melee", "death"}, "invalid combat states")
+                for clips in combat.values():
+                    require(isinstance(clips, list) and 0 < len(clips) <= 32, "invalid combat substates")
+                    for clip in clips:
+                        require(isinstance(clip, dict) and set(clip) == {"animation", "seconds", "hits"}, "invalid combat clip")
+                        resolve(owner, clip["animation"], "animation")
+                        number(clip["seconds"], True)
+                        require(isinstance(clip["hits"], list) and all(type(t) in (int, float) and math.isfinite(t) and 0 <= t <= clip["seconds"] for t in clip["hits"])
+                                and all(a < b for a, b in zip(clip["hits"], clip["hits"][1:])), "invalid combat notetracks")
+                        require(any(a["id"] == clip["animation"] and a["skeleton"] == row["presentation"] for a in content["animations"]), "combat clip belongs to another rig")
                 actions = row.get("animation_actions", {})
                 region_ids = set()
                 regions = row.get("hit_regions", [])
@@ -216,7 +227,7 @@ def validate_content(content, require):
                 resolve(owner, row.get("dual_weapon"), "weapon", True)
                 resolve(owner, row.get("ammo_group"), "definition", True)
                 actions = row.get("animation_actions", {})
-                require(isinstance(actions, dict) and set(actions) <= {"idle", "idle_empty", "last_shot", "rechamber", "prime", "fire", "reload", "reload_empty", "reload_start", "reload_end", "equip", "unequip", "melee", "ads_enter", "ads_leave", "sprint_enter", "sprint_loop", "sprint_leave", "prone_enter", "prone_loop", "prone_leave", "dive_enter", "dive_loop", "dive_leave"}, "invalid weapon animation actions")
+                require(isinstance(actions, dict) and set(actions) <= {"idle", "idle_empty", "last_shot", "rechamber", "ads_fire", "ads_last_shot", "ads_rechamber", "prime", "fire", "reload", "reload_empty", "reload_start", "reload_end", "equip", "unequip", "melee", "ads_enter", "ads_leave", "sprint_enter", "sprint_loop", "sprint_leave", "prone_enter", "prone_loop", "prone_leave", "dive_enter", "dive_loop", "dive_leave"}, "invalid weapon animation actions")
                 if row.get("throwable") is not None or row.get("mine") is not None:
                     require({"prime", "idle", "fire"} <= set(actions), "missing equipment deployment animation")
                 for identity in actions.values():

@@ -18,6 +18,8 @@ use std::sync::{
 
 #[derive(Resource, Clone)]
 struct PipelineReadiness(Arc<AtomicUsize>);
+#[derive(Resource, Default, Clone)]
+struct MeshConsistency(Arc<Mutex<serde_json::Value>>);
 impl Default for PipelineReadiness {
     fn default() -> Self {
         Self(Arc::new(AtomicUsize::new(usize::MAX)))
@@ -108,11 +110,93 @@ pub(super) fn install(app: &mut App) {
         return;
     }
     let readiness = app.world().resource::<PipelineReadiness>().clone();
+    let mesh_consistency = app
+        .world()
+        .resource::<crate::assets::LaunchOptions>()
+        .validation_remote
+        .is_some()
+        .then(MeshConsistency::default);
+    if let Some(consistency) = &mesh_consistency {
+        app.insert_resource(consistency.clone());
+    }
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
         render
             .insert_resource(readiness)
             .insert_resource(failures)
             .add_systems(Render, inspect.after(RenderSystems::Render));
+        if let Some(consistency) = mesh_consistency {
+            render
+                .insert_resource(consistency)
+                .add_systems(Render, inspect_meshes.after(RenderSystems::Render));
+        }
+    }
+}
+
+fn inspect_meshes(
+    consistency: Res<MeshConsistency>,
+    instances: Res<bevy::pbr::RenderMeshInstances>,
+    skins: Res<bevy::pbr::SkinUniforms>,
+    allocator: Res<bevy::render::mesh::allocator::MeshAllocator>,
+    buffers: Option<
+        Res<
+            bevy::render::batching::gpu_preprocessing::BatchedInstanceBuffers<
+                bevy::pbr::MeshUniform,
+                bevy::pbr::MeshInputUniform,
+            >,
+        >,
+    >,
+) {
+    let Some(buffers) = buffers else { return };
+    let mut checked = 0;
+    let mut mismatches = Vec::new();
+    for &entity in skins.all_skins() {
+        let Some(queue) = instances.render_mesh_queue_data(entity) else {
+            continue;
+        };
+        let Some(input) = buffers
+            .current_input_buffer
+            .get(queue.current_uniform_index.0)
+        else {
+            continue;
+        };
+        let Some(asset) = instances.mesh_asset_id(entity) else {
+            continue;
+        };
+        let Some(vertices) = allocator.mesh_vertex_slice(&asset) else {
+            continue;
+        };
+        let indices = allocator.mesh_index_slice(&asset);
+        let expected_skin = skins.skin_index(entity);
+        checked += 1;
+        if input.first_vertex_index != vertices.range.start
+            || indices
+                .as_ref()
+                .is_some_and(|i| input.first_index_index != i.range.start)
+            || expected_skin != Some(input.current_skin_index)
+        {
+            mismatches.push(serde_json::json!({"entity":entity.to_bits(),
+                "vertex":input.first_vertex_index,"expected_vertex":vertices.range.start,
+                "index":input.first_index_index,"expected_index":indices.map(|i|i.range.start),
+                "skin":input.current_skin_index,"expected_skin":expected_skin}));
+        }
+    }
+    if let Ok(mut report) = consistency.0.lock() {
+        let frames = report["frames"].as_u64().unwrap_or(0) + 1;
+        let mismatch_frames =
+            report["mismatch_frames"].as_u64().unwrap_or(0) + u64::from(!mismatches.is_empty());
+        let first = report
+            .get("first_mismatches")
+            .cloned()
+            .filter(|v| !v.is_null())
+            .unwrap_or_else(|| {
+                if mismatches.is_empty() {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::json!(mismatches)
+                }
+            });
+        *report = serde_json::json!({"frames":frames,"checked":checked,"mismatch_frames":mismatch_frames,
+            "mismatches":mismatches,"first_mismatches":first});
     }
 }
 
@@ -175,5 +259,6 @@ fn inspect(
 
 #[cfg(all(debug_assertions, feature = "dev-dynamic"))]
 pub(super) fn snapshot(world: &World) -> serde_json::Value {
-    serde_json::json!({"pending":world.resource::<PipelineReadiness>().0.load(Ordering::Relaxed),"error":world.resource::<PipelineFailures>().0.lock().ok().and_then(|v|v.clone())})
+    serde_json::json!({"pending":world.resource::<PipelineReadiness>().0.load(Ordering::Relaxed),"error":world.resource::<PipelineFailures>().0.lock().ok().and_then(|v|v.clone()),
+        "mesh_consistency":world.get_resource::<MeshConsistency>().and_then(|r|r.0.lock().ok().map(|v|v.clone()))})
 }

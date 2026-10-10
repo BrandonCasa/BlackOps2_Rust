@@ -130,6 +130,9 @@ pub enum WeaponAnimation {
     IdleEmpty,
     LastShot,
     Rechamber,
+    AdsFire,
+    AdsLastShot,
+    AdsRechamber,
     Prime,
     Fire,
     Reload,
@@ -287,6 +290,8 @@ pub struct EnemyDefinition {
     #[serde(default)]
     pub locomotion_states: BTreeMap<EnemyLocomotion, Vec<ContentId>>,
     #[serde(default)]
+    pub combat_states: BTreeMap<EnemyCombat, Vec<EnemyCombatClip>>,
+    #[serde(default)]
     pub traversals: BTreeMap<String, EnemyTraversalDefinition>,
     #[serde(default = "default_attack_seconds")]
     pub attack_seconds: f32,
@@ -367,6 +372,21 @@ pub enum EnemyAnimation {
     Traverse,
     Landing,
     Tear,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnemyCombat {
+    WalkMelee,
+    RunMelee,
+    GeneratorMelee,
+    Death,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnemyCombatClip {
+    pub animation: ContentId,
+    pub seconds: f32,
+    pub hits: Vec<f32>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1122,6 +1142,28 @@ impl ContentCatalog {
                             .iter()
                             .any(|a| a.id == *clip && v.presentation.as_ref() == Some(&a.skeleton)),
                         "Locomotion animation belongs to another rig",
+                    )?;
+                }
+            }
+            for clips in v.combat_states.values() {
+                valid(
+                    !clips.is_empty() && clips.len() <= 32,
+                    "Invalid combat substates",
+                )?;
+                for clip in clips {
+                    r(&v.id.0, &clip.animation.0, "animation")?;
+                    valid(
+                        positive(clip.seconds)
+                            && clip
+                                .hits
+                                .iter()
+                                .all(|t| nonnegative(*t) && *t <= clip.seconds)
+                            && clip.hits.windows(2).all(|p| p[0] < p[1])
+                            && self.animations.iter().any(|a| {
+                                a.id == clip.animation
+                                    && v.presentation.as_ref() == Some(&a.skeleton)
+                            }),
+                        "Invalid combat clip or timing",
                     )?;
                 }
             }

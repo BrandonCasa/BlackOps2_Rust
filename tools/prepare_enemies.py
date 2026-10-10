@@ -6,7 +6,7 @@ from prepare_gameplay_content import external
 from xanim import decode
 
 CLIPS = {"idle":"ai_zombie_idle_v1_delta", "walk":"ai_zombie_walk_v1", "run":"ai_zombie_run_v2", "sprint":"ai_zombie_sprint_v1",
-         "attack":"ai_zombie_attack_v1", "death":"ai_zombie_firestaff_death_collapse_a"}
+         "attack":"ai_zombie_attack_v2", "death":"ch_dazed_a_death"}
 
 def hit_regions(enemy):
     regions = [("head", "head", "j_head", "j_head_end", .105, enemy["parts"][0]["presentation"]),
