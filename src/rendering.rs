@@ -34,7 +34,8 @@ pub(crate) use preprocessing::PreprocessingStatus;
 
 pub(crate) const BASE_FOV_DEGREES: f32 = 55.;
 
-#[derive(Component)]
+#[derive(Component, Clone, bevy::render::extract_component::ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct GameCamera;
 
 #[derive(Component)]

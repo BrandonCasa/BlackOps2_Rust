@@ -23,6 +23,8 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
+mod temporal;
+
 #[derive(Resource, Clone, Default)]
 pub(crate) struct FirstPersonDepthStats(Option<Arc<DepthCounters>>);
 
@@ -78,7 +80,8 @@ impl Plugin for FirstPersonRenderPlugin {
                 .map(|_| Arc::default()),
         );
         app.insert_resource(stats.clone())
-            .add_plugins(ExtractComponentPlugin::<ViewModelCamera>::default());
+            .add_plugins(ExtractComponentPlugin::<ViewModelCamera>::default())
+            .add_plugins(temporal::FirstPersonTemporalPlugin);
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render
                 .insert_resource(stats)

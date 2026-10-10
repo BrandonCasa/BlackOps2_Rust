@@ -199,6 +199,15 @@ pub(crate) fn first_person_light(
                 bevy::render::view::NoIndirectDrawing,
                 Name::new("First-person camera"),
             ));
+            final_camera.insert((
+                bevy::pbr::ContactShadows::default(),
+                match profile.antialiasing {
+                    crate::rendering::profile::Antialiasing::Taa => {
+                        bevy::light::ShadowFilteringMethod::Temporal
+                    }
+                    _ => bevy::light::ShadowFilteringMethod::Gaussian,
+                },
+            ));
             if !options.verify_viewmodel_shadows {
                 final_camera.insert(AutoExposure {
                     speed_brighten: profile.adaptation_speed,
@@ -211,11 +220,7 @@ pub(crate) fn first_person_light(
                 profile.antialiasing,
                 crate::rendering::profile::Antialiasing::Taa
             ) {
-                final_camera.insert((
-                    bevy::anti_alias::taa::TemporalAntiAliasing::default(),
-                    bevy::light::ShadowFilteringMethod::Temporal,
-                    bevy::pbr::ContactShadows::default(),
-                ));
+                final_camera.insert(bevy::anti_alias::taa::TemporalAntiAliasing::default());
             }
             if matches!(
                 profile.antialiasing,
