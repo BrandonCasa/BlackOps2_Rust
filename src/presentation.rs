@@ -89,7 +89,7 @@ impl Plugin for PresentationPlugin {
             .add_systems(
                 Update,
                 (
-                    spawn_viewmodels,
+                    spawn_viewmodels.run_if(crate::flythrough::normal_play),
                     build_graphs,
                     attach_weapons,
                     offhand::select_visible,
@@ -113,6 +113,7 @@ impl Plugin for PresentationPlugin {
             .add_systems(
                 PostUpdate,
                 camera_pose
+                    .run_if(crate::flythrough::normal_play)
                     .in_set(CameraPose)
                     .after(aim_pose)
                     .before(bevy::transform::TransformSystems::Propagate),

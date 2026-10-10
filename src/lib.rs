@@ -24,6 +24,7 @@ pub mod economy;
 pub mod enemies;
 pub mod environment;
 pub mod equipment;
+pub mod flythrough;
 pub mod gameplay;
 pub mod generators;
 pub mod hit_regions;
@@ -64,12 +65,17 @@ pub enum GameState {
 
 pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     let options = assets::LaunchOptions::parse(arguments);
+    configured_app(options)
+}
+
+pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let configuration = assets::AssetPack::discover();
     let mut app = App::new();
     let benchmark = options.benchmark;
     let release_benchmark = options.release_benchmark;
     let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
     let ads_capture = options.verify_ads;
+    let flythrough = options.flythrough;
     app.insert_resource(options);
     let default_plugins = DefaultPlugins.build();
     #[cfg(not(debug_assertions))]
@@ -94,7 +100,12 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
             )
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "Origins".into(),
+                    title: if flythrough {
+                        "Origins — visual flythrough"
+                    } else {
+                        "Origins"
+                    }
+                    .into(),
                     resolution: if ads_capture {
                         bevy::window::WindowResolution::new(1920, 1080)
                             .with_scale_factor_override(1.)
@@ -157,6 +168,7 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
     ));
     if cfg!(debug_assertions)
         && !release_benchmark
+        && !flythrough
         && (benchmark || cfg!(feature = "profile-tracy") || cfg!(feature = "profile-chrome"))
     {
         if !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {

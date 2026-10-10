@@ -127,6 +127,8 @@ def pin(snapshot_path, output, target_dir=None, asset_root=None, executable=None
     output.mkdir(parents=True, exist_ok=False)
     executable = executable or Path(target_dir or ROOT / "target").resolve() / "debug/origins.exe"
     binaries = copy_binaries(executable, output, expected.get("toolchain") or toolchain())
+    binaries.update(copy_binaries(executable.with_name("origins_flythrough.exe"), output,
+                                 expected.get("toolchain") or toolchain()))
     asset_root = Path(asset_root or ROOT / "assets/origins").resolve()
     link_assets(output, asset_root)
     paths = sorted(path for path in asset_root.rglob("*") if path.is_file())
@@ -154,7 +156,7 @@ def build(output, target_dir=None, asset_root=None, profiling=None):
     compiler = source["toolchain"]
     environment = {**os.environ, "RUSTC": compiler["compiler"],
                    "RUSTDOC": str(Path(compiler["sysroot"]) / "bin/rustdoc.exe")}
-    command = ["cargo", "build", "--locked", "--features", ",".join(source["features"]), "--bin", "origins",
+    command = ["cargo", "build", "--locked", "--features", ",".join(source["features"]), "--bins",
                "--message-format=json-render-diagnostics"]
     if target_dir:
         command += ["--target-dir", str(target_dir.resolve())]

@@ -6,6 +6,10 @@ rust-version = "1.99.0"
 publish = false
 default-run = "origins"
 
+[[bin]]
+name = "origins_flythrough"
+path = "src/bin/origins_flythrough.rs"
+
 [workspace]
 members = ["."]
 resolver = "3"

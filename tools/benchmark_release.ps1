@@ -41,7 +41,7 @@ $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $repor
 $runs = [Collections.Generic.List[object]]::new()
 foreach ($workload in $Workloads) {
     for ($index = 1; $index -le $Repeats; $index++) {
-        while (Get-Process -Name origins, cargo, rustc -ErrorAction SilentlyContinue) {
+        while (Get-Process -Name origins, origins_flythrough, cargo, rustc -ErrorAction SilentlyContinue) {
             Write-Output 'Game or compiler active; waiting for release measurement resources'
             Start-Sleep -Seconds 10
         }
@@ -59,7 +59,7 @@ foreach ($workload in $Workloads) {
         $buildInterference = $false
         try {
             while (-not $owned.HasExited) {
-                $others = Get-Process -Name origins -ErrorAction SilentlyContinue | Where-Object Id -ne $owned.Id
+                $others = Get-Process -Name origins, origins_flythrough -ErrorAction SilentlyContinue | Where-Object Id -ne $owned.Id
                 if (Get-Process -Name cargo, rustc -ErrorAction SilentlyContinue) {
                     $buildInterference = $true
                 }

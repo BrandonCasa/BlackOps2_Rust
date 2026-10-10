@@ -162,13 +162,13 @@ impl Plugin for GameInputPlugin {
                 collect
                     .after(InputSystems)
                     .run_if(|options: Res<crate::assets::LaunchOptions>| {
-                        options.validation_remote.is_none()
+                        options.validation_remote.is_none() && !options.flythrough
                     }),
             )
             .add_systems(
                 Update,
                 pause_and_restart.run_if(|options: Res<crate::assets::LaunchOptions>| {
-                    options.validation_remote.is_none()
+                    options.validation_remote.is_none() && !options.flythrough
                 }),
             )
             .add_systems(
@@ -323,6 +323,9 @@ pub(crate) fn pause_and_restart(
     menu: Res<menu::ControlMenu>,
     mut restart: MessageReader<RestartGame>,
 ) {
+    if options.flythrough {
+        return;
+    }
     if menu.capturing.is_none()
         && !menu.handled_input
         && (keys.just_pressed(KeyCode::Escape)

@@ -19,6 +19,7 @@ pub enum MeshPreprocessing {
 
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
+    pub flythrough: bool,
     pub validation_remote: Option<u16>,
     pub material_debug: u32,
     pub verify: Option<PathBuf>,

@@ -89,7 +89,7 @@ impl Plugin for GameRenderingPlugin {
             .add_systems(
                 Update,
                 (
-                    camera_follow,
+                    camera_follow.run_if(crate::flythrough::normal_play),
                     sky::viewmodel_environment,
                     opaque::prepare_shaders,
                     (pbr::prepare, surfaces, fixture_lights, opaque::convert)

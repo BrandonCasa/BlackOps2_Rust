@@ -50,8 +50,9 @@ try {
         }
         if ($LASTEXITCODE -ne 0) { throw "Build failed for $buildProfile measurements" }
     }
-    if (Get-Process -Name origins -ErrorAction SilentlyContinue) {
-        throw 'The shared actual-game validation slot is occupied; wait for that run to finish'
+    while (Get-Process -Name origins,origins_flythrough -ErrorAction SilentlyContinue) {
+        Write-Output 'The shared actual-game validation slot is occupied; waiting for that run to finish'
+        Start-Sleep -Seconds 10
     }
     if (-not (Test-Path -LiteralPath $gameExecutable)) { throw 'Profiling game executable does not exist' }
     New-Item -ItemType Directory -Path $outputPath | Out-Null

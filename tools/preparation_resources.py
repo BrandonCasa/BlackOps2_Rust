@@ -5,7 +5,7 @@ import time
 
 import psutil
 
-ACTIVE_CAPTURE_PROCESSES = {"origins.exe", "capture.exe", "tracy-capture.exe", "tracy-capture-daemon.exe",
+ACTIVE_CAPTURE_PROCESSES = {"origins.exe", "origins_flythrough.exe", "capture.exe", "tracy-capture.exe", "tracy-capture-daemon.exe",
                             "tracy-csvexport.exe", "wpr.exe", "xperf.exe", "renderdoccmd.exe"}
 _pressure_sample = threading.local()
 
