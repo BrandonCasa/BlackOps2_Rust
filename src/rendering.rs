@@ -366,7 +366,7 @@ fn fixture_lights(
                         color: profile::color(profile.lantern_color),
                         intensity: profile.lantern_lumens,
                         range: profile.lantern_range,
-                        radius: 0.12,
+                        radius: 0.5,
                         shadow_depth_bias: 0.005,
                         shadow_normal_bias: 0.3,
                         shadow_maps_enabled: false,
