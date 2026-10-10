@@ -162,12 +162,7 @@ def main():
     except Exception as error:
         report['error'] = str(error)
     finally:
-        try:
-            client.release()
-            client.call('origins/preview', {})
-        except Exception as error:
-            report['cleanup_error'] = str(error)
-            report['passed'] = False
+        client.shutdown(report)
         path = write_report(args.output, 'weapon-materials.json', report)
     print(json.dumps({'passed': report['passed'], 'cases': len(report['cases']), 'report': str(path), 'error': report.get('error')}))
     raise SystemExit(0 if report['passed'] else 1)

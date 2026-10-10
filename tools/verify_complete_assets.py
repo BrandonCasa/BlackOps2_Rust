@@ -163,20 +163,21 @@ def main():
     parser.add_argument('--identity', type=Path)
     args = parser.parse_args()
     report = {'passed': False}
+    client = Client() if args.runtime else None
     try:
         if args.runtime:
             assert args.identity
             report['identity_sha256'] = hashlib.sha256(args.identity.read_bytes()).hexdigest()
-            report.update(runtime(Client(), args.runtime))
+            report.update(runtime(client, args.runtime))
         else:
             report.update(audit(args.output))
         report['passed'] = True
     finally:
-        if args.runtime:
-            Client().release()
-            Client().call('origins/preview', {})
+        if client is not None:
+            client.shutdown(report)
         path = write_report(args.output, 'complete-assets-runtime.json' if args.runtime else 'complete-assets-audit.json', report)
         print(json.dumps({'report': str(path), 'passed': report['passed']}))
+    raise SystemExit(0 if report['passed'] else 1)
 
 
 if __name__ == '__main__':

@@ -241,15 +241,7 @@ def main():
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
     finally:
-        if "ready" in report:
-            try:
-                client.release()
-                report["final_reset"] = client.reset()
-                client.release()
-                report["final_state"] = client.wait_ticks(2)
-            except Exception as error:
-                report["cleanup_error"] = f"{type(error).__name__}: {error}"
-                report["passed"] = False
+        client.shutdown(report)
         report["finished_unix"] = time.time()
         path = write_report(output, "brp-smoke.json", report)
         print(json.dumps({"passed": report["passed"], "report": str(path), "error": report.get("error")}))

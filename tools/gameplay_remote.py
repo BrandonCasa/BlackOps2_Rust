@@ -2,6 +2,7 @@ import argparse
 import itertools
 import json
 from pathlib import Path
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -55,6 +56,29 @@ class Client:
     def release(self):
         return self.call("origins/release")
 
+    def quit(self, timeout=15):
+        result = self.call("origins/quit")
+        if not result.get("exit_requested"):
+            raise RuntimeError(f"Game did not accept shutdown: {result}")
+        endpoint = urllib.parse.urlparse(self.url)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection((endpoint.hostname, endpoint.port or 80), timeout=1):
+                    pass
+            except ConnectionRefusedError:
+                return {**result, "endpoint_closed": True}
+            time.sleep(0.05)
+        raise TimeoutError(f"BRP endpoint remained open after shutdown: {self.url}")
+
+    def shutdown(self, report):
+        try:
+            report["shutdown"] = self.quit()
+        except Exception as error:
+            report["passed"] = False
+            report["shutdown_error"] = f"{type(error).__name__}: {error}"
+            report.setdefault("error", report["shutdown_error"])
+
     def reset(self, timeout=30):
         before = (self.state().get("player") or {}).get("entity")
         self.release()
@@ -91,6 +115,8 @@ def main():
         }
     elif args.command == "reset":
         result = client.reset()
+    elif args.command == "quit":
+        result = client.quit()
     else:
         result = client.call("origins/" + args.command)
     print(json.dumps(result, indent=2))

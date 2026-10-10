@@ -119,13 +119,7 @@ def main():
     except Exception as error:
         report['error'] = str(error)
     finally:
-        try:
-            client.release()
-            client.reset()
-            client.release()
-        except Exception as error:
-            report['passed'] = False
-            report['cleanup_error'] = str(error)
+        client.shutdown(report)
         path = write_report(args.output, 'stance-spread.json', report)
     print(json.dumps({'passed': report['passed'], 'checks': len(report['cases']),
                       'report': str(path), 'error': report.get('error')}))

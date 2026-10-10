@@ -83,11 +83,7 @@ def main():
     except Exception as error:
         report['error'] = str(error)
     finally:
-        try:
-            client.release()
-        except Exception as error:
-            report['passed'] = False
-            report['release_error'] = str(error)
+        client.shutdown(report)
         write_report(args.output, 'local-power.json', report)
     print(json.dumps({'passed': report['passed'], 'checks': len(report['cases']), 'error': report.get('error')}))
     raise SystemExit(0 if report['passed'] else 1)

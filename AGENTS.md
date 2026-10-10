@@ -26,4 +26,6 @@ When a new development validation build is needed, use `uv run --script tools/pi
 
 Keep compiler checks, actual-game behavior checks, and performance evidence distinct. A review cannot establish that no bugs remain, and a build or reduced workload alone does not prove an FPS improvement.
 
+Close the validation game after every BRP scenario-script run, whether it passes or fails. Use `client.shutdown(report)` from `tools/gameplay_remote.py` in the script's `finally` block before writing the final report; this requests normal AppExit, waits for the BRP endpoint to close, and records shutdown failures. Reset between cases within a run, then close after the script finishes. Reuse the pinned executable for the next run without rebuilding. Only close the game owned by that validation run.
+
 Review your changes, preserve unrelated work, and make coherent local commits with a clear summary and useful body. Push only when requested. Report what was actually checked and any remaining limitations.
