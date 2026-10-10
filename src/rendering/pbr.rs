@@ -290,6 +290,7 @@ type PreparedHandles = HashMap<AssetId<StandardMaterial>, Vec<(PreparedTexture, 
 
 pub(super) struct CachedMaterial {
     hidden: bool,
+    excludes_caster: bool,
     material: StandardMaterial,
 }
 impl CachedMaterial {
@@ -328,6 +329,9 @@ pub(super) fn prepare(
 ) {
     for (entity, handle, extras, visibility, pending_visibility, skinned) in &entities {
         if let Some(cached) = prepared.get(&handle.0.id()) {
+            if cached.excludes_caster {
+                commands.entity(entity).insert(bevy::light::NotShadowCaster);
+            }
             let Some(mut material) = materials.get_mut(&handle.0) else {
                 continue;
             };
@@ -391,6 +395,10 @@ pub(super) fn prepare(
                 .map(|(_, h)| h.clone())
         };
         let value: serde_json::Value = serde_json::from_str(&extras.value).unwrap_or_default();
+        let excludes_caster = super::shadows::excludes_caster(&value["surface"]);
+        if excludes_caster {
+            commands.entity(entity).insert(bevy::light::NotShadowCaster);
+        }
         if let Some(ref mut library) = library {
             super::opaque::register_prepared(library, &value["surface"], channels);
         }
@@ -465,6 +473,7 @@ pub(super) fn prepare(
             handle.0.id(),
             CachedMaterial {
                 hidden: state["visible"].as_bool() == Some(false),
+                excludes_caster,
                 material: material.clone(),
             },
         );

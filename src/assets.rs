@@ -447,7 +447,12 @@ fn scene_ready(
                     if mesh_entities.contains(surface) {
                         commands
                             .entity(surface)
-                            .insert(crate::rendering::FixtureEmitter);
+                            .insert(crate::rendering::FixtureEmitter(
+                                metadata["source_model"]
+                                    .as_str()
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            ));
                     }
                 }
             }
