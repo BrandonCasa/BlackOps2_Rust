@@ -1,6 +1,10 @@
 - [ ] Preserve executable-relative discovery for expanded runtime packs.
 - [ ] Package newly referenced runtime asset types.
 - [ ] Add deferred boundaries before changed colliders enter queries.
+- [x] Assign explicit runtime owners to imported triggers and brushes.
+- [x] Route normal weapon hits to shootable environmental targets with solid occlusion.
+- [x] Attribute robot and vehicle contact damage without player kills, points, powerup drops, or souls.
+- [x] Emit one round-ending event before incrementing the source round index.
 - [ ] Add Original difficulty profiles.
 - [ ] Add Easy difficulty profiles.
 - [ ] Add solo main menu state.
@@ -59,11 +63,11 @@
 - [ ] Add source-defined zombie replacement rules.
 - [ ] Preserve replacement enemy health.
 - [ ] Add round-dependent zombie speed selection.
-- [ ] Add collectible part definitions.
-- [ ] Add owned part inventory.
+- [x] Add shared Ice, Wind, and Lightning part definitions and ownership.
+- [x] Prevent duplicate shared part reveals and collection.
 - [ ] Add collectible part placements.
 - [ ] Add source-defined randomized part locations.
-- [ ] Add part pickup interactions.
+- [x] Add shared part pickup interactions reusable by robot and tank rewards.
 - [ ] Add crafting recipe prerequisites.
 - [ ] Add crafted equipment ownership.
 - [ ] Add crafting bench placements.
@@ -155,37 +159,44 @@
 - [ ] Add Pack-a-Punch weapon replacement recovery.
 - [ ] Add Pack-a-Punch repeated upgrade purchases.
 - [ ] Add Pack-a-Punch source-defined attachment rerolls.
-- [ ] Add snow weather state.
-- [ ] Add rain weather state.
-- [ ] Add clear weather state.
-- [ ] Reset weather when starting fresh sessions.
-- [ ] Add weather cycle scheduling.
-- [ ] Add shovel ownership state.
-- [ ] Add shovel pickup placements.
-- [ ] Add dig mound placements.
-- [ ] Reset digging state when starting fresh sessions.
-- [ ] Add dig mound interaction availability.
-- [ ] Add dig mound depletion.
-- [ ] Add round-dependent dig mound respawning.
-- [ ] Add weather-dependent dig loot rolls.
-- [ ] Connect weather state to digging loot selection.
-- [ ] Add dig ammunition rewards.
-- [ ] Add dig point rewards.
-- [ ] Add dig grenade hazards.
-- [ ] Add dig zombie spawns.
-- [ ] Add dig powerup rewards.
-- [ ] Add zone-dependent Ice Staff dig eligibility.
-- [ ] Add source-defined Ice Staff dig selection.
-- [ ] Add Golden Shovel progression counters.
-- [ ] Add Golden Shovel acquisition.
-- [ ] Add Golden Shovel loot modifiers.
-- [ ] Add Golden Helmet ownership.
-- [ ] Add Golden Helmet dig rolls.
-- [ ] Add hidden perk dig placement selection.
-- [ ] Require Golden Shovel for hidden perk digs.
-- [ ] Require Zombie Blood for hidden perk dig visibility.
-- [ ] Add hidden perk dig collection.
-- [ ] Increment perk purchase limits from hidden digs.
+- [x] Add clear, rain, and snow weather states with source intensity rolls.
+- [x] Reset weather when starting fresh sessions.
+- [x] Select weather at round end with forced early snow, source overrides, and snow/rain history limits.
+- [x] Add shovel ownership state.
+- [x] Add shovel pickup placements.
+- [x] Add dig mound placements.
+- [x] Reset digging state when starting fresh sessions.
+- [x] Add dig mound interaction availability.
+- [x] Add dig mound depletion.
+- [x] Replenish depleted mounds after round end using source clear/rain counts and the source active-mound cap.
+- [x] Replenish snow mounds in regions with unrevealed Ice parts.
+- [x] Preserve first-dig and losing-streak predicates and source loot decision ordering.
+- [x] Add source common/rare dig weapons and Golden Shovel weapon pools.
+- [x] Route dug Claymores through equipment inventory.
+- [x] Expire uncollected dug weapons after twelve seconds.
+- [x] Add dig ammunition rewards.
+- [x] Add dig point rewards.
+- [x] Add dig grenade hazards.
+- [x] Add dig zombie spawns.
+- [x] Add dig powerup rewards.
+- [x] Apply per-round dig powerup limits, rare uniqueness, consecutive-rare suppression, and Fire Sale eligibility.
+- [x] Add Blood Money point rewards and collection announcements.
+- [ ] Connect Fire Sale to Mystery Box purchases and temporary box locations.
+- [x] Add zone-dependent Ice Staff dig eligibility.
+- [x] Add source-defined Ice Staff dig selection.
+- [x] Add Golden Shovel progression counters.
+- [x] Add Golden Shovel acquisition.
+- [x] Add Golden Shovel loot modifiers.
+- [x] Add Golden Helmet ownership.
+- [x] Add Golden Helmet dig rolls.
+- [x] Preserve Ice-part-before-Helmet ordering and exclude the thirtieth dig from Helmet eligibility.
+- [x] Add hidden perk dig placement selection.
+- [x] Require Golden Shovel for hidden perk digs.
+- [x] Require Zombie Blood for hidden perk dig visibility.
+- [x] Add hidden perk dig collection.
+- [x] Increment perk purchase limits from hidden digs.
+- [x] Limit hidden perk digs to four unique sites and wait for round end before revealing the next site.
+- [x] Preserve earned hidden-dig perk slots after downing and reset them in fresh sessions.
 - [ ] Add Thor's route definition.
 - [ ] Add Odin's route definition.
 - [ ] Add Freya's route definition.
@@ -197,7 +208,7 @@
 - [ ] Synchronize robot stomp damage with foot contact.
 - [ ] Add robot stomp enemy damage.
 - [ ] Add robot stomp player damage.
-- [ ] Add Golden Helmet stomp protection.
+- [x] Add Golden Helmet stomp protection.
 - [ ] Add source-defined robot foot eligibility.
 - [ ] Add shootable robot foot hatches.
 - [ ] Open eligible robot foot hatches after damage.
@@ -298,9 +309,9 @@
 - [ ] Add Fire Staff Panzer-part pickup.
 - [ ] Add Fire Staff recipe.
 - [ ] Add Fire Staff crafting pedestal.
-- [ ] Add Ice Staff northern dig-part pickup.
-- [ ] Add Ice Staff central dig-part pickup.
-- [ ] Add Ice Staff southern dig-part pickup.
+- [x] Add bunker Ice Staff dig-part pickup.
+- [x] Add no-man's-land Ice Staff dig-part pickup.
+- [x] Add village Ice Staff dig-part pickup.
 - [ ] Add Ice Staff recipe.
 - [ ] Add Ice Staff crafting pedestal.
 - [ ] Add Wind Staff Thor-part pickup.
@@ -488,8 +499,14 @@
 - [ ] Add robot pass audio.
 - [ ] Add tank boarding prompts.
 - [ ] Add tank route sounds.
-- [ ] Add weather-specific ambient audio.
-- [ ] Add digging sounds.
+- [x] Add weather-specific ambient audio.
+- [x] Add digging sounds.
+- [x] Replace weather ambience across indoor/outdoor room transitions and fresh sessions.
+- [x] Restrict thunder audio to rain with source strike and flash timing.
+- [x] Reconstruct source weather ambience fade timing.
+- [ ] Reconstruct native room reverb.
+- [x] Add shovel pickup and source dig-result character dialogue.
+- [x] Add Golden Shovel/Helmet, staff-part reveal, and staff-part collection sounds.
 - [ ] Add crafting progress sounds.
 - [ ] Add Maxis Drone spatial audio.
 - [ ] Add Crazy Place barrier movement sounds.
