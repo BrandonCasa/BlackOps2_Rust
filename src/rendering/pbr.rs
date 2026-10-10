@@ -137,6 +137,8 @@ pub(super) fn diagnostics(
     mut mode: ResMut<MaterialDiagnostic>,
     sources: Res<Assets<StandardMaterial>>,
     mut diagnostic_materials: ResMut<Assets<DiagnosticMaterial>>,
+    mut shaders: ResMut<Assets<Shader>>,
+    ready: Option<Res<super::opaque::MaterialShadersReady>>,
     ordinary: Query<
         (
             Entity,
@@ -168,6 +170,12 @@ pub(super) fn diagnostics(
             "Material diagnostic: {} (0 lit, 1 identity, 2 roughness, 3 metal, 4 normal, 5 coverage, 6 reflection, 7 geometry normal, 8 emission, 9 sun, 10 sun shadow, 11 indirect diffuse, 12 local shadow)",
             mode.0
         );
+    }
+    if mode.0 != 0 && ready.is_none() {
+        if !super::opaque::prepare_diagnostic_shaders(&mut shaders) {
+            return;
+        }
+        commands.insert_resource(super::opaque::MaterialShadersReady);
     }
     for (entity, original, handle) in &active {
         if mode.0 == 0 {
