@@ -234,7 +234,7 @@ impl Plugin for AccessPlugin {
             .init_resource::<CurrentZone>()
             .init_resource::<DoorEvidence>()
             .add_systems(
-                OnEnter(GameState::Playing),
+                OnEnter(GameState::PreparingShaders),
                 assemble.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(Update, audio_evidence)

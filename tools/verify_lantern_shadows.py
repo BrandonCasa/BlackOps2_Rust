@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import time
+import traceback
 
 from gameplay_remote import Client, write_report
 from verify_brp import assets_match, digest, require
@@ -12,7 +13,10 @@ from verify_weapon_materials import capture, inputs
 
 
 def processes(names):
-    command = f"@(Get-Process -Name {','.join(names)} -ErrorAction SilentlyContinue | Select-Object ProcessName,Id) | ConvertTo-Json -Compress"
+    executables = ','.join(f"'{name}.exe'" for name in names)
+    command = (f"@(Get-CimInstance Win32_Process | Where-Object {{ $_.Name -in @({executables}) "
+               "-and -not ($_.Name -eq 'origins.exe' -and $_.CommandLine -match ' --prepare-textures ') } "
+               "| Select-Object Name,ProcessId) | ConvertTo-Json -Compress")
     value = subprocess.check_output(['powershell', '-NoProfile', '-NonInteractive', '-Command', command],
                                     text=True, creationflags=subprocess.CREATE_NO_WINDOW).strip()
     return json.loads(value) if value else []
@@ -86,8 +90,56 @@ def diagnostic(client, output, count, name):
     return {'capture': shot, 'observations': summary(observed)}
 
 
-def run(client, output, report):
-    initial = client.until(lambda s: s['state'] == 'Playing' and s.get('player'), timeout=180)
+def run(client, output, report, startup_only=False, profile_rendering=False):
+    started = time.monotonic()
+    startup = report.setdefault('startup', {'samples': []})
+
+    def ready(state):
+        require(state['state'] != 'LoadError', f'Loading failed: {state}')
+        if state['state'] == 'PreparingShaders':
+            require(not state['enemies'], 'Enemies spawned during shader preparation')
+            progress = client.call('origins/materials')['preparation']
+            signature = (progress['total'], progress['ready'], progress['error'])
+            if not startup['samples'] or signature != startup['samples'][-1]['signature']:
+                startup['samples'].append({'signature': signature,
+                                           'elapsed_seconds': time.monotonic() - started,
+                                           'progress': progress})
+            if 0 < progress['ready'] < progress['total'] and 'capture' not in startup:
+                startup['capture'] = capture(client, output / 'shader-preparation.png')
+        return state['state'] == 'Playing' and state.get('player')
+
+    initial = client.until(ready, timeout=360)
+    startup['elapsed_seconds'] = time.monotonic() - started
+    materials = client.call('origins/materials')
+    startup['final'] = materials['preparation']
+    startup['preprocessing'] = materials['preprocessing']
+    require(startup['preprocessing']['active_mode'] == 'gpu_culling', 'GPU culling is not active')
+    require(startup['final']['total'] > 0
+            and startup['final']['ready'] == startup['final']['total']
+            and startup['final']['error'] is None, 'Gameplay began before shaders were ready')
+    if startup_only:
+        report['initial'] = observation(client)
+        report['normal_play'] = capture(client, output / 'normal-play.png')
+        client.call('origins/setup', {'clear_enemies': True, 'pending': 0, 'pause_spawning_seconds': 300})
+        report['movement_before'] = client.state()['player']
+        press(client, 'KeyW', 30, 30)
+        report['movement_after'] = client.state()['player']
+        require(math.dist(report['movement_before']['position'], report['movement_after']['position']) > .05,
+                'Normal movement did not advance the player')
+        report['after_movement'] = observation(client)
+        report['normal_play_after_movement'] = capture(client, output / 'normal-play-after-movement.png')
+        samples = report['render_samples'] = []
+        deadline = time.monotonic() + 90
+        while len(samples) < 30 and time.monotonic() < deadline:
+            state = client.state()
+            if not samples or state['render_frame'] != samples[-1]['frame']:
+                sample = {'frame': state['render_frame'], 'frame_seconds': state['frame_seconds']}
+                if profile_rendering:
+                    sample['diagnostics'] = client.call('origins/materials')['render_diagnostics']
+                samples.append(sample)
+        require(len(samples) == 30, 'Rendering did not complete 30 sampled frames')
+        report['settled_capture'] = capture(client, output / 'normal-play-settled.png')
+        return
     report['discovery'] = client.call('rpc.discover')
     methods = {method['name'] for method in report['discovery']['methods']}
     require({'origins/rendering', 'origins/materials', 'origins/capture', 'origins/setup'} <= methods, 'Required BRP methods missing')
@@ -187,7 +239,10 @@ def main():
     parser.add_argument('--bundle', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--port', type=int, default=15714)
+    parser.add_argument('--startup-only', action='store_true')
+    parser.add_argument('--profile-rendering', action='store_true')
     args = parser.parse_args()
+    require(not args.profile_rendering or args.startup_only, 'Render profiling requires --startup-only')
     bundle, output = args.bundle.resolve(), args.output.resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parent.parent), 'Evidence must be external')
     output.mkdir(parents=True, exist_ok=False)
@@ -195,28 +250,38 @@ def main():
     for name, expected in identity['binaries'].items():
         require(digest(bundle / name) == expected, f'Pinned binary changed: {name}')
     report = {'passed': False, 'structural_checks_passed': False, 'fixtures': [], 'antialiasing': [],
+              'startup_only': args.startup_only,
+              'profile_rendering': args.profile_rendering,
+              'wgpu_environment': {name: os.environ.get(name) for name in
+                                   ('WGPU_VALIDATION', 'WGPU_GPU_BASED_VALIDATION', 'WGPU_VALIDATION_INDIRECT_CALL')},
               'identity_sha256': digest(bundle / 'identity.json'), 'script_sha256': digest(Path(__file__)),
               'assets_before': assets_match(identity),
               'limitations': ['Camera poses, weapon grants, and actor placement are scenario setup.',
                               'Structural assertions and captures require separate human visual acceptance.']}
-    client = Client(f'http://127.0.0.1:{args.port}')
+    client = Client(f'http://127.0.0.1:{args.port}', request_timeout=30, shutdown_timeout=60)
     report['compiler_load'] = processes(('cargo', 'rustc'))
     wait_for_slot()
     with (output / 'game.log').open('w', encoding='utf-8') as log:
         process = subprocess.Popen([str(bundle / 'origins.exe'), '--validation-remote', str(args.port)],
                                    cwd=bundle, stdout=log, stderr=subprocess.STDOUT,
-                                   env={**os.environ, 'RUST_LOG': 'info,wgpu=error,naga=warn', 'NO_COLOR': '1'},
+                                   env={**os.environ, 'WGPU_BACKEND': 'dx12', 'RUST_LOG': 'info,wgpu=error,naga=warn,wgpu_hal::dx12::instance=debug', 'NO_COLOR': '1',
+                                        'ORIGINS_RENDER_DIAGNOSTICS': '1' if args.profile_rendering else '0'},
                                    creationflags=subprocess.CREATE_NO_WINDOW)
         report['pid'] = process.pid
         try:
-            run(client, output, report)
+            run(client, output, report, args.startup_only, args.profile_rendering)
+            rendering_log = (output / 'game.log').read_text(encoding='utf-8')
+            require('backend: Dx12' in rendering_log, 'Expected the DX12 backend')
+            require('Using static DXC for shader compilation' in rendering_log, 'DXC selection was not confirmed')
+            report['renderer'] = {'backend': 'Dx12', 'compiler': 'StaticDxc'}
             report['assets_after'] = assets_match(identity)
             report['passed'] = True
         except Exception as error:
             report['error'] = f'{type(error).__name__}: {error}'
+            report['traceback'] = traceback.format_exc()
         finally:
             client.shutdown(report)
-            path = write_report(output, 'lantern-shadows.json', report)
+            path = write_report(output, 'shader-startup.json' if args.startup_only else 'lantern-shadows.json', report)
         process.wait(timeout=20)
     print(json.dumps({'passed': report['passed'], 'report': str(path), 'error': report.get('error')}))
     raise SystemExit(0 if report['passed'] else 1)

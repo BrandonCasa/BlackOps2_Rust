@@ -22,7 +22,7 @@ impl Plugin for SessionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SessionId>()
             .configure_sets(
-                OnEnter(GameState::Playing),
+                OnEnter(GameState::PreparingShaders),
                 (
                     SessionSetup::Initialize,
                     SessionSetup::World,
@@ -31,7 +31,7 @@ impl Plugin for SessionPlugin {
                     .chain(),
             )
             .add_systems(
-                OnEnter(GameState::Playing),
+                OnEnter(GameState::PreparingShaders),
                 initialize.in_set(SessionSetup::Initialize),
             );
     }

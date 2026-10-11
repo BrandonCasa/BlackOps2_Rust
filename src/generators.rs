@@ -143,7 +143,7 @@ impl Plugin for GeneratorPlugin {
         app.init_resource::<Generators>()
             .init_resource::<GeneratorGraphs>()
             .add_systems(
-                OnEnter(GameState::Playing),
+                OnEnter(GameState::PreparingShaders),
                 assemble.in_set(crate::session::SessionSetup::World),
             )
             .add_observer(visual_ready)

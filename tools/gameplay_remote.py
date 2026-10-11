@@ -11,12 +11,14 @@ import urllib.request
 
 
 class Client:
-    def __init__(self, url="http://127.0.0.1:15702"):
+    def __init__(self, url="http://127.0.0.1:15702", request_timeout=5, shutdown_timeout=15):
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme != "http" or parsed.hostname != "127.0.0.1":
             raise ValueError("Validation requires an HTTP loopback endpoint")
         self.url = url
         self.ids = itertools.count(1)
+        self.request_timeout = request_timeout
+        self.shutdown_timeout = shutdown_timeout
 
     def call(self, method, params=None):
         identity = next(self.ids)
@@ -26,7 +28,7 @@ class Client:
         request = urllib.request.Request(
             self.url, json.dumps(body).encode(), {"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(request, timeout=5) as response:
+        with urllib.request.urlopen(request, timeout=self.request_timeout) as response:
             message = json.load(response)
         if message.get("id") != identity:
             raise RuntimeError("Mismatched BRP response")
@@ -57,7 +59,8 @@ class Client:
     def release(self):
         return self.call("origins/release")
 
-    def quit(self, timeout=15):
+    def quit(self, timeout=None):
+        timeout = self.shutdown_timeout if timeout is None else timeout
         endpoint = urllib.parse.urlparse(self.url)
         address = (endpoint.hostname, endpoint.port or 80)
         with socket.create_connection(address, timeout=3):

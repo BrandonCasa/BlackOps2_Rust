@@ -440,7 +440,7 @@ impl Plugin for NavigationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Navigation>()
             .add_systems(
-                OnEnter(GameState::Playing),
+                OnEnter(GameState::PreparingShaders),
                 reset.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(

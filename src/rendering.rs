@@ -17,6 +17,7 @@ mod native_weapon;
 pub(crate) mod opaque;
 mod pbr;
 pub(crate) mod postprocess;
+pub(crate) mod preparation;
 mod preprocessing;
 pub(crate) mod profile;
 mod readback_shutdown;
@@ -80,6 +81,7 @@ struct FixtureLightReady;
 pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
+        preparation::install(app);
         app.add_plugins(MaterialPlugin::<opaque::OpaqueMaterial>::default())
             .add_plugins(first_person::FirstPersonRenderPlugin)
             .add_plugins(lod::PropLodPlugin)
@@ -248,7 +250,7 @@ fn camera_follow(
     }
     if !matches!(
         **state,
-        GameState::Playing | GameState::Paused | GameState::GameOver
+        GameState::PreparingShaders | GameState::Playing | GameState::Paused | GameState::GameOver
     ) {
         return;
     }

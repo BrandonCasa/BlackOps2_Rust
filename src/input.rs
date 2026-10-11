@@ -388,7 +388,7 @@ pub(crate) fn pause_and_restart(
             || restart.read().next().is_some())
     {
         commands.queue(crate::session::teardown);
-        next.set(GameState::Playing);
+        next.set(GameState::PreparingShaders);
     }
     for (window, mut cursor) in &mut cursors {
         let capture = (options.verify.is_none() || options.verify_controls)

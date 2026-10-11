@@ -58,6 +58,7 @@ use bevy::prelude::*;
 pub enum GameState {
     #[default]
     Loading,
+    PreparingShaders,
     Playing,
     Paused,
     GameOver,

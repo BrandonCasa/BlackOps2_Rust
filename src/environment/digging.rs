@@ -194,7 +194,7 @@ impl Plugin for DiggingPlugin {
         app.init_resource::<Digging>()
             .register_required_components::<Player, Digger>()
             .add_systems(
-                OnEnter(GameState::Playing),
+                OnEnter(GameState::PreparingShaders),
                 spawn.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(

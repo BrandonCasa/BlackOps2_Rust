@@ -1,9 +1,33 @@
 use bevy::render::settings::WgpuSettings;
 
 pub(crate) fn settings() -> WgpuSettings {
-    let settings = WgpuSettings::default();
+    let mut settings = WgpuSettings::default();
+    settings
+        .instance_flags
+        .remove(bevy::render::settings::InstanceFlags::DEBUG);
     #[cfg(windows)]
-    let settings = prefer_dx12(settings);
+    {
+        settings.dx12_shader_compiler = bevy::render::settings::Dx12Compiler::StaticDxc;
+        if std::env::var_os("WGPU_VALIDATION").is_none()
+            && settings
+                .backends
+                .is_some_and(|backends| backends.contains(bevy::render::settings::Backends::DX12))
+        {
+            settings
+                .instance_flags
+                .remove(bevy::render::settings::InstanceFlags::VALIDATION);
+        }
+    }
+    #[cfg(windows)]
+    {
+        settings = prefer_dx12(settings);
+        if settings.backends == Some(bevy::render::settings::Backends::DX12) {
+            settings
+                .disabled_features
+                .get_or_insert_default()
+                .insert(wgpu::Features::MULTI_DRAW_INDIRECT_COUNT);
+        }
+    }
     settings
 }
 

@@ -103,6 +103,9 @@ struct RemoteBlast {
 }
 pub(super) fn install(app: &mut App, port: u16) {
     super::pipelines::install(app);
+    if std::env::var("ORIGINS_RENDER_DIAGNOSTICS").is_ok_and(|value| value == "1") {
+        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    }
     app.add_observer(preview_ready)
         .init_resource::<RemoteState>()
         .init_resource::<crate::audio::RequestedAliases>()
@@ -315,6 +318,8 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     let remote = world.resource::<RemoteState>();
     let mut result = json!({"fixed_tick":remote.tick,"epoch":remote.epoch,"reset_pending":remote.reset,"state":format!("{:?}",world.resource::<State<GameState>>().get()),"queued_inputs":remote.queue.values().map(Vec::len).sum::<usize>(),"held_inputs":remote.held.keys().collect::<Vec<_>>(),"player":null});
     result["fixed_delta_seconds"] = json!(world.resource::<Time<Fixed>>().timestep().as_secs_f64());
+    result["render_frame"] = json!(world.resource::<bevy::diagnostic::FrameCount>().0);
+    result["frame_seconds"] = json!(world.resource::<Time<Real>>().delta_secs_f64());
     let session = world.resource::<Session>();
     result["session_id"] = json!(world.resource::<crate::session::SessionId>().0);
     let equipment = world.resource::<crate::equipment::EquipmentEvidence>();
@@ -726,6 +731,22 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
 fn materials(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     let mut result = crate::rendering::weapon_material_snapshot(world);
     result["pipelines"] = super::pipelines::snapshot(world);
+    result["preprocessing"] = world
+        .resource::<crate::rendering::PreprocessingStatus>()
+        .report();
+    if let Some(diagnostics) = world.get_resource::<bevy::diagnostic::DiagnosticsStore>() {
+        result["render_diagnostics"] = json!(diagnostics.iter().map(|diagnostic| {
+            json!({"path":diagnostic.path().as_str(),"value":diagnostic.value(),
+                "average":diagnostic.average(),"unit":diagnostic.suffix})
+        }).collect::<Vec<_>>());
+    }
+    if let Ok(progress) = world
+        .resource::<crate::rendering::preparation::ShaderProgress>()
+        .0
+        .lock()
+    {
+        result["preparation"] = json!(*progress);
+    }
     Ok(result)
 }
 fn capture(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {

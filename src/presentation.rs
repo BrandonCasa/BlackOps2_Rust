@@ -243,7 +243,7 @@ fn spawn_viewmodels(
     existing: Query<(Entity, &FirstPerson)>,
     groups: Query<(Entity, &ViewModelGroup)>,
 ) {
-    if **state != GameState::Playing {
+    if !matches!(**state, GameState::PreparingShaders | GameState::Playing) {
         return;
     }
     let (Some(definition), Ok(camera)) = (definition, cameras.single()) else {
@@ -688,7 +688,7 @@ fn camera_pose(
 ) {
     if !matches!(
         **state,
-        GameState::Playing | GameState::Paused | GameState::GameOver
+        GameState::PreparingShaders | GameState::Playing | GameState::Paused | GameState::GameOver
     ) {
         return;
     }

@@ -50,7 +50,7 @@ impl Plugin for PlayerPlugin {
             .init_resource::<crate::movement::MovementEvidence>()
             .add_message::<crate::movement::Landing>()
             .add_systems(
-                OnEnter(GameState::Playing),
+                OnEnter(GameState::PreparingShaders),
                 spawn_player.in_set(crate::session::SessionSetup::Player),
             )
             .add_systems(

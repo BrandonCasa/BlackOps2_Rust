@@ -592,7 +592,7 @@ fn finish_load(
                 commands.entity(entity).insert(Visibility::Inherited);
             }
         }
-        next.set(GameState::Playing);
+        next.set(GameState::PreparingShaders);
     } else if loading.started.elapsed().as_secs() > 120 {
         failure.0 = "Scene loading timed out or collision coverage is incomplete.".into();
         next.set(GameState::LoadError);
