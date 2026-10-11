@@ -496,7 +496,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Spawn free Magna Collider after collecting required seals.
 - [x] Add free Magna Collider pickup interaction.
 - [x] Bind cinematic audio aliases to frame sequences.
-- [ ] Add loading cinematic skip input.
+- [x] Add loading cinematic skip input.
 - [x] Add ending audio synchronization.
 - [x] Add round transition announcements.
 - [x] Add generator attack notifications.

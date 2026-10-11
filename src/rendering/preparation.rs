@@ -135,6 +135,7 @@ fn restore_culling(
 fn advance(
     state: Res<State<GameState>>,
     progress: Res<ShaderProgress>,
+    loading: Res<crate::cinematics::LoadingPlayback>,
     mut preparation: ResMut<Preparation>,
     surfaces: Res<super::OpaqueSurfaceStatus>,
     atmosphere: Res<super::atmosphere::AtmosphereState>,
@@ -190,7 +191,7 @@ fn advance(
         preparation.settled_frames = 0;
     }
     preparation.total = progress.total;
-    if preparation.settled_frames >= 8 {
+    if preparation.settled_frames >= 8 && loading.done {
         info!(
             "Origins shaders ready: {} pipelines in {:.2}s",
             progress.total,
