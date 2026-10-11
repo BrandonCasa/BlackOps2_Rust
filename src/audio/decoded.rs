@@ -15,7 +15,7 @@ const CACHE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CLIP_BYTES: usize = 8 * 1024 * 1024;
 const MAX_CLIP_SECONDS: f32 = 10.;
 
-#[derive(Asset, TypePath)]
+#[derive(Asset, TypePath, Clone)]
 pub(super) struct DecodedClip {
     pub(super) samples: Arc<[Sample]>,
     pub(super) channels: ChannelCount,

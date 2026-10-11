@@ -96,6 +96,7 @@ pub struct EnvironmentalHit {
     pub weapon: crate::origins::WeaponId,
     pub amount: u32,
     pub point: Vec3,
+    pub direction: Vec3,
 }
 
 #[derive(Clone, Component, Debug)]

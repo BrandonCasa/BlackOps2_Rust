@@ -154,13 +154,21 @@ pub(crate) fn look(
     input.look = Vec2::ZERO;
 }
 
-pub fn move_player(
+pub(crate) fn move_player(
     mut input: ResMut<GameInput>,
     settings: Res<crate::input::ControlSettings>,
     mut actions: ResMut<TickActions>,
     definition: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
-    reserved: Query<(), With<crate::actions::HandReservation>>,
+    reserved: Query<&crate::actions::HandReservation>,
+    robot_locks: Query<
+        (),
+        Or<(
+            With<crate::robots::StompReaction>,
+            With<crate::robots::RobotTransit>,
+            With<crate::tank::TankRescue>,
+        )>,
+    >,
     mut players: Query<(
         Entity,
         &mut Player,
@@ -231,7 +239,15 @@ pub fn move_player(
         *actions = TickActions::default();
         return;
     }
-    if captured.0.is_some() { player.velocity = Vec3::ZERO; return; }
+    if robot_locks.contains(entity)
+        || captured.0.is_some()
+        || reserved
+            .get(entity)
+            .is_ok_and(|r| r.action == crate::actions::HandAction::Portal)
+    {
+        player.velocity = Vec3::ZERO;
+        return;
+    }
     let mut collider = collider.clone();
     let tuning = &definition.tuning;
     let dt = time.delta_secs();

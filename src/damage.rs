@@ -12,11 +12,19 @@ use bevy::prelude::*;
 use std::collections::VecDeque;
 
 #[derive(SystemParam)]
-struct Attribution<'w, 's> {
+pub(crate) struct Attribution<'w, 's> {
     players: Query<'w, 's, &'static crate::weapons::WeaponInventory, With<Player>>,
     emitters: Query<'w, 's, &'static crate::environment::support::DamageEmitter>,
     diggers: Query<'w, 's, &'static crate::environment::digging::Digger>,
-    shields: Query<'w, 's, (&'static Player, &'static Transform, &'static mut crate::crafting::BuildableInventory)>,
+    shields: Query<
+        'w,
+        's,
+        (
+            &'static Player,
+            &'static Transform,
+            &'static mut crate::crafting::BuildableInventory,
+        ),
+    >,
     positions: Query<'w, 's, &'static Transform>,
 }
 
@@ -127,21 +135,35 @@ impl Plugin for DamagePlugin {
 pub(crate) fn resolve(
     mut queue: ResMut<DamageQueue>,
     mut history: ResMut<CombatHistory>,
-    mut targets: Query<(&mut Vitality, Option<&mut crate::player_health::Recovery>, Option<&mut crate::combat_effects::Armor>, Has<crate::quest_recovery::BloodRestricted>)>,
+    mut targets: Query<(
+        &mut Vitality,
+        Option<&mut crate::player_health::Recovery>,
+        Option<&mut crate::combat_effects::Armor>,
+        Has<crate::quest_recovery::BloodRestricted>,
+        Has<crate::quest_recovery::PilotLanding>,
+        Option<&crate::panzer::Panzer>,
+        Has<crate::portals::Transit>,
+        Has<crate::robots::RobotTransit>,
+        Option<&mut crate::combat_effects::Wounds>,
+    )>,
     attribution: Attribution,
     enemies: Query<&Zombie>,
     definition: Res<GameDefinition>,
     mut evidence: ResMut<crate::player_health::HealthEvidence>,
     mut enemy_evidence: ResMut<crate::enemies::EnemyEvidence>,
     mut accepted: MessageWriter<DamageApplied>,
-    mut player_damage: MessageWriter<crate::player_health::PlayerDamage>,
-    mut player_deaths: MessageWriter<crate::player_health::PlayerDeath>,
-    mut downed: MessageWriter<crate::solo_revive::PlayerDowned>,
+    life_events: (
+        MessageWriter<crate::player_health::PlayerDamage>,
+        MessageWriter<crate::player_health::PlayerDeath>,
+        MessageWriter<crate::solo_revive::PlayerDowned>,
+    ),
     perks: Query<&crate::solo_revive::PerkInventory>,
     mut perk_evidence: ResMut<crate::perk_effects::EffectEvidence>,
     effects: Res<crate::powerups::PowerupEffects>,
     nuked: Query<(), With<crate::powerups::NukeTarget>>,
+    mut session: ResMut<crate::gameplay::Session>,
 ) {
+    let (mut player_damage, mut player_deaths, mut downed) = life_events;
     let Attribution {
         players,
         emitters,
@@ -153,14 +175,16 @@ pub(crate) fn resolve(
         .0
         .sort_by_key(|impact| matches!(impact.source, ImpactSource::Enemy(_)));
     for mut impact in queue.0.drain(..) {
-        let sender_alive = targets.get(impact.attacker).is_ok_and(|(v, _, _, _)| {
-            matches!(
-                v.state(),
-                crate::life::LifeState::Standing
-                    | crate::life::LifeState::Downed
-                    | crate::life::LifeState::ActorAlive
-            )
-        });
+        let sender_alive = targets
+            .get(impact.attacker)
+            .is_ok_and(|(v, _, _, _, _, _, _, _, _)| {
+                matches!(
+                    v.state(),
+                    crate::life::LifeState::Standing
+                        | crate::life::LifeState::Downed
+                        | crate::life::LifeState::ActorAlive
+                )
+            });
         let valid_source = match &impact.source {
             ImpactSource::Powerup
             | ImpactSource::Weapon(_)
@@ -185,15 +209,41 @@ pub(crate) fn resolve(
                     | ImpactSource::Powerup
                     | ImpactSource::Robot(_)
                     | ImpactSource::Vehicle(_)
-            ))
+            )
+            && !(matches!(impact.source, ImpactSource::Enemy(_))
+                && matches!(impact.category, DamageCategory::Explosive)))
             || !valid_source
         {
             continue;
         }
-        let Ok((mut health, mut recovery, armor, restricted)) = targets.get_mut(impact.target) else {
+        let Ok((
+            mut health,
+            mut recovery,
+            mut armor,
+            restricted,
+            pilot_landing,
+            panzer,
+            transit,
+            robot_transit,
+            mut wounds,
+        )) = targets.get_mut(impact.target)
+        else {
             continue;
         };
-        if restricted && (effects.zombie_blood <= 0. || matches!(impact.source, ImpactSource::Powerup)) { continue; }
+        if transit
+            || robot_transit
+            || pilot_landing
+            || panzer.is_some_and(|p| matches!(p.phase, crate::panzer::PanzerPhase::Landing(_)))
+        {
+            continue;
+        }
+        if restricted
+            && (!players.contains(impact.attacker)
+                || effects.zombie_blood <= 0.
+                || matches!(impact.source, ImpactSource::Powerup))
+        {
+            continue;
+        }
         let player = players.contains(impact.target);
         if player
             && matches!(impact.source, ImpactSource::Robot(_))
@@ -223,7 +273,13 @@ pub(crate) fn resolve(
                 .record(serde_json::json!({"event":"fall_protected","amount":impact.amount}));
             continue;
         }
-        if player && !out_of_bounds && recovery.as_ref().is_some_and(|r| r.immunity > 0.) {
+        let tank_crush = matches!(&impact.source, ImpactSource::Vehicle(id) if id == "vehicle.tank")
+            && matches!(impact.category, DamageCategory::Crush);
+        if player
+            && !out_of_bounds
+            && !tank_crush
+            && recovery.as_ref().is_some_and(|r| r.immunity > 0.)
+        {
             evidence.immunity_rejections += 1;
             continue;
         }
@@ -241,27 +297,105 @@ pub(crate) fn resolve(
             continue;
         }
         if player && matches!(impact.source, ImpactSource::Enemy(_)) {
-            if let (Ok(attacker), Ok((body, pose, mut shield))) = (positions.get(impact.attacker), shields.get_mut(impact.target)) {
-                let incoming = (attacker.translation - pose.translation).with_y(0.).normalize_or_zero();
+            if let (Ok(attacker), Ok((body, pose, mut shield))) = (
+                positions.get(impact.attacker),
+                shields.get_mut(impact.target),
+            ) {
+                let incoming = (attacker.translation - pose.translation)
+                    .with_y(0.)
+                    .normalize_or_zero();
                 let facing = Quat::from_rotation_y(body.yaw) * Vec3::NEG_Z;
                 let dot = incoming.dot(facing);
-                if shield.shield_health > 0 && (if shield.shield_held { dot > 0.3 } else { dot < -0.3 }) {
+                if shield.shield_health > 0
+                    && (if shield.shield_held {
+                        dot > 0.3
+                    } else {
+                        dot < -0.3
+                    })
+                {
                     shield.shield_health = shield.shield_health.saturating_sub(impact.amount);
-                    if shield.shield_health == 0 { shield.owned.remove("tomb_shield_zm"); shield.shield_held = false; }
+                    if shield.shield_health == 0 {
+                        shield.owned.remove("tomb_shield_zm");
+                        shield.shield_held = false;
+                    }
                     continue;
                 }
             }
         }
         let base_amount = impact.amount;
+        if panzer.is_some()
+            && matches!(impact.category, DamageCategory::Ice)
+            && impact.source.id().contains("staff_water")
+        {
+            if let Some(armor) = armor.as_mut() {
+                if armor.ice_cooldown > 0. {
+                    continue;
+                }
+                armor.ice_cooldown = 1.;
+            }
+            impact.amount = if impact.source.id().contains("upgraded") {
+                3300
+            } else {
+                2050
+            };
+        }
+        if player && impact.source.id().contains("staff_") {
+            continue;
+        }
+        if !player
+            && !matches!(impact.source, ImpactSource::Status(_))
+            && matches!(impact.category, DamageCategory::Fire)
+        {
+            if let ImpactSource::Weapon(id) | ImpactSource::Projectile(id) = &impact.source {
+                impact.amount = crate::combat_effects::elemental_damage(id, impact.amount);
+                if panzer.is_none()
+                    && id.0.contains("staff_fire")
+                    && let Some(wounds) = wounds.as_mut()
+                {
+                    let multiplier = 0.5 + 0.5 * ((base_amount as f32 - 1.) / 10.).clamp(0., 1.);
+                    if id.0.contains("upgraded")
+                        && multiplier > 0.5
+                        && impact.amount > health.current().unwrap_or(0)
+                        && session.random() % 2 == 0
+                    {
+                        wounds.disintegrated = true;
+                        let _ = session.random();
+                        impact.amount = health.current().unwrap_or(0);
+                    } else if wounds.burning <= 0. {
+                        wounds.ignite(impact.attacker, id.clone(), multiplier);
+                        let mut delayed = impact.clone();
+                        delayed.source = ImpactSource::Status(id.clone());
+                        wounds.initial_fire = Some((0.5, delayed));
+                        continue;
+                    }
+                }
+            }
+        }
         let armored = armor.is_some();
-        if let Some(mut armor) = armor { impact.amount = armor.absorb(&impact); }
+        if let Some(mut armor) = armor
+            && !matches!(impact.source, ImpactSource::Powerup)
+        {
+            let shotgun = definition
+                .content
+                .weapons
+                .iter()
+                .find(|w| w.id.0 == impact.source.id())
+                .is_some_and(|w| w.mechanics.weapon_class.as_deref() == Some("spread"));
+            impact.amount = armor.absorb(
+                &impact,
+                shotgun,
+                effects.insta_kill > 0. && sender_alive && players.contains(impact.attacker),
+            );
+        }
         let before = health.current().unwrap_or(0);
         let aimed_bullet = matches!(impact.category, DamageCategory::Bullet)
             && players
                 .get(impact.attacker)
                 .is_ok_and(|inventory| inventory.ads > 0.5);
         let cherry = impact.source.is_cherry(&definition);
-        let insta_kill = !player && !armored
+        let insta_kill = !player
+            && !armored
+            && !matches!(impact.category, DamageCategory::Ice)
             && sender_alive
             && base_amount > 0
             && base_amount < before
@@ -348,8 +482,12 @@ fn rewards(
     effects: Res<crate::powerups::PowerupEffects>,
     nuked: Query<(), With<crate::powerups::NukeTarget>>,
     panzers: Query<(), With<crate::panzer::Panzer>>,
+    zombies: Query<(), With<Zombie>>,
 ) {
     for applied in applied.read() {
+        if !zombies.contains(applied.impact.target) {
+            continue;
+        }
         let impact = applied.impact.clone();
         let lethal = applied.lethal;
         let [hit, kill, head, torso, melee] = definition.tuning.combat_points;
@@ -366,23 +504,27 @@ fn rewards(
         } else {
             0
         };
-        let points = if lethal && panzers.contains(impact.target) && impact.source.player_attributed() { 750 }
-        else if !impact.source.player_attributed()
-            || matches!(impact.source, ImpactSource::Powerup)
-        {
-            0
-        } else if nuked.contains(impact.target) {
-            if !cherry && applied.aimed_bullet && (!lethal || applied.insta_kill) {
-                hit
-            } else {
+        let points =
+            if lethal && panzers.contains(impact.target) && impact.source.player_attributed() {
+                750
+            } else if panzers.contains(impact.target) {
                 0
-            }
-        } else if lethal {
-            kill.saturating_add(bonus)
-                .saturating_add(if applied.insta_kill { hit } else { 0 })
-        } else {
-            hit
-        };
+            } else if !impact.source.player_attributed()
+                || matches!(impact.source, ImpactSource::Powerup)
+            {
+                0
+            } else if nuked.contains(impact.target) {
+                if !cherry && applied.aimed_bullet && (!lethal || applied.insta_kill) {
+                    hit
+                } else {
+                    0
+                }
+            } else if lethal {
+                kill.saturating_add(bonus)
+                    .saturating_add(if applied.insta_kill { hit } else { 0 })
+            } else {
+                hit
+            };
         let cherry_bonus = if cherry && lethal && !applied.insta_kill {
             40
         } else {

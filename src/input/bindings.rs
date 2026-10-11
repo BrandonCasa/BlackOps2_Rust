@@ -30,9 +30,10 @@ pub enum Action {
     Restart,
     Buildable,
     StaffSecondary,
+    Drone,
 }
 impl Action {
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::Forward,
         Self::Backward,
         Self::Left,
@@ -58,6 +59,7 @@ impl Action {
         Self::Restart,
         Self::Buildable,
         Self::StaffSecondary,
+        Self::Drone,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -86,6 +88,7 @@ impl Action {
             Self::Restart => "Restart after game over",
             Self::Buildable => "Buildable equipment",
             Self::StaffSecondary => "Staff secondary mode",
+            Self::Drone => "Maxis Drone",
         }
     }
     pub fn accepts_wheel(self) -> bool {
@@ -208,6 +211,7 @@ impl Default for ControlSettings {
             (Pause, KeyCode::Escape),
             (Restart, KeyCode::KeyR),
             (Buildable, KeyCode::Digit5),
+            (Drone, KeyCode::Digit6),
             (StaffSecondary, KeyCode::KeyX),
         ]
         .into_iter()

@@ -124,6 +124,56 @@ impl AnimationPlayback {
     }
 }
 
+#[derive(Component)]
+pub(crate) struct NativeAnimation {
+    pub source: Handle<Gltf>,
+    pub clip: String,
+    pub seconds: f32,
+    pub looping: bool,
+    pub restart: u64,
+}
+fn native_playback(
+    mut commands: Commands,
+    roots: Query<(Entity, &NativeAnimation)>,
+    children: Query<&Children>,
+    parents: Query<&ChildOf>,
+    players: Query<(), With<AnimationPlayer>>,
+    gltfs: Res<Assets<Gltf>>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    mut cache: ResMut<AnimationGraphs>,
+) {
+    for (root, animation) in &roots {
+        let Some(bindings) = cache.scene(&animation.source, &gltfs, &mut graphs) else {
+            continue;
+        };
+        let Some(node) = bindings.named.get(&animation.clip) else {
+            continue;
+        };
+        for player in std::iter::once(root)
+            .chain(children.iter_descendants(root))
+            .filter(|entity| players.contains(*entity))
+            .filter(|entity| {
+                *entity == root
+                    || parents
+                        .iter_ancestors(*entity)
+                        .find(|ancestor| roots.contains(*ancestor))
+                        == Some(root)
+            })
+        {
+            let mut playback = AnimationPlayback::new(
+                bindings.graph.clone(),
+                vec![AnimationLayer::new(
+                    *node,
+                    Some(animation.seconds),
+                    animation.looping,
+                )],
+            );
+            playback.restart = animation.restart;
+            commands.entity(player).insert(playback);
+        }
+    }
+}
+
 struct WeightGoal {
     node: AnimationNodeIndex,
     from: f32,
@@ -149,7 +199,7 @@ impl Plugin for GameAnimationPlugin {
             .add_observer(capture_rest_pose)
             .add_systems(
                 PostUpdate,
-                (apply_playback, restore_rest_pose)
+                (native_playback, apply_playback, restore_rest_pose)
                     .chain()
                     .before(bevy::app::AnimationSystems),
             );

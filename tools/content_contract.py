@@ -63,7 +63,7 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation", "dual_weapon"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals", "locomotion_states", "combat_states"} if table == "enemies" else {"generator", "presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"generator"} if table=="interactions" else {"distance_min"} if table=="sounds" else set()
+            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation", "dual_weapon", "attachments"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals", "locomotion_states", "combat_states"} if table == "enemies" else {"generator", "presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"generator"} if table=="interactions" else {"distance_min"} if table=="sounds" else set()
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -147,14 +147,14 @@ def validate_content(content, require):
                     require(isinstance(part["socket"],str) and part["socket"], "invalid actor socket")
                     require(part["root_joint"] is None or isinstance(part["root_joint"],str), "invalid partial rig root")
                 states = row.get("locomotion_states", {})
-                require(isinstance(states, dict) and set(states) <= {"walk", "walk_crawl", "run", "run_crawl", "sprint", "sprint_crawl", "super_sprint", "super_sprint_crawl", "stumpy"}, "invalid locomotion states")
+                require(isinstance(states, dict) and set(states) <= {"walk", "walk_crawl", "run", "run_crawl", "sprint", "sprint_crawl", "super_sprint", "super_sprint_crawl", "stumpy", "burned"}, "invalid locomotion states")
                 for clips in states.values():
                     require(isinstance(clips, list) and 0 < len(clips) <= 32, "invalid locomotion substates")
                     for identity in clips:
                         resolve(owner, identity, "animation")
                         require(any(a["id"] == identity and a["skeleton"] == row["presentation"] for a in content["animations"]), "locomotion animation belongs to another rig")
                 combat = row.get("combat_states", {})
-                require(isinstance(combat, dict) and set(combat) <= {"walk_melee", "run_melee", "generator_melee", "death"}, "invalid combat states")
+                require(isinstance(combat, dict) and set(combat) <= {"walk_melee", "run_melee", "generator_melee", "death", "fire_death", "shield_melee", "shield_melee_crawl"}, "invalid combat states")
                 for clips in combat.values():
                     require(isinstance(clips, list) and 0 < len(clips) <= 32, "invalid combat substates")
                     for clip in clips:
@@ -172,7 +172,7 @@ def validate_content(content, require):
                     require(isinstance(hit,dict) and set(hit)=={"id","region","presentation","start","end","radius"}, "invalid hit volume")
                     require(isinstance(hit["id"],str) and hit["id"] and all(c.isascii() and (c.isalnum() or c in "._-") for c in hit["id"]) and hit["id"] not in region_ids,"invalid or duplicate hit volume id")
                     region_ids.add(hit["id"])
-                    require(hit["region"] in {"head","upper_torso","torso","arm","leg"},"invalid hit region")
+                    require(hit["region"] in {"head","upper_torso","torso","arm","left_arm","right_arm","leg","powerplant"},"invalid hit region")
                     require(all(isinstance(hit[k],str) and hit[k] for k in ("start","end")),"invalid hit bone")
                     number(hit["radius"],True)
                     require(hit["presentation"] in [row["presentation"]]+[p["presentation"] for p in parts],"hit volume references unrelated rig")
@@ -220,6 +220,16 @@ def validate_content(content, require):
                     for k in ("place_seconds","recovery_seconds","trigger_radius","minimum_forward","alert_seconds","unsafe_seconds","radius"):number(m[k],True)
                     for k in ("trigger_cos","blast_cos"):require(isinstance(m[k],(float,int)) and -1<=m[k]<=1,"invalid mine cone")
                     resolve(owner,m["presentation"],"presentation")
+                attachments = row.get("attachments", {})
+                require(isinstance(attachments,dict),"invalid weapon attachments")
+                for attachment in attachments.values():
+                    require(isinstance(attachment,dict) and set(attachment) <= set("alternate ads_fov ads_sight ads_presentation presentation offset rotation hide_tags ads_zoom_fraction".split()),"invalid attachment fields")
+                    resolve(owner,attachment.get("alternate"),"weapon",True)
+                    for key in ("presentation","ads_presentation"): resolve(owner,attachment.get(key),"presentation",True)
+                    for key in ("offset","rotation"):
+                        if key in attachment: vector(attachment[key])
+                    for level in attachment.get("ads_fov",[]): number(level,True)
+                    require(isinstance(attachment.get("hide_tags",[]),list) and all(isinstance(t,str) for t in attachment.get("hide_tags",[])),"invalid attachment hide tags")
                 resolve(owner, row["upgraded"], "weapon", True)
                 require(row["category"] in ("bullet", "melee", "explosive", "fire", "ice", "lightning", "wind", "environmental", "crush"), "invalid damage category")
                 resolve(owner, row.get("pickup"), "presentation", True)
@@ -241,7 +251,17 @@ def validate_content(content, require):
                     required_fields += ["ads_zoom_fraction", "ads_pose", "ads_sight"]
                     if isinstance(m, dict) and "sprint_seconds" in m:
                         required_fields.append("sprint_seconds")
-                    require(isinstance(m, dict) and set(m) == set(required_fields), "invalid weapon mechanics fields")
+                    optional_fields = set("ads_recoil_recovery alternate player_damage projectile_trail projectile_loop projectile_effect weapon_class projectile_up_speed projectile_bounce".split())
+                    require(isinstance(m, dict) and set(required_fields) <= set(m) <= set(required_fields) | optional_fields, "invalid weapon mechanics fields")
+                    if m.get("ads_recoil_recovery") is not None: number(m["ads_recoil_recovery"])
+                    resolve(owner,m.get("alternate"),"weapon",True)
+                    if "player_damage" in m:
+                        require(isinstance(m["player_damage"],list) and len(m["player_damage"])==2,"invalid projectile player damage")
+                        for amount in m["player_damage"]: natural(amount)
+                    if "projectile_up_speed" in m: require(type(m["projectile_up_speed"]) in (int,float) and math.isfinite(m["projectile_up_speed"]),"invalid projectile up speed")
+                    if "projectile_bounce" in m: require(type(m["projectile_bounce"]) is bool,"invalid projectile bounce flag")
+                    for key in ("projectile_trail","projectile_loop","projectile_effect","weapon_class"):
+                        require(m.get(key) is None or isinstance(m[key],str),"invalid native projectile identity")
                     if "sprint_seconds" in m:
                         require(isinstance(m["sprint_seconds"], list) and len(m["sprint_seconds"]) == 3, "invalid sprint timings")
                         for value in m["sprint_seconds"]:

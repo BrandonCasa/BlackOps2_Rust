@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use bevy::world_serialization::WorldInstanceReady;
 use std::collections::{BTreeMap, BTreeSet};
 mod raids;
+mod rewards;
 pub use raids::GeneratorRaids;
 
 pub(crate) fn use_point(origin: Vec3, eye: Vec3, box_size: f32) -> Vec3 {
@@ -67,7 +68,7 @@ pub struct Generators {
     pub defender_failures: u32,
     pub defenders_cleared: u32,
     pub excess_retired: u32,
-    raid_active: bool,
+    pub(crate) raid_active: bool,
     initial_reward: bool,
     fire_reward: bool,
     retirement_pending: bool,
@@ -149,11 +150,40 @@ pub struct GeneratorDefender {
 pub struct GeneratorPlugin;
 impl Plugin for GeneratorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Generators>()
+        app.add_plugins(rewards::CaptureRewardsPlugin)
+            .init_resource::<Generators>()
+            .add_systems(
+                FixedUpdate,
+                raids::attack_state
+                    .in_set(GameStep::EnemyIntent)
+                    .after(crate::enemies::lifecycle)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                raids::drain
+                    .in_set(GameStep::Zombies)
+                    .before(tick)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .init_resource::<raids::GeneratorRaids>()
-            .add_systems(OnEnter(GameState::PreparingShaders), raids::reset.in_set(crate::session::SessionSetup::World))
-            .add_systems(FixedUpdate, raids::tick.in_set(GameStep::EnemyIntent).before(crate::enemies::lifecycle).run_if(in_state(GameState::Playing)))
-            .add_systems(FixedUpdate, raids::deaths.in_set(GameStep::Rewards).run_if(in_state(GameState::Playing)))
+            .add_systems(
+                OnEnter(GameState::PreparingShaders),
+                raids::reset.in_set(crate::session::SessionSetup::World),
+            )
+            .add_systems(
+                FixedUpdate,
+                raids::tick
+                    .in_set(GameStep::EnemyIntent)
+                    .before(crate::enemies::lifecycle)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                raids::deaths
+                    .in_set(GameStep::Rewards)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(
                 OnEnter(GameState::PreparingShaders),
                 assemble.in_set(crate::session::SessionSetup::World),
@@ -479,12 +509,10 @@ fn visual_ready(
         .collect();
 }
 fn tick(
-    mut commands: Commands,
-    server: Res<AssetServer>,
-    mut parts: ResMut<crate::environment::parts::Parts>,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     mut generators: ResMut<Generators>,
+    mut chests: ResMut<rewards::CaptureRewards>,
     mut session: ResMut<Session>,
     effects: Res<crate::powerups::PowerupEffects>,
     players: Query<(Entity, &Player, &Transform, &Vitality)>,
@@ -578,16 +606,11 @@ fn tick(
         }
         if completed && !generators.initial_reward {
             generators.initial_reward = true;
-            if let Some(entity) = crate::environment::digging::spawn_powerup(&mut commands, &server, &definition, "double_points", Vec3::new(68.723002, -7.9248, -118.373398)) {
-                commands.entity(entity).insert(crate::powerups::Pickup {
-                    definition: definition.content.powerups.iter().position(|p| p.id.0 == "powerup.double_points").unwrap(),
-                    remaining: f32::MAX,
-                });
-            }
+            chests.queue(0, 2.);
         }
         if completed && d.number == 6 && !generators.fire_reward {
             generators.fire_reward = true;
-            crate::crafting::reveal_part(&mut commands, &mut parts, "part.elemental_staff_fire.upper_staff", Vec3::new(33.632902, 7.6708, 94.288102));
+            chests.queue(1, 0.);
         }
         generators.completions += u32::from(completed);
         generators.abandoned += u32::from(abandoned);

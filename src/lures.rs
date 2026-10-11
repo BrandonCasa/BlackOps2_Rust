@@ -88,7 +88,7 @@ pub fn install(app: &mut App) {
 }
 fn assign(
     definition: Res<GameDefinition>,
-    bombs: Query<(Entity, &Grenade, &Transform)>,
+    bombs: Query<(Entity, &Grenade, &Transform, Has<crate::tablets::BeaconAccepted>)>,
     enemies: Query<(Entity, &Transform, &Vitality, &PopulationKind), With<crate::enemies::Zombie>>,
     query: SpatialQuery,
     players: Query<(), With<crate::player::Player>>,
@@ -97,7 +97,8 @@ fn assign(
 ) {
     let beacon_profile = definition.content.weapons.iter().find_map(|w| w.lure.clone()).map(|mut profile| { profile.range = 39.0144; profile.capacity = 96; profile.spacing = 1.143; profile });
     let mut active = Vec::new();
-    for (entity, grenade, pose) in &bombs {
+    for (entity, grenade, pose, beacon_accepted) in &bombs {
+        if grenade.definition.0=="weapon.beacon_zm" && !beacon_accepted{continue;}
         if !grenade.lure_active {
             continue;
         }

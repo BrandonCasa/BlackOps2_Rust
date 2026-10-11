@@ -320,9 +320,13 @@ impl AssetPack {
         } else {
             beside
         };
-        let pack_root = if pack_root.exists() { pack_root.canonicalize().map_err(|e| {
+        let pack_root = if pack_root.exists() {
+            pack_root.canonicalize().map_err(|e| {
             format!("Cannot open asset pack {}: {e}\nRestore assets/origins beside origins.exe, or run git lfs pull in the checkout.", pack_root.display())
-        })? } else { pack_root };
+        })?
+        } else {
+            pack_root
+        };
         Ok(Self { pack_root })
     }
 }
@@ -358,7 +362,7 @@ impl Plugin for GameAssetsPlugin {
     }
 }
 
-fn begin_load(
+pub(crate) fn begin_load(
     mut commands: Commands,
     config: Res<LoadConfiguration>,
     options: Res<LaunchOptions>,
@@ -367,7 +371,9 @@ fn begin_load(
     mut next: ResMut<NextState<GameState>>,
     roots: Query<Entity, With<MapRoot>>,
 ) {
-    for root in &roots { commands.entity(root).despawn(); }
+    for root in &roots {
+        commands.entity(root).despawn();
+    }
     commands.remove_resource::<Loading>();
     failure.0.clear();
     let definition = (|| {
@@ -376,6 +382,7 @@ fn begin_load(
         }
         let config = config.0.as_ref().map_err(Clone::clone)?;
         info!("Origins asset pack: {}", config.pack_root.display());
+        reload_failed_pack_assets(&server, &config.pack_root);
         let path = config.pack_root.join("game.json");
         let definition = GameDefinition::load(&path).map_err(|e| e.to_string())?;
         Ok(definition)
@@ -413,9 +420,39 @@ fn begin_load(
     }
 }
 
+fn reload_failed_pack_assets(server: &AssetServer, root: &std::path::Path) {
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                pending.push(path);
+                continue;
+            }
+            let Ok(relative) = path.strip_prefix(root) else {
+                continue;
+            };
+            let asset = relative.to_string_lossy().replace('\\', "/");
+            if server
+                .get_path_ids(asset.clone())
+                .iter()
+                .any(|id| matches!(server.get_load_state(*id), Some(LoadState::Failed(_))))
+            {
+                server.reload(asset);
+            }
+        }
+    }
+}
+
 pub(crate) fn native_scene<'a>(game: &'a GameDefinition, model: &str) -> Option<&'a String> {
     let name = format!("/{model}_lod0.gltf#Scene0");
-    game.content.presentations.iter().filter_map(|p| p.scene.as_ref())
+    game.content
+        .presentations
+        .iter()
+        .filter_map(|p| p.scene.as_ref())
         .filter(|scene| scene.ends_with(&name))
         .min_by_key(|scene| (!scene.contains("/zm_tomb/"), scene.as_str()))
 }
@@ -428,12 +465,15 @@ fn scene_ready(
     extras: Query<&bevy::gltf::GltfExtras>,
     definition: Res<GameDefinition>,
     meshes: Res<Assets<Mesh>>,
-    mut loading: ResMut<Loading>,
+    loading: Option<ResMut<Loading>>,
     mut commands: Commands,
     mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
     mut cache: Local<std::collections::HashMap<AssetId<Mesh>, Collider>>,
 ) {
+    let Some(mut loading) = loading else {
+        return;
+    };
     let Ok(root) = roots.get(event.entity) else {
         return;
     };
@@ -463,11 +503,21 @@ fn scene_ready(
                 }
             }
             if metadata["static_instance"].as_bool() == Some(true)
-                && metadata["source_model"].as_str().is_some_and(|model| matches!(model,
-                    "veh_t6_dlc_mkiv_tank" | "veh_t6_dlc_zm_robot" | "p6_zm_tm_soul_box"
-                    | "p6_zm_tm_elm_divider" | "p6_zm_tm_wind_ceiling_ring" | "p6_zm_tm_chamber_mid_piece"))
+                && metadata["source_model"].as_str().is_some_and(|model| {
+                    matches!(
+                        model,
+                        "veh_t6_dlc_mkiv_tank"
+                            | "veh_t6_dlc_zm_robot"
+                            | "p6_zm_tm_soul_box"
+                            | "p6_zm_tm_elm_divider"
+                            | "p6_zm_tm_wind_ceiling_ring"
+                            | "p6_zm_tm_chamber_mid_piece"
+                    )
+                })
             {
-                commands.entity(entity).insert((Visibility::Hidden, ColliderDisabled));
+                commands
+                    .entity(entity)
+                    .insert((Visibility::Hidden, ColliderDisabled));
                 for child in children.iter_descendants(entity) {
                     commands.entity(child).insert(ColliderDisabled);
                 }
@@ -538,6 +588,7 @@ fn finish_load(
     mut commands: Commands,
     roots: Query<(Entity, &MapRoot)>,
     surfaces: Res<crate::rendering::OpaqueSurfaceStatus>,
+    effects: Option<Res<crate::native_fx::NativeFxAssets>>,
     library: Option<Res<crate::rendering::opaque::SurfaceLibrary>>,
     loading: Option<ResMut<Loading>>,
     definition: Option<Res<GameDefinition>>,
@@ -547,7 +598,9 @@ fn finish_load(
     mut next: ResMut<NextState<GameState>>,
     options: Res<LaunchOptions>,
 ) {
-    if !failure.0.is_empty() { return; }
+    if !failure.0.is_empty() {
+        return;
+    }
     let (Some(mut loading), Some(definition)) = (loading, definition) else {
         return;
     };
@@ -589,7 +642,25 @@ fn finish_load(
                 return;
             }
         };
-        if !surfaces.ready() || !textures_ready {
+        let Some(effects) = effects else {
+            return;
+        };
+        if let Some(RecursiveDependencyLoadState::Failed(error)) =
+            server.get_recursive_dependency_load_state(effects.0.id())
+        {
+            failure.0 = format!("Native effects dependency: {error}");
+            next.set(GameState::LoadError);
+            return;
+        }
+        if let Some(LoadState::Failed(error)) = server.get_load_state(effects.0.id()) {
+            failure.0 = format!("Native effects: {error}");
+            next.set(GameState::LoadError);
+            return;
+        }
+        if !surfaces.ready()
+            || !textures_ready
+            || !server.is_loaded_with_dependencies(effects.0.id())
+        {
             return;
         }
         if loading
@@ -610,11 +681,14 @@ fn finish_load(
                 commands.entity(entity).insert(Visibility::Inherited);
             }
         }
-        next.set(if options.verify.is_some() || options.validation_remote.is_some() || options.flythrough {
-            GameState::PreparingShaders
-        } else {
-            GameState::MainMenu
-        });
+        next.set(
+            if options.verify.is_some() || options.validation_remote.is_some() || options.flythrough
+            {
+                GameState::PreparingShaders
+            } else {
+                GameState::MainMenu
+            },
+        );
     } else if loading.started.elapsed().as_secs() > 120 {
         failure.0 = "Scene loading timed out or collision coverage is incomplete.".into();
         next.set(GameState::LoadError);

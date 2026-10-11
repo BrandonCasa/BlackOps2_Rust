@@ -16,20 +16,23 @@ compile_error!(
 );
 
 pub mod access;
-pub mod actions;
 pub mod achievements;
+pub mod actions;
 mod animation;
 pub mod assets;
 pub mod audio;
 pub mod barriers;
 pub mod buildables;
-pub mod damage;
-pub mod crafting;
+pub mod chamber;
+pub mod cinematics;
 pub mod combat_effects;
+pub mod crafting;
+pub mod damage;
 pub mod economy;
 pub mod enemies;
 pub mod environment;
 pub mod equipment;
+pub mod finale;
 pub mod flythrough;
 pub mod frontend;
 pub mod gameplay;
@@ -40,40 +43,38 @@ pub mod input;
 pub mod interactions;
 pub mod life;
 pub mod lures;
+pub mod main_quest;
 pub mod mines;
 pub mod movement;
+mod native_fx;
 pub mod navigation;
 pub mod origins;
+pub mod panzer;
 pub mod perk_effects;
 pub mod perks;
-pub mod panzer;
 pub mod player;
 pub mod player_health;
-pub mod powerups;
 pub mod portals;
-pub mod chamber;
-pub mod staff_puzzles;
-pub mod staff_upgrades;
-pub mod tablets;
-pub mod main_quest;
-pub mod quest_recovery;
-pub mod finale;
-pub mod cinematics;
-pub mod quests;
+pub mod powerups;
 pub mod presentation;
 pub mod projectiles;
+pub mod quest_recovery;
+pub mod quests;
 mod render_backend;
 pub mod rendering;
-pub mod rounds;
-pub mod robots;
 pub mod rituals;
+pub mod robots;
+pub mod rounds;
 mod run_environment;
 mod session;
-pub mod solo_revive;
-pub mod stations;
 pub mod side_rewards;
 pub mod side_secrets;
+pub mod solo_revive;
 pub mod staff_fields;
+pub mod staff_puzzles;
+pub mod staff_upgrades;
+pub mod stations;
+pub mod tablets;
 pub mod tank;
 #[cfg(feature = "prepare-textures")]
 pub mod texture_preparation;
@@ -189,26 +190,30 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         gameplay::GameplayPlugin,
         damage::DamagePlugin,
         (
-            session::SessionPlugin,
-            frontend::FrontendPlugin,
-            quests::QuestPlugin,
-            stations::StationPlugin,
-            crafting::CraftingPlugin,
-            buildables::BuildablePlugin,
-            tank::TankPlugin,
-            combat_effects::CombatEffectsPlugin,
-            panzer::PanzerPlugin,
-            life::LifeStatePlugin,
-            solo_revive::SoloRevivePlugin,
-            perks::PerkPlugin,
-            perk_effects::PerkEffectsPlugin,
-            environment::EnvironmentPlugin,
-            powerups::PowerupPlugin,
-            access::AccessPlugin,
-            navigation::NavigationPlugin,
-            barriers::BarrierPlugin,
-            generators::GeneratorPlugin,
-            audio::GameAudioPlugin,
+            (
+                session::SessionPlugin,
+                frontend::FrontendPlugin,
+                quests::QuestPlugin,
+                stations::StationPlugin,
+                crafting::CraftingPlugin,
+                buildables::BuildablePlugin,
+                tank::TankPlugin,
+                combat_effects::CombatEffectsPlugin,
+                panzer::PanzerPlugin,
+                life::LifeStatePlugin,
+            ),
+            (
+                solo_revive::SoloRevivePlugin,
+                perks::PerkPlugin,
+                perk_effects::PerkEffectsPlugin,
+                environment::EnvironmentPlugin,
+                powerups::PowerupPlugin,
+                access::AccessPlugin,
+                navigation::NavigationPlugin,
+                barriers::BarrierPlugin,
+                generators::GeneratorPlugin,
+                audio::GameAudioPlugin,
+            ),
         ),
         player_health::PlayerHealthPlugin,
         enemies::EnemyPlugin,
@@ -219,8 +224,27 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    app.add_plugins((actions::ActionPlugin,side_rewards::SideRewardPlugin,side_secrets::SecretPlugin,achievements::AchievementPlugin));
-    app.add_plugins((portals::PortalPlugin, robots::RobotPlugin, rituals::RitualPlugin, staff_fields::StaffFieldsPlugin, chamber::ChamberPlugin, staff_puzzles::StaffPuzzlePlugin, staff_upgrades::StaffUpgradePlugin, tablets::TabletPlugin, main_quest::MainQuestPlugin, quest_recovery::RecoveryPlugin, finale::FinalePlugin, cinematics::CinematicPlugin));
+    app.add_plugins((
+        native_fx::NativeFxPlugin,
+        actions::ActionPlugin,
+        side_rewards::SideRewardPlugin,
+        side_secrets::SecretPlugin,
+        achievements::AchievementPlugin,
+    ));
+    app.add_plugins((
+        portals::PortalPlugin,
+        robots::RobotPlugin,
+        rituals::RitualPlugin,
+        staff_fields::StaffFieldsPlugin,
+        chamber::ChamberPlugin,
+        staff_puzzles::StaffPuzzlePlugin,
+        staff_upgrades::StaffUpgradePlugin,
+        tablets::TabletPlugin,
+        main_quest::MainQuestPlugin,
+        quest_recovery::RecoveryPlugin,
+        finale::FinalePlugin,
+        cinematics::CinematicPlugin,
+    ));
     if cfg!(debug_assertions)
         && !release_benchmark
         && !flythrough

@@ -46,6 +46,13 @@ struct AimingJoint {
 #[derive(Component)]
 struct SocketAttachment(Entity);
 #[derive(Component)]
+struct WeaponAttachment {
+    rig: Entity,
+    selected: String,
+}
+#[derive(Component)]
+struct AttachmentHidden;
+#[derive(Component)]
 struct FirstPerson {
     owner: Entity,
     weapon: WeaponId,
@@ -88,6 +95,7 @@ impl Plugin for PresentationPlugin {
                     spawn_viewmodels.run_if(crate::flythrough::normal_play),
                     build_graphs,
                     attach_weapons,
+                    attachment_visuals,
                     offhand::select_visible,
                     animate,
                 )
@@ -104,6 +112,12 @@ impl Plugin for PresentationPlugin {
                 aim_pose
                     .after(bevy::app::AnimationSystems)
                     .before(bevy::camera::CameraUpdateSystems)
+                    .before(bevy::transform::TransformSystems::Propagate),
+            )
+            .add_systems(
+                PostUpdate,
+                hide_attachment_joints
+                    .after(bevy::app::AnimationSystems)
                     .before(bevy::transform::TransformSystems::Propagate),
             )
             .add_systems(
@@ -128,6 +142,7 @@ impl Plugin for PresentationPlugin {
             )
             .add_systems(Last, offhand::record_visibility)
             .add_observer(rig_ready);
+        app.add_observer(attachment_ready);
     }
 }
 pub(crate) fn first_person_light(
@@ -236,8 +251,11 @@ fn spawn_viewmodels(
     let (Some(definition), Ok(camera)) = (definition, cameras.single()) else {
         return;
     };
-    for (owner, inventory, lethal, tactical, mines, drinking) in &owners {
+    for (owner, inventory, lethal, tactical, mines, drinking, buildables) in &owners {
         let mut wanted = offhand::owned(inventory, lethal, tactical, mines);
+        if buildables.is_some_and(|e| e.shield_health > 0) {
+            wanted.push(WeaponId("weapon.tomb_shield_zm".into()));
+        }
         if let Some(drink) = drinking {
             wanted.push(drink.bottle.clone());
         }
@@ -458,6 +476,136 @@ fn attach_weapons(
         }
     }
 }
+fn attachment_visuals(
+    mut commands: Commands,
+    definition: Res<GameDefinition>,
+    server: Res<AssetServer>,
+    inventories: Query<&WeaponInventory>,
+    rigs: Query<(Entity, &Rig)>,
+    existing: Query<(Entity, &WeaponAttachment)>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    hidden: Query<(), With<AttachmentHidden>>,
+) {
+    for (entity, rig) in &rigs {
+        if rig.arms || rig.knife || rig.ads || rig.left || !rig.ready {
+            continue;
+        }
+        let Ok(inventory) = inventories.get(rig.owner) else {
+            continue;
+        };
+        let Some(weapon) = definition
+            .content
+            .weapons
+            .iter()
+            .find(|w| w.id == rig.weapon)
+        else {
+            continue;
+        };
+        let selected = if inventory
+            .active()
+            .is_some_and(|w| w.definition == rig.weapon)
+        {
+            inventory.attachment()
+        } else {
+            "defaultattachment"
+        };
+        if existing
+            .iter()
+            .any(|(_, a)| a.rig == entity && a.selected == selected)
+        {
+            continue;
+        }
+        for (attachment, _) in existing.iter().filter(|(_, a)| a.rig == entity) {
+            commands.entity(attachment).despawn();
+        }
+        let attachment = weapon.attachments.get(selected);
+        for child in children.iter_descendants(entity) {
+            if hidden.contains(child) {
+                commands
+                    .entity(child)
+                    .remove::<AttachmentHidden>()
+                    .insert(Visibility::Inherited);
+                commands
+                    .entity(child)
+                    .entry::<Transform>()
+                    .and_modify(|mut pose| pose.scale = Vec3::ONE);
+            }
+            if attachment.is_some_and(|a| {
+                names
+                    .get(child)
+                    .is_ok_and(|n| a.hide_tags.iter().any(|tag| tag == n.as_str()))
+            }) {
+                commands
+                    .entity(child)
+                    .insert((AttachmentHidden, Visibility::Hidden));
+            }
+        }
+        let mut holder = commands.spawn((
+            WeaponAttachment {
+                rig: entity,
+                selected: selected.into(),
+            },
+            Transform::default(),
+            Visibility::Inherited,
+        ));
+        if let Some(a) = attachment
+            && let Some(scene) = a
+                .presentation
+                .as_ref()
+                .and_then(|id| {
+                    definition
+                        .content
+                        .presentations
+                        .iter()
+                        .find(|p| p.id == *id)
+                })
+                .and_then(|p| p.scene.as_ref())
+        {
+            holder.insert((
+                WorldAssetRoot(server.load(scene.clone())),
+                Transform::from_translation(Vec3::new(a.offset[0], a.offset[2], -a.offset[1]))
+                    .with_rotation(Quat::from_euler(
+                        EulerRot::YXZ,
+                        -a.rotation[1],
+                        a.rotation[0],
+                        -a.rotation[2],
+                    )),
+            ));
+        }
+        let attached = holder.id();
+        commands.entity(entity).add_child(attached);
+    }
+}
+fn attachment_ready(
+    event: On<WorldInstanceReady>,
+    mut commands: Commands,
+    attachments: Query<(), With<WeaponAttachment>>,
+    children: Query<&Children>,
+    meshes: Query<(), With<Mesh3d>>,
+) {
+    if !attachments.contains(event.entity) {
+        return;
+    }
+    for child in children.iter_descendants(event.entity) {
+        commands
+            .entity(child)
+            .insert(avian3d::prelude::CollisionLayers::new(
+                avian3d::prelude::LayerMask::NONE,
+                avian3d::prelude::LayerMask::NONE,
+            ));
+        if meshes.contains(child) {
+            commands
+                .entity(child)
+                .insert((RenderLayers::layer(1), crate::rendering::FirstPersonSurface));
+        }
+    }
+}
+fn hide_attachment_joints(mut joints: Query<&mut Transform, With<AttachmentHidden>>) {
+    for mut joint in &mut joints {
+        joint.scale = Vec3::ZERO;
+    }
+}
 fn follow_sockets(
     mut poses: ParamSet<(
         Query<(&Transform, Option<&ChildOf>)>,
@@ -512,13 +660,19 @@ fn rig_ready(
     rig.players.clear();
     rig.sequence = None;
     rig.sampled_phase = None;
-    commands.entity(event.entity).insert(avian3d::prelude::CollisionLayers::new(
-        avian3d::prelude::LayerMask::NONE, avian3d::prelude::LayerMask::NONE,
-    ));
-    for child in children.iter_descendants(event.entity) {
-        commands.entity(child).insert(avian3d::prelude::CollisionLayers::new(
-            avian3d::prelude::LayerMask::NONE, avian3d::prelude::LayerMask::NONE,
+    commands
+        .entity(event.entity)
+        .insert(avian3d::prelude::CollisionLayers::new(
+            avian3d::prelude::LayerMask::NONE,
+            avian3d::prelude::LayerMask::NONE,
         ));
+    for child in children.iter_descendants(event.entity) {
+        commands
+            .entity(child)
+            .insert(avian3d::prelude::CollisionLayers::new(
+                avian3d::prelude::LayerMask::NONE,
+                avian3d::prelude::LayerMask::NONE,
+            ));
         if rig.arms
             && names
                 .get(child)
@@ -593,7 +747,8 @@ fn aim_pose(
         return;
     };
     for (mut joint, mut pose) in &mut joints {
-        let Ok((inventory, lethal, tactical, mines, drinking)) = inventories.get(joint.owner)
+        let Ok((inventory, lethal, tactical, mines, drinking, buildables)) =
+            inventories.get(joint.owner)
         else {
             continue;
         };
@@ -607,6 +762,7 @@ fn aim_pose(
         };
         let equipment = drinking
             .map(|d| d.selection())
+            .or_else(|| offhand::buildable_selection(buildables))
             .or_else(|| offhand::selection(lethal, tactical, mines, &definition));
         let ads = if equipment.is_none()
             && inventory
@@ -646,7 +802,7 @@ fn aim_pose(
         for mut projection in &mut cameras {
             if let Projection::Perspective(p) = &mut *projection {
                 p.fov = if equipment.is_none() {
-                    inventory.ads_fov(VIEWMODEL_FOV_DEGREES, &weapon.mechanics)
+                    inventory.ads_fov(VIEWMODEL_FOV_DEGREES, weapon)
                 } else {
                     VIEWMODEL_FOV_DEGREES.to_radians()
                 };
@@ -679,11 +835,14 @@ fn camera_pose(
         if !rig.arms || rig.knife || !rig.ready {
             continue;
         }
-        let Ok((inventory, lethal, tactical, mines, drinking)) = inventories.get(rig.owner) else {
+        let Ok((inventory, lethal, tactical, mines, drinking, buildables)) =
+            inventories.get(rig.owner)
+        else {
             continue;
         };
         let selected = drinking
             .map(|d| d.selection())
+            .or_else(|| offhand::buildable_selection(buildables))
             .or_else(|| offhand::selection(lethal, tactical, mines, &definition));
         let visible = selected
             .as_ref()
@@ -735,7 +894,7 @@ fn camera_pose(
                     .weapons
                     .iter()
                     .find(|w| w.id == rig.weapon)
-                    .and_then(|w| w.mechanics.ads_sight.as_ref())
+                    .and_then(|w| inventory.effective_ads_sight(w))
                     .map_or(Quat::IDENTITY, |s| Quat::from_array(s.rotation)),
             ));
         }
@@ -899,11 +1058,14 @@ fn animate(
         return;
     };
     for (mut rig, mut visibility) in &mut rigs {
-        let Ok((inventory, lethal, tactical, mines, drinking)) = inventories.get(rig.owner) else {
+        let Ok((inventory, lethal, tactical, mines, drinking, buildables)) =
+            inventories.get(rig.owner)
+        else {
             continue;
         };
         let selected = drinking
             .map(|d| d.selection())
+            .or_else(|| offhand::buildable_selection(buildables))
             .or_else(|| offhand::selection(lethal, tactical, mines, &definition));
         let visible = selected
             .as_ref()
@@ -1039,11 +1201,15 @@ fn animate(
             };
         }
         let animation_weapon = if action == WeaponAnimation::Melee && rig.arms {
-            definition
-                .content
-                .weapons
-                .iter()
-                .find(|w| w.id.0 == "weapon.knife_zm")
+            inventory
+                .melee_definition(&definition.content.weapons)
+                .or_else(|| {
+                    definition
+                        .content
+                        .weapons
+                        .iter()
+                        .find(|w| w.id.0 == "weapon.knife_zm")
+                })
                 .unwrap_or(weapon)
         } else {
             weapon

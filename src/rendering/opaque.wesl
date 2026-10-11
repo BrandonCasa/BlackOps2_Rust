@@ -58,7 +58,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     let surface = parameters_for(slot);
     @if(ORIGINS_DIAGNOSTIC) set_surface_slot(slot);
     var standard = in;
-    let layered = surface.layers.x > 1u;
+    let layered = surface.layers.x > 1u && surface.frozen.y == 0.0;
     standard.color = vec4(1.0);
     var pbr = pbr_input_from_standard_material(standard, is_front);
     if surface.native.kind.x != 0u {
@@ -205,6 +205,22 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
             sg = vec4(1.0,surface.water.y,0.0,0.0);
         }
         pbr.material.base_color.a = surface.water.w;
+    }
+    if surface.frozen.y != 0.0 {
+        let temporal = sample_control_map(slot, in.uv, gradient0).r;
+        let amount = surface.frozen.x;
+        let blend = smoothstep(-0.06,0.06,amount-temporal);
+        let edge = smoothstep(-0.03,0.03,temporal-amount)*blend;
+        let color = sample_color_base_grad(slot,in.uv,gradient0).rgb;
+        let altered = vec3(color.r)*surface.frozen_edge.w*surface.frozen_edge.w;
+        pbr.material.base_color = vec4(mix(color*vec3(0.537902,0.621299,0.797194),altered,blend),1.0);
+        let brightness = surface.frozen_edge.xyz*surface.frozen.z*edge;
+        pbr.material.emissive = vec4(brightness*brightness,0.0);
+        let time = animation_time(slot)*0.125;
+        let uv = (in.uv-vec2(0.5))/vec2(0.6,1.2)+vec2(0.5);
+        let detail0 = normal_slope(sample_second_normal(slot,uv+time*vec2(-0.00891,0.79995),mat2x2(dpdx(uv),dpdy(uv))),1.0,(surface.modes.w & 2u) != 0u);
+        let detail1 = normal_slope(sample_second_normal(slot,uv-vec2(0.5)-time*vec2(-0.014479,1.299919),mat2x2(dpdx(uv),dpdy(uv))),1.0,(surface.modes.w & 2u) != 0u);
+        slope = mix((detail0+detail1)*0.5*surface.frozen.w,slope0,blend);
     }
     if effect {
         let normal = normalize(pbr.world_normal);

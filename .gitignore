@@ -22,6 +22,7 @@
 !/assets/origins/**/*.gltf
 !/assets/origins/**/*.bin
 !/assets/origins/**/*.ktx2
+!/assets/origins/**/*.nativefx
 !/assets/origins/**/*.png
 !/assets/origins/**/*.dds
 !/assets/origins/**/*.jpg

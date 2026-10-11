@@ -187,6 +187,8 @@ pub(super) struct SurfaceParameters {
     pub wetness: Vec4,
     pub water: Vec4,
     pub velocity: Vec4,
+    pub frozen: Vec4,
+    pub frozen_edge: Vec4,
     pub effect: EffectParameters,
     pub native: super::native_weapon::NativeWeaponParameters,
     pub diagnostic_state: UVec4,
@@ -359,6 +361,8 @@ pub(super) struct SurfaceDefinition {
     identity_hash: f32,
     family: String,
     tiles: f32,
+    frozen: Vec4,
+    frozen_edge: Vec4,
     pub(super) channels: HashMap<(String, u64), Handle<Image>>,
     pub presentation: Value,
     layers: UVec4,
@@ -435,6 +439,8 @@ pub(super) fn register_prepared(
                 .fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619))
                 % 65535) as f32,
             family: surface["family"].as_str().unwrap_or("lit").to_owned(),
+            frozen: frozen_parameters(surface).0,
+            frozen_edge: frozen_parameters(surface).1,
             tiles: surface["preparation"]["tiles"].as_f64().unwrap_or(1.) as f32,
             channels: channels
                 .iter()
@@ -471,6 +477,7 @@ pub(super) fn initialize(
     mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
+    commands.remove_resource::<SurfaceLibrary>();
     let Ok(pack) = &config.0 else { return };
     let result = (|| -> Result<SurfaceLibrary, String> {
         let document: Value = serde_json::from_slice(
@@ -504,7 +511,14 @@ pub(super) fn initialize(
                 }
                 let texture: super::pbr::PreparedTexture =
                     serde_json::from_value(channel.clone()).map_err(|e| e.to_string())?;
-                channels.insert((role.into(), layer), super::pbr::load(&server, &texture));
+                let handle = super::pbr::load(&server, &texture);
+                if matches!(
+                    server.get_load_state(handle.id()),
+                    Some(bevy::asset::LoadState::Failed(_))
+                ) {
+                    server.reload(texture.uri.clone());
+                }
+                channels.insert((role.into(), layer), handle);
             }
             let tiles = surface["preparation"]["tiles"].as_f64().unwrap_or(1.) as f32;
             let operations = surface["layers"]["operations"].as_array();
@@ -536,6 +550,8 @@ pub(super) fn initialize(
                         })
                         % 65535) as f32,
                     family,
+                    frozen: frozen_parameters(surface).0,
+                    frozen_edge: frozen_parameters(surface).1,
                     tiles,
                     channels,
                     presentation: surface["presentation"].clone(),
@@ -650,6 +666,55 @@ fn static_instance(entity: Entity, extras: &Query<&GltfExtras>, parents: &Query<
     false
 }
 
+fn frozen_parameters(surface: &Value) -> (Vec4, Vec4) {
+    let source = &surface["frozen_stone"]["constants"];
+    if source.is_null() {
+        return (Vec4::ZERO, Vec4::ZERO);
+    }
+    let scalar = |name: &str, index: usize, fallback: f32| {
+        source[name][index].as_f64().map_or(fallback, |v| v as f32)
+    };
+    (
+        Vec4::new(
+            0.,
+            1.,
+            scalar("Leading_Edge_Brightness", 0, 2.),
+            scalar("WaterMultiplier", 0, 0.5),
+        ),
+        Vec4::new(
+            scalar("State_2_Leading_Edge_Color", 0, 6.),
+            scalar("State_2_Leading_Edge_Color", 1, 8.),
+            scalar("State_2_Leading_Edge_Color", 2, 8.),
+            scalar("State_2_Alteration", 0, 4.),
+        ),
+    )
+}
+#[derive(Component)]
+pub(super) struct FrozenMaterial {
+    owner: Entity,
+}
+
+pub(super) fn frozen_stones(
+    entities: Query<(&FrozenMaterial, &MeshMaterial3d<OpaqueMaterial>)>,
+    stones: Query<&crate::staff_puzzles::FrozenStone>,
+    mut materials: ResMut<Assets<OpaqueMaterial>>,
+) {
+    for (stone, handle) in &entities {
+        let amount = stones.get(stone.owner).map_or(0., |stone| stone.amount);
+        if let Some(material) = materials.get(&handle.0)
+            && material.extension.parameters.frozen.x != amount
+        {
+            materials
+                .get_mut(&handle.0)
+                .unwrap()
+                .extension
+                .parameters
+                .frozen
+                .x = amount;
+        }
+    }
+}
+
 pub(super) fn convert(
     mut commands: Commands,
     query: Query<
@@ -669,6 +734,7 @@ pub(super) fn convert(
     extras: Query<&GltfExtras>,
     parents: Query<&ChildOf>,
     rigs: Query<&crate::presentation::Rig>,
+    stone_roots: Query<(), With<crate::staff_puzzles::IceStone>>,
     library: Option<ResMut<SurfaceLibrary>>,
     standard: Res<Assets<StandardMaterial>>,
     mut materials: ResMut<Assets<OpaqueMaterial>>,
@@ -710,6 +776,18 @@ pub(super) fn convert(
             definition.presentation["alpha"].as_str() == Some("premultiplied");
         let staff = definition.native.kind.x == 7;
         let mut charge_owner = None;
+        let frozen_stone = definition.frozen.y != 0.;
+        let mut stone_owner = None;
+        if frozen_stone {
+            let mut current = Some(entity);
+            while let Some(ancestor) = current {
+                if stone_roots.contains(ancestor) {
+                    stone_owner = Some(ancestor);
+                    break;
+                }
+                current = parents.get(ancestor).ok().map(ChildOf::parent);
+            }
+        }
         if staff {
             let mut current = Some(entity);
             while let Some(ancestor) = current {
@@ -720,14 +798,14 @@ pub(super) fn convert(
                 current = parents.get(ancestor).ok().map(ChildOf::parent);
             }
         }
-        let key = (original.0.id(), charge_owner);
+        let key = (original.0.id(), charge_owner.or(stone_owner));
         let handle = if let Some(handle) = library.materials.get(&key) {
             handle.clone()
         } else {
             let channel =
                 |role: &str, layer| definition.channels.get(&(role.to_string(), layer)).cloned();
             let tile = definition.family == "tile_blend" && definition.tiles > 1.;
-            let water = definition.family == "water";
+            let water = definition.family == "water" && !frozen_stone;
             let mut normal_encodings = 0;
             for layer in 0..3 {
                 if let Some(handle) = channel("normal", layer)
@@ -767,6 +845,8 @@ pub(super) fn convert(
                     profile.water_opacity,
                 ),
                 velocity: Vec4::from_array(profile.water_velocity),
+                frozen: definition.frozen,
+                frozen_edge: definition.frozen_edge,
                 effect: definition.effect.unwrap_or_default(),
                 native: definition.native,
                 diagnostic_state: UVec4::new(if ready.is_some() { mode.0 } else { 0 }, 0, 0, 0),
@@ -784,6 +864,8 @@ pub(super) fn convert(
                     .or_else(|| channel("response", 1)),
                 control: if definition.native.kind.x != 0 {
                     channel("occlusion", 0)
+                } else if frozen_stone {
+                    channel("control", 0)
                 } else if tile {
                     channel("control", 2)
                 } else {
@@ -881,6 +963,9 @@ pub(super) fn convert(
             .entity(entity)
             .remove::<MeshMaterial3d<StandardMaterial>>()
             .insert((MeshMaterial3d(handle.clone()), OpaqueReady));
+        if let Some(owner) = stone_owner {
+            commands.entity(entity).insert(FrozenMaterial { owner });
+        }
         if staff {
             commands
                 .entity(entity)

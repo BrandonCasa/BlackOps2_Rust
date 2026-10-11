@@ -32,6 +32,55 @@ def animation_fields(fields):
             for action, field in ACTIONS.items()}
 
 
+def combat_weapon_fields(source, content):
+    identities = {w['id'] for w in content['weapons']}
+    source_weapons = {'weapon.' + w['source']: w['fields'] for w in source['weapons']}
+    attachments = {a['source']: a['fields'] for a in source['attachment']}
+    uniques = {a['source']: a['fields'] for a in source['attachmentunique']}
+    presentations = [p for p in content['presentations'] if p.get('scene')]
+    def model_id(model):
+        candidates = [p for p in presentations if Path(p['scene'].split('#')[0]).name == model + '_lod0.gltf']
+        candidates.sort(key=lambda p: ('/zm_tomb/' not in p['scene'], p['id']))
+        return candidates[0]['id'] if candidates else None
+    def fov(value):
+        return math.degrees(2 * math.atan(math.tan(math.radians(float(value)) / 2) * .75))
+    updates = []
+    for weapon in content['weapons']:
+        fields = source_weapons.get(weapon['id'])
+        if fields is None:
+            continue
+        alternate = 'weapon.' + fields.get('altWeapon', '')
+        mechanics = {
+            'ads_recoil_recovery': float(fields.get('adsViewKickCenterSpeed') or 0) * .01,
+            'alternate': alternate if alternate in identities else None,
+            'player_damage': [int(float(fields.get(k) or 0)) for k in ('playerDamage', 'minPlayerDamage')],
+            'projectile_trail': fields.get('projTrailEffect') or None,
+            'projectile_loop': fields.get('projectileSound') or None,
+            'projectile_effect': fields.get('projExplosionEffect') or None,
+            'weapon_class': fields.get('weaponClass') or None,
+            'projectile_up_speed': float(fields.get('projectileSpeedUp') or 0) * .0254,
+            'projectile_bounce': fields.get('projExplosionType') == 'grenade' and fields.get('weaponType') == 'projectile',
+        }
+        definitions = {}
+        for name, unique_name in zip(fields.get('attachments', '').splitlines(), fields.get('attachmentUniques', '').splitlines()):
+            base, unique = attachments.get(name, {}), uniques.get(unique_name, {})
+            alternate = 'weapon.' + unique.get('altWeapon', '')
+            optical = name in {'acog','reflex','vzoom','is','mms','rangefinder'}
+            levels = [fov(base[k]) for k in ('adsZoomFov1','adsZoomFov2','adsZoomFov3') if optical and float(base.get(k) or 1) > 1]
+            levels = list(dict.fromkeys(levels))
+            definitions[name] = {
+                'alternate': alternate if alternate in identities else None,
+                'ads_fov': levels,
+                'presentation': model_id(unique.get('viewModel','')),
+                'offset': [float(unique.get('viewModelOffset' + axis) or 0) * .0254 for axis in 'XYZ'],
+                'rotation': [math.radians(float(unique.get('viewModelOffset' + axis) or 0)) for axis in ('Pitch','Yaw','Roll')],
+                'hide_tags': unique.get('hideTags','').split(),
+                'ads_zoom_fraction': [float(base.get(k) or 0) for k in ('adsZoomInFrac','adsZoomOutFrac')] if optical else None,
+            }
+        updates.append({'id': weapon['id'], 'mechanics': mechanics, 'attachments': definitions})
+    return updates
+
+
 def localized_strings(directory):
     result = {}
     files = sorted(directory.glob("*.str"), key=lambda p: ("tomb" in p.name, "patch" in p.name, p.name))
@@ -202,6 +251,10 @@ def prepare(config):
             unresolved.append({"weapon": name, "missing_model": model})
         weapons.append(weapon)
     content["weapons"] = weapons
+    for update in combat_weapon_fields(source, content):
+        weapon = next(w for w in weapons if w['id'] == update['id'])
+        weapon['mechanics'].update(update['mechanics'])
+        weapon['attachments'] = update['attachments']
     script = external(config.get("preparation", {}).get("weapon_script", inspection / "damage-life-state-03/decompiled/t6/zm_tomb.gsc"))
     prices = {}
     for name, price, ammo in re.findall(r'add_zombie_weapon\(\s*"([^"]+)"\s*,[^,]*,[^,]*,\s*(\d+)\s*,[^,]*,[^,]*,\s*(undefined|\d+)', script.read_text()):

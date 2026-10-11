@@ -31,6 +31,7 @@ struct Preparation {
     frame: u64,
     total: usize,
     settled_frames: u32,
+    shaders_ready: bool,
 }
 
 #[derive(Component)]
@@ -157,9 +158,10 @@ fn advance(
         next.set(GameState::LoadError);
         return;
     }
-    if preparation
-        .started
-        .is_some_and(|started| started.elapsed().as_secs() > 180)
+    if !preparation.shaders_ready
+        && preparation
+            .started
+            .is_some_and(|started| started.elapsed().as_secs() > 180)
     {
         failure.0 = format!(
             "Shader preparation timed out: {} of {} ready.",
@@ -191,7 +193,8 @@ fn advance(
         preparation.settled_frames = 0;
     }
     preparation.total = progress.total;
-    if preparation.settled_frames >= 8 && loading.done {
+    preparation.shaders_ready |= preparation.settled_frames >= 8;
+    if preparation.shaders_ready && loading.done {
         info!(
             "Origins shaders ready: {} pipelines in {:.2}s",
             progress.total,

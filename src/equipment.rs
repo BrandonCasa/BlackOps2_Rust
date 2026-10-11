@@ -108,6 +108,15 @@ impl GrenadeInventory {
     pub fn busy(&self) -> bool {
         !matches!(self.state, ThrowState::Ready)
     }
+    pub fn cancel(&mut self) {
+        if matches!(
+            self.state,
+            ThrowState::Priming { .. } | ThrowState::Cooking { .. } | ThrowState::Releasing { .. }
+        ) {
+            self.count = self.count.saturating_add(1).min(self.capacity);
+        }
+        self.state = ThrowState::Ready;
+    }
     pub fn receive(
         &mut self,
         weapon: &crate::origins::content::WeaponDefinition,
@@ -185,7 +194,12 @@ pub struct Grenade {
     pub lure_active: bool,
 }
 impl Grenade {
-    pub fn settled(&self) -> bool { matches!(self.motion, GrenadeMotion::Resting | GrenadeMotion::Attached { .. }) }
+    pub fn settled(&self) -> bool {
+        matches!(
+            self.motion,
+            GrenadeMotion::Resting | GrenadeMotion::Attached { .. }
+        )
+    }
 }
 pub(crate) fn dig_grenade(
     commands: &mut Commands,
@@ -243,6 +257,9 @@ pub struct BlastRequest {
     pub inner_damage: u32,
     pub outer_damage: u32,
     pub direction: Option<(Vec3, f32)>,
+    pub category: Option<DamageCategory>,
+    pub player_damage: Option<[u32; 2]>,
+    pub source: Option<crate::damage::ImpactSource>,
 }
 #[derive(Resource, Default)]
 pub struct BlastQueue(pub Vec<BlastRequest>);
@@ -279,10 +296,15 @@ impl Plugin for EquipmentPlugin {
             .init_resource::<EquipmentEvidence>()
             .add_systems(
                 FixedUpdate,
-                (throw_input, flight, resolve_blasts, blast_lifetime)
-                    .chain()
+                (
+                    (throw_input, flight)
+                        .chain()
+                        .before(crate::gameplay::combat),
+                    (resolve_blasts, blast_lifetime)
+                        .chain()
+                        .after(crate::gameplay::combat),
+                )
                     .in_set(GameStep::Combat)
-                    .before(crate::gameplay::combat)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
@@ -350,6 +372,10 @@ pub(crate) fn throw_input(
         &crate::mines::MineInventory,
         &mut TacticalInventory,
         Has<crate::perks::PerkDrinking>,
+        Has<crate::actions::HandReservation>,
+        Has<crate::robots::StompReaction>,
+        Has<crate::robots::RobotTransit>,
+        Has<crate::tank::TankRescue>,
     )>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
@@ -363,9 +389,20 @@ pub(crate) fn throw_input(
         mines,
         mut tactical,
         drinking,
+        reserved,
+        stomp,
+        robot_transit,
+        tank_rescue,
     ) in &mut players
     {
         let standing = health.state() == LifeState::Standing;
+        if reserved || stomp || robot_transit || tank_rescue {
+            lethal.cancel();
+            if let Some(tactical) = tactical.0.as_mut() {
+                tactical.cancel();
+            }
+            continue;
+        }
         if standing && drinking {
             continue;
         }
@@ -730,6 +767,9 @@ pub(crate) fn flight(
             inner_damage: tuning.inner_damage,
             outer_damage: tuning.outer_damage,
             direction: None,
+            category: None,
+            player_damage: None,
+            source: None,
         });
         evidence.record(serde_json::json!({"event":"detonate","position":center.to_array(),"flight_seconds":grenade.elapsed}));
         commands.entity(entity).despawn();
@@ -755,7 +795,13 @@ pub(crate) fn resolve_blasts(
     game: Res<GameDefinition>,
     mut queue: ResMut<BlastQueue>,
     query: SpatialQuery,
-    targets: Query<(Entity, &Vitality, &Transform, Has<Player>)>,
+    targets: Query<(
+        Entity,
+        &Vitality,
+        &Transform,
+        Has<Player>,
+        Option<&crate::hit_regions::Hitboxes>,
+    )>,
     mut impacts: ResMut<crate::damage::DamageQueue>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -773,7 +819,7 @@ pub(crate) fn resolve_blasts(
             &format!("{}.explode", blast.definition.0),
             crate::audio::SoundSource::World(center),
         );
-        for (target, vitality, pose, player) in &targets {
+        for (target, vitality, pose, player, hitboxes) in &targets {
             if !matches!(
                 vitality.state(),
                 LifeState::Standing | LifeState::ActorAlive
@@ -809,15 +855,23 @@ pub(crate) fn resolve_blasts(
             }
             let ratio = ((distance - blast.inner_radius) / (blast.radius - blast.inner_radius))
                 .clamp(0., 1.);
-            let damage = (blast.inner_damage as f32
-                + (blast.outer_damage as f32 - blast.inner_damage as f32) * ratio)
-                .round() as u32;
+            let [inner, outer] = if player {
+                blast
+                    .player_damage
+                    .unwrap_or([blast.inner_damage, blast.outer_damage])
+            } else {
+                [blast.inner_damage, blast.outer_damage]
+            };
+            let damage = (inner as f32 + (outer as f32 - inner as f32) * ratio).round() as u32;
             impacts.0.push(crate::damage::Impact {
                 attacker: blast.owner,
                 target,
-                source: crate::damage::ImpactSource::Projectile(blast.definition.clone()),
-                category: DamageCategory::Explosive,
-                region: HitRegion::None,
+                source: blast.source.clone().unwrap_or_else(|| {
+                    crate::damage::ImpactSource::Projectile(blast.definition.clone())
+                }),
+                category: blast.category.unwrap_or(DamageCategory::Explosive),
+                region: hitboxes
+                    .map_or(HitRegion::None, |boxes| boxes.nearest_region(pose, center)),
                 amount: damage,
             });
             if player {

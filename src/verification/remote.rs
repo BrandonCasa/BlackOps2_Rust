@@ -613,7 +613,8 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         inner_damage: b.damage,
         outer_damage: b.damage,
         direction: None,
-    });
+        category: None, player_damage: None, source: None,
+});
     if request.charge_level.is_some_and(|v| v > 3) {
         return Err(error("Charge level must be 0..3"));
     }

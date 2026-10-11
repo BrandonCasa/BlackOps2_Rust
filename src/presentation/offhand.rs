@@ -12,6 +12,7 @@ pub(super) type Owners<'w, 's> = Query<
         &'static TacticalInventory,
         &'static MineInventory,
         Option<&'static crate::perks::PerkDrinking>,
+        Option<&'static crate::crafting::BuildableInventory>,
     ),
     With<Player>,
 >;
@@ -24,6 +25,7 @@ pub(super) type Inventories<'w, 's> = Query<
         &'static TacticalInventory,
         &'static MineInventory,
         Option<&'static crate::perks::PerkDrinking>,
+        Option<&'static crate::crafting::BuildableInventory>,
     ),
 >;
 #[derive(Resource, Default)]
@@ -130,6 +132,20 @@ pub(crate) fn selection(
         )),
     })
 }
+pub(super) fn buildable_selection(
+    equipment: Option<&crate::crafting::BuildableInventory>,
+) -> Option<Selection> {
+    let equipment = equipment.filter(|e| e.shield_held)?;
+    Some(Selection {
+        weapon: WeaponId("weapon.tomb_shield_zm".into()),
+        action: if equipment.shield_attack > 0. {
+            WeaponAnimation::Melee
+        } else {
+            WeaponAnimation::Idle
+        },
+        timing: None,
+    })
+}
 pub(super) fn select_visible(
     definition: Option<Res<GameDefinition>>,
     owners: Owners,
@@ -140,9 +156,10 @@ pub(super) fn select_visible(
     let Some(definition) = definition else {
         return;
     };
-    for (owner, primary, lethal, tactical, mines, drinking) in &owners {
+    for (owner, primary, lethal, tactical, mines, drinking, buildables) in &owners {
         let selected = drinking
             .map(|d| d.selection())
+            .or_else(|| buildable_selection(buildables))
             .or_else(|| selection(lethal, tactical, mines, &definition));
         let visible = selected
             .as_ref()

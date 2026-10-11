@@ -36,6 +36,8 @@ struct AudioState {
     downed: bool,
     position: Option<Vec3>,
     crawl_distance: f32,
+    raid: bool,
+    raid_clock: f32,
 }
 pub(super) fn install(app: &mut App) {
     app.init_resource::<AudioState>().add_systems(
@@ -323,6 +325,11 @@ fn world(
     exists: Query<Entity>,
     query: SpatialQuery,
     surfaces: Query<&SurfaceSound>,
+    (time, generators, music): (
+        Res<Time<Fixed>>,
+        Res<crate::generators::Generators>,
+        Res<MusicOverride>,
+    ),
 ) {
     let Ok((player, pose, health, recovery, perks, body)) = players.single() else {
         return;
@@ -399,33 +406,56 @@ fn world(
         );
     }
     state.downed = downed;
-    if state.round != session.round {
+    if generators.raid_active != state.raid {
         emit(
             &mut commands,
-            "mus_zombie_round_start",
+            if generators.raid_active {
+                "mus_zombie_dog_start"
+            } else {
+                "mus_zombie_dog_end"
+            },
             SoundSource::World(position),
         );
-        state.round = session.round;
-        if session.round == 1 {
-            voice(&mut commands, &game, &session, "during_round_1", player, 0);
+        state.raid = generators.raid_active;
+        state.raid_clock = 0.;
+        if !state.raid
+            && let Some(looping) = state.loops.remove("raid.music")
+        {
+            commands.entity(looping).try_insert(SoundFade {
+                remaining: 2.,
+                duration: 2.,
+                out: true,
+            });
         }
     }
-    if session.intermission.is_some() && !state.intermission {
+    if state.raid {
+        state.raid_clock += time.delta_secs();
+    }
+    if state.raid && state.raid_clock >= 5. && music.0.is_none() {
+        wanted.insert(
+            "raid.music".into(),
+            (
+                "mus_recapture_round_loop".into(),
+                SoundSource::World(position),
+            ),
+        );
+    }
+    if state.round != session.round {
+        if !state.raid {
+            emit(
+                &mut commands,
+                "mus_zombie_round_start",
+                SoundSource::World(position),
+            );
+        }
+        state.round = session.round;
+    }
+    if session.intermission.is_some() && !state.intermission && !state.raid {
         emit(
             &mut commands,
             "mus_zombie_round_over",
             SoundSource::World(position),
         );
-        if session.round == 1 {
-            voice(
-                &mut commands,
-                &game,
-                &session,
-                "end_round_1",
-                player,
-                session.round,
-            );
-        }
     }
     state.intermission = session.intermission.is_some();
     for perk in game
@@ -509,6 +539,13 @@ fn world(
     for (key, (alias, source)) in wanted {
         if !state.loops.contains_key(&key) && game.audio.aliases.contains_key(&alias) {
             let entity = emit_loop(&mut commands, alias, source);
+            if key == "raid.music" {
+                commands.entity(entity).insert(SoundFade {
+                    remaining: 5.,
+                    duration: 5.,
+                    out: false,
+                });
+            }
             state.loops.insert(key, entity);
         }
     }

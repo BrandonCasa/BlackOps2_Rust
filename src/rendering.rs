@@ -96,7 +96,11 @@ impl Plugin for GameRenderingPlugin {
             .add_plugins(readback_shutdown::ReadbackShutdownPlugin)
             .init_resource::<OpaqueSurfaceStatus>()
             .init_resource::<pbr::MaterialDiagnostic>()
-            .add_systems(Startup, (setup, opaque::initialize))
+            .add_systems(Startup, setup)
+            .add_systems(
+                OnEnter(GameState::Loading),
+                opaque::initialize.after(crate::assets::begin_load),
+            )
             .add_systems(PostStartup, sky::setup)
             .add_systems(
                 PostUpdate,
@@ -132,6 +136,7 @@ impl Plugin for GameRenderingPlugin {
                     pbr::diagnostics,
                     opaque::animate_water,
                     native_weapon::charge,
+                    opaque::frozen_stones,
                 )
                     .chain(),
             );
@@ -289,8 +294,10 @@ fn camera_follow(
         translation: body.translation
             + Vec3::Y * (eye - player.height * 0.5)
             + Quat::from_rotation_y(player.yaw) * Vec3::new(bob.x, bob.y, 0.),
-        rotation: Quat::from_rotation_y(player.yaw + inventory.recoil.x)
-            * Quat::from_rotation_x((player.pitch + inventory.recoil.y).clamp(-1.5, 1.5)),
+        rotation: Quat::from_rotation_y(player.yaw + inventory.recoil.x + feedback.rumble.x)
+            * Quat::from_rotation_x(
+                (player.pitch + inventory.recoil.y + feedback.rumble.y).clamp(-1.5, 1.5),
+            ),
         ..*camera
     };
     camera.set_if_neq(target);
@@ -300,7 +307,7 @@ fn camera_follow(
         perspective.fov = inventory
             .definition(&definition.content.weapons)
             .map_or(BASE_FOV_DEGREES.to_radians(), |w| {
-                inventory.ads_fov(BASE_FOV_DEGREES, &w.mechanics)
+                inventory.ads_fov(BASE_FOV_DEGREES, w)
             });
     }
 }

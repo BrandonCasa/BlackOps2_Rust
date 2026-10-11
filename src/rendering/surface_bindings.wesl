@@ -14,6 +14,8 @@ struct OriginsSurfaceData {
     wetness: vec4<f32>,
     water: vec4<f32>,
     velocity: vec4<f32>,
+    frozen: vec4<f32>,
+    frozen_edge: vec4<f32>,
     effect: Effect,
     native: NativeWeaponParameters,
     diagnostic_state: vec4<u32>,

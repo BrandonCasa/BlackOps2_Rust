@@ -64,6 +64,10 @@ impl MineInventory {
     pub fn busy(&self) -> bool {
         self.remaining > 0.
     }
+    pub fn cancel(&mut self) {
+        self.remaining = 0.;
+        self.placing = false;
+    }
     pub fn receive(
         &mut self,
         weapon: &crate::origins::content::WeaponDefinition,
@@ -158,6 +162,7 @@ fn place(
     definition: Res<GameDefinition>,
     query: SpatialQuery,
     server: Res<AssetServer>,
+    reserved: Query<(), With<crate::actions::HandReservation>>,
     mines: Query<&PlantedMine>,
     mut players: Query<(
         Entity,
@@ -189,7 +194,7 @@ fn place(
         else {
             continue;
         };
-        if vitality.state() != LifeState::Standing || drinking {
+        if vitality.state() != LifeState::Standing || drinking || reserved.contains(owner) {
             inventory.placing = false;
             inventory.remaining = 0.;
             continue;
@@ -308,7 +313,8 @@ fn detect(
                     inner_damage: profile.inner_damage,
                     outer_damage: profile.outer_damage,
                     direction: Some((forward, profile.blast_cos)),
-                });
+                    category: None, player_damage: None, source: None,
+});
                 evidence.detonated += 1;
                 evidence.record(serde_json::json!({"event":"detonate","unsafe":mine.unsafe_plant}));
                 commands.entity(entity).despawn();

@@ -212,6 +212,7 @@ impl MovementEvidence {
 
 #[derive(Component, Default)]
 pub struct MotionFeedback {
+    pub rumble: Vec2,
     pub bob: Vec2,
     pub previous_bob: Vec2,
     pub phase: f32,

@@ -1,4 +1,4 @@
-use crate::{assets::GameDefinition, economy::{PointLedger, TransactionId}, gameplay::{GameStep, Session, SessionEntity}, input::GameInput, interactions::{InteractionFocus, InteractionRejection}, life::{LifeState, Vitality}, origins::content::WeaponId, player::Player, weapons::{WeaponAction, WeaponInventory}, GameState};
+use crate::{assets::GameDefinition, economy::{PointLedger, TransactionId}, gameplay::{GameStep, Session, SessionEntity}, input::GameInput, interactions::{InteractionFocus, InteractionRejection}, life::{LifeState, Vitality}, origins::content::WeaponId, player::Player, weapons::{AmmoSnapshot, WeaponAction, WeaponInventory}, GameState};
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
@@ -37,8 +37,8 @@ pub(crate) enum Station { Box(usize), PackAPunch }
 #[derive(Clone)]
 enum BoxPhase {
     Idle,
-    Rolling { owner: Entity, weapon: WeaponId, remaining: f32, teddy: bool, purchase: TransactionId },
-    Reward { owner: Entity, weapon: WeaponId, remaining: f32 },
+    Rolling { owner: Entity, weapon: WeaponId, remaining: f32, teddy: bool, normal: bool, purchase: TransactionId },
+    Reward { owner: Entity, weapon: WeaponId, remaining: f32, normal: bool },
     Relocating { remaining: f32 },
 }
 #[derive(Clone)]
@@ -58,36 +58,47 @@ pub struct Stations {
     boxes: [BoxPhase; 6],
     upgrade: UpgradePhase,
     attachment: Option<String>,
+    deposited: Option<AmmoSnapshot>,
     latched: bool,
 }
 impl Default for Stations {
     fn default() -> Self {
         Self { normal_box: 0, moves: 0, uses: 0, purchases: 0, collections: 0, refunds: 0,
-            boxes: std::array::from_fn(|_| BoxPhase::Idle), upgrade: UpgradePhase::Idle, attachment: None, latched: false }
+            boxes: std::array::from_fn(|_| BoxPhase::Idle), upgrade: UpgradePhase::Idle, attachment: None, deposited: None, latched: false }
     }
 }
-fn attachments(id: &WeaponId) -> &'static [&'static str] {
-    match id.0.as_str() {
-        "weapon.870mcs_upgraded_zm" => &["defaultattachment", "extbarrel", "reflex"],
-        "weapon.ak74u_extclip_upgraded_zm" => &["defaultattachment", "reflex"],
-        "weapon.ak74u_upgraded_zm" => &["defaultattachment", "reflex"],
-        "weapon.ballista_upgraded_zm" => &["defaultattachment", "acog", "is"],
-        "weapon.beretta93r_extclip_upgraded_zm" => &["defaultattachment", "dualclip", "extbarrel"],
-        "weapon.beretta93r_upgraded_zm" => &["defaultattachment", "dualclip", "extbarrel"],
-        "weapon.dsr50_upgraded_zm" => &["defaultattachment", "is", "silencer", "vzoom"],
-        "weapon.evoskorpion_upgraded_zm" => &["defaultattachment", "dualclip", "rangefinder", "reflex"],
-        "weapon.fiveseven_upgraded_zm" => &["defaultattachment", "dualclip", "extbarrel"],
-        "weapon.fnfal_upgraded_zm" => &["defaultattachment", "reflex"],
-        "weapon.galil_upgraded_zm" => &["defaultattachment", "reflex"],
-        "weapon.hamr_upgraded_zm" => &["defaultattachment", "acog", "grip", "reflex"],
-        "weapon.kard_upgraded_zm" => &["defaultattachment", "dualclip", "extbarrel"],
-        "weapon.ksg_upgraded_zm" => &["defaultattachment", "reflex"],
-        "weapon.pdw57_upgraded_zm" => &["defaultattachment", "mms", "rangefinder", "reflex"],
-        "weapon.qcw05_upgraded_zm" => &["defaultattachment", "dualclip", "grip", "reflex", "sf"],
-        "weapon.scar_upgraded_zm" => &["defaultattachment", "acog", "dualclip", "rangefinder", "reflex"],
-        "weapon.srm1216_upgraded_zm" => &["defaultattachment", "extbarrel", "reflex"],
-        "weapon.type95_upgraded_zm" => &["defaultattachment", "gl", "longbreath", "mms", "rangefinder", "reflex"],
-        _ => &[],
+fn attachments(id: &WeaponId) -> (&'static str, &'static [&'static str]) {
+    match id.0.strip_prefix("weapon.").unwrap_or(&id.0) {
+        "ak74u_upgraded_zm" => ("reflex", &[]),
+        "fnfal_upgraded_zm" => ("reflex", &[]),
+        "galil_upgraded_zm" => ("reflex", &[]),
+        "barretm82_upgraded_zm" => ("vzoom", &[]),
+        "judge_upgraded_zm" => ("none", &["extbarrel", "dualclip_judge", "dw"]),
+        "kard_upgraded_zm" => ("none", &["extbarrel", "dualclip"]),
+        "fiveseven_upgraded_zm" => ("none", &["extbarrel", "dualclip"]),
+        "beretta93r_upgraded_zm" => ("none", &["extbarrel", "dualclip"]),
+        "qcw05_upgraded_zm" => ("none", &["reflex", "grip", "dualclip", "sf"]),
+        "870mcs_upgraded_zm" => ("none", &["reflex", "extbarrel"]),
+        "saiga12_upgraded_zm" => ("none", &["reflex", "extbarrel"]),
+        "srm1216_upgraded_zm" => ("none", &["reflex", "extbarrel"]),
+        "saritch_upgraded_zm" => ("dualoptic", &["reflex", "rangefinder", "mms"]),
+        "xm8_upgraded_zm" => ("reflex", &["longbreath", "rangefinder", "gl", "mms"]),
+        "type95_upgraded_zm" => ("reflex", &["longbreath", "rangefinder", "gl", "mms"]),
+        "tar21_upgraded_zm" => ("reflex", &["longbreath", "rangefinder", "gl", "mms"]),
+        "hamr_upgraded_zm" => ("none", &["reflex", "grip", "acog"]),
+        "dsr50_upgraded_zm" => ("vzoom", &["is", "silencer", "vzoom"]),
+        "hk416_upgraded_zm" => ("reflex", &["longbreath", "rangefinder", "mms"]),
+        "lsat_upgraded_zm" => ("rangefinder", &["reflex", "grip", "acog"]),
+        "an94_upgraded_zm" => ("reflex", &["grip", "rangefinder", "mms"]),
+        "pdw57_upgraded_zm" => ("none", &["reflex", "rangefinder", "mms"]),
+        "svu_upgraded_zm" => ("vzoom", &[]),
+        "ballista_upgraded_zm" => ("acog", &["is", "acog"]),
+        "ksg_upgraded_zm" => ("reflex", &[]),
+        "evoskorpion_upgraded_zm" => ("reflex", &["rangefinder", "dualclip", "reflex"]),
+        "scar_upgraded_zm" => ("reflex", &["rangefinder", "dualclip", "acog"]),
+        "ak74u_extclip_upgraded_zm" => ("reflex", &[]),
+        "beretta93r_extclip_upgraded_zm" => ("none", &["extbarrel", "dualclip"]),
+        _ => ("none", &[]),
     }
 }
 pub struct StationPlugin;
@@ -108,19 +119,21 @@ fn setup(mut commands: Commands, mut stations: ResMut<Stations>, mut session: Re
     commands.spawn((Station::PackAPunch, SessionEntity, Transform::from_xyz(-0.1397, 8.5217, 0.2159)));
 }
 fn tick(time: Res<Time<Fixed>>, mut stations: ResMut<Stations>, mut session: ResMut<Session>,
+    generators: Res<crate::generators::Generators>,
     mut ledger: ResMut<PointLedger>, mut digging: ResMut<crate::environment::digging::Digging>) {
     let dt = time.delta_secs();
     for index in 0..6 {
         stations.boxes[index] = match stations.boxes[index].clone() {
-            BoxPhase::Rolling { owner, weapon, mut remaining, teddy, purchase } => {
+            BoxPhase::Rolling { owner, weapon, mut remaining, teddy, normal, purchase } => {
                 remaining -= dt;
-                if remaining > 0. { BoxPhase::Rolling { owner, weapon, remaining, teddy, purchase } }
+                if remaining > 0. { BoxPhase::Rolling { owner, weapon, remaining, teddy, normal, purchase } }
                 else if teddy {
                     if ledger.refund(&mut session.points, purchase) { stations.refunds += 1; }
                     BoxPhase::Relocating { remaining: 7. }
-                } else { BoxPhase::Reward { owner, weapon, remaining: 12. } }
+                } else { BoxPhase::Reward { owner, weapon, remaining: 12., normal } }
             }
-            BoxPhase::Reward { owner, weapon, remaining } if remaining > dt => BoxPhase::Reward { owner, weapon, remaining: remaining - dt },
+            BoxPhase::Reward { owner, weapon, remaining, normal } if remaining > dt => BoxPhase::Reward { owner, weapon, remaining: remaining - dt, normal },
+            BoxPhase::Reward { normal, .. } => { stations.uses += u32::from(normal); BoxPhase::Idle },
             BoxPhase::Relocating { remaining } if remaining > dt => BoxPhase::Relocating { remaining: remaining - dt },
             BoxPhase::Relocating { .. } => {
                 stations.normal_box = (index + 1 + session.random() as usize % 5) % 6;
@@ -132,6 +145,12 @@ fn tick(time: Res<Time<Fixed>>, mut stations: ResMut<Stations>, mut session: Res
             _ => BoxPhase::Idle,
         };
     }
+    if generators.active_count() != 6 {
+        stations.upgrade = UpgradePhase::Idle;
+        stations.attachment = None;
+        stations.deposited = None;
+        return;
+    }
     stations.upgrade = match stations.upgrade.clone() {
         UpgradePhase::Processing { owner, weapon, remaining } if remaining > dt => UpgradePhase::Processing { owner, weapon, remaining: remaining - dt },
         UpgradePhase::Processing { owner, weapon, .. } => UpgradePhase::Ready { owner, weapon, remaining: 15. },
@@ -139,27 +158,40 @@ fn tick(time: Res<Time<Fixed>>, mut stations: ResMut<Stations>, mut session: Res
         _ => UpgradePhase::Idle,
     };
 }
-fn roll(definition: &GameDefinition, inventory: &WeaponInventory, tactical: &crate::equipment::TacticalInventory, session: &mut Session) -> Option<WeaponId> {
-    let candidates: Vec<_> = BOX_WEAPONS.iter().filter_map(|id| {
-        let weapon = definition.content.weapons.iter().find(|w| w.id.0.strip_prefix("weapon.").unwrap_or(&w.id.0) == *id)?;
+fn box_candidates(definition: &GameDefinition, inventory: &WeaponInventory, tactical: &crate::equipment::TacticalInventory, round: u32, beacon_unlocked: bool) -> Vec<(WeaponId, u32)> {
+    let ray_owned = inventory.owned().any(|(_, owned)| owned.definition.0.starts_with("weapon.ray_gun") || owned.definition.0.starts_with("weapon.raygun_mark2"));
+    BOX_WEAPONS.iter().copied().chain(beacon_unlocked.then_some("beacon_zm")).filter_map(|id| {
+        let weapon = definition.content.weapons.iter().find(|w| w.id.0.strip_prefix("weapon.").unwrap_or(&w.id.0) == id)?;
         if inventory.owned().any(|(_, owned)| owned.definition == weapon.id || weapon.upgraded.as_ref() == Some(&owned.definition)) { return None; }
-        let weight = if *id == "cymbal_monkey_zm" {
-            if tactical.0.as_ref().is_some_and(|t| t.definition == weapon.id) { 1 } else if session.round < 10 { 3 } else { 5 }
+        if ray_owned && matches!(id, "ray_gun_zm" | "raygun_mark2_zm") { return None; }
+        let weight = if id == "cymbal_monkey_zm" {
+            if tactical.0.as_ref().is_some_and(|t| t.definition == weapon.id) { 1 } else if round < 10 { 3 } else { 5 }
         } else { 1 };
         Some((weapon.id.clone(), weight))
-    }).collect();
+    }).collect()
+}
+fn roll(candidates: &[(WeaponId, u32)], session: &mut Session) -> Option<WeaponId> {
     let total: u32 = candidates.iter().map(|(_, weight)| weight).sum();
     if total == 0 { return None; }
-    let mut pick = session.random() % total;
-    for (weapon, weight) in candidates {
-        if pick < weight { return Some(weapon); }
-        pick -= weight;
+    loop {
+        let mut pick = session.random() % total;
+        for (weapon, weight) in candidates {
+            if pick < *weight {
+                if weapon.0 == "weapon.raygun_mark2_zm" && session.random() % 100 >= 33 { break; }
+                return Some(weapon.clone());
+            }
+            pick -= weight;
+        }
     }
-    None
+}
+fn can_take(action: WeaponAction) -> bool {
+    matches!(action, WeaponAction::Ready | WeaponAction::Reloading { .. } | WeaponAction::ShellReload { .. })
 }
 pub(crate) fn interact(
     mut commands: Commands,
     input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, definition: Res<GameDefinition>,
+    beacons: Res<crate::tablets::TabletProgress>,
+    reserved: Query<(), With<crate::actions::HandReservation>>,
     effects: Res<crate::powerups::PowerupEffects>, generators: Res<crate::generators::Generators>,
     query: SpatialQuery, targets: Query<(Entity, &Station, &Transform), Without<Player>>,
     mut players: Query<(Entity, &Player, &Transform, &Vitality, &mut WeaponInventory, &mut crate::equipment::TacticalInventory, &crate::equipment::GrenadeInventory, &crate::mines::MineInventory, Has<crate::perks::PerkDrinking>), With<Player>>,
@@ -187,7 +219,9 @@ pub(crate) fn interact(
     focus.progress = 0.;
     focus.hold_seconds = 0.;
     let key = settings.label(crate::input::Action::Interact);
-    let busy = inventory.action != WeaponAction::Ready || tactical.busy() || grenades.busy() || mines.busy() || drinking;
+    let offhand_busy = tactical.busy() || grenades.busy() || mines.busy() || drinking || reserved.contains(player_entity);
+    let busy = inventory.action != WeaponAction::Ready || offhand_busy;
+    let take_busy = !can_take(inventory.action) || offhand_busy;
     let pressed = input.use_held && !stations.latched;
     if pressed { stations.latched = true; }
     match station {
@@ -197,24 +231,25 @@ pub(crate) fn interact(
                 focus.prompt = format!("Press {key} for Mystery Box [Cost: {price}]");
                 if !pressed { return; }
                 if busy { focus.rejection = Some(InteractionRejection::Busy); return; }
-                let Some(weapon) = roll(&definition, &inventory, &tactical, &mut session) else { focus.rejection = Some(InteractionRejection::Unavailable); return; };
+                let candidates = box_candidates(&definition, &inventory, &tactical, session.round, beacons.beacon_unlocked);
+                if candidates.is_empty() { focus.rejection = Some(InteractionRejection::Unavailable); return; }
                 let purchase = ledger.command(price);
                 if let Err(error) = ledger.accept(&mut session.points, purchase, || Ok::<_, InteractionRejection>(())) { focus.rejection = Some(error.into()); return; }
-                stations.uses += 1;
+                let weapon = roll(&candidates, &mut session).expect("nonempty box candidates");
                 let uses = stations.uses;
                 let chance = if uses < 4 { 0 } else if stations.moves == 0 && uses >= 8 { 100 } else if uses < 8 { 15 } else if uses < 13 { 30 } else { 50 };
                 let teddy = !sale && session.random() % 100 < chance;
                 crate::audio::emit(&mut commands, "music_chest", crate::audio::SoundSource::World(Vec3::from_array(BOX_POSITIONS[index])));
-                stations.boxes[index] = BoxPhase::Rolling { owner: player_entity, weapon, remaining: 4., teddy, purchase: purchase.id };
+                stations.boxes[index] = BoxPhase::Rolling { owner: player_entity, weapon, remaining: 4., teddy, normal: !sale, purchase: purchase.id };
                 stations.purchases += 1;
                 focus.accepted += 1;
             }
-            BoxPhase::Reward { owner, weapon, .. } => {
+            BoxPhase::Reward { owner, weapon, normal, .. } => {
                 let Some(d) = definition.content.weapons.iter().find(|d| d.id == weapon) else { return; };
                 focus.prompt = format!("Press {key} to take {}", d.name);
-                if pressed && !busy && owner == player_entity {
+                if pressed && !take_busy && owner == player_entity {
                     let accepted = if d.throwable.is_some() { tactical.receive(d).is_ok() } else { inventory.receive(d).is_ok() };
-                    if accepted { stations.boxes[index] = BoxPhase::Idle; stations.collections += 1; focus.accepted += 1; }
+                    if accepted { stations.uses += u32::from(normal); stations.boxes[index] = BoxPhase::Idle; stations.collections += 1; focus.accepted += 1; }
                     else { focus.rejection = Some(InteractionRejection::Unavailable); }
                 }
             }
@@ -226,20 +261,35 @@ pub(crate) fn interact(
             match stations.upgrade.clone() {
                 UpgradePhase::Idle => {
                     let current = inventory.definition(&definition.content.weapons);
-                    let repeat = current.is_some_and(|d| attachments(&d.id).len() > 1 && d.upgraded.is_none());
+                    let repeat = current.is_some_and(|d| attachments(&d.id).1.len() > 1 && d.upgraded.is_none());
                     let price = if repeat { 2000 } else { 5000 };
                     focus.prompt = format!("Press {key} to Pack-a-Punch [Cost: {price}]");
                     if !pressed { return; }
                     if busy { focus.rejection = Some(InteractionRejection::Busy); return; }
                     let upgraded = current.and_then(|d| if repeat { Some(d.id.clone()) } else { d.upgraded.clone() });
                     let Some(weapon) = upgraded else { focus.rejection = Some(InteractionRejection::Unavailable); return; };
-                    let choices: Vec<_> = attachments(&weapon).iter().copied().filter(|a| !repeat || *a != inventory.attachment()).collect();
-                    let attachment = (!choices.is_empty()).then(|| choices[session.random() as usize % choices.len()].to_owned());
+                    let old_ammo = current.and_then(|d| inventory.ammo_snapshot(d));
+                    let previous = inventory.attachment().to_string();
                     let purchase = ledger.command(price);
-                    let result = ledger.accept(&mut session.points, purchase, || inventory.deposit_active().map_err(|_| InteractionRejection::Busy));
+                    let result = ledger.accept(&mut session.points, purchase, || {
+                        inventory.deposit_active().map_err(|_| InteractionRejection::Busy)
+                    }).map(|_| {
+                        let (default, addons) = attachments(&weapon);
+                        let selected = if repeat {
+                            loop {
+                                let selected = addons[session.random() as usize % addons.len()];
+                                if selected != previous { break selected; }
+                            }
+                        } else { default };
+                        (selected != "none").then(|| selected.to_string())
+                    });
                     match result {
-                        Ok(_) => {
+                        Ok(attachment) => {
                             stations.attachment = attachment;
+                            stations.deposited = if repeat { old_ammo } else { None };
+                            inventory.cancel_action();
+                            let seconds = definition.content.weapons.iter().find(|d| d.id.0 == "weapon.zombie_knuckle_crack").map_or(2.1, |d| d.mechanics.equip_seconds);
+                            commands.entity(player_entity).insert(crate::actions::HandReservation::timed(crate::actions::HandAction::Station, seconds));
                             if inventory.active().is_none() {
                                 if let Some(fists) = definition.content.weapons.iter().find(|d| d.id.0 == "weapon.zombie_fists_zm") { let _ = inventory.grant(fists); }
                             }
@@ -251,8 +301,9 @@ pub(crate) fn interact(
                 UpgradePhase::Ready { owner, weapon, remaining } => {
                     let Some(d) = definition.content.weapons.iter().find(|d| d.id == weapon) else { return; };
                     focus.prompt = format!("Press {key} to collect {} [{remaining:.0}s]", d.name);
-                    if pressed && !busy && owner == player_entity && inventory.receive(d).is_ok() {
-                        inventory.fill_received(d);
+                    if pressed && !take_busy && owner == player_entity && inventory.receive(d).is_ok() {
+                        if let Some(snapshot) = stations.deposited.take() { inventory.restore_received(d, &snapshot); }
+                        else { inventory.fill_received(d); }
                         inventory.set_attachment(&d.id, stations.attachment.take());
                         stations.upgrade = UpgradePhase::Idle;
                         stations.collections += 1;

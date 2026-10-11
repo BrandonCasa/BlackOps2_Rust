@@ -39,7 +39,7 @@ import numpy as np
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 POINTER = b"version https://git-lfs.github.com/spec/v1"
-RUNTIME_SUFFIXES = {".json", ".gltf", ".bin", ".ktx2", ".ogg", ".ttf", ".otf"}
+RUNTIME_SUFFIXES = {".json", ".gltf", ".bin", ".ktx2", ".ogg", ".ttf", ".otf", ".nativefx"}
 
 
 def require(condition, message):
@@ -246,8 +246,14 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
         require(set(metadata) <= {"surface"}, "unsupported material extras")
         if "surface" in metadata:
             surface = metadata["surface"]
-            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation", "presentation", "layers", "effect", "version", "physical_class", "coating_roughness", "provenance", "native_weapon"}, "invalid surface metadata")
+            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation", "presentation", "layers", "effect", "version", "physical_class", "coating_roughness", "provenance", "native_weapon", "frozen_stone"}, "invalid surface metadata")
             require(surface.get("version") == 2, "prepare version-2 PBR materials before runtime import")
+            frozen = surface.get("frozen_stone")
+            if frozen is not None:
+                require(surface["identity"] == "mc/mtl_p6_zm_tm_note_rock_01_anim" and set(frozen) == {"constants", "temporal_source_sha256"}, "invalid frozen stone metadata")
+                require(re.fullmatch(r"[0-9a-f]{64}", frozen["temporal_source_sha256"]) is not None, "invalid temporal source hash")
+                require(isinstance(frozen["constants"], dict) and all(isinstance(name, str) and name and isinstance(values, list) and 1 <= len(values) <= 4 and all(type(value) in (int, float) and math.isfinite(value) for value in values) for name, values in frozen["constants"].items()), "invalid frozen stone constants")
+                require(len([c for c in surface["channels"] if c["role"] == "control" and c["layer"] == 0]) == 1, "missing frozen stone temporal control")
             native = surface.get("native_weapon")
             if native is not None:
                 require({"kind", "family", "constants", "source_zone", "source_sha256", "material_identity", "bindings"} <= set(native), "invalid native weapon metadata")
@@ -318,9 +324,9 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                     require(len(retained) == 1 and retained[0]["uri"] == uri and retained[0]["sha256"] == dds["sha256"] and retained[0]["sampler"] == channel["sampler"], "native KTX2 byte or sampler identity mismatch")
                     continue
                 require(role in {"color", "normal", "response", "control", "emissive", "coating", "reflectance"}, "invalid PBR role")
-                require(channel["channels"] == {"color": "rgb:base_color,a:coverage",
+                require(channel["channels"] == ({"color": "rgb:base_color,a:coverage",
                     "normal": "rg:unit_normal_xy", "response": "r:occlusion,g:perceptual_roughness,b:metallic,a:coating",
-                    "control": "rg:core_coating_weights", "emissive": "rgb:emissive,a:unused", "coating": "r:coating", "reflectance": "rgb:dielectric_reflectance,a:unused"}[role], "invalid PBR channel interpretation")
+                    "control": "rg:core_coating_weights", "emissive": "rgb:emissive,a:unused", "coating": "r:coating", "reflectance": "rgb:dielectric_reflectance,a:unused"}[role] if frozen is None or role != "control" else "r:native_temporal_reveal"), "invalid PBR channel interpretation")
                 require(type(channel["layer"]) is int and 0 <= channel["layer"] <= 31, "invalid PBR layer")
                 require(channel["color_space"] == ("srgb" if role in {"color", "emissive"} else "linear"), "PBR color-space mismatch")
                 uri = channel["uri"]
@@ -658,12 +664,14 @@ def validate_pack(root, receipt=None, exact=False, progress=False):
     require(isinstance(aliases,dict) and len(aliases)<=8192,'invalid audio aliases')
     require(type(audio.get('character',0)) is int and 0<=audio.get('character',0)<4,'invalid voice character')
     for name,a in aliases.items():
-        require(isinstance(name,str) and name and set(a)=={'sounds','spatial','channel','subtitle','limit','priority','seconds','secondary'},'invalid audio alias fields')
+        require(isinstance(name,str) and name and {'sounds','spatial','channel','subtitle','limit','priority','seconds','secondary'} <= set(a) <= {'sounds','spatial','channel','subtitle','limit','priority','seconds','secondary','reverb_send','wet_distance_min','wet_distance_max'},'invalid audio alias fields')
         require(a['secondary'] is None or a['secondary'] in aliases,'missing secondary audio')
         require(a['sounds'] and all(s in sounds_by_id for s in a['sounds']),'missing audio variant')
         require(type(a['spatial']) is bool and a['channel'] in ('effects','music','ambience','dialogue') and isinstance(a['subtitle'],str),'invalid audio routing')
         require(type(a['limit']) is int and 1<=a['limit']<=32 and type(a['priority']) is int and a['priority']>=0,'invalid audio admission')
         require(type(a['seconds']) in (int,float) and math.isfinite(a['seconds']) and a['seconds']>0,'invalid audio duration')
+        require(all(type(a.get(k,0)) in (int,float) and math.isfinite(a.get(k,0)) for k in ('reverb_send','wet_distance_min','wet_distance_max')), 'invalid native reverb metadata')
+        require(0 <= a.get('reverb_send',0) <= 100 and 0 <= a.get('wet_distance_min',0) <= a.get('wet_distance_max',0), 'invalid native reverb range')
     for name in aliases:
         seen=set();current=name
         while current is not None:
@@ -742,6 +750,14 @@ def validate_pack(root, receipt=None, exact=False, progress=False):
     validate_rounds(game.get("rounds"), require)
     validate_player_health(game.get("player_health"), require)
     dependencies = validate_content(game.get("content"), require)
+    fx_path = root / 'effects/native.nativefx'
+    if fx_path.exists():
+        from prepare_native_fx import validate as validate_fx
+        validate_fx(root)
+        native_fx = read_json(fx_path)
+        files.add('effects/native.nativefx')
+        dependencies.extend(native_fx['textures'])
+        dependencies.extend(scene.removeprefix('origins/') for scene in native_fx['models'].values())
     solo = game.get("solo_revive")
     require(isinstance(solo, dict) and set(solo) == {"perk", "seconds", "bleedout_seconds", "bleedout_poll_seconds", "maximum_purchases", "downed_weapon", "reserve_clips", "downed_height", "downed_speed"}, "invalid solo revive profile")
     require(all(type(solo[k]) in (int, float) and math.isfinite(solo[k]) and solo[k] > 0 for k in ("seconds", "bleedout_seconds", "bleedout_poll_seconds", "downed_height", "downed_speed")), "invalid solo revive timing/movement")
@@ -1035,7 +1051,12 @@ def main():
     parser.add_argument("--check-index", action="store_true", help="also verify staged files and LFS objects; implies --check")
     parser.add_argument("--receipt", type=Path, help="optional external validation receipt")
     parser.add_argument("--predecessor-identity", type=Path)
+    parser.add_argument("--validate-pack", type=Path, help="validate an existing runtime closure without copying")
     args = parser.parse_args()
+    if args.validate_pack:
+        _, _, hashes = validate_pack(args.validate_pack, exact=True, progress=True)
+        print(json.dumps({'files':len(hashes),'bytes':sum((args.validate_pack / p).stat().st_size for p in hashes)}))
+        return
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
     source = external(config["game"]["asset_pack"])
     receipt = read_json(source / "preparation.json") if (source / "preparation.json").exists() else None

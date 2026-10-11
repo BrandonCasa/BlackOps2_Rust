@@ -40,12 +40,16 @@ pub struct Zombie {
     pub definition: ContentId,
     pub gait: crate::rounds::Gait,
     pub speed: f32,
+    pub(crate) tank_chasing: bool,
+    pub(crate) tank_animation: Option<String>,
+    burning: bool,
     velocity: Vec3,
     navigation: f32,
     destination: Vec3,
     pub action: EnemyAnimation,
     pub elapsed: f32,
     pub stunned: f32,
+    crawler: bool,
     pub(crate) known_damage: bool,
     locomotion_seed: u32,
     next_hit: usize,
@@ -71,12 +75,16 @@ impl Zombie {
             definition,
             gait,
             speed,
+            tank_chasing: false,
+            tank_animation: None,
+            burning: false,
             velocity: Vec3::ZERO,
             navigation: 0.,
             destination: position,
             action: EnemyAnimation::Idle,
             elapsed: 0.,
             stunned: 0.,
+            crawler: false,
             known_damage: false,
             locomotion_seed: position
                 .x
@@ -95,6 +103,18 @@ impl Zombie {
             tear: None,
         }
     }
+    pub fn completed_emerging(&self) -> bool {
+        self.traversal.is_none()
+            && self.tear.is_none()
+            && !matches!(
+                self.action,
+                EnemyAnimation::Traverse | EnemyAnimation::Landing
+            )
+    }
+    pub fn knockdown(&mut self, seconds: f32) {
+        self.stunned = self.stunned.max(seconds);
+        self.transition(EnemyAnimation::Idle);
+    }
     pub fn with_locomotion_seed(mut self, seed: u32) -> Self {
         self.set_locomotion_seed(seed);
         self
@@ -103,7 +123,20 @@ impl Zombie {
         self.locomotion_seed = seed;
     }
     pub(crate) fn locomotion_clip<'a>(&self, enemy: &'a EnemyDefinition) -> Option<&'a str> {
-        let state = EnemyLocomotion::for_action(self.action)?;
+        let state = if self.burning {
+            EnemyLocomotion::Burned
+        } else if self.tank_chasing {
+            EnemyLocomotion::SuperSprint
+        } else if self.crawler {
+            match self.action {
+                EnemyAnimation::Walk => EnemyLocomotion::WalkCrawl,
+                EnemyAnimation::Run => EnemyLocomotion::RunCrawl,
+                EnemyAnimation::Sprint => EnemyLocomotion::SprintCrawl,
+                _ => EnemyLocomotion::for_action(self.action)?,
+            }
+        } else {
+            EnemyLocomotion::for_action(self.action)?
+        };
         let clips = enemy.locomotion_states.get(&state)?;
         if clips.is_empty() {
             return None;
@@ -148,7 +181,10 @@ impl Zombie {
             .wrapping_add(self.animation_sequence.wrapping_mul(1664525));
         self.combat = Some((state, seed as usize % clips.len()));
     }
-    fn combat_clip<'a>(&self, enemy: &'a EnemyDefinition) -> Option<&'a EnemyCombatClip> {
+    pub(crate) fn combat_clip<'a>(
+        &self,
+        enemy: &'a EnemyDefinition,
+    ) -> Option<&'a EnemyCombatClip> {
         let (state, index) = self.combat?;
         enemy.combat_states.get(&state)?.get(index)
     }
@@ -212,11 +248,12 @@ pub struct EnemyEvidence {
     pub adjusted_landings: u32,
 }
 #[derive(Component)]
-struct ActorRig {
+pub(crate) struct ActorRig {
     presentation: ContentId,
     owner: Entity,
     source: Handle<Gltf>,
     socket: Option<String>,
+    socket_entity: Option<Entity>,
     partial_root: Option<String>,
     ready: bool,
     attached: bool,
@@ -225,6 +262,13 @@ struct ActorRig {
     action: Option<EnemyAnimation>,
     clip: Option<String>,
     sequence: Option<u64>,
+}
+impl ActorRig {
+    pub(crate) fn socket(&self, owner: Entity, name: &str) -> Option<Entity> {
+        (self.owner == owner && self.socket.is_none())
+            .then(|| self.sockets.get(name).copied())
+            .flatten()
+    }
 }
 #[derive(Component)]
 struct PartialRoot;
@@ -246,6 +290,12 @@ impl Plugin for EnemyPlugin {
         app.init_resource::<EnemyEvidence>()
             .add_systems(
                 FixedUpdate,
+                clone_animation
+                    .in_set(GameStep::Zombies)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
                 lifecycle
                     .in_set(GameStep::EnemyIntent)
                     .run_if(in_state(GameState::Playing)),
@@ -261,8 +311,8 @@ impl Plugin for EnemyPlugin {
                 Update,
                 (
                     spawn_actors,
-                    wounds_visibility,
                     attach_parts,
+                    wounds_visibility,
                     admit_ready,
                     animate.in_set(EnemyAnimationPlayback),
                 )
@@ -270,7 +320,8 @@ impl Plugin for EnemyPlugin {
             )
             .add_systems(
                 PostUpdate,
-                partial_roots
+                (partial_roots, wounded_joints, follow_sockets)
+                    .chain()
                     .after(bevy::app::AnimationSystems)
                     .before(bevy::transform::TransformSystems::Propagate),
             )
@@ -283,6 +334,104 @@ impl Plugin for EnemyPlugin {
                     .before(VisibilitySystems::CheckVisibility),
             )
             .add_observer(ready);
+    }
+}
+#[derive(Component)]
+struct VisualClone {
+    elapsed: f32,
+}
+pub(crate) fn spawn_visual_clone(
+    commands: &mut Commands,
+    server: &AssetServer,
+    game: &GameDefinition,
+    definition: &ContentId,
+    pose: Transform,
+    clip: &str,
+) -> Option<Entity> {
+    let enemy = game.content.enemies.iter().find(|e| e.id == *definition)?;
+    let owner = commands
+        .spawn((
+            VisualClone { elapsed: 0. },
+            crate::gameplay::SessionEntity,
+            pose,
+            Visibility::Inherited,
+        ))
+        .id();
+    for (id, socket, partial_root) in
+        enemy
+            .presentation
+            .iter()
+            .map(|id| (id, None, None))
+            .chain(enemy.parts.iter().map(|p| {
+                (
+                    &p.presentation,
+                    Some(p.socket.clone()),
+                    p.root_joint.clone(),
+                )
+            }))
+    {
+        let Some(scene) = game
+            .content
+            .presentations
+            .iter()
+            .find(|p| p.id == *id)
+            .and_then(|p| p.scene.as_ref())
+        else {
+            continue;
+        };
+        let source: Handle<Gltf> = server.load(scene.split('#').next().unwrap_or(scene).to_owned());
+        let body = socket.is_none();
+        commands.spawn((
+            ChildOf(owner),
+            WorldAssetRoot(server.load(scene.to_owned())),
+            ActorRig {
+                presentation: id.clone(),
+                owner,
+                source: source.clone(),
+                socket,
+                socket_entity: None,
+                partial_root,
+                ready: false,
+                attached: body,
+                players: Vec::new(),
+                sockets: HashMap::new(),
+                action: None,
+                clip: None,
+                sequence: None,
+            },
+            if body {
+                Transform::from_xyz(0., -0.85, 0.)
+            } else {
+                Transform::IDENTITY
+            },
+            if body {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            },
+            crate::animation::NativeAnimation {
+                source,
+                clip: clip.into(),
+                seconds: 0.,
+                looping: false,
+                restart: 0,
+            },
+        ));
+    }
+    Some(owner)
+}
+fn clone_animation(
+    time: Res<Time<Fixed>>,
+    mut clones: Query<&mut VisualClone>,
+    mut rigs: Query<(&ActorRig, &mut crate::animation::NativeAnimation)>,
+) {
+    for mut clone in &mut clones {
+        clone.elapsed += time.delta_secs();
+    }
+    for (rig, mut animation) in &mut rigs {
+        if let Ok(clone) = clones.get(rig.owner) {
+            animation.seconds = clone.elapsed;
+        }
     }
 }
 pub(crate) fn lifecycle(
@@ -304,7 +453,11 @@ pub(crate) fn lifecycle(
             Has<ActorReady>,
             &crate::combat_effects::Wounds,
         ),
-        Without<Player>,
+        (
+            Without<Player>,
+            Without<crate::panzer::Panzer>,
+            Without<crate::tank::TankMotion>,
+        ),
     >,
     slide: MoveAndSlide,
     query: SpatialQuery,
@@ -337,6 +490,19 @@ pub(crate) fn lifecycle(
         if !ready {
             continue;
         }
+        let crawler_shape = if wounds.crawler && !zombie.crawler {
+            zombie.crawler = true;
+            transform.translation.y -= 0.5;
+            let shape = Collider::capsule(0.3, 0.1);
+            commands.entity(entity).insert(shape.clone());
+            zombie.transition(EnemyAnimation::Idle);
+            Some(shape)
+        } else {
+            None
+        };
+        let shape = crawler_shape.as_ref().unwrap_or(shape);
+        zombie.burning = wounds.burning > 0.;
+        let half_height = if zombie.crawler { 0.35 } else { 0.85 };
         if zombie.stunned > 0. {
             zombie.stunned = (zombie.stunned - dt).max(0.);
             if zombie.traversal.is_none() && zombie.tear.is_none() {
@@ -348,7 +514,7 @@ pub(crate) fn lifecycle(
         if zombie.elapsed == 0. && zombie.traversal.as_ref().is_some_and(|m| m.alias == "rise") {
             evidence.traversals_started += 1;
         }
-        zombie.elapsed += dt;
+        zombie.elapsed += dt * wounds.movement_scale();
         if let Some(tear) = zombie.tear.as_ref() {
             let Some(window) = definition
                 .content
@@ -382,7 +548,7 @@ pub(crate) fn lifecycle(
                     }
                 }
                 transform.translation = Vec3::from_array(placement.position)
-                    + Vec3::Y * 0.85
+                    + Vec3::Y * half_height
                     + Quat::from_rotation_y(placement.yaw)
                         * Vec3::new(sample[1], sample[2], sample[3]);
             }
@@ -441,6 +607,7 @@ pub(crate) fn lifecycle(
                         &query,
                         shape,
                         motion.end,
+                        half_height,
                         &filter,
                         &crate::environment::solids([entity, player_entity]),
                         &navigation,
@@ -485,7 +652,10 @@ pub(crate) fn lifecycle(
             zombie.navigation = 0.;
             zombie.transition(EnemyAnimation::Idle);
         }
-        let goal = lure.is_none().then(|| goals.get(entity).ok().map(|(goal, _)| goal)).flatten();
+        let goal = lure
+            .is_none()
+            .then(|| goals.get(entity).ok().map(|(goal, _)| goal))
+            .flatten();
         let ignored = lure.is_none()
             && goal.is_none()
             && (health.state() != LifeState::Standing || effects.zombie_blood > 0.);
@@ -500,8 +670,12 @@ pub(crate) fn lifecycle(
                 |l| l.position,
             )
         };
-        let shield_target = goals.get(entity).ok().and_then(|(_, shield)| shield.map(|s| s.0));
-        let filter = crate::environment::solids([entity, player_entity].into_iter().chain(shield_target));
+        let shield_target = goals
+            .get(entity)
+            .ok()
+            .and_then(|(_, shield)| shield.map(|s| s.0));
+        let filter =
+            crate::environment::solids([entity, player_entity].into_iter().chain(shield_target));
         let visible = |from: Vec3, to: Vec3| {
             let delta = to - from;
             Dir3::new(delta).ok().is_some_and(|d| {
@@ -511,20 +685,30 @@ pub(crate) fn lifecycle(
             })
         };
         let distance = transform.translation.distance(target);
-        if zombie.action == EnemyAnimation::Attack && (ignored || lure.is_some()
-            || distance > goal.map_or(1.65, |g| g.radius) + 0.3
-            || !visible(transform.translation, target))
+        if zombie.action == EnemyAnimation::Attack
+            && (wounds.melee_disabled()
+                || ignored
+                || lure.is_some()
+                || distance > goal.map_or(1.65, |g| g.radius) + 0.3
+                || !visible(transform.translation, target))
         {
             zombie.transition(EnemyAnimation::Idle);
         }
         if lure.is_none()
+            && !wounds.melee_disabled()
             && !ignored
             && zombie.action != EnemyAnimation::Attack
             && distance < goal.map_or(1.65, |g| g.radius)
             && visible(transform.translation, target)
         {
             zombie.transition(EnemyAnimation::Attack);
-            let state = if goal.is_some() {
+            let state = if shield_target.is_some() {
+                if zombie.crawler {
+                    EnemyCombat::ShieldMeleeCrawl
+                } else {
+                    EnemyCombat::ShieldMelee
+                }
+            } else if goal.is_some() {
                 EnemyCombat::GeneratorMelee
             } else if zombie.gait == crate::rounds::Gait::Walk {
                 EnemyCombat::WalkMelee
@@ -536,16 +720,14 @@ pub(crate) fn lifecycle(
         }
         if zombie.action == EnemyAnimation::Attack {
             let clip = zombie.combat_clip(enemy);
-            let hits = clip.map_or(enemy.attack_hits.as_slice(), |c| c.hits.as_slice());
+            let hits: &[f32] = if shield_target.is_some() {
+                &[]
+            } else {
+                clip.map_or(enemy.attack_hits.as_slice(), |c| c.hits.as_slice())
+            };
             let seconds = clip.map_or(enemy.attack_seconds, |c| c.seconds);
             while zombie.next_hit < hits.len() && zombie.elapsed >= hits[zombie.next_hit] {
                 zombie.next_hit += 1;
-                if let Some(shield) = shield_target.filter(|_| distance < 1.8) {
-                    impacts.0.push(crate::damage::Impact { attacker: entity, target: shield,
-                        source: crate::damage::ImpactSource::Enemy(zombie.definition.clone()),
-                        category: crate::origins::content::DamageCategory::Melee,
-                        region: crate::weapons::HitRegion::Torso, amount: enemy.damage });
-                }
                 if goal.is_none()
                     && !ignored
                     && distance < 1.5
@@ -563,10 +745,20 @@ pub(crate) fn lifecycle(
                 }
             }
             if zombie.elapsed >= seconds {
+                if let Some(shield) = shield_target.filter(|_| distance < 1.8) {
+                    impacts.0.push(crate::damage::Impact {
+                        attacker: entity,
+                        target: shield,
+                        source: crate::damage::ImpactSource::Enemy(zombie.definition.clone()),
+                        category: crate::origins::content::DamageCategory::Melee,
+                        region: crate::weapons::HitRegion::Torso,
+                        amount: 100,
+                    });
+                }
                 zombie.transition(EnemyAnimation::Idle);
             }
         }
-        let feet = transform.translation - Vec3::Y * 0.85;
+        let feet = transform.translation - Vec3::Y * half_height;
         if zombie.route_revision != navigation.revision
             || target.distance_squared(zombie.last_target) > 0.5625
         {
@@ -592,10 +784,12 @@ pub(crate) fn lifecycle(
                 evidence.direct_pursuits += 1;
                 target
             } else {
-                navigation.destination(feet, target - Vec3::Y * 0.9, &access) + Vec3::Y * 0.85
+                navigation.destination(feet, target - Vec3::Y * 0.9, &access)
+                    + Vec3::Y * half_height
             };
         }
-        if let Some(step) = navigation.traversal(feet, zombie.destination - Vec3::Y * 0.85, &access)
+        if let Some(step) =
+            navigation.traversal(feet, zombie.destination - Vec3::Y * half_height, &access)
         {
             let crate::navigation::TraversalStep {
                 start,
@@ -635,7 +829,7 @@ pub(crate) fn lifecycle(
                         {
                             let sample = window.boards[board].grab_motion[0];
                             transform.translation = Vec3::from_array(placement.position)
-                                + Vec3::Y * 0.85
+                                + Vec3::Y * half_height
                                 + Quat::from_rotation_y(placement.yaw)
                                     * Vec3::new(sample[1], sample[2], sample[3]);
                             transform.rotation = Quat::from_rotation_y(placement.yaw);
@@ -650,8 +844,8 @@ pub(crate) fn lifecycle(
             if let Some(profile) = enemy.traversals.get(&alias) {
                 let rotation = Quat::from_rotation_y(yaw);
                 zombie.traversal = Some(TraversalMotion {
-                    start: start + Vec3::Y * 0.85,
-                    end: end + Vec3::Y * 0.85,
+                    start: start + Vec3::Y * half_height,
+                    end: end + Vec3::Y * half_height,
                     alias,
                     rotation,
                 });
@@ -669,8 +863,29 @@ pub(crate) fn lifecycle(
         let moving = !ignored
             && zombie.action != EnemyAnimation::Attack
             && !(lure.is_some() && distance < 0.4);
-        zombie.velocity.x = direction.x * zombie.speed * if wounds.crawler { 0.2 } else { 1. } * f32::from(moving);
-        zombie.velocity.z = direction.z * zombie.speed * if wounds.crawler { 0.2 } else { 1. } * f32::from(moving);
+        let speed = if zombie.tank_chasing {
+            enemy
+                .traversals
+                .get("tank_super_sprint")
+                .and_then(|p| {
+                    p.motion
+                        .last()
+                        .map(|m| Vec3::new(m[1], m[2], m[3]).length() / p.seconds)
+                })
+                .unwrap_or(zombie.speed)
+        } else {
+            zombie.speed
+        };
+        zombie.velocity.x = direction.x
+            * speed
+            * if wounds.crawler { 0.2 } else { 1. }
+            * wounds.movement_scale()
+            * f32::from(moving);
+        zombie.velocity.z = direction.z
+            * speed
+            * if wounds.crawler { 0.2 } else { 1. }
+            * wounds.movement_scale()
+            * f32::from(moving);
         if moving {
             let mut separate = Vec3::ZERO;
             for (other, point) in &positions {
@@ -726,15 +941,17 @@ pub(crate) fn lifecycle(
                 zombie.destination = navigation.alternate(
                     feet,
                     target - Vec3::Y * 0.9,
-                    zombie.destination - Vec3::Y * 0.85,
+                    zombie.destination - Vec3::Y * half_height,
                     &access,
-                ) + Vec3::Y * 0.85;
+                ) + Vec3::Y * half_height;
                 zombie.navigation = 0.5;
                 zombie.stuck = 0.;
                 evidence.stuck_recoveries += 1;
             }
             let action = if speed < 0.05 {
                 EnemyAnimation::Idle
+            } else if zombie.tank_chasing {
+                EnemyAnimation::Sprint
             } else {
                 match zombie.gait {
                     crate::rounds::Gait::Walk => EnemyAnimation::Walk,
@@ -750,6 +967,7 @@ fn nearby_landing(
     query: &SpatialQuery,
     shape: &Collider,
     end: Vec3,
+    half_height: f32,
     filter: &SpatialQueryFilter,
     route_filter: &SpatialQueryFilter,
     navigation: &Navigation,
@@ -776,8 +994,8 @@ fn nearby_landing(
                 let candidate = base + Vec3::Y * (lift as f32 * 0.05);
                 if occupied(candidate)
                     || !navigation.direct_allowed(
-                        end - Vec3::Y * 0.85,
-                        candidate - Vec3::Y * 0.85,
+                        end - Vec3::Y * half_height,
+                        candidate - Vec3::Y * half_height,
                         access,
                     )
                     || !query
@@ -815,10 +1033,20 @@ fn corpses(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
-    mut enemies: Query<(Entity, &mut Zombie, &Vitality)>,
+    mut enemies: Query<
+        (
+            Entity,
+            &mut Zombie,
+            &Vitality,
+            &crate::combat_effects::Wounds,
+            &Transform,
+            &mut Visibility,
+        ),
+        Without<crate::panzer::Panzer>,
+    >,
     mut evidence: ResMut<EnemyEvidence>,
 ) {
-    for (entity, mut zombie, vitality) in &mut enemies {
+    for (entity, mut zombie, vitality, wounds, pose, mut visibility) in &mut enemies {
         if vitality.state() != LifeState::ActorDead {
             continue;
         }
@@ -832,8 +1060,31 @@ fn corpses(
         };
         if zombie.action != EnemyAnimation::Death {
             zombie.transition(EnemyAnimation::Death);
-            zombie.start_combat(enemy, EnemyCombat::Death);
+            zombie.start_combat(
+                enemy,
+                if wounds.burned && !wounds.crawler {
+                    EnemyCombat::FireDeath
+                } else {
+                    EnemyCombat::Death
+                },
+            );
             commands.entity(entity).insert(ColliderDisabled);
+            if wounds.shattered || wounds.disintegrated {
+                *visibility = Visibility::Hidden;
+                if wounds.shattered {
+                    crate::native_fx::emit(
+                        &mut commands,
+                        "weapon/zmb_staff/fx_zmb_staff_ice_exp",
+                        Transform::from_translation(pose.translation),
+                    );
+                    crate::audio::binding(
+                        &mut commands,
+                        &definition,
+                        "weapon.staff_water_upgraded_zm.impact",
+                        crate::audio::SoundSource::World(pose.translation),
+                    );
+                }
+            }
             evidence.deaths += 1;
         }
         zombie.elapsed += time.delta_secs();
@@ -897,6 +1148,7 @@ fn spawn_actors(
                     owner,
                     source,
                     socket,
+                    socket_entity: None,
                     partial_root,
                     ready: false,
                     attached: body,
@@ -907,7 +1159,15 @@ fn spawn_actors(
                     sequence: None,
                 },
                 if body {
-                    Transform::from_xyz(0., -0.85, 0.)
+                    Transform::from_xyz(
+                        0.,
+                        if zombie.definition.0 == "enemy.panzer" {
+                            -1.2
+                        } else {
+                            -0.85
+                        },
+                        0.,
+                    )
                 } else {
                     Transform::default()
                 },
@@ -945,6 +1205,16 @@ fn ready(
         return;
     };
     rig.ready = true;
+    rig.attached = rig.socket.is_none();
+    rig.socket_entity = None;
+    rig.players.clear();
+    rig.sockets.clear();
+    rig.action = None;
+    rig.clip = None;
+    rig.sequence = None;
+    let owner = rig.owner;
+    let body = rig.socket.is_none();
+    commands.entity(owner).remove::<ActorReady>();
     if let Ok(zombie) = enemies.get(rig.owner)
         && let Some(enemy) = definition
             .content
@@ -968,7 +1238,15 @@ fn ready(
             .filter_map(|r| {
                 Some(crate::hit_regions::HitBinding {
                     id: r.id.clone(),
-                    region: r.region,
+                    region: if r.region == crate::weapons::HitRegion::Arm {
+                        if r.id.ends_with("_le") {
+                            crate::weapons::HitRegion::LeftArm
+                        } else {
+                            crate::weapons::HitRegion::RightArm
+                        }
+                    } else {
+                        r.region
+                    },
                     start: *bones.get(&r.start)?,
                     end: *bones.get(&r.end)?,
                     radius: r.radius,
@@ -1004,6 +1282,15 @@ fn ready(
             commands.entity(child).insert(PartialRoot);
         }
     }
+    drop(rig);
+    if body {
+        for mut part in &mut rigs {
+            if part.owner == owner && part.socket.is_some() {
+                part.attached = false;
+                part.socket_entity = None;
+            }
+        }
+    }
 }
 fn attach_parts(
     mut commands: Commands,
@@ -1028,11 +1315,10 @@ fn attach_parts(
         let Ok((_, mut rig)) = rigs.get_mut(entity) else {
             continue;
         };
-        commands.entity(entity).insert((
-            ChildOf(parent),
-            Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
-            Visibility::Inherited,
-        ));
+        commands
+            .entity(entity)
+            .insert((ChildOf(rig.owner), Visibility::Inherited));
+        rig.socket_entity = Some(parent);
         rig.attached = true;
         evidence.attached_heads += 1;
     }
@@ -1047,7 +1333,10 @@ fn admit_ready(
         let mut parts = rigs.iter().filter(|r| r.owner == owner).peekable();
         if parts.peek().is_some()
             && parts.all(|r| {
-                r.ready && r.attached && !r.players.is_empty() && cache.contains_scene(&r.source)
+                r.ready
+                    && r.attached
+                    && (r.socket.is_some() && r.players.is_empty()
+                        || !r.players.is_empty() && cache.contains_scene(&r.source))
             })
         {
             commands.entity(owner).insert(ActorReady);
@@ -1058,6 +1347,7 @@ fn animate(
     mut commands: Commands,
     definition: Option<Res<GameDefinition>>,
     enemies: Query<&Zombie>,
+    panzers: Query<&crate::panzer::Panzer>,
     mut cache: ResMut<AnimationGraphs>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     gltfs: Res<Assets<Gltf>>,
@@ -1086,7 +1376,12 @@ fn animate(
         let Some(bindings) = cache.scene(&rig.source, &gltfs, &mut graphs) else {
             continue;
         };
-        let name = if matches!(
+        let panzer = panzers.get(rig.owner).ok();
+        let name = if let Some(panzer) = panzer {
+            Some(panzer.animation().0)
+        } else if zombie.tank_animation.is_some() {
+            zombie.tank_animation.as_deref()
+        } else if matches!(
             zombie.action,
             EnemyAnimation::Traverse | EnemyAnimation::Tear
         ) {
@@ -1123,17 +1418,23 @@ fn animate(
         else {
             continue;
         };
-        let looping = matches!(
-            zombie.action,
-            EnemyAnimation::Idle
-                | EnemyAnimation::Walk
-                | EnemyAnimation::Run
-                | EnemyAnimation::Sprint
+        let looping = panzer.map_or_else(
+            || {
+                matches!(
+                    zombie.action,
+                    EnemyAnimation::Idle
+                        | EnemyAnimation::Walk
+                        | EnemyAnimation::Run
+                        | EnemyAnimation::Sprint
+                )
+            },
+            |p| p.animation().1,
         );
+        let elapsed = panzer.map_or(zombie.elapsed, |p| p.animation_elapsed);
         let seek = if looping {
-            zombie.elapsed.rem_euclid(duration)
+            elapsed.rem_euclid(duration)
         } else {
-            zombie.elapsed.min(duration)
+            elapsed.min(duration)
         };
         let mut playback = AnimationPlayback::new(
             bindings.graph.clone(),
@@ -1233,6 +1534,43 @@ fn partial_roots(mut roots: Query<&mut Transform, With<PartialRoot>>) {
         }
     }
 }
+fn follow_sockets(
+    mut poses: ParamSet<(
+        Query<(&Transform, Option<&ChildOf>)>,
+        Query<(Entity, &ActorRig, &mut Transform)>,
+    )>,
+) {
+    let attachments: Vec<_> = poses
+        .p1()
+        .iter()
+        .filter(|(_, rig, _)| rig.ready && rig.attached)
+        .filter_map(|(entity, rig, _)| Some((entity, rig.socket_entity?, rig.owner)))
+        .collect();
+    let transforms = poses.p0();
+    let followed: Vec<_> = attachments
+        .into_iter()
+        .filter_map(|(entity, socket, owner)| {
+            let mut cursor = socket;
+            let mut local = Mat4::IDENTITY;
+            while cursor != owner {
+                let Ok((pose, Some(parent))) = transforms.get(cursor) else {
+                    return None;
+                };
+                local = pose.to_matrix() * local;
+                cursor = parent.parent();
+            }
+            Some((
+                entity,
+                Transform::from_matrix(local * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+            ))
+        })
+        .collect();
+    for (entity, followed) in followed {
+        if let Ok((_, _, mut pose)) = poses.p1().get_mut(entity) {
+            pose.set_if_neq(followed);
+        }
+    }
+}
 fn animated_bounds(
     mut meshes: Query<(
         &ActorMesh,
@@ -1325,13 +1663,16 @@ fn replace_distant(
     time: Res<Time<Fixed>>,
     mut clock: Local<DistanceClock>,
     mut hits: MessageReader<crate::damage::DamageApplied>,
-    mut enemies: Query<(
-        Entity,
-        &mut Zombie,
-        &Transform,
-        &Vitality,
-        &crate::rounds::PopulationKind,
-    )>,
+    mut enemies: Query<
+        (
+            Entity,
+            &mut Zombie,
+            &Transform,
+            &Vitality,
+            &crate::rounds::PopulationKind,
+        ),
+        Without<crate::panzer::Panzer>,
+    >,
     players: Query<(Entity, &Player, &Transform), Without<Zombie>>,
     query: SpatialQuery,
     volumes: Query<&crate::environment::hazards::BoundaryVolume>,
@@ -1415,11 +1756,67 @@ fn replace_distant(
     }
 }
 
-fn wounds_visibility(mut rigs: Query<(&ActorRig, &mut Visibility)>, mut actors: Query<(&crate::combat_effects::Wounds, &mut crate::hit_regions::Hitboxes)>) {
-    for (wounds, mut hitboxes) in &mut actors {
-        if wounds.headless && !hitboxes.disabled.contains(&crate::weapons::HitRegion::Head) { hitboxes.disabled.push(crate::weapons::HitRegion::Head); }
+fn wounds_visibility(
+    mut rigs: Query<(&ActorRig, &mut Visibility, &mut Transform)>,
+    mut actors: Query<(
+        &crate::combat_effects::Wounds,
+        Option<&mut crate::hit_regions::Hitboxes>,
+        Option<&crate::combat_effects::Armor>,
+    )>,
+) {
+    for (wounds, hitboxes, _) in &mut actors {
+        let Some(mut hitboxes) = hitboxes else {
+            continue;
+        };
+        for (disabled, region) in [
+            (wounds.headless, crate::weapons::HitRegion::Head),
+            (wounds.crawler, crate::weapons::HitRegion::Leg),
+            (wounds.left_arm, crate::weapons::HitRegion::LeftArm),
+            (wounds.right_arm, crate::weapons::HitRegion::RightArm),
+        ] {
+            if disabled && !hitboxes.disabled.contains(&region) {
+                hitboxes.disabled.push(region);
+            }
+        }
     }
-    for (rig, mut visibility) in &mut rigs {
-        if rig.socket.as_ref().is_some_and(|s| s.contains("head") || s.contains("neck")) && actors.get(rig.owner).is_ok_and(|(wounds, _)| wounds.headless) { *visibility = Visibility::Hidden; }
+    for (rig, mut visibility, mut pose) in &mut rigs {
+        if let Ok((wounds, _, armor)) = actors.get(rig.owner) {
+            if armor.is_some_and(|a| {
+                (a.broken && rig.socket.as_deref() == Some("j_helmet"))
+                    || (a.powerplant_cover == 0 && rig.socket.as_deref() == Some("tag_powersupply"))
+            }) {
+                *visibility = Visibility::Hidden;
+            }
+            if wounds.headless && rig.presentation.0.to_lowercase().contains("head") {
+                *visibility = Visibility::Hidden;
+            }
+            if wounds.crawler && rig.socket.is_none() {
+                pose.translation.y = -0.35;
+            }
+        }
+    }
+}
+fn wounded_joints(
+    rigs: Query<&ActorRig>,
+    actors: Query<&crate::combat_effects::Wounds>,
+    mut joints: Query<&mut Transform>,
+) {
+    for rig in &rigs {
+        let Ok(wounds) = actors.get(rig.owner) else {
+            continue;
+        };
+        for (lost, name) in [
+            (wounds.left_arm, "j_shoulder_le"),
+            (wounds.right_arm, "j_shoulder_ri"),
+            (wounds.crawler, "j_hip_le"),
+            (wounds.crawler, "j_hip_ri"),
+        ] {
+            if lost
+                && let Some(entity) = rig.sockets.get(name)
+                && let Ok(mut pose) = joints.get_mut(*entity)
+            {
+                pose.scale = Vec3::ZERO;
+            }
+        }
     }
 }

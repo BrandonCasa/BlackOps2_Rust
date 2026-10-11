@@ -1,6 +1,13 @@
 use bevy::prelude::*;
 use std::collections::BTreeMap;
 
+pub(crate) fn source_shuffle<T>(items: &mut [T], session: &mut crate::gameplay::Session) {
+    for index in 0..items.len() {
+        let other = session.random() as usize % items.len();
+        items.swap(index, other);
+    }
+}
+
 pub(crate) fn record_downs(
     mut downs: MessageReader<crate::solo_revive::PlayerDowned>,
     mut deaths: MessageReader<crate::player_health::PlayerDeath>,

@@ -116,11 +116,27 @@ pub struct WeaponDefinition {
     #[serde(default)]
     pub mechanics: WeaponMechanics,
     #[serde(default)]
+    pub attachments: BTreeMap<String, AttachmentDefinition>,
+    #[serde(default)]
     pub throwable: Option<crate::equipment::ThrowableDefinition>,
     #[serde(default)]
     pub mine: Option<crate::mines::MineDefinition>,
     #[serde(default)]
     pub lure: Option<crate::lures::LureDefinition>,
+}
+
+#[derive(Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AttachmentDefinition {
+    pub alternate: Option<WeaponId>,
+    pub ads_fov: Vec<f32>,
+    pub ads_sight: Option<AdsSight>,
+    pub ads_presentation: Option<ContentId>,
+    pub presentation: Option<ContentId>,
+    pub offset: [f32; 3],
+    pub rotation: [f32; 3],
+    pub hide_tags: Vec<String>,
+    pub ads_zoom_fraction: Option<[f32; 2]>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -189,6 +205,13 @@ pub struct WeaponMechanics {
     pub recoil_pitch: [f32; 2],
     pub recoil_yaw: [f32; 2],
     pub recoil_recovery: f32,
+    pub ads_recoil_recovery: Option<f32>,
+    pub alternate: Option<WeaponId>,
+    pub player_damage: [u32; 2],
+    pub projectile_trail: Option<String>,
+    pub projectile_loop: Option<String>,
+    pub projectile_effect: Option<String>,
+    pub weapon_class: Option<String>,
     pub spread: [f32; 4],
     pub ads_fov: f32,
     pub ads_seconds: [f32; 2],
@@ -211,6 +234,8 @@ pub struct WeaponMechanics {
     pub unequip_seconds: f32,
     pub dual_wield: bool,
     pub projectile_speed: f32,
+    pub projectile_up_speed: f32,
+    pub projectile_bounce: bool,
     pub projectile_lifetime: f32,
     pub explosion_radius: f32,
     pub explosion_damage: [u32; 2],
@@ -231,6 +256,13 @@ impl Default for WeaponMechanics {
             recoil_pitch: [0.2, 0.4],
             recoil_yaw: [-0.1, 0.1],
             recoil_recovery: 8.,
+            ads_recoil_recovery: None,
+            alternate: None,
+            player_damage: [0, 0],
+            projectile_trail: None,
+            projectile_loop: None,
+            projectile_effect: None,
+            weapon_class: None,
             spread: [3., 2., 1., 0.],
             ads_fov: 50.,
             ads_seconds: [0.2, 0.2],
@@ -253,6 +285,8 @@ impl Default for WeaponMechanics {
             unequip_seconds: 0.3,
             dual_wield: false,
             projectile_speed: 30.,
+            projectile_up_speed: 0.,
+            projectile_bounce: false,
             projectile_lifetime: 10.,
             explosion_radius: 0.,
             explosion_damage: [0, 0],
@@ -380,6 +414,9 @@ pub enum EnemyCombat {
     RunMelee,
     GeneratorMelee,
     Death,
+    FireDeath,
+    ShieldMelee,
+    ShieldMeleeCrawl,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -391,6 +428,7 @@ pub struct EnemyCombatClip {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EnemyLocomotion {
+    Burned,
     Walk,
     WalkCrawl,
     Run,
@@ -1242,7 +1280,9 @@ impl ContentCatalog {
             )?;
         }
         for v in &self.interactions {
-            if let Some(generator) = &v.generator { r(&v.id.0, &generator.0, "generator")?; }
+            if let Some(generator) = &v.generator {
+                r(&v.id.0, &generator.0, "generator")?;
+            }
             r(&v.id.0, &v.placement.0, "placement")?;
             valid(
                 positive(v.reach) && nonnegative(v.hold_seconds),

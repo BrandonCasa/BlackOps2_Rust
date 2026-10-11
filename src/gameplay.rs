@@ -108,9 +108,15 @@ impl Plugin for GameplayPlugin {
                 FixedUpdate,
                 (
                     ApplyDeferred.before(GameStep::Movement),
-                    ApplyDeferred.after(GameStep::Interactions).before(GameStep::EnemyIntent),
-                    ApplyDeferred.after(GameStep::EnemyIntent).before(GameStep::Combat),
-                    ApplyDeferred.after(GameStep::Damage).before(GameStep::PlayerLife),
+                    ApplyDeferred
+                        .after(GameStep::Interactions)
+                        .before(GameStep::EnemyIntent),
+                    ApplyDeferred
+                        .after(GameStep::EnemyIntent)
+                        .before(GameStep::Combat),
+                    ApplyDeferred
+                        .after(GameStep::Damage)
+                        .before(GameStep::PlayerLife),
                     combat.in_set(GameStep::Combat),
                     crate::rounds::advance.in_set(GameStep::Rounds),
                     crate::economy::record_downs
@@ -139,8 +145,16 @@ pub(crate) fn combat(
         &crate::equipment::TacticalInventory,
         Option<&crate::perks::PerkDrinking>,
         &crate::solo_revive::PerkInventory,
+        Has<crate::actions::HandReservation>,
+        &crate::crafting::BuildableInventory,
+        Has<crate::robots::StompReaction>,
+        Has<crate::robots::RobotTransit>,
+        Has<crate::tank::TankRescue>,
     )>,
-    enemies: crate::hit_regions::RayTargets,
+    (enemies, zombies): (
+        crate::hit_regions::RayTargets,
+        Query<(), With<crate::enemies::Zombie>>,
+    ),
     mut impacts: ResMut<crate::damage::DamageQueue>,
     query: SpatialQuery,
     mut hit_evidence: ResMut<crate::hit_regions::HitEvidence>,
@@ -151,11 +165,30 @@ pub(crate) fn combat(
     mut environment_hits: MessageWriter<crate::environment::support::EnvironmentalHit>,
 ) {
     let dt = time.delta_secs();
-    let Ok((entity, player, transform, mut inventory, grenades, mines, tactical, drinking, perks)) =
-        players.single_mut()
+    let Ok((
+        entity,
+        player,
+        transform,
+        mut inventory,
+        grenades,
+        mines,
+        tactical,
+        drinking,
+        perks,
+        reserved,
+        buildables,
+        stomp,
+        robot_transit,
+        tank_rescue,
+    )) = players.single_mut()
     else {
         return;
     };
+    if reserved || buildables.shield_held || stomp || robot_transit || tank_rescue {
+        inventory.cancel_action();
+        inventory.cancel_charge();
+        return;
+    }
     let reload_scale = definition
         .content
         .perks
@@ -165,8 +198,27 @@ pub(crate) fn combat(
         .fold(1., f32::min);
     inventory.set_reload_duration_scale(reload_scale);
     inventory.firing = crate::perks::firing_modifiers(perks, &definition);
-    if grenades.busy() || mines.busy() || tactical.busy() || drinking.is_some() { inventory.cancel_charge(); }
-    if input.staff_secondary && !grenades.busy() && !mines.busy() && !tactical.busy() && drinking.is_none() { inventory.toggle_staff_mode(&definition.content.weapons); }
+    if grenades.busy() || mines.busy() || tactical.busy() || drinking.is_some() {
+        inventory.cancel_charge();
+    }
+    if input.staff_secondary
+        && !grenades.busy()
+        && !mines.busy()
+        && !tactical.busy()
+        && drinking.is_none()
+    {
+        if let Some(weapon) = inventory.definition(&definition.content.weapons)
+            && inventory.ads > 0.5
+            && weapon
+                .attachments
+                .get(inventory.attachment())
+                .is_some_and(|a| a.ads_fov.len() > 1)
+        {
+            inventory.toggle_zoom(weapon);
+        } else {
+            inventory.toggle_staff_mode(&definition.content.weapons);
+        }
+    }
     let emissions = inventory.tick(
         dt,
         if grenades.busy() || mines.busy() || tactical.busy() || drinking.is_some() {
@@ -270,10 +322,31 @@ pub(crate) fn combat(
             }
             WeaponEmission::Melee => {
                 let staff = inventory.melee_definition(&definition.content.weapons);
-                let id = staff.map_or_else(|| crate::origins::WeaponId("weapon.knife_zm".into()), |w| w.id.clone());
-                let damage = if staff.is_some() { 1700 } else { definition.content.weapons.iter().find(|w| w.id == id).map_or(definition.tuning.melee_damage, |w| w.damage) };
+                let id = staff.map_or_else(
+                    || crate::origins::WeaponId("weapon.knife_zm".into()),
+                    |w| w.id.clone(),
+                );
+                if id.0.contains("one_inch_punch") {
+                    crate::rituals::punch(
+                        &enemies,
+                        &zombies,
+                        &query,
+                        &mut impacts,
+                        entity,
+                        transform.translation,
+                        player.yaw,
+                        &id,
+                    );
+                    continue;
+                }
+                let damage = definition
+                    .content
+                    .weapons
+                    .iter()
+                    .find(|w| w.id == id)
+                    .map_or(definition.tuning.melee_damage, |w| w.damage);
                 (true, damage, id, weapon)
-            },
+            }
         };
         let pellets = if melee {
             1
@@ -315,7 +388,8 @@ pub(crate) fn combat(
                     session.shots as u64 * 137 + pellet as u64 * 19,
                 )
             };
-            if !melee && let Some(weapon) = weapon
+            if !melee
+                && let Some(weapon) = weapon
                 && weapon.mechanics.delivery == crate::origins::content::WeaponDelivery::Projectile
             {
                 crate::projectiles::spawn(&mut commands, entity, weapon, origin, direction);
@@ -323,10 +397,20 @@ pub(crate) fn combat(
             }
             let actor_hits = if melee {
                 crate::hit_regions::cast(&enemies, &query, entity, origin, direction, 2.2)
-                    .into_iter().map(|h| (h, 1.)).collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|h| (h, 1.))
+                    .collect::<Vec<_>>()
             } else {
-                crate::hit_regions::penetrating(&enemies, &surfaces, &query, entity, origin, direction, 100.,
-                    weapon.map_or(0., |w| w.mechanics.penetration))
+                crate::hit_regions::penetrating(
+                    &enemies,
+                    &surfaces,
+                    &query,
+                    entity,
+                    origin,
+                    direction,
+                    100.,
+                    weapon.map_or(0., |w| w.mechanics.penetration),
+                )
             };
             if let Some((target, distance)) = crate::environment::support::cast(
                 &environmental,
@@ -335,7 +419,9 @@ pub(crate) fn combat(
                 origin,
                 direction,
                 if melee { 2.2 } else { 100. },
-            ) && actor_hits.first().is_none_or(|(hit, _)| distance < hit.hit.distance)
+            ) && actor_hits
+                .first()
+                .is_none_or(|(hit, _)| distance < hit.hit.distance)
             {
                 environment_hits.write(crate::environment::support::EnvironmentalHit {
                     target,
@@ -345,6 +431,7 @@ pub(crate) fn combat(
                         crate::weapons::damage_at(w, distance, crate::weapons::HitRegion::Torso)
                     }),
                     point: origin + direction.as_vec3() * distance,
+                    direction: direction.as_vec3(),
                 });
                 continue;
             }
@@ -358,7 +445,11 @@ pub(crate) fn combat(
                     damage
                 } else {
                     weapon.map_or(damage, |weapon| {
-                        crate::weapons::damage_at(weapon, hit.hit.distance / inventory.attachment_range(), region)
+                        crate::weapons::damage_at(
+                            weapon,
+                            hit.hit.distance / inventory.attachment_range(),
+                            region,
+                        )
                     })
                 };
                 impacts.0.push(crate::damage::Impact {

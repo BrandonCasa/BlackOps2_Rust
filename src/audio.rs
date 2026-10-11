@@ -5,13 +5,20 @@ use bevy::{
     transform::helper::TransformHelper,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+    },
+};
 mod decoded;
 mod gameplay;
 mod narrative;
 mod reverb;
 pub(crate) use decoded::AudioDecodeStats;
 pub(crate) use gameplay::voice;
+pub(crate) use narrative::{NarrativeProgress, RobotPurgeReady};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -32,6 +39,12 @@ pub struct Alias {
     pub priority: u32,
     pub seconds: f32,
     pub secondary: Option<String>,
+    #[serde(default)]
+    pub reverb_send: f32,
+    #[serde(default)]
+    pub wet_distance_min: f32,
+    #[serde(default)]
+    pub wet_distance_max: f32,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -67,6 +80,12 @@ impl AudioDefinition {
                     && a.limit <= 32
                     && a.seconds.is_finite()
                     && a.seconds > 0.
+                    && a.reverb_send.is_finite()
+                    && (0. ..=100.).contains(&a.reverb_send)
+                    && a.wet_distance_min.is_finite()
+                    && a.wet_distance_min >= 0.
+                    && a.wet_distance_max.is_finite()
+                    && a.wet_distance_max >= a.wet_distance_min
                     && a.secondary
                         .as_ref()
                         .is_none_or(|n| self.aliases.contains_key(n))
@@ -231,6 +250,69 @@ pub fn emit_loop(commands: &mut Commands, alias: impl Into<String>, source: Soun
         .id()
 }
 #[derive(Component)]
+pub(crate) struct ConversationSound(pub Entity);
+#[derive(Resource, Default)]
+pub(crate) struct StoryReservation(pub Option<Entity>);
+#[derive(Resource, Default)]
+pub(crate) struct MusicOverride(pub Option<Entity>);
+#[derive(Message, Clone, Copy, Debug)]
+pub(crate) struct PlaybackEvent {
+    pub entity: Entity,
+    pub status: PlaybackStatus,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PlaybackStatus {
+    Accepted,
+    Completed,
+    Rejected,
+    Cancelled,
+}
+#[derive(Resource, Default)]
+struct Lifetimes(BTreeMap<Entity, bool>);
+#[derive(Component, Default)]
+struct SemanticPlayback {
+    accepted: bool,
+    completed: bool,
+    dry_done: Option<Arc<AtomicBool>>,
+    wet: Option<Arc<AtomicU32>>,
+    send: f32,
+    wet_min: f32,
+    wet_max: f32,
+}
+#[derive(Component)]
+enum PendingRoom {
+    Cached(Handle<decoded::DecodedClip>),
+    Stream(Handle<AudioSource>),
+}
+pub(crate) fn emit_owned(
+    commands: &mut Commands,
+    alias: impl Into<String>,
+    source: SoundSource,
+    owner: Entity,
+) -> Entity {
+    let entity = emit(commands, alias, source);
+    commands.entity(entity).insert(ConversationSound(owner));
+    entity
+}
+pub(crate) fn resolve_alias<'a>(game: &'a GameDefinition, name: &str) -> Option<&'a str> {
+    let name = match name {
+        "purchase" => "zmb_cha_ching",
+        "music_chest" => "zmb_music_box",
+        other => other,
+    };
+    if let Some((key, _)) = game.audio.aliases.get_key_value(name) {
+        return Some(key);
+    }
+    if let Some(alias) = game.audio.bindings.get(name) {
+        return Some(alias);
+    }
+    game.audio
+        .aliases
+        .iter()
+        .find(|(_, a)| a.sounds.iter().any(|id| id.0 == name))
+        .map(|(name, _)| name.as_str())
+}
+#[derive(Component)]
 pub struct SoundFade {
     pub remaining: f32,
     pub duration: f32,
@@ -266,7 +348,10 @@ pub(crate) fn attenuation(distance: f32, minimum: f32, maximum: f32) -> f32 {
 #[derive(Component)]
 pub(crate) struct RetiringSound;
 fn speech(alias: &str) -> bool {
-    alias.starts_with("vox_plr_") || alias.starts_with("vox_sam_")
+    if alias.starts_with("vox_maxi_audio_log_") {
+        return false;
+    }
+    alias.starts_with("vox_plr_") || alias.starts_with("vox_sam_") || alias.starts_with("vox_maxi_")
 }
 pub struct GameAudioPlugin;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -277,6 +362,11 @@ impl Plugin for GameAudioPlugin {
             .init_resource::<AudioEvidence>()
             .init_resource::<Subtitle>()
             .init_resource::<Mixer>()
+            .init_resource::<StoryReservation>()
+            .init_resource::<MusicOverride>()
+            .init_resource::<Lifetimes>()
+            .init_resource::<reverb::ListenerRoom>()
+            .add_message::<PlaybackEvent>()
             .init_resource::<decoded::ClipCache>()
             .init_resource::<AudioDecodeStats>()
             .add_audio_source::<decoded::DecodedClip>()
@@ -284,7 +374,15 @@ impl Plugin for GameAudioPlugin {
             .init_asset_loader::<decoded::DecodedClipLoader>()
             .add_systems(
                 Update,
-                (settings, decoded::maintain, play, subtitles)
+                (
+                    settings,
+                    reverb::update,
+                    decoded::maintain,
+                    play,
+                    route,
+                    lifecycle,
+                    subtitles,
+                )
                     .chain()
                     .after(crate::input::pause_and_restart)
                     .in_set(AudioPlayback),
@@ -341,15 +439,26 @@ fn play(
     state: Res<State<GameState>>,
     settings: Res<AudioSettings>,
     time: Res<Time>,
-    requests: Query<(Entity, &SoundRequest, Option<&SoundFade>)>,
-    playing: Query<(Entity, &PlayingSound)>,
+    requests: Query<(
+        Entity,
+        &SoundRequest,
+        Option<&SoundFade>,
+        Option<&ConversationSound>,
+    )>,
+    playing: Query<(Entity, &PlayingSound, &SemanticPlayback)>,
     camera: Query<Entity, With<crate::rendering::GameCamera>>,
     transforms: TransformHelper,
     mut mixer: ResMut<Mixer>,
     mut evidence: ResMut<AudioEvidence>,
     mut subtitle: ResMut<Subtitle>,
     (mut clips, mut decode_stats): (ResMut<decoded::ClipCache>, ResMut<AudioDecodeStats>),
-    (decoded_assets, mut room_assets, weather): (Res<Assets<decoded::DecodedClip>>, ResMut<Assets<reverb::RoomClip>>, Res<crate::environment::weather::Weather>),
+    (reservation, music, generators, mut events, mut lifetimes): (
+        Res<StoryReservation>,
+        Res<MusicOverride>,
+        Res<crate::generators::Generators>,
+        MessageWriter<PlaybackEvent>,
+        ResMut<Lifetimes>,
+    ),
     #[cfg(all(debug_assertions, feature = "dev-dynamic"))] mut validation_requests: Option<
         ResMut<RequestedAliases>,
     >,
@@ -357,7 +466,13 @@ fn play(
     let Some(game) = game else {
         return;
     };
-    if !matches!(**state, GameState::Playing | GameState::GameOver | GameState::Ending | GameState::PreparingShaders) {
+    if **state == GameState::Paused {
+        return;
+    }
+    if !matches!(
+        **state,
+        GameState::Playing | GameState::GameOver | GameState::Ending | GameState::PreparingShaders
+    ) {
         for (e, ..) in &requests {
             commands.entity(e).try_despawn();
         }
@@ -374,17 +489,23 @@ fn play(
     let mut live = BTreeMap::<String, Vec<(Entity, f32)>>::new();
     let mut count = 0;
     let mut voice = Vec::new();
-    for (e, s) in &playing {
+    for (e, s, semantic) in &playing {
         count += 1;
         *counts.entry(s.alias.clone()).or_default() += 1;
         live.entry(s.alias.clone())
             .or_default()
             .push((e, s.started));
-        if s.channel == Channel::Dialogue && speech(&s.alias) {
+        if s.channel == Channel::Dialogue && speech(&s.alias) && !semantic.completed {
             voice.push((e, s.priority));
         }
     }
-    for (entity, request, fade) in &requests {
+    for (entity, request, fade, owner) in &requests {
+        let resolved = resolve_alias(&game, &request.alias).map(str::to_owned);
+        let request = SoundRequest {
+            alias: resolved.unwrap_or_else(|| request.alias.clone()),
+            source: request.source,
+            looping: request.looping,
+        };
         if **state == GameState::GameOver && request.alias != "mus_zombie_game_over" {
             commands.entity(entity).try_despawn();
             continue;
@@ -397,20 +518,60 @@ fn play(
         let Some(alias) = game.audio.aliases.get(&request.alias) else {
             commands.entity(entity).try_despawn();
             evidence.rejected += 1;
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Rejected,
+            });
             continue;
         };
+        if alias.channel == Channel::Dialogue
+            && !request.alias.starts_with("vox_maxi_audio_log_")
+            && reservation.0.is_some()
+            && reservation.0 != owner.map(|o| o.0)
+        {
+            commands.entity(entity).try_despawn();
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Rejected,
+            });
+            evidence.rejected += 1;
+            continue;
+        }
+        if alias.channel == Channel::Music
+            && request.alias.starts_with("mus_zombie_")
+            && (music.0.is_some()
+                || (generators.raid_active
+                    && !matches!(
+                        request.alias.as_str(),
+                        "mus_zombie_dog_start" | "mus_zombie_dog_end"
+                    )))
+        {
+            commands.entity(entity).try_despawn();
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Rejected,
+            });
+            evidence.rejected += 1;
+            continue;
+        }
         if alias.channel == Channel::Music && request.alias.starts_with("mus_zombie_") {
-            for (e, s) in &playing {
+            for (e, s, _) in &playing {
                 if s.alias.starts_with("mus_zombie_") {
                     commands.entity(e).try_insert(RetiringSound);
                 }
             }
         }
         let concurrent = *counts.get(&request.alias).unwrap_or(&0);
-        let character_speech = alias.channel == Channel::Dialogue && speech(&request.alias);
+        let character_speech = alias.channel == Channel::Dialogue
+            && speech(&request.alias)
+            && !request.alias.starts_with("vox_maxi_audio_log_");
         if concurrent >= alias.limit && character_speech {
             commands.entity(entity).try_despawn();
             evidence.rejected += 1;
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Rejected,
+            });
             continue;
         }
         if concurrent >= alias.limit {
@@ -429,6 +590,10 @@ fn play(
         if count >= 64 {
             commands.entity(entity).try_despawn();
             evidence.rejected += 1;
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Rejected,
+            });
             continue;
         }
         if character_speech {
@@ -437,12 +602,16 @@ fn play(
                 .last_voice
                 .get(&request.alias)
                 .is_some_and(|last| now - last < 45.);
-            if repeated
-                || (mixer.voice_cooldown > 0. && alias.priority < 100)
+            if (owner.is_none() && repeated)
+                || (owner.is_none() && mixer.voice_cooldown > 0. && alias.priority < 100)
                 || voice.iter().any(|(_, p)| *p >= alias.priority)
             {
                 commands.entity(entity).try_despawn();
                 evidence.rejected += 1;
+                events.write(PlaybackEvent {
+                    entity,
+                    status: PlaybackStatus::Rejected,
+                });
                 continue;
             }
             for (e, _) in voice.drain(..) {
@@ -482,12 +651,20 @@ fn play(
         let Some(position) = request.source.position(&transforms) else {
             commands.entity(entity).try_despawn();
             evidence.rejected += 1;
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Rejected,
+            });
             continue;
         };
         let looping = request.looping || sound.looping;
         if alias.spatial && !looping && listener.distance(position) > sound.distance {
             commands.entity(entity).try_despawn();
             evidence.rejected += 1;
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Rejected,
+            });
             continue;
         }
         let fraction = ((mixer.sequence >> 16) & 65535) as f32 / 65535.;
@@ -520,7 +697,7 @@ fn play(
                 mode: if looping {
                     PlaybackMode::Loop
                 } else {
-                    PlaybackMode::Despawn
+                    PlaybackMode::Once
                 },
                 spatial: alias.spatial,
                 spatial_scale: Some(SpatialScale::new(1. / (sound.distance + 0.2))),
@@ -530,12 +707,39 @@ fn play(
             },
             Transform::from_translation(position),
         ));
-        if let Some(clip) = clips.clip(&server, &sound.path, alias.seconds, &mut decode_stats) {
-            if alias.spatial && matches!(alias.channel,Channel::Effects | Channel::Dialogue) && !looping
-                && let Some(decoded)=decoded_assets.get(&clip){
-                let source=room_assets.add(reverb::RoomClip::new(decoded,reverb::preset(&weather.ambient_room)));
-                commands.entity(entity).insert(AudioPlayer::<reverb::RoomClip>(source));
-            }else{commands.entity(entity).insert(AudioPlayer::<decoded::DecodedClip>(clip));}
+        let mut semantic = SemanticPlayback::default();
+        if alias.reverb_send > 0. {
+            semantic.dry_done = Some(Arc::new(AtomicBool::new(false)));
+            semantic.wet = Some(Arc::new(AtomicU32::new(
+                (alias.reverb_send / 100.).to_bits(),
+            )));
+            semantic.send = alias.reverb_send / 100.;
+            semantic.wet_min = alias.wet_distance_min;
+            semantic.wet_max = alias.wet_distance_max;
+            let pending = if let Some(clip) =
+                clips.clip(&server, &sound.path, alias.seconds, &mut decode_stats)
+            {
+                PendingRoom::Cached(clip)
+            } else {
+                PendingRoom::Stream(server.load(sound.path.clone()))
+            };
+            commands.entity(entity).insert(pending);
+            if looping {
+                commands.entity(entity).insert(PlaybackSettings {
+                    mode: PlaybackMode::Once,
+                    spatial: alias.spatial,
+                    spatial_scale: Some(SpatialScale::new(1. / (sound.distance + 0.2))),
+                    speed,
+                    volume: Volume::Linear(sound.volume * gain),
+                    ..default()
+                });
+            }
+        } else if let Some(clip) =
+            clips.clip(&server, &sound.path, alias.seconds, &mut decode_stats)
+        {
+            commands
+                .entity(entity)
+                .insert(AudioPlayer::<decoded::DecodedClip>(clip));
         } else {
             commands
                 .entity(entity)
@@ -543,6 +747,8 @@ fn play(
                     server.load(sound.path.clone()),
                 ));
         }
+        commands.entity(entity).insert(semantic);
+        lifetimes.0.insert(entity, false);
         if character_speech {
             voice.push((entity, alias.priority));
         }
@@ -570,16 +776,20 @@ fn maintain(
         Query<(
             Entity,
             &mut PlayingSound,
+            &mut SemanticPlayback,
             &mut Transform,
             Option<&mut AudioSink>,
             Option<&mut SpatialAudioSink>,
             &mut PlaybackSettings,
             Option<&RetiringSound>,
             Option<&mut SoundFade>,
+            Option<&crate::cinematics::CinematicAudioPaused>,
         )>,
     )>,
     mut evidence: ResMut<AudioEvidence>,
     mut heard: Local<BTreeSet<Entity>>,
+    mut events: MessageWriter<PlaybackEvent>,
+    mut lifetimes: ResMut<Lifetimes>,
 ) {
     let sources: Vec<_> = queries
         .p1()
@@ -598,9 +808,20 @@ fn maintain(
         .collect();
     let mut sounds = queries.p1();
     heard.retain(|e| sounds.contains(*e));
-    for (entity, mut sound, mut pose, regular, spatial, mut playback, retiring, fade) in &mut sounds
+    for (
+        entity,
+        mut sound,
+        mut semantic,
+        mut pose,
+        regular,
+        spatial,
+        mut playback,
+        retiring,
+        fade,
+        cinematic_paused,
+    ) in &mut sounds
     {
-        playback.paused = **state == GameState::Paused;
+        playback.paused = **state == GameState::Paused || cinematic_paused.is_some_and(|p| p.0);
         if let Some(position) = positions[&entity] {
             pose.translation = position;
         } else if sound.looping {
@@ -649,6 +870,45 @@ fn maintain(
             commands.entity(entity).try_despawn();
             continue;
         }
+        if let Some(wet) = &semantic.wet {
+            let distance = if playback.spatial {
+                listener.distance(pose.translation)
+            } else {
+                0.
+            };
+            let gain = if semantic.wet_max > semantic.wet_min {
+                attenuation(distance, semantic.wet_min, semantic.wet_max)
+            } else {
+                1.
+            };
+            wet.store((semantic.send * gain).to_bits(), Ordering::Relaxed);
+        }
+        let has_sink = regular.is_some() || spatial.is_some();
+        if has_sink && !semantic.accepted {
+            semantic.accepted = true;
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Accepted,
+            });
+        }
+        let empty = regular.as_ref().is_some_and(|s| s.empty())
+            || spatial.as_ref().is_some_and(|s| s.empty());
+        let dry_done = semantic
+            .dry_done
+            .as_ref()
+            .is_some_and(|done| done.load(Ordering::Acquire));
+        if !sound.looping && !semantic.completed && (dry_done || empty) {
+            semantic.completed = true;
+            lifetimes.0.insert(entity, true);
+            events.write(PlaybackEvent {
+                entity,
+                status: PlaybackStatus::Completed,
+            });
+        }
+        if empty && !sound.looping {
+            commands.entity(entity).try_despawn();
+            continue;
+        }
         let volume = Volume::Linear(sound.base * sound.gain);
         playback.volume = volume;
         for sink in regular
@@ -661,11 +921,11 @@ fn maintain(
             )
         {
             sink.set_volume(volume);
-            if **state == GameState::Paused && !sink.is_paused() {
+            if playback.paused && !sink.is_paused() {
                 sink.pause();
                 evidence.paused += 1;
             }
-            if **state == GameState::Playing && sink.is_paused() {
+            if !playback.paused && sink.is_paused() {
                 sink.play();
                 evidence.resumed += 1;
             }
@@ -677,7 +937,11 @@ pub(crate) fn stop(
     sounds: Query<Entity, Or<(With<PlayingSound>, With<SoundRequest>)>>,
     mut mixer: ResMut<Mixer>,
     mut subtitle: ResMut<Subtitle>,
+    mut reservation: ResMut<StoryReservation>,
+    mut music: ResMut<MusicOverride>,
 ) {
+    reservation.0 = None;
+    music.0 = None;
     for e in &sounds {
         commands.entity(e).try_despawn();
     }
@@ -700,4 +964,83 @@ fn subtitles(state: Res<State<GameState>>, time: Res<Time>, mut subtitle: ResMut
     if subtitle.remaining == 0. {
         subtitle.text.clear();
     }
+}
+
+fn route(
+    mut commands: Commands,
+    server: Res<AssetServer>,
+    decoded: Res<Assets<decoded::DecodedClip>>,
+    streams: Res<Assets<AudioSource>>,
+    mut assets: ResMut<Assets<reverb::RoomClip>>,
+    room: Res<reverb::ListenerRoom>,
+    pending: Query<(Entity, &PendingRoom, &SemanticPlayback, &PlayingSound)>,
+    mut events: MessageWriter<PlaybackEvent>,
+) {
+    for (entity, pending, semantic, sound) in &pending {
+        let input = match pending {
+            PendingRoom::Cached(handle) => {
+                if let Some(clip) = decoded.get(handle) {
+                    Some(reverb::Input::Cached(clip.clone()))
+                } else {
+                    if matches!(
+                        server.get_load_state(handle.id()),
+                        Some(bevy::asset::LoadState::Failed(_))
+                    ) && let Some(path) = server.get_path(handle.id())
+                    {
+                        commands
+                            .entity(entity)
+                            .insert(PendingRoom::Stream(server.load(path.to_string())));
+                    }
+                    None
+                }
+            }
+            PendingRoom::Stream(handle) => {
+                if matches!(
+                    server.get_load_state(handle.id()),
+                    Some(bevy::asset::LoadState::Failed(_))
+                ) {
+                    commands.entity(entity).try_despawn();
+                    events.write(PlaybackEvent {
+                        entity,
+                        status: PlaybackStatus::Cancelled,
+                    });
+                }
+                streams
+                    .get(handle)
+                    .map(|source| reverb::Input::Stream(source.clone()))
+            }
+        };
+        if let Some(input) = input {
+            let clip = assets.add(reverb::RoomClip::new(
+                input,
+                &room,
+                semantic.wet.as_ref().unwrap().clone(),
+                semantic.dry_done.as_ref().unwrap().clone(),
+                sound.looping,
+            ));
+            commands
+                .entity(entity)
+                .remove::<PendingRoom>()
+                .insert(AudioPlayer::<reverb::RoomClip>(clip));
+        }
+    }
+}
+fn lifecycle(
+    playing: Query<Entity, With<PlayingSound>>,
+    mut lifetimes: ResMut<Lifetimes>,
+    mut events: MessageWriter<PlaybackEvent>,
+) {
+    lifetimes.0.retain(|entity, completed| {
+        if playing.contains(*entity) {
+            true
+        } else {
+            if !*completed {
+                events.write(PlaybackEvent {
+                    entity: *entity,
+                    status: PlaybackStatus::Cancelled,
+                });
+            }
+            false
+        }
+    });
 }

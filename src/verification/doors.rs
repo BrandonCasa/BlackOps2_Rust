@@ -793,5 +793,8 @@ fn combat_blast(
         inner_damage: amount,
         outer_damage: amount,
         direction: None,
+        category: None,
+        player_damage: None,
+        source: None,
     }
 }

@@ -13,9 +13,51 @@ import tomllib
 import numpy as np
 import soundfile as sf
 from prepare_gameplay_content import external
-from prepare_origins import entities
 
 RATES = [8000,12000,16000,24000,32000,44100,48000,96000,192000]
+
+
+def fx_aliases(pack):
+    path = pack / 'effects/native.nativefx'
+    if not path.exists():
+        return set()
+    aliases = set()
+    for effect in json.loads(path.read_text())['effects'].values():
+        for element in effect['elements']:
+            if element['sound']:
+                aliases.add(element['sound'])
+            if element['type'] == 10:
+                aliases.update(element['visuals'])
+    return aliases
+
+
+def validate(pack, runtime, patch=None):
+    game = json.loads((pack / 'game.json').read_text())
+    if patch:
+        update = json.loads(patch.read_text())
+        game['audio']['aliases'] = update['audio_aliases']
+        game['content']['sounds'] = update['sounds']
+    aliases = game['audio']['aliases']
+    sounds = {sound['id']: sound for sound in game['content']['sounds']}
+    requested = fx_aliases(pack)
+    for path in runtime.rglob('*.rs'):
+        requested.update(name for name in re.findall(r'"((?:zmb_|wpn_|mus_|vox_|evt_|amb_)[a-zA-Z0-9_]+)"', path.read_text(encoding='utf-8')) if not name.endswith('_'))
+    silent = {'zmb_music_box', 'zmb_homingbeacon_missile_boom', 'zmb_zombie_arc'}
+    source_absent_fx = {'amb_ember_burn', 'amb_magma_splat_lrg', 'amb_thunder_clap', 'beam_fx', 'dst_electronics_elc_md', 'dst_spark_pop', 'dst_spark_thin', 'pfx_fire_fuel_sm', 'zmb_electric_zombie_oneshot', 'zmb_rand_perk_sparks_bot'}
+    unresolved = requested - aliases.keys() - game['audio']['bindings'].keys() - sounds.keys() - silent
+    unresolved -= source_absent_fx & fx_aliases(pack)
+    unresolved = {name for name in unresolved if not any(alias.startswith(name + '_') for alias in aliases)}
+    if unresolved:
+        raise ValueError('Runtime audio aliases missing: ' + ', '.join(sorted(unresolved)))
+    for name, alias in aliases.items():
+        if alias['secondary'] and alias['secondary'] not in aliases:
+            raise ValueError('Secondary audio alias missing: ' + name)
+        if not alias['sounds']:
+            raise ValueError('Audio alias has no samples: ' + name)
+        for identity in alias['sounds']:
+            if identity not in sounds or not (pack / sounds[identity]['path']).is_file():
+                raise ValueError('Audio sample dependency missing: ' + name + '/' + identity)
+    print(json.dumps({'aliases': len(aliases), 'runtime_requests': len(requested), 'fx_requests': len(fx_aliases(pack)), 'native_silent_requests': sorted(requested & silent), 'source_absent_fx_aliases': sorted(requested & source_absent_fx)}))
 
 
 def recover_aliases(config):
@@ -24,9 +66,10 @@ def recover_aliases(config):
     output=base/'audio-recovery';output.mkdir(parents=True,exist_ok=True)
     unlinker=Path(config.get('preparation',{}).get('unlinker',base/'tooling/OAT/v0.33.0/Unlinker.exe'))
     common=installation/'zone/all/common_zm.ff';patch=installation/'zone/all/patch_zm.ff'
-    for zone,path in [('common_zm',common),('zm_tomb',installation/'zone/all/zm_tomb.ff'),('en_zm_tomb',installation/'zone/english/en_zm_tomb.ff')]:
+    for zone,path in [('code_post_gfx_zm',installation/'zone/all/code_post_gfx_zm.ff'),('common_zm',common),('en_common_zm',installation/'zone/english/en_common_zm.ff'),('patch_zm',patch),('zm_tomb',installation/'zone/all/zm_tomb.ff'),('en_zm_tomb',installation/'zone/english/en_zm_tomb.ff')]:
         command=[str(unlinker),'--no-color','--include-assets','soundbank,soundpatch','--search-path',str(installation),'-o',str(output/'?zone?')]
-        if zone!='common_zm':command+=['--load',str(common),'--load',str(patch)]
+        if zone not in ('common_zm','code_post_gfx_zm'):command+=['--load',str(common)]
+        if zone not in ('common_zm','code_post_gfx_zm','patch_zm'):command+=['--load',str(patch)]
         with (output/(zone+'-extract.log')).open('wb') as log:
             subprocess.run(command+[str(path)],stdout=log,stderr=subprocess.STDOUT,check=True)
         text=(output/(zone+'-extract.log')).read_text(errors='replace')
@@ -62,16 +105,17 @@ def bank_index(installation):
     return result
 
 
-def prepare(config, additions=None):
+def prepare(config, additions=None, patch=None):
     base = external(config['assets']['inspection_output'])
-    pack = external(config['game']['asset_pack'])
+    pack = Path(config['game']['asset_pack']).resolve()
     game = json.loads((pack/'game.json').read_text())
     content = game['content']
     sound_order = {sound['id']: i for i, sound in enumerate(content['sounds'])}
     rows = {}
-    if any(not list((base/'audio-recovery'/zone/'soundbank').glob('*.aliases.csv')) for zone in ('common_zm','zm_tomb','en_zm_tomb')):
+    zones=('code_post_gfx_zm','common_zm','en_common_zm','patch_zm','zm_tomb','en_zm_tomb')
+    if any(not list((base/'audio-recovery'/zone/'soundbank').glob('*.aliases.csv')) for zone in zones):
         recover_aliases(config)
-    for zone in ('common_zm','zm_tomb','en_zm_tomb'):
+    for zone in zones:
         for path in sorted((base/'audio-recovery'/zone/'soundbank').glob('*.aliases.csv')):
             grouped = {}
             for row in csv.DictReader(path.open(encoding='utf-8-sig')):
@@ -85,8 +129,15 @@ def prepare(config, additions=None):
         content['sounds'][:] = [s for s in content['sounds'] if not s['id'].startswith('sound.native.')]
     directory = pack/'audio/native';directory.mkdir(parents=True,exist_ok=True)
 
+    def native_metadata(name,entry):
+        if name not in rows: return
+        row=rows[name][0]
+        entry.update(reverb_send=float(row['ReverbSend']),wet_distance_min=max(0.,float(row['DistMin'])*.0254),wet_distance_max=max(0.,float(row['DistMaxWet'])*.0254))
+
     def alias(name):
-        if name in aliases: return name
+        if name in aliases:
+            native_metadata(name,aliases[name])
+            return name
         if name not in rows: return None
         if name in visiting: raise ValueError(f'cyclic native secondary audio: {name}')
         visiting.add(name)
@@ -141,17 +192,32 @@ def prepare(config, additions=None):
         aliases[name]={'sounds':choices,'spatial':row['PanType']=='3d' or name.startswith('mus_perks_') and name.endswith('_jingle'),'channel':'dialogue' if name.startswith('vox_') or row['Bus']=='bus_voice' else 'music' if row['IsMusic']=='yes' or name.startswith('mus_') else 'ambience' if row['VolumeGroup']=='grp_ambience' else 'effects',
             'secondary':secondary,'subtitle':row['Subtitle'],'limit':max(1,min(32,int(row['LimitCount']) or 8)),
             'priority':int(float(row['PriorityMax'])),'seconds':max(durations)}
+        native_metadata(name,aliases[name])
         visiting.remove(name)
         return name
 
     if additions is not None:
+        if additions=='runtime':
+            additions=set()
+            runtime_source=Path(__file__).resolve().parents[1]/'src'
+            for path in runtime_source.rglob('*.rs'):
+                additions.update(name for name in re.findall(r'"((?:zmb_|wpn_|mus_|vox_|evt_|amb_)[a-zA-Z0-9_]+)"',path.read_text(encoding='utf-8')) if name in rows)
+            additions.update(name for name in rows if name.startswith(('vox_sam_','vox_maxi_','vox_plr_','mus_gramophone_','zmb_robot_','zmb_bot_','zmb_giantrobot_','mus_zmb_secret_song','zmb_kbd_','zmb_squest_')))
+            additions.update(fx_aliases(pack))
+        for name,entry in aliases.items():native_metadata(name,entry)
         for name in sorted(additions):
             if alias(name) is None:
                 missing.append({'alias': name})
         game['audio']['aliases'] = aliases
         content['sounds'].sort(key=lambda sound: sound_order.get(sound['id'], len(sound_order)))
-        (pack/'game.json').write_text(json.dumps(game,separators=(',', ':'))+'\n')
-        return {'missing': missing, 'provenance': provenance}
+        result={'aliases':len(aliases),'missing':missing,'provenance':provenance}
+        if patch is None:
+            (pack/'game.json').write_text(json.dumps(game,separators=(',', ':'))+'\n')
+        else:
+            patch=Path(patch);patch.parent.mkdir(parents=True,exist_ok=True)
+            patch.write_text(json.dumps({'audio_aliases':aliases,'sounds':content['sounds'],'report':result},separators=(',', ':'))+'\n')
+        print({'aliases':len(aliases),'samples':len(samples),'missing':missing},flush=True)
+        return result
 
     bindings={};timelines={}
     wanted = {'zmb_board_slam','zmb_boards_float','zmb_repair_boards','zmb_break_boards','zmb_pneumatic_door','amb_rock_fall','zmb_vocals_zombie_ambience','zmb_vocals_zombie_attack','zmb_vocals_zombie_death','zmb_vocals_zombie_teardown','zmb_vocals_zombie_sprint',
@@ -189,6 +255,7 @@ def prepare(config, additions=None):
         notes=[{'seconds':n['seconds'],'alias':n['event'].split('#',1)[1]} for n in animation['notifications'] if n['event'].startswith('sndnt#')]
         if notes:
             timelines[animation['id']]=notes;wanted.update(n['alias'] for n in notes)
+    from prepare_origins import entities
     emitters=[]
     for row in entities(base/'game-prepare/entities/maps/mp/zm_tomb.d3dbsp.ents'):
         name=row.get('script_sound')
@@ -223,5 +290,13 @@ def prepare(config, additions=None):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--config',type=Path,required=True);args=p.parse_args()
-    prepare(tomllib.loads(args.config.read_text(encoding='utf-8-sig')))
+    p=argparse.ArgumentParser();p.add_argument('--config',type=Path);p.add_argument('--pack',type=Path);p.add_argument('--extend-runtime',action='store_true');p.add_argument('--patch',type=Path);p.add_argument('--check',action='store_true');p.add_argument('--runtime',type=Path,default=Path('src'));args=p.parse_args()
+    if args.check:
+        if not args.pack:p.error('--check requires --pack')
+        validate(args.pack,args.runtime,args.patch)
+    else:
+        if not args.config:p.error('--config is required for preparation')
+        config=tomllib.loads(args.config.read_text(encoding='utf-8-sig'))
+        if args.pack:config['game']['asset_pack']=str(args.pack.resolve())
+        if args.patch and not args.extend_runtime:p.error('--patch requires --extend-runtime')
+        prepare(config,'runtime' if args.extend_runtime else None,args.patch)

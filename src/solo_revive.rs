@@ -94,6 +94,10 @@ pub struct PlayerDowned {
     pub attacker: Entity,
     pub episode: DownedEpisode,
 }
+#[derive(Message)]
+pub(crate) struct RemoteRevive {
+    pub player: Entity,
+}
 #[derive(Component)]
 pub struct SoloEpisode {
     pub remaining: f32,
@@ -104,6 +108,7 @@ pub struct SoloEpisode {
     pending: Option<u64>,
     backup: WeaponInventory,
     bleedout: BleedoutClock,
+    remote: bool,
 }
 fn submit(queue: &mut LifeCommandQueue, target: Entity, command: LifeCommand) -> Option<u64> {
     match queue.submit_next(target, command) {
@@ -129,6 +134,7 @@ pub struct SoloRevivePlugin;
 impl Plugin for SoloRevivePlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<PlayerDowned>()
+            .add_message::<RemoteRevive>()
             .init_resource::<SoloReviveEvidence>()
             .configure_sets(
                 FixedUpdate,
@@ -164,12 +170,15 @@ impl Plugin for SoloRevivePlugin {
 }
 pub(crate) fn eligibility(
     definition: Res<GameDefinition>,
+    drone: Res<crate::buildables::BuildableState>,
     mut players: Query<(&PerkInventory, &mut Vitality), With<Player>>,
 ) {
     for (perks, mut health) in &mut players {
         if health.state() == LifeState::Standing {
             health.set_player_policy(
-                if perks.solo_charges > 0 && perks.owned.contains(&definition.solo_revive.perk) {
+                if (perks.solo_charges > 0 && perks.owned.contains(&definition.solo_revive.perk))
+                    || drone.drone.is_some()
+                {
                     PlayerLethalPolicy::SoloSelfRevive
                 } else {
                     PlayerLethalPolicy::SoloOrLastEligiblePlayer
@@ -206,6 +215,8 @@ fn begin(
             &mut *inventory,
             WeaponInventory::temporary(weapon, profile.reserve_clips),
         );
+        let automatic =
+            perks.solo_charges > 0 && perks.owned.contains(&definition.solo_revive.perk);
         perks.owned.clear();
         let timing = BleedoutTiming::new(
             Duration::from_secs_f32(profile.bleedout_seconds),
@@ -222,7 +233,11 @@ fn begin(
             },
         );
         commands.entity(event.target).insert(SoloEpisode {
-            remaining: profile.seconds,
+            remaining: if automatic {
+                profile.seconds
+            } else {
+                f32::INFINITY
+            },
             elapsed: 0.,
             episode: event.episode,
             attacker: event.attacker,
@@ -230,17 +245,24 @@ fn begin(
             pending,
             backup,
             bleedout,
+            remote: false,
         });
         evidence.record(serde_json::json!({"event":"downed","target":event.target.to_bits(),"episode":event.episode.number(),"health":health.current(),"weapon":weapon.id.0,"magazine":weapon.magazine,"reserve":inventory.reserve(weapon),"perks_lost":true,"lost_third_weapon":lost_weapon.map(|w|w.definition.0)}));
     }
 }
 fn tick(
     time: Res<Time<Fixed>>,
+    mut remote: MessageReader<RemoteRevive>,
     definition: Res<GameDefinition>,
     mut queue: ResMut<LifeCommandQueue>,
     mut players: Query<(Entity, &Vitality, &mut SoloEpisode), With<Player>>,
 ) {
+    let requested: std::collections::HashSet<_> = remote.read().map(|event| event.player).collect();
     for (entity, health, mut episode) in &mut players {
+        if requested.contains(&entity) {
+            episode.remote = true;
+            episode.remaining = 0.;
+        }
         if health.downed_episode() != Some(episode.episode) {
             continue;
         }
@@ -309,7 +331,9 @@ pub(crate) fn finish(
                 *inventory = std::mem::take(&mut episode.backup);
                 inventory.cancel_action();
                 let _ = inventory.set_third_slot(false, &definition.content.weapons);
-                perks.solo_charges = perks.solo_charges.saturating_sub(1);
+                if !episode.remote {
+                    perks.solo_charges = perks.solo_charges.saturating_sub(1);
+                }
                 *recovery = Recovery::default();
                 queue.retire_pending_target(result.target);
                 evidence.record(serde_json::json!({"event":"revived","target":result.target.to_bits(),"episode":episode.episode.number(),"seconds":episode.elapsed,"health":current,"maximum":maximum,"charges":perks.solo_charges,"weapon":inventory.active().map(|w|w.definition.0.clone())}));

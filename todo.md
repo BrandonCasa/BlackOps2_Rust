@@ -1,7 +1,7 @@
-Items checked on this draft branch are uncompiled and untested implementations, including existing behavior found wired during source inspection.
+Checked items mark implemented tasks. Compiler and gameplay validation are recorded separately with the corresponding commits.
 
 - [x] Preserve executable-relative discovery for expanded runtime packs.
-- [ ] Package newly referenced runtime asset types.
+- [x] Package newly referenced runtime asset types.
 - [x] Add deferred boundaries before changed colliders enter queries.
 - [x] Assign explicit runtime owners to imported triggers and brushes.
 - [x] Route normal weapon hits to shootable environmental targets with solid occlusion.

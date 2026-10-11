@@ -222,11 +222,14 @@ pub(crate) fn advance(
     players: Query<(&Player, &Transform)>,
     generators: Res<crate::generators::Generators>,
     replacements: Query<(Entity, &ReplacementHealth)>,
-    quest: Res<crate::quests::MainQuest>,
-    panzer_waves: Res<crate::panzer::PanzerWaves>,
-    robots: Res<crate::robots::Robots>,
+    special: (
+        Res<crate::quests::MainQuest>,
+        Res<crate::panzer::PanzerWaves>,
+        Res<crate::robots::Robots>,
+    ),
 ) {
     let (mut started, mut ending) = events;
+    let (quest, panzer_waves, robots) = special;
     *population = default();
     for (_, vitality, kind, _, _) in &enemies {
         if vitality.state() != LifeState::ActorAlive {
@@ -240,8 +243,11 @@ pub(crate) fn advance(
     }
     evidence.peak_ordinary = evidence.peak_ordinary.max(population.ordinary);
     let profile = &definition.rounds;
-    if session.round_complete(population.ordinary + population.special) && panzer_waves.pending == 0 {
-        if quest.round_held() { return; }
+    if session.round_complete(population.ordinary + population.special) && panzer_waves.pending == 0
+    {
+        if quest.round_held() {
+            return;
+        }
         if session.intermission.is_none() {
             ending.write(RoundEnding {
                 session: *session_id,
@@ -271,7 +277,7 @@ pub(crate) fn advance(
     if session.pending == 0 || !session.spawn_timer.is_finished() {
         return;
     }
-    let reserve = generators.reserve() + usize::from(robots.passes.iter().filter(|p| p.is_some()).count() > 1) * 2;
+    let reserve = generators.reserve() + usize::from(robots.triple_active) * 2;
     if population.ordinary + population.special
         >= (profile.ordinary_cap as usize).saturating_sub(reserve)
     {
@@ -343,7 +349,9 @@ pub(crate) fn advance(
         )
         .ok()?;
         let enemy = variants.get(session.spawn_cursor % variants.len().max(1))?;
-        let gait = session.difficulty.gait(profile, session.round, session.random());
+        let gait = session
+            .difficulty
+            .gait(profile, session.round, session.random());
         Some((
             position,
             shape,
@@ -404,6 +412,9 @@ pub(crate) fn advance(
     ));
     if rise.is_some() {
         actor.insert(avian3d::prelude::ColliderDisabled);
+    }
+    if quest.stage == crate::quests::QuestStage::UpgradeFists {
+        actor.insert(crate::finale::FistCandidate::default());
     }
 }
 

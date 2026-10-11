@@ -124,6 +124,7 @@ pub struct GameInput {
     pub mine_held: bool,
     pub tactical_held: bool,
     pub buildable: bool,
+    pub drone: bool,
     pub staff_secondary: bool,
     pub look: Vec2,
 }
@@ -306,6 +307,7 @@ pub(crate) fn collect(
     input.mine_held = actions.active(Mine);
     input.tactical_held = actions.active(Tactical);
     input.buildable |= actions.state(Buildable).pressed;
+    input.drone |= actions.state(Drone).pressed;
     input.staff_secondary |= actions.state(StaffSecondary).pressed;
     input.jump |= actions.state(Jump).pressed;
     input.prone |= actions.state(Prone).pressed;
@@ -325,6 +327,7 @@ pub(crate) fn collect(
 
 fn finish_tick(mut actions: ResMut<Actions>, mut input: ResMut<GameInput>) {
     input.buildable = false;
+    input.drone = false;
     input.staff_secondary = false;
     let input = &mut *input;
     for (action, held) in [

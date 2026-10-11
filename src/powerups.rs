@@ -24,6 +24,11 @@ impl PowerupEffects {
         if self.double_points > 0. { 2 } else { 1 }
     }
 }
+#[derive(Message)]
+pub(crate) struct DronePickup {
+    pub owner: Entity,
+    pub pickup: Entity,
+}
 #[derive(Component)]
 pub struct Pickup {
     pub definition: usize,
@@ -68,7 +73,8 @@ pub(crate) struct NukeTarget;
 pub struct PowerupPlugin;
 impl Plugin for PowerupPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PowerupEffects>()
+        app.add_message::<DronePickup>()
+            .init_resource::<PowerupEffects>()
             .init_resource::<Drops>()
             .add_systems(
                 FixedUpdate,
@@ -148,6 +154,53 @@ fn sound(commands: &mut Commands, game: &GameDefinition, alias: &str, position: 
         crate::audio::emit(commands, alias, crate::audio::SoundSource::World(position));
     }
 }
+pub(crate) fn spawn_named(
+    commands: &mut Commands,
+    game: &GameDefinition,
+    server: &AssetServer,
+    name: &str,
+    position: Vec3,
+) -> Option<Entity> {
+    let id = if name.starts_with("powerup.") {
+        name.to_string()
+    } else {
+        format!("powerup.{name}")
+    };
+    let index = game
+        .content
+        .powerups
+        .iter()
+        .position(|powerup| powerup.id.0 == id)?;
+    let powerup = &game.content.powerups[index];
+    let scene = game
+        .content
+        .presentations
+        .iter()
+        .find(|p| Some(&p.id) == powerup.presentation.as_ref())?
+        .scene
+        .as_ref()?;
+    let entity = commands
+        .spawn((
+            SessionEntity,
+            Pickup {
+                definition: index,
+                remaining: 26.5,
+            },
+            WorldAssetRoot(server.load(scene.clone())),
+            Transform::from_translation(position),
+            Visibility::Inherited,
+        ))
+        .id();
+    sound(commands, game, "zmb_spawn_powerup", position);
+    if game.audio.aliases.contains_key("zmb_spawn_powerup_loop") {
+        crate::audio::emit_loop(
+            commands,
+            "zmb_spawn_powerup_loop",
+            crate::audio::SoundSource::attached(entity),
+        );
+    }
+    Some(entity)
+}
 fn effect_audio(
     mut commands: Commands,
     definition: Res<GameDefinition>,
@@ -198,6 +251,7 @@ fn drop_powerups(
     mut drops: ResMut<Drops>,
     mut session: ResMut<Session>,
     enemies: Query<&Transform, With<Zombie>>,
+    panzers: Query<(), With<crate::panzer::Panzer>>,
     players: Query<Entity, With<Player>>,
     spatial: SpatialQuery,
     server: Res<AssetServer>,
@@ -213,7 +267,8 @@ fn drop_powerups(
         drops.earned = true;
     }
     for EnemyDeath(receipt) in deaths.read() {
-        if drops.count >= 4
+        if panzers.contains(receipt.impact.target)
+            || drops.count >= 4
             || !receipt.impact.source.player_attributed()
             || !players.contains(receipt.impact.attacker)
             || definition.content.weapons.iter().any(|w| {
@@ -313,9 +368,9 @@ fn drop_powerups(
         drops.earned = false;
     }
 }
-fn collect(
+pub(crate) fn collect(
     mut commands: Commands,
-    server: Res<AssetServer>,
+    mut remote: MessageReader<DronePickup>,
     definition: Res<GameDefinition>,
     mut effects: ResMut<PowerupEffects>,
     mut drops: ResMut<Drops>,
@@ -333,9 +388,14 @@ fn collect(
         &mut crate::equipment::GrenadeInventory,
         &mut crate::equipment::TacticalInventory,
         &mut crate::mines::MineInventory,
-        &crate::solo_revive::PerkInventory,
+        &mut crate::solo_revive::PerkInventory,
+        Option<&crate::perks::PerkDrinking>,
     )>,
 ) {
+    let authorized: HashSet<_> = remote
+        .read()
+        .map(|event| (event.owner, event.pickup))
+        .collect();
     for (entity, pickup, transform) in &pickups {
         if pickup.remaining <= 0. {
             continue;
@@ -343,21 +403,39 @@ fn collect(
         let Some(d) = definition.content.powerups.get(pickup.definition) else {
             continue;
         };
-        for (owner, player, pose, health, mut weapons, mut grenades, mut tactical, mut mines, perks) in
-            &mut players
+        for (
+            owner,
+            player,
+            pose,
+            health,
+            mut weapons,
+            mut grenades,
+            mut tactical,
+            mut mines,
+            mut perks,
+            drinking,
+        ) in &mut players
         {
             if !matches!(health.state(), LifeState::Standing | LifeState::Downed)
                 || (d.id.0 == "powerup.zombie_blood" && health.state() != LifeState::Standing)
-                || (pose.translation - Vec3::Y * (player.height * 0.5))
-                    .distance_squared(transform.translation)
-                    > 1.6256_f32.powi(2)
+                || (!authorized.contains(&(owner, entity))
+                    && (pose.translation - Vec3::Y * (player.height * 0.5))
+                        .distance_squared(transform.translation)
+                        > 1.6256_f32.powi(2))
             {
                 continue;
             }
             match d.id.0.as_str() {
                 "powerup.random_perk" => {
-                    if health.state() != LifeState::Standing || crate::perks::spawn_random_bottle(
-                        &mut commands, &server, &definition, perks, &mut session, transform.translation).is_none() { continue; }
+                    if health.state() != LifeState::Standing {
+                        continue;
+                    }
+                    crate::perks::grant_random_perk(
+                        &definition,
+                        &mut perks,
+                        drinking.map(|drink| &drink.perk),
+                        &mut session,
+                    );
                 }
                 "powerup.bonus_points_player" | "powerup.bonus_points_team" => {
                     let _default_points = (1 + session.random() % 24) * 100;
@@ -425,7 +503,9 @@ fn collect(
                 "powerup.double_points" => "powerup_doublepoints",
                 "powerup.zombie_blood" => "powerup_zombie_blood",
                 "powerup.fire_sale" => "powerup_firesale",
-                "powerup.bonus_points_player" | "powerup.bonus_points_team" | "powerup.random_perk" => "",
+                "powerup.bonus_points_player"
+                | "powerup.bonus_points_team"
+                | "powerup.random_perk" => "",
                 _ => "powerup_nuke",
             };
             if !voice.is_empty() {
@@ -464,6 +544,7 @@ fn detonate(
     time: Res<Time<Fixed>>,
     mut waves: Query<(Entity, &mut Nuke)>,
     enemies: Query<(Entity, &Transform, &Vitality), With<Zombie>>,
+    panzers: Query<(), With<crate::panzer::Panzer>>,
     mut queue: ResMut<DamageQueue>,
     mut session: ResMut<Session>,
     effects: Res<PowerupEffects>,
@@ -480,10 +561,18 @@ fn detonate(
             continue;
         }
         if wave.targets.is_none() {
+            for (target, _, health) in &enemies {
+                if panzers.contains(target) && health.state() == LifeState::ActorAlive {
+                    let delay = 0.1 + (session.random() as f32 / u32::MAX as f32) * 0.6;
+                    crate::panzer::queue_nuke(&mut commands, target, wave.owner, delay);
+                }
+            }
             let mut targets: Vec<_> = enemies
                 .iter()
                 .filter(|(entity, _, v)| {
-                    v.state() == LifeState::ActorAlive && !claimed.contains(entity)
+                    v.state() == LifeState::ActorAlive
+                        && !panzers.contains(*entity)
+                        && !claimed.contains(entity)
                 })
                 .collect();
             targets.sort_by(|(_, a, _), (_, b, _)| {

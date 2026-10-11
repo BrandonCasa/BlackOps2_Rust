@@ -1,9 +1,11 @@
 use crate::{GameState, assets::LaunchOptions};
-use bevy::prelude::*;
 use bevy::picking::{events::PointerPress, hover::Hovered, pointer::PointerButton};
+use bevy::prelude::*;
 use bevy::ui_widgets::Button as UiButton;
 
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Resource, Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Difficulty {
     #[default]
@@ -23,11 +25,20 @@ impl Difficulty {
         self == Self::Original
     }
 
-    pub fn gait(self, profile: &crate::rounds::RoundProfile, round: u32, random: u32) -> crate::rounds::Gait {
+    pub fn gait(
+        self,
+        profile: &crate::rounds::RoundProfile,
+        round: u32,
+        random: u32,
+    ) -> crate::rounds::Gait {
         if self == Self::Original {
             return profile.gait(round, random);
         }
-        let base = if round <= 1 { 1 } else { round.clamp(1, 255) * 2 };
+        let base = if round <= 1 {
+            1
+        } else {
+            round.saturating_sub(1).clamp(1, 255) * 2
+        };
         let roll = base.saturating_add(random % profile.speed_random_band);
         if roll <= profile.gait_thresholds[0] {
             crate::rounds::Gait::Walk
@@ -86,8 +97,14 @@ fn show(
     let rows = match **state {
         GameState::MainMenu => vec![
             ("Start solo", FrontendAction::StartSolo),
-            ("Original difficulty", FrontendAction::SelectDifficulty(Difficulty::Original)),
-            ("Easy difficulty", FrontendAction::SelectDifficulty(Difficulty::Easy)),
+            (
+                "Original difficulty",
+                FrontendAction::SelectDifficulty(Difficulty::Original),
+            ),
+            (
+                "Easy difficulty",
+                FrontendAction::SelectDifficulty(Difficulty::Easy),
+            ),
             ("Exit application", FrontendAction::Exit),
         ],
         GameState::LoadError => vec![
@@ -101,46 +118,69 @@ fn show(
         ],
         _ => return,
     };
-    commands.spawn((
-        FrontendRoot,
-        UiTargetCamera(camera),
-        GlobalZIndex(110),
-        Node {
-            position_type: PositionType::Absolute,
-            top: percent(15.),
-            left: percent(30.),
-            width: percent(40.),
-            padding: UiRect::all(px(24.)),
-            flex_direction: FlexDirection::Column,
-            row_gap: px(12.),
-            ..default()
-        },
-        BackgroundColor(Color::srgba(0.02, 0.02, 0.02, 0.95)),
-    )).with_children(|parent| {
-        parent.spawn((
-            Text::new(format!("ORIGINS\nSolo — {}", difficulty.label())),
-            FrontendRootTitle,
-            TextFont { font_size: FontSize::Px(28.), ..default() },
-            TextColor(Color::srgb(0.95, 0.72, 0.3)),
-        ));
-        for (label, action) in rows {
+    commands
+        .spawn((
+            FrontendRoot,
+            UiTargetCamera(camera),
+            GlobalZIndex(110),
+            Node {
+                position_type: PositionType::Absolute,
+                top: percent(15.),
+                left: percent(30.),
+                width: percent(40.),
+                padding: UiRect::all(px(24.)),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(12.),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.02, 0.02, 0.02, 0.95)),
+        ))
+        .with_children(|parent| {
             parent.spawn((
-                UiButton,
-                Hovered::default(),
-                FrontendButton(action),
-                Node { padding: UiRect::all(px(12.)), ..default() },
-                BackgroundColor(Color::srgb(0.12, 0.12, 0.12)),
-            )).with_children(|button| {
-                button.spawn((Text::new(label), TextFont { font_size: FontSize::Px(20.), ..default() }));
-            });
-        }
-        parent.spawn((Text::new("Enter: start / retry   1: Original   2: Easy   Esc: menu / exit"),
-            TextFont { font_size: FontSize::Px(14.), ..default() }));
-    });
+                Text::new(format!("ORIGINS\nSolo — {}", difficulty.label())),
+                FrontendRootTitle,
+                TextFont {
+                    font_size: FontSize::Px(28.),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.95, 0.72, 0.3)),
+            ));
+            for (label, action) in rows {
+                parent
+                    .spawn((
+                        UiButton,
+                        Hovered::default(),
+                        FrontendButton(action),
+                        Node {
+                            padding: UiRect::all(px(12.)),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.12, 0.12, 0.12)),
+                    ))
+                    .with_children(|button| {
+                        button.spawn((
+                            Text::new(label),
+                            TextFont {
+                                font_size: FontSize::Px(20.),
+                                ..default()
+                            },
+                        ));
+                    });
+            }
+            parent.spawn((
+                Text::new("Enter: start / retry   1: Original   2: Easy   Esc: menu / exit"),
+                TextFont {
+                    font_size: FontSize::Px(14.),
+                    ..default()
+                },
+            ));
+        });
 }
 
 fn hide(mut commands: Commands, roots: Query<Entity, With<FrontendRoot>>) {
-    for root in &roots { commands.entity(root).despawn(); }
+    for root in &roots {
+        commands.entity(root).despawn();
+    }
 }
 
 fn buttons(
@@ -148,7 +188,9 @@ fn buttons(
     buttons: Query<&FrontendButton>,
     mut actions: MessageWriter<FrontendAction>,
 ) {
-    if event.button == PointerButton::Primary && let Ok(button) = buttons.get(event.entity) {
+    if event.button == PointerButton::Primary
+        && let Ok(button) = buttons.get(event.entity)
+    {
         actions.write(button.0);
     }
 }
@@ -160,17 +202,31 @@ fn shortcuts(
 ) {
     match **state {
         GameState::MainMenu => {
-            if keys.just_pressed(KeyCode::Enter) { actions.write(FrontendAction::StartSolo); }
-            if keys.just_pressed(KeyCode::Digit1) { actions.write(FrontendAction::SelectDifficulty(Difficulty::Original)); }
-            if keys.just_pressed(KeyCode::Digit2) { actions.write(FrontendAction::SelectDifficulty(Difficulty::Easy)); }
-            if keys.just_pressed(KeyCode::Escape) { actions.write(FrontendAction::Exit); }
+            if keys.just_pressed(KeyCode::Enter) {
+                actions.write(FrontendAction::StartSolo);
+            }
+            if keys.just_pressed(KeyCode::Digit1) {
+                actions.write(FrontendAction::SelectDifficulty(Difficulty::Original));
+            }
+            if keys.just_pressed(KeyCode::Digit2) {
+                actions.write(FrontendAction::SelectDifficulty(Difficulty::Easy));
+            }
+            if keys.just_pressed(KeyCode::Escape) {
+                actions.write(FrontendAction::Exit);
+            }
         }
         GameState::LoadError => {
-            if keys.just_pressed(KeyCode::Enter) { actions.write(FrontendAction::RetryLoad); }
-            if keys.just_pressed(KeyCode::Escape) { actions.write(FrontendAction::Exit); }
+            if keys.just_pressed(KeyCode::Enter) {
+                actions.write(FrontendAction::RetryLoad);
+            }
+            if keys.just_pressed(KeyCode::Escape) {
+                actions.write(FrontendAction::Exit);
+            }
         }
         GameState::GameOver => {
-            if keys.just_pressed(KeyCode::Escape) { actions.write(FrontendAction::MainMenu); }
+            if keys.just_pressed(KeyCode::Escape) {
+                actions.write(FrontendAction::MainMenu);
+            }
         }
         _ => {}
     }
@@ -189,22 +245,32 @@ fn apply_actions(
         match *action {
             FrontendAction::SelectDifficulty(value) if **state == GameState::MainMenu => {
                 *difficulty = value;
-                for mut text in &mut title { text.0 = format!("ORIGINS\nSolo — {}", value.label()); }
+                for mut text in &mut title {
+                    text.0 = format!("ORIGINS\nSolo — {}", value.label());
+                }
             }
             FrontendAction::StartSolo if **state == GameState::MainMenu => {
                 commands.queue(crate::session::teardown);
                 next.set(GameState::PreparingShaders);
             }
-            FrontendAction::Restart if matches!(**state, GameState::Paused | GameState::GameOver) => {
+            FrontendAction::Restart
+                if matches!(**state, GameState::Paused | GameState::GameOver) =>
+            {
                 commands.queue(crate::session::teardown);
                 next.set(GameState::PreparingShaders);
             }
-            FrontendAction::MainMenu if matches!(**state, GameState::Paused | GameState::GameOver) => {
+            FrontendAction::MainMenu
+                if matches!(**state, GameState::Paused | GameState::GameOver) =>
+            {
                 commands.queue(crate::session::teardown);
                 next.set(GameState::MainMenu);
             }
-            FrontendAction::RetryLoad if **state == GameState::LoadError => next.set(GameState::Loading),
-            FrontendAction::Exit => { exit.write(AppExit::Success); }
+            FrontendAction::RetryLoad if **state == GameState::LoadError => {
+                next.set(GameState::Loading)
+            }
+            FrontendAction::Exit => {
+                exit.write(AppExit::Success);
+            }
             _ => {}
         }
     }

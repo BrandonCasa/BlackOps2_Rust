@@ -4,7 +4,10 @@ use crate::{
     gameplay::{Session, SessionEntity},
     player::Player,
 };
-use bevy::prelude::*;
+use bevy::{
+    prelude::*,
+    world_serialization::{DynamicWorldRoot, WorldAssetRoot, WorldInstance, WorldInstanceSpawner},
+};
 use std::hash::BuildHasher;
 
 #[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -70,7 +73,9 @@ fn initialize(world: &mut World) {
         session.character = (session.seed % 4) as usize;
     }
     world.insert_resource(session);
-    world.insert_resource(crate::quests::MainQuest::reset(*world.resource::<crate::frontend::Difficulty>()));
+    world.insert_resource(crate::quests::MainQuest::reset(
+        *world.resource::<crate::frontend::Difficulty>(),
+    ));
     world.insert_resource(crate::damage::CombatHistory::default());
     world.insert_resource(crate::powerups::PowerupEffects::default());
     world.insert_resource(crate::powerups::Drops::default());
@@ -88,6 +93,29 @@ pub(crate) fn teardown(world: &mut World) {
         .query_filtered::<Entity, With<SessionEntity>>()
         .iter(world)
         .collect();
+    let owners: std::collections::HashSet<_> = entities.iter().copied().collect();
+    let instances: Vec<_> = world
+        .query::<(Entity, &WorldInstance)>()
+        .iter(world)
+        .filter_map(|(entity, instance)| {
+            let mut ancestor = Some(entity);
+            while let Some(current) = ancestor {
+                if owners.contains(&current) {
+                    return Some((entity, **instance));
+                }
+                ancestor = world.get::<ChildOf>(current).map(ChildOf::parent);
+            }
+            None
+        })
+        .collect();
+    for (entity, instance) in instances {
+        world
+            .entity_mut(entity)
+            .remove::<(WorldAssetRoot, DynamicWorldRoot)>();
+        world
+            .resource_mut::<WorldInstanceSpawner>()
+            .unregister_instance(instance);
+    }
     for entity in entities {
         if let Ok(entity) = world.get_entity_mut(entity) {
             entity.despawn();

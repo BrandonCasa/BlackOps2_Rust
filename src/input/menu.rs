@@ -56,7 +56,13 @@ enum Choice {
 
 fn choices(menu: &ControlMenu) -> Vec<Choice> {
     let Some(page) = menu.page else {
-        return vec![Choice::Resume, Choice::Controls, Choice::Restart, Choice::MainMenu, Choice::Exit];
+        return vec![
+            Choice::Resume,
+            Choice::Controls,
+            Choice::Restart,
+            Choice::MainMenu,
+            Choice::Exit,
+        ];
     };
     let mut rows = vec![
         Choice::Sensitivity,
@@ -386,7 +392,9 @@ fn navigate(
     if let Some(choice) = pointer_choice {
         activate(choice, 1., &mut menu, &mut settings, &mut next, &mut store);
     }
-    if let Some(action) = menu.pending_action.take() { frontend.write(action); }
+    if let Some(action) = menu.pending_action.take() {
+        frontend.write(action);
+    }
 }
 fn pointer_activate(event: On<PointerPress>, rows: Query<&MenuRow>, mut menu: ResMut<ControlMenu>) {
     if event.button == PointerButton::Primary

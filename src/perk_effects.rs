@@ -405,7 +405,8 @@ fn land(
                     inner_damage: dive.damage[1],
                     outer_damage: dive.damage[0],
                     direction: None,
-                });
+                    category: None, player_damage: None, source: None,
+});
                 evidence.record(serde_json::json!({"event":"dive_explosion","height":landing.height,"radius":dive.radius,"damage":dive.damage}));
             }
         }
