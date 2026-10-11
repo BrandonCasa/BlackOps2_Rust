@@ -370,11 +370,11 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add Ice Staff gravestone freezing.
 - [ ] Add Ice Staff frozen gravestone destruction.
 - [ ] Add Ice Staff gravestone puzzle completion.
-- [ ] Add Wind Staff ring orientations.
-- [ ] Add Wind Staff ring shooting rotation.
-- [ ] Add Wind Staff ring puzzle completion.
-- [ ] Add Wind Staff smoke sphere redirection.
-- [ ] Add Wind Staff smoke puzzle completion.
+- [x] Add Wind Staff ring orientations.
+- [x] Add Wind Staff ring shooting rotation.
+- [x] Add Wind Staff ring puzzle completion.
+- [x] Add Wind Staff smoke sphere redirection.
+- [x] Add Wind Staff smoke puzzle completion.
 - [x] Add Lightning Staff piano sequence inputs.
 - [x] Add Lightning Staff piano sequence rejection.
 - [x] Add Lightning Staff piano puzzle completion.
