@@ -6,6 +6,8 @@ Use your judgment to choose tools, proportional validation, and implementation s
 
 Keep one Cargo package and one game executable, `origins.exe`. Build on Bevy and Avian rather than duplicating engine infrastructure. Retain safe Rust and the locked dependency versions unless the task calls for changing them.
 
+All runtime game scripts must be Rust ECS systems. Bevy will invoke no C, C++, GSC, Python, or PowerShell scripts. The extraction tools are offline only; the game will consume prepared data and Bevy shader assets.
+
 Keep `todo.md` as the sole project checklist, with concrete implementation tasks. Performance documentation is allowed: record benchmark procedures, settings, hardware, system load, executable and asset identities, measurements, limitations, and the relevant commit SHA. Other new documentation and code comments require user authorization. Leave rendering and graphics work out of the checklist.
 
 Preserve original source assets. Keep prepared runtime assets under `assets/origins/`, validate their dependency closure when changing the pack, and use Git LFS for substantial binaries. Keep secrets, machine-specific paths, and generated builds out of commits.
