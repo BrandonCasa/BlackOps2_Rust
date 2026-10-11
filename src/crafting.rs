@@ -166,3 +166,10 @@ impl Crafting {
             .and_then(|(index, _)| source::BENCHES.get(*index)).map(|(_, p)| Vec3::from_array(*p))
     }
 }
+
+pub fn reveal_part(commands: &mut Commands, parts: &mut Parts, id: &str, position: Vec3) -> Option<Entity> {
+    if parts.pieces.contains_key(id) { return None; }
+    let entity = commands.spawn((CraftTarget::Part(id.into()), SessionEntity, Transform::from_translation(position), Visibility::Inherited)).id();
+    parts.reveal(id, entity);
+    Some(entity)
+}

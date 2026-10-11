@@ -44,6 +44,7 @@ pub mod navigation;
 pub mod origins;
 pub mod perk_effects;
 pub mod perks;
+pub mod panzer;
 pub mod player;
 pub mod player_health;
 pub mod powerups;
@@ -179,6 +180,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             buildables::BuildablePlugin,
             tank::TankPlugin,
             combat_effects::CombatEffectsPlugin,
+            panzer::PanzerPlugin,
             life::LifeStatePlugin,
             solo_revive::SoloRevivePlugin,
             perks::PerkPlugin,

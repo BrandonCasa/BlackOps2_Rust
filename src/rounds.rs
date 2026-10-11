@@ -221,6 +221,7 @@ pub(crate) fn advance(
     generators: Res<crate::generators::Generators>,
     replacements: Query<(Entity, &ReplacementHealth)>,
     quest: Res<crate::quests::MainQuest>,
+    panzer_waves: Res<crate::panzer::PanzerWaves>,
 ) {
     let (mut started, mut ending) = events;
     *population = default();
@@ -236,7 +237,7 @@ pub(crate) fn advance(
     }
     evidence.peak_ordinary = evidence.peak_ordinary.max(population.ordinary);
     let profile = &definition.rounds;
-    if session.round_complete(population.ordinary + population.special) {
+    if session.round_complete(population.ordinary + population.special) && panzer_waves.pending == 0 {
         if quest.round_held() { return; }
         if session.intermission.is_none() {
             ending.write(RoundEnding {

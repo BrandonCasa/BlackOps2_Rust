@@ -252,6 +252,7 @@ pub(crate) fn resolve(
             }
         }
         let base_amount = impact.amount;
+        let armored = armor.is_some();
         if let Some(mut armor) = armor { impact.amount = armor.absorb(&impact); }
         let before = health.current().unwrap_or(0);
         let aimed_bullet = matches!(impact.category, DamageCategory::Bullet)
@@ -259,7 +260,7 @@ pub(crate) fn resolve(
                 .get(impact.attacker)
                 .is_ok_and(|inventory| inventory.ads > 0.5);
         let cherry = impact.source.is_cherry(&definition);
-        let insta_kill = !player
+        let insta_kill = !player && !armored
             && sender_alive
             && base_amount > 0
             && base_amount < before
@@ -345,6 +346,7 @@ fn rewards(
     mut session: ResMut<Session>,
     effects: Res<crate::powerups::PowerupEffects>,
     nuked: Query<(), With<crate::powerups::NukeTarget>>,
+    panzers: Query<(), With<crate::panzer::Panzer>>,
 ) {
     for applied in applied.read() {
         let impact = applied.impact.clone();
@@ -363,7 +365,8 @@ fn rewards(
         } else {
             0
         };
-        let points = if !impact.source.player_attributed()
+        let points = if lethal && panzers.contains(impact.target) && impact.source.player_attributed() { 750 }
+        else if !impact.source.player_attributed()
             || matches!(impact.source, ImpactSource::Powerup)
         {
             0

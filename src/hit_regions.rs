@@ -45,6 +45,18 @@ pub struct ActorHit {
     pub hit: RegionHit,
 }
 impl Hitboxes {
+    pub fn humanoid(height: f32, radius: f32) -> Self {
+        let volumes = [(HitRegion::Head, height * 0.35, height * 0.4, radius * 0.6),
+            (HitRegion::Torso, -height * 0.12, height * 0.2, radius),
+            (HitRegion::Leg, -height * 0.4, -height * 0.2, radius * 0.65),
+            (HitRegion::Arm, height * 0.1, height * 0.25, radius * 0.5)]
+            .into_iter().enumerate().map(|(index, (region, a, b, radius))| {
+                let x = if region == HitRegion::Arm { radius * 2. } else { 0. };
+                let start = Vec3::new(x, a, 0.); let end = Vec3::new(x, b, 0.);
+                HitVolume { id: format!("body.{index}"), region, start, end, shape: Collider::capsule_endpoints(radius, start, end) }
+            }).collect();
+        Self { volumes, disabled: Vec::new() }
+    }
     pub fn cast(
         &self,
         transform: &Transform,

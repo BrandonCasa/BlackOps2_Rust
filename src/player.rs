@@ -21,6 +21,7 @@ use bevy::prelude::*;
     crate::mines::MineInventory,
     crate::equipment::TacticalInventory,
     crate::crafting::BuildableInventory,
+    crate::panzer::CapturedByPanzer,
 )]
 pub struct Player {
     pub yaw: f32,
@@ -174,6 +175,7 @@ pub fn move_player(
         &crate::equipment::TacticalInventory,
         &crate::mines::MineInventory,
         &crate::environment::TerrainMotion,
+        &crate::panzer::CapturedByPanzer,
     )>,
     mut commands: Commands,
     slide: MoveAndSlide,
@@ -206,6 +208,7 @@ pub fn move_player(
         tactical,
         mines,
         terrain,
+        captured,
     )) = players.single_mut()
     else {
         return;
@@ -227,6 +230,7 @@ pub fn move_player(
         *actions = TickActions::default();
         return;
     }
+    if captured.0.is_some() { player.velocity = Vec3::ZERO; return; }
     let mut collider = collider.clone();
     let tuning = &definition.tuning;
     let dt = time.delta_secs();

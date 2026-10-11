@@ -37,8 +37,8 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add buildable equipment input.
 - [x] Add staff secondary mode input.
 - [x] Add tactical equipment replacement.
-- [ ] Add armored hit regions.
-- [ ] Apply armor absorption before vitality damage.
+- [x] Add armored hit regions.
+- [x] Apply armor absorption before vitality damage.
 - [x] Add projectile weapon spawning.
 - [x] Add projectile swept collision.
 - [x] Add projectile impact resolution.
@@ -82,27 +82,27 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Consume recipe parts after crafting completes.
 - [x] Add crafted equipment pickup interactions.
 - [x] Add crafted equipment replacement interactions.
-- [ ] Add Panzersoldat locomotion behavior.
-- [ ] Add Panzersoldat landing behavior.
-- [ ] Add Panzersoldat pursuit behavior.
-- [ ] Add Panzersoldat armored body regions.
-- [ ] Add Panzersoldat faceplate hit regions.
-- [ ] Add Panzersoldat armor break transitions.
-- [ ] Add Panzersoldat exposed head damage.
-- [ ] Add Panzersoldat flamethrower windup.
-- [ ] Add Panzersoldat flame damage volumes.
-- [ ] Add Panzersoldat flame cooldown.
-- [ ] Add Panzersoldat claw targeting.
-- [ ] Add Panzersoldat claw projectile movement.
-- [ ] Add Panzersoldat player capture.
-- [ ] Add Panzersoldat captured-player pulling.
-- [ ] Add Panzersoldat claw release from damage.
-- [ ] Release captured players after Panzersoldat death.
-- [ ] Add Panzersoldat melee attacks.
-- [ ] Add Panzersoldat death rewards.
-- [ ] Add Panzersoldat staff-part drops.
-- [ ] Add first Panzersoldat round scheduling.
-- [ ] Add recurring Panzersoldat round scheduling.
+- [x] Add Panzersoldat locomotion behavior.
+- [x] Add Panzersoldat landing behavior.
+- [x] Add Panzersoldat pursuit behavior.
+- [x] Add Panzersoldat armored body regions.
+- [x] Add Panzersoldat faceplate hit regions.
+- [x] Add Panzersoldat armor break transitions.
+- [x] Add Panzersoldat exposed head damage.
+- [x] Add Panzersoldat flamethrower windup.
+- [x] Add Panzersoldat flame damage volumes.
+- [x] Add Panzersoldat flame cooldown.
+- [x] Add Panzersoldat claw targeting.
+- [x] Add Panzersoldat claw projectile movement.
+- [x] Add Panzersoldat player capture.
+- [x] Add Panzersoldat captured-player pulling.
+- [x] Add Panzersoldat claw release from damage.
+- [x] Release captured players after Panzersoldat death.
+- [x] Add Panzersoldat melee attacks.
+- [x] Add Panzersoldat death rewards.
+- [x] Add Panzersoldat staff-part drops.
+- [x] Add first Panzersoldat round scheduling.
+- [x] Add recurring Panzersoldat round scheduling.
 - [ ] Add generator shutdown progress.
 - [ ] Add generator recapture interactions.
 - [ ] Add generator defender capture-zone targeting.
@@ -311,7 +311,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add Fire Staff plane-part spawning.
 - [ ] Add Fire Staff plane damage handling.
 - [ ] Add Fire Staff generator-part pickup.
-- [ ] Add Fire Staff Panzer-part pickup.
+- [x] Add Fire Staff Panzer-part pickup.
 - [x] Add Fire Staff recipe.
 - [x] Add Fire Staff crafting pedestal.
 - [x] Add bunker Ice Staff dig-part pickup.
@@ -518,7 +518,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add staff upgrade completion announcements.
 - [ ] Add elemental staff firing audio.
 - [ ] Add source-defined stage completion announcements.
-- [ ] Add Panzersoldat vocalizations.
+- [x] Add Panzersoldat vocalizations.
 - [ ] Add box music playback.
 - [ ] Add portal spatial sounds.
 - [x] Add tank engine sound following.
