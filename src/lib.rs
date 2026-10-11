@@ -21,6 +21,7 @@ pub mod assets;
 pub mod audio;
 pub mod barriers;
 pub mod damage;
+pub mod crafting;
 pub mod economy;
 pub mod enemies;
 pub mod environment;
@@ -171,6 +172,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             frontend::FrontendPlugin,
             quests::QuestPlugin,
             stations::StationPlugin,
+            crafting::CraftingPlugin,
             life::LifeStatePlugin,
             solo_revive::SoloRevivePlugin,
             perks::PerkPlugin,

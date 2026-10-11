@@ -20,6 +20,7 @@ use bevy::prelude::*;
     crate::perk_effects::CherryState,
     crate::mines::MineInventory,
     crate::equipment::TacticalInventory,
+    crate::crafting::BuildableInventory,
 )]
 pub struct Player {
     pub yaw: f32,

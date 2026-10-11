@@ -284,6 +284,13 @@ impl WeaponInventory {
     pub fn active(&self) -> Option<&OwnedWeapon> {
         self.slots[self.active].as_ref()
     }
+    pub fn exchange_staff(&mut self, definition: &WeaponDefinition) -> Result<usize, InventoryError> {
+        if self.action != WeaponAction::Ready { return Err(InventoryError::Busy); }
+        for slot in &mut self.slots {
+            if slot.as_ref().is_some_and(|w| w.definition.0.starts_with("weapon.staff_")) { *slot = None; }
+        }
+        self.receive(definition)
+    }
     pub fn deposit_active(&mut self) -> Result<OwnedWeapon, InventoryError> {
         if self.action != WeaponAction::Ready {
             return Err(InventoryError::Busy);

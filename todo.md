@@ -70,18 +70,18 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add round-dependent zombie speed selection.
 - [x] Add shared Ice, Wind, and Lightning part definitions and ownership.
 - [x] Prevent duplicate shared part reveals and collection.
-- [ ] Add collectible part placements.
-- [ ] Add source-defined randomized part locations.
+- [x] Add collectible part placements.
+- [x] Add source-defined randomized part locations.
 - [x] Add shared part pickup interactions reusable by robot and tank rewards.
-- [ ] Add crafting recipe prerequisites.
-- [ ] Add crafted equipment ownership.
-- [ ] Add crafting bench placements.
-- [ ] Bind original bench-specific recipe availability.
-- [ ] Add crafting interaction progress.
-- [ ] Cancel interrupted crafting.
-- [ ] Consume recipe parts after crafting completes.
-- [ ] Add crafted equipment pickup interactions.
-- [ ] Add crafted equipment replacement interactions.
+- [x] Add crafting recipe prerequisites.
+- [x] Add crafted equipment ownership.
+- [x] Add crafting bench placements.
+- [x] Bind original bench-specific recipe availability.
+- [x] Add crafting interaction progress.
+- [x] Cancel interrupted crafting.
+- [x] Consume recipe parts after crafting completes.
+- [x] Add crafted equipment pickup interactions.
+- [x] Add crafted equipment replacement interactions.
 - [ ] Add Panzersoldat locomotion behavior.
 - [ ] Add Panzersoldat landing behavior.
 - [ ] Add Panzersoldat pursuit behavior.
@@ -242,8 +242,8 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add tank return purchase interactions.
 - [ ] Add tank lightning-part pickup platforms.
 - [ ] Add tank lightning-part jump access.
-- [ ] Add Zombie Shield part sets.
-- [ ] Add Zombie Shield recipe.
+- [x] Add Zombie Shield part sets.
+- [x] Add Zombie Shield recipe.
 - [ ] Add Zombie Shield held state.
 - [ ] Add Zombie Shield carried-back state.
 - [ ] Add Zombie Shield durability.
@@ -254,9 +254,9 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add deployed shield collision.
 - [ ] Add deployed shield enemy targeting.
 - [ ] Break depleted shields.
-- [ ] Add shield replacement pickup.
-- [ ] Add Maxis Drone part sets.
-- [ ] Add Maxis Drone recipe.
+- [x] Add shield replacement pickup.
+- [x] Add Maxis Drone part sets.
+- [x] Add Maxis Drone recipe.
 - [ ] Add Maxis Drone source-defined damage immunity.
 - [ ] Add Maxis Drone deployment duration.
 - [ ] Add Maxis Drone deployment.
@@ -268,10 +268,10 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add Maxis Drone pickup after recharge.
 - [ ] Add Maxis Drone upgraded state.
 - [ ] Add Maxis Drone collection of reward seals.
-- [ ] Add record inventory.
-- [ ] Add master record randomized placements.
-- [ ] Add elemental record randomized placements.
-- [ ] Add gramophone pickup.
+- [x] Add record inventory.
+- [x] Add master record randomized placements.
+- [x] Add elemental record randomized placements.
+- [x] Add gramophone pickup.
 - [ ] Add excavation gramophone placement.
 - [ ] Open excavation stairs after master record playback.
 - [ ] Add gramophone retrieval interactions.
@@ -290,49 +290,49 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add Crazy Place barrier movement scheduling.
 - [ ] Add Crazy Place barrier collision updates.
 - [ ] Add Crazy Place barrier navigation updates.
-- [ ] Add Fire Staff ammunition definitions.
-- [ ] Add Ice Staff ammunition definitions.
-- [ ] Add Wind Staff ammunition definitions.
-- [ ] Add Lightning Staff ammunition definitions.
-- [ ] Add Kagutsuchi's Blood weapon definition.
-- [ ] Add Ull's Arrow weapon definition.
-- [ ] Add Boreas' Fury weapon definition.
-- [ ] Add Kimat's Bite weapon definition.
-- [ ] Add Fire Staff inventory ownership.
-- [ ] Add Ice Staff inventory ownership.
-- [ ] Add Wind Staff inventory ownership.
-- [ ] Add Lightning Staff inventory ownership.
-- [ ] Enforce source-defined single-staff carrying restrictions.
-- [ ] Add Fire crystal pickup.
-- [ ] Add Ice crystal pickup.
-- [ ] Add Wind crystal pickup.
-- [ ] Add Lightning crystal pickup.
+- [x] Add Fire Staff ammunition definitions.
+- [x] Add Ice Staff ammunition definitions.
+- [x] Add Wind Staff ammunition definitions.
+- [x] Add Lightning Staff ammunition definitions.
+- [x] Add Kagutsuchi's Blood weapon definition.
+- [x] Add Ull's Arrow weapon definition.
+- [x] Add Boreas' Fury weapon definition.
+- [x] Add Kimat's Bite weapon definition.
+- [x] Add Fire Staff inventory ownership.
+- [x] Add Ice Staff inventory ownership.
+- [x] Add Wind Staff inventory ownership.
+- [x] Add Lightning Staff inventory ownership.
+- [x] Enforce source-defined single-staff carrying restrictions.
+- [x] Add Fire crystal pickup.
+- [x] Add Ice crystal pickup.
+- [x] Add Wind crystal pickup.
+- [x] Add Lightning crystal pickup.
 - [ ] Restore dropped elemental crystals to recoverable pickup locations.
 - [ ] Add Fire Staff plane-part spawning.
 - [ ] Add Fire Staff plane damage handling.
 - [ ] Add Fire Staff generator-part pickup.
 - [ ] Add Fire Staff Panzer-part pickup.
-- [ ] Add Fire Staff recipe.
-- [ ] Add Fire Staff crafting pedestal.
+- [x] Add Fire Staff recipe.
+- [x] Add Fire Staff crafting pedestal.
 - [x] Add bunker Ice Staff dig-part pickup.
 - [x] Add no-man's-land Ice Staff dig-part pickup.
 - [x] Add village Ice Staff dig-part pickup.
-- [ ] Add Ice Staff recipe.
-- [ ] Add Ice Staff crafting pedestal.
+- [x] Add Ice Staff recipe.
+- [x] Add Ice Staff crafting pedestal.
 - [ ] Add Wind Staff Thor-part pickup.
 - [ ] Add Wind Staff Odin-part pickup.
 - [ ] Add Wind Staff Freya-part pickup.
-- [ ] Add Wind Staff recipe.
-- [ ] Add Wind Staff crafting pedestal.
+- [x] Add Wind Staff recipe.
+- [x] Add Wind Staff crafting pedestal.
 - [ ] Add Lightning Staff outbound tank-part pickup.
 - [ ] Add Lightning Staff first return tank-part pickup.
 - [ ] Add Lightning Staff second return tank-part pickup.
-- [ ] Add Lightning Staff recipe.
-- [ ] Add Lightning Staff crafting pedestal.
-- [ ] Add staff pedestal storage.
-- [ ] Add staff pedestal retrieval.
-- [ ] Add source-defined staff exchange behavior.
-- [ ] Restore lost or abandoned staffs to available pickup pedestals.
+- [x] Add Lightning Staff recipe.
+- [x] Add Lightning Staff crafting pedestal.
+- [x] Add staff pedestal storage.
+- [x] Add staff pedestal retrieval.
+- [x] Add source-defined staff exchange behavior.
+- [x] Restore lost or abandoned staffs to available pickup pedestals.
 - [ ] Add Fire Staff projectile attacks.
 - [ ] Add Fire Staff impact burning.
 - [ ] Add Ice Staff projectile attacks.
@@ -512,7 +512,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Reconstruct native room reverb.
 - [x] Add shovel pickup and source dig-result character dialogue.
 - [x] Add Golden Shovel/Helmet, staff-part reveal, and staff-part collection sounds.
-- [ ] Add crafting progress sounds.
+- [x] Add crafting progress sounds.
 - [ ] Add Maxis Drone spatial audio.
 - [ ] Add Crazy Place barrier movement sounds.
 - [ ] Add staff upgrade completion announcements.

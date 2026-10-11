@@ -132,7 +132,7 @@ fn roll(definition: &GameDefinition, inventory: &WeaponInventory, tactical: &cra
     }
     None
 }
-fn interact(
+pub(crate) fn interact(
     input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, definition: Res<GameDefinition>,
     effects: Res<crate::powerups::PowerupEffects>, generators: Res<crate::generators::Generators>,
     query: SpatialQuery, targets: Query<(Entity, &Station, &Transform), Without<Player>>,
