@@ -237,7 +237,7 @@ def prepare(config):
         wall_interactions.append({"id": "interaction.wall." + entity["id"].removeprefix("entity."),
                                   "placement": placement, "action": {"kind": "weapon", "weapon": weapon["id"], "price": price,
                                   "ammo_price": ammo if ammo is not None else math.ceil(int(price * 0.5) / 10) * 10},
-                                  "reach": 2., "hold_seconds": 0., "hidden_prompt": False})
+                                  "reach": 2., "hold_seconds": 0., "hidden_prompt": False, "generator": None})
     content["placements"] = [p for p in content["placements"] if not p["id"].startswith("placement.wall.")] + wall_placements
     content["interactions"] = [p for p in content["interactions"] if not p["id"].startswith("interaction.wall.")] + wall_interactions
     content["definitions"] = sorted(set(content["definitions"]) | ammunition)

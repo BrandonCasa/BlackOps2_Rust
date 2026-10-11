@@ -345,6 +345,12 @@ pub(crate) fn interact(
         || mines.busy()
         || tactical.busy()
         || drinking;
+    if usable.source.generator.as_ref().is_some_and(|id| !generators.powered(id)) {
+        focus.prompt = "Requires generator power".into();
+        focus.progress = 0.;
+        focus.rejection = Some(InteractionRejection::NoPower);
+        return;
+    }
     if let InteractionAction::Generator { generator } = &usable.source.action {
         let Some(d) = definition
             .content

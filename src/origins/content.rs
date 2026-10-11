@@ -528,6 +528,8 @@ pub struct InteractionPlacement {
     pub reach: f32,
     pub hold_seconds: f32,
     pub hidden_prompt: bool,
+    #[serde(default)]
+    pub generator: Option<ContentId>,
 }
 #[derive(Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -1240,6 +1242,7 @@ impl ContentCatalog {
             )?;
         }
         for v in &self.interactions {
+            if let Some(generator) = &v.generator { r(&v.id.0, &generator.0, "generator")?; }
             r(&v.id.0, &v.placement.0, "placement")?;
             valid(
                 positive(v.reach) && nonnegative(v.hold_seconds),

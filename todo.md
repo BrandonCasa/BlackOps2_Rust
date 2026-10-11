@@ -2,7 +2,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 
 - [x] Preserve executable-relative discovery for expanded runtime packs.
 - [ ] Package newly referenced runtime asset types.
-- [ ] Add deferred boundaries before changed colliders enter queries.
+- [x] Add deferred boundaries before changed colliders enter queries.
 - [x] Assign explicit runtime owners to imported triggers and brushes.
 - [x] Route normal weapon hits to shootable environmental targets with solid occlusion.
 - [x] Attribute robot and vehicle contact damage without player kills, points, powerup drops, or souls.
@@ -132,7 +132,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Reveal Zombie Blood hidden entities.
 - [x] Hide restricted entities after Zombie Blood expires.
 - [x] Add wall weapon purchase placements.
-- [ ] Connect wall interactions to source-defined power requirements.
+- [x] Connect wall interactions to source-defined power requirements.
 - [x] Add source-defined wall ammunition prices.
 - [x] Add wall weapon shared-ammunition handling.
 - [x] Add wall weapon ammunition purchases.

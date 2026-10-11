@@ -107,6 +107,10 @@ impl Plugin for GameplayPlugin {
             .add_systems(
                 FixedUpdate,
                 (
+                    ApplyDeferred.before(GameStep::Movement),
+                    ApplyDeferred.after(GameStep::Interactions).before(GameStep::EnemyIntent),
+                    ApplyDeferred.after(GameStep::EnemyIntent).before(GameStep::Combat),
+                    ApplyDeferred.after(GameStep::Damage).before(GameStep::PlayerLife),
                     combat.in_set(GameStep::Combat),
                     crate::rounds::advance.in_set(GameStep::Rounds),
                     crate::economy::record_downs
