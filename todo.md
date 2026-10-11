@@ -498,10 +498,10 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Bind cinematic audio aliases to frame sequences.
 - [ ] Add loading cinematic skip input.
 - [x] Add ending audio synchronization.
-- [ ] Add round transition announcements.
-- [ ] Add generator attack notifications.
-- [ ] Add robot interior announcements.
-- [ ] Add robot pass audio.
+- [x] Add round transition announcements.
+- [x] Add generator attack notifications.
+- [x] Add robot interior announcements.
+- [x] Add robot pass audio.
 - [x] Add tank boarding prompts.
 - [x] Add tank route sounds.
 - [x] Add weather-specific ambient audio.
@@ -516,19 +516,19 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Maxis Drone spatial audio.
 - [x] Add Crazy Place barrier movement sounds.
 - [x] Add staff upgrade completion announcements.
-- [ ] Add elemental staff firing audio.
-- [ ] Add source-defined stage completion announcements.
+- [x] Add elemental staff firing audio.
+- [x] Add source-defined stage completion announcements.
 - [x] Add Panzersoldat vocalizations.
-- [ ] Add box music playback.
-- [ ] Add portal spatial sounds.
+- [x] Add box music playback.
+- [x] Add portal spatial sounds.
 - [x] Add tank engine sound following.
-- [ ] Add robot interior sound ambience.
-- [ ] Add Samantha round announcements.
-- [ ] Add Samantha quest announcements.
-- [ ] Add Samantha's staged opening introduction.
-- [ ] Add source-defined early-round story conversations.
-- [ ] Add discovery-triggered character dialogue.
-- [ ] Add quest-discovery character response conversations.
+- [x] Add robot interior sound ambience.
+- [x] Add Samantha round announcements.
+- [x] Add Samantha quest announcements.
+- [x] Add Samantha's staged opening introduction.
+- [x] Add source-defined early-round story conversations.
+- [x] Add discovery-triggered character dialogue.
+- [x] Add quest-discovery character response conversations.
 - [x] Track source-defined solo-eligible Origins achievement conditions.
 - [x] Persist earned local Origins achievements.
 - [x] Present newly earned Origins achievement notifications.

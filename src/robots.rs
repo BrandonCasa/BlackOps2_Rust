@@ -98,7 +98,7 @@ fn tick(mut commands: Commands, time: Res<Time<Fixed>>, mut robots: ResMut<Robot
         pose.translation = center + Vec3::Y * (p.clock / 8.).clamp(0., 1.) * 12.;
         if p.clock <= 0. {
             robots.stomps += 1; stomps.write(RobotStomp(center));
-            crate::audio::emit(&mut commands, "zmb_giant_robot_footstep", crate::audio::SoundSource::World(center));
+            crate::audio::emit(&mut commands, "zmb_robot_foot_impact", crate::audio::SoundSource::World(center));
             for (owner, mut player, mut body, vitality, mut mobility) in &mut players {
                 if !matches!(vitality.state(), LifeState::Standing | LifeState::Downed) || robots.occupancy.is_some() { continue; }
                 let delta = body.translation - center;

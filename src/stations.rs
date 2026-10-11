@@ -158,6 +158,7 @@ fn roll(definition: &GameDefinition, inventory: &WeaponInventory, tactical: &cra
     None
 }
 pub(crate) fn interact(
+    mut commands: Commands,
     input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, definition: Res<GameDefinition>,
     effects: Res<crate::powerups::PowerupEffects>, generators: Res<crate::generators::Generators>,
     query: SpatialQuery, targets: Query<(Entity, &Station, &Transform), Without<Player>>,
@@ -203,6 +204,7 @@ pub(crate) fn interact(
                 let uses = stations.uses;
                 let chance = if uses < 4 { 0 } else if stations.moves == 0 && uses >= 8 { 100 } else if uses < 8 { 15 } else if uses < 13 { 30 } else { 50 };
                 let teddy = !sale && session.random() % 100 < chance;
+                crate::audio::emit(&mut commands, "music_chest", crate::audio::SoundSource::World(Vec3::from_array(BOX_POSITIONS[index])));
                 stations.boxes[index] = BoxPhase::Rolling { owner: player_entity, weapon, remaining: 4., teddy, purchase: purchase.id };
                 stations.purchases += 1;
                 focus.accepted += 1;

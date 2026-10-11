@@ -160,6 +160,11 @@ def prepare(config, additions=None):
     wanted.update(n for n in rows if n.startswith(('fly_prone_','wpn_grenade_bounce_','wpn_sticky_gren_bounce_','zmb_monkey_land_')))
     wanted.update(n for n in rows if re.match(r'mus_perks_.*_(jingle|sting)$',n))
     wanted.add('mus_zombie_game_over')
+    runtime_source = Path(__file__).resolve().parents[1] / 'src'
+    for path in runtime_source.rglob('*.rs'):
+        wanted.update(name for name in re.findall(r'"((?:zmb_|wpn_|mus_|vox_|evt_)[a-zA-Z0-9_]+)"', path.read_text(encoding='utf-8')) if name in rows)
+    wanted.update(name for name in rows if name.startswith(('vox_sam_', 'vox_maxi_', 'vox_plr_', 'mus_gramophone_', 'zmb_robot_', 'zmb_bot_', 'zmb_giantrobot_', 'mus_zmb_secret_song')))
+
     if content.get('powerups'):
         wanted.update(('zmb_spawn_powerup', 'zmb_spawn_powerup_loop', 'zmb_powerup_grabbed', 'zmb_full_ammo', 'evt_nuke_flash', 'evt_nuked', 'zmb_insta_kill_loop', 'zmb_insta_kill', 'zmb_double_point_loop', 'zmb_points_loop_off', 'zmb_zombieblood_3rd_loop'))
         wanted.update(n for n in rows if re.match(r'vox_(plr_[0-3]|zmba)_powerup_', n))

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 mod decoded;
 mod gameplay;
+mod narrative;
 pub(crate) use decoded::AudioDecodeStats;
 pub(crate) use gameplay::voice;
 
@@ -299,6 +300,7 @@ impl Plugin for GameAudioPlugin {
         app.add_systems(OnEnter(GameState::MainMenu), stop);
         app.add_systems(OnEnter(GameState::Ending), stop);
         gameplay::install(app);
+        narrative::install(app);
     }
 }
 fn settings(
@@ -353,7 +355,7 @@ fn play(
     let Some(game) = game else {
         return;
     };
-    if **state != GameState::Playing && **state != GameState::GameOver {
+    if !matches!(**state, GameState::Playing | GameState::GameOver | GameState::Ending | GameState::PreparingShaders) {
         for (e, ..) in &requests {
             commands.entity(e).try_despawn();
         }
