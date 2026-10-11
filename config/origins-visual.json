@@ -37,7 +37,7 @@
     0.016
   ],
   "sun_shadow_map_size": 4096,
-  "sun_angular_radius_degrees": 0.27,
+  "sun_soft_shadow_size": 1.0,
   "sun_shadow_distance": 60.0,
   "sun_shadow_cascades": 4,
   "sun_shadow_first_cascade": 8.0,

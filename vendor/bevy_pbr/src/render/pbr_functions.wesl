@@ -328,11 +328,6 @@ fn apply_pbr_lighting(
 ) -> vec4<f32> {
     var output_color: vec4<f32> = in.material.base_color;
 
-    let receiver_plane = cross(dpdx(in.world_position.xyz), dpdy(in.world_position.xyz));
-    let receiver_sign = select(-1.0, 1.0, dot(receiver_plane, in.world_normal) >= 0.0);
-    let receiver_normal = normalize(select(in.world_normal, receiver_plane * receiver_sign,
-        dot(receiver_plane, receiver_plane) > 0.00000000000000000001));
-
     let emissive = in.material.emissive;
 
     // calculate non-linear roughness from linear perceptualRoughness
@@ -607,8 +602,6 @@ fn apply_pbr_lighting(
                 && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
             shadow = shadows::fetch_directional_shadow(i, in.world_position, in.world_normal, view_z, in.frag_coord.xy);
             shadow *= in.directional_shadow_factor;
-            let angular_radius = max(sin(clamp((*light).soft_shadow_size, 0.0, 0.1)), 0.00001);
-            shadow *= smoothstep(-angular_radius, angular_radius, dot(receiver_normal, (*light).direction_to_light));
         }
 
         @if(CONTACT_SHADOWS && DEPTH_PREPASS)
@@ -639,8 +632,6 @@ fn apply_pbr_lighting(
         if ((in.flags & (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)) == (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)
                 && (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
             transmitted_shadow = shadows::fetch_directional_shadow(i, diffuse_transmissive_lobe_world_position, -in.world_normal, view_z, in.frag_coord.xy);
-            let angular_radius = max(sin(clamp((*light).soft_shadow_size, 0.0, 0.1)), 0.00001);
-            transmitted_shadow *= smoothstep(-angular_radius, angular_radius, dot(-receiver_normal, (*light).direction_to_light));
         }
 
         let transmitted_light_contrib =
