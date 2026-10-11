@@ -140,6 +140,51 @@ pub fn cast(
         Some(hit)
     }
 }
+pub type PenetrationSurfaces<'w, 's> = Query<'w, 's, (&'static Collider, &'static GlobalTransform, Option<&'static crate::audio::SurfaceSound>)>;
+pub fn penetrating(
+    targets: &RayTargets, surfaces: &PenetrationSurfaces, world: &SpatialQuery,
+    shooter: Entity, origin: Vec3, direction: Dir3, range: f32, strength: f32,
+) -> Vec<(ActorHit, f32)> {
+    let mut actors: Vec<_> = targets.iter()
+        .filter(|(_, health, _, _)| health.state() == LifeState::ActorAlive)
+        .filter_map(|(target, _, pose, boxes)| boxes.cast(pose, origin, direction, range).map(|hit| ActorHit { target, hit }))
+        .collect();
+    actors.sort_by(|a,b| a.hit.distance.total_cmp(&b.hit.distance));
+    let mut result = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut crossed = std::collections::HashSet::new();
+    let mut distance = 0.;
+    let mut energy = strength.max(0.);
+    let initial = energy.max(0.001);
+    for actor in actors.into_iter().take(8) {
+        if !seen.insert(actor.target) { continue; }
+        while distance < actor.hit.distance {
+            let blocker = world.cast_ray_predicate(origin + *direction * distance, direction,
+                actor.hit.distance - distance, true, &crate::environment::solids([shooter]),
+                &|entity| !targets.contains(entity) && !crossed.contains(&entity));
+            let Some(blocker) = blocker else { break; };
+            if energy <= 0. || crossed.len() >= 4 { return result; }
+            let Ok((shape, pose, surface)) = surfaces.get(blocker.entity) else { return result; };
+            let resistance = match surface.map(|s| s.0.as_str()).unwrap_or("") {
+                "glass" => 0.25, "wood" => 0.6, "plaster" | "drywall" => 1.,
+                "metal" => 3., "concrete" | "stone" | "brick" => 4., _ => return result,
+            };
+            let entry = distance + blocker.distance + 0.002;
+            let pose = pose.compute_transform();
+            let Some((thickness, _)) = shape.cast_ray(pose.translation, pose.rotation,
+                origin + *direction * entry, direction.as_vec3(), range - entry, false) else { return result; };
+            energy -= thickness.max(0.01) * resistance;
+            if energy <= 0. { return result; }
+            crossed.insert(blocker.entity);
+            distance = entry + thickness + 0.002;
+        }
+        result.push((actor, if strength <= 0. { 1. } else { (energy / initial).clamp(0., 1.) }));
+        if strength <= 0. { break; }
+        energy -= 0.08;
+        if energy <= 0. { break; }
+    }
+    result
+}
 #[derive(Resource, Default)]
 pub struct HitEvidence {
     pub pose_updates: u64,

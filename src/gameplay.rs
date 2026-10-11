@@ -143,6 +143,7 @@ pub(crate) fn combat(
     mut firing_evidence: ResMut<crate::perks::FiringEvidence>,
     mut reloads: MessageWriter<crate::perk_effects::ReloadEvent>,
     environmental: crate::environment::support::ShootableTargets,
+    surfaces: crate::hit_regions::PenetrationSurfaces,
     mut environment_hits: MessageWriter<crate::environment::support::EnvironmentalHit>,
 ) {
     let dt = time.delta_secs();
@@ -286,7 +287,7 @@ pub(crate) fn combat(
             let hip = w.mechanics.spread[stance]
                 * inventory.firing.hip_spread_scale
                 * (1. + player.velocity.xz().length().min(6.) / 6.);
-            hip + (w.mechanics.spread[3] - hip) * inventory.ads
+            (hip + (w.mechanics.spread[3] - hip) * inventory.ads) * inventory.attachment_spread()
         });
         if !melee && let Some(weapon) = weapon {
             inventory.recoil_impulse(weapon, session.shots.wrapping_mul(31) as u64);
@@ -316,14 +317,13 @@ pub(crate) fn combat(
                 crate::projectiles::spawn(&mut commands, entity, weapon, origin, direction);
                 continue;
             }
-            let actor_hit = crate::hit_regions::cast(
-                &enemies,
-                &query,
-                entity,
-                origin,
-                direction,
-                if melee { 2.2 } else { 100. },
-            );
+            let actor_hits = if melee {
+                crate::hit_regions::cast(&enemies, &query, entity, origin, direction, 2.2)
+                    .into_iter().map(|h| (h, 1.)).collect::<Vec<_>>()
+            } else {
+                crate::hit_regions::penetrating(&enemies, &surfaces, &query, entity, origin, direction, 100.,
+                    weapon.map_or(0., |w| w.mechanics.penetration))
+            };
             if let Some((target, distance)) = crate::environment::support::cast(
                 &environmental,
                 &query,
@@ -331,7 +331,7 @@ pub(crate) fn combat(
                 origin,
                 direction,
                 if melee { 2.2 } else { 100. },
-            ) && actor_hit.is_none_or(|hit| distance < hit.hit.distance)
+            ) && actor_hits.first().is_none_or(|(hit, _)| distance < hit.hit.distance)
             {
                 environment_hits.write(crate::environment::support::EnvironmentalHit {
                     target,
@@ -344,7 +344,7 @@ pub(crate) fn combat(
                 });
                 continue;
             }
-            if let Some(hit) = actor_hit {
+            for (hit, attenuation) in actor_hits {
                 let region = hit.hit.region;
                 if hit_evidence.hits.len() < 128 {
                     hit_evidence.hits.push(serde_json::json!({"target":hit.target.to_bits(),"region":format!("{region:?}"),
@@ -354,7 +354,7 @@ pub(crate) fn combat(
                     damage
                 } else {
                     weapon.map_or(damage, |weapon| {
-                        crate::weapons::damage_at(weapon, hit.hit.distance, region)
+                        crate::weapons::damage_at(weapon, hit.hit.distance / inventory.attachment_range(), region)
                     })
                 };
                 impacts.0.push(crate::damage::Impact {
@@ -369,7 +369,7 @@ pub(crate) fn combat(
                         })
                     },
                     region,
-                    amount: damage,
+                    amount: (damage as f32 * attenuation).max(1.) as u32,
                 });
             }
         }

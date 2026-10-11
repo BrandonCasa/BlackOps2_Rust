@@ -42,14 +42,14 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add projectile weapon spawning.
 - [x] Add projectile swept collision.
 - [x] Add projectile impact resolution.
-- [ ] Add material penetration resistance.
-- [ ] Add penetration damage attenuation.
-- [ ] Prevent repeated hits on one penetrated actor.
-- [ ] Add attachment-specific weapon modifiers.
+- [x] Add material penetration resistance.
+- [x] Add penetration damage attenuation.
+- [x] Prevent repeated hits on one penetrated actor.
+- [x] Add attachment-specific weapon modifiers.
 - [ ] Import native crawl and dive action durations and directional and empty-magazine clip variants.
 - [ ] Drive prone and dive weapon animation phases from player mobility through ECS playback.
 - [ ] Restore native dive startup, minimum-speed, exhaustion, and post-move action gates.
-- [ ] Add upgraded weapon attachment rotation.
+- [x] Add upgraded weapon attachment rotation.
 - [x] Feed soul collection from attributed death events.
 - [x] Add zombie running states.
 - [x] Add zombie pursuit states.
@@ -162,8 +162,8 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Pack-a-Punch weapon collection.
 - [x] Add Pack-a-Punch return timeout.
 - [x] Add Pack-a-Punch weapon replacement recovery.
-- [ ] Add Pack-a-Punch repeated upgrade purchases.
-- [ ] Add Pack-a-Punch source-defined attachment rerolls.
+- [x] Add Pack-a-Punch repeated upgrade purchases.
+- [x] Add Pack-a-Punch source-defined attachment rerolls.
 - [x] Add clear, rain, and snow weather states with source intensity rolls.
 - [x] Reset weather when starting fresh sessions.
 - [x] Select weather at round end with forced early snow, source overrides, and snow/rain history limits.

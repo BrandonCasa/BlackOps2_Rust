@@ -57,12 +57,37 @@ pub struct Stations {
     pub refunds: u32,
     boxes: [BoxPhase; 6],
     upgrade: UpgradePhase,
+    attachment: Option<String>,
     latched: bool,
 }
 impl Default for Stations {
     fn default() -> Self {
         Self { normal_box: 0, moves: 0, uses: 0, purchases: 0, collections: 0, refunds: 0,
-            boxes: std::array::from_fn(|_| BoxPhase::Idle), upgrade: UpgradePhase::Idle, latched: false }
+            boxes: std::array::from_fn(|_| BoxPhase::Idle), upgrade: UpgradePhase::Idle, attachment: None, latched: false }
+    }
+}
+fn attachments(id: &WeaponId) -> &'static [&'static str] {
+    match id.0.as_str() {
+        "weapon.870mcs_upgraded_zm" => &["defaultattachment", "extbarrel", "reflex"],
+        "weapon.ak74u_extclip_upgraded_zm" => &["defaultattachment", "reflex"],
+        "weapon.ak74u_upgraded_zm" => &["defaultattachment", "reflex"],
+        "weapon.ballista_upgraded_zm" => &["defaultattachment", "acog", "is"],
+        "weapon.beretta93r_extclip_upgraded_zm" => &["defaultattachment", "dualclip", "extbarrel"],
+        "weapon.beretta93r_upgraded_zm" => &["defaultattachment", "dualclip", "extbarrel"],
+        "weapon.dsr50_upgraded_zm" => &["defaultattachment", "is", "silencer", "vzoom"],
+        "weapon.evoskorpion_upgraded_zm" => &["defaultattachment", "dualclip", "rangefinder", "reflex"],
+        "weapon.fiveseven_upgraded_zm" => &["defaultattachment", "dualclip", "extbarrel"],
+        "weapon.fnfal_upgraded_zm" => &["defaultattachment", "reflex"],
+        "weapon.galil_upgraded_zm" => &["defaultattachment", "reflex"],
+        "weapon.hamr_upgraded_zm" => &["defaultattachment", "acog", "grip", "reflex"],
+        "weapon.kard_upgraded_zm" => &["defaultattachment", "dualclip", "extbarrel"],
+        "weapon.ksg_upgraded_zm" => &["defaultattachment", "reflex"],
+        "weapon.pdw57_upgraded_zm" => &["defaultattachment", "mms", "rangefinder", "reflex"],
+        "weapon.qcw05_upgraded_zm" => &["defaultattachment", "dualclip", "grip", "reflex", "sf"],
+        "weapon.scar_upgraded_zm" => &["defaultattachment", "acog", "dualclip", "rangefinder", "reflex"],
+        "weapon.srm1216_upgraded_zm" => &["defaultattachment", "extbarrel", "reflex"],
+        "weapon.type95_upgraded_zm" => &["defaultattachment", "gl", "longbreath", "mms", "rangefinder", "reflex"],
+        _ => &[],
     }
 }
 pub struct StationPlugin;
@@ -198,15 +223,21 @@ pub(crate) fn interact(
             if generators.active_count() != 6 { focus.prompt = "Pack-a-Punch requires all six generators".into(); focus.rejection = Some(InteractionRejection::NoPower); return; }
             match stations.upgrade.clone() {
                 UpgradePhase::Idle => {
-                    focus.prompt = format!("Press {key} to Pack-a-Punch [Cost: 5000]");
+                    let current = inventory.definition(&definition.content.weapons);
+                    let repeat = current.is_some_and(|d| attachments(&d.id).len() > 1 && d.upgraded.is_none());
+                    let price = if repeat { 2000 } else { 5000 };
+                    focus.prompt = format!("Press {key} to Pack-a-Punch [Cost: {price}]");
                     if !pressed { return; }
                     if busy { focus.rejection = Some(InteractionRejection::Busy); return; }
-                    let upgraded = inventory.definition(&definition.content.weapons).and_then(|d| d.upgraded.as_ref()).and_then(|id| definition.content.weapons.iter().find(|d| d.id == *id)).map(|d| d.id.clone());
+                    let upgraded = current.and_then(|d| if repeat { Some(d.id.clone()) } else { d.upgraded.clone() });
                     let Some(weapon) = upgraded else { focus.rejection = Some(InteractionRejection::Unavailable); return; };
-                    let purchase = ledger.command(5000);
+                    let choices: Vec<_> = attachments(&weapon).iter().copied().filter(|a| !repeat || *a != inventory.attachment()).collect();
+                    let attachment = (!choices.is_empty()).then(|| choices[session.random() as usize % choices.len()].to_owned());
+                    let purchase = ledger.command(price);
                     let result = ledger.accept(&mut session.points, purchase, || inventory.deposit_active().map_err(|_| InteractionRejection::Busy));
                     match result {
                         Ok(_) => {
+                            stations.attachment = attachment;
                             if inventory.active().is_none() {
                                 if let Some(fists) = definition.content.weapons.iter().find(|d| d.id.0 == "weapon.zombie_fists_zm") { let _ = inventory.grant(fists); }
                             }
@@ -220,6 +251,7 @@ pub(crate) fn interact(
                     focus.prompt = format!("Press {key} to collect {} [{remaining:.0}s]", d.name);
                     if pressed && !busy && owner == player_entity && inventory.receive(d).is_ok() {
                         inventory.fill_received(d);
+                        inventory.set_attachment(&d.id, stations.attachment.take());
                         stations.upgrade = UpgradePhase::Idle;
                         stations.collections += 1;
                         focus.accepted += 1;

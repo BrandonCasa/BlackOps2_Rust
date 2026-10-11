@@ -7,6 +7,7 @@ pub struct OwnedWeapon {
     pub definition: WeaponId,
     pub magazine: u32,
     pub left_magazine: Option<u32>,
+    pub attachment: Option<String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WeaponAction {
@@ -216,7 +217,7 @@ impl WeaponInventory {
         if !self.active().is_some_and(|w| w.definition.0.starts_with("weapon.staff_") && w.definition.0.contains("upgraded")) { return false; }
         let Some(revive) = definitions.iter().find(|w| w.id.0 == "weapon.staff_revive_zm") else { return false; };
         self.staff_backup = self.slots[self.active].take();
-        self.slots[self.active] = Some(OwnedWeapon { definition: revive.id.clone(), magazine: self.revive_magazine, left_magazine: None });
+        self.slots[self.active] = Some(OwnedWeapon { definition: revive.id.clone(), magazine: self.revive_magazine, left_magazine: None, attachment: None });
         self.ammunition.entry(Self::group(revive)).or_insert(AmmoPool { rounds: revive.reserve, capacity: revive.reserve });
         self.cancel_action(); self.action = WeaponAction::Equipping { remaining: revive.mechanics.equip_seconds }; self.emit(WeaponSignal::Equip);
         true
@@ -315,6 +316,18 @@ impl WeaponInventory {
     pub fn active(&self) -> Option<&OwnedWeapon> {
         self.slots[self.active].as_ref()
     }
+    pub fn attachment(&self) -> &str {
+        self.active().and_then(|w| w.attachment.as_deref()).unwrap_or("defaultattachment")
+    }
+    pub fn set_attachment(&mut self, id: &WeaponId, attachment: Option<String>) {
+        if let Some(weapon) = self.slots.iter_mut().flatten().find(|w| w.definition == *id) { weapon.attachment = attachment; }
+    }
+    pub fn attachment_spread(&self) -> f32 {
+        match self.attachment() { "grip" => 0.8, "sf" => 0.85, _ => 1. }
+    }
+    pub fn attachment_range(&self) -> f32 {
+        match self.attachment() { "extbarrel" => 1.2, "silencer" => 0.8, _ => 1. }
+    }
     pub fn exchange_staff(&mut self, definition: &WeaponDefinition) -> Result<usize, InventoryError> {
         self.restore_staff_mode();
         if self.action != WeaponAction::Ready { return Err(InventoryError::Busy); }
@@ -411,6 +424,7 @@ impl WeaponInventory {
             definition: definition.id.clone(),
             magazine: definition.magazine,
             left_magazine: definition.dual_weapon.as_ref().map(|_| definition.magazine),
+            attachment: None,
         });
         Ok(slot)
     }
@@ -438,6 +452,7 @@ impl WeaponInventory {
             definition: definition.id.clone(),
             magazine: definition.magazine,
             left_magazine: definition.dual_weapon.as_ref().map(|_| definition.magazine),
+            attachment: None,
         });
         let pool = self.ammunition.entry(Self::group(definition)).or_default();
         pool.capacity = pool.capacity.max(definition.reserve);
@@ -551,8 +566,9 @@ impl WeaponInventory {
         self.emit(WeaponSignal::Idle);
     }
     pub fn recoil_impulse(&mut self, definition: &WeaponDefinition, seed: u64) {
-        let yaw = definition.mechanics.recoil_yaw;
-        let pitch = definition.mechanics.recoil_pitch;
+        let scale = if self.attachment() == "grip" { 0.75 } else { 1. };
+        let yaw = definition.mechanics.recoil_yaw.map(|v| v * scale);
+        let pitch = definition.mechanics.recoil_pitch.map(|v| v * scale);
         self.recoil += Vec2::new(
             yaw[0] + (yaw[1] - yaw[0]) * sample(seed),
             pitch[0] + (pitch[1] - pitch[0]) * sample(seed.wrapping_add(1)),
@@ -766,7 +782,7 @@ impl WeaponInventory {
         if let Some(elapsed) = &mut self.shot_elapsed {
             *elapsed = (*elapsed + dt).min(60.);
         }
-        let reload_dt = dt / self.reload_duration_scale;
+        let reload_dt = dt / self.reload_duration_scale * if self.attachment() == "dualclip" { 1.25 } else { 1. };
         if self.action == WeaponAction::Ready {
             intent.pressed |= self.pending.pressed;
             intent.melee |= self.pending.melee;
