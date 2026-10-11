@@ -1,6 +1,6 @@
 use crate::{assets::GameDefinition, economy::{PointLedger, TransactionId}, gameplay::{GameStep, Session, SessionEntity}, input::GameInput, interactions::{InteractionFocus, InteractionRejection}, life::{LifeState, Vitality}, origins::PerkId, player::Player, solo_revive::PerkInventory, weapons::{WeaponAction, WeaponInventory}, GameState};
 use avian3d::prelude::*;
-use bevy::prelude::*;
+use bevy::{prelude::*, world_serialization::WorldAssetRoot};
 
 const MACHINES: [[f32; 3]; 6] = [[-6.8072,-7.5184,-94.2848],[23.5712,7.6708,87.1728],[67.564,3.0988,-1.940306],[-59.944,5.842,-4.4704],[19.6088,-3.2512,-64.6176],[75.3872,-9.3472,-136.3472]];
 #[derive(Component)]
@@ -141,15 +141,32 @@ pub(crate) fn interact(mut commands: Commands, input: Res<GameInput>, settings: 
         BottlePhase::Moving(_) => focus.prompt = "Wunderfizz relocating".into(),
     }
 }
+pub(crate) fn spawn_random_bottle(commands: &mut Commands, server: &AssetServer, game: &GameDefinition,
+    perks: &PerkInventory, session: &mut Session, position: Vec3) -> Option<Entity> {
+    let candidates: Vec<_> = game.content.perks.iter().filter(|perk|
+        !perks.owned.contains(&perk.id) && perk.has_supported_effect() && perk.drink.is_some()
+        && (perk.id != game.solo_revive.perk || perks.can_buy_solo(&game.solo_revive).is_ok())).collect();
+    if candidates.is_empty() { return None; }
+    let perk = candidates[session.random() as usize % candidates.len()];
+    let mut entity = commands.spawn((SessionEntity, PerkBottle { perk: perk.id.clone(), remaining: 30. },
+        Transform::from_translation(position + Vec3::Y * 0.5), Visibility::Inherited));
+    if let Some(drink) = &perk.drink
+        && let Some(weapon) = game.content.weapons.iter().find(|w| w.id == drink.bottle)
+        && let Some(scene) = game.content.presentations.iter().find(|p| Some(&p.id) == weapon.presentation.as_ref()).and_then(|p| p.scene.as_ref()) {
+        entity.insert(WorldAssetRoot(server.load(scene.clone())));
+    }
+    Some(entity.id())
+}
 fn ground_bottles(mut commands: Commands, time: Res<Time<Fixed>>, game: Res<GameDefinition>, mut bottles: Query<(Entity, &mut PerkBottle, &Transform), Without<Player>>,
     players: Query<(Entity, &Vitality, &Transform, &PerkInventory, &WeaponInventory, Has<super::PerkDrinking>), With<Player>>) {
+    let mut collecting = std::collections::HashSet::new();
     for (entity, mut bottle, pose) in &mut bottles {
         bottle.remaining -= time.delta_secs();
         if bottle.remaining <= 0. { commands.entity(entity).despawn(); continue; }
         for (owner, health, body, perks, inventory, drinking) in &players {
-            if health.state() != LifeState::Standing || drinking || perks.owned.contains(&bottle.perk) || body.translation.distance_squared(pose.translation) > 2.25 { continue; }
+            if collecting.contains(&owner) || health.state() != LifeState::Standing || drinking || perks.owned.contains(&bottle.perk) || body.translation.distance_squared(pose.translation) > 2.25 { continue; }
             if let Some(perk) = game.content.perks.iter().find(|p| p.id == bottle.perk) && let Ok(drink) = super::PerkDrinking::new(perk, inventory, &game) {
-                commands.entity(owner).insert(drink); commands.entity(entity).despawn(); break;
+                collecting.insert(owner); commands.entity(owner).insert(drink); commands.entity(entity).despawn(); break;
             }
         }
     }

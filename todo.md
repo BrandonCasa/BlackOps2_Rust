@@ -124,7 +124,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Wunderfizz bottle collection.
 - [x] Add Wunderfizz bottle expiration.
 - [x] Add Wunderfizz relocation.
-- [ ] Add random perk bottle collection.
+- [x] Add random perk bottle collection.
 - [x] Add one-time prone perk-machine spare-change rewards.
 - [x] Add empty perk bottle slot rewards.
 - [x] Add personal Blood Money rewards.

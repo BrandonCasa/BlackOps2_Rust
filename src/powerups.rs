@@ -315,6 +315,7 @@ fn drop_powerups(
 }
 fn collect(
     mut commands: Commands,
+    server: Res<AssetServer>,
     definition: Res<GameDefinition>,
     mut effects: ResMut<PowerupEffects>,
     mut drops: ResMut<Drops>,
@@ -332,6 +333,7 @@ fn collect(
         &mut crate::equipment::GrenadeInventory,
         &mut crate::equipment::TacticalInventory,
         &mut crate::mines::MineInventory,
+        &crate::solo_revive::PerkInventory,
     )>,
 ) {
     for (entity, pickup, transform) in &pickups {
@@ -341,7 +343,7 @@ fn collect(
         let Some(d) = definition.content.powerups.get(pickup.definition) else {
             continue;
         };
-        for (owner, player, pose, health, mut weapons, mut grenades, mut tactical, mut mines) in
+        for (owner, player, pose, health, mut weapons, mut grenades, mut tactical, mut mines, perks) in
             &mut players
         {
             if !matches!(health.state(), LifeState::Standing | LifeState::Downed)
@@ -353,6 +355,10 @@ fn collect(
                 continue;
             }
             match d.id.0.as_str() {
+                "powerup.random_perk" => {
+                    if health.state() != LifeState::Standing || crate::perks::spawn_random_bottle(
+                        &mut commands, &server, &definition, perks, &mut session, transform.translation).is_none() { continue; }
+                }
                 "powerup.bonus_points_player" | "powerup.bonus_points_team" => {
                     let _default_points = (1 + session.random() % 24) * 100;
                     let points = (1 + session.random() % 5) * 50;
@@ -419,7 +425,7 @@ fn collect(
                 "powerup.double_points" => "powerup_doublepoints",
                 "powerup.zombie_blood" => "powerup_zombie_blood",
                 "powerup.fire_sale" => "powerup_firesale",
-                "powerup.bonus_points_player" | "powerup.bonus_points_team" => "",
+                "powerup.bonus_points_player" | "powerup.bonus_points_team" | "powerup.random_perk" => "",
                 _ => "powerup_nuke",
             };
             if !voice.is_empty() {
@@ -438,6 +444,7 @@ fn collect(
                 "powerup.double_points" => "doublepoints",
                 "powerup.zombie_blood" => "zombie_blood",
                 "powerup.fire_sale" => "firesale",
+                "powerup.random_perk" => "perk",
                 "powerup.bonus_points_player" | "powerup.bonus_points_team" => "blood_money",
                 _ => "nuke",
             };

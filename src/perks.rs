@@ -12,6 +12,7 @@ use crate::{
 use bevy::prelude::*;
 mod vendors;
 pub(crate) use vendors::interact as vendors_interaction;
+pub(crate) use vendors::spawn_random_bottle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DrinkPhase {
