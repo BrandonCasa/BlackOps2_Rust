@@ -77,7 +77,7 @@ def prepare(config):
     margins = {}
     for name in names:
         relative, notifications = convert(models / (name + "_lod0.gltf"), pack / "actors", images,
-            [source / n for n in CLIPS.values()], in_place=True)
+            [source / n for n in CLIPS.values()], in_place=True, preparation=config)
         margins[name] = skin_margin(pack / "actors" / relative)
         identity = "actor." + name
         content["presentations"][:] = [p for p in content["presentations"] if p["id"] != identity]

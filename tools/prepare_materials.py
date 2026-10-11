@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["numpy>=2,<3", "pillow>=12,<13", "soundfile>=0.13,<0.14"]
+# dependencies = ["numpy>=2,<3", "pillow>=12,<13", "soundfile>=0.13,<0.14", "zstandard>=0.25,<1"]
 # ///
 import argparse
 import copy
@@ -108,7 +108,7 @@ def retain_effects(config):
                 os.unlink(temporary)
     return {"records": changes, "maps_changed": 0, "geometry_changed": 0,
             "approximation": "native nofog layer composition in linear color; source script suppression zero; legacy captured probe reflection omitted"}
-ENCODER_SHA256 = "dcfdec10244e02cf5037fba089c55fb7e1326b1c8181742d77d15fa5cb5eef06"
+
 CLASSES = {
     "concrete": [.84, .58, .98, 0, 0, .50], "stone": [.80, .50, .96, 0, 0, .55],
     "mud": [.63, .30, .90, 0, .18, .48], "wood": [.73, .45, .94, 0, 0, .65],
@@ -174,9 +174,9 @@ def catalog_for(pack, definitions):
 
 
 class Cooker:
-    def __init__(self, pack, work, encoder, catalog, inspection, extraction):
+    def __init__(self, pack, work, preparation_executable, catalog, inspection, extraction):
         self.materials = []
-        self.pack, self.work, self.encoder, self.catalog = pack, work, encoder, catalog
+        self.pack, self.work, self.preparation_executable, self.catalog = pack, work, preparation_executable, catalog
         self.inspection, self.extraction = inspection, extraction
         self.pending, self.sources, self.entries = {}, {}, {}
         self.image_paths = {}
@@ -232,12 +232,10 @@ class Cooker:
             levels = [levels[0][:1, :1].copy()]
         raw = rgba_dds(levels, srgb)
         digest = hashlib.sha256(raw + role.encode()).hexdigest()[:32]
-        name = f"pbr-{digest}.dds"
+        name = f"pbr-{digest}.ktx2"
         w, h = levels[0].shape[1], levels[0].shape[0]
-        fmt = "BC7_UNORM_SRGB" if srgb else "BC5_UNORM" if role == "normal" else "BC4_UNORM" if role in ("coating", "mask") else "BC7_UNORM"
-        if w % 4 or h % 4:
-            fmt = "R8G8B8A8_UNORM_SRGB" if srgb else "R8G8B8A8_UNORM"
-        master = self.work / name
+        fmt = "R8G8B8A8_UNORM_SRGB" if srgb else "R8G8B8A8_UNORM"
+        master = self.work / Path(name).with_suffix(".dds")
         if master.exists():
             if master.read_bytes() != raw:
                 raise ValueError(f"Canonical master cache is corrupt: {name}; remove only this keyed master and resume")
@@ -265,7 +263,7 @@ class Cooker:
             c = by_role.get((role, layer))
             if c:
                 if "uri" in c:
-                    return rgba_levels((self.work / Path(c["uri"]).name).read_bytes())[0]
+                    return rgba_levels((self.work / Path(c["uri"]).with_suffix(".dds").name).read_bytes())[0]
                 i = document["textures"][c["texture"]]["source"]
                 source_path = path.parent / document["images"][i]["uri"]
                 return self.pixels(source_path) if source_path.is_file() else None
@@ -389,29 +387,37 @@ class Cooker:
 
     def compress(self):
         try:
-            from .compressed_texture_cache import CompressedTextureCache, materialize
-            from .preparation_resources import PreparationResources
+            from .prepare_ktx2 import prepare_levels
+            from .compressed_texture_cache import materialize
         except ImportError:
-            from compressed_texture_cache import CompressedTextureCache, materialize
-            from preparation_resources import PreparationResources
-        resources = PreparationResources(exit_for_shared_slot=True, saturate=True)
-        cache = CompressedTextureCache(self.work / "compressed-cache", self.encoder, "cuda", resources)
+            from prepare_ktx2 import prepare_levels
+            from compressed_texture_cache import materialize
         for name in self.pending:
-            resources.wait()
-            raw = (self.work / name).read_bytes()
-            self.entries["textures/" + name]["mask_cutoffs"] = sorted(set(
-                self.entries["textures/" + name].get("mask_cutoffs", [])))
-            entry = dict(self.entries["textures/" + name], scale=1,
-                         density_applicable=max(self.entries["textures/" + name]["width"],
-                                                self.entries["textures/" + name]["height"]) > 1)
-            key = hashlib.sha256(raw + entry["role"].encode() + ENCODER_SHA256.encode() + b"cuda" +
-                                 json.dumps(entry.get("mask_cutoffs", [])).encode()).hexdigest()
-            found = cache.find(key)
-            if found is None:
-                found = cache.store(key, rgba_levels(raw), entry, raw)
-            materialize(found[0], self.pack / "textures" / name)
-            self.entries[entry["uri"]].update(format=found[1]["format"],
-                dds=inspect_dds(found[0].read_bytes()))
+            master = self.work / Path(name).with_suffix(".dds")
+            entry = self.entries["textures/"+name]
+            entry["mask_cutoffs"] = sorted(set(entry.get("mask_cutoffs", [])))
+            path, result = prepare_levels(rgba_levels(master.read_bytes()), entry,
+                                          self.preparation_executable, self.work/"native-cache")
+            target = self.pack/"textures"/name
+            materialize(path, target)
+            info = result["output"]
+            entry.update({key: info[key] for key in ("format", "width", "height", "mip_count")})
+            entry["ktx2"] = info
+        for path in self.pack.rglob('*.gltf'):
+            document = json.loads(path.read_text())
+            changed = False
+            for material in document.get('materials', []):
+                for channel in material.get('extras', {}).get('surface', {}).get('channels', []):
+                    metadata = self.entries.get(channel.get('uri'))
+                    if metadata:
+                        values = {key: metadata[key] for key in ('format', 'width', 'height', 'mip_count')}
+                        changed |= any(channel.get(key) != value for key, value in values.items())
+                        channel.update(values)
+            if changed:
+                temporary = path.with_suffix('.gltf.tmp')
+                temporary.write_text(json.dumps(document, separators=(',', ':'))+'\n')
+                temporary.replace(path)
+
 
 
 def prepare(config, source_pack=None, write_catalog=False):
@@ -434,7 +440,7 @@ def prepare(config, source_pack=None, write_catalog=False):
         raise ValueError("material source and destination overlap")
     if not output.exists():
         shutil.copytree(source, output)
-    cooker = Cooker(output, work, Path(settings["encoder"]), catalog, inspection, extraction)
+    cooker = Cooker(output, work, Path(settings["preparation_executable"]), catalog, inspection, extraction)
     cooker.materials = []
     documents = []
     for path in sorted(output.rglob("*.gltf")):
@@ -448,6 +454,9 @@ def prepare(config, source_pack=None, write_catalog=False):
         documents.append((path, doc))
     cooker.compress()
     for path, doc in documents:
+        for material in doc.get("materials", []):
+            for channel in material.get("extras", {}).get("surface", {}).get("channels", []):
+                channel.update({key: cooker.entries[channel["uri"]][key] for key in ("format", "width", "height", "mip_count")})
         path.write_text(json.dumps(doc, separators=(",", ":")) + "\n")
     try:
         from .surface_frames import repair_document
@@ -468,10 +477,10 @@ def prepare(config, source_pack=None, write_catalog=False):
     for image in output.rglob("*"):
         if image.suffix.lower() in (".png", ".jpg", ".jpeg") and image.relative_to(output).as_posix() not in kept:
             image.unlink()
-    (work / "materials-receipt.json").write_text(json.dumps({"version": 2, "encoder_sha256": ENCODER_SHA256,
+    (work / "materials-receipt.json").write_text(json.dumps({"version": 2, "backend": "bevy-0.20.0/CompressedImageSaver/ctt",
         "source_images": cooker.sources, "materials": cooker.materials, "textures": cooker.entries,
         "catalog_sha256": hashlib.sha256(catalog_path.read_bytes()).hexdigest()}, indent=2) + "\n")
-    print(f"PBR pack: {len(cooker.materials)} assignments; {len(cooker.entries)} DDS textures", flush=True)
+    print(f"PBR pack: {len(cooker.materials)} assignments; {len(cooker.entries)} KTX2 textures", flush=True)
     try:
         from .realtime_assets import migrate
     except ImportError:
@@ -508,7 +517,7 @@ def qualify(config, extra_channels=None, document_paths=None, prune=True):
     paths = sorted(pack.rglob("*.gltf")) if document_paths is None else document_paths
     documents = [(p, json.loads(p.read_text())) for p in paths]
     inspection = Path(config["assets"]["inspection_output"])
-    cooker = Cooker(pack, work, Path(config["materials"]["encoder"]), {}, inspection,
+    cooker = Cooker(pack, work, Path(config["materials"]["preparation_executable"]), {}, inspection,
                     Path(config["materials"]["extraction"]))
     for _, document in documents:
         for material in document.get("materials", []):
@@ -517,7 +526,7 @@ def qualify(config, extra_channels=None, document_paths=None, prune=True):
                 continue
             response = next((c for c in surface["channels"] if c["role"] == "response" and c["layer"] == 0), None)
             if response and not any(c["role"] == "coating" for c in surface["channels"]):
-                levels = rgba_levels((work / Path(response["uri"]).name).read_bytes())
+                levels = rgba_levels((work / Path(response["uri"]).with_suffix(".dds").name).read_bytes())
                 if levels[0][..., 3].any():
                     coat = [np.dstack((x[..., 3], np.zeros(x.shape[:2], np.uint8),
                                       np.zeros(x.shape[:2], np.uint8), np.full(x.shape[:2], 255, np.uint8)))
@@ -533,7 +542,7 @@ def qualify(config, extra_channels=None, document_paths=None, prune=True):
             for channel in material.get("extras", {}).get("surface", {}).get("channels", []):
                 metadata = cooker.entries[channel["uri"]]
                 channel.update({key: metadata[key] for key in ("format", "width", "height", "mip_count")})
-        normal_scaffold(path, document)
+        normal_scaffold(path, document, cooker.preparation_executable, cooker.work)
         temporary = path.with_suffix(".gltf.tmp")
         temporary.write_text(json.dumps(document, separators=(",", ":")) + "\n")
         temporary.replace(path)
@@ -541,15 +550,15 @@ def qualify(config, extra_channels=None, document_paths=None, prune=True):
         metadata = cooker.entries[channel["uri"]]
         channel.update({key: metadata[key] for key in ("format", "width", "height", "mip_count")})
     if prune:
-        for path in (pack / "textures").glob("*.dds"):
+        for path in (pack / "textures").glob("pbr-*.ktx2"):
             if path.relative_to(pack).as_posix() not in cooker.entries:
                 path.unlink()
     receipt = work / "compression-receipt.json"
     temporary = receipt.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(dict(encoder_sha256=ENCODER_SHA256, compression_device="cuda",
+    temporary.write_text(json.dumps(dict(backend="bevy-0.20.0/CompressedImageSaver/ctt",
                                         textures=cooker.entries), indent=2) + "\n")
     temporary.replace(receipt)
-    print(f"GPU-qualified {len(cooker.entries)} complete semantic mip chains", flush=True)
+    print(f"Qualified {len(cooker.entries)} complete semantic mip chains", flush=True)
 
 
 def migrate_assemblies(config):
@@ -565,7 +574,7 @@ def migrate_assemblies(config):
     documents = [(p, json.loads(p.read_text())) for p in sorted(pack.rglob("*.gltf"))]
     known = {m["name"]: m for _, doc in documents for m in doc.get("materials", [])
              if m.get("extras", {}).get("surface", {}).get("version") == 2}
-    cooker = Cooker(pack, Path(settings["work"]), Path(settings["encoder"]), catalog, inspection, extraction)
+    cooker = Cooker(pack, Path(settings["work"]), Path(settings["preparation_executable"]), catalog, inspection, extraction)
     changed = []
     for path, doc in documents:
         if path.parent.name != "actors":
@@ -600,7 +609,7 @@ def migrate_assemblies(config):
             doc.pop("images", None)
             doc.pop("textures", None)
             doc.pop("samplers", None)
-            normal_scaffold(path, doc)
+            normal_scaffold(path, doc, cooker.preparation_executable, cooker.work)
             path.write_text(json.dumps(doc, separators=(",", ":")) + "\n")
             changed.append(path)
     catalog_path.write_text(json.dumps(catalog, indent=2) + "\n")
@@ -614,15 +623,23 @@ def migrate_assemblies(config):
     print(f"Migrated {len(changed)} native assemblies; cooked {len(cooker.materials)} new material identities; {retired}", flush=True)
 
 
-def normal_scaffold(path, document):
+def normal_scaffold(path, document, executable, work):
     required = {p["material"] for mesh in document.get("meshes", []) for p in mesh["primitives"]
                 if "TANGENT" not in p["attributes"] and "TEXCOORD_0" in p["attributes"]}
     required = {i for i in required if any(c["role"] == "normal" for c in
         document["materials"][i].get("extras", {}).get("surface", {}).get("channels", []))}
     if not required:
         return
-    uri = "pbr-neutral-normal.png"
-    Image.new("RGBA", (1, 1), (128, 128, 255, 255)).save(path.parent / uri)
+    uri = "pbr-neutral-normal.ktx2"
+    try:
+        from .prepare_ktx2 import prepare_levels
+        from .compressed_texture_cache import materialize
+    except ImportError:
+        from prepare_ktx2 import prepare_levels
+        from compressed_texture_cache import materialize
+    pixels = np.array([[[128, 128, 255, 255]]], dtype=np.uint8)
+    output, _ = prepare_levels([pixels], {"role": "normal", "color_space": "linear", "lossless": True}, executable, work/"normal-scaffold")
+    materialize(output, path.parent/uri)
     images = document.setdefault("images", [])
     image = next((i for i, entry in enumerate(images) if entry.get("uri") == uri), None)
     if image is None:
@@ -642,7 +659,7 @@ def retune_identities(config):
     inspection, extraction = Path(config["assets"]["inspection_output"]), Path(settings["extraction"])
     catalog = json.loads((WORKSPACE / "config/origins-materials.json").read_text())
     definitions = originals(inspection, extraction)
-    cooker = Cooker(pack, Path(settings["work"]), Path(settings["encoder"]), catalog, inspection, extraction)
+    cooker = Cooker(pack, Path(settings["work"]), Path(settings["preparation_executable"]), catalog, inspection, extraction)
     cooker.materials = []
     changed = 0
     for path in sorted(pack.rglob("*.gltf")):
@@ -665,7 +682,7 @@ def retune_response_mips(config):
     pack = Path(config["game"]["asset_pack"])
     work = Path(config["materials"]["work"])
     catalog = json.loads((WORKSPACE / "config/origins-materials.json").read_text())
-    cooker = Cooker(pack, work, Path(config["materials"]["encoder"]), catalog,
+    cooker = Cooker(pack, work, Path(config["materials"]["preparation_executable"]), catalog,
         Path(config["assets"]["inspection_output"]), Path(config["materials"]["extraction"]))
     cache, changed = {}, 0
     for path in sorted(pack.rglob("*.gltf")):
@@ -679,10 +696,10 @@ def retune_response_mips(config):
                     continue
                 key = (normal["uri"], response["uri"])
                 if key not in cache:
-                    units = rgba_levels((work / Path(normal["uri"]).name).read_bytes())[0][..., :3].astype(np.float32) / 127.5 - 1
+                    units = rgba_levels((work / Path(normal["uri"]).with_suffix('.dds').name).read_bytes())[0][..., :3].astype(np.float32) / 127.5 - 1
                     units /= np.maximum(np.linalg.norm(units, axis=2, keepdims=True), 1e-6)
                     _, variance = normal_levels(units)
-                    top = rgba_levels((work / Path(response["uri"]).name).read_bytes())[0]
+                    top = rgba_levels((work / Path(response["uri"]).with_suffix(".dds").name).read_bytes())[0]
                     cache[key] = cooker.texture(response_levels(top, variance), "response")
                     changed += 1
                 response.update(cache[key])
@@ -703,7 +720,7 @@ def prune_runtime_pack(config):
         raise ValueError("runtime closure assembly must remain external")
     for path in pack.rglob("*.gltf"):
         doc = json.loads(path.read_text())
-        normal_scaffold(path, doc)
+        normal_scaffold(path, doc, Path(config['materials']['preparation_executable']), Path(config['materials']['work']))
         path.write_text(json.dumps(doc, separators=(",", ":")) + "\n")
     _, _, hashes = validate_pack(pack)
     retired = []

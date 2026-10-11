@@ -15,7 +15,7 @@ pub(super) fn setup(
     let image = server
         .load_builder()
         .with_settings(|settings: &mut bevy::image::ImageLoaderSettings| settings.is_srgb = false)
-        .load("sky/zm_tomb.dds");
+        .load("sky/zm_tomb.ktx2");
     let (sin, cos) = 48_f32.to_radians().sin_cos();
     let rotation = Quat::from_mat3(&Mat3::from_cols(
         Vec3::new(cos, 0., sin),

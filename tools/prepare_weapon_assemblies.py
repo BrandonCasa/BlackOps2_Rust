@@ -281,7 +281,7 @@ def prepare(config, dual_only=False):
             binary_path.write_bytes(binary)
             relative = path.name
         else:
-            relative, notes = convert(model_path(name), pack / "actors", fallback, [clips_root / n for n in names], native_translations=native(name))
+            relative, notes = convert(model_path(name), pack / "actors", fallback, [clips_root / n for n in names], native_translations=native(name), preparation=config)
         register("actor."+name, relative, notes)
     cache, report = {}, []
     for weapon in content["weapons"]:
@@ -323,7 +323,7 @@ def prepare(config, dual_only=False):
                 for part in parts:
                     assembly.add(model_path(part["model"]), images_out, fallback, part["socket"], part["offset"], part["rotation"], hidden)
                 raw = source_out / ("weapon_"+digest+".gltf"); assembly.write(raw)
-                relative, notes = convert(raw, pack / "actors", fallback, [clips_root / n for n in (world_names if world else names)], translation_offsets=assembly.offsets, native_translations=assembly.native_translations)
+                relative, notes = convert(raw, pack / "actors", fallback, [clips_root / n for n in (world_names if world else names)], translation_offsets=assembly.offsets, native_translations=assembly.native_translations, preparation=config)
                 if retained is not None:
                     path = pack / "actors" / relative
                     document = json.loads(path.read_text())

@@ -95,7 +95,7 @@ def append_clips(document, binary, clips, in_place=False, end_aligned_clips=(), 
     return notifications
 
 
-def convert(source_path, output, additional_images, clips, in_place=False, end_aligned_clips=(), board_delta=False, translation_offsets=None, native_translations=None, prepare_images=True):
+def convert(source_path, output, additional_images, clips, in_place=False, end_aligned_clips=(), board_delta=False, translation_offsets=None, native_translations=None, prepare_images=True, preparation=None):
     source = json.loads(source_path.read_text(encoding="utf-8-sig"))
     document = copy.deepcopy(source)
     output = external(output)
@@ -173,15 +173,26 @@ def convert(source_path, output, additional_images, clips, in_place=False, end_a
         mode = "normal" if index in normal_images else "raw"
         builtin_normal = not path.is_file() and path.name in ("$identitynormalmap.dds", ",$identitynormalmap.dds")
         raw = b"origins-native-identity-normal" if builtin_normal else path.read_bytes()
-        digest = hashlib.sha256(raw + mode.encode()).hexdigest()[:24]
-        relative = f"textures/actor-{digest}.png"
-        if not (output / relative).exists():
-            if builtin_normal:
-                converted = np.array([[[128, 128, 255, 255]]], dtype=np.uint8)
-            else:
-                with Image.open(path) as pixels:
-                    converted = converted_pixels(np.array(pixels.convert("RGBA")), mode)
-            Image.fromarray(converted).save(output / relative)
+        cutoffs = []
+        for material in document.get('materials', []):
+            binding = material.get('pbrMetallicRoughness', {}).get('baseColorTexture')
+            if binding and material.get('alphaMode') == 'MASK' and document['textures'][binding['index']]['source'] == index:
+                cutoffs.append(material.get('alphaCutoff', .5))
+        recipe = json.dumps({'mode': mode, 'cutoffs': sorted(set(cutoffs)), 'version': 1}, sort_keys=True).encode()
+        digest = hashlib.sha256(raw+recipe).hexdigest()[:24]
+        if preparation is None:
+            raise ValueError('Runtime image preparation requires an explicit native preparation executable')
+        relative = f"textures/actor-{digest}.ktx2"
+        if builtin_normal:
+            converted = np.array([[[128, 128, 255, 255]]], dtype=np.uint8)
+        else:
+            with Image.open(path) as pixels:
+                converted = converted_pixels(np.array(pixels.convert("RGBA")), mode)
+        try:
+            from .prepare_ktx2 import runtime_image
+        except ImportError:
+            from prepare_ktx2 import runtime_image
+        runtime_image(converted, 'normal' if mode == 'normal' else 'color', mode != 'normal', output/relative, preparation, cutoffs)
         image["uri"] = relative
     name = source_path.stem
     document["accessors"], document["bufferViews"] = accessors, views
@@ -252,7 +263,7 @@ def prepare(config):
         if missing_clips:
             raise ValueError(f"Missing recovered animations for {name}: {missing_clips}")
         clips = [animation_source / clip for clip in clip_names]
-        relative, notifications = convert(source_models.get(name, models / "model_export" / (name + "_lod0.gltf")), pack / "actors", image_root, clips, in_place="german" in name)
+        relative, notifications = convert(source_models.get(name, models / "model_export" / (name + "_lod0.gltf")), pack / "actors", image_root, clips, in_place="german" in name, preparation=config)
         identity = "actor." + name
         presentations[:] = [p for p in presentations if p["id"] != identity]
         animation_definitions[:] = [a for a in animation_definitions if a["skeleton"] != identity]

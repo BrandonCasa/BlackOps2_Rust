@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["numpy>=2,<3", "pillow>=12,<13", "soundfile>=0.13,<0.14"]
+# dependencies = ["numpy>=2,<3", "pillow>=12,<13", "soundfile>=0.13,<0.14", "zstandard>=0.25,<1"]
 # ///
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -34,11 +34,10 @@ except ImportError:
     from environment_content import validate as validate_environment
 
 import numpy as np
-from PIL import Image
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 POINTER = b"version https://git-lfs.github.com/spec/v1"
-RUNTIME_SUFFIXES = {".json", ".gltf", ".bin", ".png", ".dds", ".jpg", ".jpeg", ".ogg", ".ttf", ".otf"}
+RUNTIME_SUFFIXES = {".json", ".gltf", ".bin", ".ktx2", ".ogg", ".ttf", ".otf"}
 
 
 def require(condition, message):
@@ -47,12 +46,15 @@ def require(condition, message):
 
 
 @lru_cache(maxsize=65536)
-def dds_layout(path, modified, size):
+def texture_layout(path, modified, size):
     try:
-        from .material_textures import inspect_dds
+        from .ktx2_textures import inspect_ktx2
     except ImportError:
-        from material_textures import inspect_dds
-    return inspect_dds(read_bytes(path))
+        from ktx2_textures import inspect_ktx2
+    info = inspect_ktx2(read_bytes(path))
+    require(info['dimension'] == '2d' and info['surfaces'] == 1,
+            'runtime material and UI images must be single 2D textures')
+    return info
 
 
 def natural(value, label, minimum=0):
@@ -104,6 +106,9 @@ def clean_strings(value, localized_text=False):
         for item in value:
             clean_strings(item)
     elif isinstance(value, str):
+        require(not value.startswith("data:image/") and
+                not re.search(r"\.(?:dds|png|jpe?g|basis|tga|bmp|webp|hdr|exr|tiff?)(?:#.*)?$", value, re.IGNORECASE),
+                "non-KTX2 runtime image reference is forbidden")
         pattern = r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/]|(?:^|\s)/(?:Users|home|mnt|tmp)/|file://"
         if not localized_text:
             pattern += r"|\\"
@@ -188,31 +193,13 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                         for a, b in zip(accessor[key], actual.tolist())),
                         f"accessor {key} mismatch")
         arrays.append(values)
-    decoded = set()
-    def decode_png(image_path):
-        if image_path in decoded:
-            return
-        read_bytes(image_path)
-        with Image.open(image_path) as pixels:
-            require(pixels.format == "PNG", "non-PNG image")
-            pixels.verify()
-        with Image.open(image_path) as pixels:
-            pixels.load()
-        decoded.add(image_path)
     for image in document.get("images", []):
         require(set(image) <= {"uri", "name"}, "embedded or extended images unsupported")
         suffix = PurePosixPath(image["uri"]).suffix
-        require(suffix in {".png", ".jpg", ".jpeg"}, "unsupported glTF image")
+        require(suffix == ".ktx2", "every runtime glTF image must use KTX2")
         image_path = dependency(image["uri"], suffix)
-        if suffix == ".png":
-            decode_png(image_path)
-        else:
-            read_bytes(image_path)
-            with Image.open(image_path) as pixels:
-                require(pixels.format == "JPEG", "non-JPEG image")
-                pixels.verify()
-            with Image.open(image_path) as pixels:
-                pixels.load()
+        stat = image_path.stat()
+        texture_layout(image_path, stat.st_mtime_ns, stat.st_size)
     for texture in document.get("textures", []):
         require(set(texture) <= {"source", "sampler", "name"}, "unsupported texture feature")
         ref(document.get("images", []), texture["source"], "image")
@@ -308,10 +295,6 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                 binding = (channel.get("role"), channel.get("layer"))
                 require(binding not in bindings, "duplicate material channel/layer")
                 bindings.add(binding)
-                try:
-                    from .material_textures import inspect_dds
-                except ImportError:
-                    from material_textures import inspect_dds
                 require(set(channel) == {"uri", "role", "color_space", "format", "width", "height", "mip_count", "layer", "channels", "sampler"}, "invalid PBR texture metadata")
                 require(type(channel["sampler"]) is int and 0 <= channel["sampler"] <= 255, "invalid native sampler bits")
                 role = channel["role"]
@@ -323,14 +306,14 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                     require(role in CHANNELS and channel["channels"] == CHANNELS[role], "invalid native texture interpretation")
                     require(type(channel["layer"]) is int and 0 <= channel["layer"] <= 31 and channel["color_space"] == "linear", "invalid native texture layer or transfer")
                     uri = channel["uri"]
-                    texture = safe_path(root, uri, {".dds"})
+                    texture = safe_path(root, uri, {".ktx2"})
                     files.add(uri)
                     stat = texture.stat()
-                    dds = dds_layout(texture, stat.st_mtime_ns, stat.st_size)
-                    require(FORMATS.get(dds["dxgi"]) == channel["format"], "native DDS format mismatch")
-                    require((dds["width"], dds["height"], dds["mip_count"]) == (channel["width"], channel["height"], channel["mip_count"]), "native DDS layout mismatch")
+                    dds = texture_layout(texture, stat.st_mtime_ns, stat.st_size)
+                    require(FORMATS.get(dds["dxgi"]) == channel["format"], "native KTX2 format mismatch")
+                    require((dds["width"], dds["height"], dds["mip_count"]) == (channel["width"], channel["height"], channel["mip_count"]), "native KTX2 layout mismatch")
                     retained = [b for b in native["bindings"] if b["active"] and (b.get("role"), b.get("layer")) == binding]
-                    require(len(retained) == 1 and retained[0]["uri"] == uri and retained[0]["sha256"] == dds["sha256"] and retained[0]["sampler"] == channel["sampler"], "native DDS byte or sampler identity mismatch")
+                    require(len(retained) == 1 and retained[0]["uri"] == uri and retained[0]["sha256"] == dds["sha256"] and retained[0]["sampler"] == channel["sampler"], "native KTX2 byte or sampler identity mismatch")
                     continue
                 require(role in {"color", "normal", "response", "control", "emissive", "coating"}, "invalid PBR role")
                 require(channel["channels"] == {"color": "rgb:base_color,a:coverage",
@@ -339,19 +322,19 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                 require(type(channel["layer"]) is int and 0 <= channel["layer"] <= 31, "invalid PBR layer")
                 require(channel["color_space"] == ("srgb" if role in {"color", "emissive"} else "linear"), "PBR color-space mismatch")
                 uri = channel["uri"]
-                texture = safe_path(root, uri, {".dds"})
+                texture = safe_path(root, uri, {".ktx2"})
                 files.add(uri)
                 stat = texture.stat()
-                dds = dds_layout(texture, stat.st_mtime_ns, stat.st_size)
+                dds = texture_layout(texture, stat.st_mtime_ns, stat.st_size)
                 expected_formats = {"BC7_UNORM_SRGB": 99, "BC7_UNORM": 98, "BC5_UNORM": 83,
-                                    "BC4_UNORM": 80, "R8G8B8A8_UNORM_SRGB": 29, "R8G8B8A8_UNORM": 28}
-                require(channel["format"] in expected_formats and dds["dxgi"] == expected_formats[channel["format"]], "PBR DDS format mismatch")
-                allowed = {"normal": {83, 28}, "coating": {80, 28}}.get(role,
+                                    "BC4_UNORM": 80, "R8_UNORM": 61, "R8G8_UNORM": 49, "R8G8B8A8_UNORM_SRGB": 29, "R8G8B8A8_UNORM": 28}
+                require(channel["format"] in expected_formats and dds["dxgi"] == expected_formats[channel["format"]], "PBR KTX2 format mismatch")
+                allowed = {"normal": {83, 49, 28}, "coating": {80, 61, 28}}.get(role,
                     {99, 29} if role in {"color", "emissive"} else {98, 28})
                 require(dds["dxgi"] in allowed, "PBR role/format mismatch")
-                require((dds["width"], dds["height"], len(dds["mips"])) == (channel["width"], channel["height"], channel["mip_count"]), "PBR DDS layout mismatch")
+                require((dds["width"], dds["height"], len(dds["mips"])) == (channel["width"], channel["height"], channel["mip_count"]), "PBR KTX2 layout mismatch")
                 require(len(dds["mips"]) == max(dds["width"], dds["height"]).bit_length(), "incomplete PBR mip chain")
-                require((role in {"color", "emissive"}) == (dds["dxgi"] in {29, 99}), "PBR DDS transfer mismatch")
+                require((role in {"color", "emissive"}) == (dds["dxgi"] in {29, 99}), "PBR KTX2 transfer mismatch")
             if "preparation" in surface:
                 bindings = {(c["role"], c["layer"]) for c in surface["channels"]}
                 require({("color", 0), ("color", 1), ("control", 2)} <= bindings, "tile material lacks intrinsic layers/control")
@@ -634,25 +617,34 @@ def validate_weapon_camos(root, files):
         require(set(native["replace_flags"]) == {"color","normal","specular"} and all(type(v) is bool for v in native["replace_flags"].values()), "invalid camo flags")
         for channel in surface["channels"]:
             uri = channel["uri"]
-            raw = read_bytes(safe_path(root,uri,{".dds"}))
+            raw = read_bytes(safe_path(root,uri,{".ktx2"}))
             try:
                 from .prepare_native_weapons import CHANNELS, FORMATS
-                from .material_textures import inspect_dds
+                from .ktx2_textures import inspect_ktx2
             except ImportError:
                 from prepare_native_weapons import CHANNELS, FORMATS
-                from material_textures import inspect_dds
-            image = inspect_dds(raw)
+                from ktx2_textures import inspect_ktx2
+            image = inspect_ktx2(raw)
             require(channel["color_space"] == "linear" and channel["channels"] == CHANNELS[channel["role"]], "invalid camo channel transfer")
-            require(channel["format"] == FORMATS[image["dxgi"]] and (channel["width"],channel["height"],channel["mip_count"]) == (image["width"],image["height"],image["mip_count"]), "invalid camo DDS metadata")
+            require(channel["format"] == FORMATS[image["dxgi"]] and (channel["width"],channel["height"],channel["mip_count"]) == (image["width"],image["height"],image["mip_count"]), "invalid camo KTX2 metadata")
             bindings = [b for b in native["bindings"] if b["active"] and b["role"] == channel["role"] and b["layer"] == channel["layer"]]
-            require(len(bindings) == 1 and bindings[0]["sha256"] == image["sha256"] and bindings[0]["uri"] == uri and bindings[0]["sampler"] == channel["sampler"], "camo original DDS identity mismatch")
+            require(len(bindings) == 1 and bindings[0]["sha256"] == image["sha256"] and bindings[0]["uri"] == uri and bindings[0]["sampler"] == channel["sampler"], "camo KTX2 identity mismatch")
             files.add(uri)
 
 
 def validate_pack(root, receipt=None, exact=False, progress=False):
     root = root.resolve()
+    try:
+        from .prepare_ktx2 import TEXTURES
+    except ImportError:
+        from prepare_ktx2 import TEXTURES
+    for path in root.rglob('*'):
+        if path.is_file():
+            require(path.suffix.lower() not in TEXTURES - {'.ktx2'},
+                    f"non-KTX2 runtime texture is forbidden: {path.relative_to(root)}")
+            require(path.suffix.lower() != '.glb', "runtime model containers must externalize their KTX2 images")
     files = {"game.json", SKY_PATH}
-    validate_sky(read_bytes(safe_path(root, SKY_PATH, {".dds"})))
+    validate_sky(read_bytes(safe_path(root, SKY_PATH, {".ktx2"})))
     game = read_json(safe_path(root, "game.json", {".json"}))
     require(set(game) <= {"version", "scene", "collision_scene", "spawn", "yaw", "spawn_points",
                           "waypoints", "survey_views", "source_surfaces", "render_meshes",
@@ -808,12 +800,9 @@ def validate_pack(root, receipt=None, exact=False, progress=False):
             require(not label, "unexpected media asset label")
             read_bytes(dependency)
             files.add(name)
-            if suffix in {".png", ".jpg", ".jpeg"}:
-                with Image.open(dependency) as pixels:
-                    require(pixels.format == ("PNG" if suffix == ".png" else "JPEG"), "image format mismatch")
-                    pixels.verify()
-                with Image.open(dependency) as pixels:
-                    pixels.load()
+            if suffix == ".ktx2":
+                stat = dependency.stat()
+                texture_layout(dependency, stat.st_mtime_ns, stat.st_size)
             elif suffix == ".ogg":
                 import soundfile
                 with soundfile.SoundFile(dependency) as sound:
@@ -850,10 +839,10 @@ def validate_pack(root, receipt=None, exact=False, progress=False):
                     if mesh.get("name", "").startswith("world_") for p in mesh["primitives"])
     if receipt is not None:
         require(triangles == receipt["triangles"], "world triangle receipt mismatch")
-    pngs = sum(name.endswith(".png") for name in map_files)
+    texture_count = sum(name.endswith(".ktx2") for name in map_files)
     if receipt is not None:
-        require(pngs == receipt["textures"] + receipt["model_textures"], "texture receipt count mismatch")
-        require(sum(name.endswith(".png") and PurePosixPath(name).name.startswith("model-") for name in map_files)
+        require(texture_count == receipt["textures"] + receipt["model_textures"], "texture receipt count mismatch")
+        require(sum(name.endswith(".ktx2") and PurePosixPath(name).name.startswith("model-") for name in map_files)
                 == receipt["model_textures"], "model texture receipt count mismatch")
     validate_weapon_camos(root, files)
     if exact:
@@ -922,7 +911,7 @@ def reconcile_sources(config, receipt, documents):
     require(len(set(all_meshes)) == len(all_meshes), "distinct source providers unexpectedly merged")
 
 
-def import_pack(source, destination, receipt, check=False, validated_hashes=None):
+def import_pack(source, destination, receipt, check=False, validated_hashes=None, predecessor_identity=None):
     source, destination = source.resolve(), destination.resolve()
     require(source != destination and source not in destination.parents and destination not in source.parents,
             "source and destination overlap")
@@ -930,15 +919,28 @@ def import_pack(source, destination, receipt, check=False, validated_hashes=None
         _, _, hashes = validate_pack(source, receipt, exact=receipt is None)
     else:
         hashes = validated_hashes
+    require(hash_closure(source, hashes) == hashes, "qualified source changed before import")
+    retired = set()
     if not check:
         if destination.exists():
             existing = {p.relative_to(destination).as_posix() for p in destination.rglob("*") if p.is_file()}
             retired = existing - hashes.keys()
             if retired:
-                _, _, previous = validate_pack(destination, None, exact=True)
-                require(existing == previous.keys(), "destination contains unrelated files")
-                for name in retired:
-                    safe_path(destination, name, RUNTIME_SUFFIXES).unlink()
+                if predecessor_identity is None:
+                    _, _, previous = validate_pack(destination, None, exact=True)
+                    require(existing == previous.keys(), "destination contains unrelated files")
+                else:
+                    previous = json.loads(predecessor_identity.read_text(encoding='utf-8'))['assets']
+                    require(existing == previous.keys(), "destination differs from the complete pinned predecessor")
+                    for name, expected in previous.items():
+                        path = safe_path(destination, name, RUNTIME_SUFFIXES | {'.dds', '.png', '.jpg', '.jpeg'})
+                        raw = path.read_bytes()
+                        if raw.startswith(POINTER):
+                            pointer = POINTER + f"\noid sha256:{expected['sha256']}\nsize {expected['size']}\n".encode()
+                            require(raw == pointer, f"predecessor LFS identity mismatch: {name}")
+                        else:
+                            require(len(raw) == expected['size'] and hashlib.sha256(raw).hexdigest() == expected['sha256'],
+                                    f"predecessor asset changed: {name}")
         directories = {}
         for name in hashes:
             directories.setdefault(PurePosixPath(name).parent, name)
@@ -946,7 +948,7 @@ def import_pack(source, destination, receipt, check=False, validated_hashes=None
             safe_path(destination, name, RUNTIME_SUFFIXES).parent.mkdir(parents=True, exist_ok=True)
         def copy_runtime(name):
             target = safe_path(destination, name, RUNTIME_SUFFIXES)
-            if not target.is_file() or hashlib.sha256(read_bytes(target)).hexdigest() != hashes[name]:
+            if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != hashes[name]:
                 descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.import-", dir=target.parent)
                 os.close(descriptor)
                 try:
@@ -958,14 +960,15 @@ def import_pack(source, destination, receipt, check=False, validated_hashes=None
         with ThreadPoolExecutor(max_workers=8) as pool:
             for _ in pool.map(copy_runtime, hashes):
                 pass
+        for name in retired:
+            safe_path(destination, name, RUNTIME_SUFFIXES | {'.dds', '.png', '.jpg', '.jpeg'}).unlink()
     actual = {p.relative_to(destination).as_posix() for p in destination.rglob('*') if p.is_file()}
     require(actual == hashes.keys(), 'imported file list differs from validated source closure')
     imported = hash_closure(destination, hashes)
     require(imported == hashes, "imported file hashes differ from source")
     require(hash_closure(source, hashes) == hashes,
             "source changed during import")
-    return {"runtime_files": len(hashes), "png_textures": sum(n.endswith(".png") for n in hashes),
-            "dds_textures": sum(n.endswith(".dds") for n in hashes),
+    return {"runtime_files": len(hashes), "ktx2_textures": sum(n.endswith(".ktx2") for n in hashes),
             "runtime_bytes": sum((destination / n).stat().st_size for n in hashes), "sha256": hashes}
 
 
@@ -1028,6 +1031,7 @@ def main():
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--check-index", action="store_true", help="also verify staged files and LFS objects; implies --check")
     parser.add_argument("--receipt", type=Path, help="optional external validation receipt")
+    parser.add_argument("--predecessor-identity", type=Path)
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text(encoding="utf-8-sig"))
     source = external(config["game"]["asset_pack"])
@@ -1035,7 +1039,8 @@ def main():
     _, documents, hashes = validate_pack(source, receipt, exact=receipt is None, progress=True)
     if receipt is not None:
         reconcile_sources(config, receipt, documents)
-    result = import_pack(source, WORKSPACE / "assets/origins", receipt, args.check or args.check_index, hashes)
+    result = import_pack(source, WORKSPACE / "assets/origins", receipt, args.check or args.check_index, hashes,
+                         args.predecessor_identity)
     if args.check_index:
         result.update(check_index(WORKSPACE / "assets/origins", result["sha256"]))
     if args.receipt:

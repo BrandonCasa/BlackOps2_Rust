@@ -7,7 +7,7 @@ import shutil
 from import_origins import validate_pack
 
 
-FORMATS = {28: "R8G8B8A8_UNORM", 29: "R8G8B8A8_UNORM_SRGB", 80: "BC4_UNORM",
+FORMATS = {28: "R8G8B8A8_UNORM", 29: "R8G8B8A8_UNORM_SRGB", 49: "R8G8_UNORM", 61: "R8_UNORM", 80: "BC4_UNORM",
            83: "BC5_UNORM", 98: "BC7_UNORM", 99: "BC7_UNORM_SRGB"}
 
 
@@ -67,11 +67,11 @@ def prepare(source, destination, receipt):
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(json.dumps(dict(version=1, source_hashes=hashes,
                                       recovered_hashes=expanded, unchanged=unchanged), indent=2) + "\n")
-    print(f"Recovered {len(streams)} full DDS chains; {len(expanded)} validated files", flush=True)
+    print(f"Recovered {len(streams)} full KTX2 chains; {len(expanded)} validated files", flush=True)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Recover an external full-resolution source from a validated streaming pack.\n\nOnly standard DDS tails and material descriptors are expanded. Mesh buffers,\nscene structure, content and the input pack remain unchanged.\n')
+    parser = argparse.ArgumentParser(description='Recover an external full-resolution source from a validated streaming pack.\n\nOnly standard KTX2 tails and material descriptors are expanded. Mesh buffers,\nscene structure, content and the input pack remain unchanged.\n')
     for name in ("source", "destination", "receipt"):
         parser.add_argument(name, type=Path)
     args = parser.parse_args()

@@ -22,7 +22,7 @@ def prepare(config):
     coord = lambda value: (np.array(list(map(float, value.split())))[[0, 2, 1]] * [.0254, .0254, -.0254]).tolist()
     identity = 'presentation.generator.pump'
     relative, notes = convert(base / 'game-prepare/models/model_export/fxanim_zom_tomb_generator_pump_mod_lod0.gltf',
-                              pack / 'props', base / 'solo-content/actor-images', [source / n for n in CLIPS])
+                              pack / 'props', base / 'solo-content/actor-images', [source / n for n in CLIPS], preparation=config)
     surfaces = json.loads((base / 'game-prepare/instances/model-surfaces.json').read_text())
     retained = {s['material']: s for model in surfaces.values() for s in model}
     prop = pack / 'props' / relative
@@ -38,8 +38,9 @@ def prepare(config):
         else:
             index = mat['pbrMetallicRoughness']['baseColorTexture']['index']
             path = model['images'][model['textures'][index]['source']]['uri']
-            with Image.open(prop.parent / path) as image:
-                lo, hi = image.convert('RGBA').getchannel('A').getextrema()
+            from ktx2_textures import decoded_levels
+            alpha_pixels = decoded_levels((prop.parent/path).read_bytes())[0][..., 3]
+            lo, hi = int(alpha_pixels.min()), int(alpha_pixels.max())
             if lo < 255: mat['alphaMode'] = 'BLEND'
             evidence = 'source texture alpha reconstruction'
         alpha.append({'material': mat['name'], 'mode': mat.get('alphaMode', 'OPAQUE'), 'evidence': evidence})

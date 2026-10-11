@@ -96,6 +96,10 @@ impl Plugin for GameRenderingPlugin {
             .init_resource::<pbr::MaterialDiagnostic>()
             .add_systems(Startup, (setup, opaque::initialize))
             .add_systems(PostStartup, sky::setup)
+            .add_systems(
+                PostUpdate,
+                pbr::prepare_image_dimensions.after(bevy::asset::AssetEventSystems),
+            )
             .add_systems(Startup, cluster_capacity)
             .add_systems(PostUpdate, shadows::restrict_contact_shadows)
             .add_systems(

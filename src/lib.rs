@@ -49,6 +49,8 @@ pub mod rounds;
 mod run_environment;
 mod session;
 pub mod solo_revive;
+#[cfg(feature = "prepare-textures")]
+pub mod texture_preparation;
 pub mod verification;
 pub mod weapons;
 

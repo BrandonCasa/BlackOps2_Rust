@@ -225,6 +225,31 @@ pub(super) fn diagnostics(
     }
 }
 
+pub(super) fn prepare_image_dimensions(
+    mut events: MessageReader<AssetEvent<Image>>,
+    server: Res<AssetServer>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    use bevy::render::render_resource::TextureDimension;
+    for event in events.read() {
+        let (AssetEvent::Added { id } | AssetEvent::Modified { id }) = event else {
+            continue;
+        };
+        if !server
+            .get_path(*id)
+            .is_some_and(|path| path.path().extension().is_some_and(|extension| extension == "ktx2"))
+        {
+            continue;
+        }
+        if let Some(image) = images.get_mut_untracked(*id)
+            && image.texture_descriptor.dimension == TextureDimension::D1
+            && image.height() == 1
+        {
+            image.texture_descriptor.dimension = TextureDimension::D2;
+        }
+    }
+}
+
 pub(super) fn load(server: &AssetServer, texture: &PreparedTexture) -> Handle<Image> {
     let srgb = texture.color_space == "srgb";
     let native = texture.sampler;

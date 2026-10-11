@@ -27,7 +27,7 @@ def prepare(config, gsc, csc, report_dir):
         identity = 'presentation.environment.'+model
         if any(p['id'] == identity for p in content['presentations']):
             return identity
-        name, _ = convert(native_models/(model+'_lod0.gltf'), pack/'props/environment', extra_images, [])
+        name, _ = convert(native_models/(model+'_lod0.gltf'), pack/'props/environment', extra_images, [], preparation=config)
         content['presentations'].append({'id': identity, 'scene': 'props/environment/'+name+'#Scene0', 'animations': [], 'sounds': []})
         return identity
 

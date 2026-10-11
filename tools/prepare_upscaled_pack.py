@@ -6,19 +6,22 @@ import math
 from pathlib import Path
 import shutil
 
-from material_textures import inspect_dds
+from material_textures import inspect_texture
+from ktx2_textures import decoded_levels
 from resident_textures import assemble
 from preparation_resources import PreparationResources
 from import_origins import validate_pack
 from upscale_textures import DEEPBUMP_UPSCALE_SHA256, RECIPE_VERSION, source_levels
-from compressed_texture_cache import ENCODER_SHA256, FORMATS, MASK_MARGINS, mask_recipe, materialize, quality_limits, sampled_channels, target_format
+from compressed_texture_cache import BACKEND, mask_recipe, materialize, quality_limits, sampled_channels
 
 
 def verify_quality(entry, record, info, source_info):
     quality = record.get("quality", {})
     if quality.get("output_sha256") != info["sha256"]:
         raise ValueError("Candidate quality/integrity receipt refers to different bytes")
-    retained = source_info["dxgi"] == info["dxgi"]
+    retained = record.get("authored_mips") in ("identical-blocks", "identical-decoded-channels")
+    if retained and record.get('authored_preservation_checked') is not True:
+        raise ValueError('Candidate lacks an authored mip preservation check')
     if record.get("source_mips_retained") != retained or record.get("source_mips_recompressed") != (not retained):
         raise ValueError("Candidate source-tail classification differs from its actual codec")
     if record.get("mask_compression") != mask_recipe(entry):
@@ -68,11 +71,6 @@ def verify_quality(entry, record, info, source_info):
             raise ValueError("Candidate has an unqualified generated/recompressed mip")
     if record.get("mask_compression") != mask_recipe(entry):
         raise ValueError("Candidate mask encoder recipe differs from actual material cutoffs")
-    for level, margin in record.get("mask_encoder_margins", {}).items():
-        index = int(level)
-        if not cutoffs or not 0 <= index < info["mip_count"] or \
-                (retained and index >= prefix) or type(margin) is not int or margin not in MASK_MARGINS[1:]:
-            raise ValueError("Candidate mask margin changed an unowned or invalid mip")
     return True
 
 
@@ -127,10 +125,10 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
                 record.get("density_metric") != entry.get("density_metric"):
             raise ValueError("Candidate requires the current strict-density recipe")
         if record.get("model_sha256") != DEEPBUMP_UPSCALE_SHA256 or recipe.get("model_sha256") != DEEPBUMP_UPSCALE_SHA256 or \
-                recipe.get("encoder_sha256") != ENCODER_SHA256 or record.get("encoder_sha256") != ENCODER_SHA256 or \
+                recipe.get("backend") != record.get("backend") or record.get("backend", {}).get("backend") != BACKEND or \
                 hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest() != record.get("recipe_sha256"):
             raise ValueError("Candidate model, compression encoder or recipe checksum mismatch")
-        if recipe.get("compression") != target_format(entry) or recipe.get("scale") != entry["scale"] or \
+        if recipe.get("container") != "ktx2" or recipe.get("scale") != entry["scale"] or \
                 recipe.get("role") != entry["role"] or recipe.get("color_space") != entry["color_space"] or \
                 recipe.get("samplers") != sorted(entry.get("samplers", [20])) or \
                 recipe.get("mask_cutoffs") != entry.get("mask_cutoffs", []) or \
@@ -160,21 +158,28 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
         raw = path.read_bytes()
         if hashlib.sha256(raw).hexdigest() != record["output_sha256"]:
             raise ValueError(f"Candidate changed after cooking: {entry['uri']}")
-        info = inspect_dds(raw)
-        if info["dxgi"] != FORMATS[target_format(entry)] or record.get("format") != target_format(entry):
+        info = inspect_texture(raw)
+        if path.suffix != ".ktx2" or record.get("format") != info["format"]:
             raise ValueError("Candidate was not cooked to its required build-time block format")
         if (info["width"], info["height"]) != (entry["width"]*entry["scale"], entry["height"]*entry["scale"]):
             raise ValueError("Upscaled texture dimensions differ from the preparation contract")
         if info["mip_count"] != max(info["width"], info["height"]).bit_length():
             raise ValueError("Candidate requires a complete mip chain")
-        source_info = inspect_dds((source/entry["uri"]).read_bytes())
+        source_info = inspect_texture((source/entry["uri"]).read_bytes())
         (audited if verify_quality(entry, record, info, source_info) else unaudited).add(entry["uri"])
         prefix = int(math.log2(entry["scale"]))
         if [mip["sha256"] for mip in info["mips"][prefix:]] != record.get("retained_mip_sha256"):
             raise ValueError("Candidate changed retained source mip data")
-        if record.get("source_mips_retained") and [mip["sha256"] for mip in info["mips"][prefix:]] != [
+        if record.get("authored_mips") == "identical-blocks" and [mip["sha256"] for mip in info["mips"][prefix:]] != [
                 mip["sha256"] for mip in source_info["mips"]]:
             raise ValueError("Candidate did not retain the original compressed mip tail")
+        if record.get("authored_mips") == "identical-decoded-channels":
+            import numpy as np
+            original = decoded_levels((source/entry["uri"]).read_bytes())
+            prepared = decoded_levels(raw)[prefix:]
+            channels = (0, 1) if entry["role"] == "normal" and info['dxgi'] in (49, 83) else (0, 1, 2, 3)
+            if any(not np.array_equal(a[..., channels], b[..., channels]) for a, b in zip(original, prepared, strict=True)):
+                raise ValueError("Candidate altered decoded authored mip channels")
         metadata[entry["uri"]] = info
         adopted.append(entry["uri"])
         provenance[record["model_sha256"]] = dict(credit=record["credit"], upscaler=record["upscaler"])
@@ -234,8 +239,7 @@ def prepare(source, candidates, inventory, destination, receipt, pause_file=None
                 entry = resident[uri]
                 channel.update(width=entry["width"], height=entry["height"],
                     mip_count=entry["mip_count"],
-                    format={28: "R8G8B8A8_UNORM", 29: "R8G8B8A8_UNORM_SRGB", 80: "BC4_UNORM",
-                            83: "BC5_UNORM", 98: "BC7_UNORM", 99: "BC7_UNORM_SRGB"}[entry["format"]])
+                    format=metadata[uri]["format"] if uri in metadata else next(t["format"] for t in entries if t["uri"] == uri))
         for key, original_value in original_geometry.items():
             if document.get(key) != original_value:
                 raise ValueError(f"Texture preparation changed scene geometry: {original.name}")

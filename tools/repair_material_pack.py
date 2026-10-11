@@ -19,7 +19,7 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
-def repair(source, destination, masters, inspection, extraction, encoder, catalog_path, select, receipt, source_receipt=None, resume=False):
+def repair(source, destination, masters, inspection, extraction, preparation_executable, catalog_path, select, receipt, source_receipt=None, resume=False):
     workspace = Path(__file__).resolve().parents[1]
     source, destination, masters = source.resolve(), destination.resolve(), masters.resolve()
     if (destination.exists() and not resume) or any(destination.is_relative_to(p) or p.is_relative_to(destination)
@@ -53,7 +53,7 @@ def repair(source, destination, masters, inspection, extraction, encoder, catalo
             path = destination / uri
             if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
                 raise ValueError(f"Cannot resume: nonmaterial dependency differs from source: {uri}")
-    cooker = Cooker(destination, masters, encoder, catalog, inspection, extraction)
+    cooker = Cooker(destination, masters, preparation_executable, catalog, inspection, extraction)
     updates, identities = {}, set()
     for scene in sorted(source.rglob("*.gltf")):
         resources.wait()
@@ -112,8 +112,8 @@ def repair(source, destination, masters, inspection, extraction, encoder, catalo
     old_materials = {c["uri"] for scene in source.rglob("*.gltf")
                      for m in json.loads(scene.read_text()).get("materials", [])
                      for c in m.get("extras", {}).get("surface", {}).get("channels", [])}
-    prepared = {p.relative_to(destination).as_posix() for p in (destination / "textures").glob("pbr-*.dds")
-                if re.fullmatch(r"pbr-[0-9a-f]{32}\.dds", p.name)}
+    prepared = {p.relative_to(destination).as_posix() for p in (destination / "textures").glob("pbr-*.ktx2")
+                if re.fullmatch(r"pbr-[0-9a-f]{32}\.ktx2", p.name)}
     for uri in (old_materials | prepared) - used:
         (destination / uri).unlink(missing_ok=True)
     for uri in updates:
@@ -142,13 +142,13 @@ def repair(source, destination, masters, inspection, extraction, encoder, catalo
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Repair selected native material sets in an external, otherwise unchanged pack.\n\nRecover full chains first, then repair, measure, cook, assemble and visually\nqualify. All four steps reuse the common semantic/DDS/cache helpers.\n')
-    for name in ("source", "destination", "masters", "inspection", "extraction", "encoder", "receipt"):
-        parser.add_argument("--" + name, type=Path, required=True)
+    parser = argparse.ArgumentParser(description='Repair selected native material sets in an external, otherwise unchanged pack.\n\nRecover full chains first, then repair, measure, cook, assemble and visually\nqualify. All four steps reuse the common semantic/KTX2/cache helpers.\n')
+    for name in ("source", "destination", "masters", "inspection", "extraction", "preparation_executable", "receipt"):
+        parser.add_argument("--" + name.replace("_", "-"), type=Path, required=True)
     parser.add_argument("--catalog", type=Path, default=Path(__file__).resolve().parents[1]/"config/origins-materials.json")
     parser.add_argument("--select", required=True, help="Native identity regex; never a four-material production list")
     parser.add_argument("--source-receipt", type=Path, help="Reuse the exact fully validated recovery closure by hash")
     parser.add_argument("--resume", action="store_true", help="Resume an external native cook after verifying immutable dependencies")
     args = parser.parse_args()
     repair(args.source, args.destination, args.masters, args.inspection, args.extraction,
-           args.encoder, args.catalog, args.select, args.receipt, args.source_receipt, args.resume)
+           args.preparation_executable, args.catalog, args.select, args.receipt, args.source_receipt, args.resume)

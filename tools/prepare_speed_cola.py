@@ -14,7 +14,7 @@ def prepare(config):
     machine = next(e for e in source["entities"] if e["fields"].get("targetname") == "zm_perk_machine" and e["fields"].get("script_noteworthy") == "specialty_fastreload")
     bottle = next(w for w in source["weapons"] if w["source"] == "zombie_perk_bottle_sleight")
     model = machine["fields"]["model"] + "_on"
-    relative, _ = convert(inspection / "game-prepare/models/model_export" / (model + "_lod0.gltf"), pack / "props", inspection / "solo-content/actor-images", [])
+    relative, _ = convert(inspection / "game-prepare/models/model_export" / (model + "_lod0.gltf"), pack / "props", inspection / "solo-content/actor-images", [], preparation=config)
     game = json.loads((pack / "game.json").read_text(encoding="utf-8-sig"))
     content = game["content"]
     perk, presentation = "perk.speed_cola", "prop." + model
