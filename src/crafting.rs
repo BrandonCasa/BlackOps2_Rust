@@ -75,6 +75,7 @@ pub(crate) fn interact(
     mut players: Query<(Entity, &Player, &Transform, &Vitality, &mut WeaponInventory, &mut BuildableInventory, &crate::equipment::GrenadeInventory, &crate::equipment::TacticalInventory, &crate::mines::MineInventory, Has<crate::perks::PerkDrinking>), With<Player>>,
     deployment: Res<crate::buildables::BuildableState>,
     portals: Res<crate::portals::Portals>,
+    upgrades: Res<crate::staff_upgrades::StaffUpgrades>,
     mut crafting: ResMut<Crafting>, mut parts: ResMut<Parts>, mut focus: ResMut<InteractionFocus>,
 ) {
     if !input.use_held { crafting.latched = false; crafting.progress = 0.; }
@@ -156,7 +157,10 @@ pub(crate) fn interact(
                 if recipe == SHIELD { equipment.shield_health = 1500; equipment.shield_held = false; }
             } else {
                 let Some((_, weapon)) = STAFFS.iter().find(|(family, _)| *family == recipe) else { return; };
-                let Some(d) = definition.content.weapons.iter().find(|d| d.id.0 == *weapon) else { return; };
+                let Some(element) = crate::staff_upgrades::WEAPONS.iter().position(|w| w == weapon) else { return; };
+                if upgrades.inserted[element] { focus.prompt = "Staff is charging in the Crazy Place".into(); return; }
+                let id = if upgrades.charged[element] { weapon.replace("_zm", "_upgraded_zm") } else { (*weapon).to_string() };
+                let Some(d) = definition.content.weapons.iter().find(|d| d.id.0 == id) else { return; };
                 if inventory.owned().any(|(_, w)| w.definition == d.id) { focus.rejection = Some(InteractionRejection::Duplicate); return; }
                 if inventory.exchange_staff(d).is_err() { focus.rejection = Some(InteractionRejection::Busy); return; }
             }

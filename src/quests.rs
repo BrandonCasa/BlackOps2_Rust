@@ -125,7 +125,7 @@ fn timers(time: Res<Time<Fixed>>, mut quest: ResMut<MainQuest>) {
     quest.round_holds.retain(|owner| *owner == stage);
 }
 
-fn souls(
+pub(crate) fn souls(
     mut deaths: MessageReader<crate::damage::EnemyDeath>,
     enemies: Query<(&Transform, &crate::rounds::PopulationKind)>,
     mut collectors: Query<(Entity, &Transform, &mut SoulCollector)>,

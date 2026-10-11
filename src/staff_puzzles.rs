@@ -2,7 +2,7 @@ use crate::{gameplay::{GameStep, SessionEntity}, environment::support::{Environm
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
-mod source;
+pub(super) mod source;
 #[derive(Resource, Default)]
 pub struct StaffPuzzles {
     pub first: [bool; 4],
@@ -30,7 +30,7 @@ pub struct StaffPuzzles {
 #[derive(Component)]
 struct PianoKey(String);
 #[derive(Component)]
-struct Relay(String);
+pub(crate) struct Relay(String);
 pub struct StaffPuzzlePlugin;
 impl Plugin for StaffPuzzlePlugin {
     fn build(&self, app: &mut App) {
@@ -92,7 +92,7 @@ fn piano(mut commands: Commands, time: Res<Time<Fixed>>, mut puzzles: ResMut<Sta
         if puzzles.second[3] { crate::audio::emit(&mut commands, "zmb_squest_puzzle_complete", crate::audio::SoundSource::World(Vec3::ZERO)); }
     }
 }
-fn relay(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, mut puzzles: ResMut<StaffPuzzles>, mut focus: ResMut<InteractionFocus>, spatial: SpatialQuery,
+pub(crate) fn relay(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, mut puzzles: ResMut<StaffPuzzles>, mut focus: ResMut<InteractionFocus>, spatial: SpatialQuery,
     targets: Query<(Entity, &Relay, &Transform), Without<Player>>, players: Query<(Entity, &Player, &Transform, &Vitality, &WeaponInventory, Has<crate::perks::PerkDrinking>)>) {
     if !input.use_held { puzzles.latched = false; }
     let Ok((owner, player, pose, health, inventory, drinking)) = players.single() else { return; };

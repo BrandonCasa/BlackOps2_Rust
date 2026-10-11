@@ -381,17 +381,17 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Lightning Staff electrical panel orientations.
 - [x] Add Lightning Staff electrical panel interactions.
 - [x] Add Lightning Staff panel puzzle completion.
-- [ ] Add excavation ring orientations.
-- [ ] Add excavation ring lever interactions.
-- [ ] Add elemental excavation alignment requirements.
-- [ ] Add Fire excavation orb shooting.
-- [ ] Add Ice excavation orb shooting.
-- [ ] Add Wind excavation orb shooting.
-- [ ] Add Lightning excavation orb shooting.
-- [ ] Add staff upgrade pedestal insertion.
-- [ ] Add staff upgrade soul collection.
-- [ ] Add staff upgrade charging completion.
-- [ ] Add upgraded staff retrieval.
+- [x] Add excavation ring orientations.
+- [x] Add excavation ring lever interactions.
+- [x] Add elemental excavation alignment requirements.
+- [x] Add Fire excavation orb shooting.
+- [x] Add Ice excavation orb shooting.
+- [x] Add Wind excavation orb shooting.
+- [x] Add Lightning excavation orb shooting.
+- [x] Add staff upgrade pedestal insertion.
+- [x] Add staff upgrade soul collection.
+- [x] Add staff upgrade charging completion.
+- [x] Add upgraded staff retrieval.
 - [x] Add four soul chest placements.
 - [x] Add soul chest collection volumes.
 - [x] Add soul chest enemy death eligibility.
@@ -429,7 +429,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add G-Strike reward claiming.
 - [x] Add Iron Fists melee weapon definition.
 - [x] Add elemental Iron Fists variants.
-- [ ] Unlock main quest progression after all staff upgrades.
+- [x] Unlock main quest progression after all staff upgrades.
 - [ ] Unlock source-defined staff placement pedestals.
 - [ ] Add robot staff placement interactions.
 - [ ] Add Ice Staff placement inside Freya.
@@ -515,7 +515,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add crafting progress sounds.
 - [x] Add Maxis Drone spatial audio.
 - [x] Add Crazy Place barrier movement sounds.
-- [ ] Add staff upgrade completion announcements.
+- [x] Add staff upgrade completion announcements.
 - [ ] Add elemental staff firing audio.
 - [ ] Add source-defined stage completion announcements.
 - [x] Add Panzersoldat vocalizations.
