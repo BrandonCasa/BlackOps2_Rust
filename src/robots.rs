@@ -46,7 +46,7 @@ fn setup(mut commands: Commands, mut robots: ResMut<Robots>, mut parts: ResMut<c
     *robots = default(); robots.passes[1] = Some(pass(0., false, session.random()));
     for i in 0..3 {
         let mut body = commands.spawn((SessionEntity, RobotBody(i), Transform::default(), Visibility::Hidden));
-        if let Some(scene) = game.content.presentations.iter().find(|p| p.id.0 == "actor.veh_t6_dlc_zm_robot").and_then(|p| p.scene.as_ref()) { body.insert(WorldAssetRoot(server.load(scene.clone()))); }
+        if let Some(scene) = crate::assets::native_scene(&game, "veh_t6_dlc_zm_robot") { body.insert(WorldAssetRoot(server.load(scene.clone()))); }
         commands.spawn((SessionEntity, Foot { robot: i }, Transform::from_translation(Vec3::from_array(source::ROUTES[i][0]) + Vec3::Y * 20.), Visibility::Hidden,
             Collider::cuboid(4.5, 0.5, 4.5), Sensor, CollisionLayers::new(crate::environment::brushes::BRUSH_LAYER, LayerMask::NONE),
             EnvironmentOwner::Robot, ShootableEnvironment, DamageEmitter::Robot(format!("robot.{i}"))));

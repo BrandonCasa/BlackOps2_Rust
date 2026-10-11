@@ -31,7 +31,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Move boarded players with platform displacement.
 - [x] Clear platform support when players jump.
 - [x] Add unopened-zone player access restrictions.
-- [ ] Replace static duplicates of dynamic gameplay objects.
+- [x] Replace static duplicates of dynamic gameplay objects.
 - [x] Add purchase refund handling.
 - [x] Add source-defined purchase discounts.
 - [x] Add buildable equipment input.

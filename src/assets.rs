@@ -413,6 +413,13 @@ fn begin_load(
     }
 }
 
+pub(crate) fn native_scene<'a>(game: &'a GameDefinition, model: &str) -> Option<&'a String> {
+    let name = format!("/{model}_lod0.gltf#Scene0");
+    game.content.presentations.iter().filter_map(|p| p.scene.as_ref())
+        .filter(|scene| scene.ends_with(&name))
+        .min_by_key(|scene| (!scene.contains("/zm_tomb/"), scene.as_str()))
+}
+
 fn scene_ready(
     event: On<WorldInstanceReady>,
     roots: Query<&MapRoot>,
@@ -453,6 +460,16 @@ fn scene_ready(
                                     .to_owned(),
                             ));
                     }
+                }
+            }
+            if metadata["static_instance"].as_bool() == Some(true)
+                && metadata["source_model"].as_str().is_some_and(|model| matches!(model,
+                    "veh_t6_dlc_mkiv_tank" | "veh_t6_dlc_zm_robot" | "p6_zm_tm_soul_box"
+                    | "p6_zm_tm_elm_divider" | "p6_zm_tm_wind_ceiling_ring" | "p6_zm_tm_chamber_mid_piece"))
+            {
+                commands.entity(entity).insert((Visibility::Hidden, ColliderDisabled));
+                for child in children.iter_descendants(entity) {
+                    commands.entity(child).insert(ColliderDisabled);
                 }
             }
             let Some(id) = metadata["brush_entity"].as_str() else {

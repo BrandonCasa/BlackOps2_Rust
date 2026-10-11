@@ -39,7 +39,7 @@ fn setup(mut commands: Commands, mut tank: ResMut<Tank>, game: Res<GameDefinitio
         DamageEmitter::Vehicle("vehicle.tank".into()))).id();
     tank.entity = Some(entity);
     tank.node = 1;
-    if let Some(scene) = game.content.presentations.iter().find(|p| p.id.0 == "actor.veh_t6_dlc_mkiv_tank").and_then(|p| p.scene.as_ref()) {
+    if let Some(scene) = crate::assets::native_scene(&game, "veh_t6_dlc_mkiv_tank") {
         commands.entity(entity).with_children(|parent| { parent.spawn((WorldAssetRoot(server.load(scene.clone())), Transform::from_xyz(0., -1., 0.))); });
     }
     for (site, position) in [[9.5758, 2.413, 75.819], [-6.9342, -6.4516, -115.2398]].into_iter().enumerate() {

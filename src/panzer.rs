@@ -50,7 +50,7 @@ pub fn spawn(commands: &mut Commands, game: &GameDefinition, server: &AssetServe
         Zombie::new(position + Vec3::Y * 1.2, ContentId("enemy.panzer".into()), Gait::Run, 2.5),
         SessionEntity, PopulationKind::Special, Collider::capsule(0.5, 1.4), Transform::from_translation(position + Vec3::Y * 1.2), Visibility::Inherited,
         Vitality::ordinary_actor(health, health).expect("source Panzer health"), Armor::panzer(health), crate::hit_regions::Hitboxes::humanoid(2.4, 0.5))).id();
-    if let Some(scene) = game.content.presentations.iter().find(|p| p.id.0 == "actor.c_zom_mech_body").and_then(|p| p.scene.as_ref()) {
+    if let Some(scene) = crate::assets::native_scene(&game, "c_zom_mech_body") {
         commands.entity(entity).insert(WorldAssetRoot(server.load(scene.clone())));
     }
     crate::audio::emit(commands, "zmb_ai_mechz_vox_spawn", crate::audio::SoundSource::attached(entity));

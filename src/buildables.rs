@@ -38,7 +38,7 @@ impl Plugin for BuildablePlugin {
 }
 fn reset(mut state: ResMut<BuildableState>) { *state = BuildableState::default(); }
 fn visual(commands: &mut Commands, entity: Entity, model: &str, game: &GameDefinition, server: &AssetServer) {
-    if let Some(scene) = game.content.presentations.iter().find(|p| p.id.0 == format!("actor.{model}")).and_then(|p| p.scene.as_ref()) {
+    if let Some(scene) = crate::assets::native_scene(game, model) {
         commands.entity(entity).insert(WorldAssetRoot(server.load(scene.clone())));
     }
 }

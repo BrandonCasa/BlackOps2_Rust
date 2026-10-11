@@ -39,7 +39,7 @@ fn setup(mut commands: Commands, mut rituals: ResMut<Rituals>, game: Res<GameDef
     *rituals = default();
     for (i, (position, _, _)) in source::BOXES.iter().enumerate() {
         let mut entity = commands.spawn((SessionEntity, SoulChest(i), Transform::from_translation(Vec3::from_array(*position)), Visibility::Inherited));
-        if let Some(scene) = game.content.presentations.iter().find(|p| p.id.0.ends_with("p6_zm_tm_soul_box")).and_then(|p| p.scene.as_ref()) { entity.insert(WorldAssetRoot(server.load(scene.clone()))); }
+        if let Some(scene) = crate::assets::native_scene(&game, "p6_zm_tm_soul_box") { entity.insert(WorldAssetRoot(server.load(scene.clone()))); }
     }
     for position in [[68.723002,-7.9248,-118.373398],[33.632902,7.6708,94.288102]] { commands.spawn((SessionEntity, ChallengeBox, Transform::from_translation(Vec3::from_array(position)))); }
 }
