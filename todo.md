@@ -471,20 +471,20 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add ending skip input.
 - [x] Route ending completion into the final scoreboard.
 - [x] Transition final portal entry into the ending.
-- [ ] Add source-defined DSR-50 aiming jumpscare trigger.
-- [ ] Add jumpscare image and sound playback.
-- [ ] Add damage-triggered wall poster removal.
-- [ ] Add six Maxis story audio-log interaction placements.
-- [ ] Play each Maxis story audio log after interaction.
-- [ ] Preserve robot-interior audio-log availability across robot visits.
-- [ ] Track activated Archangel rocks.
-- [ ] Add Archangel rock interaction placements.
-- [ ] Play Archangel after all required rock interactions.
-- [ ] Track activated Shepherd of Fire audio logs.
-- [ ] Add Shepherd of Fire audio-log interaction placements.
-- [ ] Play Shepherd of Fire after required log interactions.
-- [ ] Add Aether generator-floor interaction sequence.
-- [ ] Play Aether after the correct floor sequence.
+- [x] Add source-defined DSR-50 aiming jumpscare trigger.
+- [x] Add jumpscare image and sound playback.
+- [x] Add damage-triggered wall poster removal.
+- [x] Add six Maxis story audio-log interaction placements.
+- [x] Play each Maxis story audio log after interaction.
+- [x] Preserve robot-interior audio-log availability across robot visits.
+- [x] Track activated Archangel rocks.
+- [x] Add Archangel rock interaction placements.
+- [x] Play Archangel after all required rock interactions.
+- [x] Track activated Shepherd of Fire audio logs.
+- [x] Add Shepherd of Fire audio-log interaction placements.
+- [x] Play Shepherd of Fire after required log interactions.
+- [x] Add Aether generator-floor interaction sequence.
+- [x] Play Aether after the correct floor sequence.
 - [ ] Add Samantha doll activation prerequisites.
 - [ ] Add Samantha doll timed shooting sequence.
 - [ ] Add Samantha doll reward spawning.

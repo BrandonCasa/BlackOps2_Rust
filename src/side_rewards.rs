@@ -50,7 +50,7 @@ fn medallions(mut commands:Commands,time:Res<Time<Fixed>>,mut state:ResMut<SideR
         }
     }
 }
-fn collect(mut commands:Commands,input:Res<crate::input::GameInput>,settings:Res<crate::input::ControlSettings>,mut state:ResMut<SideRewards>,mut focus:ResMut<crate::interactions::InteractionFocus>,game:Res<GameDefinition>,spatial:SpatialQuery,rewards:Query<(Entity,&Transform),With<Reward>>,mut players:Query<(Entity,&Player,&Transform,&crate::life::Vitality,&mut crate::weapons::WeaponInventory),Without<Reward>>){
+pub(crate) fn collect(mut commands:Commands,input:Res<crate::input::GameInput>,settings:Res<crate::input::ControlSettings>,mut state:ResMut<SideRewards>,mut focus:ResMut<crate::interactions::InteractionFocus>,game:Res<GameDefinition>,spatial:SpatialQuery,rewards:Query<(Entity,&Transform),With<Reward>>,mut players:Query<(Entity,&Player,&Transform,&crate::life::Vitality,&mut crate::weapons::WeaponInventory),Without<Reward>>){
     if focus.target.is_some(){return;}let Ok((owner,player,pose,health,mut inventory))=players.single_mut()else{return;};if health.state()!=crate::life::LifeState::Standing{return;}
     let eye=pose.translation+Vec3::Y*(player.eye_height-player.height*0.5);let forward=Quat::from_euler(EulerRot::YXZ,player.yaw,player.pitch,0.)*Vec3::NEG_Z;
     for (entity,location) in &rewards{let delta=location.translation-eye;let Ok(direction)=Dir3::new(delta)else{continue;};if delta.length()>2.54 || forward.dot(*direction)<0.8 || spatial.cast_ray(eye,direction,(delta.length()-0.1).max(0.),true,&crate::environment::solids([owner])).is_some(){continue;}
