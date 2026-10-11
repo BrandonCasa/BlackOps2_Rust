@@ -118,7 +118,7 @@ def link_assets(output, asset_root):
                        "ORIGINS_BUNDLE_ASSETS": str(asset_root)})
 
 
-def pin(snapshot_path, output, target_dir=None, asset_root=None, executable=None):
+def pin(snapshot_path, output, target_dir=None, asset_root=None, executable=None, asset_identity=None):
     expected = json.loads(Path(snapshot_path).read_text(encoding="utf-8"))
     current = {path.relative_to(ROOT).as_posix(): digest(path) for path in sources()}
     if current != expected["files"]:
@@ -132,10 +132,24 @@ def pin(snapshot_path, output, target_dir=None, asset_root=None, executable=None
     asset_root = Path(asset_root or ROOT / "assets/origins").resolve()
     link_assets(output, asset_root)
     paths = sorted(path for path in asset_root.rglob("*") if path.is_file())
+    cached = {}
+    cache_digest = None
+    if asset_identity:
+        cached_identity = json.loads(asset_identity.read_bytes())
+        if Path(cached_identity["asset_root"]).resolve() != asset_root:
+            raise ValueError("Cached asset identity belongs to a different pack")
+        cached = cached_identity["assets"]
+        cache_digest = digest(asset_identity)
+    rehashed = []
 
     def asset(path):
         before = path.stat()
-        sha256 = digest(path)
+        old = cached.get(path.relative_to(asset_root).as_posix())
+        if old and old["size"] == before.st_size and old["mtime_ns"] == before.st_mtime_ns:
+            sha256 = old["sha256"]
+        else:
+            sha256 = digest(path)
+            rehashed.append(path.relative_to(asset_root).as_posix())
         after = path.stat()
         if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
             raise RuntimeError(f"Asset changed during capture: {path}")
@@ -144,11 +158,13 @@ def pin(snapshot_path, output, target_dir=None, asset_root=None, executable=None
     with ThreadPoolExecutor(max_workers=4) as pool:
         assets = dict(pool.map(asset, paths))
     identity = {"source": expected, "source_archive": str(Path(snapshot_path).with_suffix(".zip").resolve()), "binaries": binaries, "asset_root": str(asset_root), "assets": assets}
+    identity["asset_verification"] = {"mode": "SHA256; cached hashes when pack path, size and mtime match",
+                                      "cached_identity_sha256": cache_digest, "rehashed_files": len(rehashed)}
     (output / "identity.json").write_text(json.dumps(identity, indent=2) + "\n", encoding="utf-8")
     return {"output": str(output), "revision": expected["revision"], "binaries": binaries, "asset_files": len(assets)}
 
 
-def build(output, target_dir=None, asset_root=None, profiling=None, features=()):
+def build(output, target_dir=None, asset_root=None, profiling=None, features=(), asset_identity=None):
     output = external(output)
     output.mkdir(parents=True, exist_ok=False)
     snapshot_path = output / "source.json"
@@ -176,7 +192,7 @@ def build(output, target_dir=None, asset_root=None, profiling=None, features=())
                 raise RuntimeError(f"Development build failed; see {output / 'cargo.jsonl'}")
     if executable is None:
         raise RuntimeError("Cargo did not report the origins executable")
-    return pin(snapshot_path, output / "bin", target_dir, asset_root, executable)
+    return pin(snapshot_path, output / "bin", target_dir, asset_root, executable, asset_identity)
 
 
 def main():
@@ -186,18 +202,19 @@ def main():
     parser.add_argument("--snapshot")
     parser.add_argument("--target-dir", type=Path)
     parser.add_argument("--asset-root", type=Path)
+    parser.add_argument("--asset-identity", type=Path)
     parser.add_argument("--profiling", choices=("profile-chrome", "profile-tracy", "profile-tracy-memory"))
     parser.add_argument("--feature", action="append", choices=("prepare-textures",), default=[])
     args = parser.parse_args()
     if args.command == "build":
-        print(json.dumps(build(args.output, args.target_dir, args.asset_root, args.profiling, args.feature)))
+        print(json.dumps(build(args.output, args.target_dir, args.asset_root, args.profiling, args.feature, args.asset_identity)))
     elif args.command == "snapshot":
         result = snapshot(args.output, args.profiling, args.feature)
         print(json.dumps({"revision": result["revision"], "source_files": len(result["files"])}))
     else:
         if not args.snapshot:
             parser.error("pin requires --snapshot")
-        print(json.dumps(pin(args.snapshot, args.output, args.target_dir, args.asset_root)))
+        print(json.dumps(pin(args.snapshot, args.output, args.target_dir, args.asset_root, asset_identity=args.asset_identity)))
 
 
 if __name__ == "__main__":
