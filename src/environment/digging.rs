@@ -1027,13 +1027,13 @@ fn powerup_loot(
     }
 }
 
-fn spawn_powerup(
+pub(crate) fn spawn_powerup(
     commands: &mut Commands,
     server: &AssetServer,
     game: &GameDefinition,
     id: &str,
     position: Vec3,
-) {
+) -> Option<Entity> {
     let Some((index, definition)) = game
         .content
         .powerups
@@ -1041,10 +1041,10 @@ fn spawn_powerup(
         .enumerate()
         .find(|(_, p)| p.id.0 == format!("powerup.{id}"))
     else {
-        return;
+        return None;
     };
     let Some(presentation) = &definition.presentation else {
-        return;
+        return None;
     };
     let entity = visual(
         commands,
@@ -1066,6 +1066,7 @@ fn spawn_powerup(
             duration: 0.6,
         },
     ));
+    Some(entity)
 }
 
 fn dug_zombie(

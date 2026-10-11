@@ -103,20 +103,20 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Panzersoldat staff-part drops.
 - [x] Add first Panzersoldat round scheduling.
 - [x] Add recurring Panzersoldat round scheduling.
-- [ ] Add generator shutdown progress.
-- [ ] Add generator recapture interactions.
-- [ ] Add generator defender capture-zone targeting.
-- [ ] Add generator defender attack behavior.
-- [ ] Add generator attacker route selection.
-- [ ] Add generator attacker shutdown behavior.
-- [ ] Add generator attacker progression between generators.
-- [ ] Separate generator attack waves from normal round budgets.
-- [ ] Add generator attack wave scheduling.
-- [ ] Add generator one initial reward behavior.
-- [ ] Add generator six Fire Staff part reward.
-- [ ] Add generator attack wave completion rewards.
-- [ ] Add earned perk purchase slots.
-- [ ] Preserve source-defined earned slot persistence.
+- [x] Add generator shutdown progress.
+- [x] Add generator recapture interactions.
+- [x] Add generator defender capture-zone targeting.
+- [x] Add generator defender attack behavior.
+- [x] Add generator attacker route selection.
+- [x] Add generator attacker shutdown behavior.
+- [x] Add generator attacker progression between generators.
+- [x] Separate generator attack waves from normal round budgets.
+- [x] Add generator attack wave scheduling.
+- [x] Add generator one initial reward behavior.
+- [x] Add generator six Fire Staff part reward.
+- [x] Add generator attack wave completion rewards.
+- [x] Add earned perk purchase slots.
+- [x] Preserve source-defined earned slot persistence.
 - [ ] Add Wunderfizz active machine selection.
 - [ ] Add Wunderfizz generator power requirements.
 - [ ] Add Wunderfizz source-defined perk weights.
@@ -127,8 +127,8 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add random perk bottle collection.
 - [ ] Add one-time prone perk-machine spare-change rewards.
 - [ ] Add empty perk bottle slot rewards.
-- [ ] Add personal Blood Money rewards.
-- [ ] Add team Blood Money solo rewards.
+- [x] Add personal Blood Money rewards.
+- [x] Add team Blood Money solo rewards.
 - [ ] Reveal Zombie Blood hidden entities.
 - [ ] Hide restricted entities after Zombie Blood expires.
 - [x] Add wall weapon purchase placements.
@@ -310,7 +310,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Restore dropped elemental crystals to recoverable pickup locations.
 - [ ] Add Fire Staff plane-part spawning.
 - [ ] Add Fire Staff plane damage handling.
-- [ ] Add Fire Staff generator-part pickup.
+- [x] Add Fire Staff generator-part pickup.
 - [x] Add Fire Staff Panzer-part pickup.
 - [x] Add Fire Staff recipe.
 - [x] Add Fire Staff crafting pedestal.

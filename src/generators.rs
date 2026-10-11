@@ -11,6 +11,7 @@ use crate::{
 use bevy::prelude::*;
 use bevy::world_serialization::WorldInstanceReady;
 use std::collections::{BTreeMap, BTreeSet};
+mod raids;
 
 pub(crate) fn use_point(origin: Vec3, eye: Vec3, box_size: f32) -> Vec3 {
     let center = origin + Vec3::Y * box_size * 0.5;
@@ -65,6 +66,9 @@ pub struct Generators {
     pub defender_failures: u32,
     pub defenders_cleared: u32,
     pub excess_retired: u32,
+    raid_active: bool,
+    initial_reward: bool,
+    fire_reward: bool,
     retirement_pending: bool,
     spawn_clock: f32,
     spawn_cursor: usize,
@@ -81,7 +85,7 @@ impl Generators {
             .any(|s| s.state == GeneratorState::Capturing)
     }
     pub fn reserve(&self) -> usize {
-        if self.busy() { 4 } else { 0 }
+        usize::from(self.busy()) * 4 + usize::from(self.raid_active) * 4
     }
     pub fn activate(
         &mut self,
@@ -145,6 +149,10 @@ pub struct GeneratorPlugin;
 impl Plugin for GeneratorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Generators>()
+            .init_resource::<raids::GeneratorRaids>()
+            .add_systems(OnEnter(GameState::PreparingShaders), raids::reset.in_set(crate::session::SessionSetup::World))
+            .add_systems(FixedUpdate, raids::tick.in_set(GameStep::EnemyIntent).before(crate::enemies::lifecycle).run_if(in_state(GameState::Playing)))
+            .add_systems(FixedUpdate, raids::deaths.in_set(GameStep::Rewards).run_if(in_state(GameState::Playing)))
             .add_systems(
                 OnEnter(GameState::PreparingShaders),
                 assemble.in_set(crate::session::SessionSetup::World),
@@ -259,7 +267,7 @@ fn retire_excess(
         .iter()
         .filter_map(|(entity, health, kind)| {
             (health.state() == LifeState::ActorAlive
-                && *kind != crate::rounds::PopulationKind::GeneratorDefender)
+                && *kind == crate::rounds::PopulationKind::Ordinary)
                 .then_some(entity)
         })
         .collect();
@@ -470,6 +478,9 @@ fn visual_ready(
         .collect();
 }
 fn tick(
+    mut commands: Commands,
+    server: Res<AssetServer>,
+    mut parts: ResMut<crate::environment::parts::Parts>,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     mut generators: ResMut<Generators>,
@@ -563,6 +574,19 @@ fn tick(
                 site.refund = None;
                 site.purchaser = None;
             }
+        }
+        if completed && !generators.initial_reward {
+            generators.initial_reward = true;
+            if let Some(entity) = crate::environment::digging::spawn_powerup(&mut commands, &server, &definition, "double_points", Vec3::new(68.723002, -7.9248, -118.373398)) {
+                commands.entity(entity).insert(crate::powerups::Pickup {
+                    definition: definition.content.powerups.iter().position(|p| p.id.0 == "powerup.double_points").unwrap(),
+                    remaining: f32::MAX,
+                });
+            }
+        }
+        if completed && d.number == 6 && !generators.fire_reward {
+            generators.fire_reward = true;
+            crate::crafting::reveal_part(&mut commands, &mut parts, "part.elemental_staff_fire.upper_staff", Vec3::new(33.632902, 7.6708, 94.288102));
         }
         generators.completions += u32::from(completed);
         generators.abandoned += u32::from(abandoned);
