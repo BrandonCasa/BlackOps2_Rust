@@ -67,11 +67,12 @@ fn setup(mut commands: Commands, mut crafting: ResMut<Crafting>, mut parts: ResM
         commands.spawn((CraftTarget::Bench(index, (*name).into()), SessionEntity, Transform::from_translation(Vec3::from_array(*position))));
     }
 }
-fn interact(
+pub(crate) fn interact(
     mut commands: Commands, time: Res<Time<Fixed>>, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>,
     definition: Res<GameDefinition>, spatial: SpatialQuery,
     targets: Query<(Entity, &CraftTarget, &Transform), Without<Player>>,
     mut players: Query<(Entity, &Player, &Transform, &Vitality, &mut WeaponInventory, &mut BuildableInventory, &crate::equipment::GrenadeInventory, &crate::equipment::TacticalInventory, &crate::mines::MineInventory, Has<crate::perks::PerkDrinking>), With<Player>>,
+    deployment: Res<crate::buildables::BuildableState>,
     mut crafting: ResMut<Crafting>, mut parts: ResMut<Parts>, mut focus: ResMut<InteractionFocus>,
 ) {
     if !input.use_held { crafting.latched = false; crafting.progress = 0.; }
@@ -142,6 +143,7 @@ fn interact(
                 return;
             }
             if recipe == SHIELD || recipe == DRONE {
+                if recipe == DRONE && (deployment.drone.is_some() || deployment.drone_cooldown > 0.) { focus.rejection = Some(InteractionRejection::Unavailable); return; }
                 if equipment.owned.contains(&recipe) { focus.rejection = Some(InteractionRejection::Duplicate); return; }
                 equipment.owned.insert(recipe.clone());
                 equipment.equipped = Some(recipe.clone());
@@ -155,5 +157,12 @@ fn interact(
             crafting.latched = true;
             focus.accepted += 1;
         }
+    }
+}
+
+impl Crafting {
+    pub fn drone_home(&self) -> Option<Vec3> {
+        self.benches.iter().find(|(_, recipe)| recipe.as_str() == DRONE)
+            .and_then(|(index, _)| source::BENCHES.get(*index)).map(|(_, p)| Vec3::from_array(*p))
     }
 }

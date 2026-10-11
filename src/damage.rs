@@ -16,6 +16,8 @@ struct Attribution<'w, 's> {
     players: Query<'w, 's, &'static crate::weapons::WeaponInventory, With<Player>>,
     emitters: Query<'w, 's, &'static crate::environment::support::DamageEmitter>,
     diggers: Query<'w, 's, &'static crate::environment::digging::Digger>,
+    shields: Query<'w, 's, (&'static Player, &'static Transform, &'static mut crate::crafting::BuildableInventory)>,
+    positions: Query<'w, 's, &'static Transform>,
 }
 
 #[derive(Clone, Debug)]
@@ -143,6 +145,8 @@ fn resolve(
         players,
         emitters,
         diggers,
+        mut shields,
+        positions,
     } = attribution;
     queue
         .0
@@ -231,6 +235,18 @@ fn resolve(
         {
             perk_evidence.record(serde_json::json!({"event":"explosive_protected","target":impact.target.to_bits(),"amount":impact.amount,"source":impact.source.id()}));
             continue;
+        }
+        if player && matches!(impact.source, ImpactSource::Enemy(_)) {
+            if let (Ok(attacker), Ok((body, pose, mut shield))) = (positions.get(impact.attacker), shields.get_mut(impact.target)) {
+                let incoming = (attacker.translation - pose.translation).with_y(0.).normalize_or_zero();
+                let facing = Quat::from_rotation_y(body.yaw) * Vec3::NEG_Z;
+                let dot = incoming.dot(facing);
+                if shield.shield_health > 0 && (if shield.shield_held { dot > 0.3 } else { dot < -0.3 }) {
+                    shield.shield_health = shield.shield_health.saturating_sub(impact.amount);
+                    if shield.shield_health == 0 { shield.owned.remove("tomb_shield_zm"); shield.shield_held = false; }
+                    continue;
+                }
+            }
         }
         let base_amount = impact.amount;
         let before = health.current().unwrap_or(0);

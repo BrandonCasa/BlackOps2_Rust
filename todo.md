@@ -244,28 +244,28 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add tank lightning-part jump access.
 - [x] Add Zombie Shield part sets.
 - [x] Add Zombie Shield recipe.
-- [ ] Add Zombie Shield held state.
-- [ ] Add Zombie Shield carried-back state.
-- [ ] Add Zombie Shield durability.
-- [ ] Block eligible rear attacks with carried shields.
-- [ ] Block eligible frontal attacks with held shields.
-- [ ] Add Zombie Shield melee attacks.
-- [ ] Add Zombie Shield deployment.
-- [ ] Add deployed shield collision.
-- [ ] Add deployed shield enemy targeting.
-- [ ] Break depleted shields.
+- [x] Add Zombie Shield held state.
+- [x] Add Zombie Shield carried-back state.
+- [x] Add Zombie Shield durability.
+- [x] Block eligible rear attacks with carried shields.
+- [x] Block eligible frontal attacks with held shields.
+- [x] Add Zombie Shield melee attacks.
+- [x] Add Zombie Shield deployment.
+- [x] Add deployed shield collision.
+- [x] Add deployed shield enemy targeting.
+- [x] Break depleted shields.
 - [x] Add shield replacement pickup.
 - [x] Add Maxis Drone part sets.
 - [x] Add Maxis Drone recipe.
-- [ ] Add Maxis Drone source-defined damage immunity.
-- [ ] Add Maxis Drone deployment duration.
-- [ ] Add Maxis Drone deployment.
-- [ ] Add Maxis Drone player following.
-- [ ] Add Maxis Drone target selection.
-- [ ] Add Maxis Drone firing.
-- [ ] Add Maxis Drone return behavior.
-- [ ] Add Maxis Drone bench recharge.
-- [ ] Add Maxis Drone pickup after recharge.
+- [x] Add Maxis Drone source-defined damage immunity.
+- [x] Add Maxis Drone deployment duration.
+- [x] Add Maxis Drone deployment.
+- [x] Add Maxis Drone player following.
+- [x] Add Maxis Drone target selection.
+- [x] Add Maxis Drone firing.
+- [x] Add Maxis Drone return behavior.
+- [x] Add Maxis Drone bench recharge.
+- [x] Add Maxis Drone pickup after recharge.
 - [ ] Add Maxis Drone upgraded state.
 - [ ] Add Maxis Drone collection of reward seals.
 - [x] Add record inventory.
@@ -513,7 +513,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add shovel pickup and source dig-result character dialogue.
 - [x] Add Golden Shovel/Helmet, staff-part reveal, and staff-part collection sounds.
 - [x] Add crafting progress sounds.
-- [ ] Add Maxis Drone spatial audio.
+- [x] Add Maxis Drone spatial audio.
 - [ ] Add Crazy Place barrier movement sounds.
 - [ ] Add staff upgrade completion announcements.
 - [ ] Add elemental staff firing audio.

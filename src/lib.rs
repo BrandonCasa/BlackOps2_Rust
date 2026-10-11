@@ -20,6 +20,7 @@ mod animation;
 pub mod assets;
 pub mod audio;
 pub mod barriers;
+pub mod buildables;
 pub mod damage;
 pub mod crafting;
 pub mod economy;
@@ -173,6 +174,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             quests::QuestPlugin,
             stations::StationPlugin,
             crafting::CraftingPlugin,
+            buildables::BuildablePlugin,
             life::LifeStatePlugin,
             solo_revive::SoloRevivePlugin,
             perks::PerkPlugin,

@@ -309,7 +309,7 @@ pub(crate) fn lifecycle(
     mut evidence: ResMut<EnemyEvidence>,
     mut barriers: ResMut<crate::barriers::Barriers>,
     server: Res<AssetServer>,
-    goals: Query<&EnemyGoal>,
+    goals: Query<(&EnemyGoal, Option<&crate::buildables::ShieldAggro>)>,
 ) {
     let (player_entity, player_transform, health) = player.into_inner();
     let dt = time.delta_secs();
@@ -482,7 +482,7 @@ pub(crate) fn lifecycle(
             zombie.navigation = 0.;
             zombie.transition(EnemyAnimation::Idle);
         }
-        let goal = lure.is_none().then(|| goals.get(entity).ok()).flatten();
+        let goal = lure.is_none().then(|| goals.get(entity).ok().map(|(goal, _)| goal)).flatten();
         let ignored = lure.is_none()
             && goal.is_none()
             && (health.state() != LifeState::Standing || effects.zombie_blood > 0.);
@@ -497,7 +497,8 @@ pub(crate) fn lifecycle(
                 |l| l.position,
             )
         };
-        let filter = crate::environment::solids([entity, player_entity]);
+        let shield_target = goals.get(entity).ok().and_then(|(_, shield)| shield.map(|s| s.0));
+        let filter = crate::environment::solids([entity, player_entity].into_iter().chain(shield_target));
         let visible = |from: Vec3, to: Vec3| {
             let delta = to - from;
             Dir3::new(delta).ok().is_some_and(|d| {
@@ -536,6 +537,12 @@ pub(crate) fn lifecycle(
             let seconds = clip.map_or(enemy.attack_seconds, |c| c.seconds);
             while zombie.next_hit < hits.len() && zombie.elapsed >= hits[zombie.next_hit] {
                 zombie.next_hit += 1;
+                if let Some(shield) = shield_target.filter(|_| distance < 1.8) {
+                    impacts.0.push(crate::damage::Impact { attacker: entity, target: shield,
+                        source: crate::damage::ImpactSource::Enemy(zombie.definition.clone()),
+                        category: crate::origins::content::DamageCategory::Melee,
+                        region: crate::weapons::HitRegion::Torso, amount: enemy.damage });
+                }
                 if goal.is_none()
                     && !ignored
                     && distance < 1.5
