@@ -56,6 +56,7 @@ mod render_backend;
 pub mod rendering;
 pub mod rounds;
 pub mod robots;
+pub mod rituals;
 mod run_environment;
 mod session;
 pub mod solo_revive;
@@ -204,7 +205,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    app.add_plugins((portals::PortalPlugin, robots::RobotPlugin));
+    app.add_plugins((portals::PortalPlugin, robots::RobotPlugin, rituals::RitualPlugin));
     if cfg!(debug_assertions)
         && !release_benchmark
         && !flythrough

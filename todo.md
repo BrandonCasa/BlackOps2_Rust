@@ -392,27 +392,27 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add staff upgrade soul collection.
 - [ ] Add staff upgrade charging completion.
 - [ ] Add upgraded staff retrieval.
-- [ ] Add four soul chest placements.
-- [ ] Add soul chest collection volumes.
-- [ ] Add soul chest enemy death eligibility.
-- [ ] Add soul chest charge counters.
-- [ ] Add soul chest closure after completion.
-- [ ] Reset unfinished soul chests after robot stomps.
-- [ ] Add One Inch Punch melee behavior.
-- [ ] Add One Inch Punch reward pickup.
-- [ ] Add Rituals challenge state.
-- [ ] Add Rituals challenge chest placements.
-- [ ] Add generator activation challenge progress.
-- [ ] Add headshot challenge progress.
-- [ ] Add spending challenge progress.
-- [ ] Add soul chest challenge progress.
-- [ ] Add challenge reward eligibility.
-- [ ] Prevent duplicate challenge reward claims.
-- [ ] Add source-defined headshot challenge weapon rewards.
-- [ ] Add source-defined generator challenge Max Ammo rewards.
-- [ ] Add source-defined spending challenge Double Tap rewards.
-- [ ] Allow source-defined reward perks beyond purchase limits.
-- [ ] Add challenge reward claiming.
+- [x] Add four soul chest placements.
+- [x] Add soul chest collection volumes.
+- [x] Add soul chest enemy death eligibility.
+- [x] Add soul chest charge counters.
+- [x] Add soul chest closure after completion.
+- [x] Reset unfinished soul chests after robot stomps.
+- [x] Add One Inch Punch melee behavior.
+- [x] Add One Inch Punch reward pickup.
+- [x] Add Rituals challenge state.
+- [x] Add Rituals challenge chest placements.
+- [x] Add generator activation challenge progress.
+- [x] Add headshot challenge progress.
+- [x] Add spending challenge progress.
+- [x] Add soul chest challenge progress.
+- [x] Add challenge reward eligibility.
+- [x] Prevent duplicate challenge reward claims.
+- [x] Add source-defined headshot challenge weapon rewards.
+- [x] Add source-defined generator challenge Max Ammo rewards.
+- [x] Add source-defined spending challenge Double Tap rewards.
+- [x] Allow source-defined reward perks beyond purchase limits.
+- [x] Add challenge reward claiming.
 - [ ] Add tablet ownership state.
 - [ ] Add tablet pickup placements.
 - [ ] Add tablet church basin placement.
@@ -427,8 +427,8 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add G-Strike robot bombardment.
 - [ ] Add G-Strike equipment replenishment.
 - [ ] Add G-Strike reward claiming.
-- [ ] Add Iron Fists melee weapon definition.
-- [ ] Add elemental Iron Fists variants.
+- [x] Add Iron Fists melee weapon definition.
+- [x] Add elemental Iron Fists variants.
 - [ ] Unlock main quest progression after all staff upgrades.
 - [ ] Unlock source-defined staff placement pedestals.
 - [ ] Add robot staff placement interactions.

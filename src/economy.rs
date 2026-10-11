@@ -41,6 +41,7 @@ pub enum PurchaseError<E> {
 }
 #[derive(Resource, Default)]
 pub struct PointLedger {
+    pub spent: u64,
     next: u64,
     debits: BTreeMap<TransactionId, u32>,
 }
@@ -66,6 +67,7 @@ impl PointLedger {
         }
         let item = operation().map_err(PurchaseError::Rejected)?;
         *balance -= purchase.amount;
+        self.spent = self.spent.saturating_add(u64::from(purchase.amount));
         self.debits.insert(purchase.id, purchase.amount);
         Ok(item)
     }

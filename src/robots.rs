@@ -21,16 +21,19 @@ pub struct Robots {
 impl Default for Robots {
     fn default() -> Self { Self { passes: [None; 3], occupancy: None, entries: 0, evacuations: 0, stomps: 0, triple_round: 0, next: 5., last: Some(1), latched: false } }
 }
+#[derive(Message, Clone, Copy)]
+pub struct RobotStomp(pub Vec3);
 #[derive(Component)]
 struct Foot { robot: usize }
 #[derive(Component)]
-struct Evacuation(usize);
+pub(crate) struct Evacuation(usize);
 #[derive(Component)]
 struct RobotBody(usize);
 pub struct RobotPlugin;
 impl Plugin for RobotPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(FixedUpdate, bodies.in_set(GameStep::Movement).run_if(in_state(GameState::Playing)));
+        app.add_message::<RobotStomp>();
         app.init_resource::<Robots>()
             .add_systems(OnEnter(GameState::PreparingShaders), setup.in_set(crate::session::SessionSetup::World))
             .add_systems(FixedUpdate, tick.in_set(GameStep::Combat).run_if(in_state(GameState::Playing)))
@@ -56,7 +59,7 @@ fn setup(mut commands: Commands, mut robots: ResMut<Robots>, mut parts: ResMut<c
 fn tick(mut commands: Commands, time: Res<Time<Fixed>>, mut robots: ResMut<Robots>, mut session: ResMut<Session>, access: Res<crate::access::ZoneAccess>, quest: Res<MainQuest>,
     mut feet: Query<(Entity, &Foot, &mut Transform), Without<Player>>, mut hits: MessageReader<EnvironmentalHit>,
     mut players: Query<(Entity, &mut Player, &mut Transform, &Vitality, &mut crate::movement::Mobility), (With<Player>, Without<Foot>)>,
-    enemies: Query<(Entity, &Transform, &Vitality), (With<crate::enemies::Zombie>, Without<Player>, Without<Foot>)>, mut damage: ResMut<DamageQueue>) {
+    enemies: Query<(Entity, &Transform, &Vitality), (With<crate::enemies::Zombie>, Without<Player>, Without<Foot>)>, mut damage: ResMut<DamageQueue>, mut stomps: MessageWriter<RobotStomp>) {
     let dt = time.delta_secs();
     for hit in hits.read() {
         if hit.amount == 0 { continue; }
@@ -91,7 +94,7 @@ fn tick(mut commands: Commands, time: Res<Time<Fixed>>, mut robots: ResMut<Robot
         let center = Vec3::from_array(source::ROUTES[foot.robot][p.step]);
         pose.translation = center + Vec3::Y * (p.clock / 8.).clamp(0., 1.) * 12.;
         if p.clock <= 0. {
-            robots.stomps += 1;
+            robots.stomps += 1; stomps.write(RobotStomp(center));
             crate::audio::emit(&mut commands, "zmb_giant_robot_footstep", crate::audio::SoundSource::World(center));
             for (owner, mut player, mut body, vitality, mut mobility) in &mut players {
                 if !matches!(vitality.state(), LifeState::Standing | LifeState::Downed) || robots.occupancy.is_some() { continue; }
@@ -124,7 +127,7 @@ fn tick(mut commands: Commands, time: Res<Time<Fixed>>, mut robots: ResMut<Robot
         } else { robots.occupancy = None; }
     }
 }
-fn evacuate(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, mut robots: ResMut<Robots>, mut focus: ResMut<InteractionFocus>,
+pub(crate) fn evacuate(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, mut robots: ResMut<Robots>, mut focus: ResMut<InteractionFocus>,
     exits: Query<(Entity, &Evacuation, &Transform), Without<Player>>, mut players: Query<(Entity, &mut Player, &mut Transform, &Vitality, &mut crate::movement::Mobility), With<Player>>) {
     if !input.use_held { robots.latched = false; }
     let Some(occupancy) = robots.occupancy else { return; };
