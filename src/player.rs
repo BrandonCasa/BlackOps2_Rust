@@ -160,6 +160,7 @@ pub fn move_player(
     mut actions: ResMut<TickActions>,
     definition: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
+    reserved: Query<(), With<crate::actions::HandReservation>>,
     mut players: Query<(
         Entity,
         &mut Player,
@@ -213,7 +214,7 @@ pub fn move_player(
     else {
         return;
     };
-    if drinking.is_some() {
+    if drinking.is_some() || reserved.contains(entity) {
         *actions = TickActions::default();
     }
     let downed = vitality.state() == crate::life::LifeState::Downed;
@@ -247,7 +248,7 @@ pub fn move_player(
         mobility.recovery = 0.;
         mobility.airborne = false;
         requested = crate::movement::Stance::Crouched;
-    } else if drinking.is_none() && !mobility.busy() {
+    } else if drinking.is_none() && !reserved.contains(entity) && !mobility.busy() {
         if prone_edge {
             requested = if mobility.stance == crate::movement::Stance::Prone {
                 crate::movement::Stance::Standing
