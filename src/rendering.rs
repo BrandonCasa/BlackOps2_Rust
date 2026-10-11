@@ -171,7 +171,7 @@ pub(crate) fn setup(
     commands.insert_resource(bevy::light::DirectionalLightShadowMap {
         size: profile.sun_shadow_map_size,
     });
-    commands.insert_resource(ClearColor(source.fog.native().color));
+    commands.insert_resource(ClearColor(source.fog.native(source.exposure).color));
     commands.insert_resource(GlobalAmbientLight {
         color: profile::color(profile.ambient_color),
         brightness: profile.ambient_brightness,

@@ -22,6 +22,7 @@
     1
   ],
   "sun_brightness": 8,
+  "exposure": 3,
   "fog_transition_seconds": 0.9999999500000025,
   "fog": {
     "distance": [

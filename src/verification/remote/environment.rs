@@ -44,7 +44,7 @@ struct ContactSetup {
 pub(super) fn schema(_: In<Option<Value>>) -> BrpResult {
     Ok(json!({"version":1,"methods":{
         "origins/environment/setup":{"effect":"Direct session scenario setup, never gameplay proof","params":{"seed":"optional u64 PRNG state","round":"optional 1..255 ending-round index","weather":"optional clear/rain/snow","intensity":"optional 1..4","overrides":"optional ending-round -> weather map","last_snow":"optional u32 history","last_rain":"optional u32 history","digger":"optional serialized Digger","active_mounds":"optional unique indices in authored mound catalog; resets mound set","clear_pickups":"optional bool","parts":[{"id":"shared part catalog ID","position":"[x,y,z]"}],"contacts":[{"vehicle":"bool, false robot","position":"[x,y,z]","size":"positive [x,y,z]","amount":"1..1000000"}],"shootables":"optional target positions","box_moved":"optional bool"}},
-        "origins/state":{"environment":"weather, digging, digger, parts, targets, authored sites, ambient room samples, environmental hits/contacts"}
+        "origins/state":{"environment":"weather, precipitation positions/velocities/lifetimes, digging, digger, parts, targets, authored sites, ambient room samples, environmental hits/contacts"}
     }}))
 }
 
@@ -60,6 +60,7 @@ pub(super) fn snapshot(world: &mut World) -> Value {
     value["digger"]=world.query_filtered::<(&Digger,&crate::solo_revive::PerkInventory),With<Player>>().iter(world).next().map_or(Value::Null,|(d,p)|json!({"state":d,"perk_limit":p.purchase_limit(),"earned_slots":p.earned_slots}));
     value["targets"]=json!(world.query::<(Entity,&DigTarget,&Transform,Option<&crate::environment::digging::RisingPickup>,Option<&crate::environment::digging::WeaponTimeout>,&Visibility)>().iter(world).map(|(e,t,p,r,w,v)|json!({"entity":e.to_bits(),"target":t,"position":p.translation.to_array(),"rising":r.map(|r|r.remaining),"expires":w.map(|w|w.0),"visible":*v!=Visibility::Hidden})).collect::<Vec<_>>());
     value["audio_active"] = json!(world.query::<(&crate::audio::PlayingSound,Option<&bevy::audio::AudioSink>)>().iter(world).map(|(sound,sink)|json!({"alias":sound.alias,"looping":sound.looping,"sink":sink.is_some()})).collect::<Vec<_>>());
+    value["precipitation"] = crate::environment::weather::precipitation_snapshot(world);
     value
 }
 

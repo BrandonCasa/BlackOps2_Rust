@@ -92,6 +92,7 @@ def prepare(world, vision_root, source, output, config):
         "source_sha256": provenance, "sun_angles": native["sun"]["angles"],
         "sun_color": native["sun"]["diffuse"][:3], "snow_sun_color": [0.769943, 0.894102, 1],
         "sun_brightness": native["sun"]["diffuse"][3],
+        "exposure": native["sun"]["exposure"],
         "fog_transition_seconds": 0.001 / native["fog_transition"] if native["fog_transition"] else 0,
         "fog": fog(native["fog"]), "volumes": volumes,
         "softclip": 0.25, "vision": visions,

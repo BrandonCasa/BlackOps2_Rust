@@ -44,7 +44,7 @@ pub(super) fn setup(
             quality_level: ScreenSpaceAmbientOcclusionQualityLevel::Medium,
             ..default()
         },
-        source.fog.native(),
+        source.fog.native(source.exposure),
     ));
 }
 

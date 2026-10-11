@@ -184,6 +184,14 @@ struct Precipitation {
     velocity: Vec3,
     remaining: f32,
 }
+
+#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+pub(crate) fn precipitation_snapshot(world: &mut World) -> serde_json::Value {
+    serde_json::json!(world.query::<(&Precipitation, &Transform)>().iter(world).map(|(drop, pose)| {
+        serde_json::json!({"position":pose.translation.to_array(),"velocity":drop.velocity.to_array(),"remaining":drop.remaining})
+    }).collect::<Vec<_>>())
+}
+
 #[derive(Resource)]
 pub(crate) struct PrecipitationAssets {
     rain: Handle<Mesh>,
@@ -408,7 +416,7 @@ pub(crate) fn tick(
             .map_or(12., |h| h.distance);
         let roof = spatial
             .cast_ray(
-                position,
+                position - Vec3::Y * 6.,
                 Dir3::Y,
                 100.,
                 true,
@@ -451,14 +459,29 @@ fn particles(
     mut commands: Commands,
     time: Res<Time>,
     weather: Res<Weather>,
+    spatial: SpatialQuery,
+    players: Query<Entity, With<Player>>,
     mut drops: Query<(Entity, &mut Precipitation, &mut Transform)>,
 ) {
+    let filter = super::solids(players.iter());
     for (e, mut drop, mut pose) in &mut drops {
         drop.remaining -= time.delta_secs();
-        if weather.presented == WeatherKind::Clear || drop.remaining <= 0. {
+        let movement = drop.velocity * time.delta_secs();
+        let collision = Dir3::new(movement).ok().is_some_and(|direction| {
+            spatial
+                .cast_ray(
+                    pose.translation,
+                    direction,
+                    movement.length() + 0.15,
+                    true,
+                    &filter,
+                )
+                .is_some()
+        });
+        if weather.presented == WeatherKind::Clear || drop.remaining <= 0. || collision {
             commands.entity(e).despawn();
         } else {
-            pose.translation += drop.velocity * time.delta_secs();
+            pose.translation += movement;
         }
     }
 }

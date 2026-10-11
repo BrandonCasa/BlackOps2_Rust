@@ -16,6 +16,7 @@ pub(crate) struct SourceAtmosphere {
     pub(super) sun_color: [f32; 3],
     pub(super) snow_sun_color: [f32; 3],
     pub(super) sun_brightness: f32,
+    pub(super) exposure: f32,
     pub(super) fog: WorldFog,
     fog_transition_seconds: f32,
     volumes: Vec<SourceVolume>,
@@ -53,13 +54,19 @@ impl WorldFog {
         }
     }
 
-    pub(super) fn native(self) -> DistanceFog {
+    pub(super) fn native(self, exposure: f32) -> DistanceFog {
+        let scale = 2.0_f32.powf(-exposure);
         DistanceFog {
-            color: Color::linear_rgba(self.color[0], self.color[1], self.color[2], self.opacity),
+            color: Color::linear_rgba(
+                self.color[0] * scale,
+                self.color[1] * scale,
+                self.color[2] * scale,
+                self.opacity,
+            ),
             directional_light_color: Color::linear_rgba(
-                self.sun_color[0],
-                self.sun_color[1],
-                self.sun_color[2],
+                self.sun_color[0] * scale,
+                self.sun_color[1] * scale,
+                self.sun_color[2] * scale,
                 self.sun_opacity,
             ),
             directional_light_exponent: -(self.sun_angles[3] + 1.),
@@ -272,8 +279,10 @@ fn update(
     } else {
         1.
     };
-    state.fog = state.from.blend(state.target, fraction);
-    *fog = state.fog.native();
+    state.fog = state
+        .from
+        .blend(state.target, fraction * fraction * (3. - 2. * fraction));
+    *fog = state.fog.native(source.exposure);
     let vision_target = if weather.presented == WeatherKind::Clear {
         0.
     } else {
@@ -315,6 +324,7 @@ pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
         "fog_transition_seconds": state.duration, "fog_elapsed": state.elapsed,
         "lut_ready": world.resource::<super::grading::SourceGrade>().ready(),
         "fog_volume_count": world.resource::<SourceAtmosphere>().volumes.len(),
+        "fog_exposure": world.resource::<SourceAtmosphere>().exposure,
     });
     result["sun"] =
         serde_json::json!(world.query_filtered::<(&DirectionalLight, &Transform), With<Sun>>()
@@ -332,12 +342,14 @@ pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
                 Option<&bevy::light::Skybox>,
                 Has<GameCamera>,
                 Has<crate::presentation::ViewModelCamera>,
-                Has<DistanceFog>,
+                Option<&DistanceFog>,
             )>()
             .iter(world)
             .map(|(pose, tone, exposure, sky, world, viewmodel, fog)| {
                 serde_json::json!({
-                    "world": world, "viewmodel": viewmodel, "fog": fog,
+                    "world": world, "viewmodel": viewmodel, "fog": fog.is_some(),
+                    "fog_color": fog.map(|fog| fog.color.to_linear().to_f32_array()),
+                    "sun_fog_color": fog.map(|fog| fog.directional_light_color.to_linear().to_f32_array()),
                     "position": pose.translation.to_array(), "tonemapping": format!("{tone:?}"),
                     "ev100": exposure.ev100,
                     "sky": sky.map(|sky| serde_json::json!({

@@ -11,12 +11,14 @@ from gameplay_remote import Client, write_report
 from verify_brp import assets_match, digest, require
 from verify_lantern_shadows import wait_for_slot
 from verify_weapon_materials import capture, inputs
+from verify_environment import ending
 
 
 def observe(client, predicate=lambda value: True, timeout=180):
     deadline = time.monotonic() + timeout
     last = None
     while time.monotonic() < deadline:
+        require(client.state()['state'] in ('Playing', 'Paused'), 'Atmosphere scenario left gameplay')
         result = client.call('origins/materials')
         require(not result['pipelines']['error'], f"Pipeline failed: {result['pipelines']['error']}")
         last = result['atmosphere']
@@ -47,6 +49,12 @@ def assert_fog(source, observed):
     require(math.isclose(observed['fog']['opacity'], target['opacity'], abs_tol=2e-4), 'Original fog opacity changed')
     require(camera['fog'] and camera['tonemapping'] == 'None' and camera['sky']['loaded'],
             'World HDR, fog, or sky ownership changed')
+    require(observed['fog_exposure'] == source['exposure'], 'Original fog exposure changed')
+    scale = 2 ** -source['exposure']
+    require(close(camera['fog_color'][:3], [channel * scale for channel in target['color']]),
+            'Fog bypassed original exposure')
+    require(close(camera['sun_fog_color'][:3], [channel * scale for channel in target['sun_color']]),
+            'Sun fog bypassed original exposure')
     final = next(camera for camera in observed['cameras'] if camera['viewmodel'])
     require(not final['fog'] and final['tonemapping'] == 'TonyMcMapface', 'Final composite tonemapping changed')
 
@@ -55,13 +63,13 @@ def settled(value):
     return value['fog_elapsed'] >= value['fog_transition_seconds']
 
 
-def run(client, output, report, asset_root, source):
+def run(client, output, report, asset_root, source, skip_views=False):
     client.until(lambda state: state['state'] == 'Playing' and state.get('player'), timeout=360)
     report['discovery'] = client.call('rpc.discover')
     report['schema'] = client.call('origins/schema')
     game = json.loads((asset_root / 'game.json').read_bytes())
     client.reset(timeout=90)
-    client.call('origins/setup', {'clear_enemies': True, 'pending': 0, 'pause_spawning_seconds': 300})
+    client.call('origins/setup', {'clear_enemies': True, 'pending': 1, 'pause_spawning_seconds': 300})
     initial = observe(client, settled)
     require(initial['fog_volume_count'] == len(source['volumes']) == 28, 'Missing original fog volumes')
     require(close(initial['sun'][0]['color_linear'][:3], source['sun_color']), 'Clear sunlight differs from source')
@@ -74,11 +82,14 @@ def run(client, output, report, asset_root, source):
     require(math.dist(before, after) > .1, 'Normal player movement failed')
     report['movement'] = {'before': before, 'after': after}
     points = [next(camera['position'] for camera in initial['cameras'] if camera['world']),
-              *[[point[0], point[1] + 1.5, point[2]] for point in game['survey_views'][:2]]]
+              *[[point[0], point[1] + 1.5, point[2]] for point in
+                [*game['survey_views'][:3], *game['survey_views'][6:8]]]]
     report['weather_views'] = []
-    for kind, bank in (('clear', 1), ('rain', 2), ('snow', 4)):
-        client.call('origins/environment/setup', {'weather': kind, 'intensity': 4})
+    for kind, bank in (() if skip_views else (('clear', 1), ('rain', 2), ('snow', 4))):
         for index, point in enumerate(points):
+            client.reset(timeout=90)
+            client.call('origins/setup', {'clear_enemies': True, 'pending': 1, 'pause_spawning_seconds': 300})
+            client.call('origins/environment/setup', {'weather': kind, 'intensity': 4})
             client.call('origins/rendering', {'view': [*point, point[0], point[1] + .2, point[2] - 5]})
             value = observe(client, lambda value: value['bank'] == bank and settled(value)
                             and math.isclose(value['vision_blend'], 0 if bank == 1 else 1, abs_tol=1e-5))
@@ -89,13 +100,24 @@ def run(client, output, report, asset_root, source):
                 'capture': capture(client, output / f'{kind}-{index}.png')})
     client.call('origins/rendering', {'restore_player_view': True})
     client.reset(timeout=90)
-    client.call('origins/setup', {'clear_enemies': True, 'pending': 0, 'pause_spawning_seconds': 300})
+    client.call('origins/setup', {'clear_enemies': True, 'pending': 1, 'pause_spawning_seconds': 300})
     client.call('origins/environment/setup', {'weather': 'clear', 'overrides': {'3': 'snow', '4': 'clear'}})
-    state = client.state()
-    client.call('origins/setup', {'round_event': {'session_id': state['session_id'], 'round': 3}})
-    client.until(lambda state: client.call('origins/environment')['weather']['presented'] == 'snow')
+    clear = observe(client, settled)
+    before, after = ending(client, game, 3, 'snow')
+    report['snow_round_ending'] = {'before': before['environment']['weather'], 'after': after['environment']['weather']}
+    client.call('origins/setup', {'pending': 1, 'pause_spawning_seconds': 300})
+    client.until(lambda state: state['environment']['weather']['presented'] == 'snow')
     partial = observe(client, lambda value: 0.01 < value['sun'][0]['color_linear'][0] - source['sun_color'][0]
                       < (source['snow_sun_color'][0] - source['sun_color'][0]) * .7)
+    camera = next(camera for camera in partial['cameras'] if camera['world'])
+    volume = volume_at(source, camera['position'], partial['bank'])
+    target = volume['fog'] if volume else source['fog']
+    fraction = min(partial['fog_elapsed'] / partial['fog_transition_seconds'], 1)
+    blend = fraction * fraction * (3 - 2 * fraction)
+    require(0 < fraction < 1, 'Missed the fog transition')
+    for field in ('color', 'distance'):
+        expected = [a + (b - a) * blend for a, b in zip(clear['fog'][field], target[field])]
+        require(close(partial['fog'][field], expected), 'Fog transition differs from native smoothstep')
     inputs(client, [{'tick': 1, 'key': 'Escape', 'pressed': True},
                     {'tick': 2, 'key': 'Escape', 'pressed': False}], 3)
     client.until(lambda state: state['state'] == 'Paused')
@@ -107,9 +129,10 @@ def run(client, output, report, asset_root, source):
     inputs(client, [{'tick': 1, 'key': 'Escape', 'pressed': True},
                     {'tick': 2, 'key': 'Escape', 'pressed': False}], 3)
     client.until(lambda state: state['state'] == 'Playing')
-    state = client.state()
-    client.call('origins/setup', {'round_event': {'session_id': state['session_id'], 'round': 4}})
-    client.until(lambda state: client.call('origins/environment')['weather']['presented'] == 'clear')
+    before, after = ending(client, game, 4, 'clear')
+    report['clear_round_ending'] = {'before': before['environment']['weather'], 'after': after['environment']['weather']}
+    client.call('origins/setup', {'pending': 1, 'pause_spawning_seconds': 300})
+    client.until(lambda state: state['environment']['weather']['presented'] == 'clear')
     restored = observe(client, lambda value: close(value['sun'][0]['color_linear'][:3], source['sun_color'])
                        and value['bank'] == 1 and value['vision_blend'] == 0 and settled(value))
     report['interrupted_transition'] = {'partial': partial, 'paused': paused, 'restored': restored}
@@ -117,6 +140,35 @@ def run(client, output, report, asset_root, source):
     reset = observe(client, lambda value: value['bank'] == 1 and value['vision_blend'] == 0 and settled(value))
     require(close(reset['sun'][0]['color_linear'][:3], source['sun_color']), 'Session retained old sunlight')
     report['reset'] = reset
+    report['rain_rooms'] = []
+    mound = game['environment']['digging']['mounds'][0]['position']
+    outdoor_position = [mound[0], mound[1] + .9, mound[2]]
+    for name, position in (('indoor', game['spawn']), ('outdoor', outdoor_position)):
+        client.reset(timeout=90)
+        client.call('origins/setup', {'position': position, 'clear_enemies': True, 'pending': 1,
+                                     'pause_spawning_seconds': 300,
+                                     'open_connections': [door['connection'] for door in game['access']['doors']]})
+        client.call('origins/environment/setup', {'weather': 'rain', 'intensity': 4})
+        state = client.until(lambda state: state['environment']['weather']['precipitation_bursts'] >= 10
+                             and state['environment']['weather']['ambient_alias'] == f'amb_weather_2d_rain_{name}')
+        require(math.dist(state['player']['position'][::2], position[::2]) < 2,
+                'Rain scenario left its authored test position')
+        value = observe(client, settled)
+        assert_fog(source, value)
+        samples = []
+        for _ in range(10):
+            state = client.wait_ticks(6)
+            player = state['player']['position']
+            drops = state['environment']['precipitation']
+            nearby = [drop for drop in drops if math.dist(drop['position'][::2], player[::2]) < 2
+                      and drop['position'][1] <= player[1] + 2]
+            samples.append({'player': player, 'drops': drops, 'nearby': len(nearby)})
+        report['rain_rooms'].append({'room': name, 'player': state['player'], 'samples': samples,
+            'weather': state['environment']['weather'], 'observed': value,
+            'capture': capture(client, output / f'rain-{name}.png')})
+    indoor, outdoor = report['rain_rooms']
+    require(sum(sample['nearby'] for sample in indoor['samples']) == 0, 'Rain reached the sheltered player')
+    require(any(sample['nearby'] for sample in outdoor['samples']), 'Outdoor rain failed to reach the player')
 
 
 def main():
@@ -124,6 +176,7 @@ def main():
     parser.add_argument('--bundle', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--port', type=int, default=15719)
+    parser.add_argument('--skip-views', action='store_true')
     args = parser.parse_args()
     bundle, output = args.bundle.resolve(), args.output.resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parents[1]), 'Evidence must be external')
@@ -134,10 +187,10 @@ def main():
     source_path = Path(__file__).resolve().parents[1] / 'config/origins-atmosphere.json'
     require(identity['source']['files'].get('config/origins-atmosphere.json') == digest(source_path),
             'Atmosphere config differs from the compiled snapshot')
-    report = {'passed': False, 'identity_sha256': digest(bundle / 'identity.json'),
+    report = {'passed': False, 'skip_views': args.skip_views, 'identity_sha256': digest(bundle / 'identity.json'),
               'script_sha256': digest(Path(__file__)), 'assets_before': assets_match(identity),
               'limitations': ['Camera placement and initial weather are scenario setup.',
-                              'Round messages exercise weather presentation; combat round completion is not covered.',
+                              'Controlled final enemies are killed through normal melee input to exercise round-ending weather.',
                               'Legacy film response and native photometry require visual acceptance.']}
     client = Client(f'http://127.0.0.1:{args.port}', request_timeout=30, shutdown_timeout=60)
     wait_for_slot()
@@ -147,7 +200,7 @@ def main():
             env={**os.environ, 'WGPU_BACKEND': 'dx12', 'RUST_LOG': 'info,wgpu=error,naga=warn', 'NO_COLOR': '1'})
         report['pid'] = process.pid
         try:
-            run(client, output, report, Path(identity['asset_root']), json.loads(source_path.read_bytes()))
+            run(client, output, report, Path(identity['asset_root']), json.loads(source_path.read_bytes()), args.skip_views)
             report['assets_after'] = assets_match(identity)
             report['passed'] = True
         except Exception as error:
