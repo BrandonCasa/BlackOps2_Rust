@@ -225,23 +225,23 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Teleport evacuated players to corresponding exit positions.
 - [ ] Clear robot occupancy after player death.
 - [ ] Add robot Wind Staff part pickups.
-- [ ] Add tank church-to-bunker route.
-- [ ] Add tank bunker-to-church route.
-- [ ] Add tank initial placement.
-- [ ] Reset tank state when starting fresh sessions.
-- [ ] Add tank arrival states.
-- [ ] Add tank cooling-down states.
-- [ ] Add tank boarding collision.
-- [ ] Add tank rider support.
-- [ ] Add tank passenger exit behavior.
-- [ ] Add tank route purchase interactions.
-- [ ] Add tank departure delay.
-- [ ] Add tank route movement.
-- [ ] Add tank path crushing damage.
-- [ ] Add tank cooldown expiration.
-- [ ] Add tank return purchase interactions.
-- [ ] Add tank lightning-part pickup platforms.
-- [ ] Add tank lightning-part jump access.
+- [x] Add tank church-to-bunker route.
+- [x] Add tank bunker-to-church route.
+- [x] Add tank initial placement.
+- [x] Reset tank state when starting fresh sessions.
+- [x] Add tank arrival states.
+- [x] Add tank cooling-down states.
+- [x] Add tank boarding collision.
+- [x] Add tank rider support.
+- [x] Add tank passenger exit behavior.
+- [x] Add tank route purchase interactions.
+- [x] Add tank departure delay.
+- [x] Add tank route movement.
+- [x] Add tank path crushing damage.
+- [x] Add tank cooldown expiration.
+- [x] Add tank return purchase interactions.
+- [x] Add tank lightning-part pickup platforms.
+- [x] Add tank lightning-part jump access.
 - [x] Add Zombie Shield part sets.
 - [x] Add Zombie Shield recipe.
 - [x] Add Zombie Shield held state.
@@ -324,9 +324,9 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add Wind Staff Freya-part pickup.
 - [x] Add Wind Staff recipe.
 - [x] Add Wind Staff crafting pedestal.
-- [ ] Add Lightning Staff outbound tank-part pickup.
-- [ ] Add Lightning Staff first return tank-part pickup.
-- [ ] Add Lightning Staff second return tank-part pickup.
+- [x] Add Lightning Staff outbound tank-part pickup.
+- [x] Add Lightning Staff first return tank-part pickup.
+- [x] Add Lightning Staff second return tank-part pickup.
 - [x] Add Lightning Staff recipe.
 - [x] Add Lightning Staff crafting pedestal.
 - [x] Add staff pedestal storage.
@@ -502,8 +502,8 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add generator attack notifications.
 - [ ] Add robot interior announcements.
 - [ ] Add robot pass audio.
-- [ ] Add tank boarding prompts.
-- [ ] Add tank route sounds.
+- [x] Add tank boarding prompts.
+- [x] Add tank route sounds.
 - [x] Add weather-specific ambient audio.
 - [x] Add digging sounds.
 - [x] Replace weather ambience across indoor/outdoor room transitions and fresh sessions.
@@ -521,7 +521,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add Panzersoldat vocalizations.
 - [ ] Add box music playback.
 - [ ] Add portal spatial sounds.
-- [ ] Add tank engine sound following.
+- [x] Add tank engine sound following.
 - [ ] Add robot interior sound ambience.
 - [ ] Add Samantha round announcements.
 - [ ] Add Samantha quest announcements.

@@ -28,7 +28,7 @@ impl Plugin for PlatformPlugin {
     }
 }
 
-fn carry(
+pub(crate) fn carry(
     time: Res<Time<Fixed>>,
     input: Res<crate::input::GameInput>,
     platforms: Query<&Transform, (With<MovingPlatform>, Without<Player>)>,

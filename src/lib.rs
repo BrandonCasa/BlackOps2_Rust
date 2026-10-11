@@ -56,6 +56,7 @@ mod run_environment;
 mod session;
 pub mod solo_revive;
 pub mod stations;
+pub mod tank;
 #[cfg(feature = "prepare-textures")]
 pub mod texture_preparation;
 pub mod verification;
@@ -175,6 +176,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             stations::StationPlugin,
             crafting::CraftingPlugin,
             buildables::BuildablePlugin,
+            tank::TankPlugin,
             life::LifeStatePlugin,
             solo_revive::SoloRevivePlugin,
             perks::PerkPlugin,

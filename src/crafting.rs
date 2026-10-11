@@ -134,7 +134,7 @@ pub(crate) fn interact(
                 crafting.progress += time.delta_secs();
                 focus.progress = crafting.progress;
                 if crafting.progress < 3. { return; }
-                for id in requirements(&recipe) { parts.pieces.remove(&id); crafting.consumed.insert(id); }
+                for id in requirements(&recipe) { parts.pieces.insert(id.clone(), PartState::Consumed); crafting.consumed.insert(id); }
                 crafting.crafted.insert(recipe.clone());
                 crafting.benches.insert(*index, recipe.clone());
                 crafting.progress = 0.;

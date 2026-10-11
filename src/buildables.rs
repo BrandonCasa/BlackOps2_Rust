@@ -151,7 +151,7 @@ fn drones(mut commands: Commands, time: Res<Time<Fixed>>, game: Res<GameDefiniti
         }
     }
 }
-fn collect_shield(mut commands: Commands, input: Res<GameInput>, mut state: ResMut<BuildableState>,
+pub(crate) fn collect_shield(mut commands: Commands, input: Res<GameInput>, mut state: ResMut<BuildableState>,
     mut focus: ResMut<crate::interactions::InteractionFocus>, settings: Res<crate::input::ControlSettings>,
     shields: Query<(Entity, &Transform, &Vitality), With<DeployedShield>>,
     mut players: Query<(&Player, &Transform, &Vitality, &mut BuildableInventory)>) {

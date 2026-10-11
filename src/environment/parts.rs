@@ -41,6 +41,7 @@ pub(super) fn valid(parts: &[PartDefinition], content: &ContentCatalog) -> bool 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum PartState {
+    Consumed,
     Available { entity: u64 },
     Owned { player: u64 },
 }
