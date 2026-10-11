@@ -117,13 +117,13 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add generator attack wave completion rewards.
 - [x] Add earned perk purchase slots.
 - [x] Preserve source-defined earned slot persistence.
-- [ ] Add Wunderfizz active machine selection.
-- [ ] Add Wunderfizz generator power requirements.
-- [ ] Add Wunderfizz source-defined perk weights.
-- [ ] Add Wunderfizz perk purchase rolls.
-- [ ] Add Wunderfizz bottle collection.
-- [ ] Add Wunderfizz bottle expiration.
-- [ ] Add Wunderfizz relocation.
+- [x] Add Wunderfizz active machine selection.
+- [x] Add Wunderfizz generator power requirements.
+- [x] Add Wunderfizz source-defined perk weights.
+- [x] Add Wunderfizz perk purchase rolls.
+- [x] Add Wunderfizz bottle collection.
+- [x] Add Wunderfizz bottle expiration.
+- [x] Add Wunderfizz relocation.
 - [ ] Add random perk bottle collection.
 - [ ] Add one-time prone perk-machine spare-change rewards.
 - [ ] Add empty perk bottle slot rewards.

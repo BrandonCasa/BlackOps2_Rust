@@ -105,7 +105,7 @@ fn movement(mut commands: Commands, time: Res<Time<Fixed>>, mut tank: ResMut<Tan
         }
     }
 }
-fn interact(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, spatial: SpatialQuery,
+pub(crate) fn interact(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, spatial: SpatialQuery,
     mut tank: ResMut<Tank>, bodies: Query<(Entity, &Transform), With<TankBody>>, calls: Query<(Entity, &CallBox, &Transform)>,
     players: Query<(Entity, &Player, &Transform, &Vitality, &crate::weapons::WeaponInventory, &crate::equipment::GrenadeInventory, &crate::equipment::TacticalInventory, &crate::mines::MineInventory, Has<crate::perks::PerkDrinking>)>,
     mut focus: ResMut<InteractionFocus>, mut ledger: ResMut<PointLedger>, mut session: ResMut<Session>) {

@@ -10,6 +10,7 @@ use crate::{
     weapons::WeaponInventory,
 };
 use bevy::prelude::*;
+mod vendors;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DrinkPhase {
@@ -95,6 +96,7 @@ impl PerkEvidence {
 pub struct PerkPlugin;
 impl Plugin for PerkPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(vendors::VendorPlugin);
         app.init_resource::<PerkEvidence>()
             .init_resource::<FiringEvidence>()
             .add_systems(
