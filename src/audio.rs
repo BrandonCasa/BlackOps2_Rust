@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod decoded;
 mod gameplay;
 mod narrative;
+mod reverb;
 pub(crate) use decoded::AudioDecodeStats;
 pub(crate) use gameplay::voice;
 
@@ -279,6 +280,7 @@ impl Plugin for GameAudioPlugin {
             .init_resource::<decoded::ClipCache>()
             .init_resource::<AudioDecodeStats>()
             .add_audio_source::<decoded::DecodedClip>()
+            .add_audio_source::<reverb::RoomClip>()
             .init_asset_loader::<decoded::DecodedClipLoader>()
             .add_systems(
                 Update,
@@ -346,8 +348,8 @@ fn play(
     mut mixer: ResMut<Mixer>,
     mut evidence: ResMut<AudioEvidence>,
     mut subtitle: ResMut<Subtitle>,
-    mut clips: ResMut<decoded::ClipCache>,
-    mut decode_stats: ResMut<AudioDecodeStats>,
+    (mut clips, mut decode_stats): (ResMut<decoded::ClipCache>, ResMut<AudioDecodeStats>),
+    (decoded_assets, mut room_assets, weather): (Res<Assets<decoded::DecodedClip>>, ResMut<Assets<reverb::RoomClip>>, Res<crate::environment::weather::Weather>),
     #[cfg(all(debug_assertions, feature = "dev-dynamic"))] mut validation_requests: Option<
         ResMut<RequestedAliases>,
     >,
@@ -529,9 +531,11 @@ fn play(
             Transform::from_translation(position),
         ));
         if let Some(clip) = clips.clip(&server, &sound.path, alias.seconds, &mut decode_stats) {
-            commands
-                .entity(entity)
-                .insert(AudioPlayer::<decoded::DecodedClip>(clip));
+            if alias.spatial && matches!(alias.channel,Channel::Effects | Channel::Dialogue) && !looping
+                && let Some(decoded)=decoded_assets.get(&clip){
+                let source=room_assets.add(reverb::RoomClip::new(decoded,reverb::preset(&weather.ambient_room)));
+                commands.entity(entity).insert(AudioPlayer::<reverb::RoomClip>(source));
+            }else{commands.entity(entity).insert(AudioPlayer::<decoded::DecodedClip>(clip));}
         } else {
             commands
                 .entity(entity)

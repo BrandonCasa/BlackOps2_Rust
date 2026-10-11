@@ -509,7 +509,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Replace weather ambience across indoor/outdoor room transitions and fresh sessions.
 - [x] Restrict thunder audio to rain with source strike and flash timing.
 - [x] Reconstruct source weather ambience fade timing.
-- [ ] Reconstruct native room reverb.
+- [x] Reconstruct native room reverb.
 - [x] Add shovel pickup and source dig-result character dialogue.
 - [x] Add Golden Shovel/Helmet, staff-part reveal, and staff-part collection sounds.
 - [x] Add crafting progress sounds.

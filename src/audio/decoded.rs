@@ -17,9 +17,9 @@ const MAX_CLIP_SECONDS: f32 = 10.;
 
 #[derive(Asset, TypePath)]
 pub(super) struct DecodedClip {
-    samples: Arc<[Sample]>,
-    channels: ChannelCount,
-    rate: SampleRate,
+    pub(super) samples: Arc<[Sample]>,
+    pub(super) channels: ChannelCount,
+    pub(super) rate: SampleRate,
     decode_nanos: u64,
 }
 
