@@ -363,13 +363,13 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add Fire Staff torch sequence inputs.
 - [ ] Add Fire Staff torch sequence rejection.
 - [ ] Add Fire Staff torch puzzle completion.
-- [ ] Add Ice Staff symbol sequence generation.
-- [ ] Add Ice Staff symbol shooting inputs.
-- [ ] Add Ice Staff symbol sequence rejection.
-- [ ] Add Ice Staff symbol puzzle completion.
-- [ ] Add Ice Staff gravestone freezing.
-- [ ] Add Ice Staff frozen gravestone destruction.
-- [ ] Add Ice Staff gravestone puzzle completion.
+- [x] Add Ice Staff symbol sequence generation.
+- [x] Add Ice Staff symbol shooting inputs.
+- [x] Add Ice Staff symbol sequence rejection.
+- [x] Add Ice Staff symbol puzzle completion.
+- [x] Add Ice Staff gravestone freezing.
+- [x] Add Ice Staff frozen gravestone destruction.
+- [x] Add Ice Staff gravestone puzzle completion.
 - [x] Add Wind Staff ring orientations.
 - [x] Add Wind Staff ring shooting rotation.
 - [x] Add Wind Staff ring puzzle completion.
