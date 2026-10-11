@@ -16,6 +16,7 @@ compile_error!(
 );
 
 pub mod access;
+pub mod achievements;
 mod animation;
 pub mod assets;
 pub mod audio;
@@ -217,7 +218,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    app.add_plugins((side_rewards::SideRewardPlugin,side_secrets::SecretPlugin));
+    app.add_plugins((side_rewards::SideRewardPlugin,side_secrets::SecretPlugin,achievements::AchievementPlugin));
     app.add_plugins((portals::PortalPlugin, robots::RobotPlugin, rituals::RitualPlugin, staff_fields::StaffFieldsPlugin, chamber::ChamberPlugin, staff_puzzles::StaffPuzzlePlugin, staff_upgrades::StaffUpgradePlugin, tablets::TabletPlugin, main_quest::MainQuestPlugin, quest_recovery::RecoveryPlugin, finale::FinalePlugin, cinematics::CinematicPlugin));
     if cfg!(debug_assertions)
         && !release_benchmark

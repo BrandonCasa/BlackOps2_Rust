@@ -529,9 +529,9 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add source-defined early-round story conversations.
 - [ ] Add discovery-triggered character dialogue.
 - [ ] Add quest-discovery character response conversations.
-- [ ] Track source-defined solo-eligible Origins achievement conditions.
-- [ ] Persist earned local Origins achievements.
-- [ ] Present newly earned Origins achievement notifications.
+- [x] Track source-defined solo-eligible Origins achievement conditions.
+- [x] Persist earned local Origins achievements.
+- [x] Present newly earned Origins achievement notifications.
 - [x] Add original round indicator.
 - [x] Add original points indicator.
 - [x] Add original magazine ammunition indicator.
