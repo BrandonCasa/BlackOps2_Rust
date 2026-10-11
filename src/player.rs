@@ -257,6 +257,24 @@ pub(crate) fn move_player(
     mobility.jump_recovery = (mobility.jump_recovery - dt).max(0.);
     mobility.landing_dip = (mobility.landing_dip - m.landing_dip / m.landing_seconds * dt).max(0.);
     mobility.previous_eye = player.eye_height;
+    if let Some(age) = mobility.since_dive.as_mut() {
+        *age += dt;
+    }
+    let finish_dive = if let Some(dive) = mobility.dive.as_mut()
+        && let Some(remaining) = dive.slide_remaining.as_mut()
+    {
+        *remaining = (*remaining - dt).max(0.);
+        *remaining == 0. || player.velocity.length_squared() < m.dive_minimum_speed.powi(2)
+    } else {
+        false
+    };
+    if finish_dive {
+        mobility.dive = None;
+        mobility.recovery = m.dive_recovery;
+        mobility.since_dive = Some(0.);
+        player.velocity = Vec3::ZERO;
+        evidence.record(serde_json::json!({"event":"dive_finished","seconds":time.elapsed_secs_f64(),"recovery":mobility.recovery}));
+    }
     let mut requested = mobility.stance;
     let mut launch_dive = false;
     if downed {
@@ -272,6 +290,14 @@ pub(crate) fn move_player(
                 crate::movement::Stance::Prone
             };
             launch_dive = sprint.sprinting
+                && input.sprint
+                && input.movement.y > 0.1
+                && !input.ads
+                && sprint.continuous_seconds() > m.dive_startup
+                && player.velocity.xz().length_squared() > m.dive_minimum_speed.powi(2)
+                && mobility
+                    .since_dive
+                    .is_none_or(|age| age > m.dive_exhaustion)
                 && player.grounded
                 && mobility.stance == crate::movement::Stance::Standing
                 && inventory.action == crate::weapons::WeaponAction::Ready
@@ -352,7 +378,7 @@ pub(crate) fn move_player(
     let feet = transform.translation - Vec3::Y * player.height * 0.5;
     if mobility.airborne && player.grounded && !launch_dive {
         let height = (mobility.peak - feet.y).max(0.);
-        let diving = mobility.dive.take().is_some();
+        let diving = mobility.dive.is_some();
         landings.write(crate::movement::Landing {
             owner: entity,
             position: feet,
@@ -363,19 +389,21 @@ pub(crate) fn move_player(
         mobility.airborne = false;
         mobility.jump_recovery = m.jump_recovery;
         if diving {
-            mobility.recovery = m.dive_recovery;
+            mobility.dive.as_mut().unwrap().slide_remaining = Some(m.dive_slide);
         }
         mobility.landing_dip = (mobility.fall_speed / 20.).clamp(0., 1.) * m.landing_dip;
-        evidence.record(serde_json::json!({"event":"landed","height":height,"diving":diving,"position":feet.to_array(),"recovery":mobility.recovery}));
+        evidence.record(serde_json::json!({"event":"landed","seconds":time.elapsed_secs_f64(),"height":height,"diving":diving,"position":feet.to_array(),"recovery":mobility.recovery}));
     }
     if launch_dive {
         mobility.dive = Some(crate::movement::Dive {
-            direction: Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z,
+            direction: Vec3::new(player.velocity.x, 0., player.velocity.z).normalize_or_zero(),
+            speed: player.velocity.xz().length(),
+            slide_remaining: None,
         });
         mobility.airborne = true;
         mobility.peak = feet.y;
         mobility.fall_speed = 0.;
-        evidence.record(serde_json::json!({"event":"dive_started","feet":feet.to_array()}));
+        evidence.record(serde_json::json!({"event":"dive_started","seconds":time.elapsed_secs_f64(),"feet":feet.to_array(),"sprint_seconds":sprint.continuous_seconds(),"speed":player.velocity.xz().length(),"since_dive":mobility.since_dive}));
     }
     if mobility.busy() {
         *actions = TickActions::default();
@@ -383,6 +411,9 @@ pub(crate) fn move_player(
         input.grenade_held = false;
         input.mine_held = false;
         input.tactical_held = false;
+        input.buildable = false;
+        input.drone = false;
+        input.staff_secondary = false;
     }
     let target_eye = if downed {
         player.height * 0.8
@@ -451,9 +482,13 @@ pub(crate) fn move_player(
     let desired = Quat::from_rotation_y(player.yaw)
         * Vec3::new(input.movement.x, 0., -input.movement.y).clamp_length_max(1.)
         * speed;
-    if let Some(dive) = mobility.dive {
-        player.velocity.x = dive.direction.x * m.dive_speed * terrain.scale;
-        player.velocity.z = dive.direction.z * m.dive_speed * terrain.scale;
+    if let Some(dive) = mobility.dive.as_mut() {
+        if let Some(remaining) = dive.slide_remaining {
+            let fraction = 1. - remaining / m.dive_slide;
+            dive.speed = (dive.speed - dive.speed.max(2.54) * 5.5 * fraction * dt).max(0.);
+        }
+        player.velocity.x = dive.direction.x * dive.speed;
+        player.velocity.z = dive.direction.z * dive.speed;
     } else {
         let desired = if mobility.recovery > 0. {
             Vec2::ZERO
@@ -521,7 +556,7 @@ pub(crate) fn move_player(
         &filter,
     );
     transform.translation = result.position;
-    player.velocity.y = result.projected_velocity.y;
+    player.velocity = result.projected_velocity;
     if transform.translation.y < -100. {
         transform.translation =
             Vec3::from_array(definition.spawn) + Vec3::Y * (player.height * 0.5);
@@ -604,6 +639,8 @@ pub fn slide_character(
                 let landing = stepped.position - Vec3::Y * hit.distance;
                 position = start + Vec3::new(velocity.x, 0., velocity.z) * dt;
                 position.y = landing.y;
+                result.projected_velocity.x = velocity.x;
+                result.projected_velocity.z = velocity.z;
             }
         }
     }

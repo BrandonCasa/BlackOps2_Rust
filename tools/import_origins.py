@@ -587,7 +587,9 @@ def validate_tuning(tuning):
     mobility_scalars = {"prone_height": .75, "prone_eye": .3048, "prone_speed": 1.1,
         "prone_step": .12, "acceleration": 40., "deceleration": 50., "air_acceleration": 8.,
         "air_deceleration": 2., "stance_seconds": .18, "jump_recovery": .25,
-        "dive_speed": 8., "dive_lift": 3.2, "dive_recovery": .55, "fall_minimum": 3.2512,
+        "dive_speed": 8., "dive_lift": 3.2, "dive_recovery": .1,
+        "dive_startup": .25, "dive_minimum_speed": 3.16 * .0254, "dive_exhaustion": 1.5,
+        "dive_slide": .3, "fall_minimum": 3.2512,
         "fall_fatal": 7.62, "landing_dip": .12, "landing_seconds": .3,
         "sway_limit": .04, "sway_response": 14.}
     feedback = {"walk_bob": [.016, .024], "sprint_bob": [.025, .04], "stride": [2.4, 3.]}

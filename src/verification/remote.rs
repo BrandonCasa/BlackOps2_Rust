@@ -233,7 +233,7 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
         "discovery":{"methods":"rpc.discover","schemas":"registry.schema"},
         "methods":{
             "origins/animations":{"params":{},"result":"fixed_tick, players (enabled, restart, actual and requested clip clocks and weights, pause, speed, local and rest bone poses), weapons (ready, action, clip clocks, local bone poses), enemies (action, gait, native combat state, sequence, elapsed, notetracks, rig poses and clocks)"},
-            "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, prone, crouched, velocity, lethal, tactical, mine), firing (shots with stance, speed, spread, ADS and perk scales; first 128), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
+            "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, prone, crouched, velocity, mobility, sprint, lethal, tactical, mine), movement (events), firing (shots with stance, speed, spread, ADS and perk scales; first 128), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
             "origins/materials":{"params":{},"result":"pending, first_person, world, inventory; native material, texture, tangent readiness"},
             "origins/preview":{"params":{"weapon":"optional native weapon ID","presentation":"optional content presentation ID","animation":"optional named clip","distance":"optional camera distance in metres"},"effect":"Asset scenario setup attached to camera; omitted IDs clear preview"},
             "origins/assets":{"params":{},"result":"Preview load state, mesh visibility ranges, skin readiness, animation players and local bone poses"},
@@ -361,7 +361,15 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
             json!({"slot":slot,"id":w.definition.0,"magazine":w.magazine,"left_magazine":w.left_magazine,"reserve":inventory.reserve(definition)})
         }).collect();
         result["player"] = json!({"entity":entity.to_bits(),"position":pose.translation.to_array(),"yaw":player.yaw,"pitch":player.pitch,"height":player.height,"eye_height":player.eye_height,"prone":player.prone,"crouched":player.crouched,"velocity":player.velocity.to_array(),"health":world.get::<Vitality>(entity).and_then(|v| v.current()),"active_slot":inventory.active_slot(),"action":format!("{:?}",inventory.action),"weapons":weapons,"ads":inventory.ads,"right_reload":inventory.hand_reload_timing(false),"left_reload":inventory.hand_reload_timing(true)});
+        if let Some(mobility) = world.get::<crate::movement::Mobility>(entity) {
+            result["player"]["mobility"] = json!({"diving":mobility.dive.is_some(),"slide_remaining":mobility.dive.and_then(|d|d.slide_remaining),"recovery":mobility.recovery,"since_dive":mobility.since_dive,"airborne":mobility.airborne,"busy":mobility.busy()});
+        }
+        if let Some(sprint) = world.get::<crate::movement::SprintState>(entity) {
+            result["player"]["sprint"] = json!({"sprinting":sprint.sprinting,"continuous_seconds":sprint.continuous_seconds(),"remaining":sprint.remaining,"exhausted":sprint.exhausted});
+        }
     }
+    result["movement"] =
+        json!({"events":world.resource::<crate::movement::MovementEvidence>().events});
     if let Some(&entity) = entities.first() {
         result["player"]["life"] = json!(format!(
             "{:?}",

@@ -86,6 +86,7 @@ fn initialize(world: &mut World) {
     world.insert_resource(crate::environment::parts::Parts::default());
     world.insert_resource(crate::environment::digging::Digging::default());
     world.insert_resource(crate::environment::support::EnvironmentEvidence::default());
+    world.insert_resource(crate::movement::MovementEvidence::default());
 }
 
 pub(crate) fn teardown(world: &mut World) {

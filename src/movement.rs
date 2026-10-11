@@ -12,6 +12,10 @@ pub struct SprintState {
     restart_blocked: bool,
 }
 impl SprintState {
+    pub fn continuous_seconds(&self) -> f32 {
+        self.active_seconds
+    }
+
     pub fn new(capacity: f32) -> Self {
         Self {
             remaining: capacity,
@@ -81,6 +85,10 @@ pub struct MobilityTuning {
     pub dive_speed: f32,
     pub dive_lift: f32,
     pub dive_recovery: f32,
+    pub dive_startup: f32,
+    pub dive_minimum_speed: f32,
+    pub dive_exhaustion: f32,
+    pub dive_slide: f32,
     pub fall_minimum: f32,
     pub fall_fatal: f32,
     pub landing_dip: f32,
@@ -106,7 +114,11 @@ impl Default for MobilityTuning {
             jump_recovery: 0.25,
             dive_speed: 8.,
             dive_lift: 3.2,
-            dive_recovery: 0.55,
+            dive_recovery: 0.1,
+            dive_startup: 0.25,
+            dive_minimum_speed: 3.16 * 0.0254,
+            dive_exhaustion: 1.5,
+            dive_slide: 0.3,
             fall_minimum: 3.2512,
             fall_fatal: 7.62,
             landing_dip: 0.12,
@@ -135,6 +147,10 @@ impl MobilityTuning {
             self.dive_speed,
             self.dive_lift,
             self.dive_recovery,
+            self.dive_startup,
+            self.dive_minimum_speed,
+            self.dive_exhaustion,
+            self.dive_slide,
             self.fall_minimum,
             self.fall_fatal,
             self.landing_dip,
@@ -166,12 +182,15 @@ pub enum Stance {
 #[derive(Clone, Copy)]
 pub struct Dive {
     pub direction: Vec3,
+    pub speed: f32,
+    pub slide_remaining: Option<f32>,
 }
 #[derive(Component, Default)]
 pub struct Mobility {
     pub stance: Stance,
     pub dive: Option<Dive>,
     pub recovery: f32,
+    pub since_dive: Option<f32>,
     pub jump_recovery: f32,
     pub airborne: bool,
     pub peak: f32,

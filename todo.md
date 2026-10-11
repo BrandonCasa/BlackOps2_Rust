@@ -48,7 +48,9 @@ Checked items mark implemented tasks. Compiler and gameplay validation are recor
 - [x] Add attachment-specific weapon modifiers.
 - [ ] Import native crawl and dive action durations and directional and empty-magazine clip variants.
 - [ ] Drive prone and dive weapon animation phases from player mobility through ECS playback.
-- [ ] Restore native dive startup, minimum-speed, exhaustion, and post-move action gates.
+- [x] Restore native dive startup, minimum-speed, exhaustion, and post-move action gates.
+- [ ] Restore native dive trajectory, apex timing, and collision-dependent slide response.
+- [ ] Apply native dive-specific fall damage thresholds.
 - [x] Add upgraded weapon attachment rotation.
 - [x] Feed soul collection from attributed death events.
 - [x] Add zombie running states.
@@ -485,10 +487,7 @@ Checked items mark implemented tasks. Compiler and gameplay validation are recor
 - [x] Play Shepherd of Fire after required log interactions.
 - [x] Add Aether generator-floor interaction sequence.
 - [x] Play Aether after the correct floor sequence.
-- [ ] Add Samantha doll activation prerequisites.
-- [ ] Add Samantha doll timed shooting sequence.
-- [ ] Add Samantha doll reward spawning.
-- [ ] Play Samantha's song after completing its sequence.
+- [ ] Run the source-defined post-upgrade Morse and cipher light sequence.
 - [x] Add free Zombie Blood reward cooldown.
 - [x] Add free Zombie Blood fire-extinguishing interactions.
 - [x] Spawn free Zombie Blood after required fires disappear.
