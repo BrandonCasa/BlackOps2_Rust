@@ -1099,6 +1099,7 @@ dependencies = [
  "bevy_utils",
  "bitflags 2.13.2",
  "bytemuck",
+ "ctt",
  "ddsfile",
  "futures-lite",
  "guillotiere",
@@ -2603,6 +2604,100 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctt"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c119cc328a986d0bae3a1753941595f1dc6a0f2d938b5f49edf8937bd606fa9"
+dependencies = [
+ "bytemuck",
+ "ctt-astcenc",
+ "ctt-bc7enc-rdo",
+ "ctt-compressonator",
+ "ctt-etcpak",
+ "ctt-intel-texture-compressor",
+ "ddsfile",
+ "fast_image_resize",
+ "flate2",
+ "half",
+ "ktx2",
+ "log",
+ "miniz_oxide 0.8.9",
+ "profiling",
+ "thiserror 2.0.21",
+ "zstd",
+]
+
+[[package]]
+name = "ctt-astcenc"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24a806826f523401c1c8a9afded1c5625f005fd8e6567ceba2fe6254d8c59e3e"
+dependencies = [
+ "bitflags 2.13.2",
+ "cc",
+ "paste",
+]
+
+[[package]]
+name = "ctt-bc7enc-rdo"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a4ad8fcbfcafc39a9e02bfb344fd517dd0bcd7adabcc25de19e9703eb3b99a3"
+dependencies = [
+ "ctt-bc7enc-rdo-prebuilt",
+ "ispc-build-utils",
+]
+
+[[package]]
+name = "ctt-bc7enc-rdo-prebuilt"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f27a2776bbafcc2d335c0621aa9dbd40ecfecdb02a636d3fcd2a2379f96f7472"
+dependencies = [
+ "ispc-build-utils",
+]
+
+[[package]]
+name = "ctt-compressonator"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21eefd5a6f96023adc6bc8c95de1afccded8f958afdbf7e02fa98bf325c41058"
+dependencies = [
+ "cc",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ctt-etcpak"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c6025bf0456c4a8c0a693c803eb7368f045f74709adc6b271223ca7f76898ab"
+dependencies = [
+ "cc",
+ "paste",
+]
+
+[[package]]
+name = "ctt-intel-texture-compressor"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "452985b4223f1a68da0722161ff9a7dbb33bcb32cd30f341b541fd980c58fb26"
+dependencies = [
+ "cc",
+ "ctt-intel-texture-compressor-prebuilt",
+ "ispc-build-utils",
+]
+
+[[package]]
+name = "ctt-intel-texture-compressor-prebuilt"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa4031e53991b02e2b9fb903f3bb458ab9a2afcec99320800d4d4092dc43d33c"
+dependencies = [
+ "ispc-build-utils",
+]
+
+[[package]]
 name = "cursor-icon"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2929,6 +3024,18 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "fast_image_resize"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9c50201dc184ba6553da1695aac20a042efffbe2d84542cee31917c86c3ab1e"
+dependencies = [
+ "cfg-if",
+ "document-features",
+ "num-traits",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3600,6 +3707,15 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
+
+[[package]]
+name = "ispc-build-utils"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4cda913ddb107b9bb5c46769855e3849e62daa52fc7e70de0080ca4e6cfd030"
+dependencies = [
+ "find-msvc-tools",
+]
 
 [[package]]
 name = "itertools"
@@ -4679,6 +4795,7 @@ dependencies = [
  "bevy",
  "bevy_input",
  "keepawake",
+ "ktx2",
  "log",
  "serde",
  "serde_json",
@@ -4810,6 +4927,12 @@ name = "partition"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "947f833aaa585cf12b8ec7c0476c98784c49f33b861376ffc84ed92adebf2aba"
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "percent-encoding"
@@ -6988,6 +7111,34 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64d80649ab6db9d9f6f9c80a40becd948eda4714a0a5ac8c4d157a32231c7882"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.1.1+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aeec9eaf2dffbbd09201e23bd0ffcbaa33bb8e9266a10734fd7ed90a85eca078"
+dependencies = [
+ "cc",
+ "pkg-config",
+]
 
 [[package]]
 name = "zune-core"

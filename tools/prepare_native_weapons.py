@@ -11,7 +11,7 @@ except ImportError:
     from material_textures import inspect_dds
 
 
-FORMATS = {28: "R8G8B8A8_UNORM", 29: "R8G8B8A8_UNORM_SRGB", 61: "R8_UNORM",
+FORMATS = {28: "R8G8B8A8_UNORM", 29: "R8G8B8A8_UNORM_SRGB", 49: "R8G8_UNORM", 61: "R8_UNORM",
            65: "A8_UNORM", 71: "BC1_UNORM", 72: "BC1_UNORM_SRGB",
            74: "BC2_UNORM", 75: "BC2_UNORM_SRGB", 77: "BC3_UNORM",
            78: "BC3_UNORM_SRGB", 80: "BC4_UNORM", 81: "BC4_SNORM",
@@ -77,8 +77,9 @@ def discover(pack):
 
 
 class NativeWeapons:
-    def __init__(self, pack, extraction):
+    def __init__(self, pack, extraction, executable, work):
         self.pack, self.extraction = Path(pack), Path(extraction)
+        self.executable, self.work = Path(executable), Path(work)
         self.definitions, self.images, self.material_cache = {}, {}, {}
         self.records, self.copied = {}, {}
         zones = sorted(p.parent for p in self.extraction.glob("zone/*/*/material-definitions.json"))
@@ -113,23 +114,34 @@ class NativeWeapons:
 
     def texture(self, binding, zone, role, layer, sampler):
         source_zone, path = self.source_image(binding["image"], zone)
-        if path not in self.records:
+        key = (path, role)
+        if key not in self.records:
             raw = path.read_bytes()
             record = inspect_dds(raw)
             if record["dxgi"] not in FORMATS:
                 raise ValueError(f"Unsupported native DDS format: {path.name}: {record['dxgi']}")
-            uri = f"textures/native-{record['sha256']}.dds"
+            try:
+                from .prepare_ktx2 import preserve_source
+                from .compressed_texture_cache import materialize
+            except ImportError:
+                from prepare_ktx2 import preserve_source
+                from compressed_texture_cache import materialize
+            cached, receipt = preserve_source(path, role, False, self.executable, self.work)
+            source_hash = record['sha256']
+            record = receipt['output']
+            uri = f"textures/native-{source_hash}.ktx2"
             target = self.pack / uri
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.is_file():
-                target.write_bytes(raw)
-            elif target.read_bytes() != raw:
-                raise ValueError(f"Native DDS identity collision: {uri}")
-            self.records[path] = (record, uri)
+                materialize(cached, target)
+            elif digest(target.read_bytes()) != record['sha256']:
+                raise ValueError(f"Native KTX2 identity collision: {uri}")
+            self.records[key] = (record, uri)
             self.copied[uri] = {"sha256": record["sha256"], "source_zone": source_zone,
-                                "image": binding["image"], "mip_count": record["mip_count"]}
-        record, uri = self.records[path]
-        channel = {"uri": uri, "role": role, "color_space": "linear", "format": FORMATS[record["dxgi"]],
+                                "source_sha256": source_hash, "image": binding["image"],
+                                "mip_count": record["mip_count"], "recipe": receipt['recipe']}
+        record, uri = self.records[key]
+        channel = {"uri": uri, "role": role, "color_space": "linear", "format": record['format'],
                    "width": record["width"], "height": record["height"], "mip_count": record["mip_count"],
                    "layer": layer, "channels": CHANNELS[role], "sampler": sampler}
         provenance = {"uri": uri, "sha256": record["sha256"], "source_zone": source_zone}
@@ -242,9 +254,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pack", required=True, type=Path)
     parser.add_argument("--extraction", required=True, type=Path)
+    parser.add_argument("--preparation-executable", required=True, type=Path)
+    parser.add_argument("--work", required=True, type=Path)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
-    report = NativeWeapons(args.pack, args.extraction).prepare()
+    report = NativeWeapons(args.pack, args.extraction, args.preparation_executable, args.work).prepare()
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + "\n")

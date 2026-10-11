@@ -13,22 +13,27 @@ except ImportError:
     from material_textures import inspect_dds
 
 
-SKY_PATH = "sky/zm_tomb.dds"
+SKY_PATH = "sky/zm_tomb.ktx2"
 SOURCE_SHA256 = "91182038ee52785a60c37636e78dff756a1714701744608773c39229cb5bb6b3"
 
 
 def validate_sky(raw):
-    layout = inspect_dds(raw, allow_non_2d=True)
+    try:
+        from .ktx2_textures import inspect_ktx2, payloads
+    except ImportError:
+        from ktx2_textures import inspect_ktx2, payloads
+    layout = inspect_ktx2(raw)
     if (layout["dxgi"], layout["dimension"], layout["surfaces"],
             layout["width"], layout["height"], layout["mip_count"]) != (10, "cube", 6, 256, 256, 9):
         raise ValueError("Origins sky must be a complete 256px linear RGBA16F cubemap")
-    pixels = np.frombuffer(raw, dtype="<f2", offset=148).reshape(-1, 4)
-    if not np.isfinite(pixels).all() or (pixels[:, :3] < 0).any() or not (pixels[:, 3] == 1).all():
-        raise ValueError("invalid linear HDR sky pixels")
+    for data in payloads(raw, layout):
+        pixels = np.frombuffer(data, dtype="<f2").reshape(-1, 4)
+        if not np.isfinite(pixels).all() or (pixels[:, :3] < 0).any() or not (pixels[:, 3] == 1).all():
+            raise ValueError("invalid linear HDR sky pixels")
     return layout
 
 
-def prepare(source, destination):
+def prepare(source, destination, executable, work):
     if source.resolve() == destination.resolve():
         raise ValueError("sky output must preserve the original source")
     raw = source.read_bytes()
@@ -57,15 +62,14 @@ def prepare(source, destination):
         surface = 9 - surface if surface in (4, 5) else surface
         payloads[surface, mip["level"]] = pixels.astype("<f2").tobytes()
         offset += size
-    header = [124, 0x2100F, 256, 256, 256 * 8, 0, 9, *([0] * 11),
-              32, 4, int.from_bytes(b"DX10", "little"), 0, 0, 0, 0, 0,
-              0x401008, 0xFE00, 0, 0, 0]
-    result = (b"DDS " + struct.pack("<31I", *header)
-              + struct.pack("<5I", 10, 3, 4, 1, 0)
-              + b"".join(payloads[mip["surface"], mip["level"]] for mip in layout["mips"]))
+    try:
+        from .prepare_ktx2 import save_container
+    except ImportError:
+        from prepare_ktx2 import save_container
+    parts = [b"".join(payloads[surface, level] for surface in range(6)) for level in range(9)]
+    save_container(parts, 97, 256, 256, source, destination, executable, work, "sky", False, faces=6)
+    result = destination.read_bytes()
     validate_sky(result)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(result)
     print(f"source SHA256 {hashlib.sha256(raw).hexdigest()}")
     print(f"runtime SHA256 {hashlib.sha256(result).hexdigest()}; {len(result)} bytes")
 
@@ -73,7 +77,8 @@ def prepare(source, destination):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
-    parser.add_argument("--output", type=Path,
-                        default=Path(__file__).resolve().parents[1] / "assets/origins" / SKY_PATH)
+    parser.add_argument("--preparation-executable", required=True, type=Path)
+    parser.add_argument("--work", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    prepare(args.source, args.output)
+    prepare(args.source, args.output, args.preparation_executable, args.work)

@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 import time
 
-from gameplay_remote import Client, write_report
+try:
+    from .gameplay_remote import Client, write_report
+except ImportError:
+    from gameplay_remote import Client, write_report
 
 
 def wait_materials(client, first=True, world=False, timeout=45, expected=None):

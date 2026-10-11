@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
+# dependencies = ["numpy>=2,<3", "pillow>=12,<13", "zstandard>=0.25,<1"]
 # ///
 import argparse
 import hashlib
@@ -270,13 +270,15 @@ def import_library(config):
         original = extraction / texture["source"]
         require(digest(original) == texture["source_sha256"], "original texture changed")
         variant = texture["variant"]
-        path = safe_path(prepared, variant["uri"], {".dds"})
-        layout = inspect_dds(path.read_bytes(), allow_non_2d=variant.get("lossless", False))
+        path = safe_path(prepared, variant["uri"], {".ktx2"})
+        try:
+            from .material_textures import inspect_texture
+        except ImportError:
+            from material_textures import inspect_texture
+        layout = inspect_texture(path.read_bytes(), allow_non_2d=variant.get("lossless", False))
         if "mip_count" in variant:
             require(layout["mip_count"] == variant["mip_count"] and layout["width"] == variant["width"] and layout["height"] == variant["height"], "texture variant layout mismatch")
-            expected = {"BC7_UNORM_SRGB": 99, "BC7_UNORM": 98, "BC5_UNORM": 83, "BC4_UNORM": 80,
-                        "R8G8B8A8_UNORM_SRGB": 29, "R8G8B8A8_UNORM": 28}
-            require(layout["dxgi"] == expected.get(variant["format"]), "standalone texture format mismatch")
+            require(layout["format"] == variant["format"], "standalone texture format mismatch")
             require(layout["mip_count"] == max(layout["width"], layout["height"]).bit_length(), "standalone mip chain incomplete")
             require((variant["color_space"] == "srgb") == (layout["dxgi"] in {29, 99}), "standalone transfer mismatch")
         else:

@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
+# dependencies = ["numpy>=2,<3", "pillow>=12,<13", "zstandard>=0.25,<1"]
 # ///
 import argparse
 import copy
@@ -12,6 +12,13 @@ import shutil
 import struct
 import tempfile
 import tomllib
+
+try:
+    from .prepare_ktx2 import preserve_source, backend_identity
+    from .compressed_texture_cache import materialize
+except ImportError:
+    from prepare_ktx2 import preserve_source, backend_identity
+    from compressed_texture_cache import materialize
 
 import numpy as np
 from PIL import Image
@@ -31,7 +38,7 @@ except ImportError:
 
 
 def material_converter_hash():
-    names = ("prepare_materials.py", "material_textures.py", "material_semantics.py", "prepare_origins.py")
+    names = ("prepare_materials.py", "material_textures.py", "material_semantics.py", "prepare_origins.py", "prepare_ktx2.py", "ktx2_textures.py")
     sources = {name: digest(Path(__file__).with_name(name)) for name in names}
     return hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()
 
@@ -85,7 +92,7 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
         catalog["materials"].setdefault(name, {"class": classification(tokens[0]),
             "layer_classes": [classification(t) for t in tokens], "source_family": "native_zone"})
     catalog_path.write_text(json.dumps(catalog, indent=2) + "\n", newline="\n")
-    cooker = Cooker(pack, work, Path(config["materials"]["encoder"]), catalog, inspection, source)
+    cooker = Cooker(pack, work, Path(config["materials"]["preparation_executable"]), catalog, inspection, source)
     cooker.materials = []
     global_images = {name: path for mapping in images.values() for name, path in mapping.items()}
     global_definitions = {name: d for mapping in definitions.values() for name, d in mapping.items()}
@@ -114,7 +121,7 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
             cache_key = hashlib.sha256(json.dumps({"converter": converter_hash, "identity": name,
                 "native": {k: v for k, v in original.items() if k != "zone"}, "images": resolved,
                 "recipe": catalog["materials"][name], "classes": catalog["classes"],
-                "source": material}, sort_keys=True).encode()).hexdigest()
+                "source": material, "backend": backend_identity(cooker.preparation_executable)}, sort_keys=True).encode()).hexdigest()
             if cache_key in material_cache:
                 material.clear()
                 material.update(copy.deepcopy(material_cache[cache_key]))
@@ -143,7 +150,7 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
                         (output / b["uri"]).is_file() and (output / b["uri"]).stat().st_size == b["byteLength"] for b in previous.get("buffers", [])):
                     doc = previous
                 else:
-                    relative, _ = convert(original, output, zone / "images", [], prepare_images=False)
+                    relative, _ = convert(original, output, zone / "images", [], prepare_images=False, preparation=config)
                     target = output / relative
                     doc = json.loads(target.read_text())
                 source_document = json.loads(original.read_text())
@@ -195,18 +202,20 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
             try:
                 layout = inspect_dds(path.read_bytes())
             except ValueError:
-                uri = "lighting/" + raw_hash[:32] + ".dds"
+                uri = "lighting/" + raw_hash[:32] + ".ktx2"
                 target = pack / uri
                 target.parent.mkdir(exist_ok=True)
-                shutil.copyfile(path, target)
-                cache[cache_key] = {"uri": uri, "role": "precision_or_non_2d", "sha256": raw_hash, "lossless": True}
+                cached, retained = preserve_source(path, "precision_or_non_2d", False, cooker.preparation_executable, work/"retained-ktx2")
+                materialize(cached, target)
+                cache[cache_key] = {"uri": uri, "role": "precision_or_non_2d", "sha256": retained["output"]["sha256"], "source_sha256": raw_hash, "lossless": True}
             else:
                 if layout["dxgi"] in {2, 10, 11, 54, 56}:
-                    uri = "lighting/" + raw_hash[:32] + ".dds"
+                    uri = "lighting/" + raw_hash[:32] + ".ktx2"
                     target = pack / uri
                     target.parent.mkdir(exist_ok=True)
-                    shutil.copyfile(path, target)
-                    cache[cache_key] = {"uri": uri, "role": "precision_or_non_2d", "sha256": raw_hash, "lossless": True}
+                    cached, retained = preserve_source(path, "precision_or_non_2d", False, cooker.preparation_executable, work/"retained-ktx2")
+                    materialize(cached, target)
+                    cache[cache_key] = {"uri": uri, "role": "precision_or_non_2d", "sha256": retained["output"]["sha256"], "source_sha256": raw_hash, "lossless": True}
                     texture_records.append({"source": path.relative_to(source).as_posix(), "source_sha256": raw_hash, "semantics": sorted(semantics), "variant": cache[cache_key]})
                     continue
                 pixels = cooker.pixels(path)
@@ -256,7 +265,7 @@ def retune_unbound(config):
     for identity, entry in overrides["materials"].items():
         if "review" in entry and identity in catalog["materials"]:
             catalog["materials"][identity].update({k: entry[k] for k in ("class", "layer_classes", "review")})
-    cooker = Cooker(pack, work, Path(config["materials"]["encoder"]), catalog, inspection, source)
+    cooker = Cooker(pack, work, Path(config["materials"]["preparation_executable"]), catalog, inspection, source)
     definitions, image_paths = {}, {}
     for inventory in sorted(source.glob("zone/*/*/asset-inventory.json")):
         zone = inventory.parent.relative_to(source).as_posix()
@@ -329,7 +338,7 @@ def retune_unbound(config):
                 separate_specular = layer in specular_layers
                 if c["role"] != "color" or f"n{layer}x{layer}" not in family or separate_specular:
                     continue
-                levels = rgba_levels((work / Path(c["uri"]).name).read_bytes())
+                levels = rgba_levels((work / Path(c["uri"]).with_suffix('.dds').name).read_bytes())
                 if all(np.all(level[..., 3] == 255) for level in levels):
                     continue
                 for level in levels:

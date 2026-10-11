@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
+# dependencies = ["numpy>=2,<3", "pillow>=12,<13", "zstandard>=0.25,<1"]
 # ///
 from pathlib import Path
 import json
@@ -114,12 +114,12 @@ def migrate(pack):
         elif isinstance(value, list):
             for item in value:
                 content_images(item)
-        elif isinstance(value, str) and value.endswith((".png", ".jpg", ".jpeg", ".dds")):
+        elif isinstance(value, str) and value.endswith((".png", ".jpg", ".jpeg", ".dds", ".ktx2")):
             kept.add((pack / value).resolve())
     content_images(json.loads((pack / "game.json").read_text()))
     removed = []
     for path in pack.rglob("*"):
-        if path.suffix.lower() in {".png", ".dds", ".jpg", ".jpeg"} and path.resolve() not in kept:
+        if path.suffix.lower() in {".png", ".dds", ".jpg", ".jpeg", ".ktx2"} and path.resolve() not in kept:
             removed.append(path.relative_to(pack).as_posix())
             removed_bytes += path.stat().st_size
             path.unlink()

@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
+# dependencies = ["numpy>=2,<3", "pillow>=12,<13", "zstandard>=0.25,<1"]
 # ///
 import argparse
 import base64
@@ -351,7 +351,7 @@ def model_accessor(document, index):
     return values
 
 
-def static_models(gltf, instances_path, model_root, output, world_root):
+def static_models(gltf, instances_path, model_root, output, world_root, config):
     from fixture_emitters import emitter_surface
     instances = json.loads(external(instances_path).read_text())
     surface_data = json.loads(external(instances_path.parent / "model-surfaces.json").read_text())
@@ -400,24 +400,29 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                         color_pixels.append(pixels)
                     modes = ["raw"] + (["normal"] if role == "normal" else ["roughness"] if role == "specular_gloss" else [])
                     for mode in modes:
-                        key = (image_path, mode)
+                        key = (image_path, mode, role)
                         if key not in textures:
                             converted = converted_pixels(pixels, mode)
-                            filename = f"model-{len(textures)}.png"
-                            Image.fromarray(converted).save(output / "textures" / filename)
+                            filename = f"model-{len(textures)}.ktx2"
+                            try:
+                                from .prepare_ktx2 import runtime_image
+                            except ImportError:
+                                from prepare_ktx2 import runtime_image
+                            runtime_image(converted, "normal" if mode == "normal" else "response" if mode == "roughness" else "color" if role in ("color", "emissive") else "control",
+                                          mode == "raw" and role in ("color", "emissive"), output/"textures"/filename, config)
                             textures[key] = gltf.texture("textures/" + filename)
-                    raw_texture = textures[(image_path, "raw")]
+                    raw_texture = textures[(image_path, "raw", role)]
                     material["extras"]["surface"]["channels"].append({"role": role, "layer": layer,
                         "texture": raw_texture["index"], "channels": "rgb:specular,a:gloss" if role == "specular_gloss" else "rgba"})
                     if approximation:
                         material["extras"]["surface"]["channels"][-1]["approximation"] = approximation
                     if layer == 0:
                         if role == "normal":
-                            material["normalTexture"] = textures[(image_path, "normal")]
+                            material["normalTexture"] = textures[(image_path, "normal", role)]
                         elif role == "color":
                             material["pbrMetallicRoughness"]["baseColorTexture"] = raw_texture
                         elif role == "specular_gloss":
-                            material["pbrMetallicRoughness"]["metallicRoughnessTexture"] = textures[(image_path, "roughness")]
+                            material["pbrMetallicRoughness"]["metallicRoughnessTexture"] = textures[(image_path, "roughness", role)]
                             material["pbrMetallicRoughness"]["roughnessFactor"] = 1
                         elif role == "emissive":
                             material["emissiveTexture"] = raw_texture
@@ -427,8 +432,12 @@ def static_models(gltf, instances_path, model_root, output, world_root):
                         raise ValueError("unsupported tile/macro material layout")
                     key = (tuple(t["image"] for t in original["textures"] if t["semantic"] == 2), "tile_blend")
                     if key not in textures:
-                        filename = f"model-{len(textures)}.png"
-                        Image.fromarray(tile_blend_color(*color_pixels)).save(output / "textures" / filename)
+                        filename = f"model-{len(textures)}.ktx2"
+                        try:
+                            from .prepare_ktx2 import runtime_image
+                        except ImportError:
+                            from prepare_ktx2 import runtime_image
+                        runtime_image(tile_blend_color(*color_pixels), "color", True, output/"textures"/filename, config)
                         textures[key] = gltf.texture("textures/" + filename)
                     material["pbrMetallicRoughness"]["baseColorTexture"] = textures[key]
                     material["extras"]["surface"]["preparation"] = {"kind": "tile_macro_layers", "tiles": 4}
@@ -486,7 +495,7 @@ def static_models(gltf, instances_path, model_root, output, world_root):
     return len(instances), len(providers), len(textures)
 
 
-def prepare(scene_path, entity_path, output, instances_path, model_root):
+def prepare(scene_path, entity_path, output, instances_path, model_root, config):
     root = external(scene_path).parent
     output = external(output)
     manifest = json.loads(scene_path.read_text())
@@ -549,8 +558,12 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
             record = manifest["images"][image_index]
             image = Image.open(io.BytesIO(dependency(root, record))).convert("RGBA")
             pixels = converted_pixels(np.asarray(image), "normal" if normal else "roughness" if roughness else "raw")
-            filename = f"image-{image_index}{'-normal' if normal else '-roughness' if roughness else ''}.png"
-            Image.fromarray(pixels).save(texture_dir / filename)
+            filename = f"image-{image_index}{'-normal' if normal else '-roughness' if roughness else ''}.ktx2"
+            try:
+                from .prepare_ktx2 import runtime_image
+            except ImportError:
+                from prepare_ktx2 import runtime_image
+            runtime_image(pixels, "normal" if normal else "response" if roughness else "color", not normal and not roughness, texture_dir/filename, config)
             cached[key] = gltf.texture("textures/" + filename)
         return cached[key]
 
@@ -627,7 +640,7 @@ def prepare(scene_path, entity_path, output, instances_path, model_root):
                    ("_ORIGINS_ROTATION2", rotation2[selection], "VEC4")], material,
                   f"world_{material}_{cell}", collider="water" not in family and "unlit" not in family,
                   visible="shadowcaster" not in family)
-    instance_count, model_count, model_textures = static_models(gltf, instances_path, external(model_root), output, root)
+    instance_count, model_count, model_textures = static_models(gltf, instances_path, external(model_root), output, root, config)
     gltf.save(output)
     definition.update(source_surfaces=len(surfaces), render_meshes=len(gltf.document["scenes"][0]["nodes"]),
                       collision_meshes=len(gltf.document["scenes"][1]["nodes"]), static_model_instances=instance_count)
@@ -763,7 +776,7 @@ def main():
     sky_source = external(root / "bo2-library-extraction/zone/all/zm_tomb/images/skybox_zm_tomb_ft.dds")
     sky_destination = external(Path(config["game"]["asset_pack"])) / SKY_PATH
     if args.prepare_sky:
-        prepare_sky(sky_source, sky_destination)
+        prepare_sky(sky_source, sky_destination, Path(config["materials"]["preparation_executable"]), root / "sky-ktx2")
         return
     entities_path = Path(settings.get("entities", root / "game-prepare/entities/maps/mp/zm_tomb.d3dbsp.ents"))
     if args.content_only:
@@ -793,9 +806,9 @@ def main():
         source = external(Path(settings.get("oat_source", root / "tooling/OAT/surface-7d027e8/source")))
         instances_path = export(source, zone, external(instances_path.parent), external(model_root / "images"))
         (model_root / ".surface-data-ready").touch()
-    prepare_sky(sky_source, sky_destination)
+    prepare_sky(sky_source, sky_destination, Path(config["materials"]["preparation_executable"]), root / "sky-ktx2")
     prepare(Path(settings.get("scene", root / "full-scene-assets/texture-preview.json")),
-            entities_path, Path(config["game"]["asset_pack"]), instances_path, model_root)
+            entities_path, Path(config["game"]["asset_pack"]), instances_path, model_root, config)
 
 
 if __name__ == "__main__":

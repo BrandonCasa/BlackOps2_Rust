@@ -34,7 +34,7 @@ def prepare(config):
     clips=list(dict.fromkeys([*CLIPS.values(),*names.values(),*TEARS]));margins={}
     for model in sorted(models):
         identity="actor."+model
-        relative,notes=convert(base/"game-prepare/models/model_export"/(model+"_lod0.gltf"),pack/"actors",base/"solo-content/actor-images",[source/n for n in clips],in_place=True,end_aligned_clips={names["rise"]})
+        relative,notes=convert(base/"game-prepare/models/model_export"/(model+"_lod0.gltf"),pack/"actors",base/"solo-content/actor-images",[source/n for n in clips],in_place=True,end_aligned_clips={names["rise"]}, preparation=config)
         content["animations"][:]=[a for a in content["animations"] if a["skeleton"]!=identity]
         refs=[]
         for index,(name,notifications) in enumerate(notes):

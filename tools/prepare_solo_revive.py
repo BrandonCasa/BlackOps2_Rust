@@ -28,7 +28,7 @@ def prepare(config):
     machine = machines[0]
     model = machine["fields"]["model"] + "_on"
     relative, _ = convert(inspection / "game-prepare/models/model_export" / (model + "_lod0.gltf"),
-        pack / "props", inspection / "solo-content/actor-images", [])
+        pack / "props", inspection / "solo-content/actor-images", [], preparation=config)
     presentation = "prop." + model
     perk = "perk.quick_revive"
     content["perks"][:] = [p for p in content["perks"] if p["id"] != perk]

@@ -10,7 +10,7 @@ os.environ.setdefault("OMP_NUM_THREADS", str(os.cpu_count() or 1))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", str(os.cpu_count() or 1))
 import numpy as np
 from preparation_resources import PreparationResources
-from material_textures import inspect_dds
+from material_textures import inspect_texture
 from material_semantics import CHANNELS, uv_selection
 
 
@@ -186,7 +186,7 @@ def inventory(root, high_density=2048., pause_file=None, close_density=2048., me
                     uri = path.relative_to(root).as_posix()
                     if uri not in entries:
                         raw_texture = path.read_bytes()
-                        layout = inspect_dds(raw_texture)
+                        layout = inspect_texture(raw_texture)
                         constant = layout["width"] == layout["height"] == 1
                         if layout["dxgi"] in (28, 29):
                             offset = 148 if raw_texture[84:88] == b"DX10" else 128

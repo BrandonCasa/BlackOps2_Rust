@@ -44,7 +44,7 @@ def prepare(config):
     for name,prefix in zip(('placements','interactions'),prefixes):content[name][:]=[x for x in content[name] if not x['id'].startswith(prefix)]
     props={}
     for model in ('p6_zm_tm_bunker_door','p6_zm_tm_rock_blockade'):
-        relative,_=convert(inspection/'game-prepare/models/model_export'/f'{model}_lod0.gltf',pack/'props',inspection/'solo-content/actor-images',[])
+        relative,_=convert(inspection/'game-prepare/models/model_export'/f'{model}_lod0.gltf',pack/'props',inspection/'solo-content/actor-images',[], preparation=config)
         identity='presentation.door.'+model;props[model]=identity
         content['presentations'][:]=[x for x in content['presentations'] if x['id']!=identity]
         content['presentations'].append({'id':identity,'scene':'props/'+relative+'#Scene0','animations':[],'sounds':[]})

@@ -16,7 +16,7 @@ def prepare(config):
     for i in range(1,7):
         model=f'p6_anim_zm_barricade_board_{i:02}';identity='presentation.barrier.'+model
         names=[f'o_zombie_board_{i}_{p}' for p in ('repair','pull')]
-        relative,notes=convert(base/'game-prepare/models/model_export'/(model+'_lod0.gltf'),pack/'props',base/'solo-content/actor-images',[source/n for n in names],board_delta=True)
+        relative,notes=convert(base/'game-prepare/models/model_export'/(model+'_lod0.gltf'),pack/'props',base/'solo-content/actor-images',[source/n for n in names],board_delta=True, preparation=config)
         c['presentations'][:]=[p for p in c['presentations'] if p['id']!=identity]
         c['animations'][:]=[a for a in c['animations'] if a['skeleton']!=identity]
         refs=[]

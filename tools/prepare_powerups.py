@@ -15,6 +15,9 @@ def prepare(source, pack):
         output.mkdir(parents=True, exist_ok=True)
         scene = model + '_lod0.gltf'
         document = json.loads((origin / scene).read_text())
+        if any(set(image) - {'uri', 'name'} or Path(image.get('uri', '')).suffix != '.ktx2'
+               for image in document.get('images', [])):
+            raise ValueError('Powerup preparation requires external KTX2 images from the prepared source library')
         def dependencies(value):
             if isinstance(value, dict):
                 for key, item in value.items():
@@ -26,6 +29,8 @@ def prepare(source, pack):
                 for item in value:
                     yield from dependencies(item)
         for path in [scene, *set(dependencies(document))]:
+            if Path(path).suffix not in {'.gltf', '.bin', '.ktx2'}:
+                raise ValueError(f'Powerup dependency is outside the runtime KTX2 model profile: {path}')
             src, dst = (origin / path).resolve(), (output / path).resolve()
             if not src.is_relative_to(origin.resolve()) or not dst.is_relative_to(output.resolve()):
                 raise ValueError(path)

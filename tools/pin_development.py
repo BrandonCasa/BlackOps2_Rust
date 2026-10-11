@@ -50,7 +50,7 @@ def toolchain():
     return {"sysroot": str(sysroot), "compiler": str(compiler), "version": version, "host": host}
 
 
-def snapshot(output, profiling=None):
+def snapshot(output, profiling=None, features=()):
     output = external(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     files = {}
@@ -60,7 +60,7 @@ def snapshot(output, profiling=None):
             data = path.read_bytes()
             files[name] = hashlib.sha256(data).hexdigest()
             archive.writestr(name, data)
-    features = ["dev-dynamic"] + ([profiling] if profiling else [])
+    features = list(dict.fromkeys(["dev-dynamic", *features] + ([profiling] if profiling else [])))
     result = {"revision": git("rev-parse", "HEAD"), "features": features, "profile": "dev", "toolchain": toolchain(), "files": files}
     output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return result
@@ -148,11 +148,11 @@ def pin(snapshot_path, output, target_dir=None, asset_root=None, executable=None
     return {"output": str(output), "revision": expected["revision"], "binaries": binaries, "asset_files": len(assets)}
 
 
-def build(output, target_dir=None, asset_root=None, profiling=None):
+def build(output, target_dir=None, asset_root=None, profiling=None, features=()):
     output = external(output)
     output.mkdir(parents=True, exist_ok=False)
     snapshot_path = output / "source.json"
-    source = snapshot(snapshot_path, profiling)
+    source = snapshot(snapshot_path, profiling, features)
     compiler = source["toolchain"]
     environment = {**os.environ, "RUSTC": compiler["compiler"],
                    "RUSTDOC": str(Path(compiler["sysroot"]) / "bin/rustdoc.exe")}
@@ -187,11 +187,12 @@ def main():
     parser.add_argument("--target-dir", type=Path)
     parser.add_argument("--asset-root", type=Path)
     parser.add_argument("--profiling", choices=("profile-chrome", "profile-tracy", "profile-tracy-memory"))
+    parser.add_argument("--feature", action="append", choices=("prepare-textures",), default=[])
     args = parser.parse_args()
     if args.command == "build":
-        print(json.dumps(build(args.output, args.target_dir, args.asset_root, args.profiling)))
+        print(json.dumps(build(args.output, args.target_dir, args.asset_root, args.profiling, args.feature)))
     elif args.command == "snapshot":
-        result = snapshot(args.output, args.profiling)
+        result = snapshot(args.output, args.profiling, args.feature)
         print(json.dumps({"revision": result["revision"], "source_files": len(result["files"])}))
     else:
         if not args.snapshot:

@@ -13,6 +13,19 @@ FORMATS = {2: (16, False), 10: (8, False), 11: (8, False), 28: (4, False), 29: (
            98: (16, True), 99: (16, True)}
 
 
+def inspect_texture(raw, allow_non_2d=False):
+    try:
+        from .ktx2_textures import MAGIC, inspect_ktx2
+    except ImportError:
+        from ktx2_textures import MAGIC, inspect_ktx2
+    if raw.startswith(MAGIC):
+        result = inspect_ktx2(raw)
+        if not allow_non_2d and (result['dimension'] != '2d' or result['surfaces'] != 1):
+            raise ValueError('Material KTX2 must be one 2D image')
+        return result
+    return inspect_dds(raw, allow_non_2d=allow_non_2d)
+
+
 def inspect_dds(raw, allow_non_2d=False):
     if raw[:4] != b"DDS " or len(raw) < 128 or struct.unpack_from("<I", raw, 4)[0] != 124:
         raise ValueError("invalid DDS header")

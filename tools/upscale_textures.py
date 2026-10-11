@@ -12,14 +12,15 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from PIL import Image
 
-from material_textures import inspect_dds, rgba_levels
+from material_textures import inspect_dds, inspect_texture, rgba_levels
+from ktx2_textures import decoded_levels
 from preparation_resources import PreparationResources
 from deepbump_inference import DeepBumpSession
-from compressed_texture_cache import CompressedTextureCache, ENCODER_SHA256, mask_recipe, materialize, open_validated_dds, stored_bytes, target_format
+from compressed_texture_cache import NativeTextureCache, mask_recipe, materialize, open_validated_texture, stored_bytes
 
 DEEPBUMP_UPSCALE_SHA256 = "cf89d0ac5f7a73c8c172b8d92bd0e1fc3d5385bddef2fab15146f84a61477703"
 DEEPBUMP_CREDIT = "DeepBump by HugoTini; GPL-3.0; https://github.com/HugoTini/DeepBump"
-RECIPE_VERSION = 5
+RECIPE_VERSION = 6
 
 
 class DeepBumpUpscaler:
@@ -235,14 +236,20 @@ def prepare_levels(model, levels, entry):
 def source_levels(pack, masters, entry):
     path = pack / entry["uri"]
     raw = path.read_bytes()
-    info = inspect_dds(raw)
+    info = inspect_texture(raw)
     if (info["width"], info["height"]) != (entry["width"], entry["height"]):
         raise ValueError(f"Source dimensions changed after inventory: {entry['uri']}")
     if entry.get("source_runtime_sha256") not in (None, info["sha256"]):
         raise ValueError(f"Source texture changed after inventory: {entry['uri']}")
-    if info["dxgi"] in (28, 29) and raw[84:88] == b"DX10":
-        return rgba_levels(raw), path, info["sha256"], info["sha256"]
-    master = masters / path.name
+    if info["dxgi"] in (28, 29, 49, 61):
+        levels = decoded_levels(raw)
+        if entry["role"] == "normal" and info["dxgi"] == 49:
+            for level in levels:
+                xy = level[..., :2].astype(np.float32)/127.5-1
+                z = np.sqrt(np.maximum(1-(xy*xy).sum(axis=2), 0))
+                level[..., 2] = np.rint((z*.5+.5)*255).astype(np.uint8)
+        return levels, path, info["sha256"], info["sha256"]
+    master = masters / path.with_suffix(".dds").name
     if not master.is_file():
         raise ValueError(f"Lossless canonical master unavailable: {entry['uri']}")
     master_raw = master.read_bytes()
@@ -266,8 +273,7 @@ def main():
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda",
                         help="Explicit DeepBump inference backend")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--encoder", type=Path, required=True, help="Pinned DirectXTex texconv for build-time BCn")
-    parser.add_argument("--compression-device", choices=("cuda", "cpu"), default="cuda")
+    parser.add_argument("--preparation-executable", type=Path, required=True)
     parser.add_argument("--cache", type=Path, help="External compressed derived-data cache; defaults beside candidates")
     parser.add_argument("--polite", action="store_true", help="Opt into low-priority resource-pressure yielding")
     parser.add_argument("--no-cuda-graph", action="store_true", help="Disable fixed-buffer CUDA graph replay")
@@ -293,7 +299,7 @@ def main():
     if cache_root.resolve().is_relative_to(workspace) or cache_root.resolve().is_relative_to(args.pack.resolve()) or args.pack.resolve().is_relative_to(cache_root.resolve()):
         raise ValueError("Derived-data cache must be external and separate from source assets")
     resources = PreparationResources(args.pause_file, exit_for_shared_slot=True, saturate=not args.polite)
-    cache = CompressedTextureCache(cache_root, args.encoder, args.compression_device, resources)
+    cache = NativeTextureCache(cache_root, args.preparation_executable, resources)
     entries = json.loads(args.inventory.read_text())["textures"]
     if args.constant_only:
         entries = [entry for entry in entries if entry["width"] == entry["height"] == 1]
@@ -335,8 +341,7 @@ def main():
             raise ValueError(f"Candidate exceeds Bevy's supported texture extent: {entry['uri']}")
         recipe = dict(version=RECIPE_VERSION, model_sha256=model_hash, upscaler=args.upscaler,
                       device=args.device,
-                      encoder_sha256=ENCODER_SHA256, compression=target_format(entry),
-                      compression_device=args.compression_device,
+                      backend=cache.backend, container="ktx2", mip_owner="semantic-preparation-and-authored-tail",
                       cuda_graph=not args.no_cuda_graph,
                       tile=args.tile, halo=args.halo, scale=entry["scale"], role=entry["role"],
                       color_space=entry["color_space"], samplers=sorted(entry.get("samplers", [20])))
@@ -358,7 +363,7 @@ def main():
         recipe_hash = hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
         cache_key = hashlib.sha256((source_hash+runtime_hash+recipe_hash).encode()).hexdigest()
         neural_recipe = {key: value for key, value in recipe.items() if key not in
-                         ("encoder_sha256", "compression", "compression_device", "detailed_audit",
+                         ("backend", "container", "mip_owner", "detailed_audit",
                           "mask_compression", "mask_cutoffs")}
         prepared_key = hashlib.sha256((source_hash+runtime_hash+
                        json.dumps(neural_recipe, sort_keys=True)).encode()).hexdigest()
@@ -380,7 +385,7 @@ def main():
                 if hashlib.sha256(output.read_bytes()).hexdigest() == existing["output_sha256"]:
                     if args.previews and not output.with_suffix(".candidate.png").exists():
                         Image.fromarray(levels[0]).save(output.with_suffix(".source.png"))
-                        with open_validated_dds(output.read_bytes()) as preview:
+                        with open_validated_texture(output.read_bytes()) as preview:
                             preview.convert("RGBA").save(output.with_suffix(".candidate.png"))
                     print(f"{index+1}/{len(entries)} cached {entry['uri']}", flush=True)
                     continue
@@ -409,7 +414,7 @@ def main():
             del cooked
         materialize(cached[0], output)
         raw = output.read_bytes()
-        info = inspect_dds(raw)
+        info = inspect_texture(raw)
         record = dict(uri=entry["uri"], role=entry["role"], scale=entry["scale"],
             source_sha256=source_hash, model_sha256=model_hash, credit=credit, upscaler=args.upscaler,
             source_runtime_sha256=runtime_hash,
@@ -429,7 +434,7 @@ def main():
         temporary.replace(receipt)
         if args.previews:
             Image.fromarray(levels[0]).save(output.with_suffix(".source.png"))
-            with open_validated_dds(raw) as preview:
+            with open_validated_texture(raw) as preview:
                 preview.convert("RGBA").save(output.with_suffix(".candidate.png"))
         print(f"{index+1}/{len(entries)} {entry['role']} {entry['uri']} {record['width']}x{record['height']}", flush=True)
     print("Compressed batch complete; process exit releases inference resources", flush=True)

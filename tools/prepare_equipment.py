@@ -17,7 +17,7 @@ def prepare_monkey_world(content,monkey,inspection,pack):
     from prepare_actors import convert
     model="t6_wpn_zmb_monkey_bomb_world"
     relative,notifications=convert(inspection / "game-prepare/models/model_export" / (model+"_lod0.gltf"),
-        pack / "actors",inspection / "solo-content/actor-images",[inspection / "solo-content/source/xanim/o_monkey_bomb"])
+        pack / "actors",inspection / "solo-content/actor-images",[inspection / "solo-content/source/xanim/o_monkey_bomb"], preparation=config)
     identity="actor."+model
     content["presentations"][:]=[p for p in content["presentations"] if p["id"]!=identity]
     content["animations"][:]=[a for a in content["animations"] if a["skeleton"]!=identity]
@@ -44,7 +44,7 @@ def prepare_prime_clips(content, rows, inspection, pack):
         names+=sorted(extra-set(names))
         relative,notes=convert(inspection / "game-prepare/models/model_export" / (model+"_lod0.gltf"),
             pack / "actors",inspection / "solo-content/actor-images",
-            [inspection / "solo-content/source/xanim" / name for name in names])
+            [inspection / "solo-content/source/xanim" / name for name in names], preparation=config)
         generated={}
         references=[]
         for index,(name,notifications) in enumerate(notes):
@@ -113,7 +113,7 @@ def prepare(config):
     receipts.append({"weapon":monkey["id"],"script_sha256":hashlib.sha256(monkey_script.read_bytes()).hexdigest(),"lure":monkey["lure"],"activation":"stationary after native prime/flight; reset native fuse on activation"})
     model="t6_wpn_claymore_world"
     relative,_=convert(inspection / "game-prepare/models/model_export" / (model+"_lod0.gltf"),
-        pack / "actors",inspection / "solo-content/actor-images",[])
+        pack / "actors",inspection / "solo-content/actor-images",[], preparation=config)
     presentation="actor."+model
     content["presentations"][:]=[p for p in content["presentations"] if p["id"]!=presentation]
     content["presentations"].append({"id":presentation,"scene":"actors/"+relative+"#Scene0","animations":[],"sounds":[]})

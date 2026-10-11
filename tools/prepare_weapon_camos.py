@@ -56,7 +56,7 @@ def native_tables(source, uniques):
     return sorted(tables)
 
 
-def prepare(pack, extraction, camos, options, weapons, gsc):
+def prepare(pack, extraction, camos, options, weapons, gsc, executable, work):
     game = json.loads((pack / "game.json").read_bytes())["content"]
     original = json.loads(weapons.read_bytes())
     sources = {"weapon." + w["source"]: w for w in original["weapons"]}
@@ -75,7 +75,7 @@ def prepare(pack, extraction, camos, options, weapons, gsc):
             upgraded.add(partner)
             pending.append(partner)
     camo_id, table_index, option_name = origins_option(gsc, options)
-    native = NativeWeapons(pack, extraction)
+    native = NativeWeapons(pack, extraction, executable, work)
     library = {"version": 1, "camo_id": camo_id, "weapons": {}, "surfaces": {},
                "provenance": {"gsc_sha256": digest(gsc.read_bytes()),
                               "options_sha256": digest(options.read_bytes()),
@@ -154,8 +154,11 @@ def main():
     for name in ("pack", "extraction", "camos", "options", "weapons", "gsc"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--preparation-executable", required=True, type=Path)
+    parser.add_argument("--work", required=True, type=Path)
     args = parser.parse_args()
-    report = prepare(args.pack, args.extraction, args.camos, args.options, args.weapons, args.gsc)
+    report = prepare(args.pack, args.extraction, args.camos, args.options, args.weapons, args.gsc,
+                     args.preparation_executable, args.work)
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + "\n")
