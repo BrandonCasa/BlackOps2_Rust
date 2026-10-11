@@ -1,15 +1,33 @@
 use crate::{
     assets::GameDefinition,
-    environment::brushes::{BRUSH_LAYER, BrushSites},
+    environment::brushes::{BRUSH_LAYER, MapBrush},
+    player::Player,
+    staff_puzzles::{IceTile, StaffPuzzles},
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 
+pub(super) type Sites<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static MapBrush,
+        &'static GlobalTransform,
+        Option<&'static Collider>,
+        Has<ColliderDisabled>,
+        &'static Visibility,
+        Option<&'static IceTile>,
+    ),
+    (Without<Player>, Without<crate::hud::PlayerOverlay>),
+>;
+
 pub(super) fn observe(
     game: &GameDefinition,
-    sites: &BrushSites,
+    sites: &Sites,
     query: &SpatialQuery,
+    puzzles: &StaffPuzzles,
 ) -> serde_json::Value {
     let mut ids = BTreeSet::new();
     let mut errors = Vec::new();
@@ -17,7 +35,21 @@ pub(super) fn observe(
     let (mut interiors, mut outside, mut visuals, mut collider_roots) = (0, 0, 0, 0);
     let filter = SpatialQueryFilter::from_mask(BRUSH_LAYER);
     let probe = Collider::sphere(0.005);
-    for (entity, root, global, collider) in sites {
+    let ice_slots: Vec<_> = game
+        .environment
+        .brush_entities
+        .iter()
+        .filter(|b| {
+            b.source
+                .get("targetname")
+                .is_some_and(|name| name == "ice_tile_original")
+        })
+        .map(|b| Vec3::from_array(b.position))
+        .collect();
+    let mut occupied_slots = BTreeSet::new();
+    let mut active_tiles = BTreeSet::new();
+    let mut disabled_tiles = 0;
+    for (entity, root, global, collider, disabled, visibility, ice_tile) in sites {
         if !ids.insert(&root.id) {
             errors.push(format!("Duplicate brush root {}", root.id));
         }
@@ -33,8 +65,56 @@ pub(super) fn observe(
         *classes
             .entry(source.source["classname"].clone())
             .or_default() += 1;
-        let pose = source.transform();
+        let mut pose = source.transform();
         let actual = global.compute_transform();
+        let is_ice_tile = source
+            .source
+            .get("script_noteworthy")
+            .is_some_and(|name| name == "ice_ceiling_tile");
+        if is_ice_tile {
+            let value = source
+                .source
+                .get("script_string")
+                .and_then(|s| s.parse::<u8>().ok());
+            let selected = value.is_some_and(|value| puzzles.ice_tiles.contains(&value));
+            if value.is_none()
+                || ice_tile.map(|tile| tile.0) != value.filter(|_| selected)
+                || disabled == selected
+                || *visibility
+                    != if selected {
+                        Visibility::Inherited
+                    } else {
+                        Visibility::Hidden
+                    }
+            {
+                errors.push(format!("Wrong Ice Staff tile activation {}", root.id));
+            }
+            if selected {
+                if let Some(slot) = ice_slots
+                    .iter()
+                    .position(|position| actual.translation.distance_squared(*position) <= 0.000001)
+                {
+                    pose.translation = ice_slots[slot];
+                    if !occupied_slots.insert(slot) {
+                        errors.push(format!("Duplicate Ice Staff tile slot {}", root.id));
+                    }
+                } else {
+                    errors.push(format!("Ice Staff tile outside authored slots {}", root.id));
+                }
+                if let Some(value) = value {
+                    if !active_tiles.insert(value) {
+                        errors.push(format!("Duplicate Ice Staff tile value {}", root.id));
+                    }
+                }
+            } else {
+                disabled_tiles += 1;
+            }
+        } else if ice_tile.is_some() {
+            errors.push(format!(
+                "Ice Staff tile bound to ordinary brush {}",
+                root.id
+            ));
+        }
         if actual.translation.distance_squared(pose.translation) > 0.000001
             || actual.rotation.angle_between(pose.rotation) > 0.0001
             || actual.scale != Vec3::ONE
@@ -53,10 +133,17 @@ pub(super) fn observe(
         for volume in &source.volumes {
             interiors += 1;
             let point = pose.transform_point(Vec3::from_array(volume.position));
-            if !query
+            let touching = query
                 .shape_intersections(&probe, point, Quat::IDENTITY, &filter)
-                .contains(&entity)
-            {
+                .contains(&entity);
+            if is_ice_tile && disabled {
+                if touching {
+                    errors.push(format!(
+                        "Disabled Ice Staff tile still collides {}",
+                        volume.id
+                    ));
+                }
+            } else if !touching {
                 errors.push(format!("Missing brush hull {}", volume.id));
             }
         }
@@ -87,6 +174,10 @@ pub(super) fn observe(
     if ids.len() != game.environment.brush_entities.len() {
         errors.push("Incomplete brush scene closure".into());
     }
+    if active_tiles != puzzles.ice_tiles || occupied_slots.len() != ice_slots.len() {
+        errors.push("Incomplete Ice Staff tile selection or authored slot coverage".into());
+    }
     serde_json::json!({"passed":errors.is_empty(),"authored_entities":game.environment.brush_entities.len(),"runtime_entities":ids.len(),
-        "classes":classes,"visual_meshes":visuals,"collider_roots":collider_roots,"interior_probes":interiors,"outside_probes":outside,"errors":errors})
+        "classes":classes,"visual_meshes":visuals,"collider_roots":collider_roots,"interior_probes":interiors,"outside_probes":outside,
+        "ice_tiles":{"selected":active_tiles,"occupied_slots":occupied_slots,"disabled":disabled_tiles},"errors":errors})
 }

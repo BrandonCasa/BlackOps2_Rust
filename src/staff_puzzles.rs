@@ -810,7 +810,7 @@ fn wind(
 }
 
 #[derive(Component)]
-struct IceTile(u8);
+pub(crate) struct IceTile(pub(crate) u8);
 #[derive(Component)]
 struct TileMotion {
     base: Quat,
@@ -929,7 +929,8 @@ fn setup_ice(
                 commands
                     .entity(entity)
                     .remove::<(IceTile, TileMotion, ShootableEnvironment)>()
-                    .insert((Visibility::Hidden, ColliderDisabled));
+                    .insert(Visibility::Hidden)
+                    .insert_if_new(ColliderDisabled);
             }
         }
     }

@@ -682,7 +682,8 @@ fn check(
     map_sites: (
         placements::Sites,
         crate::environment::triggers::TriggerSites,
-        crate::environment::brushes::BrushSites,
+        brushes::Sites,
+        Res<crate::staff_puzzles::StaffPuzzles>,
     ),
     mut players: Query<
         (
@@ -720,7 +721,7 @@ fn check(
     >,
 ) {
     let mut screenshot = None;
-    let (sites, trigger_sites, brush_sites) = map_sites;
+    let (sites, trigger_sites, brush_sites, puzzles) = map_sites;
     let (surfaces, profile) = render_status;
     let (
         session,
@@ -812,7 +813,7 @@ fn check(
         && verification.playing > 0.5
         && let Some(game) = &definition
     {
-        let observed = brushes::observe(game, &brush_sites, &query);
+        let observed = brushes::observe(game, &brush_sites, &query, &puzzles);
         let _ = std::fs::write(
             verification.output.join("brush-entities.json"),
             observed.to_string(),
@@ -1227,7 +1228,7 @@ fn check(
                         .is_ok_and(|after| placements::restart_matches(before, after))
                 });
         let restarted_triggers = triggers::observe(&definition, &trigger_sites, &query);
-        let restarted_brushes = brushes::observe(&definition, &brush_sites, &query);
+        let restarted_brushes = brushes::observe(&definition, &brush_sites, &query, &puzzles);
         let restarted_negotiations = navigation.negotiation_observation(&definition, &access);
         let passed = session.round == 1
             && restarted_negotiations["passed"] == true
