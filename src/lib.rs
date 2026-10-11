@@ -54,6 +54,7 @@ pub mod staff_puzzles;
 pub mod staff_upgrades;
 pub mod tablets;
 pub mod main_quest;
+pub mod quest_recovery;
 pub mod quests;
 pub mod presentation;
 pub mod projectiles;
@@ -211,7 +212,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    app.add_plugins((portals::PortalPlugin, robots::RobotPlugin, rituals::RitualPlugin, staff_fields::StaffFieldsPlugin, chamber::ChamberPlugin, staff_puzzles::StaffPuzzlePlugin, staff_upgrades::StaffUpgradePlugin, tablets::TabletPlugin, main_quest::MainQuestPlugin));
+    app.add_plugins((portals::PortalPlugin, robots::RobotPlugin, rituals::RitualPlugin, staff_fields::StaffFieldsPlugin, chamber::ChamberPlugin, staff_puzzles::StaffPuzzlePlugin, staff_upgrades::StaffUpgradePlugin, tablets::TabletPlugin, main_quest::MainQuestPlugin, quest_recovery::RecoveryPlugin));
     if cfg!(debug_assertions)
         && !release_benchmark
         && !flythrough

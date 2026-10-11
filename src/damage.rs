@@ -127,7 +127,7 @@ impl Plugin for DamagePlugin {
 pub(crate) fn resolve(
     mut queue: ResMut<DamageQueue>,
     mut history: ResMut<CombatHistory>,
-    mut targets: Query<(&mut Vitality, Option<&mut crate::player_health::Recovery>, Option<&mut crate::combat_effects::Armor>)>,
+    mut targets: Query<(&mut Vitality, Option<&mut crate::player_health::Recovery>, Option<&mut crate::combat_effects::Armor>, Has<crate::quest_recovery::BloodRestricted>)>,
     attribution: Attribution,
     enemies: Query<&Zombie>,
     definition: Res<GameDefinition>,
@@ -153,7 +153,7 @@ pub(crate) fn resolve(
         .0
         .sort_by_key(|impact| matches!(impact.source, ImpactSource::Enemy(_)));
     for mut impact in queue.0.drain(..) {
-        let sender_alive = targets.get(impact.attacker).is_ok_and(|(v, _, _)| {
+        let sender_alive = targets.get(impact.attacker).is_ok_and(|(v, _, _, _)| {
             matches!(
                 v.state(),
                 crate::life::LifeState::Standing
@@ -190,9 +190,10 @@ pub(crate) fn resolve(
         {
             continue;
         }
-        let Ok((mut health, mut recovery, armor)) = targets.get_mut(impact.target) else {
+        let Ok((mut health, mut recovery, armor, restricted)) = targets.get_mut(impact.target) else {
             continue;
         };
+        if restricted && (effects.zombie_blood <= 0. || matches!(impact.source, ImpactSource::Powerup)) { continue; }
         let player = players.contains(impact.target);
         if player
             && matches!(impact.source, ImpactSource::Robot(_))

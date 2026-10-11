@@ -129,8 +129,8 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add empty perk bottle slot rewards.
 - [x] Add personal Blood Money rewards.
 - [x] Add team Blood Money solo rewards.
-- [ ] Reveal Zombie Blood hidden entities.
-- [ ] Hide restricted entities after Zombie Blood expires.
+- [x] Reveal Zombie Blood hidden entities.
+- [x] Hide restricted entities after Zombie Blood expires.
 - [x] Add wall weapon purchase placements.
 - [ ] Connect wall interactions to source-defined power requirements.
 - [x] Add source-defined wall ammunition prices.
@@ -266,7 +266,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Maxis Drone return behavior.
 - [x] Add Maxis Drone bench recharge.
 - [x] Add Maxis Drone pickup after recharge.
-- [ ] Add Maxis Drone upgraded state.
+- [x] Add Maxis Drone upgraded state.
 - [ ] Add Maxis Drone collection of reward seals.
 - [x] Add record inventory.
 - [x] Add master record randomized placements.
@@ -308,8 +308,8 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Wind crystal pickup.
 - [x] Add Lightning crystal pickup.
 - [x] Restore dropped elemental crystals to recoverable pickup locations.
-- [ ] Add Fire Staff plane-part spawning.
-- [ ] Add Fire Staff plane damage handling.
+- [x] Add Fire Staff plane-part spawning.
+- [x] Add Fire Staff plane damage handling.
 - [x] Add Fire Staff generator-part pickup.
 - [x] Add Fire Staff Panzer-part pickup.
 - [x] Add Fire Staff recipe.
@@ -449,14 +449,14 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Spawn the solo quest Panzersoldat encounter.
 - [x] Complete the encounter after required Panzersoldat deaths.
 - [x] Remove the drone during its quest disappearance.
-- [ ] Spawn the quest plane after encounter completion.
-- [ ] Restrict quest plane visibility to Zombie Blood.
-- [ ] Add quest plane destruction.
-- [ ] Spawn the quest zombie after plane destruction.
-- [ ] Restrict quest zombie visibility to Zombie Blood.
-- [ ] Add quest zombie circular movement.
-- [ ] Add quest zombie drone drop.
-- [ ] Add quest drone recovery.
+- [x] Spawn the quest plane after encounter completion.
+- [x] Restrict quest plane visibility to Zombie Blood.
+- [x] Add quest plane destruction.
+- [x] Spawn the quest zombie after plane destruction.
+- [x] Restrict quest zombie visibility to Zombie Blood.
+- [x] Add quest zombie circular movement.
+- [x] Add quest zombie drone drop.
+- [x] Add quest drone recovery.
 - [ ] Spawn glowing-hand excavation zombies.
 - [ ] Require eligible melee kills for the fist challenge.
 - [ ] Add fist challenge soul accumulation.
