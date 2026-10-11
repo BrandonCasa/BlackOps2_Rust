@@ -296,6 +296,7 @@ impl Plugin for GameAudioPlugin {
             )
             .add_systems(OnEnter(GameState::GameOver), (stop, game_over).chain())
             .add_systems(OnEnter(GameState::Loading), stop);
+        app.add_systems(OnEnter(GameState::MainMenu), stop);
         gameplay::install(app);
     }
 }

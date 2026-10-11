@@ -392,7 +392,7 @@ fn rewards(
     }
 }
 
-fn reward_deaths(
+pub(crate) fn reward_deaths(
     mut deaths: MessageReader<EnemyDeath>,
     mut history: ResMut<CombatHistory>,
     mut session: ResMut<Session>,

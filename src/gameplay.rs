@@ -25,6 +25,7 @@ pub use crate::enemies::Zombie;
 
 #[derive(Resource, Clone)]
 pub struct Session {
+    pub difficulty: crate::frontend::Difficulty,
     pub round: u32,
     pub pending: u32,
     pub points: u32,
@@ -41,6 +42,7 @@ pub struct Session {
 impl Default for Session {
     fn default() -> Self {
         Self {
+            difficulty: crate::frontend::Difficulty::Original,
             round: 1,
             pending: 6,
             points: 500,
@@ -81,6 +83,7 @@ pub(crate) use crate::navigation::Navigation;
 pub struct GameplayPlugin;
 impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(crate::projectiles::ProjectilePlugin);
         app.init_resource::<Session>()
             .add_message::<crate::rounds::RoundStarted>()
             .add_message::<crate::rounds::RoundEnding>()
@@ -309,6 +312,12 @@ pub(crate) fn combat(
                     session.shots as u64 * 137 + pellet as u64 * 19,
                 )
             };
+            if !melee && let Some(weapon) = weapon
+                && weapon.mechanics.delivery == crate::origins::content::WeaponDelivery::Projectile
+            {
+                crate::projectiles::spawn(&mut commands, entity, weapon, origin, direction);
+                continue;
+            }
             let actor_hit = crate::hit_regions::cast(
                 &enemies,
                 &query,

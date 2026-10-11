@@ -63,6 +63,14 @@ pub fn read(path: &Path) -> Result<ControlSettings, String> {
             available.then_some(binding).into_iter().collect(),
         );
     }
+    let defaults = ControlSettings::default();
+    for action in [super::Action::Buildable, super::Action::StaffSecondary] {
+        if settings.bindings.contains_key(&action) { continue; }
+        let bindings = defaults.bindings[&action].iter().copied()
+            .filter(|binding| !settings.bindings.values().any(|owned| owned.contains(binding)))
+            .collect();
+        settings.bindings.insert(action, bindings);
+    }
     if !settings.valid() {
         return Err("Settings contain unsupported values or conflicting bindings.".into());
     }

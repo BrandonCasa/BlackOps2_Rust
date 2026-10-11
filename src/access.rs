@@ -195,6 +195,8 @@ fn audio_evidence(
 }
 #[derive(Resource, Default)]
 pub struct CurrentZone(pub Option<ZoneId>);
+#[derive(Component, Default)]
+struct ZoneCheckpoint(Option<Vec3>);
 const ZONE_SENSOR_LAYER: u32 = 8;
 #[derive(Component)]
 struct ZoneSensor {
@@ -202,16 +204,18 @@ struct ZoneSensor {
 }
 fn locate(
     query: SpatialQuery,
-    players: Query<&Transform, With<Player>>,
+    mut players: Query<(&mut Transform, &mut Player, &mut ZoneCheckpoint)>,
     volumes: Query<(&ZoneSensor, &Transform), Without<Player>>,
     mut zone: ResMut<CurrentZone>,
+    access: Res<ZoneAccess>,
+    game: Res<GameDefinition>,
 ) {
-    let Ok(pose) = players.single() else {
+    let Ok((mut pose, mut player, mut checkpoint)) = players.single_mut() else {
         zone.0 = None;
         return;
     };
     let filter = SpatialQueryFilter::from_mask(ZONE_SENSOR_LAYER);
-    zone.0 = query
+    let candidate = query
         .shape_intersections(
             &Collider::sphere(0.03),
             pose.translation,
@@ -226,11 +230,19 @@ fn locate(
                 .total_cmp(&b.translation.distance_squared(pose.translation))
         })
         .map(|(z, _)| z.zone.clone());
+    if candidate.as_ref().is_some_and(|id| !access.reachable.contains(id)) {
+        pose.translation = checkpoint.0.unwrap_or(Vec3::from_array(game.spawn) + Vec3::Y * (player.height * 0.5));
+        player.velocity = Vec3::ZERO;
+        return;
+    }
+    checkpoint.0 = Some(pose.translation);
+    zone.0 = candidate;
 }
 pub struct AccessPlugin;
 impl Plugin for AccessPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ZoneAccess>()
+            .register_required_components::<Player, ZoneCheckpoint>()
             .init_resource::<CurrentZone>()
             .init_resource::<DoorEvidence>()
             .add_systems(

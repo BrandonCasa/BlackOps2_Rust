@@ -220,6 +220,7 @@ pub(crate) fn advance(
     players: Query<(&Player, &Transform)>,
     generators: Res<crate::generators::Generators>,
     replacements: Query<(Entity, &ReplacementHealth)>,
+    quest: Res<crate::quests::MainQuest>,
 ) {
     let (mut started, mut ending) = events;
     *population = default();
@@ -236,6 +237,7 @@ pub(crate) fn advance(
     evidence.peak_ordinary = evidence.peak_ordinary.max(population.ordinary);
     let profile = &definition.rounds;
     if session.round_complete(population.ordinary + population.special) {
+        if quest.round_held() { return; }
         if session.intermission.is_none() {
             ending.write(RoundEnding {
                 session: *session_id,
@@ -337,7 +339,7 @@ pub(crate) fn advance(
         )
         .ok()?;
         let enemy = variants.get(session.spawn_cursor % variants.len().max(1))?;
-        let gait = profile.gait(session.round, session.random());
+        let gait = session.difficulty.gait(profile, session.round, session.random());
         Some((
             position,
             shape,

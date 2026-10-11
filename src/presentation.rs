@@ -512,7 +512,13 @@ fn rig_ready(
     rig.players.clear();
     rig.sequence = None;
     rig.sampled_phase = None;
+    commands.entity(event.entity).insert(avian3d::prelude::CollisionLayers::new(
+        avian3d::prelude::LayerMask::NONE, avian3d::prelude::LayerMask::NONE,
+    ));
     for child in children.iter_descendants(event.entity) {
+        commands.entity(child).insert(avian3d::prelude::CollisionLayers::new(
+            avian3d::prelude::LayerMask::NONE, avian3d::prelude::LayerMask::NONE,
+        ));
         if rig.arms
             && names
                 .get(child)

@@ -26,6 +26,7 @@ pub mod enemies;
 pub mod environment;
 pub mod equipment;
 pub mod flythrough;
+pub mod frontend;
 pub mod gameplay;
 pub mod generators;
 pub mod hit_regions;
@@ -43,7 +44,9 @@ pub mod perks;
 pub mod player;
 pub mod player_health;
 pub mod powerups;
+pub mod quests;
 pub mod presentation;
+pub mod projectiles;
 mod render_backend;
 pub mod rendering;
 pub mod rounds;
@@ -61,6 +64,7 @@ use bevy::prelude::*;
 pub enum GameState {
     #[default]
     Loading,
+    MainMenu,
     PreparingShaders,
     Playing,
     Paused,
@@ -163,6 +167,8 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         damage::DamagePlugin,
         (
             session::SessionPlugin,
+            frontend::FrontendPlugin,
+            quests::QuestPlugin,
             life::LifeStatePlugin,
             solo_revive::SoloRevivePlugin,
             perks::PerkPlugin,

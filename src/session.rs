@@ -55,6 +55,7 @@ fn initialize(world: &mut World) {
     world.insert_resource(SessionId(next));
     let definition = world.resource::<GameDefinition>();
     let mut session = Session {
+        difficulty: *world.resource::<crate::frontend::Difficulty>(),
         character: definition.audio.character,
         pending: definition.rounds.population(1),
         spawn_timer: Timer::from_seconds(definition.rounds.first_spawn_seconds, TimerMode::Once),
@@ -69,6 +70,7 @@ fn initialize(world: &mut World) {
         session.character = (session.seed % 4) as usize;
     }
     world.insert_resource(session);
+    world.insert_resource(crate::quests::MainQuest::reset(*world.resource::<crate::frontend::Difficulty>()));
     world.insert_resource(crate::damage::CombatHistory::default());
     world.insert_resource(crate::powerups::PowerupEffects::default());
     world.insert_resource(crate::powerups::Drops::default());
@@ -119,6 +121,7 @@ pub(crate) fn teardown(world: &mut World) {
     clear::<crate::rounds::RoundStarted>(world);
     clear::<crate::rounds::RoundEnding>(world);
     clear::<crate::environment::support::EnvironmentalHit>(world);
+    clear::<crate::quests::SoulCollected>(world);
 }
 
 fn clear<M: Message>(world: &mut World) {

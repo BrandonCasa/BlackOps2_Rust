@@ -28,9 +28,11 @@ pub enum Action {
     Scoreboard,
     Pause,
     Restart,
+    Buildable,
+    StaffSecondary,
 }
 impl Action {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 25] = [
         Self::Forward,
         Self::Backward,
         Self::Left,
@@ -54,6 +56,8 @@ impl Action {
         Self::Scoreboard,
         Self::Pause,
         Self::Restart,
+        Self::Buildable,
+        Self::StaffSecondary,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -80,6 +84,8 @@ impl Action {
             Self::Scoreboard => "Scoreboard",
             Self::Pause => "Pause",
             Self::Restart => "Restart after game over",
+            Self::Buildable => "Buildable equipment",
+            Self::StaffSecondary => "Staff secondary mode",
         }
     }
     pub fn accepts_wheel(self) -> bool {
@@ -201,6 +207,8 @@ impl Default for ControlSettings {
             (Scoreboard, KeyCode::Tab),
             (Pause, KeyCode::Escape),
             (Restart, KeyCode::KeyR),
+            (Buildable, KeyCode::Digit5),
+            (StaffSecondary, KeyCode::KeyX),
         ]
         .into_iter()
         .map(|(action, key)| (action, vec![Binding::Key(key)]))

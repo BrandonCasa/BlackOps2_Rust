@@ -532,14 +532,20 @@ pub(crate) fn interact(
     let Some(weapon) = definition.content.weapons.iter().find(|w| w.id == *weapon) else {
         return;
     };
-    let owned = inventory
-        .owned()
-        .find(|(_, w)| w.definition == weapon.id)
-        .map(|(slot, _)| slot);
+    let owned_variant = inventory.owned().find_map(|(_, owned)| {
+        let candidate = definition.content.weapons.iter().find(|w| w.id == owned.definition)?;
+        (candidate.id == weapon.id || weapon.upgraded.as_ref() == Some(&candidate.id)
+            || weapon.ammo_group.as_ref().is_some_and(|group| candidate.ammo_group.as_ref() == Some(group)))
+            .then_some(candidate)
+    });
+    let owned = owned_variant.is_some();
+    let upgraded = owned_variant.is_some_and(|candidate| weapon.upgraded.as_ref() == Some(&candidate.id));
     let cost = if weapon.throwable.is_some() {
         *price
-    } else if owned.is_some() {
-        ammo_price.unwrap_or(price / 2)
+    } else if upgraded {
+        4500
+    } else if owned {
+        ammo_price.unwrap_or((price / 2).div_ceil(10) * 10)
     } else {
         *price
     };
@@ -554,7 +560,7 @@ pub(crate) fn interact(
                 "Press"
             },
             weapon.name,
-            if owned.is_some() { " ammo" } else { "" },
+            if owned { " ammo" } else { "" },
             cost
         )
     };
@@ -592,8 +598,8 @@ pub(crate) fn interact(
                 crate::equipment::EquipmentError::Full => InteractionRejection::FullAmmo,
                 crate::equipment::EquipmentError::Unsupported => InteractionRejection::Unavailable,
             })?;
-        } else if owned.is_some() {
-            if !inventory.refill_weapon(weapon) {
+        } else if let Some(owned_weapon) = owned_variant {
+            if !inventory.refill_weapon(owned_weapon) {
                 return Err(InteractionRejection::FullAmmo);
             }
         } else {
@@ -613,7 +619,7 @@ pub(crate) fn interact(
                 &format!(
                     "{}.{}",
                     weapon.id.0,
-                    if owned.is_some() { "ammo" } else { "purchase" }
+                    if owned { "ammo" } else { "purchase" }
                 ),
                 crate::audio::SoundSource::attached(player_entity),
             );

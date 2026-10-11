@@ -21,6 +21,7 @@ pub(crate) struct ControlMenu {
     pub revision: u64,
     pub handled_input: bool,
     pointer_choice: Option<Choice>,
+    pending_action: Option<crate::frontend::FrontendAction>,
 }
 #[derive(Component)]
 struct MenuRoot;
@@ -37,6 +38,9 @@ struct RowText(Choice);
 enum Choice {
     Resume,
     Controls,
+    Restart,
+    MainMenu,
+    Exit,
     Sensitivity,
     AdsSensitivity,
     Invert,
@@ -52,7 +56,7 @@ enum Choice {
 
 fn choices(menu: &ControlMenu) -> Vec<Choice> {
     let Some(page) = menu.page else {
-        return vec![Choice::Resume, Choice::Controls];
+        return vec![Choice::Resume, Choice::Controls, Choice::Restart, Choice::MainMenu, Choice::Exit];
     };
     let mut rows = vec![
         Choice::Sensitivity,
@@ -89,6 +93,9 @@ fn label(choice: Choice, settings: &ControlSettings) -> String {
     match choice {
         Choice::Resume => "Resume game".into(),
         Choice::Controls => "Controls".into(),
+        Choice::Restart => "Restart game".into(),
+        Choice::MainMenu => "Quit to menu".into(),
+        Choice::Exit => "Exit application".into(),
         Choice::Sensitivity => format!(
             "Mouse sensitivity                 {:.1}x",
             settings.sensitivity
@@ -195,7 +202,7 @@ fn rebuild(
         .with_children(|parent| {
             let title = menu
                 .page
-                .map_or("PAUSED".into(), |p| format!("CONTROLS   {} / 3", p + 1));
+                .map_or("PAUSED".into(), |p| format!("CONTROLS   {} / {}", p + 1, Action::ALL.len().div_ceil(PAGE_SIZE)));
             parent.spawn((
                 Text::new(title),
                 TextFont {
@@ -256,6 +263,9 @@ fn activate(
 ) {
     match choice {
         Choice::Resume => next.set(GameState::Playing),
+        Choice::Restart => menu.pending_action = Some(crate::frontend::FrontendAction::Restart),
+        Choice::MainMenu => menu.pending_action = Some(crate::frontend::FrontendAction::MainMenu),
+        Choice::Exit => menu.pending_action = Some(crate::frontend::FrontendAction::Exit),
         Choice::Controls => {
             menu.page = Some(0);
             menu.selected = 0;
@@ -318,6 +328,7 @@ fn navigate(
     mut next: ResMut<NextState<GameState>>,
     mut store: ResMut<SettingsStore>,
     rows: Query<(&MenuRow, Ref<Hovered>)>,
+    mut frontend: MessageWriter<crate::frontend::FrontendAction>,
 ) {
     let pointer_choice = menu.pointer_choice.take();
     if menu.capturing.is_some() || menu.handled_input {
@@ -375,6 +386,7 @@ fn navigate(
     if let Some(choice) = pointer_choice {
         activate(choice, 1., &mut menu, &mut settings, &mut next, &mut store);
     }
+    if let Some(action) = menu.pending_action.take() { frontend.write(action); }
 }
 fn pointer_activate(event: On<PointerPress>, rows: Query<&MenuRow>, mut menu: ResMut<ControlMenu>) {
     if event.button == PointerButton::Primary

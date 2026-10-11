@@ -268,6 +268,7 @@ fn update(
     let reserve = inventory.zip(weapon).map_or(0, |(i, w)| i.reserve(w));
     let mut value = match **state {
         GameState::Loading => "Loading Origins…".into(),
+        GameState::MainMenu => String::new(),
         GameState::PreparingShaders => String::new(),
         GameState::LoadError => format!("Unable to load Origins\n{}", failure.0),
         GameState::Paused => String::new(),

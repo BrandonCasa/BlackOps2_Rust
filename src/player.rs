@@ -46,6 +46,7 @@ pub struct TickActions {
 pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(crate::movement::platforms::PlatformPlugin);
         app.init_resource::<TickActions>()
             .init_resource::<crate::movement::MovementEvidence>()
             .add_message::<crate::movement::Landing>()

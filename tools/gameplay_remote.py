@@ -92,10 +92,12 @@ class Client:
             report["shutdown_error"] = f"{type(error).__name__}: {error}"
             report.setdefault("error", report["shutdown_error"])
 
-    def reset(self, timeout=30):
+    def reset(self, timeout=30, difficulty=None):
         before = (self.state().get("player") or {}).get("entity")
         self.release()
-        self.call("origins/reset")
+        if difficulty is not None and difficulty not in ("original", "easy"):
+            raise ValueError("Difficulty must be original or easy")
+        self.call("origins/reset", {"difficulty": difficulty} if difficulty is not None else None)
         return self.until(
             lambda state: state["state"] == "Playing"
             and state.get("player")

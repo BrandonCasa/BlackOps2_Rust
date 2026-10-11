@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+pub mod platforms;
 #[derive(Component, Default)]
 pub struct SprintState {
     pub remaining: f32,

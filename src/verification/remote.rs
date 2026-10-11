@@ -45,6 +45,11 @@ struct Edge {
 struct Inputs {
     events: Vec<Edge>,
 }
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ResetOptions {
+    difficulty: Option<crate::frontend::Difficulty>,
+}
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct Actor {
@@ -233,7 +238,7 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
             "origins/preview":{"params":{"weapon":"optional native weapon ID","presentation":"optional content presentation ID","animation":"optional named clip","distance":"optional camera distance in metres"},"effect":"Asset scenario setup attached to camera; omitted IDs clear preview"},
             "origins/assets":{"params":{},"result":"Preview load state, mesh visibility ranges, skin readiness, animation players and local bone poses"},
             "origins/capture":{"params":{"path":"absolute PNG path"},"result":"asynchronous screenshot request"},
-            "origins/reset":{"params":{},"effect":"Release inputs, transition to GameOver, send normal RestartGame"},
+            "origins/reset":{"params":{"difficulty":"optional original or easy"},"effect":"Release inputs, select next session difficulty, transition to GameOver, send normal RestartGame"},
             "origins/input":{"params":{"events":[{"tick":"relative integer 1..3600","key":"Bevy KeyCode name or MouseLeft/MouseRight/MouseMiddle","pressed":"boolean"}]},"max_events":512,"effect":"Queue native input messages; automatic release after final scheduled tick"},
             "origins/release":{"params":{},"effect":"Cancel queued input and release remotely held buttons"},
             "origins/quit":{"params":{},"effect":"Release remote inputs and emit normal AppExit"},
@@ -288,7 +293,8 @@ fn release(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     }
     Ok(json!({"released":true}))
 }
-fn reset(_: In<Option<Value>>, world: &mut World) -> BrpResult {
+fn reset(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let options: ResetOptions = parse(value)?;
     if !matches!(
         *world.resource::<State<GameState>>().get(),
         GameState::Playing | GameState::Paused | GameState::GameOver
@@ -296,6 +302,9 @@ fn reset(_: In<Option<Value>>, world: &mut World) -> BrpResult {
         return Err(error("Session is not ready"));
     }
     release(In(None), world)?;
+    if let Some(difficulty) = options.difficulty {
+        world.insert_resource(difficulty);
+    }
     world
         .resource_mut::<NextState<GameState>>()
         .set(GameState::GameOver);
@@ -322,6 +331,11 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     result["render_frame"] = json!(world.resource::<bevy::diagnostic::FrameCount>().0);
     result["frame_seconds"] = json!(world.resource::<Time<Real>>().delta_secs_f64());
     let session = world.resource::<Session>();
+    result["difficulty"] = json!(session.difficulty);
+    let quest = world.resource::<crate::quests::MainQuest>();
+    result["quest"] = json!({"enabled":quest.enabled,"stage":quest.stage,
+        "upgraded":quest.upgraded,"placed":quest.placed,"round_held":quest.round_held(),
+        "strike_authorized":quest.strike_authorized()});
     result["session_id"] = json!(world.resource::<crate::session::SessionId>().0);
     let equipment = world.resource::<crate::equipment::EquipmentEvidence>();
     result["equipment"] = json!({"retired_blasts":equipment.retired_blasts,"self_impacts":equipment.self_impacts,"enemy_impacts":equipment.enemy_impacts,"round_awards":equipment.round_awards,

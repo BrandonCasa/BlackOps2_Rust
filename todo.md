@@ -1,45 +1,47 @@
-- [ ] Preserve executable-relative discovery for expanded runtime packs.
+Items checked on this draft branch are uncompiled and untested implementations, including existing behavior found wired during source inspection.
+
+- [x] Preserve executable-relative discovery for expanded runtime packs.
 - [ ] Package newly referenced runtime asset types.
 - [ ] Add deferred boundaries before changed colliders enter queries.
 - [x] Assign explicit runtime owners to imported triggers and brushes.
 - [x] Route normal weapon hits to shootable environmental targets with solid occlusion.
 - [x] Attribute robot and vehicle contact damage without player kills, points, powerup drops, or souls.
 - [x] Emit one round-ending event before incrementing the source round index.
-- [ ] Add Original difficulty profiles.
-- [ ] Add Easy difficulty profiles.
-- [ ] Add solo main menu state.
-- [ ] Add Original difficulty menu selection.
-- [ ] Add Easy difficulty menu selection.
-- [ ] Add loading presentation state.
-- [ ] Add visible content loading error recovery.
-- [ ] Add solo session start action.
-- [ ] Add restart menu action.
-- [ ] Add quit-to-menu action.
-- [ ] Add exit-application action.
-- [ ] Adapt the existing window driver to the new gameplay interfaces.
-- [ ] Add main quest stage state.
-- [ ] Reset quest progress when starting fresh sessions.
+- [x] Add Original difficulty profiles.
+- [x] Add Easy difficulty profiles.
+- [x] Add solo main menu state.
+- [x] Add Original difficulty menu selection.
+- [x] Add Easy difficulty menu selection.
+- [x] Add loading presentation state.
+- [x] Add visible content loading error recovery.
+- [x] Add solo session start action.
+- [x] Add restart menu action.
+- [x] Add quit-to-menu action.
+- [x] Add exit-application action.
+- [x] Adapt the existing window driver to the new gameplay interfaces.
+- [x] Add main quest stage state.
+- [x] Reset quest progress when starting fresh sessions.
 - [ ] Prevent main quest progression from invalid interactions.
-- [ ] Retire active quest timers after stage transitions.
+- [x] Retire active quest timers after stage transitions.
 - [ ] Disable original unsupported quests on Easy difficulty.
 - [ ] Add quest-controlled round holds.
 - [ ] Release round holds after quest progression.
-- [ ] Exclude first-person meshes from movement collisions.
-- [ ] Add moving-platform support tracking.
-- [ ] Move boarded players with platform displacement.
-- [ ] Clear platform support when players jump.
-- [ ] Add unopened-zone player access restrictions.
+- [x] Exclude first-person meshes from movement collisions.
+- [x] Add moving-platform support tracking.
+- [x] Move boarded players with platform displacement.
+- [x] Clear platform support when players jump.
+- [x] Add unopened-zone player access restrictions.
 - [ ] Replace static duplicates of dynamic gameplay objects.
 - [ ] Add purchase refund handling.
 - [ ] Add source-defined purchase discounts.
-- [ ] Add buildable equipment input.
-- [ ] Add staff secondary mode input.
-- [ ] Add tactical equipment replacement.
+- [x] Add buildable equipment input.
+- [x] Add staff secondary mode input.
+- [x] Add tactical equipment replacement.
 - [ ] Add armored hit regions.
 - [ ] Apply armor absorption before vitality damage.
-- [ ] Add projectile weapon spawning.
-- [ ] Add projectile swept collision.
-- [ ] Add projectile impact resolution.
+- [x] Add projectile weapon spawning.
+- [x] Add projectile swept collision.
+- [x] Add projectile impact resolution.
 - [ ] Add material penetration resistance.
 - [ ] Add penetration damage attenuation.
 - [ ] Prevent repeated hits on one penetrated actor.
@@ -48,11 +50,11 @@
 - [ ] Drive prone and dive weapon animation phases from player mobility through ECS playback.
 - [ ] Restore native dive startup, minimum-speed, exhaustion, and post-move action gates.
 - [ ] Add upgraded weapon attachment rotation.
-- [ ] Feed soul collection from attributed death events.
-- [ ] Add zombie running states.
-- [ ] Add zombie pursuit states.
-- [ ] Cancel attacks after target loss.
-- [ ] Add stuck enemy detection.
+- [x] Feed soul collection from attributed death events.
+- [x] Add zombie running states.
+- [x] Add zombie pursuit states.
+- [x] Cancel attacks after target loss.
+- [x] Add stuck enemy detection.
 - [ ] Add limb damage thresholds.
 - [ ] Add crawling zombie movement.
 - [ ] Convert eligible damaged zombies into crawlers.
@@ -61,11 +63,11 @@
 - [ ] Add zombie burn status.
 - [ ] Add zombie freeze status.
 - [ ] Add zombie electrical stun status.
-- [ ] Add zombie distraction targeting.
-- [ ] Preserve pending budget after failed admission.
-- [ ] Add source-defined zombie replacement rules.
-- [ ] Preserve replacement enemy health.
-- [ ] Add round-dependent zombie speed selection.
+- [x] Add zombie distraction targeting.
+- [x] Preserve pending budget after failed admission.
+- [x] Add source-defined zombie replacement rules.
+- [x] Preserve replacement enemy health.
+- [x] Add round-dependent zombie speed selection.
 - [x] Add shared Ice, Wind, and Lightning part definitions and ownership.
 - [x] Prevent duplicate shared part reveals and collection.
 - [ ] Add collectible part placements.
@@ -129,12 +131,12 @@
 - [ ] Add team Blood Money solo rewards.
 - [ ] Reveal Zombie Blood hidden entities.
 - [ ] Hide restricted entities after Zombie Blood expires.
-- [ ] Add wall weapon purchase placements.
+- [x] Add wall weapon purchase placements.
 - [ ] Connect wall interactions to source-defined power requirements.
-- [ ] Add source-defined wall ammunition prices.
-- [ ] Add wall weapon shared-ammunition handling.
-- [ ] Add wall weapon ammunition purchases.
-- [ ] Add upgraded wall ammunition purchases.
+- [x] Add source-defined wall ammunition prices.
+- [x] Add wall weapon shared-ammunition handling.
+- [x] Add wall weapon ammunition purchases.
+- [x] Add upgraded wall ammunition purchases.
 - [ ] Add Mystery Box initial placement selection.
 - [ ] Reset box placement when starting fresh sessions.
 - [ ] Add Mystery Box weapon roll weights.

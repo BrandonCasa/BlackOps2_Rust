@@ -507,6 +507,12 @@ pub(crate) fn lifecycle(
             })
         };
         let distance = transform.translation.distance(target);
+        if zombie.action == EnemyAnimation::Attack && (ignored || lure.is_some()
+            || distance > goal.map_or(1.65, |g| g.radius) + 0.3
+            || !visible(transform.translation, target))
+        {
+            zombie.transition(EnemyAnimation::Idle);
+        }
         if lure.is_none()
             && !ignored
             && zombie.action != EnemyAnimation::Attack

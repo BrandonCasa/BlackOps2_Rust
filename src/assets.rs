@@ -320,15 +320,9 @@ impl AssetPack {
         } else {
             beside
         };
-        let pack_root = pack_root.canonicalize().map_err(|e| {
+        let pack_root = if pack_root.exists() { pack_root.canonicalize().map_err(|e| {
             format!("Cannot open asset pack {}: {e}\nRestore assets/origins beside origins.exe, or run git lfs pull in the checkout.", pack_root.display())
-        })?;
-        if !pack_root.join("game.json").is_file() {
-            return Err(format!(
-                "Missing {}\nRestore the complete assets/origins directory.",
-                pack_root.join("game.json").display()
-            ));
-        }
+        })? } else { pack_root };
         Ok(Self { pack_root })
     }
 }
@@ -358,7 +352,7 @@ pub struct GameAssetsPlugin;
 impl Plugin for GameAssetsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LoadFailure>()
-            .add_systems(Startup, begin_load)
+            .add_systems(OnEnter(GameState::Loading), begin_load)
             .add_observer(scene_ready)
             .add_systems(Update, finish_load.run_if(in_state(GameState::Loading)));
     }
@@ -371,7 +365,11 @@ fn begin_load(
     server: Res<AssetServer>,
     mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
+    roots: Query<Entity, With<MapRoot>>,
 ) {
+    for root in &roots { commands.entity(root).despawn(); }
+    commands.remove_resource::<Loading>();
+    failure.0.clear();
     let definition = (|| {
         if let Some(error) = &options.error {
             return Err(error.clone());
@@ -390,6 +388,7 @@ fn begin_load(
                 (&definition.collision_scene, true),
             ] {
                 let handle: Handle<WorldAsset> = server.load(path.clone());
+                server.reload(path.clone());
                 commands.spawn((
                     WorldAssetRoot(handle.clone()),
                     MapRoot { collision },
@@ -529,7 +528,9 @@ fn finish_load(
     server: Res<AssetServer>,
     mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
+    options: Res<LaunchOptions>,
 ) {
+    if !failure.0.is_empty() { return; }
     let (Some(mut loading), Some(definition)) = (loading, definition) else {
         return;
     };
@@ -592,7 +593,11 @@ fn finish_load(
                 commands.entity(entity).insert(Visibility::Inherited);
             }
         }
-        next.set(GameState::PreparingShaders);
+        next.set(if options.verify.is_some() || options.validation_remote.is_some() || options.flythrough {
+            GameState::PreparingShaders
+        } else {
+            GameState::MainMenu
+        });
     } else if loading.started.elapsed().as_secs() > 120 {
         failure.0 = "Scene loading timed out or collision coverage is incomplete.".into();
         next.set(GameState::LoadError);
