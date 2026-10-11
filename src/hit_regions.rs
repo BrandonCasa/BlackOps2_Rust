@@ -154,16 +154,17 @@ pub fn penetrating(
     let mut seen = std::collections::HashSet::new();
     let mut crossed = std::collections::HashSet::new();
     let mut distance = 0.;
+    let mut penetrations = 0;
     let mut energy = strength.max(0.);
     let initial = energy.max(0.001);
-    for actor in actors.into_iter().take(8) {
+    for actor in actors {
         if !seen.insert(actor.target) { continue; }
         while distance < actor.hit.distance {
             let blocker = world.cast_ray_predicate(origin + *direction * distance, direction,
                 actor.hit.distance - distance, true, &crate::environment::solids([shooter]),
                 &|entity| !targets.contains(entity) && !crossed.contains(&entity));
             let Some(blocker) = blocker else { break; };
-            if energy <= 0. || crossed.len() >= 4 { return result; }
+            if energy <= 0. || penetrations >= 5 { return result; }
             let Ok((shape, pose, surface)) = surfaces.get(blocker.entity) else { return result; };
             let resistance = match surface.map(|s| s.0.as_str()).unwrap_or("") {
                 "glass" => 0.25, "wood" => 0.6, "plaster" | "drywall" => 1.,
@@ -173,14 +174,22 @@ pub fn penetrating(
             let pose = pose.compute_transform();
             let Some((thickness, _)) = shape.cast_ray(pose.translation, pose.rotation,
                 origin + *direction * entry, direction.as_vec3(), range - entry, false) else { return result; };
-            energy -= thickness.max(0.01) * resistance;
+            energy -= thickness.max(0.0254) * resistance;
             if energy <= 0. { return result; }
             crossed.insert(blocker.entity);
+            penetrations += 1;
             distance = entry + thickness + 0.002;
         }
         result.push((actor, if strength <= 0. { 1. } else { (energy / initial).clamp(0., 1.) }));
         if strength <= 0. { break; }
-        energy -= 0.08;
+        if penetrations >= 5 { break; }
+        let Ok((_, _, pose, boxes)) = targets.get(actor.target) else { break; };
+        let thickness = boxes.volumes.iter().filter(|v| !boxes.disabled.contains(&v.region))
+            .filter_map(|volume| volume.shape.cast_ray(pose.translation, pose.rotation,
+                actor.hit.point + *direction * 0.002, direction.as_vec3(), range - actor.hit.distance, false))
+            .map(|(distance, _)| distance).min_by(f32::total_cmp).unwrap_or(0.0254);
+        energy -= initial * thickness.max(0.0254) / 2.54;
+        penetrations += 1;
         if energy <= 0. { break; }
     }
     result

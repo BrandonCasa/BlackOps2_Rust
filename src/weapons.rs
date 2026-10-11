@@ -323,10 +323,10 @@ impl WeaponInventory {
         if let Some(weapon) = self.slots.iter_mut().flatten().find(|w| w.definition == *id) { weapon.attachment = attachment; }
     }
     pub fn attachment_spread(&self) -> f32 {
-        match self.attachment() { "grip" => 0.8, "sf" => 0.85, _ => 1. }
+        1.
     }
     pub fn attachment_range(&self) -> f32 {
-        match self.attachment() { "extbarrel" => 1.2, "silencer" => 0.8, _ => 1. }
+        match self.attachment() { "extbarrel" => 1.16, "silencer" => 0.7, _ => 1. }
     }
     pub fn exchange_staff(&mut self, definition: &WeaponDefinition) -> Result<usize, InventoryError> {
         self.restore_staff_mode();
@@ -566,9 +566,8 @@ impl WeaponInventory {
         self.emit(WeaponSignal::Idle);
     }
     pub fn recoil_impulse(&mut self, definition: &WeaponDefinition, seed: u64) {
-        let scale = if self.attachment() == "grip" { 0.75 } else { 1. };
-        let yaw = definition.mechanics.recoil_yaw.map(|v| v * scale);
-        let pitch = definition.mechanics.recoil_pitch.map(|v| v * scale);
+        let yaw = definition.mechanics.recoil_yaw;
+        let pitch = definition.mechanics.recoil_pitch;
         self.recoil += Vec2::new(
             yaw[0] + (yaw[1] - yaw[0]) * sample(seed),
             pitch[0] + (pitch[1] - pitch[0]) * sample(seed.wrapping_add(1)),
@@ -782,7 +781,7 @@ impl WeaponInventory {
         if let Some(elapsed) = &mut self.shot_elapsed {
             *elapsed = (*elapsed + dt).min(60.);
         }
-        let reload_dt = dt / self.reload_duration_scale * if self.attachment() == "dualclip" { 1.25 } else { 1. };
+        let reload_dt = dt / self.reload_duration_scale * if self.attachment() == "dualclip" { 1. / 0.675 } else { 1. };
         if self.action == WeaponAction::Ready {
             intent.pressed |= self.pending.pressed;
             intent.melee |= self.pending.melee;
@@ -811,7 +810,8 @@ impl WeaponInventory {
         let aiming =
             intent.ads && definition.mechanics.ads_enabled && self.action == WeaponAction::Ready;
         let target = if aiming { 1. } else { 0. };
-        let step = dt / definition.mechanics.ads_seconds[if aiming { 0 } else { 1 }];
+        let attachment_scale = if aiming && self.attachment() == "is" { 0.85 } else { 1. };
+        let step = dt / (definition.mechanics.ads_seconds[if aiming { 0 } else { 1 }] * attachment_scale);
         if self.ads == 0. {
             self.ads_leaving = false;
         } else if self.ads == 1. {
@@ -822,7 +822,8 @@ impl WeaponInventory {
         } else {
             (self.ads - step).max(target)
         };
-        let recovery = definition.mechanics.recoil_recovery.to_radians() * dt;
+        let center_scale = match self.attachment() { "grip" | "acog" => 1.02, "silencer" => 0.98, _ => 1. };
+        let recovery = definition.mechanics.recoil_recovery.to_radians() * dt * center_scale;
         self.recoil = self
             .recoil
             .map(|value| value.signum() * (value.abs() - recovery).max(0.));
