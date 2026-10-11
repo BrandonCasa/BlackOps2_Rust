@@ -282,64 +282,96 @@ fn sample_shadow_map(
 ///
 /// A good overview of the technique:
 /// <https://medium.com/@varunm100/soft-shadows-for-mobile-ar-9e8da2e6f4ba>
+fn sample_directional_receiver_plane(
+    light_local: vec2<f32>,
+    depth: f32,
+    array_index: i32,
+    receiver_gradient: vec2<f32>,
+) -> f32 {
+    let dimensions = vec2<f32>(textureDimensions(view_bindings::directional_shadow_textures));
+    let uv = clamp(light_local, 0.5 / dimensions, 1.0 - 0.5 / dimensions);
+    let pixel = uv * dimensions - 0.5;
+    let fraction = fract(pixel);
+    let base_offset = (floor(pixel) + 0.5) / dimensions - light_local;
+    let base_depth = depth + dot(receiver_gradient, base_offset);
+    let step = receiver_gradient / dimensions;
+    let receiver = base_depth + vec4(step.y, step.x + step.y, step.x, 0.0);
+    @if(NO_ARRAY_TEXTURES_SUPPORT)
+    let depths = textureGather(view_bindings::directional_shadow_textures,
+        view_bindings::directional_shadow_textures_linear_sampler, uv);
+    @else
+    let depths = textureGather(view_bindings::directional_shadow_textures,
+        view_bindings::directional_shadow_textures_linear_sampler, uv, array_index);
+    let weights = vec4((1.0 - fraction.x) * fraction.y, fraction.x * fraction.y,
+        fraction.x * (1.0 - fraction.y), (1.0 - fraction.x) * (1.0 - fraction.y));
+    let comparison = select(vec4(0.0), vec4(1.0), receiver >= depths);
+    return dot(select(vec4(1.0), comparison, depths > vec4(0.0)), weights);
+}
+
 fn sample_directional_shadow_map_pcss(
     light_local: vec2<f32>,
     depth: f32,
     array_index: i32,
     frag_coord_xy: vec2<f32>,
     texel_size: f32,
-    light_size: f32,
+    angular_radius: f32,
     receiver_gradient: vec2<f32>,
+    depth_world_scale: f32,
+    search_distance: f32,
 ) -> f32 {
     let dimensions = vec2<f32>(textureDimensions(view_bindings::directional_shadow_textures));
-    let footprint_bias = dot(abs(receiver_gradient), 0.5 / dimensions);
-    let search_scale = light_size / (texel_size * dimensions);
+    let angular_scale = tan(clamp(angular_radius, 0.0, 0.1));
+    let search_scale = search_distance * angular_scale / (texel_size * dimensions);
+    let local_search_scale = min(search_scale, 4.0 / dimensions);
+    @if(SHADOW_FILTER_METHOD_TEMPORAL)
+    let rotation = random_rotation_matrix(frag_coord_xy, true);
+    @else
+    let rotation = random_rotation_matrix(frag_coord_xy, false);
     var blockers = vec2(0.0);
 
-    for (var i = 0u; i < 8u; i++) {
+    for (var i = 0u; i < 17u; i++) {
         var offset = vec2(0.0);
         if i > 0u {
-            offset = D3D_SAMPLE_POINT_POSITIONS[i - 1u] * search_scale;
+            let index = f32((i - 1u) / 2u);
+            let angle = index * 2.39996323;
+            let disk = sqrt((index + 0.5) / 8.0) * vec2(cos(angle), sin(angle));
+            offset = rotation * disk * select(search_scale, local_search_scale, i % 2u == 1u);
         }
         let pixel = vec2<i32>(floor((light_local + offset) * dimensions));
         if any(pixel < vec2<i32>(0)) || any(pixel >= vec2<i32>(dimensions)) {
             continue;
         }
         let sampled_offset = (vec2<f32>(pixel) + 0.5) / dimensions - light_local;
-        let receiver = depth + dot(receiver_gradient, sampled_offset) + footprint_bias;
+        let receiver = depth + dot(receiver_gradient, sampled_offset);
+        if receiver <= 0.0 || receiver >= 1.0 {
+            continue;
+        }
         @if(NO_ARRAY_TEXTURES_SUPPORT)
         let sampled_depth = textureLoad(view_bindings::directional_shadow_textures, pixel, 0);
         @else
         let sampled_depth = textureLoad(view_bindings::directional_shadow_textures, pixel, array_index, 0);
         let separation = sampled_depth - receiver;
-        if separation > 0.0 {
+        if sampled_depth > 0.0 && separation > 0.0001 / depth_world_scale {
             blockers += vec2(separation, 1.0);
         }
     }
 
     if blockers.y == 0.0 {
-        return sample_shadow_map_hardware(light_local, depth + footprint_bias, array_index);
+        return sample_directional_receiver_plane(light_local, depth, array_index, receiver_gradient);
     }
 
-    let blur_size = max((blockers.x / blockers.y) * light_size / max(depth, 0.000001), 0.5);
-    let scale = calculate_uv_offset_scale_jimenez_fourteen(texel_size, blur_size);
-    @if(SHADOW_FILTER_METHOD_TEMPORAL)
-    let rotation = random_rotation_matrix(frag_coord_xy, true);
-    @else
-    let rotation = random_rotation_matrix(frag_coord_xy, false);
-    let offsets = array(
-        utils::SPIRAL_OFFSET_0_, utils::SPIRAL_OFFSET_1_,
-        utils::SPIRAL_OFFSET_2_, utils::SPIRAL_OFFSET_3_,
-        utils::SPIRAL_OFFSET_4_, utils::SPIRAL_OFFSET_5_,
-        utils::SPIRAL_OFFSET_6_, utils::SPIRAL_OFFSET_7_,
-    );
+    let blocker_distance = min(blockers.x * depth_world_scale / blockers.y, search_distance);
+    let radius = max(blocker_distance * angular_scale, 1.25 * texel_size);
+    let scale = radius / (texel_size * dimensions);
     var sum = 0.0;
-    for (var i = 0u; i < 8u; i++) {
-        let offset = rotation * offsets[i] * scale;
-        sum += sample_shadow_map_hardware(light_local + offset,
-            depth + dot(receiver_gradient, offset) + footprint_bias, array_index);
+    for (var i = 0u; i < 16u; i++) {
+        let angle = f32(i) * 2.39996323;
+        let disk = sqrt((f32(i) + 0.5) / 16.0) * vec2(cos(angle), sin(angle));
+        let offset = rotation * disk * scale;
+        sum += sample_directional_receiver_plane(light_local + offset,
+            depth + dot(receiver_gradient, offset), array_index, receiver_gradient);
     }
-    return sum * 0.125;
+    return sum * 0.0625;
 }
 
 fn sample_shadow_map_pcss(

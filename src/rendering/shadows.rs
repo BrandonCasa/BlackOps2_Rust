@@ -2,6 +2,26 @@ use super::{GameCamera, LanternLight, profile::VisualProfile};
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
+pub(super) fn extend_sun_cascades(
+    profile: Res<VisualProfile>,
+    mut lights: Query<&mut bevy::light::Cascades, With<super::atmosphere::Sun>>,
+) {
+    for mut light in &mut lights {
+        for cascades in light.cascades.values_mut() {
+            for cascade in cascades {
+                let depth_range = cascade.clip_from_cascade.z_axis.z.recip();
+                let scale = depth_range / (depth_range + profile.sun_shadow_distance);
+                cascade.clip_from_cascade.z_axis.z *= scale;
+                cascade.clip_from_cascade.w_axis.z *= scale;
+                cascade.clip_from_world.x_axis.z *= scale;
+                cascade.clip_from_world.y_axis.z *= scale;
+                cascade.clip_from_world.z_axis.z *= scale;
+                cascade.clip_from_world.w_axis.z *= scale;
+            }
+        }
+    }
+}
+
 pub(super) fn restrict_contact_shadows(
     mut commands: Commands,
     cameras: Query<

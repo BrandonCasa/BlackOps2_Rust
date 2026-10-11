@@ -109,6 +109,12 @@ impl Plugin for GameRenderingPlugin {
             .add_systems(PostUpdate, shadows::restrict_contact_shadows)
             .add_systems(
                 PostUpdate,
+                shadows::extend_sun_cascades
+                    .after(bevy::light::SimulationLightSystems::UpdateDirectionalLightCascades)
+                    .before(bevy::light::SimulationLightSystems::UpdateLightFrusta),
+            )
+            .add_systems(
+                PostUpdate,
                 viewport::fit.before(bevy::camera::CameraUpdateSystems),
             )
             .add_systems(
@@ -188,7 +194,7 @@ pub(crate) fn setup(
                 affects_lightmapped_mesh_diffuse: true,
                 contact_shadows_enabled: true,
                 shadow_maps_enabled: true,
-                soft_shadow_size: Some(profile.sun_soft_shadow_size),
+                soft_shadow_size: Some(profile.sun_angular_radius_degrees.to_radians()),
                 shadow_depth_bias: 0.002,
                 shadow_normal_bias: 0.25,
                 ..default()

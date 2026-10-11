@@ -29,6 +29,13 @@ def diagnostic(client, output, target):
     raise TimeoutError(f'Material diagnostic did not reach {target}')
 
 
+def shadows(client, schema):
+    names = ('DirectionalLight', 'CascadeShadowConfig', 'Cascades')
+    components = [next(path for path, value in schema.items() if value.get('shortPath') == name)
+                  for name in names]
+    return client.call('world.query', {'data': {'components': components}, 'strict': True})
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--bundle', type=Path, required=True)
@@ -67,7 +74,7 @@ def main():
               'script_sha256': digest(Path(__file__)), 'runtime_assets_sha256': digest(asset_manifest),
               'asset_changes_since_build': changes,
               'assets_before': {'mode': 'paths and size; SHA256 when mtime differs', 'files': len(paths)},
-              'views': [],
+              'views': [], 'cascade_sweep': [],
               'limitations': ['Camera placement and weather are scenario setup.',
                               'Captures require visual review; development frame samples are not release benchmarks.']}
     game = json.loads((pack / 'game.json').read_bytes())
@@ -92,6 +99,9 @@ def main():
             report['discovery'] = client.call('rpc.discover')
             report['game_schema'] = client.call('origins/schema')
             report['schema'] = client.call('registry.schema', {'with_crates': ['bevy_light']})
+            map_type = next(path for path, value in report['schema'].items()
+                            if value.get('shortPath') == 'DirectionalLightShadowMap')
+            report['shadow_map'] = client.call('world.get_resources', {'resource': map_type})
             for index, point in enumerate(points):
                 client.reset(timeout=90)
                 client.call('origins/setup', {'clear_enemies': True, 'pending': 1, 'pause_spawning_seconds': 300})
@@ -104,10 +114,49 @@ def main():
                 wait_materials(client, first=False, timeout=180)
                 client.wait_ticks(120, timeout=120)
                 case = {'index': index, 'view': view, 'sun': observed['sun'],
+                        'shadows': shadows(client, report['schema']),
                         'normal': capture(client, output / f'normal-{index}.png')}
                 report['views'].append(case)
                 case['diagnostic_mode'] = diagnostic(client, output, 10)
                 case['sun_shadow'] = capture(client, output / f'sun-shadow-{index}.png')
+                if index == 2:
+                    light = case['shadows'][0]
+                    config_type = next(path for path in light['components'] if path.endswith('::CascadeShadowConfig'))
+                    original = light['components'][config_type]
+                    client.call('world.insert_components', {'entity': light['entity'], 'components': {
+                        config_type: {'bounds': [8, math.sqrt(8 * 60), 60],
+                                      'minimum_distance': .1, 'overlap_proportion': .2}}})
+                    client.call('world.insert_resources', {'resource': map_type, 'value': {'size': 2048}})
+                    client.wait_ticks(90, timeout=120)
+                    case['control_shadows'] = shadows(client, report['schema'])
+                    case['control_shadow_map'] = client.call('world.get_resources', {'resource': map_type})
+                    case['original_cascades'] = capture(client, output / 'original-cascades.png')
+                    client.call('world.insert_components', {'entity': light['entity'],
+                                                           'components': {config_type: original}})
+                    client.call('world.insert_resources', {'resource': map_type,
+                                                          'value': report['shadow_map']['value']})
+                    direction = [target[axis] - eye[axis] for axis in range(3)]
+                    length = math.sqrt(sum(value * value for value in direction))
+                    direction = [value / length for value in direction]
+                    for step, distance in enumerate((.25, .5, 1, 2, 4, 7, 11)):
+                        pose = [view[axis] - distance * direction[axis % 3] for axis in range(6)]
+                        client.call('origins/rendering', {'view': pose})
+                        wait_materials(client, first=False, timeout=180)
+                        client.wait_ticks(90, timeout=120)
+                        report['cascade_sweep'].append({'distance': distance, 'view': pose,
+                            'shadows': shadows(client, report['schema']),
+                            'capture': capture(client, output / f'cascade-{step}.png')})
+                    client.call('origins/rendering', {'view': view})
+                    client.wait_ticks(90, timeout=120)
+                    report['moving_camera'] = []
+                    for frame in range(48):
+                        pose = [view[axis] - .05 * frame * direction[axis % 3] for axis in range(6)]
+                        client.call('origins/rendering', {'view': pose})
+                        client.wait_ticks(2, timeout=60)
+                        if frame % 8 == 7:
+                            report['moving_camera'].append({'view': pose,
+                                'capture': capture(client, output / f'moving-camera-{frame}.png')})
+                    client.call('origins/rendering', {'view': view})
                 diagnostic(client, output, 0)
                 print(f'Captured PCSS view {index}', flush=True)
             client.call('origins/rendering', {'restore_player_view': True})

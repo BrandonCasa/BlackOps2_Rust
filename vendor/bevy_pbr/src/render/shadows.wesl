@@ -180,6 +180,7 @@ fn sample_directional_cascade(
     cascade_index: u32,
     frag_position: vec4<f32>,
     surface_normal: vec3<f32>,
+    receiver_normal: vec3<f32>,
     frag_coord_xy: vec2<f32>,
 ) -> f32 {
     let light = &view_bindings::lights.directional_lights[light_id];
@@ -204,9 +205,9 @@ fn sample_directional_cascade(
         let x = vec3(clip[0].x, clip[1].x, clip[2].x);
         let y = vec3(clip[0].y, clip[1].y, clip[2].y);
         let z = vec3(clip[0].z, clip[1].z, clip[2].z);
-        let normal = normalize(surface_normal);
+        let normal = normalize(receiver_normal);
         let cosine = dot(normal, normalize(z));
-        let denominator = select(-1.0, 1.0, cosine >= 0.0) * max(abs(cosine), 0.05);
+        let denominator = select(-1.0, 1.0, cosine >= 0.0) * max(abs(cosine), 0.001);
         let receiver_gradient = vec2(-dot(normal, normalize(x)) / length(x),
             dot(normal, normalize(y)) / length(y)) * (2.0 * length(z) / denominator);
         return sample_directional_shadow_map_pcss(
@@ -217,6 +218,8 @@ fn sample_directional_cascade(
             texel_size,
             (*light).soft_shadow_size,
             receiver_gradient,
+            1.0 / length(z),
+            (*light).cascades[(*light).num_cascades - 1u].far_bound,
         );
     }
 
@@ -236,6 +239,8 @@ fn fetch_directional_shadow(
     view_z: f32,
     frag_coord_xy: vec2<f32>,
 ) -> f32 {
+    let plane = cross(dpdx(frag_position.xyz), dpdy(frag_position.xyz));
+    let receiver_normal = select(surface_normal, plane, dot(plane, plane) > 0.00000000000000000001);
     let light = &view_bindings::lights.directional_lights[light_id];
     let cascade_index = get_cascade_index(light_id, view_z);
 
@@ -248,6 +253,7 @@ fn fetch_directional_shadow(
         cascade_index,
         frag_position,
         surface_normal,
+        receiver_normal,
         frag_coord_xy,
     );
 
@@ -262,6 +268,7 @@ fn fetch_directional_shadow(
                 next_cascade_index,
                 frag_position,
                 surface_normal,
+                receiver_normal,
                 frag_coord_xy,
             );
             shadow = mix(shadow, next_shadow, (-view_z - next_near_bound) / (this_far_bound - next_near_bound));

@@ -21,7 +21,7 @@ pub(crate) struct VisualProfile {
     pub antialiasing: Antialiasing,
     pub bloom_intensity: f32,
     pub sun_shadow_map_size: usize,
-    pub sun_soft_shadow_size: f32,
+    pub sun_angular_radius_degrees: f32,
     pub sun_shadow_distance: f32,
     pub sun_shadow_cascades: usize,
     pub sun_shadow_first_cascade: f32,
