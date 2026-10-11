@@ -61,6 +61,31 @@ void ContentPrinter::PrintContent() const {
         if (i) out << ',';
         vector(world->worldFogVolumePlanes[i].plane.v, 4);
     }
+    out << "],\"exposure_volumes\":[";
+    for (unsigned i = 0; i < world->exposureVolumeCount; ++i) {
+        const auto& volume = world->exposureVolumes[i];
+        if (i) out << ',';
+        out << "{\"control\":" << volume.control << ",\"exposure\":" << volume.exposure;
+        out << ",\"increase\":" << volume.luminanceIncreaseScale << ",\"decrease\":" << volume.luminanceDecreaseScale;
+        out << ",\"feather_range\":" << volume.featherRange << ",\"feather_adjust\":" << volume.featherAdjust << '}';
+    }
+    out << "],\"exposure_planes\":[";
+    for (unsigned i = 0; i < world->exposureVolumePlaneCount; ++i) {
+        if (i) out << ',';
+        vector(world->exposureVolumePlanes[i].plane.v, 4);
+    }
+    out << "],\"lut_volumes\":[";
+    for (unsigned i = 0; i < world->lutVolumeCount; ++i) {
+        const auto& volume = world->lutVolumes[i];
+        if (i) out << ',';
+        out << "{\"control\":" << volume.control << ",\"transition\":" << volume.lutTransitionTime;
+        out << ",\"index\":" << volume.lutIndex << '}';
+    }
+    out << "],\"lut_planes\":[";
+    for (unsigned i = 0; i < world->lutVolumePlaneCount; ++i) {
+        if (i) out << ',';
+        vector(world->lutVolumePlanes[i].plane.v, 4);
+    }
     out << "]}";
     if (!out.good()) throw std::runtime_error("atmosphere export failed");
 }

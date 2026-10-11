@@ -1,6 +1,6 @@
 {
   "source_sha256": {
-    "atmosphere-world.json": "db04af97f7b8e979afbac8c35ab32217a869336b3a2329090350dae8ef55d307",
+    "atmosphere-world.json": "71ed681dfa08b45faa85f66ccc96b1b079713dd9e5669377b9ee6eea63802f60",
     "zm_tomb.vision": "fdf6f1c4e7e01bb1d1243ed018568d8749b1b44e197b7ca933affb9fd1007b81",
     "zm_tomb_rain.vision": "a053721ec14149b79f440c8bf47bccdcec6892be4a336ac7398b74e1e6d35773",
     "zm_tomb_snow.vision": "a053721ec14149b79f440c8bf47bccdcec6892be4a336ac7398b74e1e6d35773",
@@ -2530,5 +2530,7 @@
         0.0
       ]
     }
-  }
+  },
+  "exposure_volume_count": 0,
+  "lut_volume_count": 0
 }

@@ -1,7 +1,7 @@
 use crate::{
     GameState,
     animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
-    assets::{GameDefinition, LaunchOptions},
+    assets::GameDefinition,
     gameplay::SessionEntity,
     hud::PlayerOverlay,
     origins::content::{WeaponAnimation, WeaponId},
@@ -11,11 +11,10 @@ use crate::{
 };
 use bevy::{
     camera::{
-        CameraOutputMode, Exposure, Hdr,
+        CameraOutputMode, Hdr,
         visibility::{NoFrustumCulling, RenderLayers},
     },
     core_pipeline::tonemapping::Tonemapping,
-    post_process::auto_exposure::{AutoExposure, AutoExposureCompensationCurve},
     prelude::*,
     render::{render_resource::BlendState, view::ColorGrading},
     world_serialization::WorldInstanceReady,
@@ -147,22 +146,10 @@ impl Plugin for PresentationPlugin {
 }
 pub(crate) fn first_person_light(
     mut commands: Commands,
-    options: Res<LaunchOptions>,
     mut cameras: Query<(Entity, &mut Camera), With<GameCamera>>,
     profile: Res<crate::rendering::profile::VisualProfile>,
-    mut curves: ResMut<Assets<AutoExposureCompensationCurve>>,
+    source: Res<crate::rendering::atmosphere::SourceAtmosphere>,
 ) {
-    let middle_gray = 0.18_f32.log2();
-    let brighten = (profile.outdoor_ev100 - profile.indoor_ev100).clamp(0., 5.);
-    let compensation = curves.add(
-        AutoExposureCompensationCurve::from_curve(bevy::curve::cubic_splines::LinearSpline::new([
-            Vec2::new(-8., -8. + brighten),
-            Vec2::new(middle_gray - brighten, middle_gray),
-            Vec2::new(middle_gray + 1., middle_gray),
-            Vec2::new(8., 7.),
-        ]))
-        .expect("Monotonic exposure compensation curve"),
-    );
     for (camera, mut world_camera) in &mut cameras {
         world_camera.output_mode = CameraOutputMode::Skip;
         commands.entity(camera).with_children(|parent| {
@@ -186,9 +173,7 @@ pub(crate) fn first_person_light(
                 }),
                 Transform::default(),
                 Hdr,
-                Exposure {
-                    ev100: profile.outdoor_ev100,
-                },
+                source.camera_exposure(&profile),
                 Tonemapping::TonyMcMapface,
                 ColorGrading::default(),
                 crate::rendering::postprocess::bloom(&profile),
@@ -211,14 +196,6 @@ pub(crate) fn first_person_light(
                     _ => bevy::light::ShadowFilteringMethod::Gaussian,
                 },
             ));
-            if !options.verify_viewmodel_shadows {
-                final_camera.insert(AutoExposure {
-                    speed_brighten: profile.adaptation_speed,
-                    speed_darken: profile.adaptation_speed,
-                    compensation_curve: compensation.clone(),
-                    ..default()
-                });
-            }
             if matches!(
                 profile.antialiasing,
                 crate::rendering::profile::Antialiasing::Taa

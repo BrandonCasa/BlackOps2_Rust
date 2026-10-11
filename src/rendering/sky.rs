@@ -23,11 +23,7 @@ pub(super) fn setup(
         Vec3::new(sin, 0., -cos),
         Vec3::Y,
     ));
-    let brightness = 1.0
-        / bevy::camera::Exposure {
-            ev100: profile.outdoor_ev100,
-        }
-        .exposure();
+    let brightness = 1.0 / source.camera_exposure(&profile).exposure();
     commands.entity(camera).insert((
         Skybox {
             image: Some(image.clone()),

@@ -4,7 +4,7 @@ use crate::{
     player::Player,
 };
 use bevy::{
-    camera::{Exposure, Hdr, primitives::Aabb},
+    camera::{Hdr, primitives::Aabb},
     core_pipeline::{prepass::DepthPrepass, tonemapping::Tonemapping},
     gltf::GltfMaterialName,
     prelude::*,
@@ -86,7 +86,6 @@ impl Plugin for GameRenderingPlugin {
         app.add_plugins(MaterialPlugin::<opaque::OpaqueMaterial>::default())
             .add_plugins(first_person::FirstPersonRenderPlugin)
             .add_plugins(lod::PropLodPlugin)
-            .add_plugins(bevy::post_process::auto_exposure::AutoExposurePlugin)
             .add_plugins(MaterialPlugin::<pbr::DiagnosticMaterial>::default())
             .add_plugins(preprocessing::PreprocessingPlugin)
             .add_plugins(residency::ResidencyPlugin)
@@ -225,9 +224,7 @@ pub(crate) fn setup(
         DepthPrepass,
         Transform::from_xyz(0., 2., 0.),
         Hdr,
-        Exposure {
-            ev100: profile.outdoor_ev100,
-        },
+        source.camera_exposure(&profile),
         Tonemapping::None,
         bevy::core_pipeline::tonemapping::DebandDither::Disabled,
         match profile.antialiasing {

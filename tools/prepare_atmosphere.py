@@ -61,6 +61,8 @@ def save_lookup(parts, output):
 
 def prepare(world, vision_root, source, output, config):
     native = json.loads(world.read_text())
+    if native["exposure_volumes"] or native["lut_volumes"]:
+        raise ValueError("Origins grading expects global exposure and LUT selection")
     visions = {}
     provenance = {"atmosphere-world.json": hashlib.sha256(world.read_bytes()).hexdigest()}
     for suffix in ("", "_rain", "_snow"):
@@ -93,6 +95,8 @@ def prepare(world, vision_root, source, output, config):
         "sun_color": native["sun"]["diffuse"][:3], "snow_sun_color": [0.769943, 0.894102, 1],
         "sun_brightness": native["sun"]["diffuse"][3],
         "exposure": native["sun"]["exposure"],
+        "exposure_volume_count": len(native["exposure_volumes"]),
+        "lut_volume_count": len(native["lut_volumes"]),
         "fog_transition_seconds": 0.001 / native["fog_transition"] if native["fog_transition"] else 0,
         "fog": fog(native["fog"]), "volumes": volumes,
         "softclip": 0.25, "vision": visions,

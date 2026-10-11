@@ -7,14 +7,10 @@
   "ambient_brightness": 30.0,
   "environment_intensity": 0.02,
   "sun_illuminance": 18000.0,
-  "indoor_ev100": 9.0,
-  "outdoor_ev100": 11.5,
-  "adaptation_speed": 1.4,
   "transparent_opacity_scale": 0.6,
   "reveal_softness": 3.2,
   "comparison_fov_degrees": 55.0,
   "antialiasing": "Taa",
-  "bloom_intensity": 0.14,
   "lantern_color": [
     1.0,
     0.71,
@@ -50,5 +46,6 @@
   "local_shadow_admission_distance": 14.0,
   "local_shadow_retention_distance": 18.0,
   "local_light_distance": 28.0,
-  "local_light_fade_seconds": 0.3
+  "local_light_fade_seconds": 0.3,
+  "bloom_intensity": 0.14
 }

@@ -24,6 +24,15 @@ pub(crate) struct SourceAtmosphere {
     pub(super) vision: BTreeMap<String, BTreeMap<String, [f32; 4]>>,
 }
 
+impl SourceAtmosphere {
+    pub(crate) fn camera_exposure(&self, profile: &VisualProfile) -> bevy::camera::Exposure {
+        let radiance_scale = profile.sun_illuminance / (self.sun_brightness * std::f32::consts::PI);
+        bevy::camera::Exposure {
+            ev100: self.exposure + (radiance_scale / 1.2).log2(),
+        }
+    }
+}
+
 impl Default for SourceAtmosphere {
     fn default() -> Self {
         serde_json::from_str(include_str!("../../config/origins-atmosphere.json"))
@@ -147,6 +156,7 @@ impl Plugin for AtmospherePlugin {
         )
         .add_systems(Update, update.after(super::camera_follow))
         .add_systems(Update, super::grading::prepare.after(update))
+        .add_systems(Update, super::grading::prepare_shader)
         .add_systems(OnEnter(crate::GameState::PreparingShaders), reset);
     }
 }
@@ -323,6 +333,7 @@ pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
         "script_id": state.script_id, "fog": state.fog, "vision_blend": state.vision_blend,
         "fog_transition_seconds": state.duration, "fog_elapsed": state.elapsed,
         "lut_ready": world.resource::<super::grading::SourceGrade>().ready(),
+        "grading": super::grading::snapshot(world),
         "fog_volume_count": world.resource::<SourceAtmosphere>().volumes.len(),
         "fog_exposure": world.resource::<SourceAtmosphere>().exposure,
     });
@@ -343,15 +354,18 @@ pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
                 Has<GameCamera>,
                 Has<crate::presentation::ViewModelCamera>,
                 Option<&DistanceFog>,
+                Has<bevy::post_process::auto_exposure::AutoExposure>,
+                Option<&bevy::post_process::bloom::Bloom>,
             )>()
             .iter(world)
-            .map(|(pose, tone, exposure, sky, world, viewmodel, fog)| {
+            .map(|(pose, tone, exposure, sky, world, viewmodel, fog, automatic, bloom)| {
                 serde_json::json!({
                     "world": world, "viewmodel": viewmodel, "fog": fog.is_some(),
+                    "auto_exposure": automatic, "bloom": bloom.map(|b| b.intensity),
                     "fog_color": fog.map(|fog| fog.color.to_linear().to_f32_array()),
                     "sun_fog_color": fog.map(|fog| fog.directional_light_color.to_linear().to_f32_array()),
                     "position": pose.translation.to_array(), "tonemapping": format!("{tone:?}"),
-                    "ev100": exposure.ev100,
+                    "ev100": exposure.ev100, "exposure_multiplier": exposure.exposure(),
                     "sky": sky.map(|sky| serde_json::json!({
                         "brightness": sky.brightness, "rotation": sky.rotation.to_array(),
                         "loaded": sky.image.is_some(),

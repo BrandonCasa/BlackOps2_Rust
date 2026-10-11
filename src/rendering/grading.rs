@@ -5,21 +5,25 @@ use bevy::{
     image::ImageSampler,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    shader::{Shader, ShaderImport},
 };
 
-const SIZE: u32 = 48;
-const TRANSITION_STEPS: usize = 32;
+use std::sync::Arc;
+
+const SIZE: u32 = 32;
 
 #[derive(Resource)]
 pub(super) struct SourceGrade {
     image: Handle<Image>,
-    variants: Vec<Handle<Image>>,
-    selected: Option<usize>,
+    pixels: Option<Arc<[u8]>>,
+    lut: Option<Handle<Image>>,
+    selected: Option<f32>,
+    shader_ready: bool,
 }
 
 impl SourceGrade {
     pub(super) fn ready(&self) -> bool {
-        !self.variants.is_empty()
+        self.lut.is_some() && self.shader_ready
     }
 }
 
@@ -31,9 +35,48 @@ pub(super) fn setup(mut commands: Commands, server: Res<AssetServer>) {
                 settings.is_srgb = false
             })
             .load("sky/zm_tomb_grade.ktx2"),
-        variants: Vec::new(),
+        pixels: None,
+        lut: None,
         selected: None,
+        shader_ready: false,
     });
+}
+
+pub(super) fn prepare_shader(
+    mut shaders: ResMut<Assets<Shader>>,
+    mut grade: ResMut<SourceGrade>,
+    source: Res<SourceAtmosphere>,
+) {
+    if grade.shader_ready {
+        return;
+    }
+    let Some((id, native)) = shaders.iter().find(|(_, shader)| {
+        shader.import_path == ShaderImport::Custom("bevy_core_pipeline::tonemapping".into())
+    }) else {
+        return;
+    };
+    let original = native.source.as_str();
+    let start = original
+        .find("fn sample_tony_mc_mapface_lut(")
+        .expect("Pinned tonemapping entry");
+    let end = start
+        + original[start..]
+            .find("\n}")
+            .expect("Pinned tonemapping function")
+        + 2;
+    let replacement = include_str!("grading.wesl").replace(
+        "$SOFTCLIP",
+        &format!("{:.9}", source.softclip.max(1. / 1024.)),
+    );
+    let source = format!("{}{}{}", &original[..start], replacement, &original[end..]);
+    let mut patched = Shader::from_wesl(source, native.path.clone());
+    patched.import_path = native.import_path.clone();
+    patched.file_dependencies = native.file_dependencies.clone();
+    patched.shader_defs = native.shader_defs.clone();
+    shaders
+        .insert(id, patched)
+        .expect("Native tonemapping shader handle");
+    grade.shader_ready = true;
 }
 
 pub(super) fn prepare(
@@ -46,7 +89,11 @@ pub(super) fn prepare(
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
-    if grade.variants.is_empty() {
+    let blend = state.vision_blend;
+    if grade.selected == Some(blend) {
+        return;
+    }
+    if grade.pixels.is_none() {
         if matches!(server.load_state(grade.image.id()), LoadState::Failed(_)) {
             failure.0 = "Original Origins color lookup failed to load".into();
             next.set(crate::GameState::LoadError);
@@ -64,95 +111,161 @@ pub(super) fn prepare(
             next.set(crate::GameState::LoadError);
             return;
         }
-        let pixels = original
-            .data
-            .as_ref()
-            .expect("CPU-readable original color lookup")
-            .clone();
-        let mut template = Image::new_fill(
-            Extent3d {
-                width: SIZE,
-                height: SIZE,
-                depth_or_array_layers: SIZE,
-            },
-            TextureDimension::D3,
-            &[0; 8],
-            TextureFormat::Rgba16Float,
-            RenderAssetUsages::default(),
+        grade.pixels = Some(
+            original
+                .data
+                .as_ref()
+                .expect("CPU-readable original color lookup")
+                .clone()
+                .into(),
         );
-        template.sampler = ImageSampler::linear();
-        for step in 0..=TRANSITION_STEPS {
-            let blend = step as f32 / TRANSITION_STEPS as f32;
-            let mut lut = template.clone();
-            lut.texture_descriptor.label = Some("Origins source color response");
-            for z in 0..SIZE {
-                for y in 0..SIZE {
-                    for x in 0..SIZE {
-                        let domain = Vec3::new(x as f32, y as f32, z as f32) / (SIZE - 1) as f32;
-                        let stimulus = domain / (Vec3::ONE - domain).max(Vec3::splat(0.000001));
-                        let result = response(stimulus, &pixels, &source, blend);
-                        lut.set_color_at_3d(x, y, z, Color::srgb(result.x, result.y, result.z))
-                            .expect("Native display LUT accepts linear color texels");
-                    }
-                }
+    }
+    let pixels = grade
+        .pixels
+        .as_ref()
+        .expect("Retained original color lookup")
+        .clone();
+    let mut lut = Image::new_fill(
+        Extent3d {
+            width: SIZE,
+            height: SIZE,
+            depth_or_array_layers: SIZE,
+        },
+        TextureDimension::D3,
+        &[0; 8],
+        TextureFormat::Rgba16Float,
+        RenderAssetUsages::default(),
+    );
+    lut.texture_descriptor.label = Some("Origins source color response");
+    lut.sampler = ImageSampler::linear();
+    let film = Film::new(&source, blend);
+    for z in 0..SIZE {
+        for y in 0..SIZE {
+            for x in 0..SIZE {
+                let offset = ((y * 1024 + z * 32 + x) * 4) as usize;
+                let base = Vec3::new(
+                    pixels[offset] as f32,
+                    pixels[offset + 1] as f32,
+                    pixels[offset + 2] as f32,
+                ) / 255.;
+                let result = film.apply(base);
+                lut.set_color_at_3d(x, y, z, Color::linear_rgb(result.x, result.y, result.z))
+                    .expect("Native display LUT texel");
             }
-            grade.variants.push(images.add(lut));
         }
     }
-    let selected = (state.vision_blend * TRANSITION_STEPS as f32).round() as usize;
-    if grade.selected != Some(selected) {
-        luts.tony_mc_mapface = grade.variants[selected].clone();
-        grade.selected = Some(selected);
+    if let Some(handle) = &grade.lut {
+        images
+            .insert(handle.id(), lut)
+            .expect("Origins color LUT handle");
+    } else {
+        let handle = images.add(lut);
+        luts.tony_mc_mapface = handle.clone();
+        grade.lut = Some(handle);
+    }
+    grade.selected = Some(blend);
+}
+
+struct Film {
+    range_start: Vec4,
+    range_end: Vec4,
+    matrices: [[Vec4; 3]; 3],
+    gamma: Vec3,
+    saturation: Vec4,
+    amount: Vec3,
+}
+
+impl Film {
+    fn new(source: &SourceAtmosphere, blend: f32) -> Self {
+        let value = |key: &str| {
+            Vec4::from_array(source.vision["clear"][key])
+                .lerp(Vec4::from_array(source.vision["_rain"][key]), blend)
+        };
+        let mut start = value("vc_RS");
+        let mut end = value("vc_RE");
+        let epsilon = 1. / 4096.;
+        if start.x >= end.x {
+            end.x = start.x + epsilon;
+        }
+        if start.y >= end.y {
+            start.y = end.y - epsilon;
+        }
+        if start.z >= end.z {
+            start.z = end.z - epsilon;
+        }
+        if end.z >= start.w {
+            start.w = end.z + epsilon;
+        }
+        if start.w >= end.w {
+            end.w = start.w + epsilon;
+        }
+        let mut saturation = value("vc_FSM");
+        let sum = saturation.x + saturation.y + saturation.z;
+        saturation.x /= sum;
+        saturation.y /= sum;
+        saturation.z /= sum;
+        Self {
+            range_start: start,
+            range_end: end,
+            matrices: [
+                [value("vc_SMR"), value("vc_MMR"), value("vc_HMR")],
+                [value("vc_SMG"), value("vc_MMG"), value("vc_HMG")],
+                [value("vc_SMB"), value("vc_MMB"), value("vc_HMB")],
+            ],
+            gamma: value("vc_FGM").truncate(),
+            saturation,
+            amount: value("vc_FBM").truncate(),
+        }
+    }
+
+    fn apply(&self, base: Vec3) -> Vec3 {
+        let y = base.dot(Vec3::new(0.212585, 0.715195, 0.072220));
+        let a = self.range_start;
+        let b = self.range_end;
+        let ramp = |v: f32| v.clamp(0., 1.);
+        let mut weights = Vec3::new(
+            ramp((y - b.x) / (a.x - b.x)),
+            ramp((y - a.z) / (b.z - a.z)) * ramp((y - b.w) / (a.w - b.w)),
+            ramp((y - a.y) / (b.y - a.y)),
+        );
+        weights = weights * weights * (Vec3::splat(3.) - 2. * weights);
+        weights /= weights.element_sum();
+        let linear = base * base;
+        let rgba = linear.extend(1.);
+        let mapped = Vec3::from_array(std::array::from_fn(|channel| {
+            let rows = self.matrices[channel];
+            Vec3::new(rows[0].dot(rgba), rows[1].dot(rgba), rows[2].dot(rgba))
+                .dot(weights)
+                .clamp(0., 1.)
+        }));
+        let gamma = Vec3::new(
+            mapped.x.powf(self.gamma.x),
+            mapped.y.powf(self.gamma.y),
+            mapped.z.powf(self.gamma.z),
+        );
+        let luma = Vec3::splat(gamma.dot(self.saturation.truncate()));
+        let saturated = luma + (gamma - luma) * self.saturation.w;
+        (linear + self.amount * (saturated - linear))
+            .clamp(Vec3::ZERO, Vec3::ONE)
+            .map(f32::sqrt)
     }
 }
 
-fn response(stimulus: Vec3, pixels: &[u8], source: &SourceAtmosphere, blend: f32) -> Vec3 {
-    let softclip = source.softclip.max(0.0009765625);
-    let pivot = 1. - softclip;
-    let clipped = stimulus.map(|value| {
-        if value <= pivot {
-            value.max(0.)
-        } else {
-            1. - softclip * ((pivot - value) / softclip).exp()
-        }
-    });
-    let encoded = clipped.map(f32::sqrt);
-    let base = sample(pixels, encoded);
-    let linear = base * base;
-    let clear = &source.vision["clear"];
-    let rain = &source.vision["_rain"];
-    let saturation =
-        Vec4::from_array(clear["vc_FSM"]).lerp(Vec4::from_array(rain["vc_FSM"]), blend);
-    let amount = Vec4::from_array(clear["vc_FGM"])
-        .lerp(Vec4::from_array(rain["vc_FGM"]), blend)
-        .truncate();
-    let luma = linear.dot(saturation.truncate());
-    let saturated = Vec3::splat(luma) + (linear - Vec3::splat(luma)) * saturation.w;
-    (linear + amount * (saturated - linear))
-        .clamp(Vec3::ZERO, Vec3::ONE)
-        .map(f32::sqrt)
-}
-
-fn sample(pixels: &[u8], rgb: Vec3) -> Vec3 {
-    let coordinate = rgb.clamp(Vec3::ZERO, Vec3::ONE) * 31.;
-    let low = coordinate.floor().as_uvec3();
-    let high = (low + UVec3::ONE).min(UVec3::splat(31));
-    let fraction = coordinate - low.as_vec3();
-    let texel = |x: u32, y: u32, z: u32| {
-        let offset = ((y * 1024 + z * 32 + x) * 4) as usize;
-        Vec3::new(
-            pixels[offset] as f32,
-            pixels[offset + 1] as f32,
-            pixels[offset + 2] as f32,
-        ) / 255.
-    };
-    let plane = |z| {
-        texel(low.x, low.y, z)
-            .lerp(texel(high.x, low.y, z), fraction.x)
-            .lerp(
-                texel(low.x, high.y, z).lerp(texel(high.x, high.y, z), fraction.x),
-                fraction.y,
-            )
-    };
-    plane(low.z).lerp(plane(high.z), fraction.z)
+#[cfg(feature = "dev-dynamic")]
+pub(super) fn snapshot(world: &World) -> serde_json::Value {
+    let grade = world.resource::<SourceGrade>();
+    let source = world.resource::<SourceAtmosphere>();
+    let film = Film::new(source, grade.selected.unwrap_or(0.));
+    let samples = [
+        Vec3::ZERO,
+        Vec3::splat(0.18),
+        Vec3::splat(0.5),
+        Vec3::ONE,
+        Vec3::new(0.8, 0.4, 0.2),
+        Vec3::new(0.2, 0.4, 0.8),
+    ];
+    serde_json::json!({"ready": grade.ready(), "size": SIZE, "vision_blend": grade.selected,
+    "softclip": source.softclip, "samples": samples.map(|base| serde_json::json!({
+        "base": base.to_array(), "film": film.apply(base).to_array()
+    }))})
 }
