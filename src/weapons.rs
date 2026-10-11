@@ -284,6 +284,24 @@ impl WeaponInventory {
     pub fn active(&self) -> Option<&OwnedWeapon> {
         self.slots[self.active].as_ref()
     }
+    pub fn deposit_active(&mut self) -> Result<OwnedWeapon, InventoryError> {
+        if self.action != WeaponAction::Ready {
+            return Err(InventoryError::Busy);
+        }
+        let weapon = self.slots[self.active].take().ok_or(InventoryError::InvalidSlot)?;
+        self.active = self.slots[..self.capacity].iter().position(Option::is_some).unwrap_or(0);
+        self.cancel_action();
+        Ok(weapon)
+    }
+    pub fn fill_received(&mut self, definition: &WeaponDefinition) {
+        for weapon in self.slots.iter_mut().flatten().filter(|w| w.definition == definition.id) {
+            weapon.magazine = definition.magazine;
+            weapon.left_magazine = definition.dual_weapon.as_ref().map(|_| definition.magazine);
+        }
+        let pool = self.ammunition.entry(Self::group(definition)).or_default();
+        pool.capacity = definition.reserve;
+        pool.rounds = definition.reserve;
+    }
     pub fn active_slot(&self) -> usize {
         self.active
     }
@@ -456,6 +474,9 @@ impl WeaponInventory {
             WeaponAction::Ready | WeaponAction::Reloading { .. } | WeaponAction::ShellReload { .. }
         ) {
             return Err(InventoryError::Busy);
+        }
+        for slot in &mut self.slots {
+            if slot.as_ref().is_some_and(|weapon| weapon.definition.0 == "weapon.zombie_fists_zm") { *slot = None; }
         }
         let slot = match self.grant(definition) {
             Ok(slot) => slot,

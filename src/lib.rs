@@ -53,6 +53,7 @@ pub mod rounds;
 mod run_environment;
 mod session;
 pub mod solo_revive;
+pub mod stations;
 #[cfg(feature = "prepare-textures")]
 pub mod texture_preparation;
 pub mod verification;
@@ -169,6 +170,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             session::SessionPlugin,
             frontend::FrontendPlugin,
             quests::QuestPlugin,
+            stations::StationPlugin,
             life::LifeStatePlugin,
             solo_revive::SoloRevivePlugin,
             perks::PerkPlugin,

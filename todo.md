@@ -32,8 +32,8 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Clear platform support when players jump.
 - [x] Add unopened-zone player access restrictions.
 - [ ] Replace static duplicates of dynamic gameplay objects.
-- [ ] Add purchase refund handling.
-- [ ] Add source-defined purchase discounts.
+- [x] Add purchase refund handling.
+- [x] Add source-defined purchase discounts.
 - [x] Add buildable equipment input.
 - [x] Add staff secondary mode input.
 - [x] Add tactical equipment replacement.
@@ -137,31 +137,31 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add wall weapon shared-ammunition handling.
 - [x] Add wall weapon ammunition purchases.
 - [x] Add upgraded wall ammunition purchases.
-- [ ] Add Mystery Box initial placement selection.
-- [ ] Reset box placement when starting fresh sessions.
-- [ ] Add Mystery Box weapon roll weights.
-- [ ] Exclude unavailable weapons from box rolls.
-- [ ] Exclude source-defined limited weapons from box rolls.
-- [ ] Add Mystery Box purchase interaction.
-- [ ] Add Mystery Box take interaction.
-- [ ] Replace the selected inventory weapon after taking box rewards.
-- [ ] Add Mystery Box reward expiration.
-- [ ] Add Mystery Box teddy bear outcome.
-- [ ] Add Mystery Box relocation refunds.
-- [ ] Add Mystery Box relocation destination selection.
-- [ ] Add Fire Sale temporary box activation.
-- [ ] Add Fire Sale box pricing.
-- [ ] Restore normal box state after Fire Sale.
-- [ ] Bind weapon upgrade names to localized strings.
-- [ ] Require all six generators for Pack-a-Punch availability.
-- [ ] Disable Pack-a-Punch after generator shutdown.
-- [ ] Add Pack-a-Punch processing state.
-- [ ] Add Pack-a-Punch purchase interaction.
-- [ ] Remove deposited weapons from active inventory.
-- [ ] Add Pack-a-Punch upgraded ammunition grants.
-- [ ] Add Pack-a-Punch weapon collection.
-- [ ] Add Pack-a-Punch return timeout.
-- [ ] Add Pack-a-Punch weapon replacement recovery.
+- [x] Add Mystery Box initial placement selection.
+- [x] Reset box placement when starting fresh sessions.
+- [x] Add Mystery Box weapon roll weights.
+- [x] Exclude unavailable weapons from box rolls.
+- [x] Exclude source-defined limited weapons from box rolls.
+- [x] Add Mystery Box purchase interaction.
+- [x] Add Mystery Box take interaction.
+- [x] Replace the selected inventory weapon after taking box rewards.
+- [x] Add Mystery Box reward expiration.
+- [x] Add Mystery Box teddy bear outcome.
+- [x] Add Mystery Box relocation refunds.
+- [x] Add Mystery Box relocation destination selection.
+- [x] Add Fire Sale temporary box activation.
+- [x] Add Fire Sale box pricing.
+- [x] Restore normal box state after Fire Sale.
+- [x] Bind weapon upgrade names to localized strings.
+- [x] Require all six generators for Pack-a-Punch availability.
+- [x] Disable Pack-a-Punch after generator shutdown.
+- [x] Add Pack-a-Punch processing state.
+- [x] Add Pack-a-Punch purchase interaction.
+- [x] Remove deposited weapons from active inventory.
+- [x] Add Pack-a-Punch upgraded ammunition grants.
+- [x] Add Pack-a-Punch weapon collection.
+- [x] Add Pack-a-Punch return timeout.
+- [x] Add Pack-a-Punch weapon replacement recovery.
 - [ ] Add Pack-a-Punch repeated upgrade purchases.
 - [ ] Add Pack-a-Punch source-defined attachment rerolls.
 - [x] Add clear, rain, and snow weather states with source intensity rolls.
@@ -186,7 +186,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add dig powerup rewards.
 - [x] Apply per-round dig powerup limits, rare uniqueness, consecutive-rare suppression, and Fire Sale eligibility.
 - [x] Add Blood Money point rewards and collection announcements.
-- [ ] Connect Fire Sale to Mystery Box purchases and temporary box locations.
+- [x] Connect Fire Sale to Mystery Box purchases and temporary box locations.
 - [x] Add zone-dependent Ice Staff dig eligibility.
 - [x] Add source-defined Ice Staff dig selection.
 - [x] Add Golden Shovel progression counters.
