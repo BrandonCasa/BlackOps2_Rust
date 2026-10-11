@@ -22,7 +22,7 @@
       "minimum": 0.3,
       "maximum": 0.9,
       "metallic": 0,
-      "coating": 0.18,
+      "coating": 0,
       "normal_strength": 0.48
     },
     "wood": {

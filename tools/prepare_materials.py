@@ -111,7 +111,7 @@ def retain_effects(config):
 
 CLASSES = {
     "concrete": [.84, .58, .98, 0, 0, .50], "stone": [.80, .50, .96, 0, 0, .55],
-    "mud": [.63, .30, .90, 0, .18, .48], "wood": [.73, .45, .94, 0, 0, .65],
+    "mud": [.63, .30, .90, 0, 0, .48], "wood": [.73, .45, .94, 0, 0, .65],
     "fabric": [.88, .70, .98, 0, 0, .65], "skin": [.59, .35, .80, 0, 0, .60],
     "glass": [.12, .05, .30, 0, 0, .60], "painted_metal": [.50, .22, .80, 0, .12, .65],
     "rust": [.87, .65, .98, 0, 0, .55], "metal": [.35, .12, .65, 1, 0, .65],
@@ -736,6 +736,88 @@ def retune_response_mips(config):
     print(f"Retuned {changed} response mip chains with different normal resolutions", flush=True)
 
 
+def remove_implicit_coating(config, classes):
+    try:
+        from .ktx2_textures import decoded_levels
+        from .prepare_ktx2 import prepare_levels
+        from .compressed_texture_cache import materialize
+    except ImportError:
+        from ktx2_textures import decoded_levels
+        from prepare_ktx2 import prepare_levels
+        from compressed_texture_cache import materialize
+    pack = Path(config["game"]["asset_pack"]).resolve()
+    work = Path(config["materials"]["work"]).resolve()
+    if pack.is_relative_to(WORKSPACE) or work.is_relative_to(WORKSPACE):
+        raise ValueError("Material repairs and preparation artifacts must stay external")
+    catalog = json.loads((WORKSPACE / "config/origins-materials.json").read_bytes())
+    if any(catalog["classes"][kind]["coating"] != 0 for kind in classes):
+        raise ValueError("Selected classes must declare zero implicit coating")
+    cache, updates, materials, retired, used = {}, {}, set(), set(), set()
+    for path in sorted(pack.rglob("*.gltf")):
+        document = json.loads(path.read_bytes())
+        changed = False
+        for material in document.get("materials", []):
+            surface = material.get("extras", {}).get("surface", {})
+            if surface.get("version") != 2 or surface.get("native_weapon"):
+                continue
+            entry = catalog["materials"].get(material["name"])
+            if entry is None:
+                continue
+            layers = entry.get("layer_classes", [entry["class"]])
+            selected = set()
+            for channel in surface["channels"]:
+                layer = channel["layer"]
+                kind = layers[layer] if layer < len(layers) else entry["class"]
+                authored = entry.get("physical_response", {}).get(str(layer), {})
+                if kind not in classes or "coating" in authored or any("coating" in r for r in authored.get("regions", [])):
+                    continue
+                if channel["role"] != "response":
+                    continue
+                selected.add(layer)
+                key = channel["uri"], channel["sampler"]
+                if key not in cache:
+                    levels = [level.copy() for level in decoded_levels((pack / channel["uri"]).read_bytes())]
+                    if not any(level[..., 3].any() for level in levels):
+                        cache[key] = {k: channel[k] for k in ("uri", "format", "width", "height", "mip_count")}
+                    else:
+                        for level in levels:
+                            level[..., 3] = 0
+                        raw = rgba_dds(levels, False)
+                        name = "pbr-" + hashlib.sha256(raw + b"response" + bytes([channel["sampler"]])).hexdigest()[:32] + ".ktx2"
+                        prepared, receipt = prepare_levels(levels, dict(channel, lossless=True),
+                            Path(config["materials"]["preparation_executable"]), work / "coating-cache")
+                        materialize(prepared, pack / "textures" / name)
+                        info = receipt["output"]
+                        if any(not np.array_equal(a, b) for a, b in zip(levels, decoded_levels(prepared.read_bytes()), strict=True)):
+                            raise ValueError("Coating repair changed a response mip payload")
+                        cache[key] = dict(uri="textures/" + name,
+                            **{k: info[k] for k in ("format", "width", "height", "mip_count")})
+                if channel["uri"] != cache[key]["uri"]:
+                    retired.add(channel["uri"])
+                    channel.update(cache[key])
+                    changed = True
+            removed = [c for c in surface["channels"] if c["role"] == "coating" and c["layer"] in selected]
+            if removed:
+                retired.update(c["uri"] for c in removed)
+                surface["channels"] = [c for c in surface["channels"] if c not in removed]
+                changed = True
+            if selected:
+                materials.add(material["name"])
+        if changed:
+            updates[path] = document
+        used.update(c["uri"] for m in document.get("materials", [])
+                    for c in m.get("extras", {}).get("surface", {}).get("channels", []))
+    for path, document in updates.items():
+        temporary = path.with_suffix(".gltf.tmp")
+        temporary.write_text(json.dumps(document, separators=(",", ":")) + "\n", encoding="utf-8")
+        temporary.replace(path)
+    retired -= used
+    for uri in retired:
+        (pack / uri).unlink()
+    return {"materials": sorted(materials), "scenes": len(updates), "textures": len(cache),
+            "retired": sorted(retired)}
+
+
 def prune_runtime_pack(config):
     try:
         from .import_origins import validate_pack
@@ -768,9 +850,12 @@ if __name__ == "__main__":
     parser.add_argument("--retune-response-mips", action="store_true")
     parser.add_argument("--retune-identities", action="store_true")
     parser.add_argument("--retain-effects", action="store_true")
+    parser.add_argument("--remove-implicit-coating", nargs="+", choices=CLASSES)
     args = parser.parse_args()
     config = tomllib.loads(args.config.read_text())
-    if args.retain_effects:
+    if args.remove_implicit_coating:
+        print(json.dumps(remove_implicit_coating(config, args.remove_implicit_coating)))
+    elif args.retain_effects:
         print(json.dumps(retain_effects(config), indent=2))
     elif args.migrate_assemblies:
         migrate_assemblies(config)
