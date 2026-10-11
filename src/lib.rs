@@ -48,6 +48,7 @@ pub mod panzer;
 pub mod player;
 pub mod player_health;
 pub mod powerups;
+pub mod portals;
 pub mod quests;
 pub mod presentation;
 pub mod projectiles;
@@ -202,6 +203,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
+    app.add_plugins(portals::PortalPlugin);
     if cfg!(debug_assertions)
         && !release_benchmark
         && !flythrough

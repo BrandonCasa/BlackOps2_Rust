@@ -33,7 +33,7 @@ const BOX_WEAPONS: &[&str] = &[
     "raygun_mark2_zm",
 ];
 #[derive(Component, Clone, Copy)]
-enum Station { Box(usize), PackAPunch }
+pub(crate) enum Station { Box(usize), PackAPunch }
 #[derive(Clone)]
 enum BoxPhase {
     Idle,

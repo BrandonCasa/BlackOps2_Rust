@@ -125,6 +125,7 @@ impl AccessDefinition {
 pub struct ZoneAccess {
     pub open: BTreeSet<ContentId>,
     pub reachable: BTreeSet<ZoneId>,
+    pub activated: BTreeSet<ZoneId>,
     pub purchases: u32,
 }
 impl ZoneAccess {
@@ -137,6 +138,7 @@ impl ZoneAccess {
             .iter()
             .filter(|z| z.initially_open)
             .map(|z| z.id.clone())
+            .chain(self.activated.iter().cloned())
             .collect();
         loop {
             let before = self.reachable.len();

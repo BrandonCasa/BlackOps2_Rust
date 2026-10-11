@@ -5,7 +5,7 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct ShieldAggro(pub Entity);
 #[derive(Component)]
-struct DeployedShield;
+pub(crate) struct DeployedShield;
 #[derive(Component)]
 pub struct Drone {
     pub owner: Entity,

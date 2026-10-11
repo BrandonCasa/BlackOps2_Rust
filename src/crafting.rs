@@ -24,7 +24,7 @@ pub struct Crafting {
     latched: bool,
 }
 #[derive(Component)]
-enum CraftTarget { Part(String), Bench(usize, String) }
+pub(crate) enum CraftTarget { Part(String), Bench(usize, String) }
 const SHIELD: &str = "tomb_shield_zm";
 const DRONE: &str = "equip_dieseldrone_zm";
 const STAFFS: &[(&str, &str)] = &[("elemental_staff_fire", "weapon.staff_fire_zm"), ("elemental_staff_air", "weapon.staff_air_zm"), ("elemental_staff_water", "weapon.staff_water_zm"), ("elemental_staff_lightning", "weapon.staff_lightning_zm")];
@@ -45,6 +45,7 @@ fn available(recipe: &str, parts: &Parts) -> bool {
 pub struct CraftingPlugin;
 impl Plugin for CraftingPlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(FixedUpdate, recover_crystals.in_set(GameStep::PlayerLife).run_if(in_state(GameState::Playing)));
         app.init_resource::<Crafting>()
             .add_systems(OnEnter(GameState::PreparingShaders), setup.in_set(crate::session::SessionSetup::World))
             .add_systems(FixedUpdate, interact.in_set(GameStep::Interactions).after(crate::stations::interact)
@@ -73,6 +74,7 @@ pub(crate) fn interact(
     targets: Query<(Entity, &CraftTarget, &Transform), Without<Player>>,
     mut players: Query<(Entity, &Player, &Transform, &Vitality, &mut WeaponInventory, &mut BuildableInventory, &crate::equipment::GrenadeInventory, &crate::equipment::TacticalInventory, &crate::mines::MineInventory, Has<crate::perks::PerkDrinking>), With<Player>>,
     deployment: Res<crate::buildables::BuildableState>,
+    portals: Res<crate::portals::Portals>,
     mut crafting: ResMut<Crafting>, mut parts: ResMut<Parts>, mut focus: ResMut<InteractionFocus>,
 ) {
     if !input.use_held { crafting.latched = false; crafting.progress = 0.; }
@@ -84,6 +86,10 @@ pub(crate) fn interact(
     let forward = Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch) * Vec3::NEG_Z;
     let candidate = targets.iter().filter_map(|(entity, target, pose)| {
         if let CraftTarget::Part(id) = target {
+            if id.ends_with(".gem") {
+                let index = if id.contains("_fire.") { 0 } else if id.contains("_air.") { 1 } else if id.contains("_lightning.") { 2 } else { 3 };
+                if !portals.visited[index] { return None; }
+            }
             if !matches!(parts.pieces.get(id), Some(PartState::Available { .. })) { return None; }
         }
         let delta = pose.translation + Vec3::Y * 0.35 - eye;
@@ -172,4 +178,17 @@ pub fn reveal_part(commands: &mut Commands, parts: &mut Parts, id: &str, positio
     let entity = commands.spawn((CraftTarget::Part(id.into()), SessionEntity, Transform::from_translation(position), Visibility::Inherited)).id();
     parts.reveal(id, entity);
     Some(entity)
+}
+
+fn recover_crystals(mut commands: Commands, players: Query<(Entity, &Vitality), With<Player>>, mut parts: ResMut<Parts>) {
+    for (owner, health) in &players {
+        if health.state() == LifeState::Standing { continue; }
+        for (name, positions) in source::PART_SITES.iter().filter(|(name, _)| name.ends_with("_gem")) {
+            let id = part_id(name);
+            if matches!(parts.pieces.get(&id), Some(PartState::Owned { player }) if *player == owner.to_bits()) {
+                parts.pieces.remove(&id);
+                reveal_part(&mut commands, &mut parts, &id, Vec3::from_array(positions[0]));
+            }
+        }
+    }
 }

@@ -4,9 +4,9 @@ use bevy::prelude::*;
 mod source;
 
 #[derive(Component)]
-struct TankBody;
+pub(crate) struct TankBody;
 #[derive(Component)]
-struct CallBox(usize);
+pub(crate) struct CallBox(usize);
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum TankPhase { #[default] Ready, Departing, Moving, Cooling }
 #[derive(Resource, Default)]

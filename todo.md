@@ -272,20 +272,20 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add master record randomized placements.
 - [x] Add elemental record randomized placements.
 - [x] Add gramophone pickup.
-- [ ] Add excavation gramophone placement.
-- [ ] Open excavation stairs after master record playback.
-- [ ] Add gramophone retrieval interactions.
-- [ ] Add Fire tunnel gramophone placement.
-- [ ] Add Ice tunnel gramophone placement.
-- [ ] Add Wind tunnel gramophone placement.
-- [ ] Add Lightning tunnel gramophone placement.
-- [ ] Add elemental record portal eligibility.
-- [ ] Add portal opening state.
-- [ ] Add elemental destination mapping.
-- [ ] Add Crazy Place arrival positions.
-- [ ] Add portal entry interactions.
-- [ ] Add Crazy Place return portals.
-- [ ] Add portal closing after gramophone retrieval.
+- [x] Add excavation gramophone placement.
+- [x] Open excavation stairs after master record playback.
+- [x] Add gramophone retrieval interactions.
+- [x] Add Fire tunnel gramophone placement.
+- [x] Add Ice tunnel gramophone placement.
+- [x] Add Wind tunnel gramophone placement.
+- [x] Add Lightning tunnel gramophone placement.
+- [x] Add elemental record portal eligibility.
+- [x] Add portal opening state.
+- [x] Add elemental destination mapping.
+- [x] Add Crazy Place arrival positions.
+- [x] Add portal entry interactions.
+- [x] Add Crazy Place return portals.
+- [x] Add portal closing after gramophone retrieval.
 - [ ] Add Crazy Place barrier definitions.
 - [ ] Add Crazy Place barrier movement scheduling.
 - [ ] Add Crazy Place barrier collision updates.
@@ -307,7 +307,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Ice crystal pickup.
 - [x] Add Wind crystal pickup.
 - [x] Add Lightning crystal pickup.
-- [ ] Restore dropped elemental crystals to recoverable pickup locations.
+- [x] Restore dropped elemental crystals to recoverable pickup locations.
 - [ ] Add Fire Staff plane-part spawning.
 - [ ] Add Fire Staff plane damage handling.
 - [x] Add Fire Staff generator-part pickup.

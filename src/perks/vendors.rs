@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 const MACHINES: [[f32; 3]; 6] = [[-6.8072,-7.5184,-94.2848],[23.5712,7.6708,87.1728],[67.564,3.0988,-1.940306],[-59.944,5.842,-4.4704],[19.6088,-3.2512,-64.6176],[75.3872,-9.3472,-136.3472]];
 #[derive(Component)]
-struct Machine(usize);
+pub(crate) struct Machine(usize);
 #[derive(Clone, Debug)]
 pub enum BottlePhase {
     Idle,
@@ -92,7 +92,7 @@ fn tick(mut commands: Commands, time: Res<Time<Fixed>>, mut state: ResMut<Wunder
         BottlePhase::Idle => BottlePhase::Idle,
     };
 }
-fn interact(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, game: Res<GameDefinition>, generators: Res<crate::generators::Generators>, query: SpatialQuery,
+pub(crate) fn interact(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, game: Res<GameDefinition>, generators: Res<crate::generators::Generators>, query: SpatialQuery,
     mut state: ResMut<Wunderfizz>, mut focus: ResMut<InteractionFocus>, mut session: ResMut<Session>, mut ledger: ResMut<PointLedger>,
     machines: Query<(Entity, &Machine, &Transform), Without<Player>>,
     players: Query<(Entity, &Player, &Transform, &Vitality, &PerkInventory, &WeaponInventory, Has<super::PerkDrinking>, &crate::equipment::TacticalInventory, &crate::equipment::GrenadeInventory, &crate::mines::MineInventory), With<Player>>) {

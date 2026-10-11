@@ -1,0 +1,132 @@
+use crate::{access::ZoneAccess, assets::GameDefinition, crafting::Crafting, gameplay::{GameStep, SessionEntity}, input::GameInput, interactions::{InteractionFocus, InteractionRejection}, life::{LifeState, Vitality}, player::Player, weapons::{WeaponAction, WeaponInventory}, GameState};
+use avian3d::prelude::*;
+use bevy::prelude::*;
+mod source;
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum PortalPhase { #[default] Closed, Opening(f32), Open, Closing(f32) }
+#[derive(Resource, Default)]
+pub struct Portals {
+    pub gramophone: Option<usize>,
+    pub entrances: [PortalPhase; 4],
+    pub returns: [f32; 4],
+    pub excavation_open: bool,
+    pub trips: u32,
+    pub visited: [bool; 4],
+    opening_stairs: f32,
+    latched: bool,
+    cooldown: f32,
+    audio: Option<Entity>,
+}
+#[derive(Component)]
+enum Target { Gramophone(usize), Entrance(usize), Return(usize) }
+pub struct PortalPlugin;
+impl Plugin for PortalPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Portals>()
+            .add_systems(OnEnter(GameState::PreparingShaders), setup.in_set(crate::session::SessionSetup::World))
+            .add_systems(FixedUpdate, (tick, interact).chain().in_set(GameStep::Interactions).after(crate::perks::vendors_interaction).run_if(in_state(GameState::Playing)));
+    }
+}
+fn setup(mut commands: Commands, mut portals: ResMut<Portals>) {
+    *portals = default();
+    for (index, position) in source::GRAMOPHONES.iter().enumerate() { commands.spawn((SessionEntity, Target::Gramophone(index), Transform::from_translation(Vec3::from_array(*position)))); }
+    for i in 0..4 {
+        commands.spawn((SessionEntity, Target::Entrance(i), Transform::from_translation(Vec3::from_array(source::ENTRANCES[i]))));
+        commands.spawn((SessionEntity, Target::Return(i), Transform::from_translation(Vec3::from_array(source::EXITS[i]))));
+    }
+}
+fn tick(mut commands: Commands, time: Res<Time<Fixed>>, mut portals: ResMut<Portals>, mut access: ResMut<ZoneAccess>, game: Res<GameDefinition>, brushes: Query<(Entity, &crate::environment::brushes::MapBrush)>) {
+    let dt = time.delta_secs(); portals.cooldown = (portals.cooldown - dt).max(0.);
+    for phase in &mut portals.entrances {
+        *phase = match *phase { PortalPhase::Opening(t) if t <= dt => PortalPhase::Open, PortalPhase::Opening(t) => PortalPhase::Opening(t - dt), PortalPhase::Closing(t) if t <= dt => PortalPhase::Closed, PortalPhase::Closing(t) => PortalPhase::Closing(t - dt), p => p };
+    }
+    for timer in &mut portals.returns { *timer = (*timer - dt).max(0.); }
+    if portals.opening_stairs > 0. {
+        portals.opening_stairs -= dt;
+        if portals.opening_stairs <= 0. {
+            portals.excavation_open = true;
+            access.open.extend(game.content.zone_connections.iter().filter(|c| c.id.0.starts_with("connection.activate_zone_crypt.")).map(|c| c.id.clone()));
+            access.refresh(&game.content);
+            for (entity, brush) in &brushes {
+                if game.environment.brush_entities.iter().find(|b| b.id == brush.id).and_then(|b| b.source.get("targetname")).is_some_and(|n| matches!(n.as_str(), "chamber_entrance" | "junk_nml_chamber_clip" | "junk_nml_chamber")) {
+                    commands.entity(entity).insert((ColliderDisabled, Visibility::Hidden));
+                }
+            }
+        }
+    }
+}
+pub fn relocate(commands: &mut Commands, entity: Entity, player: &mut Player, pose: &mut Transform, mobility: &mut crate::movement::Mobility, feet: Vec3) {
+    pose.translation = feet + Vec3::Y * player.height * 0.5;
+    player.velocity = Vec3::ZERO; player.grounded = false;
+    mobility.airborne = false; mobility.fall_speed = 0.; mobility.peak = feet.y; mobility.dive = None;
+    commands.entity(entity).insert(crate::movement::platforms::PlatformSupport::default());
+}
+fn interact(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, game: Res<GameDefinition>, spatial: SpatialQuery,
+    mut portals: ResMut<Portals>, mut crafting: ResMut<Crafting>, mut access: ResMut<ZoneAccess>, mut focus: ResMut<InteractionFocus>,
+    targets: Query<(Entity, &Target, &Transform), Without<Player>>,
+    mut players: Query<(Entity, &mut Player, &mut Transform, &Vitality, &WeaponInventory, &mut crate::movement::Mobility, Has<crate::perks::PerkDrinking>), With<Player>>) {
+    if !input.use_held { portals.latched = false; }
+    let Ok((owner, mut player, mut pose, health, inventory, mut mobility, drinking)) = players.single_mut() else { return; };
+    if health.state() != LifeState::Standing || focus.target.is_some() { return; }
+    let eye = pose.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
+    let forward = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
+    let candidate = targets.iter().filter_map(|(entity, target, t)| {
+        if matches!(target, Target::Entrance(i) if portals.entrances[*i] == PortalPhase::Closed) { return None; }
+        let delta = t.translation - eye; let distance = delta.length(); let direction = Dir3::new(delta).ok()?;
+        (distance < 2.54 && forward.dot(*direction) > 0.7 && spatial.cast_ray(eye, direction, (distance - 0.15).max(0.), true, &crate::environment::solids([owner])).is_none()).then_some((entity, target, distance))
+    }).min_by(|a,b| a.2.total_cmp(&b.2));
+    let Some((entity, target, _)) = candidate else { return; };
+    focus.target = Some(entity); focus.progress = 0.; focus.hold_seconds = 0.;
+    let key = settings.label(crate::input::Action::Interact);
+    let pressed = input.use_held && !portals.latched;
+    if pressed { portals.latched = true; }
+    let busy = drinking || inventory.action != WeaponAction::Ready || mobility.busy();
+    match target {
+        Target::Gramophone(index) => {
+            if portals.gramophone == Some(*index) {
+                focus.prompt = format!("Press {key} to retrieve Gramophone");
+                if *index == 0 && !portals.excavation_open || *index > 0 && matches!(portals.entrances[*index - 1], PortalPhase::Opening(_)) { focus.prompt = "Gramophone playing".into(); return; }
+                if pressed && !busy {
+                    portals.gramophone = None; crafting.gramophone = true;
+                    if *index > 0 { portals.entrances[*index - 1] = PortalPhase::Closing(3.); }
+                    if let Some(sound) = portals.audio.take() { commands.entity(sound).despawn(); }
+                    crate::audio::emit(&mut commands, "zmb_craftable_pickup", crate::audio::SoundSource::attached(owner));
+                    focus.accepted += 1;
+                }
+                return;
+            }
+            let record = ["master", "fire", "air", "elec", "ice"][*index];
+            if !crafting.records.contains(record) || !crafting.gramophone || portals.gramophone.is_some() {
+                focus.prompt = format!("Requires Gramophone and {record} record"); focus.rejection = Some(InteractionRejection::Unavailable); return;
+            }
+            focus.prompt = format!("Press {key} to place Gramophone");
+            if !pressed || busy { return; }
+            crafting.gramophone = false; portals.gramophone = Some(*index);
+            let song = ["mus_gramophone_electric", "mus_gramophone_fire", "mus_gramophone_air", "mus_gramophone_electric", "mus_gramophone_ice"][*index];
+            portals.audio = Some(crate::audio::emit_loop(&mut commands, song, crate::audio::SoundSource::attached(entity)));
+            if *index == 0 {
+                if !portals.excavation_open { portals.opening_stairs = 16.; crate::audio::emit(&mut commands, "zmb_crypt_stairs", crate::audio::SoundSource::attached(entity)); }
+            } else {
+                portals.entrances[*index - 1] = PortalPhase::Opening(3.);
+                access.activated.extend(game.content.zones.iter().filter(|z| z.id.0.starts_with("zone.chamber_")).map(|z| z.id.clone())); access.refresh(&game.content);
+            }
+            focus.accepted += 1;
+        }
+        Target::Entrance(index) => {
+            focus.prompt = format!("Press {key} to enter the Crazy Place");
+            if pressed && !busy && portals.cooldown <= 0. && portals.entrances[*index] == PortalPhase::Open {
+                relocate(&mut commands, owner, &mut player, &mut pose, &mut mobility, Vec3::from_array(source::ARRIVALS[*index]));
+                portals.visited[*index] = true; portals.trips += 1; portals.cooldown = 2.; focus.accepted += 1;
+                crate::audio::emit(&mut commands, "zmb_teleporter_loop_post", crate::audio::SoundSource::attached(owner));
+            }
+        }
+        Target::Return(index) => {
+            focus.prompt = format!("Press {key} to return from the Crazy Place");
+            if !pressed || busy || portals.cooldown > 0. { return; }
+            if portals.returns[*index] <= 0. { portals.returns[*index] = 23.; focus.prompt = "Return portal opening".into(); focus.accepted += 1; return; }
+            if portals.returns[*index] > 20. { focus.prompt = "Return portal opening".into(); return; }
+            relocate(&mut commands, owner, &mut player, &mut pose, &mut mobility, Vec3::from_array(source::RETURNS[*index]));
+            portals.trips += 1; portals.cooldown = 2.; focus.accepted += 1;
+        }
+    }
+}
