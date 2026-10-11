@@ -49,6 +49,14 @@ pub struct Weather {
     audio: Option<Entity>,
 }
 impl Weather {
+    pub(crate) fn sun_color_blend(&self) -> f32 {
+        self.color_blend
+    }
+
+    pub(crate) fn sun_brightness(&self, normal: f32) -> f32 {
+        normal + (self.flash_peak * 30. - normal) * (self.flash / self.flash_peak).clamp(0., 1.)
+    }
+
     fn random(&mut self) -> u32 {
         self.client_seed = self
             .client_seed
@@ -444,8 +452,6 @@ fn particles(
     time: Res<Time>,
     weather: Res<Weather>,
     mut drops: Query<(Entity, &mut Precipitation, &mut Transform)>,
-    mut sun: Query<&mut DirectionalLight>,
-    mut base: Local<Option<(f32, LinearRgba)>>,
 ) {
     for (e, mut drop, mut pose) in &mut drops {
         drop.remaining -= time.delta_secs();
@@ -454,15 +460,5 @@ fn particles(
         } else {
             pose.translation += drop.velocity * time.delta_secs();
         }
-    }
-    for mut light in &mut sun {
-        let (normal, color) = *base.get_or_insert((light.illuminance, light.color.to_linear()));
-        light.illuminance = normal * (1. + weather.flash * 3.);
-        light.color = Color::linear_rgba(
-            color.red * (1. + weather.color_blend * (0.769943 / 0.380056 - 1.)),
-            color.green * (1. + weather.color_blend * (0.894102 / 0.775788 - 1.)),
-            color.blue,
-            color.alpha,
-        );
     }
 }

@@ -128,7 +128,7 @@ def prepare(config, reuse_geometry=False, defer_qualification=False):
                 material["extras"]["surface"]["provenance"]["source_zone"] = original.get("zone", key)
                 for c in material["extras"]["surface"]["channels"]:
                     cooker.pending[Path(c["uri"]).name] = c["format"]
-                    cooker.entries[c["uri"]] = {k: c[k] for k in ("uri", "role", "color_space", "format", "width", "height", "mip_count")}
+                    cooker.entries[c["uri"]] = {k: c[k] for k in ("uri", "role", "color_space", "format", "width", "height", "mip_count", "sampler")}
                 return
             cooker.material(material, doc, original_path, native.get(name))
             material_cache[cache_key] = copy.deepcopy(material)
@@ -312,12 +312,12 @@ def retune_unbound(config):
                 colors = [b for b in original.get("textures", []) if b["semantic"] == 2]
                 if len(colors) == 3 and all(b["image"] in available for b in colors):
                     paths = [available[b["image"]] for b in colors]
-                    tile_key = tuple(digest(p) for p in paths)
+                    tile_key = (*[digest(p) for p in paths], colors[2]["sampler"])
                     control_sources.add(tile_key[2])
                     if tile_key not in tiles:
                         pixels = [cooker.pixels(p) for p in paths]
                         if all(p is not None for p in pixels):
-                            control = cooker.texture(color_levels(pixels[2], False), "control")
+                            control = cooker.texture(color_levels(pixels[2], False), "control", sampler=colors[2]["sampler"])
                             tiles[tile_key] = control
                     if tile_key in tiles:
                         control = tiles[tile_key]
@@ -343,7 +343,7 @@ def retune_unbound(config):
                     continue
                 for level in levels:
                     level[..., 3] = 255
-                c.update(cooker.texture(levels, "color", True))
+                c.update(cooker.texture(levels, "color", True, sampler=c["sampler"]))
                 edited = True
             surface["provenance"]["resolution_key"] = zone + "/" + identity
             edited = True

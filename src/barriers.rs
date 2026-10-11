@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
     assets::GameDefinition,
     gameplay::{GameStep, Session, SessionEntity},
     origins::{ContentId, PlacementId},
@@ -184,8 +185,6 @@ pub struct BoardVisual {
 }
 #[derive(Component)]
 struct WoodAudio;
-#[derive(Component)]
-struct BoardPlayback;
 pub struct BarrierPlugin;
 impl Plugin for BarrierPlugin {
     fn build(&self, app: &mut App) {
@@ -411,10 +410,11 @@ fn animate(
     mut barriers: ResMut<Barriers>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
+    mut cache: ResMut<AnimationGraphs>,
     mut boards: Query<(Entity, &mut BoardVisual, &mut Visibility)>,
     children: Query<&Children>,
     names: Query<&Name>,
-    mut players: Query<(&mut AnimationPlayer, Has<BoardPlayback>)>,
+    players: Query<(), With<AnimationPlayer>>,
 ) {
     let Some(definition) = definition else {
         return;
@@ -442,14 +442,17 @@ fn animate(
             Visibility::Inherited
         };
         if visual.graph.is_none() {
-            let Some(g) = gltfs.get(&visual.source) else {
+            let Some(bindings) = cache.scene(&visual.source, &gltfs, &mut graphs) else {
                 continue;
             };
-            if g.animations.len() != 2 {
+            if bindings.ordered.len() != 2 {
                 continue;
             }
-            let (graph, nodes) = AnimationGraph::from_clips(g.animations.clone());
-            visual.graph = Some((graphs.add(graph), nodes[0], nodes[1]));
+            visual.graph = Some((
+                bindings.graph.clone(),
+                bindings.ordered[0],
+                bindings.ordered[1],
+            ));
             barriers.animated_boards += 1;
         }
         let Some((graph, repair, pull)) = &visual.graph else {
@@ -469,22 +472,13 @@ fn animate(
                     .anchors
                     .insert((visual.id.clone(), visual.index), child);
             }
-            let Ok((mut player, attached)) = players.get_mut(child) else {
+            if !players.contains(child) {
                 continue;
-            };
-            if !attached {
-                commands
-                    .entity(child)
-                    .insert((AnimationGraphHandle(graph.clone()), BoardPlayback));
             }
-            if player.animation(node).is_none() {
-                player.stop_all();
-                player.play(node);
-            }
-            if let Some(active) = player.animation_mut(node) {
-                active.seek_to(elapsed);
-            }
-            player.pause_all();
+            commands.entity(child).insert(AnimationPlayback::new(
+                graph.clone(),
+                vec![AnimationLayer::new(node, Some(elapsed), false)],
+            ));
         }
     }
 }

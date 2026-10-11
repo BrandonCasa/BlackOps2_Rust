@@ -3,6 +3,7 @@ import re
 import numpy as np
 from PIL import Image
 
+LEGACY_DIELECTRIC_F0 = (56 / 255) ** 2
 
 BINDINGS = {
     2695565377: ("color", 0), 3054311504: ("color", 1),
@@ -12,10 +13,12 @@ BINDINGS = {
     2486480605: ("normal", 2), 2485960688: ("normal", 0),
     887934131: ("specular_gloss", 0), 3532022562: ("specular_gloss", 1),
     3532022561: ("specular_gloss", 2), 2351529600: ("specular_gloss", 0),
+    3714339118: ("color", 0), 3714374925: ("color", 1), 3714406764: ("color", 2),
 }
 CHANNELS = {"color": "rgb:base_color,a:coverage", "normal": "rg:unit_normal_xy",
             "response": "r:occlusion,g:perceptual_roughness,b:metallic,a:coating",
             "coating": "r:coating", "control": "rg:core_coating_weights",
+            "reflectance": "rgb:dielectric_reflectance,a:unused",
             "emissive": "rgb:emissive,a:unused"}
 
 
@@ -34,7 +37,7 @@ def resolve_bindings(original, surface, identity):
         raise ValueError(f"{identity}: native definition unavailable; recover its material definition first")
     family = original["family"].lstrip(",")
     if not (re.search(r"(?:^|_)lit_sm_", family) or any(t in family for t in
-            ("char_cloth_", "phong_emissive_alcatraz_", "cod7water_", "tile_blend"))):
+            ("char_cloth_", "char_skin_", "phong_emissive_alcatraz_", "cod7water_", "tile_blend", "unlit_"))):
         raise ValueError(f"{identity}: unsupported shader family {family}; add a reviewed binding recipe")
     result = {}
     for binding in original.get("textures", []):
@@ -70,8 +73,50 @@ def meanings(family, surface, layer, has_specular):
     return dict(color_alpha="gloss" if alpha_gloss else "coverage" if layer == 0 and
                 surface.get("presentation", {}).get("alpha") != "opaque" else "reveal" if layer else "unused",
                 specular_rgb="authored_legacy_reflectance", specular_alpha="gloss",
-                normal_rg="native_signed_slopes_directx_y", color_space="srgb_rgb_linear_alpha",
+                normal_rg="native_signed_slopes_directx_y", color_space="native_gamma2_to_srgb_rgb_linear_alpha",
                 data_space="linear", uv=uv_selection(surface, layer, "color"))
+
+
+def legacy_color(pixels):
+    result = pixels.copy()
+    linear = (pixels[..., :3].astype(np.float32) / 255) ** 2
+    result[..., :3] = np.rint(np.where(linear <= .0031308, linear * 12.92,
+        1.055 * linear ** (1 / 2.4) - .055) * 255).astype(np.uint8)
+    return result
+
+
+def specular_response(color, specular, allow_metal, authored=None):
+    h, w = color.shape[:2]
+    encoded = np.asarray(Image.fromarray(specular).resize((w, h), Image.Resampling.BILINEAR), np.float32) / 255
+    f0 = encoded[..., :3] ** 2
+    rgb = color[..., :3].astype(np.float32) / 255
+    diffuse = np.where(rgb <= .04045, rgb / 12.92, ((rgb + .055) / 1.055) ** 2.4)
+    remaining = 1 - f0.max(axis=2)
+    metallic = np.zeros((h, w), np.float32)
+    if allow_metal:
+        brightness = np.sqrt(np.sum(f0 ** 2 * [.299, .587, .114], axis=2))
+        b = np.sqrt(np.sum(diffuse ** 2 * [.299, .587, .114], axis=2)) * remaining / (1-LEGACY_DIELECTRIC_F0) + brightness - 2*LEGACY_DIELECTRIC_F0
+        c = LEGACY_DIELECTRIC_F0 - brightness
+        metallic = np.where(brightness <= LEGACY_DIELECTRIC_F0, 0, np.clip((-b + np.sqrt(np.maximum(b*b-4*LEGACY_DIELECTRIC_F0*c, 0))) / (2*LEGACY_DIELECTRIC_F0), 0, 1))
+    authored = authored or {}
+    if "metallic" in authored:
+        metallic.fill(authored["metallic"])
+    for region in authored.get("regions", []):
+        if "metallic" in region:
+            u0, v0, u1, v1 = region["uv_rect"]
+            metallic[round(v0*h):round(v1*h), round(u0*w):round(u1*w)] = region["metallic"]
+    dielectric = np.where((metallic > 1e-6)[..., None], LEGACY_DIELECTRIC_F0, np.minimum(f0, .16))
+    if allow_metal or np.any(metallic):
+        from_diffuse = diffuse * (remaining / np.maximum(1-dielectric.max(axis=2), 1e-6) / np.maximum(1-metallic, 1e-6))[..., None]
+        from_specular = (f0 - dielectric * (1-metallic)[..., None]) / np.maximum(metallic, 1e-6)[..., None]
+        weight = metallic[..., None] ** 2
+        linear = np.clip(from_diffuse * (1-weight) + from_specular * weight, 0, 1)
+        color = color.copy()
+        color[..., :3] = np.rint(np.where(linear <= .0031308, linear * 12.92,
+            1.055 * linear ** (1/2.4) - .055) * 255).astype(np.uint8)
+    reflectance = np.full((h, w, 4), 255, np.uint8)
+    reflectance[..., :3] = np.rint(np.sqrt(dielectric / .16) * 255).astype(np.uint8)
+    return color, metallic, reflectance
 
 
 def physical_response(color, gloss, normal, recipe, authored=None):
@@ -84,10 +129,11 @@ def physical_response(color, gloss, normal, recipe, authored=None):
     if gloss is not None:
         g = np.asarray(Image.fromarray(gloss[..., 3]).resize((w, h), Image.Resampling.BILINEAR), np.float32)/255
         fitted = (2/(np.exp2(13*g)+2))**.25
-        weight = profile.get("gloss_weight", .75)
+        weight = profile.get("gloss_weight", 1.)
         if not 0 <= weight <= 1:
             raise ValueError("Gloss fit weight must be in [0,1]")
-        rough = np.clip((1-weight)*rough+weight*fitted, profile["minimum"], profile["maximum"])
+        rough = np.clip((1-weight)*rough+weight*fitted,
+                        (authored or {}).get("minimum", .089), (authored or {}).get("maximum", 1.))
     fields = np.dstack((np.ones((h, w)), rough,
                         np.full((h, w), profile["metallic"]), np.full((h, w), profile["coating"])))
     for region in (authored or {}).get("regions", []):

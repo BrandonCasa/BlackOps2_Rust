@@ -105,6 +105,12 @@ impl NativeWeaponParameters {
             .as_str()
             .is_some_and(|s| s.contains("viewmodel_unlit")) as u32)
             << 13;
+        flags |= ((native["family"]
+            .as_str()
+            .is_some_and(|s| s.contains("n0x0"))
+            && !channel("specular_gloss")
+            && !channel("specular")) as u32)
+            << 14;
         let layer = |i: usize, suffix: &str, j, default| {
             value(&[&format!("Layer{}{suffix}", i + 1)], j, default)
         };
@@ -251,29 +257,27 @@ impl NativeWeaponParameters {
     }
 }
 
+#[derive(Component)]
+pub(super) struct StaffMaterial {
+    pub owner: Option<Entity>,
+}
+
 pub(super) fn charge(
-    entities: Query<(Entity, &MeshMaterial3d<super::opaque::OpaqueMaterial>)>,
-    parents: Query<&ChildOf>,
-    rigs: Query<&crate::presentation::Rig>,
+    entities: Query<(
+        &StaffMaterial,
+        &MeshMaterial3d<super::opaque::OpaqueMaterial>,
+    )>,
     inventories: Query<&crate::weapons::WeaponInventory>,
     mut materials: ResMut<Assets<super::opaque::OpaqueMaterial>>,
 ) {
-    for (entity, handle) in &entities {
+    for (staff, handle) in &entities {
         let Some(material) = materials.get(&handle.0) else {
             continue;
         };
-        if material.extension.parameters.native.kind.x != 7 {
-            continue;
-        }
-        let mut current = Some(entity);
-        let mut level = 0;
-        while let Some(ancestor) = current {
-            if let Ok(rig) = rigs.get(ancestor) {
-                level = inventories.get(rig.owner).map_or(0, |i| i.charge_level);
-                break;
-            }
-            current = parents.get(ancestor).ok().map(ChildOf::parent);
-        }
+        let level = staff
+            .owner
+            .and_then(|owner| inventories.get(owner).ok())
+            .map_or(0, |i| i.charge_level);
         if material.extension.parameters.native.staff_emission.z != level as f32 {
             materials
                 .get_mut(&handle.0)

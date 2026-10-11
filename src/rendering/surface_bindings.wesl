@@ -60,9 +60,15 @@ struct NativeWeaponParameters {
     third_normal_sampler: u32,
     third_specular: u32,
     third_specular_sampler: u32,
+    reflectance_map: u32,
+    reflectance_sampler: u32,
+    second_reflectance: u32,
+    second_reflectance_sampler: u32,
+    third_reflectance: u32,
+    third_reflectance_sampler: u32,
 }
-@if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(124) var<storage> surface_indices: array<SurfaceIndices>;
-@if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(125) var<storage> surface_parameters: array<OriginsSurfaceData>;
+@if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(130) var<storage> surface_indices: array<SurfaceIndices>;
+@if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(131) var<storage> surface_parameters: array<OriginsSurfaceData>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> surface_uniform: OriginsSurfaceData;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(101) var normal_map: texture_2d<f32>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(102) var normal_sampler: sampler;
@@ -86,6 +92,12 @@ struct NativeWeaponParameters {
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(120) var third_normal_sampler: sampler;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(121) var third_specular: texture_2d<f32>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(122) var third_specular_sampler: sampler;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(123) var reflectance_map: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(124) var reflectance_sampler: sampler;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(125) var second_reflectance: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(126) var second_reflectance_sampler: sampler;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(127) var third_reflectance: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(128) var third_reflectance_sampler: sampler;
 fn parameters_for(slot: u32) -> OriginsSurfaceData {
     @if(BINDLESS) return surface_parameters[surface_indices[slot].parameters];
     @if(!BINDLESS) return surface_uniform;
@@ -137,6 +149,18 @@ fn sample_third_specular(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec
 fn animation_time(slot: u32) -> f32 {
     return globals.real_time;
 }
+fn sample_reflectance_map(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec3<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].reflectance_map], bindless_samplers_filtering[surface_indices[slot].reflectance_sampler], uv, gradient[0], gradient[1]).rgb;
+    @if(!BINDLESS) return textureSampleGrad(reflectance_map, reflectance_sampler, uv, gradient[0], gradient[1]).rgb;
+}
+fn sample_second_reflectance(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec3<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].second_reflectance], bindless_samplers_filtering[surface_indices[slot].second_reflectance_sampler], uv, gradient[0], gradient[1]).rgb;
+    @if(!BINDLESS) return textureSampleGrad(second_reflectance, second_reflectance_sampler, uv, gradient[0], gradient[1]).rgb;
+}
+fn sample_third_reflectance(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec3<f32> {
+    @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].third_reflectance], bindless_samplers_filtering[surface_indices[slot].third_reflectance_sampler], uv, gradient[0], gradient[1]).rgb;
+    @if(!BINDLESS) return textureSampleGrad(third_reflectance, third_reflectance_sampler, uv, gradient[0], gradient[1]).rgb;
+}
 fn diagnostic_mode(slot: u32) -> u32 {
     return parameters_for(slot).diagnostic_state.x;
 }
@@ -145,48 +169,3 @@ fn reflection_diagnostic_enabled() -> bool {
 }
 
 fn surface_diagnostic_mode() -> u32 { return diagnostic_mode(current_surface_slot()); }
-var<private> native_lighting_scales: vec3<f32>;
-fn set_native_lighting_scales(scales: vec3<f32>) { native_lighting_scales = scales; }
-fn native_direct_specular_scale() -> f32 {
-    if parameters_for(current_surface_slot()).native.kind.x == 0u { return 1.0; }
-    return native_lighting_scales.x;
-}
-fn native_indirect_diffuse_scale() -> f32 {
-    if parameters_for(current_surface_slot()).native.kind.x == 0u { return 1.0; }
-    return native_lighting_scales.y;
-}
-fn native_reflection_scale() -> f32 {
-    if parameters_for(current_surface_slot()).native.kind.x == 0u { return 1.0; }
-    return native_lighting_scales.z;
-}
-var<private> native_diffuse_direction: vec3<f32>;
-fn set_native_diffuse_normal(normal: vec3<f32>) { native_diffuse_direction = normal; }
-fn native_diffuse_normal(normal: vec3<f32>) -> vec3<f32> {
-    if parameters_for(current_surface_slot()).native.kind.x == 0u { return normal; }
-    return native_diffuse_direction;
-}
-
-var<private> native_gloss_value: f32;
-fn set_native_gloss(gloss: f32) { native_gloss_value = gloss; }
-fn native_enabled() -> bool { return parameters_for(current_surface_slot()).native.kind.x != 0u; }
-fn native_gloss() -> f32 { return native_gloss_value; }
-fn native_mip(fallback: f32) -> f32 {
-    if !native_enabled() { return fallback; }
-    return max(4.0*(1.0-native_gloss_value),0.0);
-}
-fn native_environment_fresnel(f0: vec3<f32>, nv: f32) -> vec3<f32> {
-    let kind = parameters_for(current_surface_slot()).native.kind;
-    if kind.x == 7u || (kind.x == 10u && parameters_for(current_surface_slot()).native.camo_flags.w != 0u) {
-        return vec3(clamp(0.75+0.25*native_gloss_value,0.0,1.0));
-    }
-    let g = native_gloss_value;
-    let bias = g*1.041667*min(exp2(-9.28*nv),g*0.475)+g*0.018229-0.015625;
-    return clamp(f0*(0.75+0.25*g-bias)+vec3(bias),vec3(0.0),vec3(1.0));
-}
-
-fn native_specular(f0: vec3<f32>, nh: f32, lh: f32) -> vec3<f32> {
-    let exponent = exp2(13.0*native_gloss_value);
-    let distribution = pow(max(nh,0.0),exponent)*(0.25+0.125*exponent);
-    let visibility = 1.0/(1.01+(lh*lh-1.0)*clamp(native_gloss_value+0.545,0.0,1.0));
-    return (f0+(vec3(1.0)-f0)*exp2(-10.0*lh))*distribution*visibility;
-}

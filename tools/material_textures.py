@@ -160,6 +160,17 @@ def color_levels(pixels, srgb, cutoff=None):
     return levels
 
 
+def reflectance_levels(pixels):
+    values = (pixels[..., :3].astype(np.float32) / 255) ** 2
+    levels = []
+    while True:
+        rgb = np.rint(np.sqrt(np.clip(values, 0, 1)) * 255).astype(np.uint8)
+        levels.append(np.dstack((rgb, np.full(rgb.shape[:2], 255, np.uint8))))
+        if values.shape[:2] == (1, 1):
+            return levels
+        values = reduced(values)
+
+
 def response_levels(pixels, variances):
     values = pixels.astype(np.float32) / 255
     values[..., 1] **= 4

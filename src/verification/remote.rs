@@ -227,7 +227,7 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
         "endpoints":{"main":format!("http://127.0.0.1:{}",port.0),"render":"http://127.0.0.1:15703"},
         "discovery":{"methods":"rpc.discover","schemas":"registry.schema"},
         "methods":{
-            "origins/animations":{"params":{},"result":"fixed_tick, weapons (ready, action, clip clocks, local bone poses), enemies (action, gait, native combat state, sequence, elapsed, notetracks, rig poses and clocks)"},
+            "origins/animations":{"params":{},"result":"fixed_tick, players (enabled, restart, actual and requested clip clocks and weights, pause, speed, local and rest bone poses), weapons (ready, action, clip clocks, local bone poses), enemies (action, gait, native combat state, sequence, elapsed, notetracks, rig poses and clocks)"},
             "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, prone, crouched, velocity, lethal, tactical, mine), firing (shots with stance, speed, spread, ADS and perk scales; first 128), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
             "origins/materials":{"params":{},"result":"pending, first_person, world, inventory; native material, texture, tangent readiness"},
             "origins/preview":{"params":{"weapon":"optional native weapon ID","presentation":"optional content presentation ID","animation":"optional named clip","distance":"optional camera distance in metres"},"effect":"Asset scenario setup attached to camera; omitted IDs clear preview"},
@@ -311,6 +311,7 @@ fn quit(_: In<Option<Value>>, world: &mut World) -> BrpResult {
 }
 fn animations(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     Ok(json!({"fixed_tick":world.resource::<RemoteState>().tick,
+        "players":crate::animation::observation(world),
         "weapons":crate::presentation::animation_observation(world),
         "enemies":crate::enemies::animation_observation(world)}))
 }
@@ -731,14 +732,20 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
 fn materials(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     let mut result = crate::rendering::weapon_material_snapshot(world);
     result["pipelines"] = super::pipelines::snapshot(world);
+    result["atmosphere"] = crate::rendering::atmosphere::snapshot(world);
     result["preprocessing"] = world
         .resource::<crate::rendering::PreprocessingStatus>()
         .report();
     if let Some(diagnostics) = world.get_resource::<bevy::diagnostic::DiagnosticsStore>() {
-        result["render_diagnostics"] = json!(diagnostics.iter().map(|diagnostic| {
-            json!({"path":diagnostic.path().as_str(),"value":diagnostic.value(),
+        result["render_diagnostics"] = json!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    json!({"path":diagnostic.path().as_str(),"value":diagnostic.value(),
                 "average":diagnostic.average(),"unit":diagnostic.suffix})
-        }).collect::<Vec<_>>());
+                })
+                .collect::<Vec<_>>()
+        );
     }
     if let Ok(progress) = world
         .resource::<crate::rendering::preparation::ShaderProgress>()

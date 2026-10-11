@@ -27,10 +27,6 @@ pub(super) type Inventories<'w, 's> = Query<
     ),
 >;
 #[derive(Resource, Default)]
-pub(super) struct GraphCache(
-    pub BTreeMap<AssetId<Gltf>, (Handle<AnimationGraph>, BTreeMap<String, AnimationNodeIndex>)>,
-);
-#[derive(Resource, Default)]
 pub struct EquipmentPresentationEvidence {
     pub phases: std::collections::BTreeSet<String>,
     pub motion: BTreeMap<String, f32>,

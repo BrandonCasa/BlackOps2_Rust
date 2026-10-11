@@ -16,6 +16,7 @@ compile_error!(
 );
 
 pub mod access;
+mod animation;
 pub mod assets;
 pub mod audio;
 pub mod barriers;
@@ -152,6 +153,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     .init_state::<GameState>()
     .insert_resource(Time::<Fixed>::from_hz(60.0))
     .insert_resource(assets::LoadConfiguration(configuration))
+    .add_plugins(animation::GameAnimationPlugin)
     .add_plugins((
         assets::GameAssetsPlugin,
         input::GameInputPlugin,

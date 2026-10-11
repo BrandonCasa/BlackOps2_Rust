@@ -27,9 +27,6 @@ const SHADER: Handle<Shader> = uuid_handle!("d61788a5-711f-4eb1-a7f7-bd1b9558da8
 const VERTEX_SHADER: Handle<Shader> = uuid_handle!("e6ed1727-30d7-4c74-b53d-59cb68d0fa84");
 const BINDINGS_SHADER: Handle<Shader> = uuid_handle!("20c29018-2914-4277-b41a-a97c8ad9cf0e");
 const LIGHTING_SHADER: Handle<Shader> = uuid_handle!("6a0c079c-843a-4d97-8ee7-e4ef3d973d6e");
-const NATIVE_ENVIRONMENT_SHADER: Handle<Shader> =
-    uuid_handle!("52f548f5-2f38-4281-b08b-9d3da2c7c652");
-const NATIVE_LIGHTING_SHADER: Handle<Shader> = uuid_handle!("93b13ba7-68b3-4164-bbac-d2d85f289c65");
 const EFFECT_SHADER: Handle<Shader> = uuid_handle!("0b5a6dd8-a735-40f9-9b83-12b0e09967e8");
 const NATIVE_SHADER: Handle<Shader> = uuid_handle!("0af790ef-9953-48d6-8b36-2afac0f5f6a3");
 #[derive(Resource)]
@@ -55,81 +52,16 @@ pub(super) fn prepare_diagnostic_shaders(shaders: &mut Assets<Shader>) -> bool {
     }) else {
         return false;
     };
-    let Some(brdf) = shaders.iter().find_map(|(_, shader)| {
-        (shader.import_path == ShaderImport::Custom("bevy_pbr::render::pbr_lighting".into()))
-            .then(|| shader.source.as_str().to_string())
-    }) else {
-        return false;
-    };
-    let mut brdf = brdf;
-    for name in [
-        "LayerLightingInput",
-        "LightingInput",
-        "DerivedLightingInput",
-    ] {
-        let start = brdf
-            .find(&format!("struct {name} {{"))
-            .expect("Pinned lighting struct");
-        let end = start
-            + brdf[start..]
-                .find("\n}")
-                .expect("Pinned lighting struct end")
-            + 2;
-        brdf.replace_range(start..end, "");
-    }
-    let brdf = format!("import bevy_pbr::render::pbr_lighting::{{LayerLightingInput, LightingInput, DerivedLightingInput}};\nimport origins::surface_bindings::{{native_direct_specular_scale, native_diffuse_normal, native_enabled, native_specular}};\n{}", brdf.replace("package::", "bevy_pbr::"))
-        .replace("var derived_input = derive_lighting_input(N, V, L);", "var derived_input = derive_lighting_input(N, V, L);\n    var diffuse_derived_input = derive_lighting_input(native_diffuse_normal(N), V, L);")
-        .replace("Fd_Burley(input, &derived_input)", "Fd_Burley(input, &diffuse_derived_input)")
-        .replace("diffuse * derived_input.NdotL", "diffuse * diffuse_derived_input.NdotL")
-        .replace("(diffuse + specular_light * inv_Fc) * inv_Fc * derived_input.NdotL", "(diffuse * diffuse_derived_input.NdotL + specular_light * native_direct_specular_scale() * inv_Fc * derived_input.NdotL) * inv_Fc")
-        .replace("(diffuse + specular_light) * derived_input.NdotL", "diffuse * diffuse_derived_input.NdotL + specular_light * native_direct_specular_scale() * derived_input.NdotL")
-        .replace("specular_light * specular_derived_input.NdotL", "specular_light * native_direct_specular_scale() * specular_derived_input.NdotL")
-        .replace("    let D = D_GGX(roughness, NdotH);", "    if native_enabled() { return native_specular(F0, NdotH, LdotH); }\n    let D = D_GGX(roughness, NdotH);");
-    let Some(environment) = shaders.iter().find_map(|(_, shader)| {
-        (shader.import_path
-            == ShaderImport::Custom("bevy_pbr::light_probe::environment_map".into()))
-        .then(|| shader.source.as_str().to_string())
-    }) else {
-        return false;
-    };
-    let environment = format!("import origins::surface_bindings::{{native_enabled, native_mip, native_environment_fresnel, native_diffuse_normal}};\n{}", environment.replace("package::", "bevy_pbr::"))
-        .replace("let N = input.N;", "let N = native_diffuse_normal(input.N);")
-        .replace("let radiance_level = perceptual_roughness * f32(textureNumLevels(", "let radiance_level = native_mip(perceptual_roughness * f32(textureNumLevels(")
-        .replace(") - 1u);", ") - 1u));")
-        .replace("let radiance_level = perceptual_roughness * f32(light_probes.smallest_specular_mip_level_for_view);", "let radiance_level = native_mip(perceptual_roughness * f32(light_probes.smallest_specular_mip_level_for_view));")
-        .replace("    let smoothness = saturate(1.0 - roughness);", "    if native_enabled() { return R; }\n    let smoothness = saturate(1.0 - roughness);")
-        .replace("    let specular_occlusion = saturate(dot(F0_surface, vec3(50.0 * 0.33)));", "    if native_enabled() {\n        out.diffuse = diffuse_color * radiances.irradiance;\n        out.specular = native_environment_fresnel(F0_surface,NdotV) * radiances.radiance;\n        return out;\n    }\n    let specular_occlusion = saturate(dot(F0_surface, vec3(50.0 * 0.33)));");
-    shaders
-        .insert(
-            NATIVE_ENVIRONMENT_SHADER.id(),
-            Shader::from_wesl(environment, "embedded://origins/native_environment.wesl"),
-        )
-        .expect("Valid shader UUID");
-    shaders
-        .insert(
-            NATIVE_LIGHTING_SHADER.id(),
-            Shader::from_wesl(brdf, "embedded://origins/native_lighting.wesl"),
-        )
-        .expect("Valid shader UUID");
     super::pbr::diagnostic_shaders(shaders, &source);
     let lighting = format!(
-        "import origins::native_environment as environment_map;\nimport origins::native_lighting as lighting;\nimport bevy_pbr::render::pbr_lighting as lighting_types;\nimport origins::native_lighting::{{LAYER_BASE, LAYER_CLEARCOAT}};\nimport origins::surface_bindings::{{reflection_diagnostic_enabled, surface_diagnostic_mode, native_reflection_scale, native_indirect_diffuse_scale}};\n{}",
-        source.replace("package::", "bevy_pbr::").replace("        pbr_lighting as lighting,", "").replace("        pbr_lighting::{LAYER_BASE, LAYER_CLEARCOAT},", "").replace("lighting::LightingInput", "lighting_types::LightingInput").replace("@if(ENVIRONMENT_MAP) import bevy_pbr::light_probe::environment_map;", "")
+        "import origins::surface_bindings::{{reflection_diagnostic_enabled, surface_diagnostic_mode}};\n{}",
+        source.replace("package::", "bevy_pbr::")
     ).replacen(
         "    indirect_light += environment_light.diffuse * diffuse_occlusion;",
         "    if reflection_diagnostic_enabled() { return vec4(environment_light.specular * specular_occlusion * view_bindings::view.exposure, 1.0); }\n    indirect_light += environment_light.diffuse * diffuse_occlusion;",
         1,
     );
     let lighting = super::pbr::lighting_diagnostics(lighting, "surface_diagnostic_mode");
-    let lighting = lighting
-        .replace(
-            "environment_light.specular * specular_occlusion",
-            "environment_light.specular * specular_occlusion * native_reflection_scale()",
-        )
-        .replace(
-            "let diffuse_occlusion = in.diffuse_occlusion;",
-            "let diffuse_occlusion = in.diffuse_occlusion * native_indirect_diffuse_scale();",
-        );
     shaders
         .insert(
             LIGHTING_SHADER.id(),
@@ -181,7 +113,7 @@ pub(super) fn converted_source(
     library: &SurfaceLibrary,
     id: bevy::asset::AssetId<StandardMaterial>,
 ) -> bool {
-    library.materials.contains_key(&id)
+    library.materials.keys().any(|(source, _)| *source == id)
 }
 
 #[derive(Clone, Copy, Debug, Reflect, ShaderType)]
@@ -262,8 +194,8 @@ pub(super) struct SurfaceParameters {
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 #[bind_group_data(OpaqueSurfaceKey)]
-#[data(100, SurfaceParameters, binding_array(125))]
-#[bindless(limit(1024), index_table(range(100..123), binding(124)))]
+#[data(100, SurfaceParameters, binding_array(131))]
+#[bindless(limit(1024), index_table(range(100..129), binding(130)))]
 pub(super) struct OpaqueSurface {
     pub(super) parameters: SurfaceParameters,
     diagnostic: bool,
@@ -311,6 +243,18 @@ pub(super) struct OpaqueSurface {
     #[sampler(122)]
     #[dependency]
     third_specular: Option<Handle<Image>>,
+    #[texture(123)]
+    #[sampler(124)]
+    #[dependency]
+    reflectance: Option<Handle<Image>>,
+    #[texture(125)]
+    #[sampler(126)]
+    #[dependency]
+    second_reflectance: Option<Handle<Image>>,
+    #[texture(127)]
+    #[sampler(128)]
+    #[dependency]
+    third_reflectance: Option<Handle<Image>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -426,7 +370,7 @@ pub(super) struct SurfaceDefinition {
 pub(crate) struct SurfaceLibrary {
     pub(super) definitions: HashMap<String, SurfaceDefinition>,
     pub(super) prepared_meshes: HashSet<AssetId<Mesh>>,
-    materials: HashMap<AssetId<StandardMaterial>, Handle<OpaqueMaterial>>,
+    materials: HashMap<(AssetId<StandardMaterial>, Option<Entity>), Handle<OpaqueMaterial>>,
 }
 
 impl SurfaceLibrary {
@@ -724,6 +668,7 @@ pub(super) fn convert(
     >,
     extras: Query<&GltfExtras>,
     parents: Query<&ChildOf>,
+    rigs: Query<&crate::presentation::Rig>,
     library: Option<ResMut<SurfaceLibrary>>,
     standard: Res<Assets<StandardMaterial>>,
     mut materials: ResMut<Assets<OpaqueMaterial>>,
@@ -763,8 +708,19 @@ pub(super) fn convert(
         let effect_admitted = definition.effect.is_some();
         let premultiplied_source =
             definition.presentation["alpha"].as_str() == Some("premultiplied");
-        let native_weapon = definition.native.kind.x != 0;
-        let key = original.0.id();
+        let staff = definition.native.kind.x == 7;
+        let mut charge_owner = None;
+        if staff {
+            let mut current = Some(entity);
+            while let Some(ancestor) = current {
+                if let Ok(rig) = rigs.get(ancestor) {
+                    charge_owner = Some(rig.owner);
+                    break;
+                }
+                current = parents.get(ancestor).ok().map(ChildOf::parent);
+            }
+        }
+        let key = (original.0.id(), charge_owner);
         let handle = if let Some(handle) = library.materials.get(&key) {
             handle.clone()
         } else {
@@ -795,7 +751,10 @@ pub(super) fn convert(
                     channel("response", 0).is_some() as u32,
                     channel("response", 1).is_some() as u32
                         | ((channel("response", 2).is_some() as u32) << 1),
-                    normal_encodings,
+                    normal_encodings
+                        | ((channel("reflectance", 0).is_some() as u32) << 3)
+                        | ((channel("reflectance", 1).is_some() as u32) << 4)
+                        | ((channel("reflectance", 2).is_some() as u32) << 5),
                 ),
                 layers: definition.layers,
                 reveal: definition.reveal
@@ -836,12 +795,15 @@ pub(super) fn convert(
                 color3: channel("reveal", 0).or_else(|| channel("color", 3)),
                 third_normal: channel("rim", 0).or_else(|| channel("normal", 2)),
                 third_specular: channel("detail", 0).or_else(|| channel("response", 2)),
+                reflectance: channel("reflectance", 0),
+                second_reflectance: channel("reflectance", 1),
+                third_reflectance: channel("reflectance", 2),
             };
             let mut base = base.clone();
             base.normal_map_texture = None;
             base.metallic_roughness_texture = None;
             base.occlusion_texture = None;
-            base.reflectance = 0.5;
+            base.specular_tint_texture = None;
             base.clearcoat = 1.;
             base.clearcoat_perceptual_roughness = 0.12;
             if definition.native.kind.x != 0 {
@@ -880,12 +842,9 @@ pub(super) fn convert(
                 status.pending += 1;
                 continue;
             };
-            if native_weapon && mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_none() {
+            if mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_none() {
                 if let Err(error) = mesh.generate_tangents() {
-                    error!(
-                        "Native weapon tangent generation failed for {}: {error}",
-                        name.0
-                    );
+                    error!("Surface tangent generation failed for {}: {error}", name.0);
                     status.pending += 1;
                     continue;
                 }
@@ -922,6 +881,13 @@ pub(super) fn convert(
             .entity(entity)
             .remove::<MeshMaterial3d<StandardMaterial>>()
             .insert((MeshMaterial3d(handle.clone()), OpaqueReady));
+        if staff {
+            commands
+                .entity(entity)
+                .insert(super::native_weapon::StaffMaterial {
+                    owner: charge_owner,
+                });
+        }
         if is_static {
             status.static_models += 1;
         } else {
@@ -996,6 +962,9 @@ pub(crate) fn weapon_material_snapshot(world: &mut World) -> Value {
                 &e.color3,
                 &e.third_normal,
                 &e.third_specular,
+                &e.reflectance,
+                &e.second_reflectance,
+                &e.third_reflectance,
             ]
             .into_iter()
             .flatten()
@@ -1018,7 +987,7 @@ pub(crate) fn weapon_material_snapshot(world: &mut World) -> Value {
                         }))
             });
         pending += usize::from(!native || !textures_ready || !tangent);
-        let row = json!({"entity":entity.to_bits(),"material":name,"kind":material.map(|m|m.extension.parameters.native.kind.x),"native":native,"textures_ready":textures_ready,"tangents":tangent,"visible":world.get::<InheritedVisibility>(entity).is_some_and(|v| v.get())});
+        let row = json!({"entity":entity.to_bits(),"material":name,"kind":material.map(|m|m.extension.parameters.native.kind.x),"native":native,"textures_ready":textures_ready,"tangents":tangent,"visible":world.get::<InheritedVisibility>(entity).is_some_and(|v| v.get()),"lighting_model":"bevy_pbr","charge":material.map(|m|m.extension.parameters.native.staff_emission.z),"charge_owner":world.get::<super::native_weapon::StaffMaterial>(entity).and_then(|s|s.owner).map(Entity::to_bits)});
         if first {
             first_person.push(row);
         } else {

@@ -1,80 +1,158 @@
-use super::profile::{ColorGrade, VisualProfile};
-use bevy::{core_pipeline::tonemapping::TonemappingLuts, prelude::*};
+use super::atmosphere::{AtmosphereState, SourceAtmosphere};
+use bevy::{
+    asset::{LoadState, RenderAssetUsages},
+    core_pipeline::tonemapping::TonemappingLuts,
+    image::ImageSampler,
+    prelude::*,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+};
 
-pub(crate) fn install(
-    images: &mut Assets<Image>,
-    luts: &mut TonemappingLuts,
-    profile: &VisualProfile,
+const SIZE: u32 = 48;
+const TRANSITION_STEPS: usize = 32;
+
+#[derive(Resource)]
+pub(super) struct SourceGrade {
+    image: Handle<Image>,
+    variants: Vec<Handle<Image>>,
+    selected: Option<usize>,
+}
+
+impl SourceGrade {
+    pub(super) fn ready(&self) -> bool {
+        !self.variants.is_empty()
+    }
+}
+
+pub(super) fn setup(mut commands: Commands, server: Res<AssetServer>) {
+    commands.insert_resource(SourceGrade {
+        image: server
+            .load_builder()
+            .with_settings(|settings: &mut bevy::image::ImageLoaderSettings| {
+                settings.is_srgb = false
+            })
+            .load("sky/zm_tomb_grade.ktx2"),
+        variants: Vec::new(),
+        selected: None,
+    });
+}
+
+pub(super) fn prepare(
+    mut grade: ResMut<SourceGrade>,
+    source: Res<SourceAtmosphere>,
+    state: Res<AtmosphereState>,
+    mut images: ResMut<Assets<Image>>,
+    mut luts: ResMut<TonemappingLuts>,
+    server: Res<AssetServer>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<crate::GameState>>,
 ) {
-    let mut graded = images
-        .get(&luts.agx)
-        .expect("Bevy's enabled AgX display LUT must exist")
-        .clone();
-    let size = graded.texture_descriptor.size;
-    assert_eq!(
-        [size.width, size.height, size.depth_or_array_layers],
-        [32; 3]
-    );
-    graded.texture_descriptor.label = Some("Origins graded AgX LUT");
-    for z in 0..32 {
-        for y in 0..32 {
-            for x in 0..32 {
-                let original = graded
-                    .get_color_at_3d(x, y, z)
-                    .expect("Native AgX LUT has accessible float texels");
-                graded
-                    .set_color_at_3d(x, y, z, grade(original, &profile.color_grade))
-                    .expect("Native AgX LUT accepts float texels");
+    if grade.variants.is_empty() {
+        if matches!(server.load_state(grade.image.id()), LoadState::Failed(_)) {
+            failure.0 = "Original Origins color lookup failed to load".into();
+            next.set(crate::GameState::LoadError);
+            return;
+        }
+        let Some(original) = images.get(&grade.image) else {
+            return;
+        };
+        let size = original.texture_descriptor.size;
+        if size.width != 1024
+            || size.height != 64
+            || original.texture_descriptor.format != TextureFormat::Rgba8Unorm
+        {
+            failure.0 = "Original Origins color lookup has an invalid format".into();
+            next.set(crate::GameState::LoadError);
+            return;
+        }
+        let pixels = original
+            .data
+            .as_ref()
+            .expect("CPU-readable original color lookup")
+            .clone();
+        let mut template = Image::new_fill(
+            Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: SIZE,
+            },
+            TextureDimension::D3,
+            &[0; 8],
+            TextureFormat::Rgba16Float,
+            RenderAssetUsages::default(),
+        );
+        template.sampler = ImageSampler::linear();
+        for step in 0..=TRANSITION_STEPS {
+            let blend = step as f32 / TRANSITION_STEPS as f32;
+            let mut lut = template.clone();
+            lut.texture_descriptor.label = Some("Origins source color response");
+            for z in 0..SIZE {
+                for y in 0..SIZE {
+                    for x in 0..SIZE {
+                        let domain = Vec3::new(x as f32, y as f32, z as f32) / (SIZE - 1) as f32;
+                        let stimulus = domain / (Vec3::ONE - domain).max(Vec3::splat(0.000001));
+                        let result = response(stimulus, &pixels, &source, blend);
+                        lut.set_color_at_3d(x, y, z, Color::srgb(result.x, result.y, result.z))
+                            .expect("Native display LUT accepts linear color texels");
+                    }
+                }
             }
+            grade.variants.push(images.add(lut));
         }
     }
-    luts.agx = images.add(graded);
+    let selected = (state.vision_blend * TRANSITION_STEPS as f32).round() as usize;
+    if grade.selected != Some(selected) {
+        luts.tony_mc_mapface = grade.variants[selected].clone();
+        grade.selected = Some(selected);
+    }
 }
 
-fn grade(original: Color, settings: &ColorGrade) -> Color {
-    let display = original.to_srgba();
-    let rgb = Vec3::new(display.red, display.green, display.blue).clamp(Vec3::ZERO, Vec3::ONE);
-    let luma = luminance(rgb);
-    const PIVOT: f32 = 0.46;
-    let curved = if luma > 0. && luma < 1. {
-        let odds = PIVOT / (1. - PIVOT);
-        let value = odds * ((luma / (1. - luma)) / odds).powf(settings.contrast.clamp(0.5, 1.5));
-        value / (1. + value)
-    } else {
-        luma
+fn response(stimulus: Vec3, pixels: &[u8], source: &SourceAtmosphere, blend: f32) -> Vec3 {
+    let softclip = source.softclip.max(0.0009765625);
+    let pivot = 1. - softclip;
+    let clipped = stimulus.map(|value| {
+        if value <= pivot {
+            value.max(0.)
+        } else {
+            1. - softclip * ((pivot - value) / softclip).exp()
+        }
+    });
+    let encoded = clipped.map(f32::sqrt);
+    let base = sample(pixels, encoded);
+    let linear = base * base;
+    let clear = &source.vision["clear"];
+    let rain = &source.vision["_rain"];
+    let saturation =
+        Vec4::from_array(clear["vc_FSM"]).lerp(Vec4::from_array(rain["vc_FSM"]), blend);
+    let amount = Vec4::from_array(clear["vc_FGM"])
+        .lerp(Vec4::from_array(rain["vc_FGM"]), blend)
+        .truncate();
+    let luma = linear.dot(saturation.truncate());
+    let saturated = Vec3::splat(luma) + (linear - Vec3::splat(luma)) * saturation.w;
+    (linear + amount * (saturated - linear))
+        .clamp(Vec3::ZERO, Vec3::ONE)
+        .map(f32::sqrt)
+}
+
+fn sample(pixels: &[u8], rgb: Vec3) -> Vec3 {
+    let coordinate = rgb.clamp(Vec3::ZERO, Vec3::ONE) * 31.;
+    let low = coordinate.floor().as_uvec3();
+    let high = (low + UVec3::ONE).min(UVec3::splat(31));
+    let fraction = coordinate - low.as_vec3();
+    let texel = |x: u32, y: u32, z: u32| {
+        let offset = ((y * 1024 + z * 32 + x) * 4) as usize;
+        Vec3::new(
+            pixels[offset] as f32,
+            pixels[offset + 1] as f32,
+            pixels[offset + 2] as f32,
+        ) / 255.
     };
-    let contrasted = rgb * (curved / luma.max(1e-6));
-    let saturation = (rgb.max_element() - rgb.min_element()) / rgb.max_element().max(1e-6);
-    let vibrance = 1. + (settings.vibrance.clamp(0., 2.) - 1.) * (1. - saturation);
-    let vibrant = Vec3::splat(curved) + (contrasted - Vec3::splat(curved)) * vibrance;
-    let shadow_weight = smooth(1. - luma * 2.);
-    let highlight_weight = smooth(luma * 2. - 1.);
-    let tint = Vec3::ONE
-        + (Vec3::from_array(settings.shadow_tint) - Vec3::ONE) * shadow_weight
-        + (Vec3::from_array(settings.highlight_tint) - Vec3::ONE) * highlight_weight;
-    let graded = fit_gamut(vibrant * tint);
-    let result = rgb.lerp(graded, settings.strength.clamp(0., 1.));
-    Color::srgba(result.x, result.y, result.z, display.alpha)
-}
-
-fn luminance(rgb: Vec3) -> f32 {
-    rgb.dot(Vec3::new(0.2126, 0.7152, 0.0722))
-}
-
-fn smooth(value: f32) -> f32 {
-    let value = value.clamp(0., 1.);
-    value * value * (3. - 2. * value)
-}
-
-fn fit_gamut(rgb: Vec3) -> Vec3 {
-    let luma = luminance(rgb).clamp(0., 1.);
-    let mut scale = 1_f32;
-    for channel in rgb.to_array() {
-        if channel > 1. {
-            scale = scale.min((1. - luma) / (channel - luma));
-        } else if channel < 0. {
-            scale = scale.min(luma / (luma - channel));
-        }
-    }
-    (Vec3::splat(luma) + (rgb - Vec3::splat(luma)) * scale).clamp(Vec3::ZERO, Vec3::ONE)
+    let plane = |z| {
+        texel(low.x, low.y, z)
+            .lerp(texel(high.x, low.y, z), fraction.x)
+            .lerp(
+                texel(low.x, high.y, z).lerp(texel(high.x, high.y, z), fraction.x),
+                fraction.y,
+            )
+    };
+    plane(low.z).lerp(plane(high.z), fraction.z)
 }

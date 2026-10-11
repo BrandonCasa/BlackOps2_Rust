@@ -74,7 +74,8 @@ def run(client, game, asset_root, output, selected, report, yaw):
         overrides = json.loads(camo_path.read_bytes())['weapons'].get(weapon['id'], {})
         expected = {overrides.get(name, name) for name in expected}
         ready = wait_materials(client, expected=expected)
-        case = {'weapon': weapon['id'], 'materials': ready, 'captures': {}, 'actions': {}}
+        case = {'weapon': weapon['id'], 'materials': {k: v for k, v in ready.items() if k != 'shadows'},
+                'captures': {}, 'actions': {}}
         report['cases'].append(case)
         folder = output / weapon['id'].replace('weapon.', '')
         folder.mkdir(parents=True, exist_ok=True)
@@ -101,14 +102,24 @@ def run(client, game, asset_root, output, selected, report, yaw):
         client.release()
         if weapon.get('pickup') and presentations[weapon['pickup']].get('scene'):
             client.call('origins/preview', {'weapon': weapon['id']})
-            case['world_materials'] = wait_materials(client, world=True)
+            case['world_materials'] = {k: v for k, v in wait_materials(client, world=True).items()
+                                       if k != 'shadows'}
             case['captures']['world'] = capture(client, folder / 'world.png')
             client.call('origins/preview', {})
         if weapon['id'].startswith('weapon.staff_') and 'upgraded' in weapon['id']:
+            client.call('origins/preview', {'weapon': weapon['id']})
+            wait_materials(client, world=True)
             client.call('origins/setup', {'charge_level': 3})
             client.wait_ticks(5)
+            charged = wait_materials(client, world=True)
+            first = [r for r in charged['first_person'] if r['kind'] == 7]
+            world = [r for r in charged['world'] if r['kind'] == 7]
+            if not first or not world or not all(r['charge'] == 3 and r['charge_owner'] is not None for r in first) or not all(r['charge'] == 0 and r['charge_owner'] is None for r in world):
+                raise RuntimeError('Staff charge leaked between held and world materials')
+            case['charge_isolation'] = {'first_person': first, 'world': world, 'passed': True}
             case['captures']['charged_setup'] = capture(client, folder / 'charged-setup.png')
             client.call('origins/setup', {'charge_level': 0})
+            client.call('origins/preview', {})
         case['passed'] = True
         write_report(output, 'weapon-materials.json', report)
         print(json.dumps({'weapon': weapon['id'], 'passed': True}), flush=True)
@@ -137,7 +148,8 @@ def check_isolation(client, asset_root, output, report):
             if found != expected:
                 raise RuntimeError(f'Camo instance isolation failed: {first}, {world}, {found}, {expected}')
         shot = capture(client, output / f'isolation-{first.removeprefix("weapon.")}.png')
-        cases.append({'first_person': first, 'world': world, 'materials': ready, 'capture': shot})
+        cases.append({'first_person': first, 'world': world,
+                      'materials': {k: v for k, v in ready.items() if k != 'shadows'}, 'capture': shot})
         client.call('origins/preview', {})
     report['camo_isolation']['passed'] = True
 

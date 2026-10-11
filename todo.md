@@ -44,6 +44,9 @@
 - [ ] Add penetration damage attenuation.
 - [ ] Prevent repeated hits on one penetrated actor.
 - [ ] Add attachment-specific weapon modifiers.
+- [ ] Import native crawl and dive action durations and directional and empty-magazine clip variants.
+- [ ] Drive prone and dive weapon animation phases from player mobility through ECS playback.
+- [ ] Restore native dive startup, minimum-speed, exhaustion, and post-move action gates.
 - [ ] Add upgraded weapon attachment rotation.
 - [ ] Feed soul collection from attributed death events.
 - [ ] Add zombie running states.

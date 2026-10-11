@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
     assets::GameDefinition,
     gameplay::{GameStep, Session, SessionEntity},
     interactions::InteractionRejection,
@@ -9,7 +10,7 @@ use crate::{
 };
 use bevy::prelude::*;
 use bevy::world_serialization::WorldInstanceReady;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) fn use_point(origin: Vec3, eye: Vec3, box_size: f32) -> Vec3 {
     let center = origin + Vec3::Y * box_size * 0.5;
@@ -31,6 +32,9 @@ pub struct Capture {
     pub age: f32,
     pub purchaser: Option<Entity>,
     refund: Option<f32>,
+    pump_clip: Option<usize>,
+    pump_elapsed: f32,
+    rotation: Option<(usize, f32)>,
 }
 impl Default for Capture {
     fn default() -> Self {
@@ -40,6 +44,9 @@ impl Default for Capture {
             age: 0.,
             purchaser: None,
             refund: None,
+            pump_clip: None,
+            pump_elapsed: 0.,
+            rotation: None,
         }
     }
 }
@@ -94,6 +101,7 @@ impl Generators {
         *site = Capture {
             state: GeneratorState::Capturing,
             purchaser: Some(purchaser),
+            pump_clip: Some(0),
             ..default()
         };
         self.activations += 1;
@@ -123,10 +131,6 @@ pub struct GeneratorVisual {
     players: Vec<Entity>,
     recorded_clips: u8,
 }
-#[derive(Resource, Default)]
-struct GeneratorGraphs(HashMap<AssetId<Gltf>, (Handle<AnimationGraph>, Vec<AnimationNodeIndex>)>);
-#[derive(Component)]
-struct GeneratorPlayback;
 #[derive(Component)]
 struct GeneratorAudio(ContentId, ContentId);
 #[derive(Component)]
@@ -141,7 +145,6 @@ pub struct GeneratorPlugin;
 impl Plugin for GeneratorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Generators>()
-            .init_resource::<GeneratorGraphs>()
             .add_systems(
                 OnEnter(GameState::PreparingShaders),
                 assemble.in_set(crate::session::SessionSetup::World),
@@ -497,6 +500,17 @@ fn tick(
             continue;
         };
         site.age += dt;
+        site.pump_elapsed += dt;
+        if site.pump_clip == Some(3) && site.pump_elapsed >= d.clip_seconds[3] {
+            site.pump_clip = None;
+            site.pump_elapsed = 0.;
+        }
+        if let Some((rotation, elapsed)) = site.rotation {
+            let elapsed = elapsed + dt;
+            site.rotation = (rotation != 7 || elapsed < d.clip_seconds[7])
+                .then_some((rotation, elapsed.min(d.clip_seconds[rotation])));
+        }
+        let previous_progress = site.progress;
         let mut reward = 0;
         let mut refund = 0;
         let mut completed = false;
@@ -509,6 +523,19 @@ fn tick(
                     -dt / d.decay_seconds
                 })
             .clamp(0., 1.);
+            let pump_clip = if site.progress <= 0. {
+                Some(3)
+            } else if site.progress > previous_progress && site.age > d.clip_seconds[0] {
+                Some(1)
+            } else if site.pump_clip == Some(1) && site.progress < previous_progress {
+                Some(2)
+            } else {
+                site.pump_clip
+            };
+            if pump_clip != site.pump_clip {
+                site.pump_clip = pump_clip;
+                site.pump_elapsed = 0.;
+            }
             if site.progress >= 1. {
                 site.state = GeneratorState::Active;
                 site.age = 0.;
@@ -521,6 +548,11 @@ fn tick(
                 site.purchaser = None;
                 abandoned = true;
             }
+        }
+        if site.progress >= 1. && previous_progress < 1. {
+            site.rotation = Some((6, 0.));
+        } else if site.progress < 1. && previous_progress >= 1. {
+            site.rotation = Some((7, 0.));
         }
         if let Some(delay) = site.refund.as_mut() {
             *delay -= dt;
@@ -553,9 +585,8 @@ fn presentation(
     mut generators: ResMut<Generators>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut graph_cache: ResMut<GeneratorGraphs>,
+    mut graph_cache: ResMut<AnimationGraphs>,
     mut visuals: Query<(Entity, &mut GeneratorVisual)>,
-    mut players: Query<(&mut AnimationPlayer, Has<GeneratorPlayback>)>,
     audio: Query<(Entity, &GeneratorAudio)>,
 ) {
     let _span = info_span!("generator_presentation").entered();
@@ -572,8 +603,16 @@ fn presentation(
             continue;
         };
         let state = site.state;
-        let age = site.age;
         let progress = site.progress;
+        let index = site.pump_clip;
+        let elapsed = index.map_or(0., |index| {
+            if matches!(index, 1 | 2) {
+                site.pump_elapsed.rem_euclid(d.clip_seconds[index])
+            } else {
+                site.pump_elapsed.min(d.clip_seconds[index])
+            }
+        });
+        let rotation = site.rotation;
         let desired = match state {
             GeneratorState::Capturing => Some(&d.capture_sound),
             GeneratorState::Active => Some(&d.active_sound),
@@ -653,28 +692,16 @@ fn presentation(
             visual.sound_clip = usize::MAX;
         }
         if visual.graph.is_none() {
-            let Some(g) = gltfs.get(&visual.source) else {
+            let Some(bindings) = graph_cache.scene(&visual.source, &gltfs, &mut graphs) else {
                 continue;
             };
-            if g.animations.len() != 8 {
+            if bindings.ordered.len() != 8 {
                 continue;
             }
-            let graph = graph_cache.0.entry(visual.source.id()).or_insert_with(|| {
-                let (graph, nodes) = AnimationGraph::from_clips(g.animations.clone());
-                (graphs.add(graph), nodes)
-            });
-            visual.graph = Some(graph.clone());
+            visual.graph = Some((bindings.graph.clone(), bindings.ordered.clone()));
             generators.animated += 1;
         }
-        let (index, elapsed) = match state {
-            GeneratorState::Capturing if age < d.clip_seconds[0] => (0, age),
-            GeneratorState::Capturing | GeneratorState::Active => (1, age % d.clip_seconds[1]),
-            GeneratorState::Disabled if age < d.clip_seconds[3] => (3, age),
-            _ => (2, age % d.clip_seconds[2]),
-        };
-        if matches!(state, GeneratorState::Capturing | GeneratorState::Active)
-            || (state == GeneratorState::Disabled && age < d.clip_seconds[3])
-        {
+        if let Some(index) = index {
             let previous = if visual.sound_clip != index || elapsed < visual.sound_time {
                 -0.001
             } else {
@@ -705,57 +732,31 @@ fn presentation(
         let Some((graph, nodes)) = &visual.graph else {
             continue;
         };
-        let (fluid, fluid_age) = match state {
-            GeneratorState::Capturing => (4, progress * d.clip_seconds[4]),
-            GeneratorState::Active => (6, age % d.clip_seconds[6]),
-            _ => (5, d.clip_seconds[5]),
-        };
-        let mut recorded_clips = visual.recorded_clips;
+        let mut layers = vec![
+            AnimationLayer::new(nodes[4], Some(d.clip_seconds[4]), false).weighted(progress),
+            AnimationLayer::new(nodes[5], Some(d.clip_seconds[5]), false).weighted(1. - progress),
+        ];
+        let mut recorded_clips = visual.recorded_clips | (1 << 4) | (1 << 5);
+        if let Some(index) = index {
+            layers.push(AnimationLayer::new(
+                nodes[index],
+                Some(elapsed),
+                matches!(index, 1 | 2),
+            ));
+            recorded_clips |= 1 << index;
+        }
+        if let Some((rotation, elapsed)) = rotation {
+            layers.push(AnimationLayer::new(nodes[rotation], Some(elapsed), false));
+            recorded_clips |= 1 << rotation;
+        }
+        let mut playback = AnimationPlayback::new(graph.clone(), layers);
+        playback.blend_seconds = 0.2;
         for &child in &visual.players {
-            let Ok((mut player, attached)) = players.get_mut(child) else {
-                continue;
-            };
-            if !attached {
-                commands
-                    .entity(child)
-                    .insert((AnimationGraphHandle(graph.clone()), GeneratorPlayback));
-            }
-            let node = nodes[index];
-            if player.animation(node).is_none() {
-                player.stop_all();
-                player.play(node);
-            }
-            if player
-                .animation(node)
-                .is_some_and(|a| a.seek_time() != elapsed)
-                && let Some(active) = player.animation_mut(node)
-            {
-                active.seek_to(elapsed);
-            }
-            let fluid_node = nodes[fluid];
-            for (i, other) in nodes.iter().enumerate().skip(4) {
-                if i != fluid && player.is_playing_animation(*other) {
-                    player.stop(*other);
-                }
-            }
-            if player.animation(fluid_node).is_none() {
-                player.play(fluid_node);
-            }
-            if player
-                .animation(fluid_node)
-                .is_some_and(|a| a.seek_time() != fluid_age)
-                && let Some(active) = player.animation_mut(fluid_node)
-            {
-                active.seek_to(fluid_age);
-            }
-            if !player.all_paused() {
-                player.pause_all();
-            }
-            for clip in [index, fluid] {
-                if recorded_clips & (1 << clip) == 0 {
-                    generators.playback.insert(format!("{}:{clip}", d.id.0));
-                    recorded_clips |= 1 << clip;
-                }
+            commands.entity(child).insert(playback.clone());
+        }
+        for clip in 0..8 {
+            if recorded_clips & (1 << clip) != 0 && visual.recorded_clips & (1 << clip) == 0 {
+                generators.playback.insert(format!("{}:{clip}", d.id.0));
             }
         }
         visual.recorded_clips = recorded_clips;

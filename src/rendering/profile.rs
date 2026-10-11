@@ -8,40 +8,21 @@ pub(crate) enum Antialiasing {
     Taa,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ColorGrade {
-    pub strength: f32,
-    pub contrast: f32,
-    pub vibrance: f32,
-    pub shadow_tint: [f32; 3],
-    pub highlight_tint: [f32; 3],
-}
-
 #[derive(Resource, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct VisualProfile {
     pub ambient_color: [f32; 3],
     pub ambient_brightness: f32,
     pub environment_intensity: f32,
-    pub sun_color: [f32; 3],
     pub sun_illuminance: f32,
-    pub sun_rotation: [f32; 3],
     pub indoor_ev100: f32,
     pub outdoor_ev100: f32,
     pub adaptation_speed: f32,
     pub transparent_opacity_scale: f32,
     pub reveal_softness: f32,
-    pub post_saturation: f32,
-    pub color_grade: ColorGrade,
     pub comparison_fov_degrees: f32,
     pub antialiasing: Antialiasing,
     pub bloom_intensity: f32,
-    pub fog_color_linear: [f32; 3],
-    pub fog_brightness: f32,
-    pub fog_base_distance: f32,
-    pub fog_half_distance: f32,
-    pub fog_distance_scale: f32,
     pub sun_shadow_map_size: usize,
     pub sun_soft_shadow_size: f32,
     pub sun_shadow_distance: f32,
@@ -71,23 +52,6 @@ impl Default for VisualProfile {
     fn default() -> Self {
         serde_json::from_str(include_str!("../../config/origins-visual.json"))
             .expect("The committed visual profile must be valid")
-    }
-}
-
-impl VisualProfile {
-    pub(super) fn fog_color(&self) -> Color {
-        Color::linear_rgb(
-            self.fog_color_linear[0] * self.fog_brightness,
-            self.fog_color_linear[1] * self.fog_brightness,
-            self.fog_color_linear[2] * self.fog_brightness,
-        )
-    }
-
-    pub(super) fn fog_falloff(&self) -> FogFalloff {
-        FogFalloff::ExponentialSquared {
-            density: std::f32::consts::LN_2.sqrt()
-                / ((self.fog_base_distance + self.fog_half_distance) * self.fog_distance_scale),
-        }
     }
 }
 

@@ -10,7 +10,7 @@ pbr_types::{STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_
 };
 @if(ORIGINS_DIAGNOSTIC) import origins::surface_lighting::apply_pbr_lighting;
 @if(!ORIGINS_DIAGNOSTIC) import bevy_pbr::render::pbr_functions::apply_pbr_lighting;
-import origins::surface_bindings::{OriginsSurfaceData, animation_time, diagnostic_mode, set_surface_slot, parameters_for, sample_normal_map, sample_second_normal, sample_specular_map, sample_second_specular, sample_control_map, sample_third_normal, sample_third_specular, sample_color_base_grad, sample_color_first_grad, sample_color_second_grad, sample_color_third_grad};
+import origins::surface_bindings::{OriginsSurfaceData, animation_time, diagnostic_mode, set_surface_slot, parameters_for, sample_normal_map, sample_second_normal, sample_specular_map, sample_second_specular, sample_control_map, sample_third_normal, sample_third_specular, sample_color_base_grad, sample_color_first_grad, sample_color_second_grad, sample_color_third_grad, sample_reflectance_map, sample_second_reflectance, sample_third_reflectance};
 import bevy_pbr::render::mesh_bindings::mesh;
 import origins::surface_effect::{effect_uv, effect_color};
 import origins::native_weapon::native_fragment;
@@ -93,9 +93,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     var slope0 = vec2(0.0);
     var slope1 = vec2(0.0);
     var slope2 = vec2(0.0);
-    var s0 = vec4(1.0,0.8,0.0,0.0);
+    var s0 = vec4(1.0,pbr.material.perceptual_roughness,pbr.material.metallic,0.0);
     var s1 = s0;
     var s2 = s0;
+    var f0 = 0.16*pbr.material.reflectance*pbr.material.reflectance;
+    var f1 = f0;
+    var f2 = f0;
     if needs_surface && !water {
         if (surface.modes.x & 2u) != 0u {
             slope0 = normal_slope(sample_normal_map(slot, uv0, gradient0), surface.response.x, (surface.modes.w & 1u) != 0u);
@@ -103,6 +106,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
         if !tile_macro && surface.modes.y != 0u {
             s0 = sample_specular_map(slot, uv0, gradient0);
         }
+        if !tile_macro && (surface.modes.w & 8u) != 0u {
+            let r = sample_reflectance_map(slot, uv0, gradient0);
+            f0 = 0.16*r*r;
+        }
+        f1 = f0;
+        f2 = f0;
         s1 = s0;
         s2 = s0;
     }
@@ -135,6 +144,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
             if (surface.modes.z & 1u) != 0u {
                 s1 = sample_second_specular(slot, uv1, gradient1);
             }
+            if (surface.modes.w & 16u) != 0u {
+                let r = sample_second_reflectance(slot, uv1, gradient1);
+                f1 = 0.16*r*r;
+            }
             if surface.layers.x > 2u {
                 slope2 = slope0;
                 if (surface.modes.x & 8u) != 0u {
@@ -143,11 +156,16 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
                 if (surface.modes.z & 2u) != 0u {
                     s2 = sample_third_specular(slot, layer_uv.zw, layer_gradient2);
                 }
+                if (surface.modes.w & 32u) != 0u {
+                    let r = sample_third_reflectance(slot, layer_uv.zw, layer_gradient2);
+                    f2 = 0.16*r*r;
+                }
             }
         }
     }
     var slope = slope0*weights.x+slope1*weights.y+slope2*weights.z;
     var sg = s0*weights.x+s1*weights.y+s2*weights.z;
+    sg.g = pow(dot(vec3(pow(s0.g,4.0),pow(s1.g,4.0),pow(s2.g,4.0)),weights),0.25);
     if tile_macro && needs_surface && !water {
         var coating = vec2(0.0);
         var core = vec2(0.0);
@@ -166,6 +184,16 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
             s1 = sample_second_specular(slot, uv1, gradient1);
         }
         sg = s0*weights.x+s1*weights.y;
+        sg.g = pow(pow(s0.g,4.0)*weights.x+pow(s1.g,4.0)*weights.y,0.25);
+        if (surface.modes.w & 8u) != 0u {
+            let r = sample_reflectance_map(slot, uv1, gradient1);
+            f0 = 0.16*r*r;
+        }
+        f1 = f0;
+        if (surface.modes.w & 16u) != 0u {
+            let r = sample_second_reflectance(slot, uv1, gradient1);
+            f1 = 0.16*r*r;
+        }
     }
     if water {
         if needs_surface {
@@ -203,15 +231,13 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool,
     }
     @if(VERTEX_TANGENTS) let tbn = calculate_tbn_mikktspace(in.world_normal, in.world_tangent);
     @if(VERTEX_TANGENTS) pbr.N = normalize(tbn * vec3(slope, 1.0)) * face_sign;
-    pbr.material.reflectance = select(vec3(0.5),vec3(sqrt(0.02/0.16)),water);
+    pbr.material.reflectance = select(sqrt(max(f0*weights.x+f1*weights.y+f2*weights.z,vec3(0.0))/0.16),vec3(sqrt(0.02/0.16)),water);
     pbr.material.perceptual_roughness = clamp(sg.g,0.089,1.0);
     pbr.material.metallic = clamp(sg.b,0.0,1.0);
     pbr.material.clearcoat = clamp(sg.a,0.0,1.0);
-    if (surface.modes.x & 128u) != 0u {
-        let cavity = clamp(sg.r,0.0,1.0);
-        pbr.diffuse_occlusion *= vec3(cavity);
-        pbr.specular_occlusion *= cavity;
-    }
+    let cavity = clamp(sg.r,0.0,1.0);
+    pbr.diffuse_occlusion *= vec3(cavity);
+    pbr.specular_occlusion *= cavity;
     pbr.material.clearcoat_perceptual_roughness = surface.response.y;
     pbr.clearcoat_N = normalize(pbr.world_normal);
     pbr.material.base_color = alpha_discard(pbr.material.flags,pbr.material.alpha_cutoff,pbr.material.base_color);

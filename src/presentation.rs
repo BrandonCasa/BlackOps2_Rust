@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
     assets::{GameDefinition, LaunchOptions},
     gameplay::SessionEntity,
     hud::PlayerOverlay,
@@ -13,13 +14,10 @@ use bevy::{
         CameraOutputMode, Exposure, Hdr,
         visibility::{NoFrustumCulling, RenderLayers},
     },
-    core_pipeline::tonemapping::{Tonemapping, TonemappingLuts},
+    core_pipeline::tonemapping::Tonemapping,
     post_process::auto_exposure::{AutoExposure, AutoExposureCompensationCurve},
     prelude::*,
-    render::{
-        render_resource::BlendState,
-        view::{ColorGrading, ColorGradingGlobal},
-    },
+    render::{render_resource::BlendState, view::ColorGrading},
     world_serialization::WorldInstanceReady,
 };
 use std::collections::BTreeMap;
@@ -45,8 +43,6 @@ struct AimingJoint {
     translation: Vec3,
     rotation: Quat,
 }
-#[derive(Component)]
-struct RigRestPose(Transform);
 #[derive(Component)]
 struct SocketAttachment(Entity);
 #[derive(Component)]
@@ -80,12 +76,12 @@ pub(crate) struct Rig {
     playback: Option<WeaponAnimation>,
     sprinting: bool,
     sprint_phase: Option<(WeaponAnimation, f32)>,
+    playback_revision: u64,
 }
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
         camo::install(app);
-        app.init_resource::<offhand::GraphCache>()
-            .init_resource::<EquipmentPresentationEvidence>()
+        app.init_resource::<EquipmentPresentationEvidence>()
             .add_systems(
                 Update,
                 (
@@ -140,10 +136,7 @@ pub(crate) fn first_person_light(
     mut cameras: Query<(Entity, &mut Camera), With<GameCamera>>,
     profile: Res<crate::rendering::profile::VisualProfile>,
     mut curves: ResMut<Assets<AutoExposureCompensationCurve>>,
-    mut images: ResMut<Assets<Image>>,
-    mut luts: ResMut<TonemappingLuts>,
 ) {
-    crate::rendering::grading::install(&mut images, &mut luts, &profile);
     let middle_gray = 0.18_f32.log2();
     let brighten = (profile.outdoor_ev100 - profile.indoor_ev100).clamp(0., 5.);
     let compensation = curves.add(
@@ -181,14 +174,8 @@ pub(crate) fn first_person_light(
                 Exposure {
                     ev100: profile.outdoor_ev100,
                 },
-                Tonemapping::AgX,
-                ColorGrading {
-                    global: ColorGradingGlobal {
-                        post_saturation: profile.post_saturation,
-                        ..default()
-                    },
-                    ..default()
-                },
+                Tonemapping::TonyMcMapface,
+                ColorGrading::default(),
                 crate::rendering::postprocess::bloom(&profile),
                 match profile.antialiasing {
                     crate::rendering::profile::Antialiasing::Msaa4 => Msaa::Sample4,
@@ -392,6 +379,7 @@ fn spawn_viewmodels(
                             playback: None,
                             sprinting: false,
                             sprint_phase: None,
+                            playback_revision: 0,
                         },
                         Transform::default(),
                         if is_arms {
@@ -515,7 +503,6 @@ fn rig_ready(
     players: Query<(), With<AnimationPlayer>>,
     meshes: Query<(), With<Mesh3d>>,
     names: Query<&Name>,
-    poses: Query<&Transform>,
 ) {
     let Ok(mut rig) = rigs.get_mut(event.entity) else {
         return;
@@ -539,9 +526,6 @@ fn rig_ready(
             });
         }
         if names.contains(child) {
-            if let Ok(pose) = poses.get(child) {
-                commands.entity(child).insert(RigRestPose(*pose));
-            }
             rig.tracked.push((child, None));
         }
         if players.contains(child) {
@@ -587,21 +571,10 @@ fn rig_ready(
         rig.players.len()
     );
 }
-fn clear_aim_pose(
-    state: Res<State<GameState>>,
-    mut bones: Query<(&mut Transform, &RigRestPose, Option<&mut AimingJoint>)>,
-) {
-    for (mut pose, rest, joint) in &mut bones {
-        if **state == GameState::Playing {
-            *pose = rest.0;
-        } else if let Some(joint) = joint.as_ref() {
-            pose.translation -= joint.translation;
-            pose.rotation *= joint.rotation.inverse();
-        }
-        if let Some(mut joint) = joint {
-            joint.translation = Vec3::ZERO;
-            joint.rotation = Quat::IDENTITY;
-        }
+fn clear_aim_pose(mut joints: Query<&mut AimingJoint>) {
+    for mut joint in &mut joints {
+        joint.translation = Vec3::ZERO;
+        joint.rotation = Quat::IDENTITY;
     }
 }
 fn aim_pose(
@@ -780,34 +753,17 @@ fn build_graphs(
     mut rigs: Query<&mut Rig>,
     assets: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut cache: ResMut<offhand::GraphCache>,
+    mut cache: ResMut<AnimationGraphs>,
 ) {
     for mut rig in &mut rigs {
         if rig.graph.is_some() {
             continue;
         }
-        if let Some((graph, nodes)) = cache.0.get(&rig.source.id()) {
-            rig.graph = Some(graph.clone());
-            rig.nodes = nodes.clone();
-            continue;
-        }
-        let Some(asset) = assets.get(&rig.source) else {
+        let Some(bindings) = cache.scene(&rig.source, &assets, &mut graphs) else {
             continue;
         };
-        let mut named: Vec<_> = asset.named_animations.iter().collect();
-        named.sort_by(|(a, _), (b, _)| a.cmp(b));
-        let (graph, nodes) =
-            AnimationGraph::from_clips(named.iter().map(|(_, handle)| (*handle).clone()));
-        rig.nodes = named
-            .into_iter()
-            .zip(nodes)
-            .map(|((name, _), node)| (name.to_string(), node))
-            .collect();
-        let graph = graphs.add(graph);
-        cache
-            .0
-            .insert(rig.source.id(), (graph.clone(), rig.nodes.clone()));
-        rig.graph = Some(graph);
+        rig.nodes = bindings.named.clone();
+        rig.graph = Some(bindings.graph.clone());
     }
 }
 #[cfg(debug_assertions)]
@@ -931,7 +887,7 @@ fn animate(
     mut rigs: Query<(&mut Rig, &mut Visibility)>,
     clips: Res<Assets<AnimationClip>>,
     gltfs: Res<Assets<Gltf>>,
-    mut players: Query<&mut AnimationPlayer>,
+    players: Query<Option<&AnimationPlayback>, With<AnimationPlayer>>,
 ) {
     let Some(definition) = definition else {
         return;
@@ -949,8 +905,10 @@ fn animate(
             .or_else(|| inventory.active().map(|w| &w.definition));
         if visible != Some(&rig.weapon) {
             for entity in &rig.players {
-                if let Ok(mut player) = players.get_mut(*entity) {
-                    player.pause_all();
+                if let Ok(Some(playback)) = players.get(*entity) {
+                    let mut playback = playback.clone();
+                    playback.enabled = false;
+                    commands.entity(*entity).insert(playback);
                 }
             }
             rig.sequence = None;
@@ -1115,76 +1073,60 @@ fn animate(
             .iter()
             .find(|w| w.id.0 == "weapon.knife_zm")
             .unwrap_or(weapon);
-        for &entity in &rig.players {
-            let Ok(mut player) = players.get_mut(entity) else {
-                continue;
-            };
-            let finishing_shot =
-                selected.is_none() && shot_seek.is_some() && signal == WeaponSignal::Idle;
-            if (rig.sequence != Some(sequence) && !finishing_shot)
-                || rig.playback != Some(action)
-                || rig.phase != selected.as_ref().map(|s| s.action)
-            {
-                commands
-                    .entity(entity)
-                    .insert(AnimationGraphHandle(graph.clone()));
-                player.stop_all();
-                let active = player.play(node);
-                if matches!(
-                    action,
-                    WeaponAnimation::Idle
-                        | WeaponAnimation::IdleEmpty
-                        | WeaponAnimation::SprintLoop
-                ) {
-                    active.repeat();
-                }
-                if selected.is_some() {
-                    evidence.phases.insert(format!(
-                        "{}:{action:?}:{}",
-                        weapon.id.0,
-                        if rig.arms { "arms" } else { "model" }
-                    ));
-                }
-            }
-            let timing = holding_throwable
-                .then_some((1., 0.))
-                .or_else(|| selected.as_ref().and_then(|s| s.timing))
-                .or_else(|| inventory.hand_reload_timing(rig.left))
-                .or_else(|| inventory.presentation_timing(weapon, melee));
-            let seek = native_clip.and_then(|clip| {
-                if let Some(fraction) = sprint_fraction {
-                    Some(fraction.clamp(0., 1.) * clip.duration())
-                } else if let Some((duration, remaining)) = timing {
-                    Some(
-                        ((duration - remaining).max(0.) / duration * clip.duration())
-                            .min(clip.duration()),
-                    )
-                } else if selected.is_none() && shot_seek.is_some() {
-                    shot_seek.map(|age| age.min(clip.duration()))
-                } else {
-                    None
-                }
-            });
-            if let Some(seek) = seek
-                && let Some(active) = player.animation_mut(node)
-            {
-                active.set_speed(0.);
-                active.set_seek_time(seek);
-                let key = format!(
+        let finishing_shot =
+            selected.is_none() && shot_seek.is_some() && signal == WeaponSignal::Idle;
+        let changed = (rig.sequence != Some(sequence) && !finishing_shot)
+            || rig.playback != Some(action)
+            || rig.phase != selected.as_ref().map(|s| s.action);
+        if changed {
+            rig.playback_revision = rig.playback_revision.wrapping_add(1);
+            if selected.is_some() {
+                evidence.phases.insert(format!(
                     "{}:{action:?}:{}",
-                    rig.weapon.0,
+                    weapon.id.0,
                     if rig.arms { "arms" } else { "model" }
-                );
-                let clock = evidence.clocks.entry(key).or_default();
-                clock[0] = native_clip.map_or(0., |clip| clip.duration());
-                clock[1] = clock[1].max(seek);
-                clock[2] += 1.;
+                ));
             }
-            if **state == GameState::Playing && seek.is_none() {
-                player.resume_all();
+        }
+        let timing = holding_throwable
+            .then_some((1., 0.))
+            .or_else(|| selected.as_ref().and_then(|s| s.timing))
+            .or_else(|| inventory.hand_reload_timing(rig.left))
+            .or_else(|| inventory.presentation_timing(weapon, melee));
+        let seek = native_clip.and_then(|clip| {
+            if let Some(fraction) = sprint_fraction {
+                Some(fraction.clamp(0., 1.) * clip.duration())
+            } else if let Some((duration, remaining)) = timing {
+                Some(
+                    ((duration - remaining).max(0.) / duration * clip.duration())
+                        .min(clip.duration()),
+                )
+            } else if selected.is_none() && shot_seek.is_some() {
+                shot_seek.map(|age| age.min(clip.duration()))
             } else {
-                player.pause_all();
+                None
             }
+        });
+        let looping = matches!(
+            action,
+            WeaponAnimation::Idle | WeaponAnimation::IdleEmpty | WeaponAnimation::SprintLoop
+        );
+        let mut playback =
+            AnimationPlayback::new(graph, vec![AnimationLayer::new(node, seek, looping)]);
+        playback.restart = rig.playback_revision;
+        for &entity in &rig.players {
+            commands.entity(entity).insert(playback.clone());
+        }
+        if let Some(seek) = seek {
+            let key = format!(
+                "{}:{action:?}:{}",
+                rig.weapon.0,
+                if rig.arms { "arms" } else { "model" }
+            );
+            let clock = evidence.clocks.entry(key).or_default();
+            clock[0] = native_clip.map_or(0., |clip| clip.duration());
+            clock[1] = clock[1].max(seek);
+            clock[2] += rig.players.len() as f32;
         }
         rig.sequence = Some(sequence);
         rig.phase = selected.as_ref().map(|s| s.action);

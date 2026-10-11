@@ -84,6 +84,8 @@ def repair(source, destination, masters, inspection, extraction, preparation_exe
             for key, channel in channels.items():
                 if key[0] == "emissive":
                     raise ValueError(f"{identity}: recovered emission has no runtime declaration; resolve explicitly")
+                if key[0] == "reflectance":
+                    repaired.append(copy.deepcopy(channel))
             material["extras"]["surface"]["channels"] = repaired
             material["extras"]["surface"]["physical_class"] = proposed["physical_class"]
             material["extras"]["surface"]["provenance"] = proposed["provenance"]

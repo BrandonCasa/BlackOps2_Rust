@@ -10,6 +10,7 @@ pub(super) fn setup(
     cameras: Query<Entity, With<GameCamera>>,
     server: Res<AssetServer>,
     profile: Res<VisualProfile>,
+    source: Res<super::atmosphere::SourceAtmosphere>,
 ) {
     let Ok(camera) = cameras.single() else { return };
     let image = server
@@ -43,12 +44,7 @@ pub(super) fn setup(
             quality_level: ScreenSpaceAmbientOcclusionQualityLevel::Medium,
             ..default()
         },
-        DistanceFog {
-            color: profile.fog_color(),
-            falloff: profile.fog_falloff(),
-            directional_light_color: Color::NONE,
-            ..default()
-        },
+        source.fog.native(),
     ));
 }
 

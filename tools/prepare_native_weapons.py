@@ -46,7 +46,7 @@ KINDS = (("weapon_camo", "camo"), ("wpn_zmb_staff_3layer", "staff"),
          ("viewmodel_transparent", "transparent"), ("optic_lens", "lens"),
          ("reticle_dynamic", "reticle"), ("clan_tag", "badge"),
          ("player_icon", "badge"), ("unlit", "unlit"),
-         ("char_cloth", "lit"), ("char_skin", "lit"), ("lit_sm_", "lit"))
+         ("char_cloth", "cloth"), ("char_skin", "skin"), ("lit_sm_", "lit"))
 
 
 def digest(raw):
@@ -114,7 +114,7 @@ class NativeWeapons:
 
     def texture(self, binding, zone, role, layer, sampler):
         source_zone, path = self.source_image(binding["image"], zone)
-        key = (path, role)
+        key = (path, role, sampler)
         if key not in self.records:
             raw = path.read_bytes()
             record = inspect_dds(raw)
@@ -129,7 +129,7 @@ class NativeWeapons:
             cached, receipt = preserve_source(path, role, False, self.executable, self.work)
             source_hash = record['sha256']
             record = receipt['output']
-            uri = f"textures/native-{source_hash}.ktx2"
+            uri = f"textures/native-{source_hash}-{sampler:02x}.ktx2"
             target = self.pack / uri
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.is_file():

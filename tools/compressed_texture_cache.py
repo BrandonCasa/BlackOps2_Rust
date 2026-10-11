@@ -34,7 +34,7 @@ def quality_limits(role):
 
 
 def sampled_channels(role):
-    return {"control": (0, 1), "coating": (0,), "emissive": (0, 1, 2)}.get(role, (0, 1, 2, 3))
+    return {"control": (0, 1), "coating": (0,), "emissive": (0, 1, 2), "reflectance": (0, 1, 2)}.get(role, (0, 1, 2, 3))
 
 
 @contextmanager

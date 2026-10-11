@@ -6,50 +6,15 @@
   ],
   "ambient_brightness": 30.0,
   "environment_intensity": 0.02,
-  "sun_color": [
-    0.72,
-    0.86,
-    1.0
-  ],
   "sun_illuminance": 18000.0,
-  "sun_rotation": [
-    -0.8,
-    -0.5,
-    0.0
-  ],
   "indoor_ev100": 9.0,
   "outdoor_ev100": 11.5,
   "adaptation_speed": 1.4,
   "transparent_opacity_scale": 0.6,
   "reveal_softness": 3.2,
-  "post_saturation": 1.0,
-  "color_grade": {
-    "strength": 0.85,
-    "contrast": 1.12,
-    "vibrance": 1.16,
-    "shadow_tint": [
-      1.0,
-      1.0,
-      1.0
-    ],
-    "highlight_tint": [
-      1.0,
-      1.0,
-      1.0
-    ]
-  },
   "comparison_fov_degrees": 55.0,
   "antialiasing": "Taa",
   "bloom_intensity": 0.14,
-  "fog_color_linear": [
-    0.690934002,
-    1.12463927,
-    1.47757721
-  ],
-  "fog_brightness": 1.0,
-  "fog_base_distance": 3.81,
-  "fog_half_distance": 25.393016,
-  "fog_distance_scale": 3.0,
   "lantern_color": [
     1.0,
     0.71,

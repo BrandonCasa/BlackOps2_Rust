@@ -21,6 +21,7 @@
 !/assets/origins/weapon_camos.json
 !/assets/origins/**/*.gltf
 !/assets/origins/**/*.bin
+!/assets/origins/**/*.ktx2
 !/assets/origins/**/*.png
 !/assets/origins/**/*.dds
 !/assets/origins/**/*.jpg

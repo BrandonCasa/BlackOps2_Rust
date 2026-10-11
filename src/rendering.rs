@@ -9,6 +9,7 @@ use bevy::{
     gltf::GltfMaterialName,
     prelude::*,
 };
+pub(crate) mod atmosphere;
 mod first_person;
 pub(crate) mod grading;
 mod lighting_inspection;
@@ -90,6 +91,7 @@ impl Plugin for GameRenderingPlugin {
             .add_plugins(preprocessing::PreprocessingPlugin)
             .add_plugins(residency::ResidencyPlugin)
             .init_resource::<profile::VisualProfile>()
+            .add_plugins(atmosphere::AtmospherePlugin)
             .add_plugins(lighting_inspection::LightingInspectionPlugin)
             .add_plugins(readback_shutdown::ReadbackShutdownPlugin)
             .init_resource::<OpaqueSurfaceStatus>()
@@ -153,14 +155,18 @@ fn cluster_capacity(mut settings: ResMut<bevy::light::cluster::GlobalClusterSett
     }
 }
 
-pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>) {
+pub(crate) fn setup(
+    mut commands: Commands,
+    profile: Res<profile::VisualProfile>,
+    source: Res<atmosphere::SourceAtmosphere>,
+) {
     commands.insert_resource(bevy::light::PointLightShadowMap {
         size: profile.lantern_shadow_map_size,
     });
     commands.insert_resource(bevy::light::DirectionalLightShadowMap {
         size: profile.sun_shadow_map_size,
     });
-    commands.insert_resource(ClearColor(profile.fog_color()));
+    commands.insert_resource(ClearColor(source.fog.native().color));
     commands.insert_resource(GlobalAmbientLight {
         color: profile::color(profile.ambient_color),
         brightness: profile.ambient_brightness,
@@ -170,7 +176,11 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
         .spawn((
             DirectionalLight {
                 illuminance: profile.sun_illuminance,
-                color: profile::color(profile.sun_color),
+                color: Color::linear_rgb(
+                    source.sun_color[0],
+                    source.sun_color[1],
+                    source.sun_color[2],
+                ),
                 affects_lightmapped_mesh_diffuse: true,
                 contact_shadows_enabled: true,
                 shadow_maps_enabled: true,
@@ -187,13 +197,12 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
                 ..default()
             }
             .build(),
-            Transform::from_rotation(Quat::from_euler(
-                EulerRot::XYZ,
-                profile.sun_rotation[0],
-                profile.sun_rotation[1],
-                profile.sun_rotation[2],
-            )),
+            Transform::IDENTITY.looking_to(
+                -atmosphere::source_direction(source.sun_angles[0], source.sun_angles[1]),
+                Vec3::Y,
+            ),
             Name::new("Origins sunlight"),
+            atmosphere::Sun,
         ))
         .id();
     commands

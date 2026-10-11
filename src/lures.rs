@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
     assets::GameDefinition,
     equipment::Grenade,
     gameplay::GameStep,
@@ -58,7 +59,6 @@ pub struct LureRig {
     pub clip: Handle<AnimationClip>,
     ready: bool,
     players: Vec<Entity>,
-    started: bool,
 }
 impl LureRig {
     pub fn new(owner: Entity, clip: Handle<AnimationClip>) -> Self {
@@ -67,18 +67,14 @@ impl LureRig {
             clip,
             ready: false,
             players: Vec::new(),
-            started: false,
         }
     }
 }
 #[derive(Resource, Default)]
 struct EquipmentMaterials(HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>);
-#[derive(Resource, Default)]
-struct Graphs(HashMap<AssetId<AnimationClip>, (Handle<AnimationGraph>, AnimationNodeIndex)>);
 pub fn install(app: &mut App) {
     app.init_resource::<Attractions>()
         .init_resource::<LureEvidence>()
-        .init_resource::<Graphs>()
         .init_resource::<EquipmentMaterials>()
         .add_observer(ready)
         .add_systems(
@@ -88,7 +84,7 @@ pub fn install(app: &mut App) {
                 .in_set(GameStep::EnemyIntent)
                 .run_if(in_state(GameState::Playing)),
         )
-        .add_systems(Update, animate.before(bevy::app::AnimationSystems));
+        .add_systems(Update, animate);
 }
 fn assign(
     definition: Res<GameDefinition>,
@@ -221,15 +217,14 @@ fn ready(
 fn animate(
     mut commands: Commands,
     state: Res<State<GameState>>,
-    mut rigs: Query<&mut LureRig>,
+    rigs: Query<&LureRig>,
     grenades: Query<&Grenade>,
     clips: Res<Assets<AnimationClip>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut cache: ResMut<Graphs>,
-    mut players: Query<&mut AnimationPlayer>,
+    mut cache: ResMut<AnimationGraphs>,
     mut evidence: ResMut<LureEvidence>,
 ) {
-    for mut rig in &mut rigs {
+    for rig in &rigs {
         if !rig.ready {
             continue;
         }
@@ -239,31 +234,18 @@ fn animate(
         if !grenade.lure_active {
             continue;
         }
-        if !cache.0.contains_key(&rig.clip.id()) {
-            if !clips.contains(rig.clip.id()) {
-                continue;
-            }
-            let (graph, node) = AnimationGraph::from_clip(rig.clip.clone());
-            cache.0.insert(rig.clip.id(), (graphs.add(graph), node));
-        }
-        let (graph, node) = &cache.0[&rig.clip.id()];
+        let Some(bindings) = cache.clip(&rig.clip, &clips, &mut graphs) else {
+            continue;
+        };
+        let playback = AnimationPlayback::new(
+            bindings.graph.clone(),
+            vec![AnimationLayer::new(bindings.ordered[0], None, true)],
+        );
         for entity in &rig.players {
-            let Ok(mut player) = players.get_mut(*entity) else {
-                continue;
-            };
-            if !rig.started {
-                commands
-                    .entity(*entity)
-                    .insert(AnimationGraphHandle(graph.clone()));
-                player.play(*node).repeat();
-            }
+            commands.entity(*entity).insert(playback.clone());
             if *state == GameState::Playing {
-                player.resume_all();
                 evidence.frames += 1;
-            } else {
-                player.pause_all();
             }
         }
-        rig.started = true;
     }
 }

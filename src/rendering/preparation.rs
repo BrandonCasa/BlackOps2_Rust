@@ -137,6 +137,8 @@ fn advance(
     progress: Res<ShaderProgress>,
     mut preparation: ResMut<Preparation>,
     surfaces: Res<super::OpaqueSurfaceStatus>,
+    atmosphere: Res<super::atmosphere::AtmosphereState>,
+    grade: Res<super::grading::SourceGrade>,
     rigs: Query<&crate::presentation::Rig>,
     options: Res<crate::assets::LaunchOptions>,
     mut failure: ResMut<LoadFailure>,
@@ -176,6 +178,8 @@ fn advance(
                 .iter()
                 .all(|rig| rig.ready && (rig.arms || rig.attached)));
     if surfaces.ready()
+        && atmosphere.shader_ready
+        && grade.ready()
         && models_ready
         && progress.total > 0
         && progress.ready == progress.total

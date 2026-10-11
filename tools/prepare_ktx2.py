@@ -22,9 +22,9 @@ except ImportError:
     from ktx2_textures import DXGI_TO_VK, TO_LINEAR, TO_SRGB, inspect_ktx2, payloads, decoded_levels
 
 try:
-    from .material_textures import inspect_dds, rgba_levels, color_levels, normal_levels, response_levels
+    from .material_textures import inspect_dds, rgba_levels, color_levels, normal_levels, response_levels, reflectance_levels
 except ImportError:
-    from material_textures import inspect_dds, rgba_levels, color_levels, normal_levels, response_levels
+    from material_textures import inspect_dds, rgba_levels, color_levels, normal_levels, response_levels, reflectance_levels
 
 
 TEXTURES = {'.dds', '.png', '.jpg', '.jpeg', '.ktx2', '.basis', '.tga', '.bmp', '.webp', '.hdr', '.exr', '.tif', '.tiff'}
@@ -295,6 +295,8 @@ def convert(inventory_path, output, executable, selected=()):
                 levels[0] = pixels.copy()
             elif role == 'response':
                 levels = response_levels(pixels, [])
+            elif role == 'reflectance':
+                levels = reflectance_levels(pixels)
             else:
                 levels = color_levels(pixels, srgb, cutoffs[0] if cutoffs else None)
                 levels[0] = pixels.copy()
@@ -392,10 +394,10 @@ def preserve_source(source, role, srgb, executable, work):
 def runtime_image(pixels, role, srgb, destination, config, cutoffs=()):
     import numpy as np
     try:
-        from .material_textures import color_levels, normal_levels, response_levels
+        from .material_textures import color_levels, normal_levels, response_levels, reflectance_levels
         from .compressed_texture_cache import materialize
     except ImportError:
-        from material_textures import color_levels, normal_levels, response_levels
+        from material_textures import color_levels, normal_levels, response_levels, reflectance_levels
         from compressed_texture_cache import materialize
     executable = Path(config['materials']['preparation_executable'])
     work = Path(config['assets']['inspection_output'])/'runtime-ktx2-cache'
@@ -406,6 +408,8 @@ def runtime_image(pixels, role, srgb, destination, config, cutoffs=()):
         levels, _ = normal_levels(pixels[..., :3].astype(np.float32)/127.5-1)
     elif role == 'response':
         levels = response_levels(pixels, [])
+    elif role == 'reflectance':
+        levels = reflectance_levels(pixels)
     else:
         levels = color_levels(pixels, srgb, cutoffs[0] if cutoffs else None)
     levels[0] = pixels.copy()
@@ -433,6 +437,8 @@ def process_recipes(recipes, output, executable):
                     levels, _ = normal_levels(pixels[..., :3].astype(np.float32)/127.5-1)
                 elif entry['role'] == 'response':
                     levels = response_levels(pixels, [])
+                elif entry['role'] == 'reflectance':
+                    levels = reflectance_levels(pixels)
                 else:
                     cutoffs = entry.get('mask_cutoffs', [])
                     if len(cutoffs) > 1:

@@ -1,6 +1,21 @@
 import bevy_pbr::render::{forward_io::{VertexOutput, FragmentOutput}, pbr_types::{PbrInput, STANDARD_MATERIAL_FLAGS_DOUBLE_SIDED_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS}, pbr_functions::{calculate_tbn_mikktspace, alpha_discard, main_pass_post_lighting_processing}};
-import origins::surface_bindings::{OriginsSurfaceData, NativeWeaponParameters, animation_time, diagnostic_mode, sample_normal_map, sample_second_normal, sample_specular_map, sample_second_specular, sample_control_map, sample_third_specular, sample_color_base_grad, sample_color_first_grad, sample_color_second_grad, sample_color_third_grad, set_native_lighting_scales, set_native_diffuse_normal, set_native_gloss};
-import origins::surface_lighting::apply_pbr_lighting;
+import origins::surface_bindings::{OriginsSurfaceData, NativeWeaponParameters, animation_time, diagnostic_mode, sample_normal_map, sample_second_normal, sample_specular_map, sample_second_specular, sample_control_map, sample_third_specular, sample_color_base_grad, sample_color_first_grad, sample_color_second_grad, sample_color_third_grad};
+@if(ORIGINS_DIAGNOSTIC) import origins::surface_lighting::apply_pbr_lighting;
+@if(!ORIGINS_DIAGNOSTIC) import bevy_pbr::render::pbr_functions::apply_pbr_lighting;
+
+const LEGACY_DIELECTRIC_F0: f32 = 0.0482276048;
+
+fn perceived_brightness(color: vec3<f32>) -> f32 {
+    return sqrt(dot(color*color,vec3(0.299,0.587,0.114)));
+}
+fn legacy_metallic(diffuse: vec3<f32>, specular: vec3<f32>) -> f32 {
+    let brightness = perceived_brightness(specular);
+    if brightness <= LEGACY_DIELECTRIC_F0 { return 0.0; }
+    let remaining = 1.0-max(max(specular.r,specular.g),specular.b);
+    let b = perceived_brightness(diffuse)*remaining/(1.0-LEGACY_DIELECTRIC_F0)+brightness-2.0*LEGACY_DIELECTRIC_F0;
+    let c = LEGACY_DIELECTRIC_F0-brightness;
+    return clamp((-b+sqrt(max(b*b-4.0*LEGACY_DIELECTRIC_F0*c,0.0)))/(2.0*LEGACY_DIELECTRIC_F0),0.0,1.0);
+}
 
 fn native_slope(sampled: vec4<f32>) -> vec2<f32> {
     return (sampled.rg*4.015748-vec2(2.015748))*vec2(1.0,-1.0);
@@ -55,18 +70,14 @@ fn native_fragment(in: VertexOutput, is_front: bool, slot: u32, surface: Origins
     }
     if layered { slope *= native.staff.z; }
     @if(VERTEX_TANGENTS) pbr.N = normalize(tbn*vec3(slope,1.0))*face_sign;
-    var diffuse_normal = pbr.N;
-    if native.kind.x == 1u || native.kind.x == 4u {
-        @if(VERTEX_TANGENTS) diffuse_normal = normalize(tbn*vec3(slope*native.ember.z,1.0))*face_sign;
-    }
-    set_native_diffuse_normal(diffuse_normal);
     let color = sample_color_base_grad(slot,in.uv,gradient);
     var diffuse = color.rgb*in.color.rgb;
     if (flags & 512u) != 0u && native.kind.x != 4u { diffuse *= in.color.rgb; }
     var alpha = color.a*in.color.a;
-    var sg = vec4(0.0);
+    var sg = vec4(vec3(56.0/255.0),0.0);
     if (flags & 1u) != 0u { sg = sample_specular_map(slot,in.uv,gradient); }
     if (flags & 16u) != 0u { sg.a = sample_second_specular(slot,in.uv,gradient).r; }
+    if (flags & 16384u) != 0u { sg.a = color.a; alpha = 1.0; }
     if native.kind.x == 10u && !layered {
         let camo_uv = in.uv*native.camo.xy;
         let camo_gradient = mat2x2(dpdx(camo_uv),dpdy(camo_uv));
@@ -80,17 +91,14 @@ fn native_fragment(in: VertexOutput, is_front: bool, slot: u32, surface: Origins
         alpha = 1.0;
     }
     sg = vec4(sg.rgb*native.flicker.w,sg.a);
-    var scales = vec3(native.response.x,1.0,native.response.y);
     if native.kind.x == 2u || native.kind.x == 8u {
-        scales.x /= max(alpha,0.000001);
-        scales.z /= max(alpha,0.000001);
         alpha = sqrt(max(alpha,0.0));
     }
     var control = vec4(1.0);
     if (flags & 4u) != 0u {
         control = sample_control_map(slot,in.uv,gradient);
-        scales *= vec3(control.r,control.r,control.g);
-        alpha = 1.0;
+        pbr.diffuse_occlusion *= vec3(clamp(control.r,0.0,1.0));
+        pbr.specular_occlusion *= clamp(control.g,0.0,1.0);
     }
     if (flags & 8u) != 0u {
         let uv = (in.uv-vec2(0.5))*native.camo_extra.z+native.camo_extra.xy+vec2(0.5);
@@ -99,13 +107,6 @@ fn native_fragment(in: VertexOutput, is_front: bool, slot: u32, surface: Origins
         sg = vec4(mix(sg.rgb,adjusted_specular,native.camo_extra.w),sg.a);
         let adjusted_color = mix(clamp(detail.rgb+vec3(control.b-0.5),vec3(0.0),vec3(1.0)),color.rgb,color.a);
         diffuse = mix(color.rgb,adjusted_color,native.camo_extra.w)*in.color.rgb;
-        scales.x *= native.detail.z;
-    }
-    if native.kind.x == 8u {
-        let grazing = 1.0-clamp(dot(normalize(pbr.world_normal),pbr.V),0.0,1.0);
-        let fade = smoothstep(0.0,max(native.weapon_detail.x,0.00001),grazing);
-        scales.x *= fade;
-        scales.z *= fade;
     }
     var gloss = clamp(sg.a*native.response.z,0.0,1.0);
     var emission = vec3(0.0);
@@ -152,8 +153,6 @@ fn native_fragment(in: VertexOutput, is_front: bool, slot: u32, surface: Origins
         emission *= emission;
         diffuse = vec3(0.0);
         gloss = native.layer_alpha.w;
-        scales.x = 0.0;
-        scales.y = 0.0;
         alpha = 1.0;
     }
     if native.kind.x == 9u {
@@ -177,14 +176,29 @@ fn native_fragment(in: VertexOutput, is_front: bool, slot: u32, surface: Origins
         if (flags & 2048u) != 0u { diffuse *= color.a; }
         if (flags & 6144u) != 0u { alpha = 1.0; }
     }
-    set_native_lighting_scales(scales);
-    set_native_gloss(gloss);
-    let f0 = sg.rgb*sg.rgb;
-    pbr.material.reflectance = sqrt(max(f0,vec3(0.0))/0.16);
-    pbr.material.metallic = 0.0;
-    pbr.material.perceptual_roughness = clamp(pow(2.0/(exp2(13.0*gloss)+2.0),0.25),0.089,1.0);
+    var specular_amount = max(native.response.x,0.0);
+    if (flags & 8u) != 0u { specular_amount *= max(native.detail.z,0.0); }
+    if native.kind.x == 8u {
+        let grazing = 1.0-clamp(dot(normalize(pbr.world_normal),pbr.V),0.0,1.0);
+        specular_amount *= smoothstep(0.0,max(native.weapon_detail.x,0.00001),grazing);
+    }
+    let f0 = clamp(sg.rgb*sg.rgb*specular_amount,vec3(0.0),vec3(1.0));
+    let dielectric = (flags & 512u) != 0u || native.kind.x == 2u || native.kind.x == 8u;
+    let diffuse_linear = diffuse*diffuse;
+    var metallic = 0.0;
+    if !dielectric && !layered { metallic = legacy_metallic(diffuse_linear,f0); }
+    let remaining = 1.0-max(max(f0.r,f0.g),f0.b);
+    let dielectric_f0 = select(min(f0,vec3(0.16)),vec3(LEGACY_DIELECTRIC_F0),metallic > 0.000001);
+    let from_diffuse = diffuse_linear*remaining/max(1.0-max(max(dielectric_f0.r,dielectric_f0.g),dielectric_f0.b),0.000001)/max(1.0-metallic,0.000001);
+    let from_specular = (f0-dielectric_f0*(1.0-metallic))/max(metallic,0.000001);
+    let base_color = clamp(mix(from_diffuse,from_specular,metallic*metallic),vec3(0.0),vec3(1.0));
+    pbr.material.reflectance = sqrt(dielectric_f0/0.16);
+    pbr.material.metallic = metallic;
+    if (flags & 16401u) != 0u || layered {
+        pbr.material.perceptual_roughness = clamp(pow(2.0/(exp2(13.0*gloss)+2.0),0.25),0.089,1.0);
+    }
     pbr.material.clearcoat = 0.0;
-    pbr.material.base_color = alpha_discard(pbr.material.flags,pbr.material.alpha_cutoff,vec4(diffuse*diffuse,alpha));
+    pbr.material.base_color = alpha_discard(pbr.material.flags,pbr.material.alpha_cutoff,vec4(select(base_color,diffuse_linear,dielectric || layered),alpha));
     pbr.material.emissive = vec4(emission,0.0);
     var out: FragmentOutput;
     if native.kind.x == 3u || native.kind.x == 9u {
@@ -194,7 +208,7 @@ fn native_fragment(in: VertexOutput, is_front: bool, slot: u32, surface: Origins
     if mode != 0u && mode < 8u && mode != 6u {
         var debug = vec3(pbr.material.perceptual_roughness);
         if mode == 1u { debug = fract(vec3(surface.response.z)*vec3(0.618034,0.414214,0.732051)); }
-        if mode == 3u { debug = f0; }
+        if mode == 3u { debug = vec3(metallic); }
         if mode == 4u { debug = pbr.N*0.5+0.5; }
         if mode == 5u { debug = vec3(alpha); }
         if mode == 7u { debug = normalize(pbr.world_normal)*0.5+0.5; }

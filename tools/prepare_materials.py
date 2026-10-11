@@ -17,13 +17,13 @@ import numpy as np
 from PIL import Image
 
 try:
-    from .material_textures import canonical_normal, color_levels, inspect_dds, normal_levels, response_levels, rgba_dds, rgba_levels
+    from .material_textures import canonical_normal, color_levels, inspect_dds, normal_levels, response_levels, reflectance_levels, rgba_dds, rgba_levels
     from .prepare_origins import material_family, presentation
-    from .material_semantics import resolve_bindings, meanings, physical_response, uv_selection
+    from .material_semantics import CHANNELS, resolve_bindings, meanings, physical_response, uv_selection, legacy_color, specular_response
 except ImportError:
-    from material_textures import canonical_normal, color_levels, inspect_dds, normal_levels, response_levels, rgba_dds, rgba_levels
+    from material_textures import canonical_normal, color_levels, inspect_dds, normal_levels, response_levels, reflectance_levels, rgba_dds, rgba_levels
     from prepare_origins import material_family, presentation
-    from material_semantics import resolve_bindings, meanings, physical_response, uv_selection
+    from material_semantics import CHANNELS, resolve_bindings, meanings, physical_response, uv_selection, legacy_color, specular_response
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 EFFECT_CONSTANT_HASHES = {
@@ -193,6 +193,12 @@ class Cooker:
 
     @lru_cache(maxsize=20)
     def pixels(self, path):
+        if path.suffix.lower() == ".ktx2":
+            try:
+                from .ktx2_textures import decoded_levels
+            except ImportError:
+                from ktx2_textures import decoded_levels
+            return decoded_levels(path.read_bytes())[0]
         if path.suffix.lower() == ".dds":
             raw = path.read_bytes()
             record = inspect_dds(raw, allow_non_2d=True)
@@ -227,11 +233,11 @@ class Cooker:
             return None
         return self.pixels(path)
 
-    def texture(self, levels, role, srgb=False):
+    def texture(self, levels, role, srgb=False, sampler=20):
         if all(np.all(level == levels[0][0, 0]) for level in levels):
             levels = [levels[0][:1, :1].copy()]
         raw = rgba_dds(levels, srgb)
-        digest = hashlib.sha256(raw + role.encode()).hexdigest()[:32]
+        digest = hashlib.sha256(raw + role.encode() + bytes([sampler])).hexdigest()[:32]
         name = f"pbr-{digest}.ktx2"
         w, h = levels[0].shape[1], levels[0].shape[0]
         fmt = "R8G8B8A8_UNORM_SRGB" if srgb else "R8G8B8A8_UNORM"
@@ -245,7 +251,7 @@ class Cooker:
             temporary.replace(master)
         self.pending[name] = fmt
         uri = "textures/" + name
-        channel = {"uri": uri, "role": role, "color_space": "srgb" if srgb else "linear",
+        channel = {"uri": uri, "role": role, "color_space": "srgb" if srgb else "linear", "sampler": sampler,
                    "format": fmt, "width": w, "height": h, "mip_count": len(levels)}
         self.entries.setdefault(uri, channel.copy())
         return channel
@@ -263,7 +269,8 @@ class Cooker:
             c = by_role.get((role, layer))
             if c:
                 if "uri" in c:
-                    return rgba_levels((self.work / Path(c["uri"]).with_suffix(".dds").name).read_bytes())[0]
+                    master = self.work / Path(c["uri"]).with_suffix(".dds").name
+                    return rgba_levels(master.read_bytes())[0] if master.is_file() else self.pixels(self.pack / c["uri"])
                 i = document["textures"][c["texture"]]["source"]
                 source_path = path.parent / document["images"][i]["uri"]
                 return self.pixels(source_path) if source_path.is_file() else None
@@ -279,6 +286,11 @@ class Cooker:
         def pixels(role, layer):
             source = self.source(native.get((role, layer)))
             return source if source is not None else old_pixels(role, layer)
+
+        def texture(levels, role, layer, srgb=False):
+            source_role = "specular_gloss" if role in ("response", "coating", "reflectance") else "color" if role == "control" else role
+            binding = native.get((source_role, layer), native.get(("color", layer), {}))
+            return self.texture(levels, role, srgb, binding.get("sampler", 20))
 
         presentation_approximation = None
         if original and "presentation" not in surface:
@@ -297,68 +309,78 @@ class Cooker:
         cooked, semantics = [], []
         layers = sorted({layer for role, layer in set(native) | set(by_role) if role == "color"} | {0})
         for layer in layers:
+            if surface.get("preparation") and layer == 2:
+                continue
             kind = entry["layer_classes"][layer] if layer < len(entry["layer_classes"]) else entry["class"]
             recipe = self.catalog["classes"][kind]
+            authored = entry.get("physical_response", {}).get(str(layer), {})
             color, normal, specular = pixels("color", layer), pixels("normal", layer), pixels("specular_gloss", layer)
             if color is None and normal is None and specular is None:
                 continue
             interpretation = meanings(family, surface, layer, specular is not None)
             alpha_gloss = interpretation["color_alpha"] == "gloss"
             gloss = (specular if specular is not None else color) if (specular is not None or alpha_gloss) else None
+            metallic = None
+            if color is not None and ("color", layer) in native and self.source(native["color", layer]) is not None:
+                color = legacy_color(color)
+            if color is not None and specular is not None:
+                color, metallic, reflectance = specular_response(color, specular, kind in {"metal", "painted_metal", "unclassified"}, authored)
+                c = texture(reflectance_levels(reflectance), "reflectance", layer)
+                cooked.append(dict(c, layer=layer, channels=CHANNELS["reflectance"]))
             if color is not None:
                 base = color.copy()
                 if alpha_gloss or layer == 0 and state["alpha"] == "opaque":
                     base[..., 3] = 255
-                c = self.texture(color_levels(base, True, state.get("cutoff", .5) if state["alpha"] == "mask" and layer == 0 else None), "color", True)
+                c = texture(color_levels(base, True, state.get("cutoff", .5) if state["alpha"] == "mask" and layer == 0 else None), "color", layer, True)
                 cooked.append(dict(c, layer=layer, channels="rgb:base_color,a:coverage"))
                 if state["alpha"] == "mask" and layer == 0:
                     self.entries[c["uri"]].setdefault("mask_cutoffs", []).append(state.get("cutoff", .5))
             if normal is not None:
                 if ("normal", layer) in native and self.source(native["normal", layer]) is not None:
-                    unit = canonical_normal(normal, recipe["normal_strength"])
+                    unit = canonical_normal(normal, authored.get("normal_strength", 1.))
                 else:
                     unit = normal[..., :3].astype(np.float32) / 127.5 - 1
                     unit /= np.maximum(np.linalg.norm(unit, axis=2, keepdims=True), 1e-6)
                 normal_mips, variance = normal_levels(unit)
-                n = self.texture(normal_mips, "normal")
+                n = texture(normal_mips, "normal", layer)
                 cooked.append(dict(n, layer=layer, channels="rg:unit_normal_xy"))
             else:
                 variance = []
-            response = physical_response(color, gloss, normal, recipe,
-                                         entry.get("physical_response", {}).get(str(layer)))
+            response = physical_response(color, gloss, normal, recipe, authored)
+            if metallic is not None:
+                response[..., 2] = np.rint(metallic * 255).astype(np.uint8)
             response_mips = response_levels(response, variance)
-            orm = self.texture(response_mips, "response")
+            orm = texture(response_mips, "response", layer)
             cooked.append(dict(orm, layer=layer, channels="r:occlusion,g:perceptual_roughness,b:metallic,a:coating"))
             if ("coating", layer) in by_role:
                 coating_mips = [np.dstack((level[..., 3], np.zeros(level.shape[:2], np.uint8),
                                           np.zeros(level.shape[:2], np.uint8), np.full(level.shape[:2], 255, np.uint8)))
                                 for level in response_mips]
-                coating = self.texture(coating_mips, "coating")
+                coating = texture(coating_mips, "coating", layer)
                 cooked.append(dict(coating, layer=layer, channels="r:coating"))
             semantics.append({"layer": layer, "class": kind, "interpretation": interpretation,
                               "roughness_source": "specular_alpha" if specular is not None else "color_alpha" if alpha_gloss else "authored_family",
                               "bindings": [dict(native[role, layer]) for role in ("color", "normal", "specular_gloss") if (role, layer) in native]})
         emissive = pixels("emissive", 0)
         if emissive is not None:
-            c = self.texture(color_levels(emissive, True), "emissive", True)
+            if ("emissive", 0) in native and self.source(native["emissive", 0]) is not None:
+                emissive = legacy_color(emissive)
+            c = texture(color_levels(emissive, True), "emissive", 0, True)
             cooked.append(dict(c, layer=0, channels="rgb:emissive,a:unused"))
         if surface.get("preparation") and pixels("color", 2) is not None:
             mask = pixels("color", 2)
             cooked = [c for c in cooked if not (c["role"] == "color" and c["layer"] == 2)]
-            c = self.texture(color_levels(mask, False), "control")
+            c = texture(color_levels(mask, False), "control", 2)
             cooked.append(dict(c, layer=2, channels="rg:core_coating_weights"))
         for layer in (1, 2):
             if not any(c["role"] == "normal" and c["layer"] == layer for c in cooked):
                 normal = pixels("normal", layer)
                 if normal is not None:
-                    levels, _ = normal_levels(canonical_normal(normal, self.catalog["classes"][entry["class"]]["normal_strength"]))
-                    c = self.texture(levels, "normal")
+                    strength = entry.get("physical_response", {}).get(str(layer), {}).get("normal_strength", 1.)
+                    levels, _ = normal_levels(canonical_normal(normal, strength))
+                    c = texture(levels, "normal", layer)
                     cooked.append(dict(c, layer=layer, channels="rg:unit_normal_xy"))
         surface["channels"] = sorted(cooked, key=lambda c: (c["role"], c["layer"]))
-        for c in surface["channels"]:
-            role = "specular_gloss" if c["role"] in ("response", "coating") else "color" if c["role"] == "control" else c["role"]
-            binding = native.get((role, c["layer"]), native.get(("color", c["layer"]), {}))
-            c["sampler"] = binding.get("sampler", 20)
         if "presentation" in surface:
             material["doubleSided"] = state["cull"] == "none"
             material["alphaMode"] = "MASK" if state["alpha"] == "mask" else "OPAQUE" if state["alpha"] == "opaque" else "BLEND"
@@ -366,7 +388,7 @@ class Cooker:
                 material["alphaCutoff"] = state.get("cutoff", .5)
         surface["provenance"] = {"source_family": family, "source_zone": (original or {}).get("zone", "retained_export"),
                                  "recipe_sha256": hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest(),
-                                 "approximation": "bounded native-gloss GGX fit; explicit catalog substrate and reviewed atlas masks; neutral AO"}
+                                 "approximation": "native gamma-2 color and reflectance with sRGB-56 dielectric anchor; source slopes and exponent-to-GGX gloss fit with explicit overrides; specular-gloss metal/base-color fit with catalog dielectric constraints; neutral AO"}
         effect = prepared_effect(original, surface)
         if effect:
             surface["effect"] = effect
@@ -498,11 +520,15 @@ def qualification_entries(documents, extra_channels=None):
                 continue
             for channel in surface["channels"]:
                 entry = entries.setdefault(channel["uri"], dict(channel, mask_cutoffs=[]))
+                if any(entry[key] != channel[key] for key in ("sampler", "color_space", "role")):
+                    raise ValueError(f"{channel['uri']}: incompatible image consumers require distinct prepared paths")
                 entry["mask_cutoffs"].extend(channel.get("mask_cutoffs", []))
                 if channel["role"] == "color" and channel["layer"] == 0 and material.get("alphaMode") == "MASK":
                     entry.setdefault("mask_cutoffs", []).append(material.get("alphaCutoff", .5))
     for channel in extra_channels or []:
         entry = entries.setdefault(channel["uri"], dict(channel, mask_cutoffs=[]))
+        if any(entry.get(key) != channel.get(key) for key in ("sampler", "color_space", "role")):
+            raise ValueError(f"{channel['uri']}: incompatible image consumers require distinct prepared paths")
         entry["mask_cutoffs"].extend(channel.get("mask_cutoffs", []))
     for entry in entries.values():
         entry["mask_cutoffs"] = sorted(set(entry.get("mask_cutoffs", [])))
@@ -531,7 +557,7 @@ def qualify(config, extra_channels=None, document_paths=None, prune=True):
                     coat = [np.dstack((x[..., 3], np.zeros(x.shape[:2], np.uint8),
                                       np.zeros(x.shape[:2], np.uint8), np.full(x.shape[:2], 255, np.uint8)))
                             for x in levels]
-                    channel = cooker.texture(coat, "coating")
+                    channel = cooker.texture(coat, "coating", sampler=response["sampler"])
                     surface["channels"].append(dict(channel, layer=0, sampler=response["sampler"], channels="r:coating"))
     cooker.entries = qualification_entries((document for _, document in documents), extra_channels)
     for uri, channel in cooker.entries.items():
@@ -694,13 +720,13 @@ def retune_response_mips(config):
                 normal = next((n for n in channels if n["role"] == "normal" and n["layer"] == response["layer"]), None)
                 if response["role"] != "response" or normal is None or (normal["width"], normal["height"]) == (response["width"], response["height"]):
                     continue
-                key = (normal["uri"], response["uri"])
+                key = (normal["uri"], response["uri"], response["sampler"])
                 if key not in cache:
                     units = rgba_levels((work / Path(normal["uri"]).with_suffix('.dds').name).read_bytes())[0][..., :3].astype(np.float32) / 127.5 - 1
                     units /= np.maximum(np.linalg.norm(units, axis=2, keepdims=True), 1e-6)
                     _, variance = normal_levels(units)
                     top = rgba_levels((work / Path(response["uri"]).with_suffix(".dds").name).read_bytes())[0]
-                    cache[key] = cooker.texture(response_levels(top, variance), "response")
+                    cache[key] = cooker.texture(response_levels(top, variance), "response", sampler=response["sampler"])
                     changed += 1
                 response.update(cache[key])
                 edited = True

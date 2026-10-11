@@ -1,6 +1,7 @@
 use crate::hit_regions::SkeletalReady as ActorReady;
 use crate::{
     GameState,
+    animation::{AnimationGraphs, AnimationLayer, AnimationPlayback},
     assets::GameDefinition,
     gameplay::{GameStep, Navigation},
     life::{LifeState, Vitality},
@@ -232,11 +233,6 @@ struct ActorMesh {
 }
 #[derive(Component)]
 struct HasActor;
-#[derive(Resource, Default)]
-struct Graphs(
-    HashMap<AssetId<Gltf>, (Handle<AnimationGraph>, BTreeMap<String, AnimationNodeIndex>)>,
-);
-
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) struct EnemyBounds;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
@@ -246,8 +242,7 @@ pub(crate) struct EnemyAnimationPlayback;
 pub struct EnemyPlugin;
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Graphs>()
-            .init_resource::<EnemyEvidence>()
+        app.init_resource::<EnemyEvidence>()
             .add_systems(
                 FixedUpdate,
                 lifecycle
@@ -265,7 +260,6 @@ impl Plugin for EnemyPlugin {
                 Update,
                 (
                     spawn_actors,
-                    graphs,
                     attach_parts,
                     admit_ready,
                     animate.in_set(EnemyAnimationPlayback),
@@ -995,30 +989,6 @@ fn ready(
         }
     }
 }
-fn graphs(
-    mut cache: ResMut<Graphs>,
-    rigs: Query<&ActorRig>,
-    gltfs: Res<Assets<Gltf>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-) {
-    for rig in &rigs {
-        if cache.0.contains_key(&rig.source.id()) {
-            continue;
-        }
-        let Some(gltf) = gltfs.get(&rig.source) else {
-            continue;
-        };
-        let mut clips: Vec<_> = gltf.named_animations.iter().collect();
-        clips.sort_by(|a, b| a.0.cmp(b.0));
-        let (graph, nodes) = AnimationGraph::from_clips(clips.iter().map(|(_, h)| (*h).clone()));
-        let named = clips
-            .into_iter()
-            .zip(nodes)
-            .map(|((n, _), node)| (n.to_string(), node))
-            .collect();
-        cache.0.insert(rig.source.id(), (graphs.add(graph), named));
-    }
-}
 fn attach_parts(
     mut commands: Commands,
     mut rigs: Query<(Entity, &mut ActorRig)>,
@@ -1055,16 +1025,13 @@ fn admit_ready(
     mut commands: Commands,
     enemies: Query<Entity, (With<Zombie>, Without<ActorReady>)>,
     rigs: Query<&ActorRig>,
-    cache: Res<Graphs>,
+    cache: Res<AnimationGraphs>,
 ) {
     for owner in &enemies {
         let mut parts = rigs.iter().filter(|r| r.owner == owner).peekable();
         if parts.peek().is_some()
             && parts.all(|r| {
-                r.ready
-                    && r.attached
-                    && !r.players.is_empty()
-                    && cache.0.contains_key(&r.source.id())
+                r.ready && r.attached && !r.players.is_empty() && cache.contains_scene(&r.source)
             })
         {
             commands.entity(owner).insert(ActorReady);
@@ -1075,11 +1042,11 @@ fn animate(
     mut commands: Commands,
     definition: Option<Res<GameDefinition>>,
     enemies: Query<&Zombie>,
-    cache: Res<Graphs>,
+    mut cache: ResMut<AnimationGraphs>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
     gltfs: Res<Assets<Gltf>>,
     clips: Res<Assets<AnimationClip>>,
     mut rigs: Query<&mut ActorRig>,
-    mut players: Query<&mut AnimationPlayer>,
     mut evidence: ResMut<EnemyEvidence>,
 ) {
     let Some(definition) = definition else {
@@ -1100,7 +1067,7 @@ fn animate(
         else {
             continue;
         };
-        let Some((graph, nodes)) = cache.0.get(&rig.source.id()) else {
+        let Some(bindings) = cache.scene(&rig.source, &gltfs, &mut graphs) else {
             continue;
         };
         let name = if matches!(
@@ -1125,7 +1092,7 @@ fn animate(
         let Some(name) = name else {
             continue;
         };
-        let Some(&node) = nodes.get(name) else {
+        let Some(&node) = bindings.named.get(name) else {
             continue;
         };
         let changed = rig.action != Some(zombie.action)
@@ -1152,26 +1119,19 @@ fn animate(
         } else {
             zombie.elapsed.min(duration)
         };
+        let mut playback = AnimationPlayback::new(
+            bindings.graph.clone(),
+            vec![AnimationLayer::new(node, Some(seek), looping)],
+        );
+        playback.restart = zombie.animation_sequence;
         for &entity in &rig.players {
-            let Ok(mut player) = players.get_mut(entity) else {
-                continue;
-            };
-            if changed {
-                commands
-                    .entity(entity)
-                    .insert(AnimationGraphHandle(graph.clone()));
-                player.stop_all();
-                player.play(node);
-                evidence.animations.insert(format!("{:?}", zombie.action));
-                if EnemyLocomotion::for_action(zombie.action).is_some() {
-                    evidence.locomotion_clips.insert(name.to_owned());
-                }
-            }
-            if let Some(active) = player.animation_mut(node) {
-                active.set_seek_time(seek).pause();
-            }
+            commands.entity(entity).insert(playback.clone());
         }
         if changed {
+            evidence.animations.insert(format!("{:?}", zombie.action));
+            if EnemyLocomotion::for_action(zombie.action).is_some() {
+                evidence.locomotion_clips.insert(name.to_owned());
+            }
             rig.action = Some(zombie.action);
             rig.clip = Some(name.to_owned());
             rig.sequence = Some(zombie.animation_sequence);

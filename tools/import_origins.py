@@ -24,6 +24,7 @@ try:
     from .trigger_volumes import validate as validate_trigger_volumes
     from .brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
     from .prepare_sky import SKY_PATH, validate_sky
+    from .prepare_atmosphere import GRADE_PATH, validate_grade
     from .environment_content import validate as validate_environment
 except ImportError:
     from fixture_emitters import FIXTURE_SURFACES
@@ -31,6 +32,7 @@ except ImportError:
     from trigger_volumes import validate as validate_trigger_volumes
     from brush_entities import validate as validate_brush_entities, validate_scene as validate_brush_scene
     from prepare_sky import SKY_PATH, validate_sky
+    from prepare_atmosphere import GRADE_PATH, validate_grade
     from environment_content import validate as validate_environment
 
 import numpy as np
@@ -315,10 +317,10 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
                     retained = [b for b in native["bindings"] if b["active"] and (b.get("role"), b.get("layer")) == binding]
                     require(len(retained) == 1 and retained[0]["uri"] == uri and retained[0]["sha256"] == dds["sha256"] and retained[0]["sampler"] == channel["sampler"], "native KTX2 byte or sampler identity mismatch")
                     continue
-                require(role in {"color", "normal", "response", "control", "emissive", "coating"}, "invalid PBR role")
+                require(role in {"color", "normal", "response", "control", "emissive", "coating", "reflectance"}, "invalid PBR role")
                 require(channel["channels"] == {"color": "rgb:base_color,a:coverage",
                     "normal": "rg:unit_normal_xy", "response": "r:occlusion,g:perceptual_roughness,b:metallic,a:coating",
-                    "control": "rg:core_coating_weights", "emissive": "rgb:emissive,a:unused", "coating": "r:coating"}[role], "invalid PBR channel interpretation")
+                    "control": "rg:core_coating_weights", "emissive": "rgb:emissive,a:unused", "coating": "r:coating", "reflectance": "rgb:dielectric_reflectance,a:unused"}[role], "invalid PBR channel interpretation")
                 require(type(channel["layer"]) is int and 0 <= channel["layer"] <= 31, "invalid PBR layer")
                 require(channel["color_space"] == ("srgb" if role in {"color", "emissive"} else "linear"), "PBR color-space mismatch")
                 uri = channel["uri"]
@@ -643,8 +645,9 @@ def validate_pack(root, receipt=None, exact=False, progress=False):
             require(path.suffix.lower() not in TEXTURES - {'.ktx2'},
                     f"non-KTX2 runtime texture is forbidden: {path.relative_to(root)}")
             require(path.suffix.lower() != '.glb', "runtime model containers must externalize their KTX2 images")
-    files = {"game.json", SKY_PATH}
+    files = {"game.json", SKY_PATH, GRADE_PATH}
     validate_sky(read_bytes(safe_path(root, SKY_PATH, {".ktx2"})))
+    validate_grade(read_bytes(safe_path(root, GRADE_PATH, {".ktx2"})))
     game = read_json(safe_path(root, "game.json", {".json"}))
     require(set(game) <= {"version", "scene", "collision_scene", "spawn", "yaw", "spawn_points",
                           "waypoints", "survey_views", "source_surfaces", "render_meshes",

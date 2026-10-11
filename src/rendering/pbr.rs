@@ -235,10 +235,11 @@ pub(super) fn prepare_image_dimensions(
         let (AssetEvent::Added { id } | AssetEvent::Modified { id }) = event else {
             continue;
         };
-        if !server
-            .get_path(*id)
-            .is_some_and(|path| path.path().extension().is_some_and(|extension| extension == "ktx2"))
-        {
+        if !server.get_path(*id).is_some_and(|path| {
+            path.path()
+                .extension()
+                .is_some_and(|extension| extension == "ktx2")
+        }) {
             continue;
         }
         if let Some(image) = images.get_mut_untracked(*id)
@@ -253,18 +254,12 @@ pub(super) fn prepare_image_dimensions(
 pub(super) fn load(server: &AssetServer, texture: &PreparedTexture) -> Handle<Image> {
     let srgb = texture.color_space == "srgb";
     let native = texture.sampler;
-    let native_weapon = texture.uri.starts_with("textures/native-");
     server
         .load_builder()
         .with_settings(move |settings: &mut ImageLoaderSettings| {
             settings.is_srgb = srgb;
             let point = native & 7 == 1;
-            let filtered_mips = !point
-                && if native_weapon {
-                    native & 24 == 16
-                } else {
-                    native & 24 != 0
-                };
+            let filtered_mips = !point && native & 24 == 16;
             settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                 address_mode_u: if native & 32 != 0 {
                     ImageAddressMode::ClampToEdge
@@ -292,7 +287,7 @@ pub(super) fn load(server: &AssetServer, texture: &PreparedTexture) -> Handle<Im
                     ImageFilterMode::Nearest
                 },
                 lod_max_clamp: if native & 24 == 0 { 0. } else { 32. },
-                anisotropy_clamp: if filtered_mips && native_weapon {
+                anisotropy_clamp: if filtered_mips {
                     match native & 7 {
                         3 => 2,
                         4 => 4,
@@ -300,8 +295,6 @@ pub(super) fn load(server: &AssetServer, texture: &PreparedTexture) -> Handle<Im
                         6 => 16,
                         _ => 1,
                     }
-                } else if filtered_mips {
-                    16
                 } else {
                     1
                 },
@@ -327,6 +320,7 @@ impl CachedMaterial {
             && material.occlusion_texture == prepared.occlusion_texture
             && material.emissive_texture == prepared.emissive_texture
             && material.clearcoat_texture == prepared.clearcoat_texture
+            && material.specular_tint_texture == prepared.specular_tint_texture
     }
 }
 
@@ -420,6 +414,7 @@ pub(super) fn prepare(
                 .map(|(_, h)| h.clone())
         };
         let value: serde_json::Value = serde_json::from_str(&extras.value).unwrap_or_default();
+        let native_weapon = !value["surface"]["native_weapon"].is_null();
         let excludes_caster = super::shadows::excludes_caster(&value["surface"]);
         if excludes_caster {
             commands.entity(entity).insert(bevy::light::NotShadowCaster);
@@ -441,7 +436,11 @@ pub(super) fn prepare(
                 material.perceptual_roughness = 1.;
                 material.metallic = 1.;
             }
-            material.reflectance = 0.5;
+            material.reflectance = 140. / 255.;
+            material.specular_tint_texture = channel("reflectance");
+            if material.specular_tint_texture.is_some() {
+                material.reflectance = 1.;
+            }
             material.clearcoat_texture = channel("coating");
             material.clearcoat = if material.clearcoat_texture.is_some() {
                 1.
@@ -452,15 +451,21 @@ pub(super) fn prepare(
                 .as_f64()
                 .unwrap_or(0.12) as f32;
             material.flip_normal_map_y = false;
-            if !value["surface"]["native_weapon"].is_null() {
+            if native_weapon {
                 material.base_color_texture = None;
                 material.normal_map_texture = None;
                 material.metallic_roughness_texture = None;
                 material.occlusion_texture = None;
                 material.clearcoat_texture = None;
+                material.specular_tint_texture = None;
                 material.clearcoat = 0.;
                 material.unlit = false;
             }
+        }
+        if !native_weapon && let Some(emissive) = channel("emissive") {
+            material.emissive_texture = Some(emissive);
+            material.emissive = LinearRgba::WHITE * profile.emissive_nits;
+            material.emissive_exposure_weight = 1.;
         }
         let state = &value["surface"]["presentation"];
         if !state.is_null() {
@@ -480,7 +485,10 @@ pub(super) fn prepare(
                 Some("multiply") => AlphaMode::Multiply,
                 _ => AlphaMode::Opaque,
             };
-            if state["emissive"].as_bool() == Some(true) {
+            if !native_weapon
+                && material.emissive_texture.is_none()
+                && state["emissive"].as_bool() == Some(true)
+            {
                 material.emissive_texture = channel("emissive").or_else(|| channel("color"));
                 material.emissive = LinearRgba::WHITE * profile.emissive_nits;
                 material.emissive_exposure_weight = 1.;
