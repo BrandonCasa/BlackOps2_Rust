@@ -125,8 +125,8 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Wunderfizz bottle expiration.
 - [x] Add Wunderfizz relocation.
 - [ ] Add random perk bottle collection.
-- [ ] Add one-time prone perk-machine spare-change rewards.
-- [ ] Add empty perk bottle slot rewards.
+- [x] Add one-time prone perk-machine spare-change rewards.
+- [x] Add empty perk bottle slot rewards.
 - [x] Add personal Blood Money rewards.
 - [x] Add team Blood Money solo rewards.
 - [x] Reveal Zombie Blood hidden entities.
@@ -267,7 +267,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Maxis Drone bench recharge.
 - [x] Add Maxis Drone pickup after recharge.
 - [x] Add Maxis Drone upgraded state.
-- [ ] Add Maxis Drone collection of reward seals.
+- [x] Add Maxis Drone collection of reward seals.
 - [x] Add record inventory.
 - [x] Add master record randomized placements.
 - [x] Add elemental record randomized placements.
@@ -489,12 +489,12 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add Samantha doll timed shooting sequence.
 - [ ] Add Samantha doll reward spawning.
 - [ ] Play Samantha's song after completing its sequence.
-- [ ] Add free Zombie Blood reward cooldown.
-- [ ] Add free Zombie Blood fire-extinguishing interactions.
-- [ ] Spawn free Zombie Blood after required fires disappear.
-- [ ] Add free Magna Collider drone-seal progress.
-- [ ] Spawn free Magna Collider after collecting required seals.
-- [ ] Add free Magna Collider pickup interaction.
+- [x] Add free Zombie Blood reward cooldown.
+- [x] Add free Zombie Blood fire-extinguishing interactions.
+- [x] Spawn free Zombie Blood after required fires disappear.
+- [x] Add free Magna Collider drone-seal progress.
+- [x] Spawn free Magna Collider after collecting required seals.
+- [x] Add free Magna Collider pickup interaction.
 - [x] Bind cinematic audio aliases to frame sequences.
 - [ ] Add loading cinematic skip input.
 - [x] Add ending audio synchronization.
