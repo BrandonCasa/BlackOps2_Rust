@@ -83,6 +83,14 @@ def gpu_cases(client, report):
                                                    "result": result, "expected_pixel": expected})
             require(result["pixel"] == expected, f"GPU indirect case failed: {indexed=} {name}: {result}")
 
+    for padding in (4, 1024 * 1024 - 4, 1024 * 1024, 1024 * 1024 + 4):
+        request = {"indexed": True, "capacity": 4, "gpu_count": 1,
+                   "live_command": 0, "upload_padding": padding}
+        result = client.call("origins/rendering/indirect", request)
+        report["indirect_gpu"]["cases"].append({"name": "upload_boundary",
+            "request": request, "result": result, "expected_pixel": [0, 255, 0, 255]})
+        require(result["pixel"] == [0, 255, 0, 255], f"GPU upload boundary failed: {padding}")
+
 
 def run(client, report, output, process, startup_only=False):
     deadline = time.monotonic() + 360

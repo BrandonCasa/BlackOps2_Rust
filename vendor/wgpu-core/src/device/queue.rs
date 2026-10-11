@@ -392,6 +392,7 @@ pub(crate) struct PendingWrites {
     pub is_recording: bool,
 
     temp_resources: Vec<TempResource>,
+    upload_buffer: Option<(StagingBuffer, u64)>,
     dst_buffers: FastHashMap<TrackerIndex, Arc<Buffer>>,
     dst_textures: FastHashMap<TrackerIndex, Arc<Texture>>,
     copied_blas_s: FastHashMap<TrackerIndex, Arc<Blas>>,
@@ -407,6 +408,7 @@ impl PendingWrites {
             command_encoder,
             is_recording: false,
             temp_resources: Vec::new(),
+            upload_buffer: None,
             dst_buffers: FastHashMap::default(),
             dst_textures: FastHashMap::default(),
             copied_blas_s: FastHashMap::default(),
@@ -452,6 +454,9 @@ impl PendingWrites {
         device: &Arc<Device>,
         queue: &Queue,
     ) -> Result<Option<EncoderInFlight>, DeviceError> {
+        if let Some((buffer, _)) = self.upload_buffer.take() {
+            self.consume(buffer.flush());
+        }
         if self.is_recording {
             let pending_buffers = mem::take(&mut self.dst_buffers);
             let pending_textures = mem::take(&mut self.dst_textures);
@@ -514,6 +519,9 @@ impl Drop for PendingWrites {
             if self.is_recording {
                 self.command_encoder.discard_encoding();
             }
+        }
+        if let Some((buffer, _)) = self.upload_buffer.take() {
+            self.consume(buffer.flush());
         }
     }
 }
@@ -655,6 +663,45 @@ impl Queue {
             log::trace!("Ignoring write_buffer of size 0");
             return Ok(());
         };
+
+        if self.device.backend() == wgt::Backend::Dx12 {
+            self.validate_write_buffer_impl(&buffer, buffer_offset, data_size.get())?;
+            let snatch_guard = self.device.snatchable_lock.read();
+            let mut pending_writes = self.pending_writes.lock();
+            let current = pending_writes.upload_buffer.take();
+            let (mut staging, offset) = match current {
+                Some((staging, used)) if staging.size.get() - used >= data_size.get() => {
+                    (staging, used)
+                }
+                current => {
+                    if let Some((staging, _)) = current {
+                        pending_writes.consume(staging.flush());
+                    }
+                    let capacity = (1 << 20_u64)
+                        .min(self.device.limits.max_buffer_size)
+                        .max(data_size.get());
+                    (
+                        StagingBuffer::new(&self.device, NonZeroU64::new(capacity).unwrap())?,
+                        0,
+                    )
+                }
+            };
+            unsafe { staging.write_with_offset(data, 0, offset as isize, data.len()) };
+            let result = self.write_staging_buffer_range_impl(
+                &snatch_guard,
+                &mut pending_writes,
+                staging.raw(),
+                offset,
+                data_size,
+                buffer,
+                buffer_offset,
+            );
+            pending_writes.upload_buffer = Some((
+                staging,
+                offset + if result.is_ok() { data_size.get() } else { 0 },
+            ));
+            return result;
+        }
 
         // Platform validation requires that the staging buffer always be
         // freed, even if an error occurs. All paths from here must call
@@ -801,6 +848,27 @@ impl Queue {
         buffer: Arc<Buffer>,
         buffer_offset: u64,
     ) -> Result<(), QueueWriteError> {
+        self.write_staging_buffer_range_impl(
+            snatch_guard,
+            pending_writes,
+            staging_buffer.raw(),
+            0,
+            staging_buffer.size,
+            buffer,
+            buffer_offset,
+        )
+    }
+
+    fn write_staging_buffer_range_impl(
+        &self,
+        snatch_guard: &SnatchGuard,
+        pending_writes: &mut PendingWrites,
+        staging_buffer: &dyn hal::DynBuffer,
+        staging_offset: u64,
+        staging_size: wgt::BufferSize,
+        buffer: Arc<Buffer>,
+        buffer_offset: u64,
+    ) -> Result<(), QueueWriteError> {
         self.device.check_is_valid()?;
 
         let transition = {
@@ -814,17 +882,21 @@ impl Queue {
 
         self.same_device_as(buffer.as_ref())?;
 
-        self.validate_write_buffer_impl(&buffer, buffer_offset, staging_buffer.size.into())?;
+        self.validate_write_buffer_impl(&buffer, buffer_offset, staging_size.into())?;
 
         let region = hal::BufferCopy {
-            src_offset: 0,
+            src_offset: staging_offset,
             dst_offset: buffer_offset,
-            size: staging_buffer.size,
+            size: staging_size,
         };
         let barriers = iter::once(hal::BufferBarrier {
-            buffer: staging_buffer.raw(),
+            buffer: staging_buffer,
             usage: hal::StateTransition {
-                from: wgt::BufferUses::MAP_WRITE,
+                from: if staging_offset == 0 {
+                    wgt::BufferUses::MAP_WRITE
+                } else {
+                    wgt::BufferUses::COPY_SRC
+                },
                 to: wgt::BufferUses::COPY_SRC,
             },
         })
@@ -833,7 +905,7 @@ impl Queue {
         let encoder = pending_writes.activate();
         unsafe {
             encoder.transition_buffers(&barriers);
-            encoder.copy_buffer_to_buffer(staging_buffer.raw(), dst_raw, &[region]);
+            encoder.copy_buffer_to_buffer(staging_buffer, dst_raw, &[region]);
         }
 
         pending_writes.insert_buffer(&buffer);
@@ -844,7 +916,7 @@ impl Queue {
             buffer
                 .initialization_status
                 .write()
-                .drain(buffer_offset..(buffer_offset + staging_buffer.size.get()));
+                .drain(buffer_offset..(buffer_offset + staging_size.get()));
         }
 
         Ok(())

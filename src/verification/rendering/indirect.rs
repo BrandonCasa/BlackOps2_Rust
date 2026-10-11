@@ -20,6 +20,8 @@ struct Request {
     invalid: bool,
     #[serde(default)]
     direct_after: bool,
+    #[serde(default)]
+    upload_padding: u64,
 }
 
 fn error(message: impl ToString) -> BrpError {
@@ -51,6 +53,8 @@ pub(super) fn probe(
         .ok_or_else(|| error("Argument size overflow"))?
         .max(20);
     if size > limits.max_buffer_size
+        || request.upload_padding > 4 * 1024 * 1024
+        || !request.upload_padding.is_multiple_of(4)
         || request.capacity > 16_777_216
         || !request.argument_offset.is_multiple_of(4)
         || request
@@ -83,6 +87,16 @@ pub(super) fn probe(
         4,
         wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
     );
+    if request.upload_padding > 0 {
+        let padding = buffer(
+            "indirect probe upload padding",
+            request.upload_padding,
+            wgpu::BufferUsages::COPY_DST,
+        );
+        queue.submit([]);
+        queue.write_buffer(&padding, 0, &vec![0x5a; request.upload_padding as usize]);
+        queue.write_buffer(&parameter, 0, &0u32.to_le_bytes());
+    }
     queue.write_buffer(&parameter, 0, &request.gpu_count.to_le_bytes());
     if let Some(index) = request.live_command {
         let values = if request.indexed {
