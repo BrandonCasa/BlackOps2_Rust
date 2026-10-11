@@ -76,6 +76,7 @@ pub(crate) fn interact(
     deployment: Res<crate::buildables::BuildableState>,
     portals: Res<crate::portals::Portals>,
     upgrades: Res<crate::staff_upgrades::StaffUpgrades>,
+    quest: Res<crate::quests::MainQuest>,
     mut crafting: ResMut<Crafting>, mut parts: ResMut<Parts>, mut focus: ResMut<InteractionFocus>,
 ) {
     if !input.use_held { crafting.latched = false; crafting.progress = 0.; }
@@ -158,6 +159,7 @@ pub(crate) fn interact(
             } else {
                 let Some((_, weapon)) = STAFFS.iter().find(|(family, _)| *family == recipe) else { return; };
                 let Some(element) = crate::staff_upgrades::WEAPONS.iter().position(|w| w == weapon) else { return; };
+                if quest.placed.contains(&crate::staff_upgrades::ELEMENTS[element]) { focus.prompt = "Staff is placed for the main quest".into(); return; }
                 if upgrades.inserted[element] { focus.prompt = "Staff is charging in the Crazy Place".into(); return; }
                 let id = if upgrades.charged[element] { weapon.replace("_zm", "_upgraded_zm") } else { (*weapon).to_string() };
                 let Some(d) = definition.content.weapons.iter().find(|d| d.id.0 == id) else { return; };

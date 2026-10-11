@@ -12,7 +12,7 @@ struct Barrage { elapsed: f32, waiting: f32, shots: usize, completed: bool }
 #[derive(Message, Clone, Copy)]
 pub struct BeaconStrike { pub owner: Entity, pub point: Vec3 }
 #[derive(Resource, Default)]
-struct TabletInput { held: bool }
+pub(crate) struct TabletInput { held: bool }
 pub struct TabletPlugin;
 impl Plugin for TabletPlugin {
     fn build(&self, app: &mut App) {
@@ -89,10 +89,10 @@ fn bombard(mut commands: Commands, time: Res<Time<Fixed>>, robots: Res<crate::ro
         let offsets=[Vec3::ZERO,Vec3::new(-1.8288,0.,-1.8288),Vec3::new(1.8288,0.,-1.8288),Vec3::new(1.8288,0.,1.8288),Vec3::new(-1.8288,0.,1.8288)];
         let due=if barrage.shots==0{0.5}else{1.5+(barrage.shots-1)as f32*0.25};
         if barrage.shots<5 && barrage.elapsed>=due {
-            let center=pose.translation+offsets[barrage.shots];barrage.shots+=1;
+            let center=pose.translation+offsets[barrage.shots]; if barrage.shots == 0 { strikes.write(BeaconStrike{owner:grenade.owner,point:pose.translation}); } barrage.shots+=1;
             for (enemy,p,health) in &enemies {let distance=p.translation.distance(center);if health.state()==LifeState::ActorAlive && distance<=5.08 {damage.0.push(crate::damage::Impact{attacker:grenade.owner,target:enemy,source:crate::damage::ImpactSource::Weapon(grenade.definition.clone()),category:crate::origins::DamageCategory::Explosive,region:crate::weapons::HitRegion::None,amount:(8000.-distance/5.08*1000.)as u32});}}
             crate::audio::emit(&mut commands,"zmb_robot_mortar_explode",crate::audio::SoundSource::World(center));
         }
-        if barrage.elapsed>=8.5 && !barrage.completed {barrage.completed=true;strikes.write(BeaconStrike{owner:grenade.owner,point:pose.translation});commands.entity(entity).despawn();}
+        if barrage.elapsed>=8.5 && !barrage.completed {barrage.completed=true;commands.entity(entity).despawn();}
     }
 }

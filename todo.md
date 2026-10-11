@@ -21,11 +21,11 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Adapt the existing window driver to the new gameplay interfaces.
 - [x] Add main quest stage state.
 - [x] Reset quest progress when starting fresh sessions.
-- [ ] Prevent main quest progression from invalid interactions.
+- [x] Prevent main quest progression from invalid interactions.
 - [x] Retire active quest timers after stage transitions.
-- [ ] Disable original unsupported quests on Easy difficulty.
-- [ ] Add quest-controlled round holds.
-- [ ] Release round holds after quest progression.
+- [x] Disable original unsupported quests on Easy difficulty.
+- [x] Add quest-controlled round holds.
+- [x] Release round holds after quest progression.
 - [x] Exclude first-person meshes from movement collisions.
 - [x] Add moving-platform support tracking.
 - [x] Move boarded players with platform displacement.
@@ -430,25 +430,25 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Iron Fists melee weapon definition.
 - [x] Add elemental Iron Fists variants.
 - [x] Unlock main quest progression after all staff upgrades.
-- [ ] Unlock source-defined staff placement pedestals.
-- [ ] Add robot staff placement interactions.
-- [ ] Add Ice Staff placement inside Freya.
-- [ ] Add Wind Staff placement inside Odin.
-- [ ] Add Lightning Staff placement inside Thor.
-- [ ] Add Fire Staff placement inside excavation.
-- [ ] Complete Ascend From Darkness after correct placements.
-- [ ] Return deposited staffs to excavation pedestals.
-- [ ] Enable source-defined quest robot passes.
-- [ ] Add robot interior quest buttons.
-- [ ] Add robot button strike authorization.
-- [ ] Add strike authorization timeout.
-- [ ] Add seal-targeted G-Strike detection.
-- [ ] Break the seal after an authorized strike.
-- [ ] Add Maxis Drone quest destination overrides.
-- [ ] Add Maxis Drone deployment into the broken seal.
-- [ ] Spawn the solo quest Panzersoldat encounter.
-- [ ] Complete the encounter after required Panzersoldat deaths.
-- [ ] Remove the drone during its quest disappearance.
+- [x] Unlock source-defined staff placement pedestals.
+- [x] Add robot staff placement interactions.
+- [x] Add Ice Staff placement inside Freya.
+- [x] Add Wind Staff placement inside Odin.
+- [x] Add Lightning Staff placement inside Thor.
+- [x] Add Fire Staff placement inside excavation.
+- [x] Complete Ascend From Darkness after correct placements.
+- [x] Return deposited staffs to excavation pedestals.
+- [x] Enable source-defined quest robot passes.
+- [x] Add robot interior quest buttons.
+- [x] Add robot button strike authorization.
+- [x] Add strike authorization timeout.
+- [x] Add seal-targeted G-Strike detection.
+- [x] Break the seal after an authorized strike.
+- [x] Add Maxis Drone quest destination overrides.
+- [x] Add Maxis Drone deployment into the broken seal.
+- [x] Spawn the solo quest Panzersoldat encounter.
+- [x] Complete the encounter after required Panzersoldat deaths.
+- [x] Remove the drone during its quest disappearance.
 - [ ] Spawn the quest plane after encounter completion.
 - [ ] Restrict quest plane visibility to Zombie Blood.
 - [ ] Add quest plane destruction.

@@ -12,6 +12,7 @@ pub struct Drone {
     pub remaining: f32,
     pub returning: bool,
     pub upgraded: bool,
+    pub quest_goal: Option<Vec3>,
     home: Vec3,
     cooldown: f32,
 }
@@ -68,7 +69,7 @@ fn actions(mut commands: Commands, time: Res<Time<Fixed>>, input: Res<GameInput>
             }
             Some("equip_dieseldrone_zm") if state.drone.is_none() && state.drone_cooldown <= 0. => {
                 let Some(home) = crafting.drone_home() else { return; };
-                let entity = commands.spawn((Drone { owner, remaining: 90., returning: false, upgraded: state.drone_upgraded, home, cooldown: 0. },
+                let entity = commands.spawn((Drone { quest_goal: None, owner, remaining: 90., returning: false, upgraded: state.drone_upgraded, home, cooldown: 0. },
                     SessionEntity, Transform::from_translation(pose.translation + Vec3::Y * 2.), Visibility::Inherited)).id();
                 visual(&mut commands, entity, "veh_t6_dlc_zm_quadrotor", &game, &server);
                 crate::audio::emit_loop(&mut commands, "veh_qrdrone_idle_loop", crate::audio::SoundSource::attached(entity));
@@ -117,18 +118,19 @@ fn drones(mut commands: Commands, time: Res<Time<Fixed>>, game: Res<GameDefiniti
     mut damage: ResMut<DamageQueue>, mut state: ResMut<BuildableState>) {
     let dt = time.delta_secs();
     for (entity, mut drone, mut pose) in &mut drones {
-        drone.remaining -= dt;
+        if drone.quest_goal.is_none() { drone.remaining -= dt; }
         drone.cooldown = (drone.cooldown - dt).max(0.);
         let player = players.get(drone.owner).ok();
         drone.returning |= drone.remaining <= 0. || player.is_none_or(|(_, _, health)| health.state() != LifeState::Standing);
-        let goal = if drone.returning { drone.home + Vec3::Y }
+        let goal = if let Some(goal) = drone.quest_goal { goal } else if drone.returning { drone.home + Vec3::Y }
             else { let (body, pose, _) = player.unwrap(); pose.translation + Quat::from_rotation_y(body.yaw) * Vec3::NEG_Z * 3.2512 + Vec3::Y * 3.2512 };
         let delta = goal - pose.translation;
         let step = delta.clamp_length_max(6. * dt);
         if let Ok(direction) = Dir3::new(step) {
-            if query.cast_ray(pose.translation, direction, step.length(), true, &crate::environment::solids([])).is_none() { pose.translation += step; }
+            if drone.quest_goal.is_some() || query.cast_ray(pose.translation, direction, step.length(), true, &crate::environment::solids([])).is_none() { pose.translation += step; }
             else { pose.translation.y += dt * 2.; }
         }
+        if drone.quest_goal.is_some() { continue; }
         if drone.returning {
             if delta.length() < 0.5 || drone.remaining < -30. {
                 commands.entity(entity).despawn(); state.drone = None; state.drone_cooldown = 60.;

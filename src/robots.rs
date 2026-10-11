@@ -14,12 +14,13 @@ pub struct Robots {
     pub evacuations: u32,
     pub stomps: u32,
     pub triple_round: u32,
+    pub triple_active: bool,
     next: f32,
     last: Option<usize>,
     latched: bool,
 }
 impl Default for Robots {
-    fn default() -> Self { Self { passes: [None; 3], occupancy: None, entries: 0, evacuations: 0, stomps: 0, triple_round: 0, next: 5., last: Some(1), latched: false } }
+    fn default() -> Self { Self { passes: [None; 3], occupancy: None, entries: 0, evacuations: 0, stomps: 0, triple_round: 0, triple_active: false, next: 5., last: Some(1), latched: false } }
 }
 #[derive(Message, Clone, Copy)]
 pub struct RobotStomp(pub Vec3);
@@ -68,10 +69,12 @@ fn tick(mut commands: Commands, time: Res<Time<Fixed>>, mut robots: ResMut<Robot
         }
     }
     if robots.passes.iter().all(Option::is_none) {
+        robots.triple_active = false;
         robots.next -= dt;
         if robots.next <= 0. {
             let triple = session.round % 4 == 0 && robots.triple_round != session.round || quest.enabled && quest.stage == QuestStage::BreakSeal;
             if triple {
+                robots.triple_active = true;
                 let eligible = session.random() as usize % 3;
                 robots.passes[2] = Some(pass(10., eligible == 2, session.random()));
                 robots.passes[0] = Some(pass(15., eligible == 0, session.random()));
