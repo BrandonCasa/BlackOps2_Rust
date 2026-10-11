@@ -2,6 +2,8 @@
 
 Rebuild the complete Black Ops II Zombies Origins experience in stable Rust and Bevy. Prioritize playable systems and maintainable code; practical reconstruction is welcome. Be clear about approximations and unfinished features.
 
+This project is a graphical remaster and a gameplay clone of Black Ops II Zombies Origins. Modernize graphics and presentation while faithfully reproducing the original gameplay mechanics, behavior, timing, progression, and balance.
+
 Use your judgment to choose tools, proportional validation, and implementation strategy. Do not use subagents unless the current user request explicitly asks for them. Preserve concurrent changes.
 
 Keep one Cargo package and one game executable, `origins.exe`. Build on Bevy and Avian rather than duplicating engine infrastructure. Retain safe Rust and the locked dependency versions unless the task calls for changing them.
