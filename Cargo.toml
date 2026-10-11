@@ -12,11 +12,12 @@ path = "src/bin/origins_flythrough.rs"
 
 [workspace]
 members = ["."]
-exclude = ["vendor/wgpu-core", "vendor/wgpu-hal", "vendor/bevy_render"]
+exclude = ["vendor/wgpu-core", "vendor/wgpu-hal", "vendor/bevy_render", "vendor/bevy_render_macros"]
 resolver = "3"
 
 [patch.crates-io]
 bevy_render = { path = "vendor/bevy_render" }
+bevy_render_macros = { path = "vendor/bevy_render_macros" }
 wgpu-core = { path = "vendor/wgpu-core" }
 wgpu-hal = { path = "vendor/wgpu-hal" }
 

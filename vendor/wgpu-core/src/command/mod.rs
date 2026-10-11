@@ -1094,8 +1094,12 @@ impl CommandEncoder {
         device: &Arc<Device>,
         cmd_buf_data: &mut CommandBufferMutable,
     ) -> Result<(), CommandEncoderError> {
+        profiling::scope!("CommandEncoder::encode_commands");
         device.check_is_valid()?;
-        let snatch_guard = device.snatchable_lock.read();
+        let snatch_guard = {
+            profiling::scope!("CommandEncoder::acquire_resource_guard");
+            device.snatchable_lock.read()
+        };
         let mut debug_scope_depth = 0;
 
         if cmd_buf_data.encoder.api == EncodingApi::Raw {

@@ -14,10 +14,12 @@ use bevy::{
         AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
         VertexFormat,
     },
-    render::storage::ShaderBuffer,
     shader::{Shader, ShaderImport, ShaderRef},
 };
 pub(super) use material::OpaqueMaterial;
+pub(crate) fn bindless_supported(device: &bevy::render::renderer::RenderDevice) -> bool {
+    OpaqueMaterial::bindless_supported(device)
+}
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -255,12 +257,13 @@ pub(super) struct SurfaceParameters {
     pub velocity: Vec4,
     pub effect: EffectParameters,
     pub native: super::native_weapon::NativeWeaponParameters,
+    pub diagnostic_state: UVec4,
 }
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 #[bind_group_data(OpaqueSurfaceKey)]
 #[data(100, SurfaceParameters, binding_array(125))]
-#[bindless(limit(1024), index_table(range(100..124), binding(124)))]
+#[bindless(limit(1024), index_table(range(100..123), binding(124)))]
 pub(super) struct OpaqueSurface {
     pub(super) parameters: SurfaceParameters,
     diagnostic: bool,
@@ -308,9 +311,6 @@ pub(super) struct OpaqueSurface {
     #[sampler(122)]
     #[dependency]
     third_specular: Option<Handle<Image>>,
-    #[storage(123, read_only, binding_array(126))]
-    #[dependency]
-    animation_clock: Handle<ShaderBuffer>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -427,7 +427,6 @@ pub(crate) struct SurfaceLibrary {
     pub(super) definitions: HashMap<String, SurfaceDefinition>,
     pub(super) prepared_meshes: HashSet<AssetId<Mesh>>,
     materials: HashMap<AssetId<StandardMaterial>, Handle<OpaqueMaterial>>,
-    animation_clock: Handle<ShaderBuffer>,
 }
 
 impl SurfaceLibrary {
@@ -525,7 +524,6 @@ pub(super) fn initialize(
     config: Res<LoadConfiguration>,
     server: Res<AssetServer>,
     mut shaders: ResMut<Assets<Shader>>,
-    mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
@@ -613,7 +611,6 @@ pub(super) fn initialize(
             definitions,
             prepared_meshes: HashSet::new(),
             materials: HashMap::new(),
-            animation_clock: buffers.add(ShaderBuffer::from(vec![Vec4::ZERO])),
         })
     })();
     match result {
@@ -678,25 +675,18 @@ pub(super) fn initialize(
 }
 
 pub(super) fn animate_water(
-    time: Res<Time<Real>>,
     mode: Res<super::pbr::MaterialDiagnostic>,
-    library: Option<Res<SurfaceLibrary>>,
-    mut buffers: ResMut<Assets<ShaderBuffer>>,
     ready: Option<Res<MaterialShadersReady>>,
     mut materials: ResMut<Assets<OpaqueMaterial>>,
-    mut diagnostic_active: Local<bool>,
+    mut diagnostic_active: Local<u32>,
 ) {
-    let diagnostic = mode.0 != 0 && ready.is_some();
+    let diagnostic = if ready.is_some() { mode.0 } else { 0 };
     if diagnostic != *diagnostic_active {
         for (_, material) in materials.iter_mut() {
-            material.extension.diagnostic = diagnostic;
+            material.extension.diagnostic = diagnostic != 0;
+            material.extension.parameters.diagnostic_state = UVec4::new(diagnostic, 0, 0, 0);
         }
         *diagnostic_active = diagnostic;
-    }
-    let Some(library) = library else { return };
-    if let Some(mut clock) = buffers.get_mut(&library.animation_clock) {
-        clock.clear();
-        clock.extend_from_slice(&[Vec4::new(time.elapsed_secs(), mode.0 as f32, 0., 0.)]);
     }
 }
 
@@ -820,6 +810,7 @@ pub(super) fn convert(
                 velocity: Vec4::from_array(profile.water_velocity),
                 effect: definition.effect.unwrap_or_default(),
                 native: definition.native,
+                diagnostic_state: UVec4::new(if ready.is_some() { mode.0 } else { 0 }, 0, 0, 0),
             };
             let extension = OpaqueSurface {
                 parameters,
@@ -845,7 +836,6 @@ pub(super) fn convert(
                 color3: channel("reveal", 0).or_else(|| channel("color", 3)),
                 third_normal: channel("rim", 0).or_else(|| channel("normal", 2)),
                 third_specular: channel("detail", 0).or_else(|| channel("response", 2)),
-                animation_clock: library.animation_clock.clone(),
             };
             let mut base = base.clone();
             base.normal_map_texture = None;

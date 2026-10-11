@@ -1,4 +1,5 @@
 import origins::surface_effect::Effect;
+import bevy_pbr::render::mesh_view_bindings::globals;
 @if(BINDLESS) import bevy_render::bindless::{bindless_samplers_filtering, bindless_textures_2d};
 
 enable wgpu_binding_array;
@@ -15,6 +16,7 @@ struct OriginsSurfaceData {
     velocity: vec4<f32>,
     effect: Effect,
     native: NativeWeaponParameters,
+    diagnostic_state: vec4<u32>,
 }
 struct NativeWeaponParameters {
     response: vec4<f32>,
@@ -34,7 +36,6 @@ struct NativeWeaponParameters {
     weapon_detail: vec4<f32>,
     kind: vec4<u32>,
 }
-struct AnimationClock { elapsed: vec4<f32>, }
 @if(BINDLESS) struct SurfaceIndices {
     parameters: u32,
     normal_map: u32,
@@ -59,11 +60,9 @@ struct AnimationClock { elapsed: vec4<f32>, }
     third_normal_sampler: u32,
     third_specular: u32,
     third_specular_sampler: u32,
-    animation_clock: u32,
 }
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(124) var<storage> surface_indices: array<SurfaceIndices>;
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(125) var<storage> surface_parameters: array<OriginsSurfaceData>;
-@if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(126) var<storage, read> animation_clocks: binding_array<AnimationClock>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> surface_uniform: OriginsSurfaceData;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(101) var normal_map: texture_2d<f32>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(102) var normal_sampler: sampler;
@@ -87,7 +86,6 @@ struct AnimationClock { elapsed: vec4<f32>, }
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(120) var third_normal_sampler: sampler;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(121) var third_specular: texture_2d<f32>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(122) var third_specular_sampler: sampler;
-@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(123) var<storage, read> animation_clock: AnimationClock;
 fn parameters_for(slot: u32) -> OriginsSurfaceData {
     @if(BINDLESS) return surface_parameters[surface_indices[slot].parameters];
     @if(!BINDLESS) return surface_uniform;
@@ -137,12 +135,10 @@ fn sample_third_specular(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec
     @if(!BINDLESS) return textureSampleGrad(third_specular, third_specular_sampler, uv, gradient[0], gradient[1]);
 }
 fn animation_time(slot: u32) -> f32 {
-    @if(BINDLESS) return animation_clocks[surface_indices[slot].animation_clock].elapsed.x;
-    @if(!BINDLESS) return animation_clock.elapsed.x;
+    return globals.real_time;
 }
 fn diagnostic_mode(slot: u32) -> u32 {
-    @if(BINDLESS) return u32(animation_clocks[surface_indices[slot].animation_clock].elapsed.y);
-    @if(!BINDLESS) return u32(animation_clock.elapsed.y);
+    return parameters_for(slot).diagnostic_state.x;
 }
 fn reflection_diagnostic_enabled() -> bool {
     return diagnostic_mode(current_surface_slot()) == 6u;

@@ -38,11 +38,14 @@ pub(super) fn probe(
     queue: Res<RenderQueue>,
     adapter: Res<RenderAdapter>,
 ) -> BrpResult {
+    let opaque_bindless = crate::rendering::opaque::bindless_supported(&device);
     let device = device.wgpu_device();
     let limits = device.limits();
     let Some(params) = params else {
         return Ok(json!({"max_buffer_size": limits.max_buffer_size,
             "source_window_bytes": adapter.limits().max_storage_buffer_binding_size,
+            "opaque_bindless": opaque_bindless,
+            "sampler_array_limit": limits.max_binding_array_sampler_elements_per_shader_stage,
             "counted": device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT_COUNT)}));
     };
     let request: Request = serde_json::from_value(params).map_err(error)?;

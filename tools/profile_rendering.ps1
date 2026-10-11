@@ -69,7 +69,7 @@ try {
         started_utc = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json | Set-Content -LiteralPath "$outputPath/profiling-run.json" -Encoding utf8
     $env:NO_COLOR = '1'
-    $env:RUST_LOG = 'info,wgpu=error,naga=warn'
+    $env:RUST_LOG = if ($NoTracy) { 'info,wgpu=error,naga=warn' } else { 'info,wgpu=info,naga=warn' }
     $env:TRACY_NO_SYS_TRACE = '1'
     $env:TRACY_SYMBOL_OFFLINE_RESOLVE = '1'
     $env:TRACY_ONLY_LOCALHOST = '1'

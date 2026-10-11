@@ -92,7 +92,7 @@ def gpu_cases(client, report):
         require(result["pixel"] == [0, 255, 0, 255], f"GPU upload boundary failed: {padding}")
 
 
-def run(client, report, output, process, startup_only=False):
+def run(client, report, output, process, startup_only=False, require_bindless=False, water=False):
     deadline = time.monotonic() + 360
     while time.monotonic() < deadline:
         require(process.poll() is None, f"Game exited during startup: {process.returncode}")
@@ -113,6 +113,9 @@ def run(client, report, output, process, startup_only=False):
     methods = {method["name"] for method in report["discovery"]["methods"]}
     if "origins/rendering/indirect" in methods:
         gpu_cases(client, report)
+    if require_bindless:
+        require(report.get("indirect_gpu", {}).get("capabilities", {}).get("opaque_bindless"),
+                "Opaque materials fell back from bindless rendering")
     if startup_only:
         return
     client.reset()
@@ -145,6 +148,14 @@ def run(client, report, output, process, startup_only=False):
     report["render_after"] = settled(client)
     shadows = report["render_after"]["shadows"]
     require(any(light["shadow_maps"] for light in shadows["lights"]), "No active shadow maps")
+    if water:
+        report["water_view"] = client.call("origins/rendering", {
+            "view": [-38.7, 5.5, -13.0, -38.7, 0.0, -21.0]})
+        settled(client)
+        report["screenshots"].append(capture(client, output / "water-a.png"))
+        client.wait_ticks(90)
+        report["screenshots"].append(capture(client, output / "water-b.png"))
+        client.call("origins/rendering", {"restore_player_view": True})
     report["coverage_limits"] = [
         "Screenshots require visual review; pipeline success alone does not prove geometry.",
         "The offscreen GPU integration cases are separate from the native-scene gameplay checks.",
@@ -158,6 +169,8 @@ def main():
     parser.add_argument("--backend", choices=("dx12", "vulkan"), required=True)
     parser.add_argument("--port", type=int, default=15702)
     parser.add_argument("--startup-only", action="store_true")
+    parser.add_argument("--require-bindless", action="store_true")
+    parser.add_argument("--water", action="store_true")
     args = parser.parse_args()
     bundle, output = args.bundle.resolve(), args.output.resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parent.parent), "Output must be external")
@@ -177,7 +190,7 @@ def main():
             creationflags=subprocess.CREATE_NO_WINDOW)
         report["pid"] = process.pid
         try:
-            run(client, report, output, process, args.startup_only)
+            run(client, report, output, process, args.startup_only, args.require_bindless, args.water)
             report["assets_after"] = assets_match(identity)
             report["passed"] = True
         except Exception as error:

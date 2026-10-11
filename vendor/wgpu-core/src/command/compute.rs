@@ -659,6 +659,7 @@ pub(super) fn encode_compute_pass(
     mut base: BasePass<ArcComputeCommand, Infallible>,
     mut timestamp_writes: Option<ArcPassTimestampWrites>,
 ) -> Result<(), ComputePassError> {
+    profiling::scope!("ComputePass::encode", base.label.as_deref().unwrap_or(""));
     let pass_scope = PassErrorScope::Pass;
 
     let device = parent_state.device;
@@ -1006,6 +1007,7 @@ fn set_pipeline(
 }
 
 fn dispatch_workgroups(state: &mut State, groups: [u32; 3]) -> Result<(), ComputePassErrorInner> {
+    profiling::scope!("ComputePass::dispatch_workgroups");
     api_log!("ComputePass::dispatch {groups:?}");
 
     state.is_ready()?;
@@ -1040,6 +1042,7 @@ fn dispatch_workgroups_indirect(
     buffer: Arc<Buffer>,
     offset: u64,
 ) -> Result<(), ComputePassErrorInner> {
+    profiling::scope!("ComputePass::dispatch_workgroups_indirect");
     api_log!("ComputePass::dispatch_indirect");
 
     buffer.same_device(device)?;

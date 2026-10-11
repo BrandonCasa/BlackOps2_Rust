@@ -389,6 +389,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
     type A = super::Api;
 
     unsafe fn begin_encoding(&mut self, label: crate::Label) -> Result<(), crate::DeviceError> {
+        profiling::scope!("DX12::begin_encoding");
         let list = loop {
             if let Some(list) = self.free_lists.pop() {
                 // TODO: Is an error expected here and should we print it?
@@ -435,6 +436,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
         }
     }
     unsafe fn end_encoding(&mut self) -> Result<super::CommandBuffer, crate::DeviceError> {
+        profiling::scope!("DX12::end_encoding");
         let raw = self.list.take().unwrap();
         unsafe { raw.Close() }.into_device_result("GraphicsCommandList::close")?;
         Ok(super::CommandBuffer { raw })
@@ -1618,6 +1620,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
     }
 
     unsafe fn set_compute_pipeline(&mut self, pipeline: &super::ComputePipeline) {
+        profiling::scope!("DX12::set_compute_pipeline");
         let list = self.list.clone().unwrap();
 
         if self.pass.layout.signature != pipeline.layout.signature {
@@ -1630,6 +1633,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
     }
 
     unsafe fn dispatch_workgroups(&mut self, count @ [x, y, z]: [u32; 3]) {
+        profiling::scope!("DX12::dispatch_workgroups");
         self.prepare_dispatch(count);
         unsafe { self.list.as_ref().unwrap().Dispatch(x, y, z) }
     }
@@ -1639,6 +1643,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
         buffer: &super::Buffer,
         offset: wgt::BufferAddress,
     ) {
+        profiling::scope!("DX12::dispatch_workgroups_indirect");
         if self
             .pass
             .layout
