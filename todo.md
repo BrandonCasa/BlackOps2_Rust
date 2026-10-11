@@ -413,20 +413,20 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add source-defined spending challenge Double Tap rewards.
 - [x] Allow source-defined reward perks beyond purchase limits.
 - [x] Add challenge reward claiming.
-- [ ] Add tablet ownership state.
-- [ ] Add tablet pickup placements.
-- [ ] Add tablet church basin placement.
-- [ ] Add tablet cleansing melee soul collection.
-- [ ] Add cleansed tablet pickup.
-- [ ] Contaminate carried tablets after touching mud.
-- [ ] Add tablet return placement.
-- [ ] Add returned tablet melee soul collection.
-- [ ] Add G-Strike equipment replacement.
-- [ ] Add G-Strike beacon throwing.
-- [ ] Add G-Strike zombie attraction.
-- [ ] Add G-Strike robot bombardment.
-- [ ] Add G-Strike equipment replenishment.
-- [ ] Add G-Strike reward claiming.
+- [x] Add tablet ownership state.
+- [x] Add tablet pickup placements.
+- [x] Add tablet church basin placement.
+- [x] Add tablet cleansing melee soul collection.
+- [x] Add cleansed tablet pickup.
+- [x] Contaminate carried tablets after touching mud.
+- [x] Add tablet return placement.
+- [x] Add returned tablet melee soul collection.
+- [x] Add G-Strike equipment replacement.
+- [x] Add G-Strike beacon throwing.
+- [x] Add G-Strike zombie attraction.
+- [x] Add G-Strike robot bombardment.
+- [x] Add G-Strike equipment replenishment.
+- [x] Add G-Strike reward claiming.
 - [x] Add Iron Fists melee weapon definition.
 - [x] Add elemental Iron Fists variants.
 - [x] Unlock main quest progression after all staff upgrades.

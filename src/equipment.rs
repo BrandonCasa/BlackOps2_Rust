@@ -165,7 +165,7 @@ pub enum EquipmentError {
     Unsupported,
 }
 #[derive(Clone, Copy)]
-enum GrenadeMotion {
+pub(crate) enum GrenadeMotion {
     Flying(Vec3),
     Resting,
     Attached {
@@ -183,6 +183,9 @@ pub struct Grenade {
     elapsed: f32,
     radius: f32,
     pub lure_active: bool,
+}
+impl Grenade {
+    pub fn settled(&self) -> bool { matches!(self.motion, GrenadeMotion::Resting | GrenadeMotion::Attached { .. }) }
 }
 pub(crate) fn dig_grenade(
     commands: &mut Commands,
@@ -566,7 +569,7 @@ pub(crate) fn throw_input(
         }
     }
 }
-fn flight(
+pub(crate) fn flight(
     mut commands: Commands,
     session: Res<crate::session::SessionId>,
     time: Res<Time<Fixed>>,
@@ -699,7 +702,7 @@ fn flight(
                 }
             }
         }
-        if weapon.lure.is_some()
+        if (weapon.lure.is_some() || weapon.id.0 == "weapon.beacon_zm")
             && !grenade.lure_active
             && matches!(grenade.motion, GrenadeMotion::Resting)
         {

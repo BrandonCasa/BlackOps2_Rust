@@ -95,6 +95,7 @@ fn assign(
     mut attractions: ResMut<Attractions>,
     mut evidence: ResMut<LureEvidence>,
 ) {
+    let beacon_profile = definition.content.weapons.iter().find_map(|w| w.lure.clone()).map(|mut profile| { profile.range = 39.0144; profile.capacity = 96; profile.spacing = 1.143; profile });
     let mut active = Vec::new();
     for (entity, grenade, pose) in &bombs {
         if !grenade.lure_active {
@@ -106,6 +107,7 @@ fn assign(
             .iter()
             .find(|w| w.id == grenade.definition)
             .and_then(|w| w.lure.as_ref())
+            .or_else(|| (grenade.definition.0 == "weapon.beacon_zm").then_some(beacon_profile.as_ref()).flatten())
         else {
             continue;
         };

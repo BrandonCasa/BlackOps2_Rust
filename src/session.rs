@@ -124,6 +124,7 @@ pub(crate) fn teardown(world: &mut World) {
     clear::<crate::quests::SoulCollected>(world);
     clear::<crate::projectiles::ProjectileImpact>(world);
     clear::<crate::robots::RobotStomp>(world);
+    clear::<crate::tablets::BeaconStrike>(world);
 }
 
 fn clear<M: Message>(world: &mut World) {
