@@ -170,7 +170,7 @@ pub struct Subtitle {
 #[derive(Component)]
 pub struct SurfaceSound(pub String);
 #[derive(Resource, Default)]
-struct Mixer {
+pub(crate) struct Mixer {
     sequence: u64,
     clock: f32,
     voice_cooldown: f32,
@@ -297,6 +297,7 @@ impl Plugin for GameAudioPlugin {
             .add_systems(OnEnter(GameState::GameOver), (stop, game_over).chain())
             .add_systems(OnEnter(GameState::Loading), stop);
         app.add_systems(OnEnter(GameState::MainMenu), stop);
+        app.add_systems(OnEnter(GameState::Ending), stop);
         gameplay::install(app);
     }
 }
@@ -665,7 +666,7 @@ fn maintain(
         }
     }
 }
-fn stop(
+pub(crate) fn stop(
     mut commands: Commands,
     sounds: Query<Entity, Or<(With<PlayingSound>, With<SoundRequest>)>>,
     mut mixer: ResMut<Mixer>,

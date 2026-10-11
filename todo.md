@@ -457,20 +457,20 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add quest zombie circular movement.
 - [x] Add quest zombie drone drop.
 - [x] Add quest drone recovery.
-- [ ] Spawn glowing-hand excavation zombies.
-- [ ] Require eligible melee kills for the fist challenge.
-- [ ] Add fist challenge soul accumulation.
-- [ ] Add upgraded fist reward pickup.
-- [ ] Enable final Crazy Place staff placements.
-- [ ] Collect finale souls from eligible Crazy Place deaths.
-- [ ] Open the final portal after required souls.
+- [x] Spawn glowing-hand excavation zombies.
+- [x] Require eligible Iron Fists hits for the fist challenge.
+- [x] Add fist challenge soul accumulation.
+- [x] Add upgraded fist reward pickup.
+- [x] Enable final Crazy Place staff placements.
+- [x] Collect finale souls from eligible Crazy Place deaths.
+- [x] Open the final portal after required souls.
 - [x] Stop Crazy Place barriers after finale completion.
-- [ ] Add final Maxis Drone portal deployment.
-- [ ] Add final portal entry interaction.
-- [ ] Add ending presentation state.
-- [ ] Add ending skip input.
-- [ ] Route ending completion into the final scoreboard.
-- [ ] Transition final portal entry into the ending.
+- [x] Add final Maxis Drone portal deployment.
+- [x] Add final portal entry interaction.
+- [x] Add ending presentation state.
+- [x] Add ending skip input.
+- [x] Route ending completion into the final scoreboard.
+- [x] Transition final portal entry into the ending.
 - [ ] Add source-defined DSR-50 aiming jumpscare trigger.
 - [ ] Add jumpscare image and sound playback.
 - [ ] Add damage-triggered wall poster removal.
@@ -495,9 +495,9 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add free Magna Collider drone-seal progress.
 - [ ] Spawn free Magna Collider after collecting required seals.
 - [ ] Add free Magna Collider pickup interaction.
-- [ ] Bind cinematic audio aliases to frame sequences.
+- [x] Bind cinematic audio aliases to frame sequences.
 - [ ] Add loading cinematic skip input.
-- [ ] Add ending audio synchronization.
+- [x] Add ending audio synchronization.
 - [ ] Add round transition announcements.
 - [ ] Add generator attack notifications.
 - [ ] Add robot interior announcements.

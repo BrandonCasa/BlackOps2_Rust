@@ -165,6 +165,8 @@ pub enum PopulationKind {
     Special,
     GeneratorDefender,
 }
+#[derive(Component)]
+pub struct SpawnZone(pub crate::origins::ZoneId);
 #[derive(Resource, Default)]
 pub struct Population {
     pub ordinary: usize,
@@ -394,6 +396,7 @@ pub(crate) fn advance(
         shape,
         health,
         PopulationKind::Ordinary,
+        SpawnZone(spawn_zone),
         SessionEntity,
         Visibility::Inherited,
         Transform::from_translation(position),

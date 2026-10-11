@@ -77,7 +77,7 @@ fn progress(mut commands: Commands, mut state: ResMut<StaffUpgrades>, mut events
     }
     if quest.upgraded.len() == 4 { quest.transition(QuestStage::UpgradeStaffs, QuestStage::PlaceStaffs); }
 }
-pub(crate) fn interact(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, mut state: ResMut<StaffUpgrades>, mut focus: ResMut<InteractionFocus>, game: Res<crate::assets::GameDefinition>, spatial: SpatialQuery,
+pub(crate) fn interact(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, mut state: ResMut<StaffUpgrades>, mut focus: ResMut<InteractionFocus>, game: Res<crate::assets::GameDefinition>, spatial: SpatialQuery, quest: Res<MainQuest>,
     mut targets: Query<(Entity, &Target, &Transform, Option<&mut SoulCollector>), Without<Player>>, mut players: Query<(Entity, &Player, &Transform, &Vitality, &mut WeaponInventory, Has<crate::perks::PerkDrinking>)>) {
     if !input.use_held { state.latched = false; }
     let Ok((owner, player, pose, health, mut inventory, drinking)) = players.single_mut() else { return; };
@@ -108,9 +108,11 @@ pub(crate) fn interact(mut commands: Commands, input: Res<GameInput>, settings: 
                 let Some(definition) = game.content.weapons.iter().find(|w| w.id.0 == id) else { return; };
                 if inventory.exchange_staff(definition).is_err() { return; } inventory.fill_received(definition); state.inserted[*index] = false;
             } else {
-                if !inventory.active().is_some_and(|w| w.definition.0 == WEAPONS[*index]) || inventory.deposit_active().is_err() { return; }
+                let expected = if state.charged[*index] { WEAPONS[*index].replace("_zm", "_upgraded_zm") } else { WEAPONS[*index].to_string() };
+                if state.charged[*index] && quest.stage != QuestStage::Finale { return; }
+                if !inventory.active().is_some_and(|w| w.definition.0 == expected) || inventory.deposit_active().is_err() { return; }
                 state.inserted[*index] = true;
-                if let Some(mut collector) = collector { collector.active = true; }
+                if let Some(mut collector) = collector { collector.active = !state.charged[*index]; }
                 if inventory.active().is_none() && let Some(fists) = game.content.weapons.iter().find(|w| w.id.0 == "weapon.zombie_fists_zm") { let _ = inventory.grant(fists); }
             }
             crate::audio::emit(&mut commands, "zmb_squest_charge_place_staff", crate::audio::SoundSource::attached(entity));
