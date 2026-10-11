@@ -122,6 +122,8 @@ pub(crate) fn teardown(world: &mut World) {
     clear::<crate::rounds::RoundEnding>(world);
     clear::<crate::environment::support::EnvironmentalHit>(world);
     clear::<crate::quests::SoulCollected>(world);
+    clear::<crate::projectiles::ProjectileImpact>(world);
+    clear::<crate::robots::RobotStomp>(world);
 }
 
 fn clear<M: Message>(world: &mut World) {

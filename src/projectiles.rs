@@ -28,11 +28,13 @@ pub fn spawn(commands: &mut Commands, owner: Entity, weapon: &WeaponDefinition, 
     ));
 }
 
+#[derive(Message, Clone)]
+pub struct ProjectileImpact { pub owner: Entity, pub weapon: WeaponId, pub point: Vec3 }
 pub struct ProjectilePlugin;
 
 impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, flight
+        app.add_message::<ProjectileImpact>().add_systems(FixedUpdate, flight
             .in_set(GameStep::Combat)
             .after(crate::gameplay::combat)
             .before(crate::equipment::resolve_blasts)
@@ -52,6 +54,7 @@ fn flight(
     mut blasts: ResMut<crate::equipment::BlastQueue>,
     environmental: crate::environment::support::ShootableTargets,
     mut environment_hits: MessageWriter<crate::environment::support::EnvironmentalHit>,
+    mut impacts: MessageWriter<ProjectileImpact>,
 ) {
     for (entity, mut projectile, mut pose) in &mut projectiles {
         let Some(weapon) = game.content.weapons.iter().find(|weapon| weapon.id == projectile.weapon) else {
@@ -81,6 +84,7 @@ fn flight(
             continue;
         }
         let center = pose.translation + direction.as_vec3() * impact_distance;
+        impacts.write(ProjectileImpact { owner: projectile.owner, weapon: projectile.weapon.clone(), point: center });
         if environment_distance <= solid_distance && environment_distance <= actor_distance {
             if let Some((target, _)) = environment {
                 environment_hits.write(crate::environment::support::EnvironmentalHit {

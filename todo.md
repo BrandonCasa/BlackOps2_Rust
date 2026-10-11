@@ -357,12 +357,12 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Sekhmet's Vigor ammunition state.
 - [x] Add staff alternate-mode switching.
 - [x] Add Sekhmet's Vigor projectile attacks.
-- [ ] Add Fire Staff cauldron completion state.
-- [ ] Add Fire Staff cauldron soul charging.
-- [ ] Add Fire Staff church symbol selection.
-- [ ] Add Fire Staff torch sequence inputs.
-- [ ] Add Fire Staff torch sequence rejection.
-- [ ] Add Fire Staff torch puzzle completion.
+- [x] Add Fire Staff cauldron completion state.
+- [x] Add Fire Staff cauldron soul charging.
+- [x] Add Fire Staff church symbol selection.
+- [x] Add Fire Staff torch sequence inputs.
+- [x] Add Fire Staff torch sequence rejection.
+- [x] Add Fire Staff torch puzzle completion.
 - [x] Add Ice Staff symbol sequence generation.
 - [x] Add Ice Staff symbol shooting inputs.
 - [x] Add Ice Staff symbol sequence rejection.

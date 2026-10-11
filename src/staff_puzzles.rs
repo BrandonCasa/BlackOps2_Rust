@@ -17,6 +17,11 @@ pub struct StaffPuzzles {
     pub ice_tiles: BTreeSet<u8>,
     pub frozen_stones: [bool; 3],
     pub broken_stones: [bool; 3],
+    pub sacrifices: u32,
+    pub fire_torches: BTreeSet<u8>,
+    pub lit_torches: BTreeMap<u8, f32>,
+    fire_corpses: Vec<f32>,
+    ignition: f32,
     ice_lock: f32,
     notes: BTreeSet<String>,
     ringing: f32,
@@ -30,7 +35,8 @@ pub struct StaffPuzzlePlugin;
 impl Plugin for StaffPuzzlePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<StaffPuzzles>()
-            .add_systems(OnEnter(GameState::PreparingShaders), (setup, setup_ice).chain().in_set(crate::session::SessionSetup::World))
+            .add_systems(OnEnter(GameState::PreparingShaders), (setup, setup_ice, setup_fire).chain().in_set(crate::session::SessionSetup::World))
+            .add_systems(FixedUpdate, fire.in_set(GameStep::Rewards).after(crate::damage::reward_deaths).run_if(in_state(GameState::Playing)))
             .add_systems(FixedUpdate, ice.in_set(GameStep::Rewards).run_if(in_state(GameState::Playing)))
             .add_systems(FixedUpdate, wind.in_set(GameStep::Rewards).run_if(in_state(GameState::Playing)))
             .add_systems(FixedUpdate, piano.in_set(GameStep::Rewards).run_if(in_state(GameState::Playing)))
@@ -205,4 +211,57 @@ fn ice(mut commands: Commands, time: Res<Time<Fixed>>, mut puzzles: ResMut<Staff
             }
         }
     }
+}
+
+#[derive(Component)]
+struct FireSymbol(u8);
+fn setup_fire(mut commands: Commands, mut puzzles: ResMut<StaffPuzzles>, mut session: ResMut<crate::gameplay::Session>, game: Res<crate::assets::GameDefinition>, brushes: Query<(Entity, &crate::environment::brushes::MapBrush)>) {
+    let mut groups: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for brush in &game.environment.brush_entities {
+        if brush.source.get("script_noteworthy").is_some_and(|name| name == "fire_torch_ternary") {
+            if let (Some(group), Some(value)) = (brush.source.get("targetname"), brush.source.get("script_int").and_then(|s| s.parse::<u8>().ok())) { groups.entry(group.clone()).or_default().push(value); }
+        }
+    }
+    for values in groups.values() { puzzles.fire_torches.insert(values[session.random() as usize % values.len()]); }
+    for (entity, brush) in &brushes {
+        if let Some(source) = game.environment.brush_entities.iter().find(|b| b.id == brush.id) && source.source.get("script_noteworthy").is_some_and(|name| name == "fire_torch_ternary") {
+            if let Some(value) = source.source.get("script_int").and_then(|s| s.parse::<u8>().ok()) { commands.entity(entity).insert((FireSymbol(value), Visibility::Hidden)); }
+        }
+    }
+}
+fn fire(mut commands: Commands, time: Res<Time<Fixed>>, mut puzzles: ResMut<StaffPuzzles>, mut impacts: MessageReader<crate::projectiles::ProjectileImpact>, mut deaths: MessageReader<crate::damage::EnemyDeath>,
+    crafting: Res<crate::crafting::Crafting>, game: Res<crate::assets::GameDefinition>, spatial: SpatialQuery, volumes: Query<&crate::environment::triggers::MapTrigger>,
+    enemies: Query<&Transform, With<crate::enemies::Zombie>>, mut symbols: Query<(&FireSymbol, &mut Visibility)>) {
+    let dt = time.delta_secs(); puzzles.ignition = (puzzles.ignition - dt).max(0.);
+    for duration in puzzles.lit_torches.values_mut() { *duration -= dt; }
+    puzzles.lit_torches.retain(|_, duration| *duration > 0.);
+    let inside = |point| spatial.shape_intersections(&Collider::sphere(0.1), point, Quat::IDENTITY, &SpatialQueryFilter::from_mask(crate::environment::triggers::TRIGGER_LAYER)).iter().filter_map(|e| volumes.get(*e).ok()).any(|v| game.environment.triggers.iter().find(|t| t.id == v.0).is_some_and(|t| t.source.get("targetname").is_some_and(|name| name == "fire_sacrifice_volume")));
+    for impact in impacts.read() {
+        if !impact.weapon.0.contains("staff_fire") { continue; }
+        if !puzzles.first[0] && inside(impact.point) { puzzles.ignition = 6.; }
+        if puzzles.first[0] && !puzzles.second[0] {
+            for (number, point) in source::TORCHES {
+                if impact.point.distance_squared(Vec3::from_array(*point)) <= 1.6256_f32.powi(2) {
+                    puzzles.lit_torches.insert(*number, 15.);
+                    if !puzzles.fire_torches.contains(number) { puzzles.rejected += 1; }
+                    crate::audio::emit(&mut commands, "zmb_squest_fire_torch_ignite", crate::audio::SoundSource::World(Vec3::from_array(*point)));
+                }
+            }
+            puzzles.second[0] = puzzles.lit_torches.keys().copied().collect::<BTreeSet<_>>() == puzzles.fire_torches;
+        }
+    }
+    for death in deaths.read() {
+        if puzzles.first[0] || !crafting.crafted.contains("elemental_staff_fire") || !death.0.can_supply_soul() { continue; }
+        if let Ok(pose) = enemies.get(death.0.impact.target) && inside(pose.translation) {
+            if puzzles.fire_corpses.len() >= 15 { puzzles.fire_corpses.remove(0); }
+            puzzles.fire_corpses.push(2.);
+        }
+    }
+    for timer in &mut puzzles.fire_corpses { *timer -= dt; }
+    if puzzles.ignition > 0. {
+        let ready = puzzles.fire_corpses.iter().filter(|t| **t <= 0.).count();
+        puzzles.fire_corpses.retain(|t| *t > 0.); puzzles.sacrifices += ready as u32;
+        puzzles.first[0] = puzzles.sacrifices >= 32;
+    }
+    for (symbol, mut visibility) in &mut symbols { *visibility = if puzzles.first[0] && puzzles.fire_torches.contains(&symbol.0) { Visibility::Inherited } else { Visibility::Hidden }; }
 }
