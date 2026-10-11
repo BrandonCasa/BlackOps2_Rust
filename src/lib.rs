@@ -23,6 +23,7 @@ pub mod barriers;
 pub mod buildables;
 pub mod damage;
 pub mod crafting;
+pub mod combat_effects;
 pub mod economy;
 pub mod enemies;
 pub mod environment;
@@ -177,6 +178,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             crafting::CraftingPlugin,
             buildables::BuildablePlugin,
             tank::TankPlugin,
+            combat_effects::CombatEffectsPlugin,
             life::LifeStatePlugin,
             solo_revive::SoloRevivePlugin,
             perks::PerkPlugin,

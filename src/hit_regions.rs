@@ -30,6 +30,7 @@ pub struct HitVolume {
 }
 #[derive(Component, Default)]
 pub struct Hitboxes {
+    pub disabled: Vec<HitRegion>,
     pub volumes: Vec<HitVolume>,
 }
 #[derive(Clone, Copy)]
@@ -53,6 +54,7 @@ impl Hitboxes {
     ) -> Option<RegionHit> {
         self.volumes
             .iter()
+            .filter(|volume| !self.disabled.contains(&volume.region))
             .filter_map(|volume| {
                 volume
                     .shape

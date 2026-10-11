@@ -55,14 +55,14 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add zombie pursuit states.
 - [x] Cancel attacks after target loss.
 - [x] Add stuck enemy detection.
-- [ ] Add limb damage thresholds.
-- [ ] Add crawling zombie movement.
-- [ ] Convert eligible damaged zombies into crawlers.
-- [ ] Add headless zombie behavior.
-- [ ] Add zombie stagger reactions.
-- [ ] Add zombie burn status.
-- [ ] Add zombie freeze status.
-- [ ] Add zombie electrical stun status.
+- [x] Add limb damage thresholds.
+- [x] Add crawling zombie movement.
+- [x] Convert eligible damaged zombies into crawlers.
+- [x] Add headless zombie behavior.
+- [x] Add zombie stagger reactions.
+- [x] Add zombie burn status.
+- [x] Add zombie freeze status.
+- [x] Add zombie electrical stun status.
 - [x] Add zombie distraction targeting.
 - [x] Preserve pending budget after failed admission.
 - [x] Add source-defined zombie replacement rules.
@@ -333,15 +333,15 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add staff pedestal retrieval.
 - [x] Add source-defined staff exchange behavior.
 - [x] Restore lost or abandoned staffs to available pickup pedestals.
-- [ ] Add Fire Staff projectile attacks.
-- [ ] Add Fire Staff impact burning.
-- [ ] Add Ice Staff projectile attacks.
-- [ ] Add Ice Staff freezing duration.
-- [ ] Add Ice Staff frozen enemy shattering.
-- [ ] Add Wind Staff projectile attacks.
-- [ ] Add Wind Staff enemy knockback.
-- [ ] Add Lightning Staff projectile bursts.
-- [ ] Add Lightning Staff chain damage.
+- [x] Add Fire Staff projectile attacks.
+- [x] Add Fire Staff impact burning.
+- [x] Add Ice Staff projectile attacks.
+- [x] Add Ice Staff freezing duration.
+- [x] Add Ice Staff frozen enemy shattering.
+- [x] Add Wind Staff projectile attacks.
+- [x] Add Wind Staff enemy knockback.
+- [x] Add Lightning Staff projectile bursts.
+- [x] Add Lightning Staff chain damage.
 - [ ] Add source-defined staff melee damage.
 - [ ] Add Fire Staff charge levels.
 - [ ] Add Ice Staff charge levels.

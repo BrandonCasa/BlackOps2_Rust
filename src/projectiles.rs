@@ -93,7 +93,7 @@ fn flight(
                 attacker: projectile.owner, target: hit.target,
                 source: crate::damage::ImpactSource::Projectile(projectile.weapon.clone()),
                 category: weapon.category, region: hit.hit.region,
-                amount: crate::weapons::damage_at(weapon, projectile.traveled + impact_distance, hit.hit.region),
+                amount: if weapon.mechanics.explosion_radius > 0. { crate::weapons::damage_at(weapon, projectile.traveled + impact_distance, hit.hit.region) } else { crate::combat_effects::elemental_damage(&weapon.id, crate::weapons::damage_at(weapon, projectile.traveled + impact_distance, hit.hit.region)) },
             });
         }
         if weapon.mechanics.explosion_radius > 0. {
@@ -101,8 +101,8 @@ fn flight(
                 session: *session, owner: projectile.owner, definition: projectile.weapon.clone(),
                 center: center - direction.as_vec3() * 0.003,
                 radius: weapon.mechanics.explosion_radius,
-                inner_radius: 0., inner_damage: weapon.mechanics.explosion_damage[0],
-                outer_damage: weapon.mechanics.explosion_damage[1], direction: None,
+                inner_radius: 0., inner_damage: crate::combat_effects::elemental_damage(&weapon.id, weapon.mechanics.explosion_damage[0]),
+                outer_damage: crate::combat_effects::elemental_damage(&weapon.id, weapon.mechanics.explosion_damage[1]), direction: None,
             });
         } else {
             crate::audio::binding(&mut commands, &game, &format!("{}.impact", projectile.weapon.0),

@@ -24,6 +24,7 @@ struct Attribution<'w, 's> {
 pub enum ImpactSource {
     Weapon(WeaponId),
     Projectile(WeaponId),
+    Status(WeaponId),
     Enemy(ContentId),
     Fall,
     Environment(String),
@@ -36,7 +37,7 @@ pub enum ImpactSource {
 impl ImpactSource {
     pub fn id(&self) -> &str {
         match self {
-            Self::Weapon(id) | Self::Projectile(id) => &id.0,
+            Self::Weapon(id) | Self::Projectile(id) | Self::Status(id) => &id.0,
             Self::Enemy(id) => &id.0,
             Self::Powerup => "powerup.nuke",
             Self::Fall => "hazard.fall",
@@ -51,7 +52,7 @@ impl ImpactSource {
     pub fn player_attributed(&self) -> bool {
         matches!(
             self,
-            Self::Weapon(_) | Self::Projectile(_) | Self::Perk(_) | Self::Powerup
+            Self::Weapon(_) | Self::Projectile(_) | Self::Status(_) | Self::Perk(_) | Self::Powerup
         )
     }
 }
@@ -123,10 +124,10 @@ impl Plugin for DamagePlugin {
             );
     }
 }
-fn resolve(
+pub(crate) fn resolve(
     mut queue: ResMut<DamageQueue>,
     mut history: ResMut<CombatHistory>,
-    mut targets: Query<(&mut Vitality, Option<&mut crate::player_health::Recovery>)>,
+    mut targets: Query<(&mut Vitality, Option<&mut crate::player_health::Recovery>, Option<&mut crate::combat_effects::Armor>)>,
     attribution: Attribution,
     enemies: Query<&Zombie>,
     definition: Res<GameDefinition>,
@@ -152,7 +153,7 @@ fn resolve(
         .0
         .sort_by_key(|impact| matches!(impact.source, ImpactSource::Enemy(_)));
     for mut impact in queue.0.drain(..) {
-        let sender_alive = targets.get(impact.attacker).is_ok_and(|(v, _)| {
+        let sender_alive = targets.get(impact.attacker).is_ok_and(|(v, _, _)| {
             matches!(
                 v.state(),
                 crate::life::LifeState::Standing
@@ -164,6 +165,7 @@ fn resolve(
             ImpactSource::Powerup
             | ImpactSource::Weapon(_)
             | ImpactSource::Projectile(_)
+            | ImpactSource::Status(_)
             | ImpactSource::Perk(_)
             | ImpactSource::Environment(_)
             | ImpactSource::OutOfBounds
@@ -179,6 +181,7 @@ fn resolve(
             && !matches!(
                 impact.source,
                 ImpactSource::Projectile(_)
+                    | ImpactSource::Status(_)
                     | ImpactSource::Powerup
                     | ImpactSource::Robot(_)
                     | ImpactSource::Vehicle(_)
@@ -187,7 +190,7 @@ fn resolve(
         {
             continue;
         }
-        let Ok((mut health, mut recovery)) = targets.get_mut(impact.target) else {
+        let Ok((mut health, mut recovery, armor)) = targets.get_mut(impact.target) else {
             continue;
         };
         let player = players.contains(impact.target);
@@ -249,6 +252,7 @@ fn resolve(
             }
         }
         let base_amount = impact.amount;
+        if let Some(mut armor) = armor { impact.amount = armor.absorb(&impact); }
         let before = health.current().unwrap_or(0);
         let aimed_bullet = matches!(impact.category, DamageCategory::Bullet)
             && players

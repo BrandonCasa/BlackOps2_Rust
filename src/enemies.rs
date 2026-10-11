@@ -33,7 +33,8 @@ pub struct EnemyGoal {
 #[require(
     RigidBody::Kinematic,
     CustomPositionIntegration,
-    crate::hit_regions::Hitboxes
+    crate::hit_regions::Hitboxes,
+    crate::combat_effects::Wounds
 )]
 pub struct Zombie {
     pub definition: ContentId,
@@ -260,6 +261,7 @@ impl Plugin for EnemyPlugin {
                 Update,
                 (
                     spawn_actors,
+                    wounds_visibility,
                     attach_parts,
                     admit_ready,
                     animate.in_set(EnemyAnimationPlayback),
@@ -300,6 +302,7 @@ pub(crate) fn lifecycle(
             &Collider,
             &Vitality,
             Has<ActorReady>,
+            &crate::combat_effects::Wounds,
         ),
         Without<Player>,
     >,
@@ -315,10 +318,10 @@ pub(crate) fn lifecycle(
     let dt = time.delta_secs();
     let mut positions: Vec<_> = enemies
         .iter()
-        .filter(|(_, _, _, _, v, _)| v.state() == LifeState::ActorAlive)
-        .map(|(e, _, t, _, _, _)| (e, t.translation))
+        .filter(|(_, _, _, _, v, _, _)| v.state() == LifeState::ActorAlive)
+        .map(|(e, _, t, _, _, _, _)| (e, t.translation))
         .collect();
-    for (entity, mut zombie, mut transform, shape, vitality, ready) in &mut enemies {
+    for (entity, mut zombie, mut transform, shape, vitality, ready, wounds) in &mut enemies {
         let Some(enemy) = definition
             .content
             .enemies
@@ -666,8 +669,8 @@ pub(crate) fn lifecycle(
         let moving = !ignored
             && zombie.action != EnemyAnimation::Attack
             && !(lure.is_some() && distance < 0.4);
-        zombie.velocity.x = direction.x * zombie.speed * f32::from(moving);
-        zombie.velocity.z = direction.z * zombie.speed * f32::from(moving);
+        zombie.velocity.x = direction.x * zombie.speed * if wounds.crawler { 0.2 } else { 1. } * f32::from(moving);
+        zombie.velocity.z = direction.z * zombie.speed * if wounds.crawler { 0.2 } else { 1. } * f32::from(moving);
         if moving {
             let mut separate = Vec3::ZERO;
             for (other, point) in &positions {
@@ -1409,5 +1412,14 @@ fn replace_distant(
         living = living.saturating_sub(1);
         barriers.release(entity);
         commands.entity(entity).despawn();
+    }
+}
+
+fn wounds_visibility(mut rigs: Query<(&ActorRig, &mut Visibility)>, mut actors: Query<(&crate::combat_effects::Wounds, &mut crate::hit_regions::Hitboxes)>) {
+    for (wounds, mut hitboxes) in &mut actors {
+        if wounds.headless && !hitboxes.disabled.contains(&crate::weapons::HitRegion::Head) { hitboxes.disabled.push(crate::weapons::HitRegion::Head); }
+    }
+    for (rig, mut visibility) in &mut rigs {
+        if rig.socket.as_ref().is_some_and(|s| s.contains("head") || s.contains("neck")) && actors.get(rig.owner).is_ok_and(|(wounds, _)| wounds.headless) { *visibility = Visibility::Hidden; }
     }
 }
