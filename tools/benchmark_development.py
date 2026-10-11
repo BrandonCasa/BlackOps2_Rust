@@ -51,11 +51,12 @@ def cpu_snapshot():
     ))
 
 
-def run(executable, output, workload):
+def run(executable, output, workload, expected_resolution=(1920, 1080)):
     output.mkdir()
     wait_for_slot()
     cpu_before = {row["Id"]: row for row in cpu_snapshot()}
     started = time.monotonic()
+    started_unix = time.time()
     environment = {**os.environ, "RUST_LOG": "info,wgpu=error,naga=warn", "NO_COLOR": "1"}
     samples = []
     interference = []
@@ -70,7 +71,7 @@ def run(executable, output, workload):
                 current = processes()
                 active = [item for item in current if item["ProcessId"] != process.pid]
                 interference.extend(active)
-                samples.append({"seconds": time.monotonic() - started, "gpu": gpu(),
+                samples.append({"seconds": time.monotonic() - started, "unix": time.time(), "gpu": gpu(),
                                 "game": next((item for item in current if item["ProcessId"] == process.pid), None)})
                 require(time.monotonic() - started < 960, "Benchmark timed out")
                 time.sleep(2)
@@ -88,13 +89,14 @@ def run(executable, output, workload):
             background.sort(key=lambda row: -row["cpu_seconds"])
             (output / "load.json").write_text(json.dumps({
                 "pid": process.pid, "exit_code": process.returncode,
+                "started_unix": started_unix,
                 "elapsed_seconds": time.monotonic() - started,
                 "interference": interference, "samples": samples, "background_cpu": background[:20],
             }, indent=2) + "\n", encoding="utf-8")
     require(not interference, f"Concurrent game, capture, or compiler invalidated {output}")
     result = json.loads((output / "performance.json").read_text(encoding="utf-8"))
     require(result["passed"] and result["build_profile"] == "debug", "Expected passing development workload")
-    require(result["physical_resolution"] == [1920, 1080], "Resolution changed")
+    require(result["physical_resolution"] == list(expected_resolution), "Resolution changed")
     require(not result["profile_tracy"] and not result["profile_chrome"], "Tracing invalidates acceptance timing")
     require(result["sample_wall_seconds"] >= 30, "Incomplete workload")
     require(all(result["run_environment"].values()), "Unattended window/sleep protection failed")
@@ -111,6 +113,8 @@ def main():
     parser.add_argument("--repeats", type=int, default=1, choices=range(1, 10))
     parser.add_argument("--workload", choices=("combat", "moving"), default="combat")
     parser.add_argument("--target-fps", type=float)
+    parser.add_argument("--expected-resolution", type=int, nargs=2, default=(1920, 1080),
+                        metavar=("WIDTH", "HEIGHT"))
     args = parser.parse_args()
     bundle = args.bundle.resolve()
     output = args.output.resolve()
@@ -123,10 +127,12 @@ def main():
         require(digest(bundle / name) == expected, f"Pinned binary changed: {name}")
     output.mkdir(parents=True, exist_ok=False)
     receipt = {"bundle": str(bundle), "identity_sha256": digest(bundle / "identity.json"),
-               "assets_before": assets_match(identity), "runs": []}
+               "assets_before": assets_match(identity), "expected_resolution": args.expected_resolution,
+               "runs": []}
     try:
         for index in range(1, args.repeats + 1):
-            receipt["runs"].append(run(bundle / "origins.exe", output / f"{args.workload}-{index}", args.workload))
+            receipt["runs"].append(run(bundle / "origins.exe", output / f"{args.workload}-{index}",
+                                       args.workload, args.expected_resolution))
         fps = [row["summary"]["fps"] for row in receipt["runs"]]
         receipt["summary"] = {
             "median_fps": statistics.median(fps), "min_fps": min(fps), "max_fps": max(fps),

@@ -21,12 +21,6 @@ pub(crate) fn settings() -> WgpuSettings {
     #[cfg(windows)]
     {
         settings = prefer_dx12(settings);
-        if settings.backends == Some(bevy::render::settings::Backends::DX12) {
-            settings
-                .disabled_features
-                .get_or_insert_default()
-                .insert(wgpu::Features::MULTI_DRAW_INDIRECT_COUNT);
-        }
     }
     settings
 }

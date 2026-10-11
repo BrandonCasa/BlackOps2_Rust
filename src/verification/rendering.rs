@@ -15,7 +15,18 @@ use bevy::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+#[cfg(windows)]
+mod indirect;
+
 pub(super) fn install(app: &mut App) {
+    #[cfg(windows)]
+    {
+        let system = app.world_mut().register_system(indirect::probe);
+        app.world_mut().resource_mut::<RemoteMethods>().insert(
+            "origins/rendering/indirect",
+            bevy::remote::RemoteMethodSystemId::Instant(system),
+        );
+    }
     let system = app.world_mut().register_system(configure);
     app.world_mut().resource_mut::<RemoteMethods>().insert(
         "origins/rendering",
