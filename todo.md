@@ -532,26 +532,26 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Track source-defined solo-eligible Origins achievement conditions.
 - [ ] Persist earned local Origins achievements.
 - [ ] Present newly earned Origins achievement notifications.
-- [ ] Add original round indicator.
-- [ ] Add original points indicator.
-- [ ] Add original magazine ammunition indicator.
-- [ ] Add original reserve ammunition indicator.
-- [ ] Add original weapon name indicator.
-- [ ] Add original crosshair behavior.
-- [ ] Add interaction prompt presentation.
-- [ ] Add generator capture progress presentation.
-- [ ] Add generator attack indicator presentation.
-- [ ] Add original active perk icons.
-- [ ] Add original timed powerup presentation.
-- [ ] Add original lethal equipment indicator.
-- [ ] Add original tactical equipment indicator.
-- [ ] Add original buildable equipment indicator.
-- [ ] Add original staff charge indicator.
-- [ ] Add original shovel indicator.
-- [ ] Add original Golden Helmet indicator.
-- [ ] Add original parts inventory display.
-- [ ] Add original record inventory display.
-- [ ] Add original generator status display.
-- [ ] Add original staff upgrade indicators.
-- [ ] Add original challenge progress display.
-- [ ] Add original quest progress indicators.
+- [x] Add original round indicator.
+- [x] Add original points indicator.
+- [x] Add original magazine ammunition indicator.
+- [x] Add original reserve ammunition indicator.
+- [x] Add original weapon name indicator.
+- [x] Add original crosshair behavior.
+- [x] Add interaction prompt presentation.
+- [x] Add generator capture progress presentation.
+- [x] Add generator attack indicator presentation.
+- [x] Add original active perk icons.
+- [x] Add original timed powerup presentation.
+- [x] Add original lethal equipment indicator.
+- [x] Add original tactical equipment indicator.
+- [x] Add original buildable equipment indicator.
+- [x] Add original staff charge indicator.
+- [x] Add original shovel indicator.
+- [x] Add original Golden Helmet indicator.
+- [x] Add original parts inventory display.
+- [x] Add original record inventory display.
+- [x] Add original generator status display.
+- [x] Add original staff upgrade indicators.
+- [x] Add original challenge progress display.
+- [x] Add original quest progress indicators.

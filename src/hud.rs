@@ -2,6 +2,7 @@ use crate::{GameState, assets::LoadFailure, gameplay::Session, life::Vitality, p
 use bevy::prelude::*;
 
 mod performance;
+mod origins;
 
 #[derive(Component)]
 pub(crate) struct HudText;
@@ -14,7 +15,7 @@ pub(crate) struct PlayerOverlay;
 pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(performance::PerformanceOverlayPlugin)
+        app.add_plugins((performance::PerformanceOverlayPlugin,origins::OriginsHudPlugin))
             .add_systems(
                 Startup,
                 setup.after(crate::presentation::first_person_light),
@@ -312,6 +313,7 @@ fn update(
             ("Double Points", effects.double_points),
             ("Insta-Kill", effects.insta_kill),
             ("Zombie Blood", effects.zombie_blood),
+            ("Fire Sale", effects.fire_sale),
         ] {
             if seconds > 0. {
                 value.push_str(&format!("\n{label} {:.0}s", seconds.ceil()));
