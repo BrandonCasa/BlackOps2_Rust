@@ -222,6 +222,7 @@ pub(crate) fn advance(
     replacements: Query<(Entity, &ReplacementHealth)>,
     quest: Res<crate::quests::MainQuest>,
     panzer_waves: Res<crate::panzer::PanzerWaves>,
+    robots: Res<crate::robots::Robots>,
 ) {
     let (mut started, mut ending) = events;
     *population = default();
@@ -268,7 +269,7 @@ pub(crate) fn advance(
     if session.pending == 0 || !session.spawn_timer.is_finished() {
         return;
     }
-    let reserve = generators.reserve();
+    let reserve = generators.reserve() + usize::from(robots.passes.iter().filter(|p| p.is_some()).count() > 1) * 2;
     if population.ordinary + population.special
         >= (profile.ordinary_cap as usize).saturating_sub(reserve)
     {

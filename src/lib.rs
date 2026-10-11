@@ -55,6 +55,7 @@ pub mod projectiles;
 mod render_backend;
 pub mod rendering;
 pub mod rounds;
+pub mod robots;
 mod run_environment;
 mod session;
 pub mod solo_revive;
@@ -203,7 +204,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    app.add_plugins(portals::PortalPlugin);
+    app.add_plugins((portals::PortalPlugin, robots::RobotPlugin));
     if cfg!(debug_assertions)
         && !release_benchmark
         && !flythrough

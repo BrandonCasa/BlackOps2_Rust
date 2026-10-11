@@ -202,29 +202,29 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Increment perk purchase limits from hidden digs.
 - [x] Limit hidden perk digs to four unique sites and wait for round end before revealing the next site.
 - [x] Preserve earned hidden-dig perk slots after downing and reset them in fresh sessions.
-- [ ] Add Thor's route definition.
-- [ ] Add Odin's route definition.
-- [ ] Add Freya's route definition.
-- [ ] Add independent robot pass schedules.
-- [ ] Reset robot schedules when starting fresh sessions.
-- [ ] Add source-defined simultaneous robot passes.
-- [ ] Add robot route movement.
-- [ ] Add robot footprint damage volumes.
-- [ ] Synchronize robot stomp damage with foot contact.
-- [ ] Add robot stomp enemy damage.
-- [ ] Add robot stomp player damage.
+- [x] Add Thor's route definition.
+- [x] Add Odin's route definition.
+- [x] Add Freya's route definition.
+- [x] Add independent robot pass schedules.
+- [x] Reset robot schedules when starting fresh sessions.
+- [x] Add source-defined simultaneous robot passes.
+- [x] Add robot route movement.
+- [x] Add robot footprint damage volumes.
+- [x] Synchronize robot stomp damage with foot contact.
+- [x] Add robot stomp enemy damage.
+- [x] Add robot stomp player damage.
 - [x] Add Golden Helmet stomp protection.
-- [ ] Add source-defined robot foot eligibility.
-- [ ] Add shootable robot foot hatches.
-- [ ] Open eligible robot foot hatches after damage.
-- [ ] Add robot foot entry volumes.
-- [ ] Add robot interior occupancy state.
-- [ ] Teleport eligible players into robot interiors.
-- [ ] Add robot evacuation timers.
-- [ ] Add robot evacuation interactions.
-- [ ] Teleport evacuated players to corresponding exit positions.
-- [ ] Clear robot occupancy after player death.
-- [ ] Add robot Wind Staff part pickups.
+- [x] Add source-defined robot foot eligibility.
+- [x] Add shootable robot foot hatches.
+- [x] Open eligible robot foot hatches after damage.
+- [x] Add robot foot entry volumes.
+- [x] Add robot interior occupancy state.
+- [x] Teleport eligible players into robot interiors.
+- [x] Add robot evacuation timers.
+- [x] Add robot evacuation interactions.
+- [x] Teleport evacuated players to corresponding exit positions.
+- [x] Clear robot occupancy after player death.
+- [x] Add robot Wind Staff part pickups.
 - [x] Add tank church-to-bunker route.
 - [x] Add tank bunker-to-church route.
 - [x] Add tank initial placement.
@@ -319,9 +319,9 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add village Ice Staff dig-part pickup.
 - [x] Add Ice Staff recipe.
 - [x] Add Ice Staff crafting pedestal.
-- [ ] Add Wind Staff Thor-part pickup.
-- [ ] Add Wind Staff Odin-part pickup.
-- [ ] Add Wind Staff Freya-part pickup.
+- [x] Add Wind Staff Thor-part pickup.
+- [x] Add Wind Staff Odin-part pickup.
+- [x] Add Wind Staff Freya-part pickup.
 - [x] Add Wind Staff recipe.
 - [x] Add Wind Staff crafting pedestal.
 - [x] Add Lightning Staff outbound tank-part pickup.

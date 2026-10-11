@@ -18,7 +18,7 @@ pub struct Portals {
     audio: Option<Entity>,
 }
 #[derive(Component)]
-enum Target { Gramophone(usize), Entrance(usize), Return(usize) }
+pub(crate) enum Target { Gramophone(usize), Entrance(usize), Return(usize) }
 pub struct PortalPlugin;
 impl Plugin for PortalPlugin {
     fn build(&self, app: &mut App) {
@@ -61,7 +61,7 @@ pub fn relocate(commands: &mut Commands, entity: Entity, player: &mut Player, po
     mobility.airborne = false; mobility.fall_speed = 0.; mobility.peak = feet.y; mobility.dive = None;
     commands.entity(entity).insert(crate::movement::platforms::PlatformSupport::default());
 }
-fn interact(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, game: Res<GameDefinition>, spatial: SpatialQuery,
+pub(crate) fn interact(mut commands: Commands, input: Res<GameInput>, settings: Res<crate::input::ControlSettings>, game: Res<GameDefinition>, spatial: SpatialQuery,
     mut portals: ResMut<Portals>, mut crafting: ResMut<Crafting>, mut access: ResMut<ZoneAccess>, mut focus: ResMut<InteractionFocus>,
     targets: Query<(Entity, &Target, &Transform), Without<Player>>,
     mut players: Query<(Entity, &mut Player, &mut Transform, &Vitality, &WeaponInventory, &mut crate::movement::Mobility, Has<crate::perks::PerkDrinking>), With<Player>>) {
