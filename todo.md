@@ -375,12 +375,12 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Add Wind Staff ring puzzle completion.
 - [ ] Add Wind Staff smoke sphere redirection.
 - [ ] Add Wind Staff smoke puzzle completion.
-- [ ] Add Lightning Staff piano sequence inputs.
-- [ ] Add Lightning Staff piano sequence rejection.
-- [ ] Add Lightning Staff piano puzzle completion.
-- [ ] Add Lightning Staff electrical panel orientations.
-- [ ] Add Lightning Staff electrical panel interactions.
-- [ ] Add Lightning Staff panel puzzle completion.
+- [x] Add Lightning Staff piano sequence inputs.
+- [x] Add Lightning Staff piano sequence rejection.
+- [x] Add Lightning Staff piano puzzle completion.
+- [x] Add Lightning Staff electrical panel orientations.
+- [x] Add Lightning Staff electrical panel interactions.
+- [x] Add Lightning Staff panel puzzle completion.
 - [ ] Add excavation ring orientations.
 - [ ] Add excavation ring lever interactions.
 - [ ] Add elemental excavation alignment requirements.

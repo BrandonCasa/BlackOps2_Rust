@@ -50,6 +50,7 @@ pub mod player_health;
 pub mod powerups;
 pub mod portals;
 pub mod chamber;
+pub mod staff_puzzles;
 pub mod quests;
 pub mod presentation;
 pub mod projectiles;
@@ -207,7 +208,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    app.add_plugins((portals::PortalPlugin, robots::RobotPlugin, rituals::RitualPlugin, staff_fields::StaffFieldsPlugin, chamber::ChamberPlugin));
+    app.add_plugins((portals::PortalPlugin, robots::RobotPlugin, rituals::RitualPlugin, staff_fields::StaffFieldsPlugin, chamber::ChamberPlugin, staff_puzzles::StaffPuzzlePlugin));
     if cfg!(debug_assertions)
         && !release_benchmark
         && !flythrough
