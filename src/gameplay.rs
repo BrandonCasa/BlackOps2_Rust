@@ -122,6 +122,7 @@ pub(crate) fn combat(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
     actions: Res<TickActions>,
+    input: Res<crate::input::GameInput>,
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
     mut players: Query<(
@@ -159,6 +160,8 @@ pub(crate) fn combat(
         .fold(1., f32::min);
     inventory.set_reload_duration_scale(reload_scale);
     inventory.firing = crate::perks::firing_modifiers(perks, &definition);
+    if grenades.busy() || mines.busy() || tactical.busy() || drinking.is_some() { inventory.cancel_charge(); }
+    if input.staff_secondary && !grenades.busy() && !mines.busy() && !tactical.busy() && drinking.is_none() { inventory.toggle_staff_mode(&definition.content.weapons); }
     let emissions = inventory.tick(
         dt,
         if grenades.busy() || mines.busy() || tactical.busy() || drinking.is_some() {
@@ -260,17 +263,12 @@ pub(crate) fn combat(
                 };
                 (false, weapon.damage, id, Some(weapon))
             }
-            WeaponEmission::Melee => (
-                true,
-                definition
-                    .content
-                    .weapons
-                    .iter()
-                    .find(|w| w.id.0 == "weapon.knife_zm")
-                    .map_or(definition.tuning.melee_damage, |w| w.damage),
-                crate::origins::content::WeaponId("weapon.knife_zm".into()),
-                weapon,
-            ),
+            WeaponEmission::Melee => {
+                let staff = inventory.melee_definition(&definition.content.weapons);
+                let id = staff.map_or_else(|| crate::origins::WeaponId("weapon.knife_zm".into()), |w| w.id.clone());
+                let damage = if staff.is_some() { 1700 } else { definition.content.weapons.iter().find(|w| w.id == id).map_or(definition.tuning.melee_damage, |w| w.damage) };
+                (true, damage, id, weapon)
+            },
         };
         let pellets = if melee {
             1

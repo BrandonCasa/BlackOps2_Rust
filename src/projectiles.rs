@@ -108,6 +108,7 @@ fn flight(
             crate::audio::binding(&mut commands, &game, &format!("{}.impact", projectile.weapon.0),
                 crate::audio::SoundSource::World(center));
         }
+        crate::staff_fields::spawn(&mut commands, projectile.owner, weapon, center);
         commands.entity(entity).despawn();
     }
 }

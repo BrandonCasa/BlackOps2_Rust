@@ -61,6 +61,7 @@ mod run_environment;
 mod session;
 pub mod solo_revive;
 pub mod stations;
+pub mod staff_fields;
 pub mod tank;
 #[cfg(feature = "prepare-textures")]
 pub mod texture_preparation;
@@ -205,7 +206,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    app.add_plugins((portals::PortalPlugin, robots::RobotPlugin, rituals::RitualPlugin));
+    app.add_plugins((portals::PortalPlugin, robots::RobotPlugin, rituals::RitualPlugin, staff_fields::StaffFieldsPlugin));
     if cfg!(debug_assertions)
         && !release_benchmark
         && !flythrough

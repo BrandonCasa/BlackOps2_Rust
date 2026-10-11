@@ -102,7 +102,7 @@ fn observe(mut applied: MessageReader<DamageApplied>,
             DamageCategory::Ice => {
                 if wounds.frozen > 0. { continue; }
                 wounds.frozen = 1.8 + crate::weapons::sample(hit.target.to_bits()) * 0.5;
-                wounds.ice_damage = if weapon.0.contains("one_inch_punch") { 11275 } else if weapon.0.contains("upgraded") { 3300 } else { 2050 };
+                wounds.ice_damage = if weapon.0.contains("staff_water_upgraded2") || weapon.0.contains("staff_water_upgraded3") { health.maximum() } else if weapon.0.contains("one_inch_punch") { 11275 } else if weapon.0.contains("upgraded") { 3300 } else { 2050 };
                 wounds.ice_owner = Some((hit.attacker, weapon));
                 zombie.stunned = zombie.stunned.max(wounds.frozen);
             }

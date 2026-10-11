@@ -67,6 +67,9 @@ pub struct WeaponInventory {
     shot_elapsed: Option<f32>,
     pub ads: f32,
     pub charge_level: u32,
+    charging: f32,
+    staff_backup: Option<OwnedWeapon>,
+    revive_magazine: u32,
     ads_leaving: bool,
     pub recoil: Vec2,
     pending: WeaponIntent,
@@ -90,6 +93,9 @@ impl Default for WeaponInventory {
             shot_elapsed: None,
             ads: 0.,
             charge_level: 0,
+            charging: 0.,
+            staff_backup: None,
+            revive_magazine: 1,
             ads_leaving: false,
             recoil: Vec2::ZERO,
             pending: WeaponIntent::default(),
@@ -191,6 +197,31 @@ pub fn spread_direction(rotation: Quat, degrees: f32, seed: u64) -> Dir3 {
 }
 
 impl WeaponInventory {
+
+    pub fn cancel_charge(&mut self) { self.charging = 0.; self.charge_level = 0; }
+    pub fn melee_definition<'a>(&self, definitions: &'a [WeaponDefinition]) -> Option<&'a WeaponDefinition> {
+        let active = self.active()?;
+        let family = active.definition.0.strip_prefix("weapon.staff_")?.split('_').next()?;
+        definitions.iter().find(|w| w.id.0 == format!("weapon.staff_{family}_melee_zm"))
+    }
+    fn restore_staff_mode(&mut self) {
+        if let Some(original) = self.staff_backup.take() {
+            self.revive_magazine = self.active().map_or(self.revive_magazine, |w| w.magazine);
+            self.slots[self.active] = Some(original);
+        }
+    }
+    pub fn toggle_staff_mode(&mut self, definitions: &[WeaponDefinition]) -> bool {
+        if self.action != WeaponAction::Ready { return false; }
+        if self.staff_backup.is_some() { self.restore_staff_mode(); self.cancel_action(); return true; }
+        if !self.active().is_some_and(|w| w.definition.0.starts_with("weapon.staff_") && w.definition.0.contains("upgraded")) { return false; }
+        let Some(revive) = definitions.iter().find(|w| w.id.0 == "weapon.staff_revive_zm") else { return false; };
+        self.staff_backup = self.slots[self.active].take();
+        self.slots[self.active] = Some(OwnedWeapon { definition: revive.id.clone(), magazine: self.revive_magazine, left_magazine: None });
+        self.ammunition.entry(Self::group(revive)).or_insert(AmmoPool { rounds: revive.reserve, capacity: revive.reserve });
+        self.cancel_action(); self.action = WeaponAction::Equipping { remaining: revive.mechanics.equip_seconds }; self.emit(WeaponSignal::Equip);
+        true
+    }
+
     pub fn ads_zoom(&self, mechanics: &crate::origins::content::WeaponMechanics) -> f32 {
         let fraction = mechanics.ads_zoom_fraction[usize::from(self.ads_leaving)];
         if fraction <= 0. {
@@ -285,6 +316,7 @@ impl WeaponInventory {
         self.slots[self.active].as_ref()
     }
     pub fn exchange_staff(&mut self, definition: &WeaponDefinition) -> Result<usize, InventoryError> {
+        self.restore_staff_mode();
         if self.action != WeaponAction::Ready { return Err(InventoryError::Busy); }
         for slot in &mut self.slots {
             if slot.as_ref().is_some_and(|w| w.definition.0.starts_with("weapon.staff_")) { *slot = None; }
@@ -295,6 +327,7 @@ impl WeaponInventory {
         if self.action != WeaponAction::Ready {
             return Err(InventoryError::Busy);
         }
+        self.restore_staff_mode();
         let weapon = self.slots[self.active].take().ok_or(InventoryError::InvalidSlot)?;
         self.active = self.slots[..self.capacity].iter().position(Option::is_some).unwrap_or(0);
         self.cancel_action();
@@ -334,6 +367,7 @@ impl WeaponInventory {
         definitions.iter().find(|d| d.id == weapon.definition)
     }
     fn group(definition: &WeaponDefinition) -> ContentId {
+        if definition.id.0 == "weapon.staff_revive_zm" { return ContentId("ammo.staff_revive".into()); }
         definition
             .ammo_group
             .clone()
@@ -429,6 +463,7 @@ impl WeaponInventory {
         if (self.capacity == 3) == enabled {
             return None;
         }
+        if !enabled && self.active == 2 { self.restore_staff_mode(); }
         self.capacity = if enabled { 3 } else { 2 };
         if !enabled {
             let removed = self.slots[2].take();
@@ -457,8 +492,9 @@ impl WeaponInventory {
         None
     }
     pub fn refill(&mut self, definitions: &[WeaponDefinition]) {
+        if let Some(pool) = self.ammunition.get_mut(&ContentId("ammo.staff_revive".into())) { pool.rounds = pool.capacity; }
         for definition in definitions {
-            if self.owned().any(|(_, w)| w.definition == definition.id) {
+            if self.staff_backup.as_ref().is_some_and(|w| w.definition == definition.id) || self.owned().any(|(_, w)| w.definition == definition.id) {
                 let pool = self.ammunition.entry(Self::group(definition)).or_default();
                 pool.capacity = pool.capacity.max(definition.reserve);
                 pool.rounds = pool.capacity;
@@ -482,6 +518,7 @@ impl WeaponInventory {
         ) {
             return Err(InventoryError::Busy);
         }
+        self.restore_staff_mode();
         for slot in &mut self.slots {
             if slot.as_ref().is_some_and(|weapon| weapon.definition.0 == "weapon.zombie_fists_zm") { *slot = None; }
         }
@@ -504,6 +541,7 @@ impl WeaponInventory {
         Ok(slot)
     }
     pub fn cancel_action(&mut self) {
+        self.charging = 0.; self.charge_level = 0;
         self.hands = default();
         self.next_hand = 0;
         self.shot_elapsed = None;
@@ -702,6 +740,8 @@ impl WeaponInventory {
         if self.action != WeaponAction::Ready {
             return Err(InventoryError::Busy);
         }
+        self.restore_staff_mode();
+        self.charging = 0.; self.charge_level = 0;
         let definition = self
             .definition(definitions)
             .ok_or(InventoryError::MissingDefinition)?;
@@ -722,6 +762,7 @@ impl WeaponInventory {
         definitions: &[WeaponDefinition],
     ) -> Vec<WeaponEmission> {
         let mut emissions = Vec::new();
+        if intent.reload || intent.melee || intent.cycle || intent.slot.is_some() || self.action != WeaponAction::Ready { self.charging = 0.; self.charge_level = 0; }
         if let Some(elapsed) = &mut self.shot_elapsed {
             *elapsed = (*elapsed + dt).min(60.);
         }
@@ -769,9 +810,8 @@ impl WeaponInventory {
         self.recoil = self
             .recoil
             .map(|value| value.signum() * (value.abs() - recovery).max(0.));
-        let melee_definition = definitions
-            .iter()
-            .find(|w| w.id.0 == "weapon.knife_zm")
+        let melee_definition = self.melee_definition(definitions)
+            .or_else(|| definitions.iter().find(|w| w.id.0 == "weapon.knife_zm"))
             .unwrap_or(definition);
         match self.action {
             WeaponAction::Ready => {}
@@ -978,6 +1018,34 @@ impl WeaponInventory {
             } else {
                 WeaponSignal::Reload
             });
+            return emissions;
+        }
+        if matches!(definition.mechanics.fire, FirePattern::Charge) {
+            if self.cooldown > 0. { return emissions; }
+            let magazine = self.active().map_or(0, |w| w.magazine);
+            if intent.held || intent.pressed {
+                if magazine == 0 {
+                    if intent.pressed { self.emit(WeaponSignal::DryFire); emissions.push(WeaponEmission::DryFire(definition.id.clone())); }
+                    return emissions;
+                }
+                self.charging += dt;
+                self.charge_level = if self.charging >= 2. { 3 } else if self.charging >= 1. { 2 } else { 1 };
+                return emissions;
+            }
+            if self.charging > 0. {
+                let mut tier = self.charge_level.max(1);
+                let costs = if definition.id.0.contains("staff_air_") { [1, 2, 3] } else { [1, 3, 6] };
+                while tier > 1 && magazine < costs[tier as usize - 1] { tier -= 1; }
+                let cost = costs[tier as usize - 1];
+                if magazine >= cost {
+                    let id = if tier == 1 { definition.id.clone() } else { WeaponId(definition.id.0.replace("_upgraded_zm", &format!("_upgraded{tier}_zm"))) };
+                    if definitions.iter().any(|w| w.id == id) {
+                        if let Some(weapon) = self.slots[self.active].as_mut() { weapon.magazine -= cost; }
+                        self.cooldown = definition.fire_interval; self.emit(WeaponSignal::Fire); emissions.push(WeaponEmission::Shot(id));
+                    }
+                }
+                self.charging = 0.; self.charge_level = 0;
+            }
             return emissions;
         }
         if intent.pressed

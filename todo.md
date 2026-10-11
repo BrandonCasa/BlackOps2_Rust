@@ -342,21 +342,21 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Wind Staff enemy knockback.
 - [x] Add Lightning Staff projectile bursts.
 - [x] Add Lightning Staff chain damage.
-- [ ] Add source-defined staff melee damage.
-- [ ] Add Fire Staff charge levels.
-- [ ] Add Ice Staff charge levels.
-- [ ] Add Wind Staff charge levels.
-- [ ] Add Lightning Staff charge levels.
-- [ ] Add staff charge accumulation.
-- [ ] Add staff charge ammunition costs.
-- [ ] Cancel staff charging during weapon switches.
-- [ ] Add Fire Staff charged area attacks.
-- [ ] Add Ice Staff charged blizzards.
-- [ ] Add Wind Staff charged tornadoes.
-- [ ] Add Lightning Staff charged electrical fields.
-- [ ] Add Sekhmet's Vigor ammunition state.
-- [ ] Add staff alternate-mode switching.
-- [ ] Add Sekhmet's Vigor projectile attacks.
+- [x] Add source-defined staff melee damage.
+- [x] Add Fire Staff charge levels.
+- [x] Add Ice Staff charge levels.
+- [x] Add Wind Staff charge levels.
+- [x] Add Lightning Staff charge levels.
+- [x] Add staff charge accumulation.
+- [x] Add staff charge ammunition costs.
+- [x] Cancel staff charging during weapon switches.
+- [x] Add Fire Staff charged area attacks.
+- [x] Add Ice Staff charged blizzards.
+- [x] Add Wind Staff charged tornadoes.
+- [x] Add Lightning Staff charged electrical fields.
+- [x] Add Sekhmet's Vigor ammunition state.
+- [x] Add staff alternate-mode switching.
+- [x] Add Sekhmet's Vigor projectile attacks.
 - [ ] Add Fire Staff cauldron completion state.
 - [ ] Add Fire Staff cauldron soul charging.
 - [ ] Add Fire Staff church symbol selection.
