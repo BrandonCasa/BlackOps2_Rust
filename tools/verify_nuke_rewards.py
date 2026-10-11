@@ -12,6 +12,25 @@ def actor(state, entity):
     return next((e for e in state['enemies'] if e['entity'] == entity), None)
 
 
+def settled(client, target):
+    previous = None
+    frame = None
+    stable = 0
+
+    def ready(state):
+        nonlocal previous, frame, stable
+        enemy = actor(state, target)
+        if not enemy or state['render_frame'] == frame:
+            return False
+        frame = state['render_frame']
+        centers = state['player']['position'] + enemy['position']
+        stable = stable + 1 if previous and all(abs(a - b) < 0.005 for a, b in zip(centers, previous)) else 0
+        previous = centers
+        return stable >= 3 and state['player']['action'] == 'Ready'
+
+    return client.until(ready)
+
+
 def prepare(client, health, nuked, insta_kill=False, double_points=False):
     client.reset()
     fixture = {'clear_enemies': True, 'pending': 6, 'pause_spawning_seconds': 300,
@@ -44,6 +63,7 @@ def prepare(client, health, nuked, insta_kill=False, double_points=False):
     target = result['enemies'][-1]
     ready = client.until(lambda s: all(actor(s, entity) and actor(s, entity)['ready']
                                       and actor(s, entity)['hit_regions'] for entity in result['enemies']), timeout=90)
+    settled(client, target)
     if nuked:
         client.call('origins/setup', {'pickups': [{'id': 'powerup.nuke', 'position': pickup}]})
         client.until(lambda s: s['drops']['collected'] == len(effects) + 1)

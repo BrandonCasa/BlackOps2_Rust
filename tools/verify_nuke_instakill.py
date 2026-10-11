@@ -1,12 +1,12 @@
 import argparse
 import hashlib
 import json
-import math
+import time
 from pathlib import Path
 
 from gameplay_remote import Client, write_report
 from verify_nuke_rewards import actor, aim, prepare
-from verify_throwable_down import binding, check, edge, schedule
+from verify_throwable_down import binding, check, edge
 
 
 def requested(state, fragment):
@@ -25,14 +25,26 @@ def case(client, report, game, name, health, nuked, ads, insta_kill=True,
           and (before['effects']['insta_kill'] > 0) == insta_kill
           and (before['effects']['double_points'] > 0) == double_points,
           fixture=fixture, before=before)
-    shot = 1
-    events = []
+    shot = 30 if ads else 1
+    events = [edge(shot, binding(before, 'fire'), True), edge(shot + 1, binding(before, 'fire'), False)]
     if ads:
-        weapon = next(w for w in game['content']['weapons'] if w['id'] == 'weapon.c96_zm')
-        shot = math.ceil(weapon['mechanics']['ads_seconds'][0] / before['fixed_delta_seconds']) + 3
         events += [edge(1, binding(before, 'aim'), True), edge(shot + 3, binding(before, 'aim'), False)]
-    events += [edge(shot, binding(before, 'fire'), True), edge(shot + 1, binding(before, 'fire'), False)]
-    after = schedule(client, events)
+    batch = client.call('origins/input', {'events': sorted(events, key=lambda e: e['tick'])})
+    aim_samples = []
+    deadline = time.monotonic() + 30
+    while ads:
+        current = client.state()
+        if current['fixed_tick'] >= batch['start_tick'] + shot:
+            break
+        if time.monotonic() >= deadline:
+            raise TimeoutError('Scheduled aiming did not reach the firing tick')
+        if current['player']['ads'] >= 0.999:
+            aim_samples.append({'fixed_tick': current['fixed_tick'], 'render_frame': current['render_frame'],
+                                'player': current['player']['position'], 'target': actor(current, target),
+                                'setup': aim(client, current, target, region)})
+        time.sleep(0.01)
+    after = client.until(lambda s: s['fixed_tick'] >= batch['finish_tick']
+                         and not s['held_inputs'] and not s['queued_inputs'], timeout=45)
     after = client.until(lambda s: any(r['target'] == target and r['source'] == 'weapon.c96_zm'
                                       for r in s['damage']['recent'][len(before['damage']['recent']):]))
     receipts = [r for r in after['damage']['recent'][len(before['damage']['recent']):]
@@ -55,7 +67,7 @@ def case(client, report, game, name, health, nuked, ads, insta_kill=True,
           and receipt['points'] == expected and (region is None or receipt['region'] == region)
           and after['session']['kills'] == before['session']['kills'] + int(lethal)
           and after['session']['shots'] == before['session']['shots'] + 1,
-          aim_setup=aim_setup, inputs=events, expected_points=expected, receipt=receipt,
+          aim_setup=aim_setup, aim_samples=aim_samples, batch=batch, inputs=events, expected_points=expected, receipt=receipt,
           before=before, after=after)
     if nuked:
         after = client.until(lambda s: not any(e.get('health') for e in s['enemies'])
@@ -124,6 +136,7 @@ def main():
         report['identity'] = {'path': str(args.identity.resolve()), 'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
         report['scripts'] = {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
                              for name in ('verify_nuke_instakill.py', 'verify_nuke_rewards.py', 'verify_throwable_down.py', 'gameplay_remote.py')}
+        client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=180)
         report['schema'] = client.call('origins/schema')
         game_path = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
         report['content_sha256'] = hashlib.sha256(game_path.read_bytes()).hexdigest()

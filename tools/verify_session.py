@@ -89,6 +89,7 @@ def main():
     try:
         report['identity'] = {'path': str(args.identity.resolve()),
                               'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
+        client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=120)
         report['schema'] = client.call('origins/schema')
         run(client, report)
         report['passed'] = True
