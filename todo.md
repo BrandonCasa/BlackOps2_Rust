@@ -286,10 +286,10 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add portal entry interactions.
 - [x] Add Crazy Place return portals.
 - [x] Add portal closing after gramophone retrieval.
-- [ ] Add Crazy Place barrier definitions.
-- [ ] Add Crazy Place barrier movement scheduling.
-- [ ] Add Crazy Place barrier collision updates.
-- [ ] Add Crazy Place barrier navigation updates.
+- [x] Add Crazy Place barrier definitions.
+- [x] Add Crazy Place barrier movement scheduling.
+- [x] Add Crazy Place barrier collision updates.
+- [x] Add Crazy Place barrier navigation updates.
 - [x] Add Fire Staff ammunition definitions.
 - [x] Add Ice Staff ammunition definitions.
 - [x] Add Wind Staff ammunition definitions.
@@ -464,7 +464,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [ ] Enable final Crazy Place staff placements.
 - [ ] Collect finale souls from eligible Crazy Place deaths.
 - [ ] Open the final portal after required souls.
-- [ ] Stop Crazy Place barriers after finale completion.
+- [x] Stop Crazy Place barriers after finale completion.
 - [ ] Add final Maxis Drone portal deployment.
 - [ ] Add final portal entry interaction.
 - [ ] Add ending presentation state.
@@ -514,7 +514,7 @@ Items checked on this draft branch are uncompiled and untested implementations, 
 - [x] Add Golden Shovel/Helmet, staff-part reveal, and staff-part collection sounds.
 - [x] Add crafting progress sounds.
 - [x] Add Maxis Drone spatial audio.
-- [ ] Add Crazy Place barrier movement sounds.
+- [x] Add Crazy Place barrier movement sounds.
 - [ ] Add staff upgrade completion announcements.
 - [ ] Add elemental staff firing audio.
 - [ ] Add source-defined stage completion announcements.

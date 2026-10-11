@@ -60,6 +60,7 @@ pub struct Navigation {
     epoch: u32,
     player_node: Option<usize>,
     warmup: u8,
+    chamber_blocked: std::collections::HashSet<(usize, usize)>,
     pub requests: u64,
     pub cache_hits: u64,
     pub fallbacks: u64,
@@ -92,6 +93,24 @@ impl Ord for Work {
     }
 }
 impl Navigation {
+    pub fn refresh_chamber(&mut self, spatial: &SpatialQuery) {
+        self.chamber_blocked.clear();
+        let center = Vec3::new(262.636, -7.9756, 200.8124);
+        for (from, edges) in self.edges.iter().enumerate() {
+            let a = self.nodes[from].point + Vec3::Y * 0.8;
+            if (a - center).with_y(0.).length_squared() > 45.72_f32.powi(2) { continue; }
+            for edge in edges {
+                let b = self.nodes[edge.to].point + Vec3::Y * 0.8;
+                let delta = b - a;
+                if let Ok(direction) = Dir3::new(delta) && spatial.cast_ray(a, direction, delta.length(), true, &crate::environment::solids([])).is_some() {
+                    self.chamber_blocked.insert((from, edge.to));
+                }
+            }
+        }
+        self.cache.clear(); self.order.clear(); self.player_node = None;
+        self.revision = self.revision.wrapping_add(1); self.graph_changes += 1;
+    }
+
     pub fn negotiation_observation(
         &self,
         game: &GameDefinition,
@@ -235,7 +254,7 @@ impl Navigation {
             .map(|(i, _)| i)
     }
     fn allowed(&self, from: usize, e: &Edge, access: &ZoneAccess) -> bool {
-        e.ready
+        !self.chamber_blocked.contains(&(from, e.to)) && e.ready
             && e.native
                 .as_ref()
                 .is_none_or(|(_, n)| n.disconnect_count == 0)
@@ -466,6 +485,7 @@ fn reset(mut nav: ResMut<Navigation>, players: Query<(), With<Player>>) {
     nav.cache_hits = 0;
     nav.fallbacks = 0;
     nav.graph_changes = 0;
+    nav.chamber_blocked.clear();
 }
 fn refresh(
     mut nav: ResMut<Navigation>,
