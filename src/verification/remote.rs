@@ -233,7 +233,7 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
         "discovery":{"methods":"rpc.discover","schemas":"registry.schema"},
         "methods":{
             "origins/animations":{"params":{},"result":"fixed_tick, players (enabled, restart, actual and requested clip clocks and weights, pause, speed, local and rest bone poses), weapons (ready, action, clip clocks, local bone poses), enemies (action, gait, native combat state, sequence, elapsed, notetracks, rig poses and clocks)"},
-            "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, prone, crouched, velocity, mobility, sprint, lethal, tactical, mine), movement (events), firing (shots with stance, speed, spread, ADS and perk scales; first 128), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
+            "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, prone, crouched, grounded, velocity, mobility, sprint, lethal, tactical, mine), movement (events, motion: first 512 airborne or dive fixed ticks, physics: first 512 motor fixed ticks, projectiles: first 512 free-flight fixed ticks), firing (shots with stance, speed, spread, ADS and perk scales; first 128), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
             "origins/materials":{"params":{},"result":"pending, first_person, world, inventory; native material, texture, tangent readiness"},
             "origins/preview":{"params":{"weapon":"optional native weapon ID","presentation":"optional content presentation ID","animation":"optional named clip","distance":"optional camera distance in metres"},"effect":"Asset scenario setup attached to camera; omitted IDs clear preview"},
             "origins/assets":{"params":{},"result":"Preview load state, mesh visibility ranges, skin readiness, animation players and local bone poses"},
@@ -362,14 +362,28 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
         }).collect();
         result["player"] = json!({"entity":entity.to_bits(),"position":pose.translation.to_array(),"yaw":player.yaw,"pitch":player.pitch,"height":player.height,"eye_height":player.eye_height,"prone":player.prone,"crouched":player.crouched,"velocity":player.velocity.to_array(),"health":world.get::<Vitality>(entity).and_then(|v| v.current()),"active_slot":inventory.active_slot(),"action":format!("{:?}",inventory.action),"weapons":weapons,"ads":inventory.ads,"right_reload":inventory.hand_reload_timing(false),"left_reload":inventory.hand_reload_timing(true)});
         if let Some(mobility) = world.get::<crate::movement::Mobility>(entity) {
-            result["player"]["mobility"] = json!({"diving":mobility.dive.is_some(),"slide_remaining":mobility.dive.and_then(|d|d.slide_remaining),"recovery":mobility.recovery,"since_dive":mobility.since_dive,"airborne":mobility.airborne,"busy":mobility.busy()});
+            result["player"]["mobility"] = json!({"diving":mobility.dive.is_some(),"slide_remaining":mobility.dive.and_then(|d|d.slide_remaining),"recovery":mobility.recovery,"jump_recovery":mobility.jump_recovery,"since_dive":mobility.since_dive,"airborne":mobility.airborne,"busy":mobility.busy()});
         }
         if let Some(sprint) = world.get::<crate::movement::SprintState>(entity) {
             result["player"]["sprint"] = json!({"sprinting":sprint.sprinting,"continuous_seconds":sprint.continuous_seconds(),"remaining":sprint.remaining,"exhausted":sprint.exhausted});
         }
     }
-    result["movement"] =
-        json!({"events":world.resource::<crate::movement::MovementEvidence>().events});
+    let movement = world.resource::<crate::movement::MovementEvidence>();
+    result["movement"] = json!({"events":movement.events,"motion":movement.motion});
+    result["movement"]["physics"] = json!(
+        world
+            .resource::<crate::movement::physics::PhysicsEvidence>()
+            .samples
+    );
+    result["movement"]["projectiles"] = json!(
+        world
+            .resource::<crate::movement::physics::PhysicsEvidence>()
+            .projectiles
+    );
+    result["player"]["grounded"] = entities
+        .first()
+        .and_then(|e| world.get::<Player>(*e))
+        .map_or(Value::Null, |p| json!(p.grounded));
     if let Some(&entity) = entities.first() {
         result["player"]["life"] = json!(format!(
             "{:?}",
@@ -427,6 +441,11 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     let effects = world.resource::<crate::powerups::PowerupEffects>();
     result["firing"] = json!({"shots":world.resource::<crate::perks::FiringEvidence>().shots});
     result["effects"] = json!({"double_points":effects.double_points,"insta_kill":effects.insta_kill,"zombie_blood":effects.zombie_blood,"fire_sale":effects.fire_sale});
+    result["effects"]["events"] = json!(
+        world
+            .resource::<crate::perk_effects::EffectEvidence>()
+            .events
+    );
     result["controls"] = serde_json::to_value(world.resource::<crate::input::ControlSettings>())
         .map_err(|e| error(e.to_string()))?;
     if let Some(f) = world.get_resource::<crate::interactions::InteractionFocus>() {
@@ -621,8 +640,10 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         inner_damage: b.damage,
         outer_damage: b.damage,
         direction: None,
-        category: None, player_damage: None, source: None,
-});
+        category: None,
+        player_damage: None,
+        source: None,
+    });
     if request.charge_level.is_some_and(|v| v > 3) {
         return Err(error("Charge level must be 0..3"));
     }

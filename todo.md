@@ -49,8 +49,10 @@ Checked items mark implemented tasks. Compiler and gameplay validation are recor
 - [ ] Import native crawl and dive action durations and directional and empty-magazine clip variants.
 - [ ] Drive prone and dive weapon animation phases from player mobility through ECS playback.
 - [x] Restore native dive startup, minimum-speed, exhaustion, and post-move action gates.
-- [ ] Restore native dive trajectory, apex timing, and collision-dependent slide response.
-- [ ] Apply native dive-specific fall damage thresholds.
+- [x] Restore native dive trajectory, apex timing, and collision-dependent slide response.
+- [x] Apply native dive-specific fall damage thresholds.
+- [ ] Apply native landing impact velocity and movement recovery penalties.
+- [ ] Import native slick-surface flags and apply their movement friction and acceleration rules.
 - [x] Add upgraded weapon attachment rotation.
 - [x] Feed soul collection from attributed death events.
 - [x] Add zombie running states.

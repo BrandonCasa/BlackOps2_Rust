@@ -114,26 +114,42 @@ def run(client, report, native, game):
           shots=shots, finishes=finishes)
 
     before, fixture = prepare(client)
+    repeat_home = {'position': before['player']['position'], 'yaw': before['player']['yaw']}
     inputs = [edge(1, forward, True), edge(1, sprint, True), edge(start, prone, True),
               edge(start + 1, prone, False), edge(start + 2, forward, False),
               edge(start + 2, sprint, False)]
     schedule(client, inputs)
     first = client.until(lambda s: len(new_events(before, s, 'dive_finished')) == 1
                          and not s['player']['mobility']['busy'])
+    repeat_home['position'] = repeat_home['position'].copy()
+    repeat_home['position'][1] -= (before['player']['height'] - first['player']['height']) * .5
+    client.call('origins/setup', repeat_home)
+    client.wait_ticks(2)
+    first = client.until(lambda s: s['player']['grounded'] and not s['player']['mobility']['airborne'])
     end = ticks(native['dive_startup']) + 10
     inputs = [edge(1, prone, True), edge(2, prone, False), edge(3, forward, True),
               edge(3, sprint, True), edge(end, prone, True), edge(end + 1, prone, False),
               edge(end + 2, forward, False), edge(end + 2, sprint, False)]
     after = schedule(client, inputs)
+    sprint_samples = [sample for sample in after['movement']['physics'][len(first['movement']['physics']):]
+                      if sample['sprinting'] and not sample['prone']]
     check(report, 'native_exhaustion_window_rejects_second_dive',
           after['player']['prone'] and not after['player']['mobility']['diving']
           and after['player']['mobility']['since_dive'] < native['dive_exhaustion']
-          and not new_events(first, after, 'dive_started'), inputs=inputs, before=first, after=after)
+          and not new_events(first, after, 'dive_started')
+          and len(sprint_samples) > ticks(native['dive_startup'])
+          and math.hypot(*sprint_samples[-1]['velocity_before'][::2]) > native['dive_minimum_speed'],
+          fixture=repeat_home, inputs=inputs, before=first, after=after, sprint_samples=sprint_samples)
     client.until(lambda s: s['player']['mobility']['since_dive'] > native['dive_exhaustion'] + dt)
+    client.call('origins/setup', repeat_home)
+    client.wait_ticks(2)
+    client.until(lambda s: s['player']['grounded'] and not s['player']['mobility']['airborne'])
     before = client.state()
     after = schedule(client, inputs)
     check(report, 'dive_returns_after_native_exhaustion_window',
-          len(new_events(before, after, 'dive_started')) == 1, inputs=inputs, before=before, after=after)
+          len(new_events(before, after, 'dive_started')) == 1
+          and before['player']['mobility']['since_dive'] > native['dive_exhaustion'],
+          fixture=repeat_home, inputs=inputs, before=before, after=after)
     reset = client.reset()
     check(report, 'fresh_session_clears_dive_and_cooldown',
           not reset['player']['mobility']['busy'] and reset['player']['mobility']['since_dive'] is None
@@ -148,11 +164,12 @@ def main():
     parser.add_argument('--identity', type=Path, required=True)
     parser.add_argument('--research', type=Path, required=True)
     args = parser.parse_args()
-    client = Client(args.url)
+    client = Client(args.url, shutdown_timeout=45)
     report = {'passed': False, 'cases': [], 'scenario': 'native_dive_gates',
               'limitations': ['Weapon grants and enemy/spawn controls are scenario setup.',
+                              'Repeat attempts restore the starting surface while retaining the mobility cooldown.',
                               'Movement, prone, sprint and firing use scheduled normal input.',
-                              'Airborne trajectory and slope/collision fidelity remain unfinished.']}
+                              'This scenario checks entry and recovery gates; trajectory and damage use separate scenarios.']}
     try:
         identity = json.loads(args.identity.read_bytes())
         report['identity'] = {'path': str(args.identity.resolve()),

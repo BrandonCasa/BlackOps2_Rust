@@ -50,6 +50,7 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(crate::movement::platforms::PlatformPlugin);
         app.init_resource::<TickActions>()
+            .init_resource::<crate::movement::physics::PhysicsEvidence>()
             .init_resource::<crate::movement::MovementEvidence>()
             .add_message::<crate::movement::Landing>()
             .add_systems(
@@ -72,12 +73,15 @@ impl Plugin for PlayerPlugin {
 
 fn spawn_player(
     mut commands: Commands,
+    mut physics_evidence: ResMut<crate::movement::physics::PhysicsEvidence>,
     definition: Res<GameDefinition>,
     players: Query<(), With<Player>>,
 ) {
     if !players.is_empty() {
         return;
     }
+    physics_evidence.samples.clear();
+    physics_evidence.projectiles.clear();
     let height = definition.tuning.standing_height;
     let mut inventory = crate::weapons::WeaponInventory::default();
     if let Some(weapon) = definition
@@ -160,6 +164,7 @@ pub(crate) fn move_player(
     mut actions: ResMut<TickActions>,
     definition: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
+    options: Res<crate::assets::LaunchOptions>,
     reserved: Query<&crate::actions::HandReservation>,
     robot_locks: Query<
         (),
@@ -190,6 +195,7 @@ pub(crate) fn move_player(
     slide: MoveAndSlide,
     mut landings: MessageWriter<crate::movement::Landing>,
     mut evidence: ResMut<crate::movement::MovementEvidence>,
+    mut physics_evidence: ResMut<crate::movement::physics::PhysicsEvidence>,
 ) {
     let prone_edge = std::mem::take(&mut input.prone);
     let (jump, fire, melee, reload) = input.take_edges();
@@ -259,6 +265,9 @@ pub(crate) fn move_player(
     mobility.previous_eye = player.eye_height;
     if let Some(age) = mobility.since_dive.as_mut() {
         *age += dt;
+    }
+    if let Some(dive) = mobility.dive.as_mut() {
+        dive.elapsed += dt;
     }
     let finish_dive = if let Some(dive) = mobility.dive.as_mut()
         && let Some(remaining) = dive.slide_remaining.as_mut()
@@ -357,32 +366,60 @@ pub(crate) fn move_player(
     }
     player.crouched = mobility.stance != crate::movement::Stance::Standing || downed;
     player.prone = mobility.stance == crate::movement::Stance::Prone && !downed;
+    let step_height = if player.prone || mobility.dive.is_some() {
+        m.prone_step
+    } else {
+        tuning.step_height
+    };
     let ground = slide.spatial_query.cast_shape(
         &collider,
         transform.translation,
         Quat::IDENTITY,
         Dir3::NEG_Y,
-        &ShapeCastConfig::from_max_distance(0.13),
+        &ShapeCastConfig::from_max_distance(tuning.physics.ground_probe),
         &filter,
     );
     let support = slide.spatial_query.cast_ray(
-        transform.translation - Vec3::Y * (player.height * 0.5 - 0.1),
+        transform.translation - Vec3::Y * (player.height * 0.5 - tuning.physics.skin_width),
         Dir3::NEG_Y,
-        0.25,
+        tuning.physics.ground_probe + tuning.physics.skin_width,
         false,
         &filter,
     );
-    player.grounded = (ground.is_some_and(|hit| hit.normal1.y > 0.65)
-        || support.is_some_and(|hit| hit.normal.y > 0.65))
-        && (player.velocity.y <= 0. || !mobility.airborne);
+    let ground_normal = ground
+        .and_then(|hit| {
+            crate::movement::physics::walkable_surface(
+                &slide.spatial_query,
+                hit.point1,
+                hit.normal1,
+                &filter,
+                &tuning.physics,
+            )
+        })
+        .filter(|(_, height)| {
+            height - (transform.translation.y - player.height * 0.5)
+                <= step_height + tuning.physics.skin_width
+        })
+        .map(|(normal, _)| normal)
+        .or_else(|| {
+            support
+                .filter(|hit| hit.normal.y >= tuning.physics.ground_normal_min)
+                .map(|hit| hit.normal)
+        });
+    player.grounded = ground_normal.is_some() && (player.velocity.y <= 0. || !mobility.airborne);
     let feet = transform.translation - Vec3::Y * player.height * 0.5;
     if mobility.airborne && player.grounded && !launch_dive {
         let height = (mobility.peak - feet.y).max(0.);
+        let impact_height = (mobility.fall_velocity.powi(2) / (2. * tuning.gravity)
+            + mobility.fall_origin
+            - feet.y)
+            .max(0.);
         let diving = mobility.dive.is_some();
         landings.write(crate::movement::Landing {
             owner: entity,
             position: feet,
             height,
+            impact_height,
             speed: mobility.fall_speed,
             diving,
         });
@@ -392,12 +429,12 @@ pub(crate) fn move_player(
             mobility.dive.as_mut().unwrap().slide_remaining = Some(m.dive_slide);
         }
         mobility.landing_dip = (mobility.fall_speed / 20.).clamp(0., 1.) * m.landing_dip;
-        evidence.record(serde_json::json!({"event":"landed","seconds":time.elapsed_secs_f64(),"height":height,"diving":diving,"position":feet.to_array(),"recovery":mobility.recovery}));
+        evidence.record(serde_json::json!({"event":"landed","seconds":time.elapsed_secs_f64(),"height":height,"impact_height":impact_height,"diving":diving,"position":feet.to_array(),"recovery":mobility.recovery}));
     }
     if launch_dive {
         mobility.dive = Some(crate::movement::Dive {
-            direction: Vec3::new(player.velocity.x, 0., player.velocity.z).normalize_or_zero(),
-            speed: player.velocity.xz().length(),
+            launch_height: feet.y,
+            elapsed: 0.,
             slide_remaining: None,
         });
         mobility.airborne = true;
@@ -451,7 +488,7 @@ pub(crate) fn move_player(
         && !actions.fire_held
         && !actions.melee
         && !actions.reload
-        && input.movement.y > 0.1;
+        && input.movement.y >= 105. / 127.;
     sprint.update(
         dt,
         input.sprint,
@@ -462,6 +499,13 @@ pub(crate) fn move_player(
         tuning.sprint_recovery_delay,
         settings.sprint_mode == crate::input::PressMode::Hold,
     );
+    let movement_scale = terrain.scale
+        * inventory
+            .definition(&definition.content.weapons)
+            .map_or(1., |weapon| {
+                weapon.mechanics.movement[0]
+                    + (weapon.mechanics.movement[1] - weapon.mechanics.movement[0]) * inventory.ads
+            });
     let speed = if downed {
         definition.solo_revive.downed_speed
     } else if player.prone {
@@ -472,91 +516,187 @@ pub(crate) fn move_player(
         tuning.sprint_speed * speed_scale
     } else {
         tuning.walk_speed * speed_scale
-    } * terrain.scale
-        * inventory
-            .definition(&definition.content.weapons)
-            .map_or(1., |weapon| {
-                weapon.mechanics.movement[0]
-                    + (weapon.mechanics.movement[1] - weapon.mechanics.movement[0]) * inventory.ads
-            });
-    let desired = Quat::from_rotation_y(player.yaw)
-        * Vec3::new(input.movement.x, 0., -input.movement.y).clamp_length_max(1.)
-        * speed;
-    if let Some(dive) = mobility.dive.as_mut() {
-        if let Some(remaining) = dive.slide_remaining {
+    } * movement_scale;
+    let jump_started = jump
+        && player.grounded
+        && !downed
+        && !player.prone
+        && !mobility.busy()
+        && mobility.jump_recovery == 0.
+        && drinking.is_none();
+    let motion_grounded = player.grounded && !launch_dive && !jump_started;
+    let desired = tuning.physics.wish_velocity(
+        input.movement,
+        player.yaw,
+        if motion_grounded {
+            speed
+        } else {
+            tuning.walk_speed
+                * speed_scale
+                * if player.prone || input.ads || inventory.ads > 0. {
+                    0.4
+                } else {
+                    1.
+                }
+        },
+        sprint.sprinting && motion_grounded,
+        motion_grounded,
+    );
+    let velocity_before = player.velocity;
+    let mut motion_wish = desired;
+    let mut apex_clamped = false;
+    if launch_dive {
+        player.velocity.y =
+            (2. * m.dive_jump_height * tuning.gravity).sqrt() * m.dive_launch_multiplier;
+    } else if let Some(dive) = mobility.dive
+        && feet.y >= dive.launch_height + m.dive_jump_height
+    {
+        player.velocity.y = if dive.slide_remaining.is_none() && dive.elapsed < m.dive_apex_seconds
+        {
+            0.
+        } else {
+            player.velocity.y.min(0.)
+        };
+        apex_clamped = true;
+    } else if jump_started {
+        player.velocity.y = tuning.jump_speed;
+    }
+    if let Some(dive) = mobility.dive {
+        let dive_grounded = motion_grounded;
+        let friction_speed = if dive_grounded {
+            player.velocity.xz().length()
+        } else {
+            player.velocity.length()
+        };
+        if friction_speed < 0.0254 {
+            player.velocity = Vec3::ZERO;
+        } else if dive_grounded && let Some(remaining) = dive.slide_remaining {
             let fraction = 1. - remaining / m.dive_slide;
-            dive.speed = (dive.speed - dive.speed.max(2.54) * 5.5 * fraction * dt).max(0.);
+            let retained = (friction_speed
+                - friction_speed.max(tuning.physics.stop_speed)
+                    * tuning.physics.friction
+                    * fraction
+                    * dt)
+                .max(0.)
+                / friction_speed;
+            player.velocity *= retained;
         }
-        player.velocity.x = dive.direction.x * dive.speed;
-        player.velocity.z = dive.direction.z * dive.speed;
+        let wish = tuning.physics.wish_velocity(
+            input.movement,
+            player.yaw,
+            tuning.walk_speed * speed_scale * 0.4,
+            false,
+            false,
+        );
+        motion_wish = wish;
+        let direction = wish.normalize_or_zero();
+        let wish_speed = wish.length();
+        let add = wish_speed - player.velocity.dot(direction);
+        if add > 0. {
+            let acceleration = tuning.physics.air_acceleration;
+            player.velocity +=
+                direction * add.min(dt * acceleration * wish_speed.max(tuning.physics.stop_speed));
+        }
     } else {
         let desired = if mobility.recovery > 0. {
-            Vec2::ZERO
+            Vec3::ZERO
         } else {
-            desired.xz()
+            desired
         };
-        let rate = if player.grounded {
-            if desired.length_squared() > 0. {
-                m.acceleration
-            } else {
-                m.deceleration
-            }
-        } else if desired.length_squared() > 0. {
-            m.air_acceleration
-        } else {
-            m.air_deceleration
-        };
-        let velocity =
-            player.velocity.xz() + (desired - player.velocity.xz()).clamp_length_max(rate * dt);
-        player.velocity.x = velocity.x;
-        player.velocity.z = velocity.y;
+        player.velocity = tuning.physics.velocity(
+            player.velocity,
+            desired,
+            ground_normal.filter(|_| motion_grounded),
+            player.prone,
+            player.crouched,
+            dt,
+        );
     }
-    if launch_dive {
-        player.velocity.y = m.dive_lift;
-    } else if player.grounded {
-        player.velocity.y = if jump
-            && !downed
-            && !player.prone
-            && !mobility.busy()
-            && mobility.jump_recovery == 0.
-            && drinking.is_none()
-        {
-            tuning.jump_speed
+    if motion_grounded && let Some(normal) = ground_normal {
+        if mobility.dive.is_some() {
+            let normal_speed = player.velocity.dot(normal);
+            player.velocity -= normal * (normal_speed - normal_speed.abs() * 0.001);
         } else {
-            -0.5
-        };
+            player.velocity = crate::movement::physics::ground_velocity(player.velocity, normal);
+        }
+    }
+    if launch_dive || jump_started {
+        player.grounded = false;
+    }
+    let gravity_step = if !player.grounded || mobility.dive.is_some() {
+        tuning.gravity * dt
     } else {
-        player.velocity.y = (player.velocity.y - tuning.gravity * dt).max(-50.);
-    }
-    if !player.grounded || player.velocity.y > 0. {
+        0.
+    };
+    mobility.fall_origin = feet.y;
+    mobility.fall_velocity = player.velocity.y;
+    let move_velocity = player.velocity - Vec3::Y * gravity_step * 0.5;
+    if !player.grounded {
         if !mobility.airborne {
             mobility.airborne = true;
             mobility.peak = feet.y;
             mobility.fall_speed = 0.;
         }
         mobility.peak = mobility.peak.max(feet.y);
-        mobility.fall_speed = mobility.fall_speed.max(-player.velocity.y);
+        mobility.fall_speed = mobility.fall_speed.max(gravity_step - player.velocity.y);
     }
-    let result = slide_character(
+    let motion = crate::movement::physics::move_and_slide(
         &slide,
         &slide.spatial_query,
         MotionShape {
             collider: &collider,
             radius: tuning.radius,
-            step_height: if player.prone || mobility.dive.is_some() {
-                m.prone_step
-            } else {
-                tuning.step_height
-            },
+            step_height,
             grounded: player.grounded,
         },
         transform.translation,
-        player.velocity,
+        move_velocity,
         time.delta(),
         &filter,
+        &tuning.physics,
     );
+    let result = motion.slide;
+    let step_scale = if player.grounded {
+        tuning.physics.step_scale(
+            motion.step_adjustment,
+            result.position.y - transform.translation.y,
+            step_height,
+        )
+    } else {
+        1.
+    };
     transform.translation = result.position;
     player.velocity = result.projected_velocity;
+    if (player.velocity.y - move_velocity.y).abs() < 0.00001 {
+        player.velocity.y -= gravity_step * 0.5;
+    }
+    player.velocity *= step_scale;
+    if cfg!(debug_assertions)
+        && options.validation_remote.is_some()
+        && physics_evidence.samples.len() < 512
+    {
+        physics_evidence.samples.push(serde_json::json!({
+            "seconds":time.elapsed_secs_f64(),"dt":dt,"input":input.movement.to_array(),
+            "grounded":player.grounded,"ground_normal":ground_normal.map(|n| n.to_array()),
+            "prone":player.prone,"crouched":player.crouched,"sprinting":sprint.sprinting,
+            "diving":mobility.dive.is_some(),"wish":motion_wish.to_array(),
+            "position_before":feet.to_array(),"position_after":(result.position-Vec3::Y*player.height*0.5).to_array(),
+            "velocity_before":velocity_before.to_array(),"move_velocity":move_velocity.to_array(),
+            "collision_velocity":result.projected_velocity.to_array(),"step_scale":step_scale,
+            "step_adjustment":motion.step_adjustment,
+            "step_rise":motion.step_rise,"step_normal":motion.step_normal.map(|n| n.to_array()),
+            "step_surface_normal":motion.step_surface.map(|(normal, _)| normal.to_array()),
+            "step_surface_height":motion.step_surface.map(|(_, height)| height),
+            "velocity_after":player.velocity.to_array()
+        }));
+    }
+    if cfg!(debug_assertions)
+        && options.validation_remote.is_some()
+        && (mobility.airborne || mobility.dive.is_some())
+        && evidence.motion.len() < 512
+    {
+        evidence.motion.push(serde_json::json!({"seconds":time.elapsed_secs_f64(),"dt":dt,"diving":mobility.dive.is_some(),"elapsed":mobility.dive.map(|d|d.elapsed),"slide_remaining":mobility.dive.and_then(|d|d.slide_remaining),"launch_height":mobility.dive.map(|d|d.launch_height),"apex_clamped":apex_clamped,"feet_before":feet.to_array(),"feet_after":(result.position-Vec3::Y*player.height*0.5).to_array(),"velocity_before":velocity_before.to_array(),"vertical_before_gravity":mobility.fall_velocity,"gravity_step":gravity_step,"move_velocity":move_velocity.to_array(),"velocity_after":player.velocity.to_array()}));
+    }
     if transform.translation.y < -100. {
         transform.translation =
             Vec3::from_array(definition.spawn) + Vec3::Y * (player.height * 0.5);
@@ -581,69 +721,15 @@ pub fn slide_character(
     delta: std::time::Duration,
     filter: &SpatialQueryFilter,
 ) -> MoveAndSlideOutput {
-    let dt = delta.as_secs_f32();
-    let mut result = slide.move_and_slide(
-        motor.collider,
+    crate::movement::physics::move_and_slide(
+        slide,
+        query,
+        motor,
         start,
-        Quat::IDENTITY,
         velocity,
         delta,
-        &MoveAndSlideConfig::default(),
         filter,
-        |_| MoveAndSlideHitResponse::Accept,
-    );
-    let expected_horizontal = Vec3::new(velocity.x, 0., velocity.z).length() * dt;
-    let actual_horizontal =
-        Vec2::new(result.position.x - start.x, result.position.z - start.z).length();
-    let mut position = result.position;
-    if motor.grounded && expected_horizontal > 0.01 && actual_horizontal < expected_horizontal * 0.6
-    {
-        let raised = start + Vec3::Y * motor.step_height;
-        if query
-            .cast_shape(
-                motor.collider,
-                start,
-                Quat::IDENTITY,
-                Dir3::Y,
-                &ShapeCastConfig {
-                    ignore_origin_penetration: true,
-                    ..ShapeCastConfig::from_max_distance(motor.step_height)
-                },
-                filter,
-            )
-            .is_none()
-        {
-            let stepped = slide.move_and_slide(
-                motor.collider,
-                raised,
-                Quat::IDENTITY,
-                Vec3::new(velocity.x, 0., velocity.z),
-                std::time::Duration::from_secs_f32(
-                    dt.max((motor.radius + 0.1) / velocity.with_y(0.).length().max(0.1)),
-                ),
-                &MoveAndSlideConfig::default(),
-                filter,
-                |_| MoveAndSlideHitResponse::Accept,
-            );
-            if let Some(hit) = query.cast_shape(
-                motor.collider,
-                stepped.position,
-                Quat::IDENTITY,
-                Dir3::NEG_Y,
-                &ShapeCastConfig::from_max_distance(motor.step_height + 0.13),
-                filter,
-            ) && hit.normal1.y > 0.65
-                && Vec2::new(stepped.position.x - start.x, stepped.position.z - start.z).length()
-                    > actual_horizontal
-            {
-                let landing = stepped.position - Vec3::Y * hit.distance;
-                position = start + Vec3::new(velocity.x, 0., velocity.z) * dt;
-                position.y = landing.y;
-                result.projected_velocity.x = velocity.x;
-                result.projected_velocity.z = velocity.z;
-            }
-        }
-    }
-    result.position = position;
-    result
+        &default(),
+    )
+    .slide
 }

@@ -362,11 +362,29 @@ fn land(
             continue;
         }
         let tuning = &game.tuning.mobility;
-        if landing.height > tuning.fall_minimum {
-            let fraction = ((landing.height - tuning.fall_minimum)
-                / (tuning.fall_fatal - tuning.fall_minimum))
-                .clamp(0., 1.);
-            let amount = (fraction * health.maximum() as f32).ceil() as u32;
+        let (minimum, fatal) = if landing.diving {
+            (tuning.dive_fall_minimum, tuning.dive_fall_fatal)
+        } else {
+            (tuning.fall_minimum, tuning.fall_fatal)
+        };
+        let mut percent =
+            (((landing.impact_height - minimum) / (fatal - minimum)).clamp(0., 1.) * 100.) as u32;
+        if percent > 0
+            && game
+                .content
+                .perks
+                .iter()
+                .any(|perk| perk.fall_protection && owned.owned.contains(&perk.id))
+        {
+            percent = 1;
+        }
+        if percent > 0 {
+            let fraction = if percent == 100 {
+                1.1
+            } else {
+                percent as f32 * 0.01
+            };
+            let amount = (fraction * health.maximum() as f32) as u32;
             damage.0.push(crate::damage::Impact {
                 attacker: landing.owner,
                 target: landing.owner,
@@ -375,7 +393,7 @@ fn land(
                 region: crate::weapons::HitRegion::Torso,
                 amount,
             });
-            evidence.record(serde_json::json!({"event":"fall_impact","height":landing.height,"speed":landing.speed,"amount":amount}));
+            evidence.record(serde_json::json!({"event":"fall_impact","height":landing.height,"impact_height":landing.impact_height,"diving":landing.diving,"percent":percent,"speed":landing.speed,"amount":amount}));
         }
         if !landing.diving {
             continue;
@@ -405,8 +423,10 @@ fn land(
                     inner_damage: dive.damage[1],
                     outer_damage: dive.damage[0],
                     direction: None,
-                    category: None, player_damage: None, source: None,
-});
+                    category: None,
+                    player_damage: None,
+                    source: None,
+                });
                 evidence.record(serde_json::json!({"event":"dive_explosion","height":landing.height,"radius":dive.radius,"damage":dive.damage}));
             }
         }

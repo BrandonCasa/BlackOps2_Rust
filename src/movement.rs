@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+pub mod physics;
 pub mod platforms;
 #[derive(Component, Default)]
 pub struct SprintState {
@@ -76,19 +77,18 @@ pub struct MobilityTuning {
     pub prone_eye: f32,
     pub prone_speed: f32,
     pub prone_step: f32,
-    pub acceleration: f32,
-    pub deceleration: f32,
-    pub air_acceleration: f32,
-    pub air_deceleration: f32,
     pub stance_seconds: f32,
     pub jump_recovery: f32,
-    pub dive_speed: f32,
-    pub dive_lift: f32,
+    pub dive_jump_height: f32,
+    pub dive_launch_multiplier: f32,
+    pub dive_apex_seconds: f32,
     pub dive_recovery: f32,
     pub dive_startup: f32,
     pub dive_minimum_speed: f32,
     pub dive_exhaustion: f32,
     pub dive_slide: f32,
+    pub dive_fall_minimum: f32,
+    pub dive_fall_fatal: f32,
     pub fall_minimum: f32,
     pub fall_fatal: f32,
     pub landing_dip: f32,
@@ -104,21 +104,20 @@ impl Default for MobilityTuning {
         Self {
             prone_height: 0.75,
             prone_eye: 0.3048,
-            prone_speed: 1.1,
-            prone_step: 0.12,
-            acceleration: 40.,
-            deceleration: 50.,
-            air_acceleration: 8.,
-            air_deceleration: 2.,
+            prone_speed: 190. * 0.15 * 0.0254,
+            prone_step: 10. * 0.0254,
             stance_seconds: 0.18,
             jump_recovery: 0.25,
-            dive_speed: 8.,
-            dive_lift: 3.2,
+            dive_jump_height: 39. * 0.0254,
+            dive_launch_multiplier: 2.,
+            dive_apex_seconds: 0.4,
             dive_recovery: 0.1,
             dive_startup: 0.25,
             dive_minimum_speed: 3.16 * 0.0254,
             dive_exhaustion: 1.5,
             dive_slide: 0.3,
+            dive_fall_minimum: 65. * 0.0254,
+            dive_fall_fatal: 200. * 0.0254,
             fall_minimum: 3.2512,
             fall_fatal: 7.62,
             landing_dip: 0.12,
@@ -138,19 +137,18 @@ impl MobilityTuning {
             self.prone_eye,
             self.prone_speed,
             self.prone_step,
-            self.acceleration,
-            self.deceleration,
-            self.air_acceleration,
-            self.air_deceleration,
             self.stance_seconds,
             self.jump_recovery,
-            self.dive_speed,
-            self.dive_lift,
+            self.dive_jump_height,
+            self.dive_launch_multiplier,
+            self.dive_apex_seconds,
             self.dive_recovery,
             self.dive_startup,
             self.dive_minimum_speed,
             self.dive_exhaustion,
             self.dive_slide,
+            self.dive_fall_minimum,
+            self.dive_fall_fatal,
             self.fall_minimum,
             self.fall_fatal,
             self.landing_dip,
@@ -170,6 +168,7 @@ impl MobilityTuning {
             && self.prone_height < crouch
             && self.prone_eye < self.prone_height
             && self.fall_minimum < self.fall_fatal
+            && self.dive_fall_minimum < self.dive_fall_fatal
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -181,8 +180,8 @@ pub enum Stance {
 }
 #[derive(Clone, Copy)]
 pub struct Dive {
-    pub direction: Vec3,
-    pub speed: f32,
+    pub launch_height: f32,
+    pub elapsed: f32,
     pub slide_remaining: Option<f32>,
 }
 #[derive(Component, Default)]
@@ -195,6 +194,8 @@ pub struct Mobility {
     pub airborne: bool,
     pub peak: f32,
     pub fall_speed: f32,
+    pub fall_origin: f32,
+    pub fall_velocity: f32,
     pub previous_eye: f32,
     pub landing_dip: f32,
 }
@@ -214,12 +215,14 @@ pub struct Landing {
     pub owner: Entity,
     pub position: Vec3,
     pub height: f32,
+    pub impact_height: f32,
     pub speed: f32,
     pub diving: bool,
 }
 #[derive(Resource, Default)]
 pub struct MovementEvidence {
     pub events: Vec<serde_json::Value>,
+    pub motion: Vec<serde_json::Value>,
 }
 impl MovementEvidence {
     pub fn record(&mut self, event: serde_json::Value) {

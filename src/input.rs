@@ -295,8 +295,7 @@ pub(crate) fn collect(
     input.movement = Vec2::new(
         (actions.state(Right).held as i8 - actions.state(Left).held as i8) as f32,
         (actions.state(Forward).held as i8 - actions.state(Backward).held as i8) as f32,
-    )
-    .clamp_length_max(1.);
+    );
     input.sprint = actions.active(Sprint);
     input.crouch = actions.active(Crouch);
     input.fire_held = actions.active(Fire);

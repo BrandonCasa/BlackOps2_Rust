@@ -35,6 +35,7 @@ pub struct GameDefinition {
 #[derive(Deserialize, Clone)]
 #[serde(default)]
 pub struct Tuning {
+    pub physics: crate::movement::physics::PhysicsTuning,
     pub mobility: crate::movement::MobilityTuning,
     pub walk_speed: f32,
     pub sprint_speed: f32,
@@ -66,17 +67,18 @@ pub struct Tuning {
 impl Default for Tuning {
     fn default() -> Self {
         Self {
+            physics: default(),
             mobility: default(),
-            walk_speed: 4.8,
-            sprint_speed: 7.2,
+            walk_speed: 190. * 0.0254,
+            sprint_speed: 190. * 1.5 * 0.0254,
             sprint_seconds: 4.,
             sprint_minimum: 1.,
             sprint_recovery_rate: 1.,
             sprint_recovery_delay: 0.,
-            crouch_speed: 2.4,
-            gravity: 20.,
-            jump_speed: 6.,
-            step_height: 0.45,
+            crouch_speed: 190. * 0.65 * 0.0254,
+            gravity: 800. * 0.0254,
+            jump_speed: (2_f32 * 39. * 0.0254 * 800. * 0.0254).sqrt(),
+            step_height: 18. * 0.0254,
             radius: 0.35,
             standing_height: 1.8,
             crouch_height: 1.15,
@@ -212,6 +214,7 @@ impl GameDefinition {
             || !values.iter().all(|v| v.is_finite() && *v > 0.)
             || !self.environment.valid(self)
             || !self.access.valid(&self.content)
+            || !self.tuning.physics.valid()
             || !self
                 .tuning
                 .mobility

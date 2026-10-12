@@ -545,16 +545,16 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
 
 
 def validate_tuning(tuning):
-    scalars = {"walk_speed": 4.8, "sprint_speed": 7.2, "sprint_seconds": 4.,
+    scalars = {"walk_speed": 190. * .0254, "sprint_speed": 190. * 1.5 * .0254, "sprint_seconds": 4.,
         "sprint_minimum": .25, "sprint_recovery_rate": 1., "sprint_recovery_delay": 0.,
-        "crouch_speed": 2.4, "gravity": 20., "jump_speed": 6., "step_height": .45,
+        "crouch_speed": 190. * .65 * .0254, "gravity": 800. * .0254, "jump_speed": math.sqrt(2 * 39. * .0254 * 800. * .0254), "step_height": 18. * .0254,
         "radius": .35, "standing_height": 1.8, "crouch_height": 1.15, "eye_height": 1.62,
         "mouse_sensitivity": .002, "ads_mouse_sensitivity": .0012, "fire_interval": .2,
         "reload_seconds": 1.5, "zombie_speed": 1.15}
     integers = {"pistol_damage": (50, 1, 2147483647), "melee_damage": (150, 1, 2147483647),
         "zombie_damage": (50, 1, 2147483647), "magazine": (8, 1, 4294967295),
         "reserve": (32, 0, 4294967295)}
-    require(isinstance(tuning, dict) and set(tuning) <= scalars.keys() | integers.keys() | {"combat_points", "mobility"},
+    require(isinstance(tuning, dict) and set(tuning) <= scalars.keys() | integers.keys() | {"combat_points", "mobility", "physics"},
             "unknown gameplay tuning")
 
     def number(value, key, nonnegative=False):
@@ -584,10 +584,22 @@ def validate_tuning(tuning):
     require(values["standing_height"] > diameter and values["crouch_height"] > diameter and
             values["crouch_height"] <= values["standing_height"], "invalid player capsule heights")
 
-    mobility_scalars = {"prone_height": .75, "prone_eye": .3048, "prone_speed": 1.1,
-        "prone_step": .12, "acceleration": 40., "deceleration": 50., "air_acceleration": 8.,
-        "air_deceleration": 2., "stance_seconds": .18, "jump_recovery": .25,
-        "dive_speed": 8., "dive_lift": 3.2, "dive_recovery": .1,
+    physics_scalars = {"ground_acceleration": 9., "crouch_acceleration": 12., "prone_acceleration": 19.,
+        "air_acceleration": 1., "friction": 5.5, "stop_speed": 100. * .0254,
+        "strafe_scale": .8, "backward_scale": .7, "sprint_strafe_scale": .667,
+        "ground_normal_min": .7, "ground_probe": .0254, "step_down": 9. * .0254, "skin_width": .00635,
+        "step_slowdown_height": .5 * .0254, "step_speed_min": 1. - .8}
+    physics = tuning.get("physics", {})
+    require(isinstance(physics, dict) and set(physics) <= physics_scalars.keys(), "unknown physics tuning")
+    values["physics"] = {key: number(physics.get(key, default), key) for key, default in physics_scalars.items()}
+    require(values["physics"]["ground_normal_min"] < 1., "invalid walkable normal")
+    require(values["physics"]["step_speed_min"] < 1., "invalid step speed minimum")
+    require(values["physics"]["skin_width"] < values["physics"]["ground_probe"], "invalid ground tolerance")
+
+    mobility_scalars = {"prone_height": .75, "prone_eye": .3048, "prone_speed": 190. * .15 * .0254,
+        "prone_step": 10. * .0254, "stance_seconds": .18, "jump_recovery": .25,
+        "dive_jump_height": 39. * .0254, "dive_launch_multiplier": 2., "dive_apex_seconds": .4,
+        "dive_recovery": .1, "dive_fall_minimum": 65. * .0254, "dive_fall_fatal": 200. * .0254,
         "dive_startup": .25, "dive_minimum_speed": 3.16 * .0254, "dive_exhaustion": 1.5,
         "dive_slide": .3, "fall_minimum": 3.2512,
         "fall_fatal": 7.62, "landing_dip": .12, "landing_seconds": .3,
@@ -604,6 +616,7 @@ def validate_tuning(tuning):
     require(diameter < movement["prone_height"] < values["crouch_height"], "invalid prone capsule")
     require(movement["prone_eye"] < movement["prone_height"], "invalid prone eye")
     require(movement["fall_minimum"] < movement["fall_fatal"], "unordered fall thresholds")
+    require(movement["dive_fall_minimum"] < movement["dive_fall_fatal"], "unordered dive fall thresholds")
     values["mobility"] = movement
     return values
 
