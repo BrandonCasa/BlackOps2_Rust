@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 from pathlib import Path
 
@@ -81,14 +80,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     args = parser.parse_args()
     client = Client(args.url)
     report = {'passed': False, 'cases': [], 'scenario': 'session_pause_restart',
               'injected_events_are_pipeline_checks_not_gameplay': True}
     try:
-        report['identity'] = {'path': str(args.identity.resolve()),
-                              'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
         client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=120)
         report['schema'] = client.call('origins/schema')
         run(client, report)

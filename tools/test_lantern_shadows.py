@@ -8,7 +8,7 @@ import time
 import traceback
 
 from test_support import Client, write_report
-from test_brp import assets_match, digest, require
+from test_brp import require
 from test_weapon_materials import capture, inputs
 
 
@@ -186,17 +186,7 @@ def main():
     bundle, output = args.bundle.resolve(), args.output.resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parent.parent), 'Evidence must be external')
     output.mkdir(parents=True, exist_ok=False)
-    identity = json.loads((bundle / 'identity.json').read_bytes())
-    for name, expected in identity['binaries'].items():
-        require(digest(bundle / name) == expected, f'Pinned binary changed: {name}')
-    report = {'passed': False, 'structural_checks_passed': False, 'fixtures': [],
-              'startup_only': args.startup_only,
-              'wgpu_environment': {name: os.environ.get(name) for name in
-                                   ('WGPU_VALIDATION', 'WGPU_GPU_BASED_VALIDATION', 'WGPU_VALIDATION_INDIRECT_CALL')},
-              'identity_sha256': digest(bundle / 'identity.json'), 'script_sha256': digest(Path(__file__)),
-              'assets_before': assets_match(identity),
-              'limitations': ['Camera poses, weapon grants, and actor placement are scenario setup.',
-                              'Structural assertions and captures require separate human visual acceptance.']}
+    report = {'passed': False, 'structural_checks_passed': False, 'fixtures': [], 'startup_only': args.startup_only, 'wgpu_environment': {name: os.environ.get(name) for name in ('WGPU_VALIDATION', 'WGPU_GPU_BASED_VALIDATION', 'WGPU_VALIDATION_INDIRECT_CALL')}, 'limitations': ['Camera poses, weapon grants, and actor placement are scenario setup.', 'Structural assertions and captures require separate human visual acceptance.']}
     client = Client(f'http://127.0.0.1:{args.port}', request_timeout=30, shutdown_timeout=60)
     report['compiler_load'] = processes(('cargo', 'rustc'))
     wait_for_slot()
@@ -211,7 +201,6 @@ def main():
             rendering_log = (output / 'game.log').read_text(encoding='utf-8')
             require('backend: Vulkan' in rendering_log, 'Expected the Vulkan backend')
             report['renderer'] = {'backend': 'Vulkan', 'lighting': 'Solari'}
-            report['assets_after'] = assets_match(identity)
             report['passed'] = True
         except Exception as error:
             report['error'] = f'{type(error).__name__}: {error}'

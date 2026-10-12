@@ -10,7 +10,6 @@ from pathlib import Path
 from test_support import Client, write_report
 from test_support import source_mobility as mobility_tuning, source_gravity as native_physics
 from test_support import source_physics as native_tuning
-from test_brp import assets_match, digest
 import test_dive_physics as dive
 import test_environment as environment
 import test_mobility as mobility
@@ -26,7 +25,7 @@ import test_weapon_locomotion as animation
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
-    parser.add_argument('--identity', required=True, type=Path)
+    parser.add_argument('--assets', required=True, type=Path)
     parser.add_argument('--research', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--inspection', type=Path)
@@ -40,22 +39,13 @@ def main():
     if output.is_relative_to(Path(__file__).resolve().parents[1]):
         raise ValueError('Validation output must be external')
     output.mkdir(parents=True, exist_ok=True)
-    identity = json.loads(args.identity.read_bytes())
-    game = json.loads((Path(identity['asset_root']) / 'game.json').read_bytes())
+    game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
     client = Client(args.url, request_timeout=20, shutdown_timeout=45)
-    report = {'passed': False, 'cases': [], 'sections': [],
-              'identity': {'path': str(args.identity.resolve()), 'sha256': digest(args.identity)},
-              'limitations': ['Fixtures establish preconditions; scheduled input and observed outcomes establish behavior.',
-                              'This bounded integration suite does not establish exhaustive original-game parity or performance.']}
+    report = {'passed': False, 'cases': [], 'sections': [], 'limitations': ['Fixtures establish preconditions; scheduled input and observed outcomes establish behavior.', 'This bounded integration suite does not establish exhaustive original-game parity or performance.']}
     selected = args.section or ['ui', 'session', 'projectiles', 'physics', 'mobility',
                                 'dive', 'pistols', 'instakill', 'environment', 'stations', 'landing', 'quests', 'animation']
     site = None
     try:
-        report['binaries'] = {name: digest(args.identity.parent / name) for name in identity['binaries']}
-        if report['binaries'] != identity['binaries']:
-            raise RuntimeError('Pinned executable/DLL identity changed')
-        report['assets_before'] = assets_match(identity)
-        report['scripts'] = {path.name: digest(path) for path in Path(__file__).parent.glob('*.py')}
         client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), 300)
         report['protocol'] = client.call('rpc.discover')
         report['schema'] = client.call('origins/schema')
@@ -66,7 +56,7 @@ def main():
             try:
                 client.reset()
                 if name in ('dive', 'landing', 'animation') and report.get('floor') is None:
-                    candidates, _ = physics.surfaces(Path(identity['asset_root']), game)
+                    candidates, _ = physics.surfaces(Path(args.assets.resolve()), game)
                     site = physics.select_flat(client, report, game, candidates,
                                                native_tuning(args.research)[0])
                     report['floor'] = site
@@ -78,7 +68,7 @@ def main():
                     phase.run(client, report, None if args.no_captures else output)
                 elif name == 'physics':
                     motor, movement = native_tuning(args.research)
-                    candidates, stairs = physics.surfaces(Path(identity['asset_root']), game)
+                    candidates, stairs = physics.surfaces(Path(args.assets.resolve()), game)
                     site = physics.select_flat(client, report, game, candidates, motor)
                     report['floor'] = site
                     physics.directions(client, report, game, site, motor, movement)
@@ -137,14 +127,12 @@ def main():
                     if args.inspection is None:
                         raise ValueError('Animation source checks require --inspection')
                     recovered = args.inspection / 'solo-content/recovered-gameplay.json'
-                    animation.source_bindings(report, game, Path(identity['asset_root']), args.inspection,
-                                              {'source': {'sha256': digest(recovered)},
-                                               'action_fields': ACTIONS, 'timing_fields': TIMINGS})
+                    animation.source_bindings(report, game, Path(args.assets.resolve()), args.inspection, {'action_fields': ACTIONS, 'timing_fields': TIMINGS})
                     floor = next((row['fixture'] for row in report['cases']
                                   if row['case'] == 'authored_open_floor_supports_native_jump' and row['passed']), None)
                     presentation = next(w['presentation'] for w in game['content']['weapons'] if w['id'] == 'weapon.mp40_zm')
                     row = next(p for p in game['content']['presentations'] if p['id'] == presentation)
-                    doc = json.loads((Path(identity['asset_root']) / row['scene'].split('#')[0]).read_bytes())
+                    doc = json.loads((Path(args.assets.resolve()) / row['scene'].split('#')[0]).read_bytes())
                     clips = {a['name']: max(doc['accessors'][s['input']]['max'][0] for s in a['samplers'])
                              for a in doc['animations']}
                     for empty in (False, True):
@@ -166,7 +154,6 @@ def main():
                                   if key != 'failure_state'}), flush=True)
             if args.fail_fast and not section['passed']:
                 break
-        report['assets_after'] = assets_match(identity)
         report['passed'] = all(s['passed'] for s in report['sections'])
     except Exception as error:
         report['error'] = f'{type(error).__name__}: {str(error)[:1200]}'

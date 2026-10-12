@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import time
@@ -181,14 +180,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--runtime', type=Path)
-    parser.add_argument('--identity', type=Path)
     args = parser.parse_args()
     report = {'passed': False}
     client = Client() if args.runtime else None
     try:
         if args.runtime:
-            assert args.identity
-            report['identity_sha256'] = hashlib.sha256(args.identity.read_bytes()).hexdigest()
             report.update(runtime(client, args.runtime))
         else:
             report.update(audit(args.output))

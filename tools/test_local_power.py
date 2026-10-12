@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 from pathlib import Path
 
@@ -67,17 +66,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     args = parser.parse_args()
     client = Client(args.url)
     report = {'passed': False, 'cases': [], 'scenario': 'local_generator_power',
               'limitations': ['Connections opened and defenders removed as setup to isolate power and purchases; capture and purchase use native input.',
                               'Generator shutdown and attack waves remain unfinished.']}
     try:
-        report['identity'] = {'path': str(args.identity.resolve()), 'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
         game = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
         content = json.loads(game.read_bytes())
-        report['content_sha256'] = hashlib.sha256(game.read_bytes()).hexdigest()
         run(client, report, content)
         report['passed'] = True
     except Exception as error:

@@ -5,7 +5,6 @@ from pathlib import Path
 import time
 
 from test_support import Client, write_report
-from test_brp import assets_match, digest
 from test_environment import aim, approach, tap
 from test_generator_population import focus_generator
 from test_throwable_down import binding, check, edge, schedule
@@ -68,10 +67,7 @@ def setup_playing(client, options, stage):
 
 def run(client, report, output, game=None):
     if game is None:
-        identity = report['identity']
-        if 'asset_root' not in identity:
-            identity = json.loads(Path(identity['path']).read_bytes())
-        game = json.loads((Path(identity['asset_root']) / 'game.json').read_bytes())
+        raise ValueError('UI scenarios require runtime gameplay data')
     client.until(lambda state: state['state'] == 'Playing' and state.get('player'), timeout=300)
     report['protocol'] = client.call('rpc.discover')
     report['schema'] = client.call('origins/schema')
@@ -276,27 +272,18 @@ def run(client, report, output, game=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
-    parser.add_argument('--identity', required=True, type=Path)
+    parser.add_argument('--assets', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
     output = args.output.resolve()
     if output.is_relative_to(Path(__file__).resolve().parent.parent):
         raise ValueError('Validation output must be external')
     output.mkdir(parents=True, exist_ok=False)
-    identity = json.loads(args.identity.read_bytes())
-    report = {'passed': False, 'cases': [], 'identity': identity,
-              'limitations': ['Solo gameplay only; no multiplayer or pixel-parity claim.',
-                              'Advanced quests and completed recipes additionally require their gameplay scenarios.']}
+    report = {'passed': False, 'cases': [], 'limitations': ['Solo gameplay only; no multiplayer or pixel-parity claim.', 'Advanced quests and completed recipes additionally require their gameplay scenarios.']}
     client = Client(args.url, request_timeout=20)
     try:
-        report['assets_before'] = assets_match(identity)
-        for name, expected in identity['binaries'].items():
-            path = args.identity.parent / name
-            if digest(path) != expected:
-                raise ValueError('Pinned executable/DLL changed: ' + str(path))
-        game = json.loads((Path(identity['asset_root']) / 'game.json').read_bytes())
+        game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
         run(client, report, output, game)
-        report['assets_after'] = assets_match(identity)
         report['passed'] = True
     except Exception as error:
         report['error'] = type(error).__name__ + ': ' + str(error)

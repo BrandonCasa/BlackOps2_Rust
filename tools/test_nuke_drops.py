@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -73,7 +72,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     args = parser.parse_args()
     client = Client(args.url)
     report = {'passed': False, 'cases': [], 'scenario': 'native_nuke_powerup_drops',
@@ -81,9 +80,6 @@ def main():
                               'Native proximity collection, Nuke waves, death messages, rewards, and drop spawning run normally.',
                               'The earned branch and four-drop round cap are covered; random-drop distribution is not measured.']}
     try:
-        report['identity'] = {'path': str(args.identity.resolve()), 'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
-        report['script_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-        report['helper_sha256'] = hashlib.sha256(Path(__file__).with_name('test_throwable_down.py').read_bytes()).hexdigest()
         report['schema'] = client.call('origins/schema')
         run(client, report)
         report['passed'] = True

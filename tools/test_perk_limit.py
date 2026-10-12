@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -100,7 +99,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://127.0.0.1:15702")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--identity", type=Path)
+    parser.add_argument('--assets', type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     if args.output.resolve().is_relative_to(root):
@@ -112,14 +111,9 @@ def main():
                               "Capture defenders are removed as setup to isolate purchases; capture itself uses native input.",
                               "Earned slots are outside this scenario."]}
     try:
-        if args.identity is not None:
-            identity = args.identity.resolve()
-            if identity.is_relative_to(root):
-                raise ValueError("Pin identity must be outside the repository")
-            report["identity"] = {"path": str(identity), "sha256": hashlib.sha256(identity.read_bytes()).hexdigest()}
         game_path = root / "assets/origins/game.json"
         data = game_path.read_bytes()
-        report["content"] = {"path": str(game_path), "sha256": hashlib.sha256(data).hexdigest()}
+        report['content'] = {'path': str(game_path)}
         content = json.loads(data)
         client.until(lambda state: state.get("state") == "Playing" and state.get("player"), timeout=120)
         run(client, report, content)

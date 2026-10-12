@@ -1,4 +1,3 @@
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -57,11 +56,7 @@ def source_cycles(research):
             phrase(encrypt(message), 1)
         return result
 
-    return {'normal': steps(False), 'bellaso': steps(True)}, {
-        'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-        'key': key, 'messages': messages, 'ciphertexts': [encrypt(message) for message in messages],
-        'rare_probability': '10 of 100',
-    }
+    return ({'normal': steps(False), 'bellaso': steps(True)}, {'path': str(path), 'key': key, 'messages': messages, 'ciphertexts': [encrypt(message) for message in messages], 'rare_probability': '10 of 100'})
 
 
 def expected_color(lights):
@@ -215,20 +210,11 @@ def planar_staff_soul(client, report, game):
 
 def run(client, report, research_path, game=None):
     if game is None:
-        identity = report['identity']
-        if 'asset_root' not in identity:
-            identity = json.loads(Path(identity['path']).read_bytes())
-        game = json.loads((Path(identity['asset_root']) / 'game.json').read_bytes())
+        raise ValueError('Quest scenarios require runtime gameplay data')
     report['quest_methods'] = client.call('rpc.discover')
     schema = client.call('origins/quests/schema')
     expected, source = source_cycles(research_path)
-    check(report, 'post_upgrade_morse_and_cipher_full_source_schedules',
-          schema['light_cycles'] == expected,
-          source=source,
-          schedules={name: {'steps': len(steps), 'seconds': sum(s['seconds'] for s in steps),
-                            'sha256': hashlib.sha256(json.dumps(steps, sort_keys=True).encode()).hexdigest()}
-                     for name, steps in expected.items()},
-          evidence_kind='Independent source comparison of complete schedules; runtime prefix follows')
+    check(report, 'post_upgrade_morse_and_cipher_full_source_schedules', schema['light_cycles'] == expected, source=source, evidence_kind='Independent source comparison of complete schedules; runtime prefix follows')
     client.reset()
     client.call('origins/setup', {'clear_enemies': True, 'pending': 6,
                                  'pause_spawning_seconds': 300})

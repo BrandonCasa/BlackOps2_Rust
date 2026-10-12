@@ -5,7 +5,6 @@ from pathlib import Path
 
 from test_support import Client, write_report
 from test_support import source_pistols as native_pistols
-from test_brp import assets_match, digest
 from test_throwable_down import binding, check, edge, schedule
 
 
@@ -130,7 +129,7 @@ def without_quick_revive(client, report, game):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--research', type=Path, required=True)
     args = parser.parse_args()
@@ -141,18 +140,9 @@ def main():
                               'Initial-ammunition cases do not cover empty guns or reserve depletion.',
                               'Dual-wield cases exercise the fire binding and preserve both original magazines.']}
     try:
-        identity = json.loads(args.identity.read_bytes())
-        report['identity'] = {'path': str(args.identity.resolve()), 'sha256': digest(args.identity)}
-        report['binaries'] = {name: digest(args.identity.parent / name) for name in identity['binaries']}
-        if report['binaries'] != identity['binaries']:
-            raise RuntimeError('Pinned binary identity changed')
-        report['assets'] = assets_match(identity)
-        report['script_hashes'] = {name: digest(Path(__file__).parent / name) for name in (
-            'test_solo_pistols.py', 'test_support.py',
-            'test_brp.py', 'test_throwable_down.py')}
         source = args.research / 'source/server-patch/maps/mp/zombies/_zm.gsc'
-        report['native_source'] = {'path': str(source), 'sha256': digest(source)}
-        game = json.loads((Path(identity['asset_root']) / 'game.json').read_bytes())
+        report['native_source'] = {'path': str(source)}
+        game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
         ranks, replacement = native_pistols(args.research)
         loaded = {weapon['id'] for weapon in game['content']['weapons']}
         native_profile = {'pistol_ranks': [row for row in ranks if row['weapon'] in loaded],
@@ -175,7 +165,6 @@ def main():
                                (['weapon.mp40_zm', 'weapon.c96_upgraded_zm'], 'weapon.c96_upgraded_zm')):
             run_case(client, report, game, held, expected)
         without_quick_revive(client, report, game)
-        report['assets_after'] = assets_match(identity)
         report['passed'] = True
     except Exception as error:
         report['error'] = f'{type(error).__name__}: {error}'

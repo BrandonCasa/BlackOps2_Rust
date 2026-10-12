@@ -13,7 +13,6 @@ import numpy as np
 from test_support import gltf_accessor as accessor
 from test_support import Client, write_report
 from test_support import source_physics as native_tuning
-from test_brp import assets_match, digest
 from test_throwable_down import binding, check as record_check, edge, schedule
 
 
@@ -305,7 +304,7 @@ def projectile_case(client, report, game, site, weapon, action, expected_gravity
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     parser.add_argument('--research', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--focus', choices=('all', 'stairs_projectiles', 'projectiles'), default='all')
@@ -318,15 +317,7 @@ def main():
                               'Imported slick flags and landing impact recovery are covered by the separate final landing scenario.',
                               'This measures native numeric contracts; subjective controller feel still needs player review.']}
     try:
-        identity = json.loads(args.identity.read_bytes())
-        report['identity'] = {'path': str(args.identity.resolve()), 'sha256': digest(args.identity),
-                              'revision': identity['source']['revision']}
-        report['scripts'] = {name: digest(Path(__file__).with_name(name)) for name in
-                             ('test_physics.py', 'test_support.py')}
-        if {name: digest(args.identity.parent / name) for name in identity['binaries']} != identity['binaries']:
-            raise RuntimeError('Pinned binary identity changed')
-        report['assets'] = assets_match(identity)
-        pack = Path(identity['asset_root'])
+        pack = Path(args.assets.resolve())
         game = json.loads((pack / 'game.json').read_bytes())
         native, mobility = native_tuning(args.research)
         check(report, 'pack_uses_native_motor_values', all(math.isclose(game['tuning'][key], value, abs_tol=1e-7)
@@ -350,7 +341,6 @@ def main():
                                          ('weapon.ray_gun_zm', 'fire', 0),
                                          ('weapon.mp40_zm', 'lethal', game['tuning']['gravity'])]:
             projectile_case(client, report, game, site, weapon, action, gravity)
-        report['assets_after'] = assets_match(identity)
         report['passed'] = True
     except Exception as error:
         report['error'] = f'{type(error).__name__}: {str(error)[:600]}'

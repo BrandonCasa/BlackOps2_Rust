@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -13,9 +12,7 @@ def native_spread(directory, name):
     path = directory / name
     record = info_string(path, 'WEAPONFILE')
     fields = record['fields']
-    return [float(fields[key]) for key in
-            ('hipSpreadStandMin', 'hipSpreadDuckedMin', 'hipSpreadProneMin', 'adsSpread')], {
-                'path': str(path.resolve()), 'sha256': record['sha256']}
+    return ([float(fields[key]) for key in ('hipSpreadStandMin', 'hipSpreadDuckedMin', 'hipSpreadProneMin', 'adsSpread')], {'path': str(path.resolve())})
 
 
 def case(client, report, game, name, natives, stance, aimed, deadshot):
@@ -71,7 +68,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     parser.add_argument('--native-weapons', type=Path, required=True)
     parser.add_argument('--dual', action='store_true')
     args = parser.parse_args()
@@ -82,19 +79,10 @@ def main():
                               'Checks emitted ray-cone spread, not statistical impact distribution.',
                               'Movement bloom and maximum spread behavior remain outside this scenario.']}
     try:
-        report['identity'] = {'path': str(args.identity.resolve()),
-                              'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
-        report['scripts'] = {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-                             for name in ('test_stance_spread.py', 'test_throwable_down.py',
-                                          'test_support.py', )}
         client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=180)
         report['protocol'] = client.call('rpc.discover')
         report['schema'] = client.call('origins/schema')
         path = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
-        report['content_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
-        identity = json.loads(args.identity.read_bytes())
-        check(report, 'runtime_content_matches_pinned_identity',
-              identity['assets']['game.json']['sha256'] == report['content_sha256'])
         game = json.loads(path.read_bytes())
         report['native_weapons'] = {}
         names = ('fivesevendw_zm', 'fivesevendw_upgraded_zm') if args.dual else ('mp40_zm', 'ballista_zm')

@@ -1,4 +1,3 @@
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -62,11 +61,7 @@ def run(client, report, game, research, inspection):
     snapshot = station(client)
     expected = [next(number for point, number in native if math.dist(point, actual) < .0001)
                 for actual in snapshot['box_positions']]
-    check(report, 'all_box_positions_preserve_source_generator_binding',
-          len(expected) == 6 and snapshot['box_generators'] == expected,
-          expected=expected, observed=snapshot['box_generators'],
-          source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
-          entities_sha256=hashlib.sha256(entities_path.read_bytes()).hexdigest())
+    check(report, 'all_box_positions_preserve_source_generator_binding', len(expected) == 6 and snapshot['box_generators'] == expected, expected=expected, observed=snapshot['box_generators'])
     client.reset()
     client.call('origins/setup', {'clear_enemies': True, 'pending': 6,
                 'pause_spawning_seconds': 300, 'points': 20000, 'weapons': ['weapon.mp40_zm'],

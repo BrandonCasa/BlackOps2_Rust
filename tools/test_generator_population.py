@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import math
 from pathlib import Path
 import time
@@ -136,7 +135,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://127.0.0.1:15702")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--identity", type=Path)
     args = parser.parse_args()
     if args.output.resolve().is_relative_to(Path(__file__).resolve().parent.parent):
         parser.error("Output must be outside the repository")
@@ -147,12 +145,6 @@ def main():
                               "Solo single-generator capture only; recapture and multiple contested zones are unfinished.",
                               "One-frame ghosts are checked when observed; final entity absence is always required."]}
     try:
-        if args.identity is not None:
-            identity = args.identity.resolve()
-            if identity.is_relative_to(Path(__file__).resolve().parent.parent):
-                raise ValueError("Pin identity must be outside the repository")
-            report["identity"] = {"path": str(identity),
-                                  "sha256": hashlib.sha256(identity.read_bytes()).hexdigest()}
         client.until(lambda state: state.get("state") == "Playing" and state.get("player")
                      and state.get("generators", {}).get("sites"), timeout=120)
         for count in (20, 24):

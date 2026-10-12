@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -83,7 +82,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     args = parser.parse_args()
     client = Client(args.url)
     report = {'passed': False, 'cases': [], 'scenario': 'claymore_round_session_isolation',
@@ -92,14 +91,8 @@ def main():
                               'Injected round messages check session isolation, not player-driven round completion.',
                               'The empty round transition exercises the real round scheduler and refill consumers.']}
     try:
-        report['identity'] = {'path': str(args.identity.resolve()),
-                              'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
-        report['scripts'] = {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-                             for name in ('test_mine_rounds.py', 'test_max_ammo_mines.py',
-                                          'test_throwable_down.py', 'test_support.py')}
         report['schema'] = client.call('origins/schema')
         path = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
-        report['content_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
         run(client, report, json.loads(path.read_bytes()))
         report['passed'] = True
     except Exception as error:

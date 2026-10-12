@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -154,7 +153,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     args = parser.parse_args()
     client = Client(args.url)
     report = {'passed': False, 'cases': [], 'scenario': 'nuke_claimed_victim_scoring',
@@ -163,12 +162,8 @@ def main():
                               'Zombie Blood prevents enemy attacks during the scenarios.',
                               'Electric Cherry, Insta-Kill, melee, and voice behavior are outside this scenario.']}
     try:
-        report['identity'] = {'path': str(args.identity.resolve()), 'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
-        report['script_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-        report['helper_sha256'] = hashlib.sha256(Path(__file__).with_name('test_throwable_down.py').read_bytes()).hexdigest()
         report['schema'] = client.call('origins/schema')
         game_path = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
-        report['content_sha256'] = hashlib.sha256(game_path.read_bytes()).hexdigest()
         run(client, report, json.loads(game_path.read_bytes()))
         report['passed'] = True
     except Exception as error:

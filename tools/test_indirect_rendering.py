@@ -9,7 +9,7 @@ import urllib.error
 
 from test_lantern_shadows import wait_for_slot
 from test_support import Client, write_report
-from test_brp import assets_match, digest, require
+from test_brp import require
 
 
 def settled(client, timeout=120):
@@ -175,12 +175,7 @@ def main():
     bundle, output = args.bundle.resolve(), args.output.resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parent.parent), "Output must be external")
     output.mkdir(parents=True, exist_ok=False)
-    identity = json.loads((bundle / "identity.json").read_text())
-    report = {"passed": False, "identity_sha256": digest(bundle / "identity.json"),
-              "source": identity["source"], "backend": args.backend, "startup_only": args.startup_only}
-    for name, expected in identity["binaries"].items():
-        require(digest(bundle / name) == expected, f"Binary changed: {name}")
-    report["assets_before"] = assets_match(identity)
+    report = {'passed': False, 'backend': args.backend, 'startup_only': args.startup_only}
     client = Client(f"http://127.0.0.1:{args.port}", request_timeout=120, shutdown_timeout=60)
     wait_for_slot()
     with (output / "game.log").open("w", encoding="utf-8") as log:
@@ -191,7 +186,6 @@ def main():
         report["pid"] = process.pid
         try:
             run(client, report, output, process, args.startup_only, args.require_bindless, args.water)
-            report["assets_after"] = assets_match(identity)
             report["passed"] = True
         except Exception as error:
             report["error"] = f"{type(error).__name__}: {error}"

@@ -1,4 +1,3 @@
-import hashlib
 import math
 import re
 import struct
@@ -268,7 +267,7 @@ def info_string(path, expected):
         if not key or key in fields:
             raise ValueError(f"duplicate/empty source field: {path.name}/{key}")
         fields[key] = value
-    return {"source": path.name, "sha256": hashlib.sha256(raw).hexdigest(), "fields": fields}
+    return {'source': path.name, 'fields': fields}
 
 
 def gltf_accessor(document, binary, index):

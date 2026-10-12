@@ -12,25 +12,9 @@
 *.a
 *.o
 
-/assets/*
-!/assets/origins/
-/assets/origins/**
-!/assets/origins/**/
-!/assets/origins/game.json
-!/assets/origins/texture-streaming.json
-!/assets/origins/weapon_camos.json
-!/assets/origins/**/*.gltf
-!/assets/origins/**/*.bin
-!/assets/origins/**/*.ktx2
-!/assets/origins/**/*.nativefx
-!/assets/origins/**/*.png
-!/assets/origins/**/*.dds
-!/assets/origins/**/*.jpg
-!/assets/origins/**/*.jpeg
-!/assets/origins/**/*.dds
-!/assets/origins/**/*.ogg
-!/assets/origins/**/*.ttf
-!/assets/origins/**/*.otf
+/assets/
+/config/
+/vendor/
 **/original-assets/
 **/local-assets/
 **/local_assets/
@@ -57,8 +41,6 @@
 *.fx
 **/preparation.json
 
-/config/local*.toml
-!/config/local_assets.example.toml
 .env
 .env.*
 **/secrets/
@@ -80,19 +62,3 @@
 .vscode/
 .DS_Store
 Thumbs.db
-
-!/assets/source/
-!/assets/source/**/
-!/assets/source/**/*.ff
-!/assets/source/**/*.iwd
-!/assets/source/**/*.iwi
-!/assets/source/**/*.xpak
-!/assets/source/**/*.pak
-!/assets/source/**/*.bik
-!/assets/source/**/*.xmodel
-!/assets/source/**/*.xanim
-!/assets/source/**/*.bin
-!/assets/source/**/*.dds
-!/assets/source/**/*.wav
-!/assets/source/**/*.zip
-!/assets/source/bo2/**

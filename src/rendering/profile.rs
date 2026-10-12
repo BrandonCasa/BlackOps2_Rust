@@ -45,8 +45,40 @@ pub(crate) struct VisualProfile {
 
 impl Default for VisualProfile {
     fn default() -> Self {
-        serde_json::from_str(include_str!("../../config/origins-visual.json"))
-            .expect("The committed visual profile must be valid")
+        Self {
+            ambient_color: [1.0, 1.0, 1.0],
+            ambient_brightness: 30.0,
+            environment_intensity: 0.02,
+            sun_illuminance: 18000.0,
+            transparent_opacity_scale: 0.6,
+            reveal_softness: 3.2,
+            comparison_fov_degrees: 55.0,
+            antialiasing: Antialiasing::Dlss,
+            lantern_color: [1.0, 0.71, 0.4],
+            lantern_lumens: 6000.0,
+            lantern_range: 10.0,
+            lantern_shadow_map_size: 512,
+            emissive_nits: 150.0,
+            lantern_emissive_nits: 4000.0,
+            water_color: [0.12, 0.19, 0.21],
+            water_opacity: 0.58,
+            water_roughness: 0.14,
+            water_normal_strength: 0.35,
+            water_uv_scale: 0.02,
+            water_velocity: [0.018, 0.011, -0.013, 0.016],
+            sun_shadow_map_size: 4096,
+            sun_soft_shadow_size: 1.0,
+            sun_shadow_distance: 60.0,
+            sun_shadow_cascades: 4,
+            sun_shadow_first_cascade: 8.0,
+            max_local_lights: 8,
+            max_local_shadows: 4,
+            local_shadow_admission_distance: 14.0,
+            local_shadow_retention_distance: 18.0,
+            local_light_distance: 28.0,
+            local_light_fade_seconds: 0.3,
+            bloom_intensity: 0.14,
+        }
     }
 }
 

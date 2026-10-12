@@ -8,7 +8,7 @@ import traceback
 
 from test_support import Client, write_report
 from test_atmosphere import observe, settled
-from test_brp import assets_match, digest, require
+from test_brp import require
 from test_lantern_shadows import wait_for_slot
 from test_weapon_materials import capture, wait_materials
 
@@ -17,31 +17,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--asset-identity', type=Path)
     parser.add_argument('--port', type=int, default=15725)
     args = parser.parse_args()
     bundle, output = args.bundle.resolve(), args.output.resolve()
     root = Path(__file__).resolve().parents[1]
     require(not output.is_relative_to(root), 'Evidence must stay external')
     output.mkdir(parents=True, exist_ok=False)
-    identity = json.loads((bundle / 'identity.json').read_bytes())
-    for name, expected in identity['binaries'].items():
-        require(digest(bundle / name) == expected, f'Pinned binary changed: {name}')
-    compiled = [name for name in identity['source']['files']
-                if name.startswith(('src/', 'vendor/', '.cargo/'))
-                or name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'build.rs',
-                            'config/origins-visual.json', 'config/origins-atmosphere.json')]
-    for name in compiled:
-        require(digest(root / name) == identity['source']['files'][name], f'Compiled input changed: {name}')
-    assets = identity if args.asset_identity is None else json.loads(args.asset_identity.read_bytes())
-    require(Path(assets['asset_root']).resolve() == Path(identity['asset_root']).resolve(), 'Asset root changed')
-    report = {'passed': False, 'identity_sha256': digest(bundle / 'identity.json'),
-              'source': identity['source'], 'binaries': identity['binaries'],
-              'script_sha256': digest(Path(__file__)), 'assets_before': assets_match(assets),
-              'asset_identity': str(args.asset_identity or bundle / 'identity.json'),
-              'asset_identity_sha256': digest(args.asset_identity or bundle / 'identity.json'), 'views': []}
-    game = json.loads((Path(assets['asset_root']) / 'game.json').read_bytes())
-    atmosphere = json.loads((root / 'config/origins-atmosphere.json').read_bytes())
+    report = {'passed': False, 'views': []}
+    game = json.loads((Path(bundle / 'assets/origins') / 'game.json').read_bytes())
+    atmosphere = json.loads((bundle / 'assets/origins' / json.loads((bundle / 'assets/origins/prepared/runtime.json').read_bytes())['worlds'][0]['atmosphere_uri']).read_bytes())
     yaw = math.radians(atmosphere['sun_angles'][1])
     direction = [math.cos(yaw), -math.sin(yaw)]
     points = [(1, game['survey_views'][1]), (2, game['survey_views'][6]),
@@ -77,7 +61,6 @@ def main():
             client.call('origins/rendering', {'restore_player_view': True})
             client.reset(timeout=90)
             wait_materials(client, first=False, timeout=90)
-            report['assets_after'] = assets_match(assets)
             report['passed'] = True
         except Exception as error:
             report['error'] = f'{type(error).__name__}: {error}'

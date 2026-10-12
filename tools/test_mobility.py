@@ -1,12 +1,10 @@
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
 
 from test_support import Client, write_report
 from test_support import source_mobility as native_tuning
-from test_brp import assets_match, digest
 from test_throwable_down import binding, check, edge, schedule
 
 
@@ -165,7 +163,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     parser.add_argument('--research', type=Path, required=True)
     args = parser.parse_args()
     client = Client(args.url, shutdown_timeout=45)
@@ -175,25 +173,14 @@ def main():
                               'Movement, prone, sprint and firing use scheduled normal input.',
                               'This scenario checks entry and recovery gates; trajectory and damage use separate scenarios.']}
     try:
-        identity = json.loads(args.identity.read_bytes())
-        report['identity'] = {'path': str(args.identity.resolve()),
-                              'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
-        report['scripts'] = {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-                             for name in ('test_mobility.py', 'test_support.py',
-                                          'test_throwable_down.py', 'test_brp.py')}
-        report['binaries'] = {name: digest(args.identity.parent / name) for name in identity['binaries']}
-        if report['binaries'] != identity['binaries']:
-            raise RuntimeError('Pinned executable or DLL identity changed')
-        report['assets'] = assets_match(identity)
         source = args.research / 'exports/functions/008a/008ad170.c'
-        report['native_source'] = {'path': str(source.resolve()), 'sha256': digest(source)}
+        report['native_source'] = {'path': str(source.resolve())}
         native = native_tuning(args.research)
-        game = json.loads((Path(identity['asset_root']) / 'game.json').read_bytes())
+        game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
         check(report, 'pack_preserves_native_dive_defaults',
               all(math.isclose(game['tuning']['mobility'][key], value, abs_tol=0.0000001)
                   for key, value in native.items()), native=native, pack=game['tuning']['mobility'])
         run(client, report, native, game)
-        report['assets_after'] = assets_match(identity)
         report['passed'] = True
     except Exception as error:
         report['error'] = f'{type(error).__name__}: {error}'

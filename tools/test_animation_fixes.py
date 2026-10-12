@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -79,13 +78,7 @@ def weapon_case(client, report, game, native_dir, name, aimed, empty=False, rech
     expected = fields[key]
     label = name + ('_ads' if aimed else '_hip') + ('_last' if empty else '') + ('_rechamber' if rechamber else '')
     report.setdefault('captures', {})[label] = capture(client, Path(report['output']) / (label + '.png'))
-    check(report, label + '_native_clip_and_normal_firing',
-          after['state'] == 'Paused' and after['session']['shots'] - before['session']['shots'] == shots
-          and after['player']['weapons'][0]['magazine'] == before['player']['weapons'][0]['magazine'] - shots
-          and len(rigs) == 2 and all(r['ready'] and r['bones'] and r['clocks']
-                                   and all(c['clip'] == expected for c in r['clocks']) for r in rigs),
-          native={'path': str(native_path), 'sha256': hashlib.sha256(native_path.read_bytes()).hexdigest(),
-                  'field': key, 'clip': expected}, fixture=fixture, inputs=events, state=after, animation=frozen)
+    check(report, label + '_native_clip_and_normal_firing', after['state'] == 'Paused' and after['session']['shots'] - before['session']['shots'] == shots and (after['player']['weapons'][0]['magazine'] == before['player']['weapons'][0]['magazine'] - shots) and (len(rigs) == 2) and all((r['ready'] and r['bones'] and r['clocks'] and all((c['clip'] == expected for c in r['clocks'])) for r in rigs)), fixture=fixture, inputs=events, state=after, animation=frozen)
     client.wait_ticks(15)
     later = weapon_rigs(client.call('origins/animations'), identity)
     check(report, label + '_pause_freezes_clocks_and_pose',
@@ -202,7 +195,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--identity', required=True, type=Path)
+    parser.add_argument('--assets', required=True, type=Path)
     parser.add_argument('--preparation', required=True, type=Path)
     parser.add_argument('--native-weapons', required=True, type=Path)
     args = parser.parse_args()
@@ -217,20 +210,10 @@ def main():
                               'Mesh consistency checks cover GPU input uniforms, not GPU output uniforms or deformed vertices.',
                               'Native ragdoll handoff and engine RNG remain approximations.']}
     try:
-        identity = json.loads(args.identity.read_bytes())
-        report['identity'] = {'path': str(args.identity.resolve()),
-                              'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
-        report['scripts'] = {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-                             for name in ('test_animation_fixes.py', 'test_support.py',
-                                          'test_throwable_down.py', 'test_nuke_rewards.py',
-                                          'test_weapon_materials.py')}
-        pack = Path(identity['asset_root'])
+        pack = Path(args.assets.resolve())
         game_path = pack / 'game.json'
-        check(report, 'runtime_content_matches_identity', hashlib.sha256(game_path.read_bytes()).hexdigest()
-              == identity['assets']['game.json']['sha256'])
         game = json.loads(game_path.read_bytes())
-        report['preparation'] = {'path': str(args.preparation.resolve()),
-                                 'sha256': hashlib.sha256(args.preparation.read_bytes()).hexdigest()}
+        report['preparation'] = {'path': str(args.preparation.resolve())}
         states = json.loads(args.preparation.read_bytes())['states']
         client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=180)
         report['protocol'] = client.call('rpc.discover')

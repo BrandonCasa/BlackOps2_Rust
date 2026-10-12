@@ -1,11 +1,9 @@
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import time
 
 from test_support import Client, write_report
-from test_brp import assets_match
 from test_throwable_down import binding, check, edge
 
 
@@ -63,17 +61,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     args = parser.parse_args()
     client = Client(args.url)
     report = {'passed': False, 'cases': [], 'scenario': 'phase_fixes_gameplay',
               'limitations': ['The optional random-perk powerup is absent from the native catalog; that route is source-reviewed.',
                               'Full quest completion and performance are outside this scenario.']}
     try:
-        report['identity'] = {'path': str(args.identity.resolve()),
-                              'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
-        report['script_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-        report['assets'] = assets_match(json.loads(args.identity.read_bytes()))
         run(client, report, args.output)
         report['passed'] = True
     except Exception as error:

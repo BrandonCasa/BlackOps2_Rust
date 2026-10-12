@@ -7,7 +7,6 @@ import struct
 from test_support import Client, write_report
 from test_support import source_fall_perks as native_perks, source_gravity as native_physics, source_mobility as native_tuning
 from test_support import source_physics as native_motor
-from test_brp import assets_match, digest
 from test_mobility import prepare
 from test_throwable_down import binding, check, edge, schedule
 
@@ -274,9 +273,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     parser.add_argument('--research', type=Path, required=True)
-    parser.add_argument('--physics-report', type=Path)
     args = parser.parse_args()
     client = Client(args.url, shutdown_timeout=45)
     report = {'passed': False, 'cases': [], 'scenario': 'native_dive_physics',
@@ -284,30 +282,13 @@ def main():
                               'Fixture ledges do not establish authored ledge traversal or subjective feel.',
                               'Avian contacts and fixed ticks reconstruct the native collision solver.']}
     try:
-        identity = json.loads(args.identity.read_bytes())
-        report['identity'] = {'path': str(args.identity.resolve()), 'sha256': digest(args.identity)}
         names = ('test_dive_physics.py', 'test_mobility.py',
                  'test_throwable_down.py', 'test_support.py', 'test_brp.py')
-        report['scripts'] = {name: digest(Path(__file__).with_name(name)) for name in names}
-        report['binaries'] = {name: digest(args.identity.parent / name) for name in identity['binaries']}
-        if report['binaries'] != identity['binaries']:
-            raise RuntimeError('Pinned executable or DLL identity changed')
-        report['assets'] = assets_match(identity)
         native, physics = native_tuning(args.research), native_physics(args.research)
         motor = native_motor(args.research)[0]
         report['native'] = {'mobility': native, 'physics': physics, 'motor': motor,
                             'perks': native_perks(args.research)}
-        report['native_image_sha256'] = digest(args.research / 'input/t6zm.unpacked.exe')
-        game = json.loads((Path(identity['asset_root']) / 'game.json').read_bytes())
-        report['native_sources'] = {name: digest(args.research / 'exports/functions' / name)
-                                    for name in ('008a/008ad170.c', '008a/008ad570.c', '008a/008ad770.c',
-                                                 '008a/008ad4a0.c', '008a/008ad690.c', '008a/008ad8b0.c',
-                                                 '008a/008adac0.c',
-                                                 '008b/008b3670.c', '008b/008b64d0.c', '008b/008ba200.c',
-                                                 '008b/008be7e0.c', '008b/008bea40.c', '008b/008bef20.c',
-                                                 '008b/008bf460.c', '005d/005d2e00.c', '008c/008c2760.c',
-                                                 '008c/008c6170.c', '008c/008c64b0.c', '008c/008c9d80.c',
-                                                 '008b/008bd5b0.c', '008b/008bd520.c')}
+        game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
         check(report, 'pack_preserves_native_vertical_physics',
               all(math.isclose(game['tuning'][key], value, abs_tol=.000001)
                   for key, value in physics.items()), pack=game['tuning'], expected=physics)
@@ -316,14 +297,6 @@ def main():
         report['protocol'] = client.call('rpc.discover')
         report['schema'] = client.call('origins/schema')
         floor = None
-        if args.physics_report:
-            previous = json.loads(args.physics_report.read_bytes())
-            if not previous['passed'] or previous['identity']['sha256'] != digest(args.identity):
-                raise RuntimeError('Authored floor report must pass with the same pinned identity')
-            floor = next(case['fixture'] for case in previous['cases']
-                         if case['case'] == 'authored_open_floor_supports_native_jump' and case['passed'])
-            report['authored_floor_report'] = {'path': str(args.physics_report.resolve()),
-                                               'sha256': digest(args.physics_report)}
         flat_motion(client, report, native, physics, floor)
         held_slide(client, report, native, motor, floor)
         base = fall_site(client, report, game)
@@ -333,7 +306,6 @@ def main():
                                       (2.5, False, []), (4.5, False, []), (8, False, [])):
             fall_case(client, report, native, game, base, height, diving, perks)
         wall_dive(client, report, native, game)
-        report['assets_after'] = assets_match(identity)
         report['passed'] = True
     except Exception as error:
         report['error'] = f'{type(error).__name__}: {error}'

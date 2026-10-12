@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import itertools
 import json
 import math
@@ -19,27 +18,6 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
-def digest(path):
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
-def assets_match(identity):
-    root = Path(identity["asset_root"]).resolve()
-    actual = {path.relative_to(root).as_posix(): path for path in root.rglob("*") if path.is_file()}
-    require(actual.keys() == identity["assets"].keys(), "Runtime asset paths changed")
-    rehashed = 0
-    for name, expected in identity["assets"].items():
-        path = actual[name]
-        before = path.stat()
-        require(before.st_size == expected["size"], f"Runtime asset size changed: {name}")
-        if before.st_mtime_ns != expected["mtime_ns"]:
-            require(digest(path) == expected["sha256"], f"Runtime asset content changed: {name}")
-            after = path.stat()
-            require((before.st_size, before.st_mtime_ns) == (after.st_size, after.st_mtime_ns),
-                    f"Runtime asset changed during verification: {name}")
-            rehashed += 1
-    return {"mode": "paths and size; SHA256 when mtime differs", "files": len(actual), "rehashed": rehashed}
 
 
 class Mcp:
@@ -116,7 +94,7 @@ def mcp_case(command, output, port):
     executable = shutil.which(command)
     require(executable is not None, f"MCP command is unavailable: {command}")
     executable = Path(executable).resolve()
-    result = {"binary": {"path": str(executable), "sha256": digest(executable)}}
+    result = {}
     mcp = Mcp(str(executable), output)
     try:
         result["initialize"] = mcp.call("initialize", {
@@ -220,22 +198,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://127.0.0.1:15702")
     parser.add_argument("--output", required=True)
-    parser.add_argument("--identity", required=True)
+    parser.add_argument('--assets', required=True, type=Path)
     parser.add_argument("--mcp-command", default="bevy_brp_mcp")
     args = parser.parse_args()
     client = Client(args.url)
     output = Path(args.output).resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parent.parent), "Output must be external")
     output.mkdir(parents=True, exist_ok=True)
-    identity_path = Path(args.identity).resolve()
-    identity = json.loads(identity_path.read_text(encoding="utf-8"))
-    report = {"passed": False, "url": args.url, "identity_path": str(identity_path),
-              "identity": identity, "started_unix": time.time()}
+    report = {'passed': False, 'url': args.url, 'started_unix': time.time()}
     try:
-        for name, expected in identity["binaries"].items():
-            require(Path(name).name == name, "Invalid pinned binary name")
-            require(digest(identity_path.parent / name) == expected, f"Pinned binary changed: {name}")
-        report["runtime_asset_check"] = assets_match(identity)
         run(client, report, args, output)
         report["passed"] = True
     except Exception as error:

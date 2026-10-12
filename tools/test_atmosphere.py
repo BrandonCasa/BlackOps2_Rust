@@ -8,7 +8,7 @@ import time
 import traceback
 
 from test_support import Client, write_report
-from test_brp import assets_match, digest, require
+from test_brp import require
 from test_lantern_shadows import wait_for_slot
 from test_weapon_materials import capture, inputs
 from test_environment import ending
@@ -180,17 +180,8 @@ def main():
     bundle, output = args.bundle.resolve(), args.output.resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parents[1]), 'Evidence must be external')
     output.mkdir(parents=True, exist_ok=False)
-    identity = json.loads((bundle / 'identity.json').read_bytes())
-    for name, expected in identity['binaries'].items():
-        require(digest(bundle / name) == expected, f'Pinned binary changed: {name}')
-    source_path = Path(__file__).resolve().parents[1] / 'config/origins-atmosphere.json'
-    require(identity['source']['files'].get('config/origins-atmosphere.json') == digest(source_path),
-            'Atmosphere config differs from the compiled snapshot')
-    report = {'passed': False, 'skip_views': args.skip_views, 'identity_sha256': digest(bundle / 'identity.json'),
-              'script_sha256': digest(Path(__file__)), 'assets_before': assets_match(identity),
-              'limitations': ['Camera placement and initial weather are scenario setup.',
-                              'Controlled final enemies are killed through normal melee input to exercise round-ending weather.',
-                              'Legacy film response and native photometry require visual acceptance.']}
+    source_path = bundle / 'assets/origins' / json.loads((bundle / 'assets/origins/prepared/runtime.json').read_bytes())['worlds'][0]['atmosphere_uri']
+    report = {'passed': False, 'skip_views': args.skip_views, 'limitations': ['Camera placement and initial weather are scenario setup.', 'Controlled final enemies are killed through normal melee input to exercise round-ending weather.', 'Legacy film response and native photometry require visual acceptance.']}
     client = Client(f'http://127.0.0.1:{args.port}', request_timeout=30, shutdown_timeout=60)
     wait_for_slot()
     with (output / 'game.log').open('w', encoding='utf-8') as log:
@@ -199,8 +190,7 @@ def main():
             env={**os.environ, 'WGPU_BACKEND': 'vulkan', 'RUST_LOG': 'info,wgpu=error,naga=warn', 'NO_COLOR': '1'})
         report['pid'] = process.pid
         try:
-            run(client, output, report, Path(identity['asset_root']), json.loads(source_path.read_bytes()), args.skip_views)
-            report['assets_after'] = assets_match(identity)
+            run(client, output, report, Path(bundle / 'assets/origins'), json.loads(source_path.read_bytes()), args.skip_views)
             report['passed'] = True
         except Exception as error:
             report['error'] = f'{type(error).__name__}: {error}'

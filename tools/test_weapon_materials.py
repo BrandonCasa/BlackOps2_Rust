@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import time
@@ -37,7 +36,7 @@ def capture(client, path):
         if path.is_file() and path.stat().st_size > 100:
             encoded = path.read_bytes()
             if encoded.startswith(b'\x89PNG\r\n\x1a\n') and encoded.endswith(b'\x00\x00\x00\x00IEND\xaeB\x60\x82'):
-                return {'path': str(path), 'sha256': hashlib.sha256(encoded).hexdigest()}
+                return {'path': str(path)}
         time.sleep(0.1)
     raise TimeoutError(f'Screenshot did not complete: {path}')
 
@@ -158,21 +157,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     parser.add_argument('--weapon', action='append')
     parser.add_argument('--yaw', type=float, default=1.5707963267948966)
     args = parser.parse_args()
     client = Client(args.url)
     report = {'passed': False, 'cases': [], 'limitations': ['Weapon grants and world previews are scenario setup.', 'Readiness and screenshot capture do not establish visual fidelity.', 'Charge-shot gameplay is currently unfinished; a firing request need not produce a shot.']}
     try:
-        identity = json.loads(args.identity.read_bytes())
-        report['identity'] = {'path': str(args.identity.resolve()), 'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
-        report['script_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-        game = json.loads((Path(identity['asset_root']) / 'game.json').read_bytes())
+        game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
         report['view_yaw'] = args.yaw
-        run(client, game, Path(identity['asset_root']), args.output.resolve(), args.weapon, report, args.yaw)
+        run(client, game, Path(args.assets.resolve()), args.output.resolve(), args.weapon, report, args.yaw)
         if not args.weapon:
-            check_isolation(client, Path(identity['asset_root']), args.output.resolve(), report)
+            check_isolation(client, Path(args.assets.resolve()), args.output.resolve(), report)
         report['passed'] = True
     except Exception as error:
         report['error'] = str(error)

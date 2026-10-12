@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -546,17 +545,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15707')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
     parser.add_argument('--game', type=Path, default=Path(__file__).resolve().parents[1]/'assets/origins/game.json')
     parser.add_argument('--case', action='append')
     args = parser.parse_args()
     client = Client(args.url)
-    report = {'passed': False, 'cases': [], 'identity': json.loads(args.identity.read_text()),
-              'script_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-              'support_scripts_sha256': {name: hashlib.sha256((Path(__file__).parent/name).read_bytes()).hexdigest() for name in ('test_support.py', 'test_throwable_down.py')},
-              'limitations': ['Setup selects scenario state, PRNG seeds and authentic locations. Outcomes require native input and observations.',
-                              'Boundary cases start at 28/29 qualifying digs; this does not constitute a sustained 30-dig playthrough.',
-                              'Weather and digging visuals and audible quality require separate actual-window inspection.']}
+    report = {'passed': False, 'cases': [], 'limitations': ['Setup selects scenario state, PRNG seeds and authentic locations. Outcomes require native input and observations.', 'Boundary cases start at 28/29 qualifying digs; this does not constitute a sustained 30-dig playthrough.', 'Weather and digging visuals and audible quality require separate actual-window inspection.']}
     def record(name, passed, **evidence):
         report['cases'].append({'case': name, 'passed': bool(passed), **evidence})
         write_report(args.output, 'environment-gameplay.json', report)
@@ -570,7 +563,6 @@ def main():
             client.reset()
         client.until(lambda s: s['state'] == 'Playing' and s.get('player'), timeout=180)
         game_path = args.game.resolve()
-        report['content_sha256'] = hashlib.sha256(game_path.read_bytes()).hexdigest()
         run(client, json.loads(game_path.read_text()), record, args.case, args.output)
         report['passed'] = True
     except Exception as error:

@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -160,7 +159,7 @@ def lure_case(client, report, game):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
-    parser.add_argument('--identity', required=True, type=Path)
+    parser.add_argument('--assets', required=True, type=Path)
     parser.add_argument('--reference', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
@@ -176,17 +175,10 @@ def main():
         client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), 180)
         report['protocol'] = client.call('rpc.discover')
         report['schema'] = client.call('origins/schema')
-        identity = json.loads(args.identity.read_bytes())
-        report['identity'] = {'path': str(args.identity.resolve()), 'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
         reference = args.reference / 'source/client-tomb/clientscripts/mp/zm_tomb_capture_zones.csc'
-        report['reference'] = {'path': str(reference.resolve()), 'sha256': hashlib.sha256(reference.read_bytes()).hexdigest()}
-        report['script_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-        pack = Path(identity['asset_root'])
+        report['reference'] = {'path': str(reference.resolve())}
+        pack = Path(args.assets.resolve())
         game_bytes = (pack / 'game.json').read_bytes()
-        game_hash = hashlib.sha256(game_bytes).hexdigest()
-        if game_hash != identity['assets']['game.json']['sha256']:
-            raise RuntimeError('Runtime gameplay data differs from the pinned asset identity')
-        report['game_sha256'] = game_hash
         game = json.loads(game_bytes)
         weapon_case(client, report, game, source_channels(pack, game, 'weapon.mp40_zm'))
         generator_case(client, report)

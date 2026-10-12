@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import time
 from pathlib import Path
@@ -124,7 +123,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, required=True)
     args = parser.parse_args()
     client = Client(args.url)
     report = {'passed': False, 'cases': [], 'scenario': 'nuke_instakill_points_and_requested_voices',
@@ -133,13 +132,9 @@ def main():
                               'Requested aliases establish event routing, not audible playback quality.',
                               'Melee, explosives, terminal-owner projectiles, and Electric Cherry are outside this scenario.']}
     try:
-        report['identity'] = {'path': str(args.identity.resolve()), 'sha256': hashlib.sha256(args.identity.read_bytes()).hexdigest()}
-        report['scripts'] = {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-                             for name in ('test_nuke_instakill.py', 'test_nuke_rewards.py', 'test_throwable_down.py', 'test_support.py')}
         client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=180)
         report['schema'] = client.call('origins/schema')
         game_path = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
-        report['content_sha256'] = hashlib.sha256(game_path.read_bytes()).hexdigest()
         run(client, report, json.loads(game_path.read_bytes()))
         report['passed'] = True
     except Exception as error:

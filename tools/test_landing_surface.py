@@ -2,7 +2,6 @@ import math
 from pathlib import Path
 
 from test_support import source_physics as native_tuning
-from test_brp import digest
 from test_dive_physics import events, fall_site
 from test_mobility import prepare
 from test_throwable_down import binding, check, edge, schedule
@@ -72,10 +71,6 @@ def landing_case(client, report, game, base, height, flags=0, protected=False):
 
 def run(client, report, game, research_path):
     native = native_tuning(research_path)[0]
-    report['landing_sources'] = {name: digest(Path(research_path) / 'exports/functions' / name)
-                                 for name in ('008b/008bf460.c', '008b/008be7e0.c',
-                                              '008b/008bebf0.c', '008b/008b3c10.c',
-                                              '008c/008c64b0.c')}
     imported = client.call('origins/surfaces', {'flags': None})
     check(report, 'native_material_surface_flags_reach_map_colliders', imported['colliders'] > 0,
           imported=imported)
