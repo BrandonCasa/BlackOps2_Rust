@@ -22,8 +22,16 @@ pub struct SoloReviveProfile {
     pub maximum_purchases: u32,
     pub downed_weapon: WeaponId,
     pub reserve_clips: u32,
+    pub pistol_ranks: Vec<PistolRank>,
+    pub pistol_replace_below: u32,
     pub downed_height: f32,
     pub downed_speed: f32,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PistolRank {
+    pub weapon: WeaponId,
+    pub rank: u32,
 }
 impl SoloReviveProfile {
     pub fn valid(&self, game: &GameDefinition) -> bool {
@@ -43,6 +51,29 @@ impl SoloReviveProfile {
             && self.bleedout_poll_seconds <= self.bleedout_seconds
             && self.maximum_purchases > 0
             && self.reserve_clips <= 100
+            && !self.pistol_ranks.is_empty()
+            && self
+                .pistol_ranks
+                .iter()
+                .map(|p| &p.weapon)
+                .collect::<BTreeSet<_>>()
+                .len()
+                == self.pistol_ranks.len()
+            && self
+                .pistol_ranks
+                .iter()
+                .map(|p| p.rank)
+                .collect::<BTreeSet<_>>()
+                .len()
+                == self.pistol_ranks.len()
+            && self
+                .pistol_ranks
+                .iter()
+                .all(|p| game.content.weapons.iter().any(|w| w.id == p.weapon))
+            && self
+                .pistol_ranks
+                .iter()
+                .any(|p| p.weapon == self.downed_weapon && p.rank > self.pistol_replace_below)
             && self.downed_height >= game.tuning.radius * 2.
             && self.downed_height < game.tuning.standing_height
             && game.content.perks.iter().any(|p| p.id == self.perk)
@@ -51,6 +82,21 @@ impl SoloReviveProfile {
                 .weapons
                 .iter()
                 .any(|w| w.id == self.downed_weapon)
+    }
+    fn choose_weapon(&self, inventory: &WeaponInventory) -> &WeaponId {
+        let mut best: Option<&PistolRank> = None;
+        for (_, weapon) in inventory.owned() {
+            if let Some(pistol) = self
+                .pistol_ranks
+                .iter()
+                .find(|p| p.weapon == weapon.definition)
+                && best.is_none_or(|previous| pistol.rank > previous.rank)
+            {
+                best = Some(pistol);
+            }
+        }
+        best.filter(|p| p.rank > self.pistol_replace_below)
+            .map_or(&self.downed_weapon, |p| &p.weapon)
     }
 }
 #[derive(Component, Default)]
@@ -107,6 +153,8 @@ pub struct SoloEpisode {
     token: Option<SelfReviveToken>,
     pending: Option<u64>,
     backup: WeaponInventory,
+    downed_weapon: WeaponId,
+    given_ammo: u32,
     bleedout: BleedoutClock,
     remote: bool,
 }
@@ -203,18 +251,21 @@ fn begin(
             continue;
         }
         let profile = &definition.solo_revive;
+        inventory.cancel_action();
+        let lost_weapon = inventory.set_third_slot(false, &definition.content.weapons);
+        let weapon_id = profile.choose_weapon(&inventory);
         let weapon = definition
             .content
             .weapons
             .iter()
-            .find(|w| w.id == profile.downed_weapon)
+            .find(|w| &w.id == weapon_id)
             .expect("validated downed weapon");
-        inventory.cancel_action();
-        let lost_weapon = inventory.set_third_slot(false, &definition.content.weapons);
-        let backup = std::mem::replace(
-            &mut *inventory,
-            WeaponInventory::temporary(weapon, profile.reserve_clips),
+        let (downed, given_ammo) = inventory.last_stand(
+            weapon,
+            profile.reserve_clips,
+            weapon.id == profile.downed_weapon,
         );
+        let backup = std::mem::replace(&mut *inventory, downed);
         let automatic =
             perks.solo_charges > 0 && perks.owned.contains(&definition.solo_revive.perk);
         perks.owned.clear();
@@ -244,10 +295,12 @@ fn begin(
             token: None,
             pending,
             backup,
+            downed_weapon: weapon.id.clone(),
+            given_ammo,
             bleedout,
             remote: false,
         });
-        evidence.record(serde_json::json!({"event":"downed","target":event.target.to_bits(),"episode":event.episode.number(),"health":health.current(),"weapon":weapon.id.0,"magazine":weapon.magazine,"reserve":inventory.reserve(weapon),"perks_lost":true,"lost_third_weapon":lost_weapon.map(|w|w.definition.0)}));
+        evidence.record(serde_json::json!({"event":"downed","target":event.target.to_bits(),"episode":event.episode.number(),"health":health.current(),"weapon":weapon.id.0,"magazine":inventory.active().map(|w|w.magazine),"reserve":inventory.reserve(weapon),"given_ammo":given_ammo,"perks_lost":true,"lost_third_weapon":lost_weapon.map(|w|w.definition.0)}));
     }
 }
 fn tick(
@@ -328,6 +381,16 @@ pub(crate) fn finish(
                 episode.token = Some(token);
             }
             Ok(LifeCommandOutcome::Revived { current, maximum }) => {
+                if let Some(weapon) = definition
+                    .content
+                    .weapons
+                    .iter()
+                    .find(|w| w.id == episode.downed_weapon)
+                {
+                    let remaining = inventory.total_ammunition(weapon);
+                    let used = episode.given_ammo.saturating_sub(remaining);
+                    episode.backup.debit_ammunition(weapon, used);
+                }
                 *inventory = std::mem::take(&mut episode.backup);
                 inventory.cancel_action();
                 let _ = inventory.set_third_slot(false, &definition.content.weapons);

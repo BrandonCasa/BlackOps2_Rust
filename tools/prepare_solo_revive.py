@@ -4,6 +4,7 @@ import math
 import re
 from prepare_actors import convert
 from prepare_gameplay_content import external
+from prepare_solo_pistols import native_pistols_from_text
 
 def prepare(config):
     inspection = external(config["assets"]["inspection_output"])
@@ -51,6 +52,10 @@ def prepare(config):
     game["solo_revive"] = {"perk":perk,"seconds":duration,"bleedout_seconds":bleedout,"bleedout_poll_seconds":0.05,
         "maximum_purchases":maximum,"downed_weapon":"weapon."+pistol,"reserve_clips":2,
         "downed_height":0.75,"downed_speed":1.0}
+    ranks, replacement = native_pistols_from_text(texts["round"])
+    weapons = {weapon["id"] for weapon in content["weapons"]}
+    game["solo_revive"]["pistol_ranks"] = [row for row in ranks if row["weapon"] in weapons]
+    game["solo_revive"]["pistol_replace_below"] = replacement
     (pack / "game.json").write_text(json.dumps(game,indent=2)+"\n",encoding="utf-8")
     report = {"profile":game["solo_revive"],"drink":drink,"bottle_sha256":bottle["sha256"],"price":price,"machine":machine,
         "script_sha256":{key:hashlib.sha256(path.read_bytes()).hexdigest() for key,path in scripts.items()},

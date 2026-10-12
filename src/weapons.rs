@@ -705,6 +705,71 @@ impl WeaponInventory {
         );
         inventory
     }
+    pub fn total_ammunition(&self, definition: &WeaponDefinition) -> u32 {
+        self.owned()
+            .find(|(_, weapon)| weapon.definition == definition.id)
+            .map_or(0, |(_, weapon)| {
+                weapon
+                    .magazine
+                    .saturating_add(weapon.left_magazine.unwrap_or(0))
+            })
+            .saturating_add(self.reserve(definition))
+    }
+    pub fn last_stand(
+        &self,
+        definition: &WeaponDefinition,
+        reserve_clips: u32,
+        free_ammunition: bool,
+    ) -> (Self, u32) {
+        let mut inventory = Self::temporary(definition, reserve_clips);
+        if let Some((_, weapon)) = self
+            .owned()
+            .find(|(_, weapon)| weapon.definition == definition.id)
+        {
+            inventory.slots[0] = Some(weapon.clone());
+            if !free_ammunition {
+                let reserve = if matches!(
+                    definition.id.0.as_str(),
+                    "weapon.ray_gun_zm" | "weapon.ray_gun_upgraded_zm"
+                ) {
+                    inventory.slots[0]
+                        .as_mut()
+                        .expect("selected last-stand weapon")
+                        .magazine = self.total_ammunition(definition).min(definition.magazine);
+                    0
+                } else {
+                    self.reserve(definition)
+                        .min(definition.magazine.saturating_mul(reserve_clips))
+                };
+                inventory
+                    .ammunition
+                    .get_mut(&Self::group(definition))
+                    .expect("temporary ammunition pool")
+                    .rounds = reserve;
+            }
+        }
+        let given = if free_ammunition {
+            0
+        } else {
+            inventory.total_ammunition(definition)
+        };
+        (inventory, given)
+    }
+    pub fn debit_ammunition(&mut self, definition: &WeaponDefinition, amount: u32) {
+        let stock = self.reserve(definition);
+        if let Some(pool) = self.ammunition.get_mut(&Self::group(definition)) {
+            pool.rounds = stock.saturating_sub(amount);
+        }
+        let magazine_used = amount.saturating_sub(stock);
+        if let Some(weapon) = self
+            .slots
+            .iter_mut()
+            .flatten()
+            .find(|weapon| weapon.definition == definition.id)
+        {
+            weapon.magazine = weapon.magazine.saturating_sub(magazine_used);
+        }
+    }
     pub fn grant(&mut self, definition: &WeaponDefinition) -> Result<usize, InventoryError> {
         self.weapon_ammo.insert(
             definition.id.clone(),

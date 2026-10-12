@@ -761,11 +761,16 @@ def validate_pack(root, receipt=None, exact=False, progress=False):
         dependencies.extend(native_fx['textures'])
         dependencies.extend(scene.removeprefix('origins/') for scene in native_fx['models'].values())
     solo = game.get("solo_revive")
-    require(isinstance(solo, dict) and set(solo) == {"perk", "seconds", "bleedout_seconds", "bleedout_poll_seconds", "maximum_purchases", "downed_weapon", "reserve_clips", "downed_height", "downed_speed"}, "invalid solo revive profile")
+    require(isinstance(solo, dict) and set(solo) == {"perk", "seconds", "bleedout_seconds", "bleedout_poll_seconds", "maximum_purchases", "downed_weapon", "reserve_clips", "pistol_ranks", "pistol_replace_below", "downed_height", "downed_speed"}, "invalid solo revive profile")
     require(all(type(solo[k]) in (int, float) and math.isfinite(solo[k]) and solo[k] > 0 for k in ("seconds", "bleedout_seconds", "bleedout_poll_seconds", "downed_height", "downed_speed")), "invalid solo revive timing/movement")
     require(solo["seconds"] < solo["bleedout_seconds"] and solo["bleedout_seconds"] % 1 == 0 and solo["bleedout_seconds"] <= 3600 and 0.001 <= solo["bleedout_poll_seconds"] <= solo["bleedout_seconds"], "invalid solo revive deadline")
     require(type(solo["maximum_purchases"]) is int and solo["maximum_purchases"] > 0 and type(solo["reserve_clips"]) is int and 0 <= solo["reserve_clips"] <= 100, "invalid solo charge/ammo count")
     require(solo["perk"] in {p["id"] for p in game["content"]["perks"]} and solo["downed_weapon"] in {w["id"] for w in game["content"]["weapons"]}, "unresolved solo revive content")
+    ranks = solo["pistol_ranks"]
+    require(type(solo["pistol_replace_below"]) is int and 0 <= solo["pistol_replace_below"] <= 0xffffffff and isinstance(ranks, list) and bool(ranks), "invalid solo pistol ranks")
+    require(all(isinstance(row, dict) and set(row) == {"weapon", "rank"} and row["weapon"] in {w["id"] for w in game["content"]["weapons"]} and type(row["rank"]) is int and 0 <= row["rank"] <= 0xffffffff for row in ranks), "unresolved solo pistol rank")
+    require(len({row["weapon"] for row in ranks}) == len(ranks) and len({row["rank"] for row in ranks}) == len(ranks), "duplicate solo pistol rank")
+    require(any(row["weapon"] == solo["downed_weapon"] and row["rank"] > solo["pistol_replace_below"] for row in ranks), "invalid solo default pistol rank")
     with np.errstate(over="ignore"):
         downed_height = np.float32(solo["downed_height"])
     require(np.float32(2.) * tuning["radius"] <= downed_height < tuning["standing_height"], "invalid downed capsule height")
