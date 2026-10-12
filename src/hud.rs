@@ -1,181 +1,65 @@
-use crate::{GameState, assets::LoadFailure, gameplay::Session, life::Vitality, player::Player};
+use crate::{GameState, life::Vitality, player::Player};
 use bevy::prelude::*;
 
-mod performance;
+pub(crate) mod native;
 mod origins;
+mod performance;
+mod scoreboard;
+mod widgets;
 
-#[derive(Component)]
-pub(crate) struct HudText;
-#[derive(Component)]
-struct ReviveText;
 #[derive(Component)]
 pub(crate) struct Crosshair;
 #[derive(Component)]
 pub(crate) struct PlayerOverlay;
+#[derive(Component)]
+struct DamageEdge;
+
 pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((performance::PerformanceOverlayPlugin,origins::OriginsHudPlugin))
-            .add_systems(
-                Startup,
-                setup.after(crate::presentation::first_person_light),
-            )
-            .add_systems(Update, update)
-            .add_systems(Update, damage_feedback)
-            .add_systems(Update, revive_feedback)
-            .add_systems(Update, subtitle_feedback)
-            .add_systems(Update, crosshair.run_if(in_state(GameState::Playing)));
+        app.add_plugins((
+            performance::PerformanceOverlayPlugin,
+            origins::OriginsHudPlugin,
+        ))
+        .add_systems(
+            Startup,
+            setup.after(crate::presentation::first_person_light),
+        )
+        .add_systems(Update, damage_feedback);
     }
 }
+
 fn setup(
     mut commands: Commands,
     cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    server: Res<AssetServer>,
 ) {
-    let Ok(camera) = cameras.single() else {
-        return;
-    };
+    let Ok(camera) = cameras.single() else { return };
     commands.spawn((
-        Text::new("Loading Origins…"),
-        TextFont {
-            font_size: FontSize::Px(19.),
+        PlayerOverlay,
+        DamageEdge,
+        ImageNode {
+            image: server.load("ui/overlay_low_health.ktx2"),
+            color: Color::NONE,
             ..default()
         },
-        TextColor(Color::WHITE),
+        UiTargetCamera(camera),
+        GlobalZIndex(20),
+        Pickable::IGNORE,
         Node {
             position_type: PositionType::Absolute,
-            left: px(22.),
-            bottom: px(20.),
-            right: px(22.),
-            ..default()
-        },
-        HudText,
-        PlayerOverlay,
-        UiTargetCamera(camera),
-    ));
-    commands.spawn((
-        Text::new("+"),
-        Crosshair,
-        PlayerOverlay,
-        UiTargetCamera(camera),
-        TextFont {
-            font_size: FontSize::Px(24.),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            left: percent(49.5),
-            top: percent(48.),
-            ..default()
-        },
-    ));
-    commands.spawn((
-        Text::new(""),
-        SubtitleText,
-        PlayerOverlay,
-        UiTargetCamera(camera),
-        TextFont {
-            font_size: FontSize::Px(20.),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        TextLayout::justify(Justify::Center),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(0.),
-            bottom: px(120.),
             width: percent(100.),
+            height: percent(100.),
             ..default()
         },
     ));
-    commands.spawn((
-        Text::new(""),
-        ReviveText,
-        PlayerOverlay,
-        UiTargetCamera(camera),
-        TextFont {
-            font_size: FontSize::Px(24.),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        TextLayout::justify(Justify::Center),
-        Visibility::Hidden,
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(0.),
-            bottom: px(160.),
-            width: percent(100.),
-            ..default()
-        },
-    ));
-    commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                width: percent(100.),
-                height: percent(100.),
-                ..default()
-            },
-            GlobalZIndex(20),
-            PlayerOverlay,
-            UiTargetCamera(camera),
-        ))
-        .with_children(|parent| {
-            for band in 0..12 {
-                let weight = (1. - band as f32 / 12.).powi(2);
-                let horizontal = band as f32 * 9. / 12.;
-                let vertical = band as f32 * 8. / 12.;
-                for node in [
-                    Node {
-                        left: percent(horizontal),
-                        top: px(0.),
-                        width: percent(9. / 12.),
-                        height: percent(100.),
-                        ..default()
-                    },
-                    Node {
-                        right: percent(horizontal),
-                        top: px(0.),
-                        width: percent(9. / 12.),
-                        height: percent(100.),
-                        ..default()
-                    },
-                    Node {
-                        left: px(0.),
-                        top: percent(vertical),
-                        width: percent(100.),
-                        height: percent(8. / 12.),
-                        ..default()
-                    },
-                    Node {
-                        left: px(0.),
-                        bottom: percent(vertical),
-                        width: percent(100.),
-                        height: percent(8. / 12.),
-                        ..default()
-                    },
-                ] {
-                    parent.spawn((
-                        Node {
-                            position_type: PositionType::Absolute,
-                            ..node
-                        },
-                        DamageEdge { weight },
-                        BackgroundColor(Color::NONE),
-                    ));
-                }
-            }
-        });
 }
-#[derive(Component)]
-struct DamageEdge {
-    weight: f32,
-}
+
 fn damage_feedback(
     players: Query<(&Vitality, &crate::player_health::Recovery), With<Player>>,
     definition: Option<Res<crate::assets::GameDefinition>>,
     state: Res<State<GameState>>,
-    mut edges: Query<(&DamageEdge, &mut BackgroundColor)>,
+    mut edges: Query<&mut ImageNode, With<DamageEdge>>,
 ) {
     let alpha = if **state == GameState::Playing {
         players.single().ok().zip(definition.as_ref()).map_or(
@@ -202,287 +86,86 @@ fn damage_feedback(
     } else {
         0.
     };
-    for (edge, mut background) in &mut edges {
-        background.0 = Color::srgba(0.45, 0., 0., alpha * edge.weight);
+    for mut image in &mut edges {
+        image.color = Color::srgba(1., 1., 1., alpha);
     }
 }
-fn crosshair(
-    inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
-    mut text: Query<&mut Visibility, With<Crosshair>>,
-) {
-    let aiming = inventories.single().is_ok_and(|i| i.ads > 0.05);
-    for mut visibility in &mut text {
-        *visibility = if aiming {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        };
-    }
-}
-fn update(
-    state: Res<State<GameState>>,
-    failure: Res<LoadFailure>,
-    session: Res<Session>,
-    definition: Option<Res<crate::assets::GameDefinition>>,
-    inventories: Query<&crate::weapons::WeaponInventory, With<Player>>,
-    (history, effects): (
-        Res<crate::damage::CombatHistory>,
-        Res<crate::powerups::PowerupEffects>,
-    ),
-    focus: Res<crate::interactions::InteractionFocus>,
-    input: Res<crate::input::GameInput>,
-    grenades: Query<&crate::equipment::GrenadeInventory, With<Player>>,
-    mines: Query<&crate::mines::MineInventory, With<Player>>,
-    tactical: Query<&crate::equipment::TacticalInventory, With<Player>>,
-    perks: Query<&crate::solo_revive::PerkInventory, With<Player>>,
-    audio: Res<crate::audio::AudioSettings>,
-    mut text: Query<(&mut Text, &mut Node), With<HudText>>,
-    generators: Res<crate::generators::Generators>,
-    settings: Res<crate::input::ControlSettings>,
-) {
-    let Ok((mut text, mut node)) = text.single_mut() else {
-        return;
-    };
-    let left = if **state == GameState::Paused {
-        percent(45.)
-    } else {
-        px(22.)
-    };
-    if node.left != left {
-        node.left = left;
-    }
-    let inventory = inventories.single().ok();
-    let weapon = inventory.and_then(|i| {
-        definition
-            .as_ref()
-            .and_then(|d| i.definition(&d.content.weapons))
-    });
-    let ammo = inventory.and_then(|i| i.active()).map_or_else(
-        || "0".into(),
-        |w| {
-            w.left_magazine.map_or_else(
-                || w.magazine.to_string(),
-                |left| format!("{left} | {}", w.magazine),
-            )
-        },
-    );
-    let reserve = inventory.zip(weapon).map_or(0, |(i, w)| i.reserve(w));
-    let mut value = match **state {
-        GameState::Loading => "Loading Origins…".into(),
-        GameState::MainMenu | GameState::Ending => String::new(),
-        GameState::PreparingShaders => String::new(),
-        GameState::LoadError => format!("Unable to load Origins\n{}", failure.0),
-        GameState::Paused => String::new(),
-        GameState::GameOver => format!(
-            "Game over — Round {}\nScore {}    Kills {}    Headshots {}    Downs {}\nPress {} to restart",
-            session.round,
-            session.score,
-            session.kills,
-            history.headshot_kills,
-            session.downs,
-            settings.label(crate::input::Action::Restart)
-        ),
-        GameState::Playing => format!(
-            "Round {}    Points {}\n{}    Ammo {}/{}{}",
-            session.round,
-            session.points,
-            weapon.map_or("", |w| w.name.as_str()),
-            ammo,
-            reserve,
-            if inventory.is_some_and(|i| matches!(
-                i.action,
-                crate::weapons::WeaponAction::Reloading { .. }
-                    | crate::weapons::WeaponAction::ShellReload { .. }
-            )) {
-                "  Reloading"
-            } else {
-                ""
-            }
-        ),
-    };
-    if **state == GameState::Playing && input.scoreboard {
-        value = format!(
-            "Scoreboard\nRound {}    Score {}    Kills {}    Headshots {}    Downs {}",
-            session.round, session.points, session.kills, history.headshot_kills, session.downs
-        );
-        **text = value;
-        return;
-    }
-    if **state == GameState::Playing {
-        for (label, seconds) in [
-            ("Double Points", effects.double_points),
-            ("Insta-Kill", effects.insta_kill),
-            ("Zombie Blood", effects.zombie_blood),
-            ("Fire Sale", effects.fire_sale),
-        ] {
-            if seconds > 0. {
-                value.push_str(&format!("\n{label} {:.0}s", seconds.ceil()));
-            }
-        }
-    }
-    if **state == GameState::Playing && !focus.prompt.is_empty() {
-        value.push_str(&format!("\n{}", focus.prompt));
-        if focus.progress > 0. && focus.hold_seconds > 0. {
-            value.push_str(&format!(
-                "  {:.0}%",
-                (focus.progress / focus.hold_seconds).clamp(0., 1.) * 100.
-            ));
-        }
-        if let Some(reason) = focus.rejection {
-            let reason = match reason {
-                crate::interactions::InteractionRejection::InsufficientPoints => {
-                    "Not enough points"
-                }
-                crate::interactions::InteractionRejection::FullAmmo => "Ammo full",
-                crate::interactions::InteractionRejection::NoPower => {
-                    "Activate the local generator"
-                }
-                crate::interactions::InteractionRejection::PerkLimit => {
-                    "Perk purchase limit reached (4)"
-                }
-                crate::interactions::InteractionRejection::Busy => "Weapon busy",
-                _ => "Unavailable",
+
+#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+pub(crate) fn readout(world: &mut World) -> String {
+    let state = *world.resource::<State<GameState>>().get();
+    let scoreboard =
+        state == GameState::GameOver || world.resource::<crate::input::GameInput>().scoreboard;
+    world
+        .query::<(&origins::Field, &native::NativeText)>()
+        .iter(world)
+        .filter_map(|(field, text)| {
+            let name = match field {
+                origins::Field::Score if scoreboard => "Score",
+                origins::Field::Kills if scoreboard => "Kills",
+                origins::Field::Downs if scoreboard => "Downs",
+                origins::Field::Headshots if scoreboard => "Headshots",
+                origins::Field::GameOver if scoreboard => "Scoreboard",
+                origins::Field::Weapon if !scoreboard => "Weapon",
+                origins::Field::Points if !scoreboard => "Points",
+                _ => return None,
             };
-            value.push_str(&format!(" — {reason}"));
-        }
-    }
-    if **state == GameState::Playing
-        && let Some(game) = &definition
-    {
-        let sites = game
-            .content
-            .generators
-            .iter()
-            .filter_map(|d| {
-                generators.sites.get(&d.id).map(|s| {
-                    let label = match s.state {
-                        crate::generators::GeneratorState::Active => "ON".to_owned(),
-                        crate::generators::GeneratorState::Capturing => {
-                            format!("{}%", (s.progress * 100.) as u32)
-                        }
-                        _ => "OFF".to_owned(),
-                    };
-                    format!("{}:{}", d.number, label)
-                })
-            })
-            .collect::<Vec<_>>();
-        if !sites.is_empty() {
-            value.push_str(&format!("\nGenerators {}", sites.join("  ")));
-        }
-    }
-    if **state == GameState::Playing
-        && let Ok(grenades) = grenades.single()
-    {
-        let label = definition
-            .as_ref()
-            .and_then(|d| {
-                d.content
-                    .weapons
-                    .iter()
-                    .find(|w| w.id == grenades.definition)
-            })
-            .map_or("Grenades", |w| w.name.as_str());
-        value.push_str(&format!("    {} {}", label, grenades.count));
-    }
-    if **state == GameState::Playing
-        && let Ok(mines) = mines.single()
-        && mines.definition.is_some()
-    {
-        value.push_str(&format!("    Claymores {}", mines.count));
-    }
-    if **state == GameState::Playing
-        && let Ok(tactical) = tactical.single()
-        && let Some(inventory) = &tactical.0
-    {
-        let label = definition
-            .as_ref()
-            .and_then(|d| {
-                d.content
-                    .weapons
-                    .iter()
-                    .find(|w| w.id == inventory.definition)
-            })
-            .map_or("Tactical", |w| w.name.as_str());
-        value.push_str(&format!("    {} {}", label, inventory.count));
-    }
-    if **state == GameState::Playing {
-        if let Ok(perks) = perks.single()
-            && !perks.owned.is_empty()
-        {
-            if let Some(game) = &definition {
-                let names: Vec<&str> = game
-                    .content
-                    .perks
-                    .iter()
-                    .filter(|p| perks.owned.contains(&p.id))
-                    .map(|p| p.name.as_str())
-                    .collect();
-                value.push_str(&format!("\n{}", names.join("    ")));
-            }
-        }
-    }
-    if **state == GameState::Paused {
-        value.push_str(&format!(
-            "\n{} grenade | {} tactical | {} Claymore",
-            settings.label(crate::input::Action::Lethal),
-            settings.label(crate::input::Action::Tactical),
-            settings.label(crate::input::Action::Mine)
-        ));
-        value.push_str(&format!("\nF6 Master {:.0}% | F7 Music {:.0}%\nF8 Effects {:.0}% | F9 Voice {:.0}%\nShift + key lowers volume\nF10 Captions {}",audio.master*100.,audio.music*100.,audio.effects*100.,audio.dialogue*100.,if audio.subtitles{"On"}else{"Off"}));
-    }
-    if text.0 != value {
-        text.0 = value;
-    }
+            Some(format!("{name} {}", text.value))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
-#[derive(Component)]
-struct SubtitleText;
-fn subtitle_feedback(
-    settings: Res<crate::audio::AudioSettings>,
-    subtitle: Res<crate::audio::Subtitle>,
-    state: Res<State<GameState>>,
-    mut labels: Query<&mut Text, With<SubtitleText>>,
-) {
-    for mut text in &mut labels {
-        text.0 = if settings.subtitles && **state == GameState::Playing {
-            subtitle.text.clone()
-        } else {
-            String::new()
-        };
+#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
+    let labels: Vec<_> = world
+        .query::<(
+            Entity,
+            &native::NativeText,
+            &InheritedVisibility,
+            &ComputedNode,
+        )>()
+        .iter(world)
+        .filter(|(_, _, visible, _)| visible.get())
+        .map(|(entity, text, _, node)| {
+            serde_json::json!({"entity":entity.to_bits(), "text":text.value,
+            "size":node.size().to_array(), "font":text.style, "font_size":text.size})
+        })
+        .collect();
+    let visible_images: Vec<_> = world
+        .query::<(&ImageNode, &InheritedVisibility, &ComputedNode)>()
+        .iter(world)
+        .filter(|(_, visible, _)| visible.get())
+        .map(|(image, _, node)| (image.image.clone(), node.size()))
+        .collect();
+    let images = world.resource::<Assets<Image>>();
+    let loaded = visible_images
+        .iter()
+        .filter(|(handle, _)| images.contains(handle))
+        .count();
+    let server = world.resource::<AssetServer>();
+    let mut paths = std::collections::BTreeMap::<String, usize>::new();
+    for (handle, _) in &visible_images {
+        let path = server
+            .get_path(handle.id())
+            .map_or_else(|| "<unregistered>".to_string(), |path| path.to_string());
+        *paths.entry(path).or_default() += 1;
     }
-}
-
-fn revive_feedback(
-    state: Res<State<GameState>>,
-    definition: Option<Res<crate::assets::GameDefinition>>,
-    episodes: Query<&crate::solo_revive::SoloEpisode, With<Player>>,
-    mut labels: Query<(&mut Text, &mut TextColor, &mut Visibility), With<ReviveText>>,
-) {
-    for (mut text, mut color, mut visibility) in &mut labels {
-        let Some((episode, definition)) = episodes
-            .single()
-            .ok()
-            .zip(definition.as_ref())
-            .filter(|_| **state == GameState::Playing)
-        else {
-            *visibility = Visibility::Hidden;
-            continue;
-        };
-        if text.0.is_empty() {
-            text.0 = definition
-                .content
-                .localized_strings
-                .iter()
-                .find(|s| s.key == "ZOMBIE_REVIVING_SOLO")
-                .map_or("Reviving", |s| s.text.trim())
-                .to_owned();
-        }
-        *visibility = Visibility::Inherited;
-        color.0 = Color::srgba(
-            1.,
-            1.,
-            1.,
-            (episode.remaining / definition.solo_revive.seconds).clamp(0., 1.),
-        );
-    }
+    let crosshair = world
+        .query_filtered::<&InheritedVisibility, With<Crosshair>>()
+        .iter(world)
+        .any(|visible| visible.get());
+    let crafting = world.resource::<crate::crafting::Crafting>();
+    let inventory = serde_json::json!({"gramophone":crafting.gramophone,
+        "records":crafting.records,"consumed":crafting.consumed});
+    let targets: Vec<_> = world.query::<(Entity, &crate::crafting::CraftTarget, &Transform)>()
+        .iter(world).filter_map(|(entity, target, transform)| {
+            let crate::crafting::CraftTarget::Part(id) = target else { return None };
+            Some(serde_json::json!({"entity":entity.to_bits(),"id":id,"position":transform.translation.to_array()}))
+        }).collect();
+    serde_json::json!({"labels":labels, "visible_images":visible_images.len(), "loaded_images":loaded,
+        "images":paths, "crosshair":crosshair,"inventory":inventory,"part_targets":targets,
+        "scoreboard":world.resource::<crate::input::GameInput>().scoreboard,
+        "selected_menu_row":(*world.resource::<State<GameState>>().get() == GameState::Paused)
+            .then(|| world.resource::<crate::input::menu::ControlMenu>().selected)})
 }

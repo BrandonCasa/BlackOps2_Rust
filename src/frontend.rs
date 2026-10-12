@@ -1,3 +1,4 @@
+use crate::hud::native::{self, Canvas, NativeText, rect};
 use crate::{GameState, assets::LaunchOptions};
 use bevy::picking::{events::PointerPress, hover::Hovered, pointer::PointerButton};
 use bevy::prelude::*;
@@ -64,16 +65,20 @@ pub enum FrontendAction {
 struct FrontendRoot;
 
 #[derive(Component)]
-struct FrontendButton(FrontendAction);
+struct FrontendButton(FrontendAction, usize);
+
+#[derive(Resource, Default)]
+struct FrontendSelection(usize);
 
 pub struct FrontendPlugin;
 
 impl Plugin for FrontendPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Difficulty>()
+            .init_resource::<FrontendSelection>()
             .add_message::<FrontendAction>()
             .add_observer(buttons)
-            .add_systems(Update, (shortcuts, apply_actions).chain())
+            .add_systems(Update, (shortcuts, apply_actions, selection).chain())
             .add_systems(OnEnter(GameState::MainMenu), show)
             .add_systems(OnEnter(GameState::LoadError), show)
             .add_systems(OnEnter(GameState::GameOver), show)
@@ -89,11 +94,16 @@ fn show(
     difficulty: Res<Difficulty>,
     options: Res<LaunchOptions>,
     cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    game: Option<Res<crate::assets::GameDefinition>>,
+    server: Res<AssetServer>,
+    mut selected: ResMut<FrontendSelection>,
+    failure: Res<crate::assets::LoadFailure>,
 ) {
     if options.verify.is_some() || options.validation_remote.is_some() || options.flythrough {
         return;
     }
     let Ok(camera) = cameras.single() else { return };
+    selected.0 = 0;
     let rows = match **state {
         GameState::MainMenu => vec![
             ("Start solo", FrontendAction::StartSolo),
@@ -121,58 +131,74 @@ fn show(
     commands
         .spawn((
             FrontendRoot,
+            Canvas,
+            UiTransform::default(),
             UiTargetCamera(camera),
             GlobalZIndex(110),
-            Node {
-                position_type: PositionType::Absolute,
-                top: percent(15.),
-                left: percent(30.),
-                width: percent(40.),
-                padding: UiRect::all(px(24.)),
-                flex_direction: FlexDirection::Column,
-                row_gap: px(12.),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.02, 0.02, 0.02, 0.95)),
+            rect(0., 0., 1280., 720.),
+            BackgroundColor(if **state == GameState::GameOver {
+                Color::NONE
+            } else {
+                Color::srgb(0.015, 0.015, 0.015)
+            }),
         ))
         .with_children(|parent| {
-            parent.spawn((
-                Text::new(format!("ORIGINS\nSolo — {}", difficulty.label())),
-                FrontendRootTitle,
-                TextFont {
-                    font_size: FontSize::Px(28.),
-                    ..default()
-                },
-                TextColor(Color::srgb(0.95, 0.72, 0.3)),
-            ));
-            for (label, action) in rows {
+            if **state == GameState::LoadError {
+                parent.spawn((
+                    Text::new(format!(
+                        "Unable to load Origins\n{}\nENTER  Retry     ESC  Exit",
+                        failure.0
+                    )),
+                    TextFont {
+                        font_size: FontSize::Px(24.),
+                        ..default()
+                    },
+                    rect(110., 120., 900., 400.),
+                ));
+            }
+            if **state != GameState::GameOver {
+                if let Some(game) = &game {
+                    parent.spawn((
+                        native::image(game, &server, "menu_zm_map_tomb"),
+                        rect(665., 86., 430., 530.),
+                    ));
+                }
+                parent.spawn((
+                    NativeText::new(
+                        format!("ZOMBIES\nORIGINS - {}", difficulty.label().to_uppercase()),
+                        42.,
+                    ),
+                    FrontendRootTitle,
+                    rect(110., 92., 560., 120.),
+                ));
+            }
+            let y = if **state == GameState::GameOver {
+                558.
+            } else {
+                264.
+            };
+            for (index, (label, action)) in rows.into_iter().enumerate() {
                 parent
                     .spawn((
                         UiButton,
                         Hovered::default(),
-                        FrontendButton(action),
-                        Node {
-                            padding: UiRect::all(px(12.)),
-                            ..default()
-                        },
-                        BackgroundColor(Color::srgb(0.12, 0.12, 0.12)),
+                        FrontendButton(action, index),
+                        rect(110., y + index as f32 * 38., 480., 34.),
+                        BackgroundColor(Color::NONE),
                     ))
                     .with_children(|button| {
                         button.spawn((
-                            Text::new(label),
-                            TextFont {
-                                font_size: FontSize::Px(20.),
-                                ..default()
-                            },
+                            NativeText::new(label.to_uppercase(), 27.),
+                            rect(10., 0., 460., 34.),
                         ));
                     });
             }
             parent.spawn((
-                Text::new("Enter: start / retry   1: Original   2: Easy   Esc: menu / exit"),
-                TextFont {
-                    font_size: FontSize::Px(14.),
-                    ..default()
-                },
+                NativeText::new(
+                    "ENTER  Select       ESC  Back       Arrow Keys  Navigate",
+                    18.,
+                ),
+                rect(110., 690., 900., 26.),
             ));
         });
 }
@@ -187,10 +213,12 @@ fn buttons(
     event: On<PointerPress>,
     buttons: Query<&FrontendButton>,
     mut actions: MessageWriter<FrontendAction>,
+    mut selected: ResMut<FrontendSelection>,
 ) {
     if event.button == PointerButton::Primary
         && let Ok(button) = buttons.get(event.entity)
     {
+        selected.0 = button.1;
         actions.write(button.0);
     }
 }
@@ -199,11 +227,23 @@ fn shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
     state: Res<State<GameState>>,
     mut actions: MessageWriter<FrontendAction>,
+    mut selected: ResMut<FrontendSelection>,
+    buttons: Query<&FrontendButton>,
 ) {
+    if keys.just_pressed(KeyCode::ArrowUp) && !buttons.is_empty() {
+        selected.0 = (selected.0 + buttons.iter().count() - 1) % buttons.iter().count();
+    }
+    if keys.just_pressed(KeyCode::ArrowDown) && !buttons.is_empty() {
+        selected.0 = (selected.0 + 1) % buttons.iter().count();
+    }
+    let chosen = buttons
+        .iter()
+        .find(|button| button.1 == selected.0)
+        .map(|button| button.0);
     match **state {
         GameState::MainMenu => {
             if keys.just_pressed(KeyCode::Enter) {
-                actions.write(FrontendAction::StartSolo);
+                actions.write(chosen.unwrap_or(FrontendAction::StartSolo));
             }
             if keys.just_pressed(KeyCode::Digit1) {
                 actions.write(FrontendAction::SelectDifficulty(Difficulty::Original));
@@ -224,6 +264,11 @@ fn shortcuts(
             }
         }
         GameState::GameOver => {
+            if keys.just_pressed(KeyCode::Enter)
+                && let Some(action) = chosen
+            {
+                actions.write(action);
+            }
             if keys.just_pressed(KeyCode::Escape) {
                 actions.write(FrontendAction::MainMenu);
             }
@@ -239,14 +284,14 @@ fn apply_actions(
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
-    mut title: Query<&mut Text, With<FrontendRootTitle>>,
+    mut title: Query<&mut NativeText, With<FrontendRootTitle>>,
 ) {
     for action in actions.read() {
         match *action {
             FrontendAction::SelectDifficulty(value) if **state == GameState::MainMenu => {
                 *difficulty = value;
                 for mut text in &mut title {
-                    text.0 = format!("ORIGINS\nSolo — {}", value.label());
+                    text.value = format!("ZOMBIES\nORIGINS - {}", value.label().to_uppercase());
                 }
             }
             FrontendAction::StartSolo if **state == GameState::MainMenu => {
@@ -278,3 +323,21 @@ fn apply_actions(
 
 #[derive(Component)]
 struct FrontendRootTitle;
+
+fn selection(
+    mut selected: ResMut<FrontendSelection>,
+    mut buttons: Query<(&FrontendButton, Ref<Hovered>, &mut BackgroundColor)>,
+) {
+    for (button, hovered, _) in &buttons {
+        if hovered.is_changed() && hovered.0 {
+            selected.0 = button.1;
+        }
+    }
+    for (button, _, mut background) in &mut buttons {
+        background.0 = if button.1 == selected.0 {
+            Color::srgba(0.85, 0.3, 0.02, 0.8)
+        } else {
+            Color::NONE
+        };
+    }
+}

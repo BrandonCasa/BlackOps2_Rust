@@ -304,12 +304,7 @@ fn drive(world: &mut World) {
             go(&mut run, 101);
         }
         101 => {
-            let hud = world
-                .query_filtered::<&Text, With<crate::hud::HudText>>()
-                .iter(world)
-                .next()
-                .map(|v| v.0.clone())
-                .unwrap_or_default();
+            let hud = crate::hud::readout(world);
             run.record(
                 "held scoreboard shows statistics",
                 world.resource::<GameInput>().scoreboard
@@ -328,12 +323,7 @@ fn drive(world: &mut World) {
             go(&mut run, 102);
         }
         102 => {
-            let hud = world
-                .query_filtered::<&Text, With<crate::hud::HudText>>()
-                .iter(world)
-                .next()
-                .map(|v| v.0.clone())
-                .unwrap_or_default();
+            let hud = crate::hud::readout(world);
             run.record(
                 "released scoreboard restores nonnumeric health HUD",
                 !world.resource::<GameInput>().scoreboard
@@ -878,12 +868,7 @@ fn drive(world: &mut World) {
             advance(&mut run);
         }
         51 => {
-            let hud = world
-                .query_filtered::<&Text, With<crate::hud::HudText>>()
-                .iter(world)
-                .next()
-                .map(|v| v.0.clone())
-                .unwrap_or_default();
+            let hud = crate::hud::readout(world);
             let session = world.resource::<Session>();
             run.record(
                 "game over shows cumulative score and statistics",

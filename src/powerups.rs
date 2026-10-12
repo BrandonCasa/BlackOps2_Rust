@@ -29,6 +29,8 @@ pub(crate) struct DronePickup {
     pub owner: Entity,
     pub pickup: Entity,
 }
+#[derive(Message)]
+pub(crate) struct PowerupCollected(pub crate::origins::ContentId);
 #[derive(Component)]
 pub struct Pickup {
     pub definition: usize,
@@ -74,6 +76,7 @@ pub struct PowerupPlugin;
 impl Plugin for PowerupPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<DronePickup>()
+            .add_message::<PowerupCollected>()
             .init_resource::<PowerupEffects>()
             .init_resource::<Drops>()
             .add_systems(
@@ -535,6 +538,7 @@ pub(crate) fn collect(
                 pose.translation,
             );
             drops.collected += 1;
+            commands.write_message(PowerupCollected(d.id.clone()));
             break;
         }
     }

@@ -63,7 +63,9 @@ def validate_content(content, require):
     for table, (kind, fields) in TABLES.items():
         require(isinstance(content[table], list), f"invalid content table: {table}")
         for row in content[table]:
-            extras = {"mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation", "dual_weapon", "attachments"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals", "locomotion_states", "combat_states"} if table == "enemies" else {"generator", "presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"generator"} if table=="interactions" else {"distance_min"} if table=="sounds" else set()
+            extras = {"hud", "mechanics", "pickup", "ammo_group", "localization_key", "animation_actions", "throwable", "mine", "lure", "view_offset", "ads_presentation", "dual_weapon", "attachments"} if table == "weapons" else {"parts", "hit_regions", "animation_actions", "attack_seconds", "attack_hits", "death_seconds", "corpse_seconds", "bounds_margin", "family", "traversals", "locomotion_states", "combat_states"} if table == "enemies" else {"generator", "presentation", "drink", "maximum_health", "reload_duration_scale", "sprint", "third_weapon", "firing", "cherry", "explosive_protection", "fall_protection", "dive"} if table == "perks" else {"blockers","source_animation","negotiation"} if table=="navigation_links" else {"generator"} if table=="interactions" else {"distance_min"} if table=="sounds" else set()
+            if table == "ui_assets":
+                extras = {"font"}
             require(isinstance(row, dict) and set(fields.split()) <= set(row) <= set(fields.split()) | extras, f"invalid {table} fields")
             register(row["id"], kind)
 
@@ -204,6 +206,16 @@ def validate_content(content, require):
                 for k in ("tangent_bounce","normal_bounce"):
                     number(t[k]);require(t[k]<=1,"invalid bounce ratio")
             if table == "weapons":
+                if row.get("hud") is not None:
+                    hud = row["hud"]
+                    require(isinstance(hud, dict) and set(hud) == set("center side center_size side_size side_position minimum_offset keep_when_ads low_ammo_fraction".split()), "invalid weapon HUD fields")
+                    for key in ("center", "side"): resolve(owner, hud[key], "ui", True)
+                    for key in ("center_size", "side_size", "minimum_offset"):
+                        number(hud[key])
+                        require(hud[key] <= 512, "invalid reticle size")
+                    require(type(hud["side_position"]) in (int, float) and math.isfinite(hud["side_position"]) and abs(hud["side_position"]) <= 8, "invalid reticle side position")
+                    require(type(hud["keep_when_ads"]) is bool, "invalid ADS reticle flag")
+                    require(type(hud["low_ammo_fraction"]) in (int, float) and math.isfinite(hud["low_ammo_fraction"]) and 0 <= hud["low_ammo_fraction"] <= 1, "invalid low ammunition threshold")
                 if row.get("lure") is not None:
                     lure=row["lure"]
                     require(isinstance(lure,dict) and set(lure)==set("range capacity spacing animation".split()),"invalid lure fields")
@@ -497,6 +509,27 @@ def validate_content(content, require):
                 require(isinstance(row["key"], str) and row["key"] and isinstance(row["text"], str), "invalid localized string")
             elif table == "ui_assets":
                 path(row["path"])
+                font = row.get("font")
+                if font is not None:
+                    require(isinstance(font, dict) and set(font) == {"height", "atlas", "glyphs"}, "invalid bitmap font")
+                    number(font["height"], True)
+                    require(isinstance(font["atlas"], list) and len(font["atlas"]) == 2, "invalid font atlas")
+                    for value in font["atlas"]:
+                        number(value, True)
+                    letters = set()
+                    require(isinstance(font["glyphs"], list) and font["glyphs"], "empty bitmap font")
+                    for glyph in font["glyphs"]:
+                        require(isinstance(glyph, dict) and set(glyph) == {"codepoint", "offset", "advance", "size", "rect"}, "invalid glyph")
+                        require(type(glyph["codepoint"]) is int and 0 <= glyph["codepoint"] <= 0x10ffff and not 0xd800 <= glyph["codepoint"] <= 0xdfff and glyph["codepoint"] not in letters, "duplicate or invalid glyph")
+                        letters.add(glyph["codepoint"])
+                        number(glyph["advance"])
+                        require(isinstance(glyph["offset"], list) and len(glyph["offset"]) == 2 and all(type(v) in (int, float) and math.isfinite(v) for v in glyph["offset"]), "invalid glyph offset")
+                        for field, count in (("size", 2), ("rect", 4)):
+                            require(isinstance(glyph[field], list) and len(glyph[field]) == count, "invalid glyph extent")
+                            for value in glyph[field]:
+                                number(value)
+                        x0, y0, x1, y1 = glyph["rect"]
+                        require(x0 <= x1 <= font["atlas"][0] and y0 <= y1 <= font["atlas"][1], "glyph outside atlas")
             elif table == "cinematics":
                 require(isinstance(row["frames"], list) and row["frames"], "empty cinematic")
                 for frame in row["frames"]:

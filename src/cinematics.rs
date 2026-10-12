@@ -118,25 +118,22 @@ fn root(commands: &mut Commands, camera: Entity, playback: &SequencePlayback) {
                 ));
             } else {
                 parent.spawn((
-                    Text::new("LITTLE GIRL LOST"),
-                    TextFont {
-                        font_size: FontSize::Px(48.),
+                    crate::hud::native::NativeText::new("LITTLE GIRL LOST", 48.),
+                    Node {
+                        width: px(700.),
+                        height: px(70.),
                         ..default()
                     },
-                    TextColor(Color::WHITE),
                 ));
             }
             parent.spawn((
-                Text::new("Esc / Space: skip"),
-                TextFont {
-                    font_size: FontSize::Px(18.),
-                    ..default()
-                },
-                TextColor(Color::WHITE),
+                crate::hud::native::NativeText::new("ESC / SPACE   Skip", 18.),
                 Node {
                     position_type: PositionType::Absolute,
                     bottom: px(20.),
                     left: px(20.),
+                    width: px(400.),
+                    height: px(26.),
                     ..default()
                 },
             ));

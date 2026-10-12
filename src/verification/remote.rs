@@ -119,6 +119,9 @@ pub(super) fn install(app: &mut App, port: u16) {
             RemotePlugin::default()
                 .with_method_main("origins/schema", schema)
                 .with_method_main("origins/state", snapshot)
+                .with_method_main("origins/ui", |_: In<Option<Value>>, world: &mut World| {
+                    Ok(crate::hud::snapshot(world))
+                })
                 .with_method_main("origins/environment/schema", environment::schema)
                 .with_method_main("origins/environment/setup", environment::setup)
                 .with_method_main("origins/materials", materials)
@@ -147,6 +150,7 @@ pub(super) fn install(app: &mut App, port: u16) {
                     accumulate_mouse_scroll_system,
                 ),
                 crate::input::collect,
+                crate::input::menu::navigate.run_if(in_state(GameState::Paused)),
                 crate::input::pause_and_restart,
             )
                 .chain(),
@@ -235,6 +239,7 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
             "origins/animations":{"params":{},"result":"fixed_tick, players (enabled, restart, actual and requested clip clocks and weights, pause, speed, local and rest bone poses), weapons (ready, action, clip clocks, local bone poses), enemies (action, gait, native combat state, sequence, elapsed, notetracks, rig poses and clocks)"},
             "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, prone, crouched, grounded, velocity, mobility, sprint, lethal, tactical, mine), movement (events, motion: first 512 airborne or dive fixed ticks, physics: first 512 motor fixed ticks, projectiles: first 512 free-flight fixed ticks), firing (shots with stance, speed, spread, ADS and perk scales; first 128), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
             "origins/materials":{"params":{},"result":"pending, first_person, world, inventory; native material, texture, tangent readiness"},
+            "origins/ui":{"params":{},"result":"Visible native labels, widget dimensions, original image paths and load counts, crosshair and scoreboard visibility"},
             "origins/preview":{"params":{"weapon":"optional native weapon ID","presentation":"optional content presentation ID","animation":"optional named clip","distance":"optional camera distance in metres"},"effect":"Asset scenario setup attached to camera; omitted IDs clear preview"},
             "origins/assets":{"params":{},"result":"Preview load state, mesh visibility ranges, skin readiness, animation players and local bone poses"},
             "origins/capture":{"params":{"path":"absolute PNG path"},"result":"asynchronous screenshot request"},

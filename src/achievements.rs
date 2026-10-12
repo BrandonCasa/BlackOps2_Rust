@@ -176,7 +176,7 @@ fn notification(
     game_state: Res<State<GameState>>,
     state: Res<Achievements>,
     cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
-    mut text: Query<(&mut Text, &mut Visibility), With<Toast>>,
+    mut text: Query<(&mut crate::hud::native::NativeText, &mut Visibility), With<Toast>>,
 ) {
     if let Ok((mut text, mut visibility)) = text.single_mut() {
         *visibility = if **game_state == GameState::Playing {
@@ -184,8 +184,8 @@ fn notification(
         } else {
             Visibility::Hidden
         };
-        if text.0 != state.notification {
-            text.0 = state.notification.clone();
+        if text.value != state.notification {
+            text.value = state.notification.clone();
         }
         return;
     }
@@ -195,16 +195,14 @@ fn notification(
             Visibility::Hidden,
             crate::hud::PlayerOverlay,
             UiTargetCamera(camera),
-            Text::new(&state.notification),
-            TextFont {
-                font_size: FontSize::Px(22.),
-                ..default()
-            },
-            TextColor(Color::srgb(1., 0.8, 0.25)),
+            crate::hud::native::NativeText::new(&state.notification, 22.)
+                .color(Color::srgb(1., 0.8, 0.25)),
             Node {
                 position_type: PositionType::Absolute,
                 left: percent(30.),
                 top: percent(8.),
+                width: px(700.),
+                height: px(60.),
                 ..default()
             },
         ));

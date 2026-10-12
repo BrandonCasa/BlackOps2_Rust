@@ -1,5 +1,6 @@
 use super::{Action, Binding, ControlSettings, PressMode, settings::SettingsStore};
 use crate::GameState;
+use crate::hud::native::{Canvas, NativeText, rect};
 use bevy::{
     input::{
         InputSystems,
@@ -20,6 +21,7 @@ pub(crate) struct ControlMenu {
     pub notice: String,
     pub revision: u64,
     pub handled_input: bool,
+    audio: bool,
     pointer_choice: Option<Choice>,
     pending_action: Option<crate::frontend::FrontendAction>,
 }
@@ -38,6 +40,12 @@ struct RowText(Choice);
 enum Choice {
     Resume,
     Controls,
+    Audio,
+    Master,
+    Music,
+    Effects,
+    Dialogue,
+    Subtitles,
     Restart,
     MainMenu,
     Exit,
@@ -55,10 +63,21 @@ enum Choice {
 }
 
 fn choices(menu: &ControlMenu) -> Vec<Choice> {
+    if menu.audio {
+        return vec![
+            Choice::Master,
+            Choice::Music,
+            Choice::Effects,
+            Choice::Dialogue,
+            Choice::Subtitles,
+            Choice::Back,
+        ];
+    }
     let Some(page) = menu.page else {
         return vec![
             Choice::Resume,
             Choice::Controls,
+            Choice::Audio,
             Choice::Restart,
             Choice::MainMenu,
             Choice::Exit,
@@ -99,6 +118,19 @@ fn label(choice: Choice, settings: &ControlSettings) -> String {
     match choice {
         Choice::Resume => "Resume game".into(),
         Choice::Controls => "Controls".into(),
+        Choice::Audio => "Audio".into(),
+        Choice::Master => format!("Master Volume     {:.0}%", settings.audio.master * 100.),
+        Choice::Music => format!("Music Volume     {:.0}%", settings.audio.music * 100.),
+        Choice::Effects => format!("SFX Volume     {:.0}%", settings.audio.effects * 100.),
+        Choice::Dialogue => format!("Voice Volume     {:.0}%", settings.audio.dialogue * 100.),
+        Choice::Subtitles => format!(
+            "Subtitles     {}",
+            if settings.audio.subtitles {
+                "Enabled"
+            } else {
+                "Disabled"
+            }
+        ),
         Choice::Restart => "Restart game".into(),
         Choice::MainMenu => "Quit to menu".into(),
         Choice::Exit => "Exit application".into(),
@@ -139,6 +171,7 @@ pub(super) fn install(app: &mut App) {
     if options.verify.is_some() && !options.verify_controls {
         return;
     }
+    let remote = options.validation_remote.is_some();
     app.add_observer(pointer_activate)
         .add_systems(OnEnter(GameState::Paused), open)
         .add_systems(OnExit(GameState::Paused), close)
@@ -148,11 +181,17 @@ pub(super) fn install(app: &mut App) {
         )
         .add_systems(
             Update,
-            (navigate, rebuild, labels)
+            (rebuild, labels)
                 .chain()
                 .before(super::pause_and_restart)
                 .run_if(in_state(GameState::Paused)),
         );
+    if !remote {
+        app.add_systems(
+            Update,
+            navigate.before(rebuild).run_if(in_state(GameState::Paused)),
+        );
+    }
 }
 fn open(mut menu: ResMut<ControlMenu>) {
     *menu = ControlMenu {
@@ -191,71 +230,92 @@ fn rebuild(
     commands
         .spawn((
             MenuRoot,
+            Canvas,
+            UiTransform::default(),
             UiTargetCamera(camera),
             GlobalZIndex(100),
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(16.),
-                left: px(16.),
-                width: px(540.),
-                padding: UiRect::all(px(12.)),
-                flex_direction: FlexDirection::Column,
-                row_gap: px(3.),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.025, 0.025, 0.025, 0.96)),
+            rect(0., 0., 1280., 720.),
+            BackgroundColor(Color::srgba(0., 0., 0., 0.62)),
         ))
         .with_children(|parent| {
-            let title = menu
-                .page
-                .map_or("PAUSED".into(), |p| format!("CONTROLS   {} / {}", p + 1, Action::ALL.len().div_ceil(PAGE_SIZE)));
-            parent.spawn((
-                Text::new(title),
-                TextFont {
-                    font_size: FontSize::Px(22.),
-                    ..default()
-                },
-                TextColor(Color::srgb(0.95, 0.72, 0.3)),
-            ));
-            parent.spawn((
-                Text::new("Up/Down select   Left/Right adjust   Enter choose\nEsc resume   Left/right click changes values"),
-                TextFont {
-                    font_size: FontSize::Px(13.),
-                    ..default()
-                },
-            ));
-            for (index, choice) in choices(&menu).into_iter().enumerate() {
-                parent
-                    .spawn((
-                        UiButton,
-                        Hovered::default(),
-                        MenuRow { index, choice },
+            parent
+                .spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(2.),
+                    ..rect(110., 100., 550., 580.)
+                })
+                .with_children(|parent| {
+                    let title =
+                        menu.page
+                            .map_or(if menu.audio { "AUDIO" } else { "PAUSED" }.into(), |p| {
+                                format!(
+                                    "CONTROLS   {} / {}",
+                                    p + 1,
+                                    Action::ALL.len().div_ceil(PAGE_SIZE)
+                                )
+                            });
+                    parent.spawn((
+                        NativeText::new(title, 42.),
                         Node {
-                            min_height: px(27.),
-                            padding: UiRect::axes(px(8.), px(4.)),
+                            width: px(550.),
+                            height: px(58.),
                             ..default()
                         },
-                        BackgroundColor(Color::NONE),
-                    ))
-                    .with_children(|row| {
-                        row.spawn((
-                            Text::new(label(choice, &settings)),
-                            RowText(choice),
-                            TextFont {
-                                font_size: FontSize::Px(15.),
-                                ..default()
-                            },
-                        ));
-                    });
-            }
+                    ));
+                    parent.spawn((
+                        NativeText::new("Origins - Excavation Site 64", 24.)
+                            .color(Color::srgb(0.7, 0.7, 0.7)),
+                        Node {
+                            width: px(550.),
+                            height: px(38.),
+                            ..default()
+                        },
+                    ));
+                    for (index, choice) in choices(&menu).into_iter().enumerate() {
+                        parent
+                            .spawn((
+                                UiButton,
+                                Hovered::default(),
+                                MenuRow { index, choice },
+                                Node {
+                                    min_height: px(if menu.page.is_some() { 23. } else { 32. }),
+                                    height: px(if menu.page.is_some() { 23. } else { 32. }),
+                                    padding: UiRect::axes(px(8.), px(0.)),
+                                    ..default()
+                                },
+                                BackgroundColor(Color::NONE),
+                            ))
+                            .with_children(|row| {
+                                row.spawn((
+                                    NativeText::new(
+                                        label(choice, &settings),
+                                        if menu.page.is_some() { 20. } else { 25. },
+                                    ),
+                                    RowText(choice),
+                                    Node {
+                                        width: px(525.),
+                                        height: px(27.),
+                                        ..default()
+                                    },
+                                ));
+                            });
+                    }
+                    parent.spawn((
+                        NativeText::new("", 18.).color(Color::srgb(1., 0.65, 0.25)),
+                        MenuNotice,
+                        Node {
+                            width: px(550.),
+                            height: px(60.),
+                            ..default()
+                        },
+                    ));
+                });
             parent.spawn((
-                Text::new(""),
-                MenuNotice,
-                TextFont {
-                    font_size: FontSize::Px(13.),
-                    ..default()
-                },
-                TextColor(Color::srgb(0.9, 0.75, 0.5)),
+                NativeText::new(
+                    "ENTER  Select       ESC  Back       Arrow Keys  Navigate",
+                    18.,
+                ),
+                rect(110., 680., 900., 30.),
             ));
         });
 }
@@ -266,6 +326,7 @@ fn activate(
     settings: &mut ControlSettings,
     next: &mut NextState<GameState>,
     store: &mut SettingsStore,
+    audio: &mut crate::audio::AudioSettings,
 ) {
     match choice {
         Choice::Resume => next.set(GameState::Playing),
@@ -277,6 +338,21 @@ fn activate(
             menu.selected = 0;
             menu.revision += 1;
         }
+        Choice::Audio => {
+            menu.audio = true;
+            menu.selected = 0;
+            menu.revision += 1;
+        }
+        Choice::Master | Choice::Music | Choice::Effects | Choice::Dialogue => {
+            let value = match choice {
+                Choice::Master => &mut audio.master,
+                Choice::Music => &mut audio.music,
+                Choice::Effects => &mut audio.effects,
+                _ => &mut audio.dialogue,
+            };
+            *value = (*value + direction * 0.05).clamp(0., 1.);
+        }
+        Choice::Subtitles => audio.subtitles = !audio.subtitles,
         Choice::Sensitivity => {
             settings.sensitivity =
                 ((settings.sensitivity * 10.).round() + direction).clamp(1., 100.) / 10.
@@ -321,12 +397,13 @@ fn activate(
         }
         Choice::Back => {
             menu.page = None;
+            menu.audio = false;
             menu.selected = 0;
             menu.revision += 1;
         }
     }
 }
-fn navigate(
+pub(crate) fn navigate(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut menu: ResMut<ControlMenu>,
@@ -335,9 +412,18 @@ fn navigate(
     mut store: ResMut<SettingsStore>,
     rows: Query<(&MenuRow, Ref<Hovered>)>,
     mut frontend: MessageWriter<crate::frontend::FrontendAction>,
+    mut audio: ResMut<crate::audio::AudioSettings>,
 ) {
     let pointer_choice = menu.pointer_choice.take();
     if menu.capturing.is_some() || menu.handled_input {
+        return;
+    }
+    if keys.just_pressed(KeyCode::Escape) && (menu.page.is_some() || menu.audio) {
+        menu.page = None;
+        menu.audio = false;
+        menu.selected = 0;
+        menu.revision += 1;
+        menu.handled_input = true;
         return;
     }
     let choices = choices(&menu);
@@ -361,6 +447,11 @@ fn navigate(
                 | Choice::AimMode
                 | Choice::CrouchMode
                 | Choice::SprintMode
+                | Choice::Master
+                | Choice::Music
+                | Choice::Effects
+                | Choice::Dialogue
+                | Choice::Subtitles
         );
         if keys.just_pressed(KeyCode::Enter) || adjust {
             let direction = if keys.just_pressed(KeyCode::ArrowLeft) {
@@ -375,13 +466,22 @@ fn navigate(
                 &mut settings,
                 &mut next,
                 &mut store,
+                &mut audio,
             );
         }
     }
     if mouse.just_pressed(MouseButton::Right) {
         let choice = choices[selected];
         if matches!(choice, Choice::Sensitivity | Choice::AdsSensitivity) {
-            activate(choice, -1., &mut menu, &mut settings, &mut next, &mut store);
+            activate(
+                choice,
+                -1.,
+                &mut menu,
+                &mut settings,
+                &mut next,
+                &mut store,
+                &mut audio,
+            );
         }
     }
     for (row, hovered) in &rows {
@@ -390,7 +490,15 @@ fn navigate(
         }
     }
     if let Some(choice) = pointer_choice {
-        activate(choice, 1., &mut menu, &mut settings, &mut next, &mut store);
+        activate(
+            choice,
+            1.,
+            &mut menu,
+            &mut settings,
+            &mut next,
+            &mut store,
+            &mut audio,
+        );
     }
     if let Some(action) = menu.pending_action.take() {
         frontend.write(action);
@@ -471,12 +579,12 @@ fn labels(
     settings: Res<ControlSettings>,
     store: Res<SettingsStore>,
     mut rows: Query<(&MenuRow, &mut BackgroundColor)>,
-    mut texts: Query<(&RowText, &mut Text), Without<MenuNotice>>,
-    mut notices: Query<&mut Text, With<MenuNotice>>,
+    mut texts: Query<(&RowText, &mut NativeText), Without<MenuNotice>>,
+    mut notices: Query<&mut NativeText, With<MenuNotice>>,
 ) {
     for (row, mut background) in &mut rows {
         let color = if row.index == menu.selected {
-            Color::srgba(0.35, 0.25, 0.08, 0.9)
+            Color::srgba(0.85, 0.3, 0.02, 0.8)
         } else {
             Color::NONE
         };
@@ -486,7 +594,7 @@ fn labels(
     }
     if settings.is_changed() {
         for (row, mut text) in &mut texts {
-            text.0 = label(row.0, &settings);
+            text.value = label(row.0, &settings);
         }
     }
     for mut text in &mut notices {
@@ -499,8 +607,8 @@ fn labels(
         } else {
             store.error.clone().unwrap_or_else(|| menu.notice.clone())
         };
-        if text.0 != value {
-            text.0 = value;
+        if text.value != value {
+            text.value = value;
         }
     }
 }

@@ -206,7 +206,11 @@ fn advance(
     }
 }
 
-fn setup(mut commands: Commands, cameras: Query<Entity, With<ViewModelCamera>>) {
+fn setup(
+    mut commands: Commands,
+    cameras: Query<Entity, With<ViewModelCamera>>,
+    server: Res<AssetServer>,
+) {
     let Ok(camera) = cameras.single() else {
         return;
     };
@@ -229,27 +233,41 @@ fn setup(mut commands: Commands, cameras: Query<Entity, With<ViewModelCamera>>) 
         ))
         .with_children(|parent| {
             parent.spawn((
-                LoadingLabel,
-                Text::new("Loading Origins..."),
-                TextFont {
-                    font_size: FontSize::Px(24.),
+                ImageNode::new(server.load("ui/loadscreen_zombie_le_tombeau.ktx2")),
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: percent(100.),
+                    height: percent(100.),
                     ..default()
                 },
-                TextColor(Color::WHITE),
+            ));
+            parent.spawn((
+                LoadingLabel,
+                crate::hud::native::NativeText::new("ORIGINS", 34.),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: percent(8.),
+                    bottom: percent(12.),
+                    width: px(600.),
+                    height: px(50.),
+                    ..default()
+                },
             ));
             parent
                 .spawn((
                     BackgroundColor(Color::srgb(0.12, 0.14, 0.16)),
                     Node {
-                        width: percent(40.),
-                        max_width: px(560.),
-                        height: px(8.),
+                        position_type: PositionType::Absolute,
+                        left: percent(8.),
+                        bottom: percent(8.),
+                        width: percent(84.),
+                        height: px(3.),
                         ..default()
                     },
                 ))
                 .with_child((
                     LoadingBar,
-                    BackgroundColor(Color::srgb(0.7, 0.8, 0.45)),
+                    BackgroundColor(Color::srgb(0.8, 0.55, 0.2)),
                     Node {
                         width: percent(0.),
                         height: percent(100.),
@@ -263,7 +281,7 @@ fn display(
     state: Res<State<GameState>>,
     progress: Res<ShaderProgress>,
     mut screens: Query<&mut Visibility, With<LoadingScreen>>,
-    mut labels: Query<&mut Text, With<LoadingLabel>>,
+    mut labels: Query<&mut crate::hud::native::NativeText, With<LoadingLabel>>,
     mut bars: Query<&mut Node, With<LoadingBar>>,
 ) {
     let loading = matches!(**state, GameState::Loading | GameState::PreparingShaders);
@@ -286,11 +304,7 @@ fn display(
         0.
     };
     for mut label in &mut labels {
-        label.0 = if **state == GameState::PreparingShaders {
-            format!("Preparing shaders... {:.0}%", percent_ready)
-        } else {
-            "Loading Origins...".into()
-        };
+        label.value = "ORIGINS".into();
     }
     for mut bar in &mut bars {
         bar.width = percent(percent_ready);

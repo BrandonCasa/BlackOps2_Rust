@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 macro_rules! identifiers {
     ($($name:ident),+ $(,)?) => {$ (
@@ -91,6 +94,8 @@ impl std::error::Error for ContentError {}
 pub struct WeaponDefinition {
     pub id: WeaponId,
     pub name: String,
+    #[serde(default)]
+    pub hud: Option<WeaponHud>,
     pub damage: u32,
     pub category: DamageCategory,
     pub magazine: u32,
@@ -123,6 +128,19 @@ pub struct WeaponDefinition {
     pub mine: Option<crate::mines::MineDefinition>,
     #[serde(default)]
     pub lure: Option<crate::lures::LureDefinition>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WeaponHud {
+    pub center: Option<ContentId>,
+    pub side: Option<ContentId>,
+    pub center_size: f32,
+    pub side_size: f32,
+    pub side_position: f32,
+    pub minimum_offset: f32,
+    pub keep_when_ads: bool,
+    pub low_ammo_fraction: f32,
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -828,6 +846,24 @@ pub struct AnimationNotification {
 pub struct UiAsset {
     pub id: ContentId,
     pub path: String,
+    #[serde(default)]
+    pub font: Option<BitmapFont>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BitmapFont {
+    pub height: f32,
+    pub atlas: [f32; 2],
+    pub glyphs: Vec<BitmapGlyph>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BitmapGlyph {
+    pub codepoint: u32,
+    pub offset: [f32; 2],
+    pub advance: f32,
+    pub size: [f32; 2],
+    pub rect: [f32; 4],
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1045,6 +1081,12 @@ impl ContentCatalog {
             )?;
             valid(
                 (!uses_ammo || (v.damage > 0 && v.magazine > 0))
+                    && v.hud.as_ref().is_none_or(|hud| {
+                        [hud.center_size,hud.side_size,hud.minimum_offset].iter().all(|value| value.is_finite() && *value >= 0. && *value <= 512.)
+                        && hud.side_position.is_finite() && hud.side_position.abs() <= 8.
+                        && hud.low_ammo_fraction.is_finite() && (0. ..=1.).contains(&hud.low_ammo_fraction)
+                        && [&hud.center,&hud.side].into_iter().flatten().all(|id| self.ui_assets.iter().any(|asset| asset.id == *id))
+                    })
                     && positive(v.fire_interval)
                     && positive(v.reload_seconds)
                     && m.starting_reserve <= v.reserve
@@ -1508,6 +1550,27 @@ impl ContentCatalog {
         }
         for v in &self.ui_assets {
             validate_asset_path(&v.path)?;
+            if let Some(font) = &v.font {
+                let mut letters = BTreeSet::new();
+                valid(
+                    positive(font.height)
+                        && font.atlas.iter().all(|v| positive(*v))
+                        && !font.glyphs.is_empty()
+                        && font.glyphs.iter().all(|g| {
+                            char::from_u32(g.codepoint).is_some()
+                                && letters.insert(g.codepoint)
+                                && g.offset.iter().all(|v| v.is_finite())
+                                && nonnegative(g.advance)
+                                && g.size.iter().all(|v| nonnegative(*v))
+                                && g.rect.iter().all(|v| nonnegative(*v))
+                                && g.rect[0] <= g.rect[2]
+                                && g.rect[1] <= g.rect[3]
+                                && g.rect[2] <= font.atlas[0]
+                                && g.rect[3] <= font.atlas[1]
+                        }),
+                    "Invalid bitmap font metrics",
+                )?;
+            }
         }
         for v in &self.localized_strings {
             valid(!v.key.is_empty(), "Empty localization key")?;
