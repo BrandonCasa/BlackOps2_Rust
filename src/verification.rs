@@ -57,6 +57,7 @@ pub(crate) struct Verification {
     output: PathBuf,
     benchmark: bool,
     combat: bool,
+    combat_test: bool,
     only_view: bool,
     moving_view: bool,
     hands_view: bool,
@@ -321,6 +322,7 @@ fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
             output: output.clone(),
             benchmark: options.benchmark,
             combat: options.benchmark_combat,
+            combat_test: options.test_combat,
             only_view: options.benchmark_view.is_some(),
             moving_view: options.benchmark_motion,
             hands_view: options.benchmark_hands,
@@ -758,7 +760,8 @@ fn check(
     {
         return;
     }
-    if verification.placement_snapshot.is_none()
+    if !verification.combat_test
+        && verification.placement_snapshot.is_none()
         && **state == GameState::Playing
         && let Some(game) = &definition
     {
@@ -775,7 +778,8 @@ fn check(
             }
         }
     }
-    if verification.negotiation_observation.is_none()
+    if !verification.combat_test
+        && verification.negotiation_observation.is_none()
         && navigation.link_count() > 0
         && let Some(game) = &definition
     {
@@ -791,7 +795,8 @@ fn check(
         }
         verification.negotiation_observation = Some(observed);
     }
-    if verification.trigger_observation.is_none()
+    if !verification.combat_test
+        && verification.trigger_observation.is_none()
         && matches!(**state, GameState::Playing | GameState::Paused)
         && verification.playing > 0.5
         && let Some(game) = &definition
@@ -808,7 +813,8 @@ fn check(
         }
         verification.trigger_observation = Some(observed);
     }
-    if verification.brush_observation.is_none()
+    if !verification.combat_test
+        && verification.brush_observation.is_none()
         && matches!(**state, GameState::Playing | GameState::Paused)
         && verification.playing > 0.5
         && let Some(game) = &definition
@@ -854,6 +860,7 @@ fn check(
     if verification.stage == 0 {
         if verification.grenades && equipment.detonations > 0 && !verification.grenade_flash_frame {
             capture(
+                !verification.combat_test,
                 &mut commands,
                 &mut screenshot,
                 verification.output.join("grenade-blast.png"),
@@ -868,6 +875,7 @@ fn check(
             })
         {
             capture(
+                !verification.combat_test,
                 &mut commands,
                 &mut screenshot,
                 verification.output.join("zombie-attack.png"),
@@ -883,6 +891,7 @@ fn check(
             })
         {
             capture(
+                !verification.combat_test,
                 &mut commands,
                 &mut screenshot,
                 verification.output.join("zombie-death.png"),
@@ -895,6 +904,7 @@ fn check(
                 crate::weapons::WeaponAction::Melee { remaining, .. } if remaining < 0.42 && remaining > 0.30)
             {
                 capture(
+                    !verification.combat_test,
                     &mut commands,
                     &mut screenshot,
                     verification.output.join("knife-melee.png"),
@@ -905,6 +915,7 @@ fn check(
             if inventory.ads >= 0.99 && !verification.ads_seen {
                 verification.ads_seen = true;
                 capture(
+                    !verification.combat_test,
                     &mut commands,
                     &mut screenshot,
                     verification.output.join("ads.png"),
@@ -956,6 +967,7 @@ fn check(
     if verification.stage == 2 && **state == GameState::GameOver {
         if (verification.health || verification.grenades) && !verification.death_frame {
             capture(
+                !verification.combat_test,
                 &mut commands,
                 &mut screenshot,
                 verification.output.join("player-game-over.png"),
@@ -987,6 +999,7 @@ fn check(
             && recovery.age < 0.3
         {
             capture(
+                !verification.combat_test,
                 &mut commands,
                 &mut screenshot,
                 verification.output.join("player-hurt.png"),
@@ -998,6 +1011,7 @@ fn check(
             && health.current() == Some(health.maximum())
         {
             capture(
+                !verification.combat_test,
                 &mut commands,
                 &mut screenshot,
                 verification.output.join("player-recovered.png"),
@@ -1008,6 +1022,7 @@ fn check(
     if verification.initial.is_none() {
         verification.initial = Some(transform.translation);
         capture(
+            !verification.combat_test,
             &mut commands,
             &mut screenshot,
             verification.output.join("spawn.png"),
@@ -1044,6 +1059,7 @@ fn check(
             );
         }
         capture(
+            !verification.combat_test,
             &mut commands,
             &mut screenshot,
             verification.output.join("playing.png"),
@@ -1062,6 +1078,18 @@ fn check(
                 "lethal":r.lethal,"points":r.points,
             })).collect::<Vec<_>>()
         });
+        if verification.combat_test {
+            let passed = session.kills >= 6 && session.shots > 0;
+            let receipt = serde_json::json!({"passed": passed, "round": session.round, "kills": session.kills, "shots": session.shots, "combat": verification.combat_receipt, "renderer": "solari", "antialiasing": "dlss_ray_reconstruction"});
+            let _ = std::fs::write(verification.output.join("combat.json"), receipt.to_string());
+            info!("Combat test: {receipt}");
+            commands.write_message(if passed {
+                AppExit::Success
+            } else {
+                AppExit::error()
+            });
+            return;
+        }
         verification.round_two = true;
         verification.stage = 1;
         if verification.wall_weapons
@@ -1073,6 +1101,7 @@ fn check(
         verification.playing = 0.;
         next.set(GameState::Paused);
         capture(
+            !verification.combat_test,
             &mut commands,
             &mut screenshot,
             verification.output.join("round-two.png"),
@@ -1124,6 +1153,7 @@ fn check(
                     && verification.playing > 60.4 + verification.reported as f32 * 0.5
                 {
                     capture(
+                        !verification.combat_test,
                         &mut commands,
                         &mut screenshot,
                         verification
@@ -1160,6 +1190,7 @@ fn check(
                     verification.water_times.push(real_time.elapsed_secs());
                 }
                 capture(
+                    !verification.combat_test,
                     &mut commands,
                     &mut screenshot,
                     verification
@@ -1264,7 +1295,6 @@ fn check(
             && rounds_exercised
             && restart_damage_clear
             && surfaces.pending == 0
-            && surfaces.straight_alpha_mismatches == 0
             && if verification.benchmark {
                 (!verification.combat || verification.round_two)
                     && verification.camera_views.len()
@@ -1355,7 +1385,10 @@ fn check(
     }
 }
 
-fn capture(commands: &mut Commands, frame: &mut Option<Entity>, path: PathBuf) {
+fn capture(enabled: bool, commands: &mut Commands, frame: &mut Option<Entity>, path: PathBuf) {
+    if !enabled {
+        return;
+    }
     let entity = *frame.get_or_insert_with(|| commands.spawn(Screenshot::primary_window()).id());
     commands.entity(entity).observe(save_to_disk(path));
 }

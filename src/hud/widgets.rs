@@ -1,17 +1,31 @@
 use super::native::{self, Canvas, Opacity, SafeAnchor, rect};
 use crate::{GameState, assets::GameDefinition, generators::GeneratorState, player::Player};
-use bevy::{prelude::*, render::render_resource::AsBindGroup, shader::ShaderRef};
+use bevy::{
+    asset::RenderAssetUsages,
+    prelude::*,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+};
 
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-struct CaptureProgress {
-    #[uniform(0)]
-    color: Vec4,
-    #[uniform(1)]
-    progress: Vec4,
-}
-impl UiMaterial for CaptureProgress {
-    fn fragment_shader() -> ShaderRef {
-        "embedded://origins/hud/capture_progress.wesl".into()
+#[derive(Resource)]
+struct CaptureMask(Vec<(f32, u8)>);
+impl Default for CaptureMask {
+    fn default() -> Self {
+        Self(
+            (0..128 * 128)
+                .map(|index| {
+                    let delta = Vec2::new((index % 128) as f32 + 0.5, (index / 128) as f32 + 0.5)
+                        / 128.
+                        - Vec2::splat(0.5);
+                    let radius = delta.length() * 2.;
+                    let outer = ((radius - (1. - 1. / 12.)) * 12.).clamp(0., 1.);
+                    let inner = ((1. - 1. / 12. - 0.06 - radius) * 12.).clamp(0., 1.);
+                    (
+                        delta.x.atan2(delta.y),
+                        ((1. - outer.max(inner)) * 255.).round() as u8,
+                    )
+                })
+                .collect(),
+        )
     }
 }
 #[derive(Component)]
@@ -37,7 +51,10 @@ struct MarkerLayer {
     layer: u8,
 }
 #[derive(Component)]
-struct Progress(u8);
+struct Progress {
+    number: u8,
+    value: f32,
+}
 #[derive(Component)]
 struct RaiderMarker(usize);
 #[derive(Resource, Default)]
@@ -49,8 +66,7 @@ struct WidgetState {
     wheel: f32,
 }
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "capture_progress.wesl");
-    app.add_plugins(UiMaterialPlugin::<CaptureProgress>::default())
+    app.init_resource::<CaptureMask>()
         .init_resource::<WidgetState>()
         .add_systems(Update, (setup, update).chain());
 }
@@ -67,9 +83,9 @@ fn setup(
     mut commands: Commands,
     game: Option<Res<GameDefinition>>,
     server: Res<AssetServer>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     roots: Query<(), With<WidgetRoot>>,
-    mut materials: ResMut<Assets<CaptureProgress>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     let (Some(game), Ok(camera)) = (game, cameras.single()) else {
         return;
@@ -139,10 +155,17 @@ fn setup(
                     }
                 });
             for number in 1..=6 {
-                let material = materials.add(CaptureProgress {
-                    color: Vec4::ONE,
-                    progress: Vec4::ZERO,
-                });
+                let image = images.add(Image::new_fill(
+                    Extent3d {
+                        width: 128,
+                        height: 128,
+                        depth_or_array_layers: 1,
+                    },
+                    TextureDimension::D2,
+                    &[255, 255, 255, 0],
+                    TextureFormat::Rgba8UnormSrgb,
+                    RenderAssetUsages::default(),
+                ));
                 parent
                     .spawn((
                         Marker {
@@ -175,8 +198,8 @@ fn setup(
                             ));
                         }
                         p.spawn((
-                            Progress(number),
-                            MaterialNode(material),
+                            Progress { number, value: 0. },
+                            ImageNode::new(image),
                             rect(-6., -6., 68., 68.),
                         ));
                     });
@@ -255,10 +278,16 @@ fn update(
         ),
     >,
     mut progress: Query<
-        (&Progress, &MaterialNode<CaptureProgress>, &mut Node),
-        (Without<Marker>, Without<MarkerLayer>, Without<RaiderMarker>),
+        (&mut Progress, &mut ImageNode, &mut Node),
+        (
+            Without<Marker>,
+            Without<MarkerLayer>,
+            Without<RaiderMarker>,
+            Without<Medal>,
+            Without<WheelImage>,
+        ),
     >,
-    mut materials: ResMut<Assets<CaptureProgress>>,
+    (mask, mut images): (Res<CaptureMask>, ResMut<Assets<Image>>),
     mut raiders: Query<
         (&RaiderMarker, &mut Node, &mut Visibility),
         (
@@ -433,17 +462,24 @@ fn update(
             _ => {}
         }
     }
-    for (progress, material, mut node) in &mut progress {
-        let (large, size, value, occupied) = data[progress.0 as usize - 1];
+    for (mut progress, mut image, mut node) in &mut progress {
+        let (large, size, value, occupied) = data[progress.number as usize - 1];
         let width = if large && value > 0. { 68. } else { 28. };
         *node = rect((size - width) * 0.5, (size - width) * 0.5, width, width);
-        if let Some(mut material) = materials.get_mut(&material.0) {
-            material.progress.x = value;
-            material.color = if occupied {
-                Vec4::new(0.42, 0.71, 1., 1.)
-            } else {
-                Vec4::new(1., 0., 0., 1.)
-            };
+        image.color = if occupied {
+            Color::linear_rgb(0.42, 0.71, 1.)
+        } else {
+            Color::linear_rgb(1., 0., 0.)
+        };
+        if progress.value != value
+            && let Some(mut texture) = images.get_mut(&image.image)
+            && let Some(pixels) = texture.data.as_mut()
+        {
+            let threshold = std::f32::consts::PI - value * std::f32::consts::TAU;
+            for (pixel, &(angle, alpha)) in pixels.chunks_exact_mut(4).zip(&mask.0) {
+                pixel[3] = if angle > threshold { alpha } else { 0 };
+            }
+            progress.value = value;
         }
     }
     let targets: Vec<_> = attackers

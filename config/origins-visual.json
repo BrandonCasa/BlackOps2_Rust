@@ -10,7 +10,7 @@
   "transparent_opacity_scale": 0.6,
   "reveal_softness": 3.2,
   "comparison_fov_degrees": 55.0,
-  "antialiasing": "Taa",
+  "antialiasing": "Dlss",
   "lantern_color": [
     1.0,
     0.71,

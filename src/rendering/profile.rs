@@ -3,9 +3,7 @@ use serde::Deserialize;
 
 #[derive(Clone, Copy, Deserialize, serde::Serialize)]
 pub(crate) enum Antialiasing {
-    Msaa4,
-    Smaa,
-    Taa,
+    Dlss,
 }
 
 #[derive(Resource, Deserialize)]

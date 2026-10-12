@@ -149,8 +149,10 @@ fn blast(world: &mut World, owner: Entity, target: Entity, damage: u32) {
             inner_damage: damage,
             outer_damage: damage,
             direction: None,
-            category: None, player_damage: None, source: None,
-});
+            category: None,
+            player_damage: None,
+            source: None,
+        });
 }
 fn drive(world: &mut World) {
     world.resource_scope(|world, mut run: Mut<Run>| {

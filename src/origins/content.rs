@@ -1082,10 +1082,17 @@ impl ContentCatalog {
             valid(
                 (!uses_ammo || (v.damage > 0 && v.magazine > 0))
                     && v.hud.as_ref().is_none_or(|hud| {
-                        [hud.center_size,hud.side_size,hud.minimum_offset].iter().all(|value| value.is_finite() && *value >= 0. && *value <= 512.)
-                        && hud.side_position.is_finite() && hud.side_position.abs() <= 8.
-                        && hud.low_ammo_fraction.is_finite() && (0. ..=1.).contains(&hud.low_ammo_fraction)
-                        && [&hud.center,&hud.side].into_iter().flatten().all(|id| self.ui_assets.iter().any(|asset| asset.id == *id))
+                        [hud.center_size, hud.side_size, hud.minimum_offset]
+                            .iter()
+                            .all(|value| value.is_finite() && *value >= 0. && *value <= 512.)
+                            && hud.side_position.is_finite()
+                            && hud.side_position.abs() <= 8.
+                            && hud.low_ammo_fraction.is_finite()
+                            && (0. ..=1.).contains(&hud.low_ammo_fraction)
+                            && [&hud.center, &hud.side]
+                                .into_iter()
+                                .flatten()
+                                .all(|id| self.ui_assets.iter().any(|asset| asset.id == *id))
                     })
                     && positive(v.fire_interval)
                     && positive(v.reload_seconds)

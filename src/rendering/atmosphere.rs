@@ -1,14 +1,8 @@
 use super::{GameCamera, profile::VisualProfile};
 use crate::environment::weather::{Weather, WeatherKind};
-use bevy::{
-    asset::uuid_handle,
-    prelude::*,
-    shader::{Shader, ShaderImport},
-};
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-
-const FOG_SHADER: Handle<Shader> = uuid_handle!("87aacd2f-2138-4cd8-b216-f392144468fd");
 
 #[derive(Resource, Deserialize)]
 pub(crate) struct SourceAtmosphere {
@@ -78,10 +72,11 @@ impl WorldFog {
                 self.sun_color[2] * scale,
                 self.sun_opacity,
             ),
-            directional_light_exponent: -(self.sun_angles[3] + 1.),
-            falloff: FogFalloff::Atmospheric {
-                extinction: Vec3::new(self.distance[0], self.distance[1], self.distance[2]),
-                inscattering: Vec3::new(self.distance[3], self.sun_angles[0], self.sun_angles[1]),
+            directional_light_exponent: 1.
+                / (1. - self.sun_angles[3].to_radians().cos()).max(0.001),
+            falloff: FogFalloff::Exponential {
+                density: std::f32::consts::LN_2 * std::f32::consts::LN_2
+                    / self.distance[1].max(0.0254),
             },
         }
     }
@@ -133,7 +128,7 @@ impl Plugin for AtmospherePlugin {
     fn build(&self, app: &mut App) {
         let source = SourceAtmosphere::default();
         app.insert_resource(AtmosphereState {
-            shader_ready: false,
+            shader_ready: true,
             initialized: false,
             bank: 1,
             volume: None,
@@ -150,13 +145,8 @@ impl Plugin for AtmospherePlugin {
         })
         .insert_resource(source)
         .add_systems(Startup, (setup.after(super::setup), super::grading::setup))
-        .add_systems(
-            Update,
-            prepare_shader.before(super::opaque::prepare_shaders),
-        )
         .add_systems(Update, update.after(super::camera_follow))
         .add_systems(Update, super::grading::prepare.after(update))
-        .add_systems(Update, super::grading::prepare_shader)
         .add_systems(OnEnter(crate::GameState::PreparingShaders), reset);
     }
 }
@@ -188,48 +178,6 @@ fn reset(mut state: ResMut<AtmosphereState>) {
     state.vision_from = 0.;
     state.vision_target = 0.;
     state.vision_elapsed = 0.;
-}
-
-fn prepare_shader(mut shaders: ResMut<Assets<Shader>>, mut state: ResMut<AtmosphereState>) {
-    if state.shader_ready {
-        return;
-    }
-    let Some((id, native)) = shaders.iter().find(|(_, shader)| {
-        shader.import_path == ShaderImport::Custom("bevy_pbr::render::pbr_functions".into())
-    }) else {
-        return;
-    };
-    let marker = "    let view_to_world = fragment_world_position.xyz - view_world_position.xyz;";
-    let original = native.source.as_str();
-    assert_eq!(
-        original.matches(marker).count(),
-        1,
-        "Pinned native fog entry changed"
-    );
-    let replacement = format!(
-        "    if fog_params.directional_light_exponent < 0.0 {{\n        return origins_fog::apply(fog_params, input_color, fragment_world_position, view_world_position);\n    }}\n{marker}"
-    );
-    let source = format!(
-        "import origins::atmosphere_fog as origins_fog;\n{}",
-        original.replacen(marker, &replacement, 1)
-    );
-    let mut patched = Shader::from_wesl(source, native.path.clone());
-    patched.import_path = native.import_path.clone();
-    patched.file_dependencies = native.file_dependencies.clone();
-    patched.shader_defs = native.shader_defs.clone();
-    shaders
-        .insert(
-            FOG_SHADER.id(),
-            Shader::from_wesl(
-                include_str!("atmosphere_fog.wesl"),
-                "embedded://origins/atmosphere_fog.wesl",
-            ),
-        )
-        .expect("Origins fog shader handle");
-    shaders
-        .insert(id, patched)
-        .expect("Native fog shader handle");
-    state.shader_ready = true;
 }
 
 fn update(
@@ -352,15 +300,14 @@ pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
                 &bevy::camera::Exposure,
                 Option<&bevy::light::Skybox>,
                 Has<GameCamera>,
-                Has<crate::presentation::ViewModelCamera>,
                 Option<&DistanceFog>,
                 Has<bevy::post_process::auto_exposure::AutoExposure>,
                 Option<&bevy::post_process::bloom::Bloom>,
             )>()
             .iter(world)
-            .map(|(pose, tone, exposure, sky, world, viewmodel, fog, automatic, bloom)| {
+            .map(|(pose, tone, exposure, sky, world, fog, automatic, bloom)| {
                 serde_json::json!({
-                    "world": world, "viewmodel": viewmodel, "fog": fog.is_some(),
+                    "world": world, "fog": fog.is_some(),
                     "auto_exposure": automatic, "bloom": bloom.map(|b| b.intensity),
                     "fog_color": fog.map(|fog| fog.color.to_linear().to_f32_array()),
                     "sun_fog_color": fog.map(|fog| fog.directional_light_color.to_linear().to_f32_array()),

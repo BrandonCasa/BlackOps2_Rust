@@ -5,12 +5,11 @@ use bevy::{
     image::ImageSampler,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
-    shader::{Shader, ShaderImport},
 };
 
 use std::sync::Arc;
 
-const SIZE: u32 = 32;
+const SIZE: u32 = 48;
 
 #[derive(Resource)]
 pub(super) struct SourceGrade {
@@ -18,12 +17,11 @@ pub(super) struct SourceGrade {
     pixels: Option<Arc<[u8]>>,
     lut: Option<Handle<Image>>,
     selected: Option<f32>,
-    shader_ready: bool,
 }
 
 impl SourceGrade {
     pub(super) fn ready(&self) -> bool {
-        self.lut.is_some() && self.shader_ready
+        self.lut.is_some()
     }
 }
 
@@ -38,45 +36,7 @@ pub(super) fn setup(mut commands: Commands, server: Res<AssetServer>) {
         pixels: None,
         lut: None,
         selected: None,
-        shader_ready: false,
     });
-}
-
-pub(super) fn prepare_shader(
-    mut shaders: ResMut<Assets<Shader>>,
-    mut grade: ResMut<SourceGrade>,
-    source: Res<SourceAtmosphere>,
-) {
-    if grade.shader_ready {
-        return;
-    }
-    let Some((id, native)) = shaders.iter().find(|(_, shader)| {
-        shader.import_path == ShaderImport::Custom("bevy_core_pipeline::tonemapping".into())
-    }) else {
-        return;
-    };
-    let original = native.source.as_str();
-    let start = original
-        .find("fn sample_tony_mc_mapface_lut(")
-        .expect("Pinned tonemapping entry");
-    let end = start
-        + original[start..]
-            .find("\n}")
-            .expect("Pinned tonemapping function")
-        + 2;
-    let replacement = include_str!("grading.wesl").replace(
-        "$SOFTCLIP",
-        &format!("{:.9}", source.softclip.max(1. / 1024.)),
-    );
-    let source = format!("{}{}{}", &original[..start], replacement, &original[end..]);
-    let mut patched = Shader::from_wesl(source, native.path.clone());
-    patched.import_path = native.import_path.clone();
-    patched.file_dependencies = native.file_dependencies.clone();
-    patched.shader_defs = native.shader_defs.clone();
-    shaders
-        .insert(id, patched)
-        .expect("Native tonemapping shader handle");
-    grade.shader_ready = true;
 }
 
 pub(super) fn prepare(
@@ -142,14 +102,60 @@ pub(super) fn prepare(
     for z in 0..SIZE {
         for y in 0..SIZE {
             for x in 0..SIZE {
-                let offset = ((y * 1024 + z * 32 + x) * 4) as usize;
-                let base = Vec3::new(
-                    pixels[offset] as f32,
-                    pixels[offset + 1] as f32,
-                    pixels[offset + 2] as f32,
-                ) / 255.;
-                let result = film.apply(base);
-                lut.set_color_at_3d(x, y, z, Color::linear_rgb(result.x, result.y, result.z))
+                let encoded = Vec3::new(x as f32, y as f32, z as f32) / (SIZE - 1) as f32;
+                let stimulus = encoded / (Vec3::ONE - encoded).max(Vec3::splat(1e-6));
+                let native = stimulus.sqrt();
+                let softclip = source.softclip.max(1. / 1024.);
+                let pivot = 1. - softclip;
+                let native = native
+                    .map(|v| {
+                        if v > pivot {
+                            1. - softclip * ((pivot - v) / softclip).exp()
+                        } else {
+                            v
+                        }
+                    })
+                    .clamp(Vec3::ZERO, Vec3::ONE)
+                    * 31.;
+                let lo = native.floor().as_uvec3();
+                let hi = (lo + UVec3::ONE).min(UVec3::splat(31));
+                let fraction = native - lo.as_vec3();
+                let mut display = Vec3::ZERO;
+                for corner in 0..8 {
+                    let p = UVec3::new(
+                        if corner & 1 == 0 { lo.x } else { hi.x },
+                        if corner & 2 == 0 { lo.y } else { hi.y },
+                        if corner & 4 == 0 { lo.z } else { hi.z },
+                    );
+                    let weight = (if corner & 1 == 0 {
+                        1. - fraction.x
+                    } else {
+                        fraction.x
+                    }) * (if corner & 2 == 0 {
+                        1. - fraction.y
+                    } else {
+                        fraction.y
+                    }) * (if corner & 4 == 0 {
+                        1. - fraction.z
+                    } else {
+                        fraction.z
+                    });
+                    let offset = ((p.y * 1024 + p.z * 32 + p.x) * 4) as usize;
+                    let base = Vec3::new(
+                        pixels[offset] as f32,
+                        pixels[offset + 1] as f32,
+                        pixels[offset + 2] as f32,
+                    ) / 255.;
+                    display += film.apply(base) * weight;
+                }
+                let linear = display.map(|v| {
+                    if v > 0.04045 {
+                        ((v + 0.055) / 1.055).powf(2.4)
+                    } else {
+                        v / 12.92
+                    }
+                });
+                lut.set_color_at_3d(x, y, z, Color::linear_rgb(linear.x, linear.y, linear.z))
                     .expect("Native display LUT texel");
             }
         }

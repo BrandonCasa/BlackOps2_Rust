@@ -84,7 +84,7 @@ fn setup(
     mut commands: Commands,
     game: Option<Res<GameDefinition>>,
     server: Res<AssetServer>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     roots: Query<(), With<ScoreboardRoot>>,
 ) {
     let (Some(game), Ok(camera)) = (game, cameras.single()) else {
@@ -602,7 +602,7 @@ fn preview(
     game: Option<Res<GameDefinition>>,
     server: Res<AssetServer>,
     players: Query<Entity, With<Player>>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     mut roots: Query<(
         Entity,
         &InventoryPreview,

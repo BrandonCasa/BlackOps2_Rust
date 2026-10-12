@@ -345,7 +345,12 @@ pub(crate) fn interact(
         || mines.busy()
         || tactical.busy()
         || drinking;
-    if usable.source.generator.as_ref().is_some_and(|id| !generators.powered(id)) {
+    if usable
+        .source
+        .generator
+        .as_ref()
+        .is_some_and(|id| !generators.powered(id))
+    {
         focus.prompt = "Requires generator power".into();
         focus.progress = 0.;
         focus.rejection = Some(InteractionRejection::NoPower);
@@ -539,13 +544,22 @@ pub(crate) fn interact(
         return;
     };
     let owned_variant = inventory.owned().find_map(|(_, owned)| {
-        let candidate = definition.content.weapons.iter().find(|w| w.id == owned.definition)?;
-        (candidate.id == weapon.id || weapon.upgraded.as_ref() == Some(&candidate.id)
-            || weapon.ammo_group.as_ref().is_some_and(|group| candidate.ammo_group.as_ref() == Some(group)))
-            .then_some(candidate)
+        let candidate = definition
+            .content
+            .weapons
+            .iter()
+            .find(|w| w.id == owned.definition)?;
+        (candidate.id == weapon.id
+            || weapon.upgraded.as_ref() == Some(&candidate.id)
+            || weapon
+                .ammo_group
+                .as_ref()
+                .is_some_and(|group| candidate.ammo_group.as_ref() == Some(group)))
+        .then_some(candidate)
     });
     let owned = owned_variant.is_some();
-    let upgraded = owned_variant.is_some_and(|candidate| weapon.upgraded.as_ref() == Some(&candidate.id));
+    let upgraded =
+        owned_variant.is_some_and(|candidate| weapon.upgraded.as_ref() == Some(&candidate.id));
     let cost = if weapon.throwable.is_some() {
         *price
     } else if upgraded {

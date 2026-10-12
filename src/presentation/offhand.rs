@@ -260,7 +260,7 @@ pub(super) fn record_motion(
 pub(super) fn record_visibility(
     verification: Option<Res<crate::verification::Verification>>,
     rigs: Query<(Entity, &Rig, &GlobalTransform, &InheritedVisibility)>,
-    cameras: Query<&GlobalTransform, With<ViewModelCamera>>,
+    cameras: Query<&GlobalTransform, With<GameCamera>>,
     children: Query<&Children>,
     meshes: Query<
         (

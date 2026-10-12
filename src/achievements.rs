@@ -175,7 +175,7 @@ fn notification(
     mut commands: Commands,
     game_state: Res<State<GameState>>,
     state: Res<Achievements>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     mut text: Query<(&mut crate::hud::native::NativeText, &mut Visibility), With<Toast>>,
 ) {
     if let Ok((mut text, mut visibility)) = text.single_mut() {

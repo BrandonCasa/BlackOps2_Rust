@@ -28,12 +28,11 @@ pub(super) fn record(
     images: Res<Assets<Image>>,
     generators: Option<Res<super::generators::Coverage>>,
     environment: Res<crate::run_environment::RunEnvironment>,
-    shared_lighting: (
-        Res<crate::audio::AudioDecodeStats>,
-        Res<crate::rendering::FirstPersonDepthStats>,
-    ),
+    audio_decode: Res<crate::audio::AudioDecodeStats>,
 ) {
-    let (audio_decode, first_person_depth) = shared_lighting;
+    if options.test_combat {
+        return;
+    }
     let Some(verification) = verification else {
         return;
     };
@@ -120,10 +119,9 @@ pub(super) fn record(
             "timing_scope": "Application frame intervals; no CPU/GPU pass attribution",
             "shadowed_point_lights_min_max": samples.shadow_lights,
             "combat_shadowed_point_lights_min_max": samples.combat_shadow_lights,
-            "shared_lighting": { "method": "native_raster", "ray_tracing": false, "local_light_limit": profile.max_local_lights },
+            "shared_lighting": { "method": "solari", "ray_tracing": true, "local_light_limit": profile.max_local_lights },
             "audio_decode": &*audio_decode,
             "mesh_preprocessing": preprocessing.report(),
-            "first_person_depth": first_person_depth.report(),
             "combat": if samples.combat.is_empty() { serde_json::Value::Null } else { summary(&samples.combat, true) },
         });
         match std::fs::write(

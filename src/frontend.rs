@@ -93,7 +93,7 @@ fn show(
     state: Res<State<GameState>>,
     difficulty: Res<Difficulty>,
     options: Res<LaunchOptions>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     game: Option<Res<crate::assets::GameDefinition>>,
     server: Res<AssetServer>,
     mut selected: ResMut<FrontendSelection>,

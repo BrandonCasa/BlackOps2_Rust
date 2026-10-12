@@ -10,13 +10,8 @@ use crate::{
     weapons::{WeaponInventory, WeaponSignal},
 };
 use bevy::{
-    camera::{
-        CameraOutputMode, Hdr,
-        visibility::{NoFrustumCulling, RenderLayers},
-    },
-    core_pipeline::tonemapping::Tonemapping,
+    camera::visibility::{NoFrustumCulling, RenderLayers},
     prelude::*,
-    render::{render_resource::BlendState, view::ColorGrading},
     world_serialization::WorldInstanceReady,
 };
 use std::collections::BTreeMap;
@@ -31,11 +26,7 @@ pub struct PresentationPlugin;
 pub(crate) struct PresentationAnimation;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct CameraPose;
-const VIEWMODEL_FOV_DEGREES: f32 = 65.;
 const VIEWMODEL_ORIGIN: Vec3 = Vec3::new(0., 0.025, 0.);
-#[derive(Component, Clone, bevy::render::extract_component::ExtractComponent)]
-#[extract_app(bevy::render::RenderApp)]
-pub(crate) struct ViewModelCamera;
 #[derive(Component)]
 struct AimingJoint {
     owner: Entity,
@@ -103,7 +94,6 @@ impl Plugin for PresentationPlugin {
                     .chain()
                     .in_set(PresentationAnimation),
             )
-            .add_systems(Startup, first_person_light.after(crate::rendering::setup))
             .add_systems(
                 PostUpdate,
                 clear_aim_pose.before(bevy::app::AnimationSystems),
@@ -144,73 +134,6 @@ impl Plugin for PresentationPlugin {
             .add_systems(Last, offhand::record_visibility)
             .add_observer(rig_ready);
         app.add_observer(attachment_ready);
-    }
-}
-pub(crate) fn first_person_light(
-    mut commands: Commands,
-    mut cameras: Query<(Entity, &mut Camera), With<GameCamera>>,
-    profile: Res<crate::rendering::profile::VisualProfile>,
-    source: Res<crate::rendering::atmosphere::SourceAtmosphere>,
-) {
-    for (camera, mut world_camera) in &mut cameras {
-        world_camera.output_mode = CameraOutputMode::Skip;
-        commands.entity(camera).with_children(|parent| {
-            let mut final_camera = parent.spawn((
-                Camera3d::default(),
-                bevy::pbr::ScreenSpaceTransmission::default(),
-                Camera {
-                    order: 1,
-                    clear_color: ClearColorConfig::None,
-                    output_mode: CameraOutputMode::Write {
-                        blend_state: Some(BlendState::REPLACE),
-                        clear_color: ClearColorConfig::Custom(Color::BLACK),
-                    },
-                    ..default()
-                },
-                Projection::Perspective(PerspectiveProjection {
-                    fov: VIEWMODEL_FOV_DEGREES.to_radians(),
-                    near: 0.01,
-                    far: 4.,
-                    ..default()
-                }),
-                Transform::default(),
-                Hdr,
-                source.camera_exposure(&profile),
-                Tonemapping::TonyMcMapface,
-                ColorGrading::default(),
-                crate::rendering::postprocess::bloom(&profile),
-                match profile.antialiasing {
-                    crate::rendering::profile::Antialiasing::Msaa4 => Msaa::Sample4,
-                    crate::rendering::profile::Antialiasing::Smaa
-                    | crate::rendering::profile::Antialiasing::Taa => Msaa::Off,
-                },
-                RenderLayers::layer(1),
-                ViewModelCamera,
-                bevy::render::view::NoIndirectDrawing,
-                Name::new("First-person camera"),
-            ));
-            final_camera.insert((
-                bevy::pbr::ContactShadows::default(),
-                match profile.antialiasing {
-                    crate::rendering::profile::Antialiasing::Taa => {
-                        bevy::light::ShadowFilteringMethod::Temporal
-                    }
-                    _ => bevy::light::ShadowFilteringMethod::Gaussian,
-                },
-            ));
-            if matches!(
-                profile.antialiasing,
-                crate::rendering::profile::Antialiasing::Taa
-            ) {
-                final_camera.insert(bevy::anti_alias::taa::TemporalAntiAliasing::default());
-            }
-            if matches!(
-                profile.antialiasing,
-                crate::rendering::profile::Antialiasing::Smaa
-            ) {
-                final_camera.insert(crate::rendering::postprocess::smaa());
-            }
-        });
     }
 }
 fn spawn_viewmodels(
@@ -720,7 +643,6 @@ fn aim_pose(
     definition: Option<Res<GameDefinition>>,
     inventories: offhand::Inventories,
     mut joints: Query<(&mut AimingJoint, &mut Transform)>,
-    mut cameras: Query<&mut Projection, With<ViewModelCamera>>,
 ) {
     let Some(definition) = definition else {
         return;
@@ -771,22 +693,6 @@ fn aim_pose(
         }
         pose.translation += joint.translation;
         pose.rotation *= joint.rotation;
-        let visible = equipment
-            .as_ref()
-            .map(|s| &s.weapon)
-            .or_else(|| inventory.active().map(|w| &w.definition));
-        if visible != Some(&joint.weapon) {
-            continue;
-        }
-        for mut projection in &mut cameras {
-            if let Projection::Perspective(p) = &mut *projection {
-                p.fov = if equipment.is_none() {
-                    inventory.ads_fov(VIEWMODEL_FOV_DEGREES, weapon)
-                } else {
-                    VIEWMODEL_FOV_DEGREES.to_radians()
-                };
-            }
-        }
     }
 }
 fn camera_pose(

@@ -6,6 +6,7 @@ pub(crate) fn settings() -> WgpuSettings {
     }
     WgpuSettings {
         backends: Some(Backends::VULKAN),
+        features: bevy::solari::SolariPlugins::required_wgpu_features(),
         force_fallback_adapter: false,
         ..Default::default()
     }

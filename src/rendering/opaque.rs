@@ -1,219 +1,18 @@
-mod material;
-use super::{SurfaceReady, profile::VisualProfile};
-use crate::assets::{LoadConfiguration, LoadFailure, WorldCollider};
-use bevy::{
-    asset::uuid_handle,
-    gltf::{GltfExtras, GltfMaterialName},
-    mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef, VertexAttributeValues},
-    pbr::{
-        ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
-        MeshPipelineKey,
-    },
-    prelude::*,
-    render::render_resource::{
-        AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
-        VertexFormat,
-    },
-    shader::{Shader, ShaderImport, ShaderRef},
+use super::{
+    SurfaceReady,
+    pbr::{PbrReady, PreparedTexture},
 };
-pub(super) use material::OpaqueMaterial;
-pub(crate) fn bindless_supported(device: &bevy::render::renderer::RenderDevice) -> bool {
-    OpaqueMaterial::bindless_supported(device)
-}
+use bevy::{
+    gltf::{GltfExtras, GltfMaterialName},
+    prelude::*,
+    render::render_resource::AsBindGroup,
+};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Component)]
-struct QuestLightMaterial {
-    handle: QuestLightId,
-    brightness: f32,
-    color: Vec3,
+pub(crate) fn bindless_supported(device: &bevy::render::renderer::RenderDevice) -> bool {
+    StandardMaterial::bindless_supported(device)
 }
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum QuestLightId {
-    Opaque(AssetId<OpaqueMaterial>),
-    Standard(AssetId<StandardMaterial>),
-}
-
-pub(crate) fn install_quest_lights(app: &mut App) {
-    app.add_systems(
-        Update,
-        quest_lights
-            .after(super::SurfacePreparation)
-            .after(crate::staff_upgrades::lights::LightPresentation),
-    );
-}
-
-#[cfg(feature = "dev-dynamic")]
-pub(crate) fn quest_light_snapshot(world: &mut World) -> serde_json::Value {
-    let materials = world.resource::<Assets<OpaqueMaterial>>();
-    let standard = world.resource::<Assets<StandardMaterial>>();
-    let mut result = Vec::new();
-    for entity in world.iter_entities() {
-        let Some(light) = entity.get::<QuestLightMaterial>() else {
-            continue;
-        };
-        let material = match light.handle {
-            QuestLightId::Opaque(id) => materials
-                .get(id)
-                .map(|material| ("opaque", format!("{id:?}"), &material.base)),
-            QuestLightId::Standard(id) => standard
-                .get(id)
-                .map(|material| ("standard", format!("{id:?}"), material)),
-        };
-        if let Some((kind, handle, material)) = material {
-            result.push(serde_json::json!({"entity":entity.id().to_bits(),
-                "material":handle,"kind":kind,"color":light.color.to_array(),
-                "emissive":[material.emissive.red,material.emissive.green,material.emissive.blue]}));
-        }
-    }
-    serde_json::json!(result)
-}
-
-fn quest_lights(
-    mut commands: Commands,
-    surfaces: Query<(
-        Entity,
-        &crate::staff_upgrades::lights::LightSurface,
-        &MeshMaterial3d<OpaqueMaterial>,
-        Option<&QuestLightMaterial>,
-    )>,
-    mut materials: ResMut<Assets<OpaqueMaterial>>,
-    standard_surfaces: Query<
-        (
-            Entity,
-            &crate::staff_upgrades::lights::LightSurface,
-            &MeshMaterial3d<StandardMaterial>,
-            Option<&QuestLightMaterial>,
-        ),
-        Without<MeshMaterial3d<OpaqueMaterial>>,
-    >,
-    mut standard: ResMut<Assets<StandardMaterial>>,
-) {
-    for (entity, surface, current, cloned) in &surfaces {
-        let Some(source) = materials.get(&current.0) else {
-            continue;
-        };
-        let brightness = cloned
-            .filter(|cloned| cloned.handle == QuestLightId::Opaque(current.0.id()))
-            .map_or_else(
-                || source.base.emissive.red.max(1.),
-                |cloned| cloned.brightness,
-            );
-        let color = surface.color * surface.color * brightness;
-        if cloned.is_none_or(|cloned| cloned.handle != QuestLightId::Opaque(current.0.id())) {
-            let mut source = source.clone();
-            source.base.emissive = LinearRgba::rgb(color.x, color.y, color.z);
-            let handle = materials.add(source);
-            commands.entity(entity).insert((
-                MeshMaterial3d(handle.clone()),
-                QuestLightMaterial {
-                    handle: QuestLightId::Opaque(handle.id()),
-                    brightness,
-                    color: surface.color,
-                },
-            ));
-        } else if cloned.is_some_and(|cloned| cloned.color != surface.color) {
-            if let Some(mut material) = materials.get_mut(&current.0) {
-                material.base.emissive = LinearRgba::rgb(color.x, color.y, color.z);
-            }
-            commands.entity(entity).insert(QuestLightMaterial {
-                handle: QuestLightId::Opaque(current.0.id()),
-                brightness,
-                color: surface.color,
-            });
-        }
-    }
-    for (entity, surface, current, cloned) in &standard_surfaces {
-        let Some(source) = standard.get(&current.0) else {
-            continue;
-        };
-        let id = QuestLightId::Standard(current.0.id());
-        let brightness = cloned
-            .filter(|cloned| cloned.handle == id)
-            .map_or_else(|| source.emissive.red.max(1.), |cloned| cloned.brightness);
-        let color = surface.color * surface.color * brightness;
-        if cloned.is_none_or(|cloned| cloned.handle != id) {
-            let mut source = source.clone();
-            source.emissive = LinearRgba::rgb(color.x, color.y, color.z);
-            let handle = standard.add(source);
-            commands.entity(entity).insert((
-                MeshMaterial3d(handle.clone()),
-                QuestLightMaterial {
-                    handle: QuestLightId::Standard(handle.id()),
-                    brightness,
-                    color: surface.color,
-                },
-            ));
-        } else if cloned.is_some_and(|cloned| cloned.color != surface.color) {
-            if let Some(mut material) = standard.get_mut(&current.0) {
-                material.emissive = LinearRgba::rgb(color.x, color.y, color.z);
-            }
-            commands.entity(entity).insert(QuestLightMaterial {
-                handle: id,
-                brightness,
-                color: surface.color,
-            });
-        }
-    }
-}
-
-const SHADER: Handle<Shader> = uuid_handle!("d61788a5-711f-4eb1-a7f7-bd1b9558da81");
-const VERTEX_SHADER: Handle<Shader> = uuid_handle!("e6ed1727-30d7-4c74-b53d-59cb68d0fa84");
-const BINDINGS_SHADER: Handle<Shader> = uuid_handle!("20c29018-2914-4277-b41a-a97c8ad9cf0e");
-const LIGHTING_SHADER: Handle<Shader> = uuid_handle!("6a0c079c-843a-4d97-8ee7-e4ef3d973d6e");
-const EFFECT_SHADER: Handle<Shader> = uuid_handle!("0b5a6dd8-a735-40f9-9b83-12b0e09967e8");
-const NATIVE_SHADER: Handle<Shader> = uuid_handle!("0af790ef-9953-48d6-8b36-2afac0f5f6a3");
-#[derive(Resource)]
-pub(super) struct MaterialShadersReady;
-
-pub(super) fn prepare_shaders(
-    mut commands: Commands,
-    mut shaders: ResMut<Assets<Shader>>,
-    ready: Option<Res<MaterialShadersReady>>,
-) {
-    if ready.is_some() {
-        return;
-    }
-    if prepare_diagnostic_shaders(&mut shaders) {
-        commands.insert_resource(MaterialShadersReady);
-    }
-}
-
-pub(super) fn prepare_diagnostic_shaders(shaders: &mut Assets<Shader>) -> bool {
-    let Some(source) = shaders.iter().find_map(|(_, shader)| {
-        (shader.import_path == ShaderImport::Custom("bevy_pbr::render::pbr_functions".into()))
-            .then(|| shader.source.as_str().to_string())
-    }) else {
-        return false;
-    };
-    super::pbr::diagnostic_shaders(shaders, &source);
-    let lighting = format!(
-        "import origins::surface_bindings::{{reflection_diagnostic_enabled, surface_diagnostic_mode}};\n{}",
-        source.replace("package::", "bevy_pbr::")
-    ).replacen(
-        "    indirect_light += environment_light.diffuse * diffuse_occlusion;",
-        "    if reflection_diagnostic_enabled() { return vec4(environment_light.specular * specular_occlusion * view_bindings::view.exposure, 1.0); }\n    indirect_light += environment_light.diffuse * diffuse_occlusion;",
-        1,
-    );
-    let lighting = super::pbr::lighting_diagnostics(lighting, "surface_diagnostic_mode");
-    shaders
-        .insert(
-            LIGHTING_SHADER.id(),
-            Shader::from_wesl(lighting, "embedded://origins/surface_lighting.wesl"),
-        )
-        .expect("Valid shader UUID");
-    true
-}
-pub(crate) const LAYER_UV: MeshVertexAttribute =
-    MeshVertexAttribute::new("OriginsLayerUv", 10001, VertexFormat::Float32x4);
-pub(crate) const LAYER3_UV: MeshVertexAttribute =
-    MeshVertexAttribute::new("OriginsLayer3Uv", 10002, VertexFormat::Float32x2);
-pub(crate) const ROTATION1: MeshVertexAttribute =
-    MeshVertexAttribute::new("OriginsRotation1", 10003, VertexFormat::Float32x4);
-pub(crate) const ROTATION2: MeshVertexAttribute =
-    MeshVertexAttribute::new("OriginsRotation2", 10004, VertexFormat::Float32x4);
 
 #[derive(Resource, Default, serde::Serialize)]
 pub(crate) struct OpaqueSurfaceStatus {
@@ -221,634 +20,117 @@ pub(crate) struct OpaqueSurfaceStatus {
     static_models: usize,
     normal: usize,
     response_maps: usize,
-    tile_macro: usize,
-    layered: usize,
     masked: usize,
     transparent: usize,
-    pub(crate) premultiplied_sources: usize,
-    pub(crate) straight_alpha_mismatches: usize,
     water: usize,
-    wettable: usize,
     pub pending: usize,
     shared_materials: usize,
 }
-
 impl OpaqueSurfaceStatus {
     pub(crate) fn ready(&self) -> bool {
         self.world > 0 && self.static_models > 0 && self.pending == 0
     }
 }
 
-pub(super) fn release_preparation(library: &mut SurfaceLibrary) {
-    for definition in library.definitions.values_mut() {
-        definition.channels.clear();
-    }
-}
-
-pub(super) fn converted_source(
-    library: &SurfaceLibrary,
-    id: bevy::asset::AssetId<StandardMaterial>,
-) -> bool {
-    library.materials.keys().any(|(source, _)| *source == id)
-}
-
-#[derive(Clone, Copy, Debug, Reflect, ShaderType)]
-pub(super) struct EffectParameters {
-    pub scale_scroll: [Vec4; 3],
-    pub origin_offset: [Vec4; 3],
-    pub rotation_depth: [Vec4; 3],
-    pub alpha_hdr: Vec4,
-    pub falloff_response: Vec4,
-    pub coverage_layers: UVec4,
-}
-
-impl Default for EffectParameters {
-    fn default() -> Self {
-        Self {
-            scale_scroll: [Vec4::new(1., 1., 0., 0.); 3],
-            origin_offset: [Vec4::ZERO; 3],
-            rotation_depth: [Vec4::ZERO; 3],
-            alpha_hdr: Vec4::ONE,
-            falloff_response: Vec4::new(0., 1., 0., 0.),
-            coverage_layers: UVec4::new(0, 1, 2, 0),
-        }
-    }
-}
-
-impl EffectParameters {
-    fn read(surface: &Value) -> Option<Self> {
-        let effect = &surface["effect"];
-        if effect["kind"] != "native_unlit_3layer" {
-            return None;
-        }
-        let pair = |index: usize, key: &str| {
-            Vec2::new(
-                effect["layers"][index][key][0].as_f64().unwrap_or(0.) as f32,
-                effect["layers"][index][key][1].as_f64().unwrap_or(0.) as f32,
-            )
-        };
-        let mut result = Self::default();
-        for i in 0..3 {
-            let scale = pair(i, "scale");
-            let scroll = pair(i, "scroll");
-            let origin = pair(i, "origin");
-            let offset = pair(i, "offset");
-            let rotation = pair(i, "rotation");
-            result.scale_scroll[i] = Vec4::new(scale.x, scale.y, scroll.x, scroll.y);
-            result.origin_offset[i] = Vec4::new(origin.x, origin.y, offset.x, offset.y);
-            result.rotation_depth[i] = rotation
-                .extend(effect["layers"][i]["depth"].as_f64().unwrap_or(0.) as f32)
-                .extend(0.);
-            result.alpha_hdr[i] = effect["layers"][i]["alpha"].as_f64().unwrap_or(1.) as f32;
-            result.coverage_layers[i] =
-                effect["coverage_layers"][i].as_u64().unwrap_or(i as u64) as u32;
-        }
-        result.alpha_hdr.w = effect["hdr"].as_f64().unwrap_or(1.) as f32;
-        result.falloff_response = Vec4::new(
-            effect["falloff"][0].as_f64().unwrap_or(0.) as f32,
-            effect["falloff"][1].as_f64().unwrap_or(1.) as f32,
-            effect["reflection"].as_f64().unwrap_or(0.) as f32,
-            effect["gloss"].as_f64().unwrap_or(0.) as f32,
-        );
-        Some(result)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Reflect, ShaderType)]
-pub(super) struct SurfaceParameters {
-    pub response: Vec4,
-    pub modes: UVec4,
-    pub layers: UVec4,
-    pub reveal: Vec4,
-    pub wetness: Vec4,
-    pub water: Vec4,
-    pub velocity: Vec4,
-    pub frozen: Vec4,
-    pub frozen_edge: Vec4,
-    pub effect: EffectParameters,
-    pub native: super::native_weapon::NativeWeaponParameters,
-    pub diagnostic_state: UVec4,
-}
-
-#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
-#[bind_group_data(OpaqueSurfaceKey)]
-#[data(100, SurfaceParameters, binding_array(131))]
-#[bindless(limit(1024), index_table(range(100..129), binding(130)))]
-pub(super) struct OpaqueSurface {
-    pub(super) parameters: SurfaceParameters,
-    diagnostic: bool,
-    #[texture(101)]
-    #[sampler(102)]
-    #[dependency]
-    normal: Option<Handle<Image>>,
-    #[texture(103)]
-    #[sampler(104)]
-    #[dependency]
-    second_normal: Option<Handle<Image>>,
-    #[texture(105)]
-    #[sampler(106)]
-    #[dependency]
-    specular: Option<Handle<Image>>,
-    #[texture(107)]
-    #[sampler(108)]
-    #[dependency]
-    second_specular: Option<Handle<Image>>,
-    #[texture(109)]
-    #[sampler(110)]
-    #[dependency]
-    control: Option<Handle<Image>>,
-    #[texture(111)]
-    #[sampler(112)]
-    #[dependency]
-    color0: Option<Handle<Image>>,
-    #[texture(113)]
-    #[sampler(114)]
-    #[dependency]
-    color1: Option<Handle<Image>>,
-    #[texture(115)]
-    #[sampler(116)]
-    #[dependency]
-    color2: Option<Handle<Image>>,
-    #[texture(117)]
-    #[sampler(118)]
-    #[dependency]
-    color3: Option<Handle<Image>>,
-    #[texture(119)]
-    #[sampler(120)]
-    #[dependency]
-    third_normal: Option<Handle<Image>>,
-    #[texture(121)]
-    #[sampler(122)]
-    #[dependency]
-    third_specular: Option<Handle<Image>>,
-    #[texture(123)]
-    #[sampler(124)]
-    #[dependency]
-    reflectance: Option<Handle<Image>>,
-    #[texture(125)]
-    #[sampler(126)]
-    #[dependency]
-    second_reflectance: Option<Handle<Image>>,
-    #[texture(127)]
-    #[sampler(128)]
-    #[dependency]
-    third_reflectance: Option<Handle<Image>>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct OpaqueSurfaceKey {
-    diagnostic: bool,
-}
-
-impl From<&OpaqueSurface> for OpaqueSurfaceKey {
-    fn from(surface: &OpaqueSurface) -> Self {
-        Self {
-            diagnostic: surface.diagnostic,
-        }
-    }
-}
-
-impl From<&OpaqueSurface> for SurfaceParameters {
-    fn from(surface: &OpaqueSurface) -> Self {
-        surface.parameters
-    }
-}
-
-impl MaterialExtension for OpaqueSurface {
-    fn vertex_shader() -> ShaderRef {
-        VERTEX_SHADER.into()
-    }
-    fn fragment_shader() -> ShaderRef {
-        SHADER.into()
-    }
-    fn specialize(
-        _pipeline: &MaterialExtensionPipeline,
-        descriptor: &mut RenderPipelineDescriptor,
-        layout: &MeshVertexBufferLayoutRef,
-        key: MaterialExtensionKey<Self>,
-    ) -> Result<(), SpecializedMeshPipelineError> {
-        if descriptor.vertex.shader != VERTEX_SHADER {
-            let light_projection = key
-                .mesh_key
-                .intersection(MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS);
-            let shadow_view = key.mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS)
-                && (key
-                    .mesh_key
-                    .contains(MeshPipelineKey::UNCLIPPED_DEPTH_ORTHO)
-                    || light_projection == MeshPipelineKey::VIEW_PROJECTION_PERSPECTIVE);
-            if shadow_view {
-                descriptor.primitive.cull_mode = None;
-            }
-            return Ok(());
-        }
-        if key.bind_group_data.diagnostic
-            && let Some(fragment) = descriptor.fragment.as_mut()
-        {
-            fragment.shader_defs.push("ORIGINS_DIAGNOSTIC".into());
-        }
-        let mut attributes = vec![
-            Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
-            Mesh::ATTRIBUTE_NORMAL.at_shader_location(1),
-            Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
-        ];
-        for (attribute, location, define) in [
-            (Mesh::ATTRIBUTE_TANGENT, 4, "ORIGINS_TANGENT"),
-            (Mesh::ATTRIBUTE_UV_1, 3, "ORIGINS_UV_B"),
-            (Mesh::ATTRIBUTE_COLOR, 5, "ORIGINS_COLOR"),
-            (LAYER_UV, 8, "ORIGINS_LAYER_UV"),
-            (LAYER3_UV, 9, "ORIGINS_LAYER3_UV"),
-            (ROTATION1, 10, "ORIGINS_ROTATION1"),
-            (ROTATION2, 11, "ORIGINS_ROTATION2"),
-        ] {
-            if layout.0.contains(attribute) {
-                attributes.push(attribute.at_shader_location(location));
-                descriptor.vertex.shader_defs.push(define.into());
-            } else {
-                debug!("Surface vertex input {define} uses its neutral default");
-            }
-        }
-        for (attribute, define) in [
-            (Mesh::ATTRIBUTE_TANGENT, "VERTEX_TANGENTS"),
-            (Mesh::ATTRIBUTE_UV_1, "VERTEX_UVS_B"),
-            (Mesh::ATTRIBUTE_COLOR, "VERTEX_COLORS"),
-        ] {
-            if !layout.0.contains(attribute) {
-                descriptor.vertex.shader_defs.push(define.into());
-                if let Some(fragment) = descriptor.fragment.as_mut() {
-                    fragment.shader_defs.push(define.into());
-                }
-            }
-        }
-        if layout.0.contains(Mesh::ATTRIBUTE_JOINT_INDEX)
-            && layout.0.contains(Mesh::ATTRIBUTE_JOINT_WEIGHT)
-        {
-            attributes.push(Mesh::ATTRIBUTE_JOINT_INDEX.at_shader_location(6));
-            attributes.push(Mesh::ATTRIBUTE_JOINT_WEIGHT.at_shader_location(7));
-        }
-        descriptor.vertex.buffers = vec![layout.0.get_layout(&attributes)?];
-        Ok(())
-    }
-}
-
-#[derive(Component)]
-pub(super) struct OpaqueReady;
-
 pub(super) struct SurfaceDefinition {
-    identity_hash: f32,
-    family: String,
-    tiles: f32,
-    frozen: Vec4,
-    frozen_edge: Vec4,
-    pub(super) channels: HashMap<(String, u64), Handle<Image>>,
     pub presentation: Value,
-    layers: UVec4,
-    reveal: Vec4,
-    effect: Option<EffectParameters>,
-    native: super::native_weapon::NativeWeaponParameters,
+    channels: HashMap<(String, u64), Handle<Image>>,
+    metadata: Value,
+    frames: Vec<Frame>,
 }
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub(crate) struct SurfaceLibrary {
     pub(super) definitions: HashMap<String, SurfaceDefinition>,
     pub(super) prepared_meshes: HashSet<AssetId<Mesh>>,
-    materials: HashMap<(AssetId<StandardMaterial>, Option<Entity>), Handle<OpaqueMaterial>>,
 }
-
 impl SurfaceLibrary {
     pub(crate) fn textures_ready(&self, server: &AssetServer) -> Result<bool, String> {
         let mut ready = true;
         for definition in self.definitions.values() {
-            for handle in definition.channels.values() {
+            for image in definition.channels.values() {
                 if let Some(bevy::asset::LoadState::Failed(error)) =
-                    server.get_load_state(handle.id())
+                    server.get_load_state(image.id())
                 {
-                    return Err(format!("Resident texture {:?}: {error}", handle.path()));
+                    return Err(format!(
+                        "Standard material texture {:?}: {error}",
+                        image.path()
+                    ));
                 }
-                ready &= server.is_loaded_with_dependencies(handle.id());
+                ready &= server.is_loaded_with_dependencies(image.id());
             }
         }
         Ok(ready)
     }
 }
 
+pub(super) fn initialize(mut commands: Commands) {
+    commands.insert_resource(SurfaceLibrary::default());
+}
+
 pub(super) fn register_prepared(
     library: &mut SurfaceLibrary,
     surface: &Value,
-    channels: &[(super::pbr::PreparedTexture, Handle<Image>)],
+    channels: &[(PreparedTexture, Handle<Image>)],
 ) {
     let Some(identity) = surface["identity"].as_str() else {
         return;
     };
-    let count = channels
-        .iter()
-        .filter(|(t, _)| t.role == "color")
-        .map(|(t, _)| t.layer + 1)
-        .max()
-        .unwrap_or(1) as u32;
-    let effect = EffectParameters::read(surface);
-    let native = super::native_weapon::NativeWeaponParameters::read(surface);
-    let tile = surface["family"].as_str() == Some("tile_blend");
-    if native.kind.x == 0
-        && ((count < 2 && effect.is_none() && !tile)
-            || (surface["family"].as_str() == Some("unlit") && effect.is_none()))
-    {
-        return;
-    }
-    let operations = surface["layers"]["operations"].as_array();
-    let operation = |index| match operations
-        .and_then(|v| v.get(index))
-        .and_then(Value::as_str)
-    {
-        Some("multiply") => 2,
-        Some("add") => 3,
-        _ => 1,
-    };
-    let reveal = |i, j| {
-        surface["layers"]["reveal"][i][j]
-            .as_f64()
-            .unwrap_or(if j == 0 { 0.25 } else { 1. }) as f32
-    };
     library.definitions.insert(
-        identity.to_owned(),
+        identity.into(),
         SurfaceDefinition {
-            identity_hash: (identity
-                .bytes()
-                .fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619))
-                % 65535) as f32,
-            family: surface["family"].as_str().unwrap_or("lit").to_owned(),
-            frozen: frozen_parameters(surface).0,
-            frozen_edge: frozen_parameters(surface).1,
-            tiles: surface["preparation"]["tiles"].as_f64().unwrap_or(1.) as f32,
+            presentation: surface["presentation"].clone(),
             channels: channels
                 .iter()
-                .map(|(t, h)| ((t.role.clone(), t.layer), h.clone()))
+                .map(|(texture, image)| ((texture.role.clone(), texture.layer), image.clone()))
                 .collect(),
-            presentation: surface["presentation"].clone(),
-            layers: UVec4::new(
-                operations.map_or(if tile { 0 } else { count }, |v| v.len() as u32),
-                operation(1),
-                operation(2),
-                operation(3),
-            ),
-            reveal: Vec4::new(reveal(0, 0), reveal(0, 1), reveal(1, 0), reveal(1, 1)),
-            effect,
-            native,
+            metadata: surface.clone(),
+            frames: Vec::new(),
         },
     );
 }
 
-pub(super) fn requires_extension(library: &SurfaceLibrary, identity: &str) -> bool {
-    library.definitions.get(identity).is_some_and(|d| {
-        d.native.kind.x != 0
-            || d.layers.x > 1
-            || d.effect.is_some()
-            || (d.family == "tile_blend" && d.tiles > 1.)
-    })
-}
-
-pub(super) fn initialize(
-    mut commands: Commands,
-    config: Res<LoadConfiguration>,
-    server: Res<AssetServer>,
-    mut shaders: ResMut<Assets<Shader>>,
-    mut failure: ResMut<LoadFailure>,
-    mut next: ResMut<NextState<crate::GameState>>,
-) {
-    commands.remove_resource::<SurfaceLibrary>();
-    let Ok(pack) = &config.0 else { return };
-    let result = (|| -> Result<SurfaceLibrary, String> {
-        let document: Value = serde_json::from_slice(
-            &std::fs::read(pack.pack_root.join("map.gltf")).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-        let mut definitions = HashMap::new();
-        for material in document["materials"]
-            .as_array()
-            .ok_or("Missing material table")?
-        {
-            let surface = &material["extras"]["surface"];
-            let identity = surface["identity"]
-                .as_str()
-                .ok_or("Missing surface identity")?;
-            let family = surface["family"]
-                .as_str()
-                .ok_or("Missing surface family")?
-                .to_string();
-            let mut channels = HashMap::new();
-            for channel in surface["channels"]
-                .as_array()
-                .ok_or("Missing surface channels")?
-            {
-                let role = channel["role"].as_str().ok_or("Missing channel role")?;
-                let layer = channel["layer"].as_u64().ok_or("Missing channel layer")?;
-                if surface["version"] != 2 {
-                    return Err(
-                        "Texture migration required: expected physical material version 2".into(),
-                    );
-                }
-                let texture: super::pbr::PreparedTexture =
-                    serde_json::from_value(channel.clone()).map_err(|e| e.to_string())?;
-                let handle = super::pbr::load(&server, &texture);
-                if matches!(
-                    server.get_load_state(handle.id()),
-                    Some(bevy::asset::LoadState::Failed(_))
-                ) {
-                    server.reload(texture.uri.clone());
-                }
-                channels.insert((role.into(), layer), handle);
-            }
-            let tiles = surface["preparation"]["tiles"].as_f64().unwrap_or(1.) as f32;
-            let operations = surface["layers"]["operations"].as_array();
-            let operation = |i: usize| {
-                operations
-                    .and_then(|v| v.get(i))
-                    .and_then(Value::as_str)
-                    .map(|s| match s {
-                        "blend" => 1,
-                        "multiply" => 2,
-                        "add" => 3,
-                        _ => 0,
-                    })
-                    .unwrap_or(0)
-            };
-            let reveal = |i, j| {
-                surface["layers"]["reveal"][i][j]
-                    .as_f64()
-                    .unwrap_or(if j == 0 { 0.25 } else { 1. }) as f32
-            };
-            definitions.insert(
-                identity.into(),
-                SurfaceDefinition {
-                    identity_hash: (identity
-                        .as_bytes()
-                        .iter()
-                        .fold(2166136261u32, |hash, byte| {
-                            (hash ^ u32::from(*byte)).wrapping_mul(16777619)
-                        })
-                        % 65535) as f32,
-                    family,
-                    frozen: frozen_parameters(surface).0,
-                    frozen_edge: frozen_parameters(surface).1,
-                    tiles,
-                    channels,
-                    presentation: surface["presentation"].clone(),
-                    layers: UVec4::new(
-                        operations.map_or(0, Vec::len) as u32,
-                        operation(1),
-                        operation(2),
-                        operation(3),
-                    ),
-                    reveal: Vec4::new(reveal(0, 0), reveal(0, 1), reveal(1, 0), reveal(1, 1)),
-                    effect: EffectParameters::read(surface),
-                    native: super::native_weapon::NativeWeaponParameters::read(surface),
-                },
-            );
-        }
-        Ok(SurfaceLibrary {
-            definitions,
-            prepared_meshes: HashSet::new(),
-            materials: HashMap::new(),
-        })
-    })();
-    match result {
-        Ok(library) => {
-            shaders
-                .insert(
-                    NATIVE_SHADER.id(),
-                    Shader::from_wesl(
-                        include_str!("native_weapon.wesl"),
-                        "embedded://origins/native_weapon.wesl",
-                    ),
-                )
-                .expect("Native weapon shader");
-            shaders
-                .insert(
-                    EFFECT_SHADER.id(),
-                    Shader::from_wesl(
-                        include_str!("surface_effect.wesl"),
-                        "embedded://origins/surface_effect.wesl",
-                    ),
-                )
-                .expect("Effect shader");
-            shaders
-                .insert(
-                    BINDINGS_SHADER.id(),
-                    Shader::from_wesl(
-                        include_str!("surface_bindings.wesl"),
-                        "embedded://origins/surface_bindings.wesl",
-                    ),
-                )
-                .expect("Shader UUID is valid");
-            shaders
-                .insert(
-                    VERTEX_SHADER.id(),
-                    Shader::from_wesl(
-                        include_str!("surface_vertex.wesl"),
-                        "embedded://origins/surface_vertex.wesl",
-                    ),
-                )
-                .expect("Shader UUID is valid");
-            shaders
-                .insert(
-                    SHADER.id(),
-                    Shader::from_wesl(
-                        include_str!("opaque.wesl"),
-                        "embedded://origins/opaque.wesl",
-                    ),
-                )
-                .expect("Shader UUID is valid");
-            info!(
-                "Realtime surface library: {} physical material identities",
-                library.definitions.len()
-            );
-            commands.insert_resource(library);
-        }
-        Err(error) => {
-            failure.0 = format!("Opaque surface metadata: {error}");
-            error!("{}", failure.0);
-            next.set(crate::GameState::LoadError);
-        }
+pub(super) fn apply_factors(material: &mut StandardMaterial, factors: &Value) {
+    let scalar = |key: &str, default: f32| factors[key].as_f64().map_or(default, |v| v as f32);
+    material.perceptual_roughness = scalar("roughness", material.perceptual_roughness);
+    material.metallic = scalar("metallic", material.metallic);
+    material.reflectance = scalar("reflectance", material.reflectance);
+    material.specular_transmission = scalar("specular_transmission", 0.);
+    material.diffuse_transmission = scalar("diffuse_transmission", 0.);
+    material.ior = scalar("ior", 1.5);
+    material.thickness = scalar("thickness", 0.);
+    material.unlit = factors["unlit"].as_bool().unwrap_or(false);
+    if let Some(color) = factors["base_color"].as_array().filter(|v| v.len() == 4) {
+        material.base_color = Color::linear_rgba(
+            color[0].as_f64().unwrap_or(1.) as f32,
+            color[1].as_f64().unwrap_or(1.) as f32,
+            color[2].as_f64().unwrap_or(1.) as f32,
+            color[3].as_f64().unwrap_or(1.) as f32,
+        );
+    }
+    if let Some(color) = factors["emissive"].as_array().filter(|v| v.len() == 3) {
+        material.emissive = LinearRgba::rgb(
+            color[0].as_f64().unwrap_or(0.) as f32,
+            color[1].as_f64().unwrap_or(0.) as f32,
+            color[2].as_f64().unwrap_or(0.) as f32,
+        );
     }
 }
 
-pub(super) fn animate_water(
-    mode: Res<super::pbr::MaterialDiagnostic>,
-    ready: Option<Res<MaterialShadersReady>>,
-    mut materials: ResMut<Assets<OpaqueMaterial>>,
-    mut diagnostic_active: Local<u32>,
-) {
-    let diagnostic = if ready.is_some() { mode.0 } else { 0 };
-    if diagnostic != *diagnostic_active {
-        for (_, material) in materials.iter_mut() {
-            material.extension.diagnostic = diagnostic != 0;
-            material.extension.parameters.diagnostic_state = UVec4::new(diagnostic, 0, 0, 0);
-        }
-        *diagnostic_active = diagnostic;
-    }
-}
+#[derive(Component)]
+pub(super) struct StandardReady;
 
-fn static_instance(entity: Entity, extras: &Query<&GltfExtras>, parents: &Query<&ChildOf>) -> bool {
-    let mut current = Some(entity);
-    while let Some(entity) = current {
-        if extras
-            .get(entity)
-            .ok()
-            .and_then(|extra| serde_json::from_str::<Value>(&extra.value).ok())
-            .is_some_and(|value| value["static_instance"] == true)
-        {
-            return true;
-        }
-        current = parents.get(entity).ok().map(ChildOf::parent);
-    }
-    false
-}
-
-fn frozen_parameters(surface: &Value) -> (Vec4, Vec4) {
-    let source = &surface["frozen_stone"]["constants"];
-    if source.is_null() {
-        return (Vec4::ZERO, Vec4::ZERO);
-    }
-    let scalar = |name: &str, index: usize, fallback: f32| {
-        source[name][index].as_f64().map_or(fallback, |v| v as f32)
-    };
-    (
-        Vec4::new(
-            0.,
-            1.,
-            scalar("Leading_Edge_Brightness", 0, 2.),
-            scalar("WaterMultiplier", 0, 0.5),
-        ),
-        Vec4::new(
-            scalar("State_2_Leading_Edge_Color", 0, 6.),
-            scalar("State_2_Leading_Edge_Color", 1, 8.),
-            scalar("State_2_Leading_Edge_Color", 2, 8.),
-            scalar("State_2_Alteration", 0, 4.),
-        ),
-    )
+#[derive(Clone)]
+struct Frame {
+    channels: HashMap<String, Handle<Image>>,
+    factors: Value,
 }
 #[derive(Component)]
-pub(super) struct FrozenMaterial {
-    owner: Entity,
-}
-
-pub(super) fn frozen_stones(
-    entities: Query<(&FrozenMaterial, &MeshMaterial3d<OpaqueMaterial>)>,
-    stones: Query<&crate::staff_puzzles::FrozenStone>,
-    mut materials: ResMut<Assets<OpaqueMaterial>>,
-) {
-    for (stone, handle) in &entities {
-        let amount = stones.get(stone.owner).map_or(0., |stone| stone.amount);
-        if let Some(material) = materials.get(&handle.0)
-            && material.extension.parameters.frozen.x != amount
-        {
-            materials
-                .get_mut(&handle.0)
-                .unwrap()
-                .extension
-                .parameters
-                .frozen
-                .x = amount;
-        }
-    }
+pub(super) struct AnimatedMaterial {
+    driver: String,
+    fps: f32,
+    owner: Option<Entity>,
+    frames: Vec<Frame>,
+    selected: usize,
 }
 
 pub(super) fn convert(
@@ -859,369 +141,254 @@ pub(super) fn convert(
             &MeshMaterial3d<StandardMaterial>,
             &GltfMaterialName,
             &Mesh3d,
-            Has<super::ActorSurface>,
         ),
-        (
-            With<SurfaceReady>,
-            Without<OpaqueReady>,
-            Without<WorldCollider>,
-        ),
+        (With<PbrReady>, With<SurfaceReady>, Without<StandardReady>),
     >,
     extras: Query<&GltfExtras>,
     parents: Query<&ChildOf>,
     rigs: Query<&crate::presentation::Rig>,
-    stone_roots: Query<(), With<crate::staff_puzzles::IceStone>>,
-    library: Option<ResMut<SurfaceLibrary>>,
-    standard: Res<Assets<StandardMaterial>>,
-    mut materials: ResMut<Assets<OpaqueMaterial>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    images: Res<Assets<Image>>,
+    stones: Query<(), With<crate::staff_puzzles::IceStone>>,
+    mut library: ResMut<SurfaceLibrary>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    server: Res<AssetServer>,
     mut status: ResMut<OpaqueSurfaceStatus>,
-    profile: Res<VisualProfile>,
-    mode: Res<super::pbr::MaterialDiagnostic>,
-    ready: Option<Res<MaterialShadersReady>>,
 ) {
-    let Some(mut library) = library else { return };
-    if ready.is_none() {
-        status.pending = query.iter().count();
-        return;
-    }
     status.pending = 0;
-    for (entity, original, name, mesh, actor) in &query {
-        let Some(base) = standard.get(&original.0) else {
+    for (entity, original, name, mesh) in &query {
+        let Some(base) = materials.get(&original.0).cloned() else {
             status.pending += 1;
             continue;
         };
-        let Some(definition) = library.definitions.get(&name.0) else {
-            continue;
-        };
-        if (base.unlit
-            && definition.layers.x <= 1
-            && definition.effect.is_none()
-            && definition.native.kind.x == 0)
-            || !matches!(
-                definition.family.as_str(),
-                "lit" | "tile_blend" | "layered_lit" | "water" | "unlit"
-            )
-        {
-            continue;
-        }
-        let is_static = static_instance(entity, &extras, &parents);
-        let effect_admitted = definition.effect.is_some();
-        let premultiplied_source =
-            definition.presentation["alpha"].as_str() == Some("premultiplied");
-        let staff = definition.native.kind.x == 7;
-        let mut charge_owner = None;
-        let frozen_stone = definition.frozen.y != 0.;
-        let mut stone_owner = None;
-        if frozen_stone {
-            let mut current = Some(entity);
-            while let Some(ancestor) = current {
-                if stone_roots.contains(ancestor) {
-                    stone_owner = Some(ancestor);
-                    break;
-                }
-                current = parents.get(ancestor).ok().map(ChildOf::parent);
-            }
-        }
-        if staff {
-            let mut current = Some(entity);
-            while let Some(ancestor) = current {
-                if let Ok(rig) = rigs.get(ancestor) {
-                    charge_owner = Some(rig.owner);
-                    break;
-                }
-                current = parents.get(ancestor).ok().map(ChildOf::parent);
-            }
-        }
-        let key = (original.0.id(), charge_owner.or(stone_owner));
-        let handle = if let Some(handle) = library.materials.get(&key) {
-            handle.clone()
-        } else {
-            let channel =
-                |role: &str, layer| definition.channels.get(&(role.to_string(), layer)).cloned();
-            let tile = definition.family == "tile_blend" && definition.tiles > 1.;
-            let water = definition.family == "water" && !frozen_stone;
-            let mut normal_encodings = 0;
-            for layer in 0..3 {
-                if let Some(handle) = channel("normal", layer)
-                    && let Some(image) = images.get(&handle)
-                {
-                    normal_encodings |=
-                        super::pbr::NormalEncoding::for_image(image).flag(layer as u32);
-                }
-            }
-            let parameters = SurfaceParameters {
-                response: Vec4::new(1., 0.12, definition.identity_hash, definition.tiles),
-                modes: UVec4::new(
-                    tile as u32
-                        | ((channel("normal", 0).is_some() as u32) << 1)
-                        | ((channel("normal", 1).is_some() as u32) << 2)
-                        | ((channel("normal", 2).is_some() as u32) << 3)
-                        | ((water as u32) << 4)
-                        | ((definition.effect.is_some() as u32) << 5)
-                        | ((base.unlit as u32) << 6)
-                        | ((actor as u32) << 7),
-                    channel("response", 0).is_some() as u32,
-                    channel("response", 1).is_some() as u32
-                        | ((channel("response", 2).is_some() as u32) << 1),
-                    normal_encodings
-                        | ((channel("reflectance", 0).is_some() as u32) << 3)
-                        | ((channel("reflectance", 1).is_some() as u32) << 4)
-                        | ((channel("reflectance", 2).is_some() as u32) << 5),
-                ),
-                layers: definition.layers,
-                reveal: definition.reveal
-                    * Vec4::new(profile.reveal_softness, 1., profile.reveal_softness, 1.),
-                wetness: Vec4::new(0., 0., 0., profile.transparent_opacity_scale),
-                water: Vec4::new(
-                    profile.water_normal_strength,
-                    profile.water_roughness,
-                    profile.water_uv_scale,
-                    profile.water_opacity,
-                ),
-                velocity: Vec4::from_array(profile.water_velocity),
-                frozen: definition.frozen,
-                frozen_edge: definition.frozen_edge,
-                effect: definition.effect.unwrap_or_default(),
-                native: definition.native,
-                diagnostic_state: UVec4::new(if ready.is_some() { mode.0 } else { 0 }, 0, 0, 0),
-            };
-            let extension = OpaqueSurface {
-                parameters,
-                diagnostic: mode.0 != 0 && ready.is_some(),
-                normal: channel("normal", 0),
-                second_normal: channel("normal_detail", 0).or_else(|| channel("normal", 1)),
-                specular: channel("specular_gloss", 0)
-                    .or_else(|| channel("specular", 0))
-                    .or_else(|| channel("response", 0)),
-                second_specular: channel("specular_detail", 0)
-                    .or_else(|| channel("gloss", 0))
-                    .or_else(|| channel("response", 1)),
-                control: if definition.native.kind.x != 0 {
-                    channel("occlusion", 0)
-                } else if frozen_stone {
-                    channel("control", 0)
-                } else if tile {
-                    channel("control", 2)
-                } else {
-                    None
-                },
-                color0: channel("color", 0),
-                color1: channel("emissive", 0).or_else(|| channel("color", 1)),
-                color2: channel("heat", 0).or_else(|| channel("color", 2)),
-                color3: channel("reveal", 0).or_else(|| channel("color", 3)),
-                third_normal: channel("rim", 0).or_else(|| channel("normal", 2)),
-                third_specular: channel("detail", 0).or_else(|| channel("response", 2)),
-                reflectance: channel("reflectance", 0),
-                second_reflectance: channel("reflectance", 1),
-                third_reflectance: channel("reflectance", 2),
-            };
-            let mut base = base.clone();
-            base.normal_map_texture = None;
-            base.metallic_roughness_texture = None;
-            base.occlusion_texture = None;
-            base.specular_tint_texture = None;
-            base.clearcoat = 1.;
-            base.clearcoat_perceptual_roughness = 0.12;
-            if definition.native.kind.x != 0 {
-                base.base_color_texture = if matches!(base.alpha_mode, AlphaMode::Mask(_)) {
-                    channel("color", 0)
-                } else {
-                    None
-                };
-                base.emissive_texture = None;
-                base.unlit = false;
-            }
-            if definition.layers.x > 1 || tile {
-                base.base_color_texture = None;
-            }
-            if water {
-                base.base_color_texture = None;
-                base.base_color =
-                    super::profile::color(profile.water_color).with_alpha(profile.water_opacity);
-                base.alpha_mode = AlphaMode::Blend;
-                base.cull_mode = None;
-                base.double_sided = true;
-            }
-            let handle = materials.add(ExtendedMaterial { base, extension });
-            library.materials.insert(key, handle.clone());
-            if effect_admitted {
-                info!(
-                    "Native layered effect admitted: {} (three retained maps; native vertex path)",
-                    name.0
-                );
-            }
-            handle
-        };
-        let mesh_id = mesh.0.id();
-        if !library.prepared_meshes.contains(&mesh_id) {
-            let Some(mut mesh) = meshes.get_mut(&mesh.0) else {
-                status.pending += 1;
-                continue;
-            };
-            if mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_none() {
-                if let Err(error) = mesh.generate_tangents() {
-                    error!("Surface tangent generation failed for {}: {error}", name.0);
-                    status.pending += 1;
-                    continue;
-                }
-            }
-            if mesh.attribute(Mesh::ATTRIBUTE_UV_1).is_none() {
-                let count = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
-                    Some(VertexAttributeValues::Float32x3(v)) => v.len(),
-                    _ => continue,
-                };
-                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, vec![[0., 0.]; count]);
-            }
-            let count = mesh.count_vertices();
-            if mesh.attribute(Mesh::ATTRIBUTE_COLOR).is_none() {
-                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.; 4]; count]);
-            }
-            if mesh.attribute(LAYER_UV).is_none() {
-                let uv = match mesh.attribute(Mesh::ATTRIBUTE_UV_0) {
-                    Some(VertexAttributeValues::Float32x2(v)) => v.clone(),
-                    _ => vec![[0.; 2]; count],
-                };
-                mesh.insert_attribute(
-                    LAYER_UV,
-                    uv.iter()
-                        .map(|v| [v[0], v[1], v[0], v[1]])
-                        .collect::<Vec<_>>(),
-                );
-                mesh.insert_attribute(LAYER3_UV, uv);
-                mesh.insert_attribute(ROTATION1, vec![[1., 0., 0., 1.]; count]);
-                mesh.insert_attribute(ROTATION2, vec![[1., 0., 0., 1.]; count]);
-            }
-            library.prepared_meshes.insert(mesh_id);
-        }
-        commands
-            .entity(entity)
-            .remove::<MeshMaterial3d<StandardMaterial>>()
-            .insert((MeshMaterial3d(handle.clone()), OpaqueReady));
-        if let Some(owner) = stone_owner {
-            commands.entity(entity).insert(FrozenMaterial { owner });
-        }
-        if staff {
-            commands
-                .entity(entity)
-                .insert(super::native_weapon::StaffMaterial {
-                    owner: charge_owner,
-                });
-        }
-        if is_static {
-            status.static_models += 1;
-        } else {
+        let Some(definition) = library.definitions.get_mut(&name.0) else {
+            commands.entity(entity).insert(StandardReady);
             status.world += 1;
+            continue;
+        };
+        let mut current = Some(entity);
+        let mut owner = None;
+        let mut is_static = false;
+        while let Some(ancestor) = current {
+            if let Ok(rig) = rigs.get(ancestor) {
+                owner = Some(rig.owner);
+            }
+            if stones.contains(ancestor) {
+                owner = Some(ancestor);
+            }
+            is_static |= extras
+                .get(ancestor)
+                .ok()
+                .and_then(|v| serde_json::from_str::<Value>(&v.value).ok())
+                .is_some_and(|v| v["static_instance"] == true);
+            current = parents.get(ancestor).ok().map(ChildOf::parent);
         }
-        let material = materials.get(&handle).expect("Converted material exists");
-        status.normal += material.extension.normal.is_some() as usize;
-        status.response_maps += material.extension.specular.is_some() as usize;
-        status.tile_macro += ((material.extension.parameters.modes.x & 1) != 0) as usize;
-        status.layered += (material.extension.parameters.layers.x > 1) as usize;
-        status.masked += matches!(material.base.alpha_mode, AlphaMode::Mask(_)) as usize;
-        status.transparent += (material.base.alpha_mode != AlphaMode::Opaque
-            && !matches!(material.base.alpha_mode, AlphaMode::Mask(_)))
-            as usize;
-        status.premultiplied_sources += premultiplied_source as usize;
-        status.straight_alpha_mismatches +=
-            (premultiplied_source && material.base.alpha_mode != AlphaMode::Blend) as usize;
-        status.water += ((material.extension.parameters.modes.x & 16) != 0) as usize;
-        status.wettable += (material.extension.parameters.wetness.x > 0.) as usize;
+        let animation = &definition.metadata["animation"];
+        if definition.frames.is_empty()
+            && let Some(source_frames) = animation["frames"].as_array()
+        {
+            for frame in source_frames {
+                let textures: Vec<PreparedTexture> =
+                    serde_json::from_value(frame["channels"].clone())
+                        .expect("Source-built material animation frames");
+                definition.frames.push(Frame {
+                    channels: textures
+                        .into_iter()
+                        .map(|texture| (texture.role.clone(), super::pbr::load(&server, &texture)))
+                        .collect(),
+                    factors: frame["standard"].clone(),
+                });
+            }
+        }
+        let frames = &definition.frames;
+        if frames
+            .iter()
+            .flat_map(|f| f.channels.values())
+            .any(|image| !server.is_loaded_with_dependencies(image.id()))
+        {
+            status.pending += 1;
+            continue;
+        }
+        if !frames.is_empty() {
+            let handle = materials.add(base.clone());
+            commands.entity(entity).insert((
+                MeshMaterial3d(handle),
+                AnimatedMaterial {
+                    driver: animation["driver"].as_str().unwrap_or("time").into(),
+                    fps: animation["fps"].as_f64().unwrap_or(30.) as f32,
+                    owner,
+                    frames: frames.clone(),
+                    selected: usize::MAX,
+                },
+            ));
+        }
+        status.static_models += is_static as usize;
+        status.world += (!is_static) as usize;
+        status.normal += base.normal_map_texture.is_some() as usize;
+        status.response_maps += base.metallic_roughness_texture.is_some() as usize;
+        status.masked += matches!(base.alpha_mode, AlphaMode::Mask(_)) as usize;
+        status.transparent +=
+            (!matches!(base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_))) as usize;
+        status.water += (definition.metadata["family"] == "water") as usize;
+        commands.entity(entity).insert(StandardReady);
+        library.prepared_meshes.insert(mesh.0.id());
     }
-    status.shared_materials = library.materials.len();
+    status.shared_materials = materials.len();
+}
+
+pub(super) fn animate(
+    time: Res<Time>,
+    inventories: Query<&crate::weapons::WeaponInventory>,
+    stones: Query<&crate::staff_puzzles::FrozenStone>,
+    mut entities: Query<(&mut AnimatedMaterial, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (mut animation, handle) in &mut entities {
+        let count = animation.frames.len();
+        let selected = match animation.driver.as_str() {
+            "staff_charge" => animation
+                .owner
+                .and_then(|owner| inventories.get(owner).ok())
+                .map_or(0, |inventory| inventory.charge_level as usize)
+                .min(count - 1),
+            "frozen_stone" => ((animation
+                .owner
+                .and_then(|owner| stones.get(owner).ok())
+                .map_or(0., |stone| stone.amount)
+                .clamp(0., 1.)
+                * (count - 1) as f32)
+                .round() as usize)
+                .min(count - 1),
+            _ => ((time.elapsed_secs() * animation.fps).floor() as usize) % count,
+        };
+        if animation.selected == selected {
+            continue;
+        }
+        if let Some(mut material) = materials.get_mut(&handle.0) {
+            let frame = &animation.frames[selected];
+            material.base_color_texture = frame.channels.get("color").cloned();
+            material.normal_map_texture = frame.channels.get("normal").cloned();
+            material.metallic_roughness_texture = frame.channels.get("response").cloned();
+            material.occlusion_texture = frame.channels.get("response").cloned();
+            material.emissive_texture = frame.channels.get("emissive").cloned();
+            apply_factors(&mut material, &frame.factors);
+            animation.selected = selected;
+        }
+    }
+}
+
+#[derive(Component)]
+struct QuestLightMaterial {
+    brightness: f32,
+    color: Vec3,
+    handle: AssetId<StandardMaterial>,
+}
+
+pub(crate) fn install_quest_lights(app: &mut App) {
+    app.add_systems(
+        Update,
+        quest_lights
+            .after(super::SurfacePreparation)
+            .after(crate::staff_upgrades::lights::LightPresentation),
+    );
+}
+fn quest_lights(
+    mut commands: Commands,
+    entities: Query<(
+        Entity,
+        &crate::staff_upgrades::lights::LightSurface,
+        &MeshMaterial3d<StandardMaterial>,
+        Option<&QuestLightMaterial>,
+    )>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, surface, current, cloned) in &entities {
+        let Some(source) = materials.get(&current.0) else {
+            continue;
+        };
+        let brightness = cloned
+            .filter(|c| c.handle == current.0.id())
+            .map_or(source.emissive.red.max(1.), |c| c.brightness);
+        let color = surface.color * surface.color * brightness;
+        if cloned.is_none_or(|c| c.handle != current.0.id()) {
+            let mut source = source.clone();
+            source.emissive = LinearRgba::rgb(color.x, color.y, color.z);
+            let handle = materials.add(source);
+            commands.entity(entity).insert((
+                MeshMaterial3d(handle.clone()),
+                QuestLightMaterial {
+                    brightness,
+                    color: surface.color,
+                    handle: handle.id(),
+                },
+            ));
+        } else if cloned.is_some_and(|c| c.color != surface.color) {
+            if let Some(mut material) = materials.get_mut(&current.0) {
+                material.emissive = LinearRgba::rgb(color.x, color.y, color.z);
+            }
+            commands.entity(entity).insert(QuestLightMaterial {
+                brightness,
+                color: surface.color,
+                handle: current.0.id(),
+            });
+        }
+    }
+}
+
+#[cfg(feature = "dev-dynamic")]
+pub(crate) fn quest_light_snapshot(world: &mut World) -> Value {
+    let materials = world.resource::<Assets<StandardMaterial>>();
+    Value::Array(world.iter_entities().filter_map(|entity| {
+        let light = entity.get::<QuestLightMaterial>()?;
+        let material = materials.get(light.handle)?;
+        Some(serde_json::json!({"entity": entity.id().to_bits(), "kind": "standard", "color": light.color.to_array(), "emissive": [material.emissive.red, material.emissive.green, material.emissive.blue]}))
+    }).collect())
 }
 
 #[cfg(feature = "dev-dynamic")]
 pub(crate) fn weapon_material_snapshot(world: &mut World) -> Value {
-    use serde_json::json;
-    let entities: Vec<_> = world
-        .query::<(Entity, &GltfMaterialName)>()
-        .iter(world)
-        .map(|(e, n)| (e, n.0.clone()))
-        .collect();
+    let materials = world.resource::<Assets<StandardMaterial>>();
+    let server = world.resource::<AssetServer>();
     let mut first_person = Vec::new();
     let mut models = Vec::new();
     let mut pending = 0;
-    for (entity, name) in entities {
-        let mut current = Some(entity);
-        let mut weapon_surface = world.get::<super::FirstPersonSurface>(entity).is_some();
-        let mut first = weapon_surface;
+    for entity in world.iter_entities() {
+        let Some(name) = entity.get::<GltfMaterialName>() else {
+            continue;
+        };
+        let mut current = Some(entity.id());
+        let mut first = entity.contains::<super::FirstPersonSurface>();
+        let mut weapon = first;
         while let Some(ancestor) = current {
-            if world.get::<crate::presentation::Rig>(ancestor).is_some() {
-                weapon_surface = true;
-                first = true;
-                break;
-            }
-            if world
-                .get::<crate::presentation::camo::WeaponMaterialContext>(ancestor)
-                .is_some()
-            {
-                weapon_surface = true;
-                break;
-            }
+            first |= world.get::<crate::presentation::Rig>(ancestor).is_some();
+            weapon |= first
+                || world
+                    .get::<crate::presentation::camo::WeaponMaterialContext>(ancestor)
+                    .is_some();
             current = world.get::<ChildOf>(ancestor).map(ChildOf::parent);
         }
-        if !weapon_surface {
+        if !weapon {
             continue;
         }
-        let material = world
-            .get::<MeshMaterial3d<OpaqueMaterial>>(entity)
-            .and_then(|h| world.resource::<Assets<OpaqueMaterial>>().get(&h.0));
-        let native = material.is_some_and(|m| m.extension.parameters.native.kind.x != 0);
-        let textures_ready = material.is_some_and(|m| {
-            let e = &m.extension;
+        let material = entity
+            .get::<MeshMaterial3d<StandardMaterial>>()
+            .and_then(|h| materials.get(&h.0));
+        let ready = material.is_some_and(|m| {
             [
-                &e.normal,
-                &e.second_normal,
-                &e.specular,
-                &e.second_specular,
-                &e.control,
-                &e.color0,
-                &e.color1,
-                &e.color2,
-                &e.color3,
-                &e.third_normal,
-                &e.third_specular,
-                &e.reflectance,
-                &e.second_reflectance,
-                &e.third_reflectance,
+                &m.base_color_texture,
+                &m.normal_map_texture,
+                &m.metallic_roughness_texture,
+                &m.emissive_texture,
             ]
             .into_iter()
             .flatten()
-            .all(|h| {
-                world
-                    .resource::<AssetServer>()
-                    .is_loaded_with_dependencies(h.id())
-            })
+            .all(|h| server.is_loaded_with_dependencies(h.id()))
         });
-        let tangent = world
-            .get::<Mesh3d>(entity)
-            .and_then(|h| world.resource::<Assets<Mesh>>().get(&h.0))
-            .is_some_and(|m| {
-                m.try_attribute(Mesh::ATTRIBUTE_TANGENT).is_ok()
-                    || (native
-                        && world.get_resource::<SurfaceLibrary>().is_some_and(|l| {
-                            world
-                                .get::<Mesh3d>(entity)
-                                .is_some_and(|h| l.prepared_meshes.contains(&h.0.id()))
-                        }))
-            });
-        pending += usize::from(!native || !textures_ready || !tangent);
-        let row = json!({"entity":entity.to_bits(),"material":name,"kind":material.map(|m|m.extension.parameters.native.kind.x),"native":native,"textures_ready":textures_ready,"tangents":tangent,"visible":world.get::<InheritedVisibility>(entity).is_some_and(|v| v.get()),"lighting_model":"bevy_pbr","charge":material.map(|m|m.extension.parameters.native.staff_emission.z),"charge_owner":world.get::<super::native_weapon::StaffMaterial>(entity).and_then(|s|s.owner).map(Entity::to_bits)});
+        pending += (!ready) as usize;
+        let row = serde_json::json!({"entity":entity.id().to_bits(), "material":name.0, "native":entity.contains::<StandardReady>(), "textures_ready":ready, "lighting_model":"solari_standard", "visible":entity.get::<InheritedVisibility>().is_some_and(|v| v.get())});
         if first {
             first_person.push(row);
         } else {
             models.push(row);
         }
     }
-    let inventory: Vec<_> = world
-        .resource::<crate::assets::GameDefinition>()
-        .content
-        .weapons
-        .iter()
-        .map(|w| w.id.0.clone())
-        .collect();
-    let shadows = super::shadows::snapshot(world);
-    json!({"pending":pending,"first_person":first_person,"world":models,"inventory":inventory,"shadows":shadows})
+    serde_json::json!({"pending":pending,"first_person":first_person,"world":models})
 }

@@ -10,11 +10,9 @@ use bevy::{
     prelude::*,
 };
 pub(crate) mod atmosphere;
-mod first_person;
 pub(crate) mod grading;
 mod lighting_inspection;
 mod lod;
-mod native_weapon;
 pub(crate) mod opaque;
 mod pbr;
 pub(crate) mod postprocess;
@@ -25,12 +23,11 @@ mod readback_shutdown;
 mod residency;
 mod shadows;
 mod sky;
+mod solari;
 mod viewport;
-pub(crate) use first_person::FirstPersonDepthStats;
 pub(crate) use opaque::OpaqueSurfaceStatus;
 #[cfg(feature = "dev-dynamic")]
 pub(crate) use opaque::weapon_material_snapshot;
-pub(crate) use opaque::{LAYER_UV, LAYER3_UV, ROTATION1, ROTATION2};
 pub(crate) use pbr::PbrReady;
 pub(crate) use preprocessing::PreprocessingStatus;
 
@@ -83,10 +80,8 @@ pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         preparation::install(app);
-        app.add_plugins(MaterialPlugin::<opaque::OpaqueMaterial>::default())
-            .add_plugins(first_person::FirstPersonRenderPlugin)
+        app.add_plugins(solari::OriginsSolariPlugin)
             .add_plugins(lod::PropLodPlugin)
-            .add_plugins(MaterialPlugin::<pbr::DiagnosticMaterial>::default())
             .add_plugins(preprocessing::PreprocessingPlugin)
             .add_plugins(residency::ResidencyPlugin)
             .init_resource::<profile::VisualProfile>()
@@ -94,7 +89,6 @@ impl Plugin for GameRenderingPlugin {
             .add_plugins(lighting_inspection::LightingInspectionPlugin)
             .add_plugins(readback_shutdown::ReadbackShutdownPlugin)
             .init_resource::<OpaqueSurfaceStatus>()
-            .init_resource::<pbr::MaterialDiagnostic>()
             .add_systems(Startup, setup)
             .add_systems(
                 OnEnter(GameState::Loading),
@@ -122,32 +116,17 @@ impl Plugin for GameRenderingPlugin {
                 Update,
                 (
                     camera_follow.run_if(crate::flythrough::normal_play),
-                    sky::viewmodel_environment,
-                    opaque::prepare_shaders,
                     (pbr::prepare, surfaces, fixture_lights, opaque::convert)
                         .chain()
                         .in_set(SurfacePreparation),
                 ),
             )
-            .add_systems(
-                PostUpdate,
-                (
-                    pbr::diagnostics,
-                    opaque::animate_water,
-                    native_weapon::charge,
-                    opaque::frozen_stones,
-                )
-                    .chain(),
-            );
+            .add_systems(PostUpdate, (opaque::animate,).chain());
     }
 
     fn finish(&self, app: &mut App) {
         if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
-            render
-                .add_observer(shadows::retire_hidden_light_views)
-                .edit_schedule(bevy::core_pipeline::schedule::Core3d, |schedule| {
-                    schedule.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
-                });
+            render.add_observer(shadows::retire_hidden_light_views);
         }
     }
 }
@@ -186,9 +165,8 @@ pub(crate) fn setup(
                     source.sun_color[2],
                 ),
                 affects_lightmapped_mesh_diffuse: true,
-                contact_shadows_enabled: true,
-                shadow_maps_enabled: true,
-                soft_shadow_size: Some(profile.sun_soft_shadow_size),
+                contact_shadows_enabled: false,
+                shadow_maps_enabled: false,
                 shadow_depth_bias: 0.002,
                 shadow_normal_bias: 0.25,
                 ..default()
@@ -217,24 +195,28 @@ pub(crate) fn setup(
         bevy::pbr::ScreenSpaceTransmission::default(),
         GameCamera,
         bevy::camera::ShadowLodOrigin,
-        match profile.antialiasing {
-            profile::Antialiasing::Taa => bevy::light::ShadowFilteringMethod::Temporal,
-            _ => bevy::light::ShadowFilteringMethod::Gaussian,
-        },
         DepthPrepass,
         Transform::from_xyz(0., 2., 0.),
         Hdr,
         source.camera_exposure(&profile),
-        Tonemapping::None,
+        (
+            Tonemapping::TonyMcMapface,
+            bevy::render::view::ColorGrading::default(),
+            postprocess::bloom(&profile),
+            bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
+            Projection::Perspective(PerspectiveProjection {
+                fov: BASE_FOV_DEGREES.to_radians(),
+                near: 0.01,
+                ..default()
+            }),
+            Name::new("Origins camera"),
+        ),
         bevy::core_pipeline::tonemapping::DebandDither::Disabled,
-        match profile.antialiasing {
-            profile::Antialiasing::Msaa4 => Msaa::Sample4,
-            profile::Antialiasing::Smaa | profile::Antialiasing::Taa => Msaa::Off,
-        },
+        Msaa::Off,
+        bevy::solari::prelude::SolariLighting::default(),
+        bevy::camera::CameraMainTextureUsages::default().with(bevy::render::render_resource::TextureUsages::STORAGE_BINDING),
+        bevy::anti_alias::dlss::Dlss::<bevy::anti_alias::dlss::DlssRayReconstructionFeature>::default(),
     ));
-    if matches!(profile.antialiasing, profile::Antialiasing::Taa) {
-        camera.insert(bevy::anti_alias::taa::TemporalAntiAliasing::default());
-    }
     camera.insert(bevy::audio::SpatialListener::new(0.2));
     camera.insert(bevy::render::occlusion_culling::OcclusionCulling);
 }
@@ -365,15 +347,14 @@ fn surfaces(
             if actor {
                 commands.entity(entity).insert(ActorSurface);
             }
-            if actor || opaque::requires_extension(&library, &name.0) {
-                commands.entity(entity).insert(SurfaceReady);
-            }
+            commands.entity(entity).insert(SurfaceReady);
             continue;
         }
         let Some(mut material) = materials.get_mut(&handle.0) else {
             continue;
         };
         let Some(definition) = library.definitions.get(&name.0) else {
+            commands.entity(entity).insert(SurfaceReady);
             continue;
         };
         let state = &definition.presentation;
@@ -426,8 +407,7 @@ fn fixture_lights(
                         shadow_normal_bias: 0.3,
                         shadow_map_near_z: 0.01,
                         shadow_maps_enabled: false,
-                        contact_shadows_enabled: true,
-                        soft_shadows_enabled: true,
+                        contact_shadows_enabled: false,
                         ..default()
                     },
                     Transform::from_translation(Vec3::from(bounds.center)),

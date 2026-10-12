@@ -312,7 +312,7 @@ fn tick(
     sounds: Query<(Entity, &crate::audio::PlayingSound)>,
     mut focus: ResMut<crate::interactions::InteractionFocus>,
     players: Query<(&Player, &Transform, &crate::weapons::WeaponInventory)>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     scares: Query<Entity, With<Scare>>,
 ) {
     use crate::audio::PlaybackStatus;

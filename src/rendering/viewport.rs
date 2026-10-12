@@ -1,9 +1,9 @@
-use crate::{presentation::ViewModelCamera, rendering::GameCamera};
+use crate::rendering::GameCamera;
 use bevy::{camera::Viewport, prelude::*, window::PrimaryWindow};
 
 pub(super) fn fit(
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut cameras: Query<&mut Camera, Or<(With<GameCamera>, With<ViewModelCamera>)>>,
+    mut cameras: Query<&mut Camera, With<GameCamera>>,
 ) {
     let Ok(window) = windows.single() else {
         return;

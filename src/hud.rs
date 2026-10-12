@@ -21,17 +21,14 @@ impl Plugin for HudPlugin {
             performance::PerformanceOverlayPlugin,
             origins::OriginsHudPlugin,
         ))
-        .add_systems(
-            Startup,
-            setup.after(crate::presentation::first_person_light),
-        )
+        .add_systems(Startup, setup.after(crate::rendering::setup))
         .add_systems(Update, damage_feedback);
     }
 }
 
 fn setup(
     mut commands: Commands,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     server: Res<AssetServer>,
 ) {
     let Ok(camera) = cameras.single() else { return };

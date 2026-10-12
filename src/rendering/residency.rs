@@ -1,7 +1,6 @@
-use super::opaque::{self, OpaqueSurfaceStatus, SurfaceLibrary};
+use super::opaque::{OpaqueSurfaceStatus, SurfaceLibrary};
 use crate::{GameState, assets::WorldCollider};
 use bevy::{asset::RenderAssetUsages, prelude::*};
-use std::collections::HashSet;
 
 pub(super) struct ResidencyPlugin;
 impl Plugin for ResidencyPlugin {
@@ -17,18 +16,16 @@ fn release(
     lights: Query<(&GlobalTransform, &PointLight, &ViewVisibility)>,
     cameras: Query<&GlobalTransform, With<super::GameCamera>>,
     colliders: Query<(Entity, &Mesh3d), With<WorldCollider>>,
-    active_materials: Query<&MeshMaterial3d<StandardMaterial>, Without<WorldCollider>>,
     server: Res<AssetServer>,
-    mut library: Option<ResMut<SurfaceLibrary>>,
+    library: Option<Res<SurfaceLibrary>>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut finished: Local<bool>,
 ) {
     if *finished || **state == GameState::Loading || !status.ready() {
         return;
     }
-    let Some(ref mut library) = library else {
+    let Some(library) = library else {
         return;
     };
     if let Ok(camera) = cameras.single() {
@@ -48,32 +45,6 @@ fn release(
                 .count(),
             camera.translation()
         );
-    }
-    opaque::release_preparation(library);
-    let active: HashSet<_> = active_materials
-        .iter()
-        .map(|material| material.0.id())
-        .collect();
-    let mut source_materials = 0;
-    let source_ids: Vec<_> = materials
-        .iter()
-        .filter_map(|(id, _)| {
-            (!active.contains(&id)
-                && opaque::converted_source(library, id)
-                && server.get_path(id).is_some())
-            .then_some(id)
-        })
-        .collect();
-    for id in source_ids {
-        if let Some(mut material) = materials.get_mut(id) {
-            material.base_color_texture = None;
-            material.normal_map_texture = None;
-            material.metallic_roughness_texture = None;
-            material.emissive_texture = None;
-            material.occlusion_texture = None;
-            material.clearcoat_texture = None;
-            source_materials += 1;
-        }
     }
     let mut image_bytes = 0;
     let mut image_count = 0;
@@ -134,7 +105,7 @@ fn release(
             .remove_parent_in_place();
     }
     info!(
-        "Released preparation data: {image_count} images ({image_bytes} CPU bytes), {mesh_count} meshes ({mesh_bytes} CPU bytes), {source_materials} source material texture owners"
+        "Released preparation data: {image_count} images ({image_bytes} CPU bytes), {mesh_count} meshes ({mesh_bytes} CPU bytes)"
     );
     *finished = true;
 }

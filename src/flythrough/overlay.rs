@@ -29,11 +29,8 @@ struct Charts {
 pub(super) struct TourOverlayPlugin;
 impl Plugin for TourOverlayPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Startup,
-            setup.after(crate::presentation::first_person_light),
-        )
-        .add_systems(Update, update);
+        app.add_systems(Startup, setup.after(crate::rendering::setup))
+            .add_systems(Update, update);
     }
 }
 
@@ -65,7 +62,7 @@ fn text(value: &str) -> impl Bundle {
 fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
 ) {
     let Ok(camera) = cameras.single() else {
         return;

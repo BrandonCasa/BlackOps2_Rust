@@ -33,6 +33,7 @@ pub struct LaunchOptions {
     pub benchmark_view: Option<usize>,
     pub benchmark_motion: bool,
     pub benchmark_combat: bool,
+    pub test_combat: bool,
     pub benchmark_hands: bool,
     pub verify_wall_weapons: bool,
     pub verify_weapon_assemblies: bool,
@@ -164,6 +165,7 @@ impl LaunchOptions {
                 || argument == "--benchmark-view"
                 || argument == "--benchmark-moving-view"
                 || argument == "--benchmark-combat"
+                || argument == "--test-combat"
                 || argument == "--verify-wall-weapons"
                 || argument == "--verify-weapon-assemblies"
                 || argument == "--verify-ads"
@@ -196,7 +198,9 @@ impl LaunchOptions {
                 result.benchmark = argument != "--verify";
                 result.verify = args.next().map(PathBuf::from);
                 result.benchmark_motion = argument == "--benchmark-moving-view";
-                result.benchmark_combat = argument == "--benchmark-combat"
+                result.test_combat = argument == "--test-combat";
+                result.benchmark_combat = result.test_combat
+                    || argument == "--benchmark-combat"
                     || argument == "--verify-wall-weapons"
                     || argument == "--verify-rounds"
                     || argument == "--verify-solo-bleedout"

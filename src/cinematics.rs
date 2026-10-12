@@ -144,7 +144,7 @@ fn start(
     mut playback: ResMut<Playback>,
     game: Res<crate::assets::GameDefinition>,
     server: Res<AssetServer>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
 ) {
     playback.0 = game
         .content
@@ -305,7 +305,7 @@ fn loading_start(
     mut playback: ResMut<LoadingPlayback>,
     game: Res<crate::assets::GameDefinition>,
     server: Res<AssetServer>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
 ) {
     *playback = LoadingPlayback {
         done: true,

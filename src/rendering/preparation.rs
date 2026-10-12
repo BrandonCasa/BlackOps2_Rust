@@ -1,4 +1,4 @@
-use crate::{GameState, assets::LoadFailure, presentation::ViewModelCamera};
+use crate::{GameState, assets::LoadFailure, rendering::GameCamera};
 use bevy::{
     camera::visibility::{NoFrustumCulling, VisibilitySystems},
     prelude::*,
@@ -47,10 +47,7 @@ pub(crate) fn install(app: &mut App) {
     let progress = ShaderProgress::default();
     app.insert_resource(progress.clone())
         .init_resource::<Preparation>()
-        .add_systems(
-            Startup,
-            setup.after(crate::presentation::first_person_light),
-        )
+        .add_systems(Startup, setup.after(crate::rendering::setup))
         .add_systems(OnEnter(GameState::PreparingShaders), begin)
         .add_systems(OnExit(GameState::PreparingShaders), restore_culling)
         .add_systems(Update, (advance, display).chain())
@@ -208,7 +205,7 @@ fn advance(
 
 fn setup(
     mut commands: Commands,
-    cameras: Query<Entity, With<ViewModelCamera>>,
+    cameras: Query<Entity, With<GameCamera>>,
     server: Res<AssetServer>,
 ) {
     let Ok(camera) = cameras.single() else {

@@ -1,6 +1,6 @@
 use super::*;
-use crate::presentation::{Rig, ViewModelCamera};
 use crate::weapons::{WeaponAction, WeaponInventory};
+use crate::{presentation::Rig, rendering::GameCamera};
 use bevy::window::PrimaryWindow;
 
 const WEAPONS: [&str; 5] = [
@@ -205,7 +205,7 @@ fn capture(
     verification: Option<Res<Verification>>,
     mut coverage: ResMut<Coverage>,
     inventories: Query<&WeaponInventory, With<Player>>,
-    cameras: Query<(&Camera, &GlobalTransform, &Projection), With<ViewModelCamera>>,
+    cameras: Query<(&Camera, &GlobalTransform, &Projection), With<GameCamera>>,
     rigs: Query<(Entity, &Rig)>,
     children: Query<&Children>,
     joints: Query<(&Name, &GlobalTransform)>,

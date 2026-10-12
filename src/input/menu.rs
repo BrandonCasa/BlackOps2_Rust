@@ -214,7 +214,7 @@ fn rebuild(
     menu: Res<ControlMenu>,
     settings: Res<ControlSettings>,
     roots: Query<Entity, With<MenuRoot>>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     mut built: Local<Option<u64>>,
 ) {
     if *built == Some(menu.revision) && !roots.is_empty() {

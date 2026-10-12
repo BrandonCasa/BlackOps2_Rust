@@ -208,7 +208,6 @@ fn observe(
                 &m.normal_map_texture,
                 &m.metallic_roughness_texture,
                 &m.emissive_texture,
-                &m.clearcoat_texture,
             ]
             .into_iter()
             .flatten()

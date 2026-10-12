@@ -313,8 +313,10 @@ fn detect(
                     inner_damage: profile.inner_damage,
                     outer_damage: profile.outer_damage,
                     direction: Some((forward, profile.blast_cos)),
-                    category: None, player_damage: None, source: None,
-});
+                    category: None,
+                    player_damage: None,
+                    source: None,
+                });
                 evidence.detonated += 1;
                 evidence.record(serde_json::json!({"event":"detonate","unsafe":mine.unsafe_plant}));
                 commands.entity(entity).despawn();

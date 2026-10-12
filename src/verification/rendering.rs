@@ -1,16 +1,10 @@
-use crate::{
-    presentation::ViewModelCamera,
-    rendering::{
-        GameCamera,
-        profile::{Antialiasing, VisualProfile},
-    },
+use crate::rendering::{
+    GameCamera,
+    profile::{Antialiasing, VisualProfile},
 };
 use bevy::{
-    anti_alias::{smaa::Smaa, taa::TemporalAntiAliasing},
-    light::ShadowFilteringMethod,
     prelude::*,
     remote::{BrpError, BrpResult, RemoteMethods},
-    render::camera::TemporalJitter,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -38,7 +32,6 @@ pub(super) fn install(app: &mut App) {
 #[serde(default, deny_unknown_fields)]
 struct Setup {
     antialiasing: Option<Antialiasing>,
-    viewmodel_contact_shadows: Option<bool>,
     view: Option<[f32; 6]>,
     restore_player_view: bool,
     color_patches: Option<Vec<[f32; 3]>>,
@@ -86,63 +79,22 @@ fn configure(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
             .looking_at(Vec3::from_slice(&view[3..]), Vec3::Y);
         world.insert_resource(crate::rendering::ValidationView(pose));
     }
-    let cameras: Vec<_> = world.query_filtered::<(Entity, Has<ViewModelCamera>), Or<(With<GameCamera>,With<ViewModelCamera>)>>()
-        .iter(world).collect();
+    let cameras: Vec<_> = world
+        .query_filtered::<Entity, With<GameCamera>>()
+        .iter(world)
+        .collect();
     if let Some(aa) = request.antialiasing {
         world.resource_mut::<VisualProfile>().antialiasing = aa;
-        for &(entity, first) in &cameras {
-            let mut camera = world.entity_mut(entity);
-            camera.remove::<(TemporalAntiAliasing, TemporalJitter, Smaa)>();
-            camera.insert((
-                if matches!(aa, Antialiasing::Msaa4) {
-                    Msaa::Sample4
-                } else {
-                    Msaa::Off
-                },
-                if matches!(aa, Antialiasing::Taa) {
-                    ShadowFilteringMethod::Temporal
-                } else {
-                    ShadowFilteringMethod::Gaussian
-                },
-            ));
-            match aa {
-                Antialiasing::Taa => {
-                    camera.insert(TemporalAntiAliasing::default());
-                }
-                Antialiasing::Smaa if first => {
-                    camera.insert(crate::rendering::postprocess::smaa());
-                }
-                _ => {}
-            }
-        }
-    }
-    if let Some(enabled) = request.viewmodel_contact_shadows {
-        for &(entity, first) in &cameras {
-            if first {
-                if enabled {
-                    world
-                        .entity_mut(entity)
-                        .insert(bevy::pbr::ContactShadows::default());
-                } else {
-                    world
-                        .entity_mut(entity)
-                        .remove::<bevy::pbr::ContactShadows>();
-                }
-            }
-        }
     }
     if let Some(enabled) = request.bloom {
-        for &(entity, first) in &cameras {
-            if first {
-                if enabled {
-                    let bloom =
-                        crate::rendering::postprocess::bloom(world.resource::<VisualProfile>());
-                    world.entity_mut(entity).insert(bloom);
-                } else {
-                    world
-                        .entity_mut(entity)
-                        .remove::<bevy::post_process::bloom::Bloom>();
-                }
+        for &entity in &cameras {
+            if enabled {
+                let bloom = crate::rendering::postprocess::bloom(world.resource::<VisualProfile>());
+                world.entity_mut(entity).insert(bloom);
+            } else {
+                world
+                    .entity_mut(entity)
+                    .remove::<bevy::post_process::bloom::Bloom>();
             }
         }
     }
@@ -155,16 +107,17 @@ fn configure(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
         for entity in old {
             world.despawn(entity);
         }
-        if let Some(&(camera, _)) = cameras.iter().find(|(_, first)| !*first) {
-            let projection = cameras
-                .iter()
-                .find(|(_, first)| *first)
-                .and_then(|(entity, _)| world.get::<Projection>(*entity));
+        if let Some(&camera) = cameras.first() {
+            let projection = world.get::<Projection>(camera);
             let aspect = match projection {
                 Some(Projection::Perspective(p)) => p.aspect_ratio,
                 _ => 16. / 9.,
             };
-            let half_height = 0.1 * (65_f32.to_radians() * 0.5).tan();
+            let fov = match projection {
+                Some(Projection::Perspective(p)) => p.fov,
+                _ => crate::rendering::BASE_FOV_DEGREES.to_radians(),
+            };
+            let half_height = 0.1 * (fov * 0.5).tan();
             let half_width = half_height * aspect;
             let columns = 8;
             let rows = colors.len().div_ceil(columns).max(1);

@@ -232,8 +232,13 @@ fn locate(
                 .total_cmp(&b.translation.distance_squared(pose.translation))
         })
         .map(|(z, _)| z.zone.clone());
-    if candidate.as_ref().is_some_and(|id| !access.reachable.contains(id)) {
-        pose.translation = checkpoint.0.unwrap_or(Vec3::from_array(game.spawn) + Vec3::Y * (player.height * 0.5));
+    if candidate
+        .as_ref()
+        .is_some_and(|id| !access.reachable.contains(id))
+    {
+        pose.translation = checkpoint
+            .0
+            .unwrap_or(Vec3::from_array(game.spawn) + Vec3::Y * (player.height * 0.5));
         player.velocity = Vec3::ZERO;
         return;
     }

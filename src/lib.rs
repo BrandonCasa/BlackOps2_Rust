@@ -76,8 +76,6 @@ pub mod staff_upgrades;
 pub mod stations;
 pub mod tablets;
 pub mod tank;
-#[cfg(feature = "prepare-textures")]
-pub mod texture_preparation;
 pub mod verification;
 pub mod weapons;
 
@@ -104,6 +102,9 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let configuration = assets::AssetPack::discover();
     let mut app = App::new();
+    app.insert_resource(bevy::anti_alias::dlss::DlssProjectId(
+        bevy::asset::uuid::uuid!("8981c4df-a1f4-4597-b6f1-6196f5cb5237"),
+    ));
     let benchmark = options.benchmark;
     let release_benchmark = options.release_benchmark;
     let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
@@ -131,13 +132,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                 use_gpu_instance_buffer_builder: gpu_preprocessing,
                 ..default()
             })
-            .set(
-                bevy::gltf::GltfPlugin::default()
-                    .add_custom_vertex_attribute("ORIGINS_LAYER_UV", rendering::LAYER_UV)
-                    .add_custom_vertex_attribute("ORIGINS_LAYER3_UV", rendering::LAYER3_UV)
-                    .add_custom_vertex_attribute("ORIGINS_ROTATION1", rendering::ROTATION1)
-                    .add_custom_vertex_attribute("ORIGINS_ROTATION2", rendering::ROTATION2),
-            )
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: if flythrough {
@@ -176,8 +170,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                 ..default()
             }),
     )
-    .add_plugins(bevy::anti_alias::smaa::SmaaPlugin)
-    .add_plugins(bevy::anti_alias::taa::TemporalAntiAliasPlugin)
+    .add_plugins(bevy::anti_alias::dlss::DlssPlugin)
     .add_plugins(avian3d::prelude::PhysicsPlugins::default())
     .init_state::<GameState>()
     .insert_resource(Time::<Fixed>::from_hz(60.0))

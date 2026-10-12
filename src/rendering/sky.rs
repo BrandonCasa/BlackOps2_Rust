@@ -1,7 +1,6 @@
 use super::{GameCamera, profile::VisualProfile};
 use bevy::{
     light::{GeneratedEnvironmentMapLight, Skybox},
-    pbr::{ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel},
     prelude::*,
 };
 
@@ -36,45 +35,6 @@ pub(super) fn setup(
             rotation,
             ..default()
         },
-        ScreenSpaceAmbientOcclusion {
-            quality_level: ScreenSpaceAmbientOcclusionQualityLevel::Medium,
-            ..default()
-        },
         source.fog.native(source.exposure),
     ));
-}
-
-pub(super) fn viewmodel_environment(
-    mut commands: Commands,
-    world: Query<(&bevy::light::EnvironmentMapLight, &bevy::camera::Exposure), With<GameCamera>>,
-    mut cameras: Query<
-        (
-            Entity,
-            Option<&bevy::light::EnvironmentMapLight>,
-            &mut bevy::camera::Exposure,
-        ),
-        (
-            With<crate::presentation::ViewModelCamera>,
-            Without<GameCamera>,
-        ),
-    >,
-) {
-    let Ok((environment, exposure)) = world.single() else {
-        return;
-    };
-    for (entity, current, mut view_exposure) in &mut cameras {
-        if view_exposure.ev100 != exposure.ev100 {
-            view_exposure.ev100 = exposure.ev100;
-        }
-        if current.is_none_or(|current| {
-            current.specular_map != environment.specular_map
-                || current.diffuse_map != environment.diffuse_map
-                || current.intensity != environment.intensity
-                || current.rotation != environment.rotation
-                || current.affects_lightmapped_mesh_diffuse
-                    != environment.affects_lightmapped_mesh_diffuse
-        }) {
-            commands.entity(entity).insert(environment.clone());
-        }
-    }
 }

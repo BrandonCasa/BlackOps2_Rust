@@ -112,7 +112,7 @@ fn setup(
     mut commands: Commands,
     game: Option<Res<GameDefinition>>,
     server: Res<AssetServer>,
-    cameras: Query<Entity, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     roots: Query<(), With<HudRoot>>,
 ) {
     let (Some(game), Ok(camera)) = (game, cameras.single()) else {

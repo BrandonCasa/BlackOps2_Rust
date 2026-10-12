@@ -129,7 +129,7 @@ pub(crate) fn image(
 }
 
 fn resize(
-    cameras: Query<&Camera, With<crate::presentation::ViewModelCamera>>,
+    cameras: Query<&Camera, With<crate::rendering::GameCamera>>,
     scale: Res<UiScale>,
     mut roots: Query<(&mut Node, &mut UiTransform), With<Canvas>>,
     mut anchors: Query<(&SafeAnchor, &mut Node), Without<Canvas>>,

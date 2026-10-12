@@ -2,7 +2,7 @@ use std::{collections::VecDeque, fmt::Write};
 
 use bevy::{prelude::*, window::PrimaryWindow};
 
-use crate::{GameState, presentation::ViewModelCamera};
+use crate::{GameState, rendering::GameCamera};
 
 const CAPACITY: usize = 4096;
 const WINDOW_SECONDS: f64 = 5.;
@@ -48,15 +48,12 @@ pub(super) struct PerformanceOverlayPlugin;
 impl Plugin for PerformanceOverlayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FrameStats>()
-            .add_systems(
-                Startup,
-                setup.after(crate::presentation::first_person_light),
-            )
+            .add_systems(Startup, setup.after(crate::rendering::setup))
             .add_systems(Update, update);
     }
 }
 
-fn setup(mut commands: Commands, cameras: Query<Entity, With<ViewModelCamera>>) {
+fn setup(mut commands: Commands, cameras: Query<Entity, With<GameCamera>>) {
     let Ok(camera) = cameras.single() else {
         return;
     };
