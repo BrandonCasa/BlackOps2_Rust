@@ -408,7 +408,9 @@ pub(crate) fn move_player(
                 .filter(|hit| hit.normal.y >= tuning.physics.ground_normal_min)
                 .map(|hit| hit.normal)
         });
-    player.grounded = ground_normal.is_some() && (player.velocity.y <= 1e-4 || !mobility.airborne);
+    // Avian can project a floor contact to a tiny positive vertical velocity.
+    // Accept that contact before a second airborne tick overwrites impact energy.
+    player.grounded = ground_normal.is_some() && (player.velocity.y <= 1e-3 || !mobility.airborne);
     let surface_flags = support
         .map(|hit| hit.entity)
         .or_else(|| ground.map(|hit| hit.entity))

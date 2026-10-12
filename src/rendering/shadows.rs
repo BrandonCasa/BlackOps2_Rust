@@ -43,7 +43,7 @@ pub(super) fn retire_hidden_light_views(
         }
         commands
             .entity(removed.entity)
-            .remove::<bevy::pbr::PointAndSpotLightViewEntities>();
+            .try_remove::<bevy::pbr::PointAndSpotLightViewEntities>();
     }
 }
 
