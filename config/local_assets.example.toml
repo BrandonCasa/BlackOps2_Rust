@@ -1,9 +1,0 @@
-[assets]
-installation_root = "<absolute path to your licensed BO2 installation>"
-inspection_output = "<absolute external directory containing retained world exports and OAT>"
-
-[game]
-asset_pack = "<absolute external directory for the prepared game pack>"
-
-[materials]
-preparation_executable = "<absolute path to a pinned prepare-textures bundle origins.exe>"
