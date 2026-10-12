@@ -24,7 +24,7 @@ profile-tracy-memory = ["profile-tracy", "bevy/trace_tracy_memory"]
 profile-chrome = ["bevy/trace_chrome", "bevy/debug"]
 
 [dependencies]
-bevy = { version = "=0.20.0", default-features = false, features = ["std", "debug", "async_executor", "multi_threaded", "bevy_asset", "bevy_scene", "bevy_gltf", "bevy_animation", "bevy_curve", "gltf_animation", "bevy_audio", "vorbis", "ktx2", "bevy_pbr", "bevy_solari", "dlss", "pbr_specular_textures", "bevy_post_process", "bevy_anti_alias", "bevy_winit", "bevy_state", "bevy_ui", "bevy_ui_render", "bevy_ui_widgets", "ui_picking", "bevy_text", "default_font", "keyboard", "mouse", "tonemapping_luts", "bevy_log", "bevy_mikktspace", "reflect_auto_register", "zstd_rust"] }
+bevy = { version = "=0.20.0", default-features = false, features = ["std", "debug", "async_executor", "multi_threaded", "bevy_asset", "bevy_scene", "bevy_gltf", "bevy_animation", "bevy_curve", "gltf_animation", "bevy_audio", "vorbis", "flac", "mp3", "wav", "ktx2", "bevy_pbr", "bevy_solari", "dlss", "pbr_specular_textures", "bevy_post_process", "bevy_anti_alias", "bevy_winit", "bevy_state", "bevy_ui", "bevy_ui_render", "bevy_ui_widgets", "ui_picking", "bevy_text", "default_font", "keyboard", "mouse", "tonemapping_luts", "bevy_log", "bevy_mikktspace", "reflect_auto_register", "zstd_rust"] }
 avian3d = { git = "https://github.com/andriyDev/avian.git", rev = "34c9b008d2f40638a953d9218db48d54f661365d", default-features = false, features = ["3d", "parry-f32", "collider-from-mesh", "parallel", "enhanced-determinism"] }
 bevy_input = { version = "=0.20.0", features = ["serialize"] }
 serde = { version = "=1.0.229", features = ["derive"] }

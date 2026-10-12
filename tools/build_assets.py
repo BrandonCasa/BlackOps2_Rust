@@ -10,8 +10,10 @@ import collections
 import concurrent.futures
 import dataclasses
 import decimal
+from fractions import Fraction
 import hashlib
 import inspect
+import itertools
 import json
 import math
 import os
@@ -22,6 +24,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import urllib.parse
 import zipfile
@@ -327,18 +330,32 @@ inline J clip(AssetDumpingContext& ctx,const clipMap_t& c,const std::string& id)
     if(c.mapEnts){const auto& t=c.mapEnts->trigger;for(unsigned i=0;i<t.count;i++){const auto& m=t.models[i];J hulls=J::array();for(unsigned k=0;k<m.hullCount;k++){const auto& h=t.hulls[m.firstHull+k];J slabs=J::array();for(unsigned n=0;n<h.slabCount;n++){const auto& s=t.slabs[h.firstSlab+n];slabs.push_back(J{{"direction",array(s.dir)},{"midpoint",s.midPoint},{"half_size",s.halfSize}});}hulls.push_back(J{{"midpoint",array(h.bounds.midPoint)},{"half_size",array(h.bounds.halfSize)},{"contents",h.contents},{"slabs",slabs}});}j["triggers"].push_back(J{{"contents",m.contents},{"hulls",hulls}});}}
     return j;
 }
+inline J world_fog(const GfxWorldFog& f) {
+    return J{{"base_distance",f.baseDist},{"half_distance",f.halfDist},{"base_height",f.baseHeight},{"half_height",f.halfHeight},{"sun_pitch",f.sunFogPitch},{"sun_yaw",f.sunFogYaw},{"sun_inner",f.sunFogInner},{"sun_outer",f.sunFogOuter},{"color",array(f.fogColor)},{"opacity",f.fogOpacity},{"sun_color",array(f.sunFogColor)},{"sun_opacity",f.sunFogOpacity}};
+}
 inline J world(AssetDumpingContext& ctx,const GfxWorld& w,const std::string& id) {
     std::string p="native-binary/world-"+id;
     binary(ctx,p+"-stream0.bin",w.draw.vd0.data,w.draw.vertexDataSize0);
     binary(ctx,p+"-stream1.bin",w.draw.vd1.data,w.draw.vertexDataSize1);
     binary(ctx,p+"-indices.u16",w.draw.indices,w.draw.indexCount*sizeof(uint16_t));
-    J j{{"name",string(w.name)},{"base_name",string(w.baseName)},{"checksum",w.checksum},{"mins",array(w.mins)},{"maxs",array(w.maxs)},{"skybox_model",string(w.skyBoxModel)},{"vertex_count",w.draw.vertexCount},{"stream0",p+"-stream0.bin"},{"stream1",p+"-stream1.bin"},{"indices",p+"-indices.u16"},{"surfaces",J::array()},{"static_models",J::array()},{"hero_lights",J::array()}};
+    J j{{"name",string(w.name)},{"base_name",string(w.baseName)},{"checksum",w.checksum},{"mins",array(w.mins)},{"maxs",array(w.maxs)},{"skybox_model",string(w.skyBoxModel)},{"vertex_count",w.draw.vertexCount},{"stream0",p+"-stream0.bin"},{"stream1",p+"-stream1.bin"},{"indices",p+"-indices.u16"},{"surfaces",J::array()},{"brush_models",J::array()},{"static_models",J::array()},{"hero_lights",J::array()}};
+    for(int i=0;i<w.modelCount;i++){const auto& m=w.models[i];j["brush_models"].push_back(J{{"index",i},{"mins",array(m.bounds[0])},{"maxs",array(m.bounds[1])},{"surface_count",m.surfaceCount},{"first_surface",m.startSurfIndex}});}
     for(int i=0;i<w.surfaceCount;i++){const auto& s=w.dpvs.surfaces[i];J bounds=J::array();bounds.push_back(array(s.bounds[0]));bounds.push_back(array(s.bounds[1]));j["surfaces"].push_back(J{{"material",s.material?string(s.material->info.name):J(nullptr)},{"stream0_offset",s.tris.vertexDataOffset0},{"stream1_offset",s.tris.vertexDataOffset1},{"first_vertex",s.tris.firstVertex},{"vertex_count",s.tris.vertexCount},{"triangle_count",s.tris.triCount},{"base_index",s.tris.baseIndex},{"mins",array(s.tris.mins)},{"maxs",array(s.tris.maxs)},{"lightmap",s.lightmapIndex},{"reflection_probe",s.reflectionProbeIndex},{"primary_light",s.primaryLightIndex},{"flags",s.flags},{"bounds",bounds}});}
     for(unsigned i=0;i<w.dpvs.smodelCount;i++){const auto& s=w.dpvs.smodelDrawInsts[i];J axis=J::array();for(auto& a:s.placement.axis)axis.push_back(array(a));j["static_models"].push_back(J{{"model",s.model?string(s.model->name):J(nullptr)},{"origin",array(s.placement.origin)},{"axis",axis},{"scale",s.placement.scale},{"flags",s.flags},{"id",s.smid},{"primary_light",s.primaryLightIndex},{"reflection_probe",s.reflectionProbeIndex}});}
     for(unsigned i=0;i<w.heroLightCount;i++){const auto& l=w.heroLights[i];j["hero_lights"].push_back(J{{"type",l.type},{"color",array(l.color)},{"direction",array(l.dir)},{"origin",array(l.origin)},{"radius",l.radius},{"cos_half_fov_outer",l.cosHalfFovOuter},{"cos_half_fov_inner",l.cosHalfFovInner},{"exponent",l.exponent}});}
     const auto& s=w.sunParse.initWorldSun[0];const auto& f=w.sunParse.initWorldFog[0];
     j["initial_sun"]=J{{"control",s.control},{"angles",array(s.angles)},{"ambient_color",array(s.ambientColor)},{"diffuse",array(s.sunCd)},{"specular",array(s.sunCs)},{"sky_color",array(s.skyColor)},{"exposure",s.exposure}};
-    j["initial_fog"]=J{{"base_distance",f.baseDist},{"half_distance",f.halfDist},{"base_height",f.baseHeight},{"half_height",f.halfHeight},{"sun_pitch",f.sunFogPitch},{"sun_yaw",f.sunFogYaw},{"sun_inner",f.sunFogInner},{"sun_outer",f.sunFogOuter},{"color",array(f.fogColor)},{"opacity",f.fogOpacity},{"sun_color",array(f.sunFogColor)},{"sun_opacity",f.sunFogOpacity},{"transition_time",w.sunParse.fogTransitionTime}};
+    j["initial_fog"]=world_fog(f);j["initial_fog"]["transition_time"]=w.sunParse.fogTransitionTime;
+    j["lut_material"]=w.lutMaterial?string(w.lutMaterial->info.name):J(nullptr);
+    j["fog_volumes"]=J::array();j["fog_volume_planes"]=J::array();
+    for(unsigned i=0;i<w.worldFogVolumeCount;i++){const auto& v=w.worldFogVolumes[i];j["fog_volumes"].push_back(J{{"mins",array(v.mins)},{"maxs",array(v.maxs)},{"control",v.control},{"control_ex",v.controlEx},{"transition_time",v.fogTransitionTime},{"fog",world_fog(v.volumeWorldFog[0])}});}
+    for(unsigned i=0;i<w.worldFogVolumePlaneCount;i++)j["fog_volume_planes"].push_back(array(w.worldFogVolumePlanes[i].plane));
+    j["exposure_volumes"]=J::array();j["exposure_volume_planes"]=J::array();
+    for(unsigned i=0;i<w.exposureVolumeCount;i++){const auto& v=w.exposureVolumes[i];j["exposure_volumes"].push_back(J{{"control",v.control},{"exposure",v.exposure},{"luminance_increase_scale",v.luminanceIncreaseScale},{"luminance_decrease_scale",v.luminanceDecreaseScale},{"feather_range",v.featherRange},{"feather_adjust",v.featherAdjust}});}
+    for(unsigned i=0;i<w.exposureVolumePlaneCount;i++)j["exposure_volume_planes"].push_back(array(w.exposureVolumePlanes[i].plane));
+    j["lut_volumes"]=J::array();j["lut_volume_planes"]=J::array();
+    for(unsigned i=0;i<w.lutVolumeCount;i++){const auto& v=w.lutVolumes[i];j["lut_volumes"].push_back(J{{"mins",array(v.mins)},{"maxs",array(v.maxs)},{"control",v.control},{"transition_time",v.lutTransitionTime},{"lut_index",v.lutIndex}});}
+    for(unsigned i=0;i<w.lutVolumePlaneCount;i++)j["lut_volume_planes"].push_back(array(w.lutVolumePlanes[i].plane));
     return j;
 }
 inline J shader_argument(const MaterialShaderArgument& a) {
@@ -352,7 +369,7 @@ inline J shader_argument(const MaterialShaderArgument& a) {
     return j;
 }
 inline J material(const Material& m) {
-    J j{{"name",string(m.info.name)},{"technique_set",m.techniqueSet?string(m.techniqueSet->name):J(nullptr)},{"state_flags",m.stateFlags},{"state_entries",array(m.stateBitsEntry)},{"textures",J::array()},{"constants",J::array()},{"state_bits",J::array()},{"techniques",J::array()}};
+    J j{{"name",string(m.info.name)},{"technique_set",m.techniqueSet?string(m.techniqueSet->name):J(nullptr)},{"atlas_rows",m.info.textureAtlasRowCount},{"atlas_columns",m.info.textureAtlasColumnCount},{"state_flags",m.stateFlags},{"state_entries",array(m.stateBitsEntry)},{"textures",J::array()},{"constants",J::array()},{"state_bits",J::array()},{"techniques",J::array()}};
     for(unsigned i=0;i<m.textureCount;i++){const auto& t=m.textureTable[i];unsigned char sampler=0;std::memcpy(&sampler,&t.samplerState,1);j["textures"].push_back(J{{"name_hash",t.nameHash},{"name_start",t.nameStart},{"name_end",t.nameEnd},{"sampler",sampler},{"semantic",t.semantic},{"image",t.image?string(t.image->name):J(nullptr)},{"mature",t.isMatureContent}});}
     for(unsigned i=0;i<m.constantCount;i++){const auto& c=m.constantTable[i];j["constants"].push_back(J{{"name_hash",c.nameHash},{"name",std::string(c.name,strnlen(c.name,12))},{"literal",array(c.literal)}});}
     for(unsigned i=0;i<m.stateBitsCount;i++)j["state_bits"].push_back(array(m.stateBitsTable[i].loadBits.raw));
@@ -438,6 +455,24 @@ inline J rect(const rectDef_s& r){return J{{"x",r.x},{"y",r.y},{"w",r.w},{"h",r.
 inline J window(const windowDef_t& w){return J{{"name",string(w.name)},{"group",string(w.group)},{"rect",rect(w.rect)},{"client_rect",rect(w.rectClient)},{"foreground",array(w.foreColor)},{"background_color",array(w.backColor)},{"border_color",array(w.borderColor)},{"outline_color",array(w.outlineColor)},{"background_material",w.background?string(w.background->info.name):J(nullptr)},{"style",w.style},{"border",w.border},{"modal",w.modal},{"frameSides",w.frameSides},{"frameTexSize",w.frameTexSize},{"frameSize",w.frameSize},{"ownerDraw",w.ownerDraw},{"ownerDrawFlags",w.ownerDrawFlags},{"borderSize",w.borderSize},{"staticFlags",w.staticFlags},{"rotation",w.rotation}};}
 inline J menu(const menuDef_t& m){J items=J::array();for(int i=0;i<m.itemCount;i++){const auto& a=*m.items[i];J v{{"window",window(a.window)},{"type",a.type},{"data_type",a.dataType},{"show_bits",a.showBits},{"hide_bits",a.hideBits}};bool has_text=a.type==ITEM_TYPE_TEXT||a.type==ITEM_TYPE_BUTTON||a.type==ITEM_TYPE_LISTBOX||a.type==ITEM_TYPE_EDITFIELD||a.type==ITEM_TYPE_NUMERICFIELD||a.type==ITEM_TYPE_SLIDER||a.type==ITEM_TYPE_YESNO||a.type==ITEM_TYPE_MULTI||a.type==ITEM_TYPE_DVARENUM||a.type==ITEM_TYPE_BIND||a.type==ITEM_TYPE_VALIDFILEFIELD||a.type==ITEM_TYPE_UPREDITFIELD||a.type==ITEM_TYPE_GAME_MESSAGE_WINDOW||a.type==ITEM_TYPE_BIND2||a.type==ITEM_TYPE_OWNERDRAW_TEXT||a.type==ITEM_TYPE_OD_TEXT_BUTTON||a.type==ITEM_TYPE_PROFILEMULTI;if(has_text&&a.typeData.textDef){const auto& t=*a.typeData.textDef;v["text"]=J{{"value",string(t.text)},{"rect",rect(t.textRect[0])},{"font_color",array(t.fontColor)},{"glow_color",array(t.glowColor)},{"shadow_color",array(t.shadowColor)},{"shadow_offset",array(t.shadowOffset)},{"alignment",t.alignment},{"fontEnum",t.fontEnum},{"itemFlags",t.itemFlags},{"textAlignMode",t.textAlignMode},{"textalignx",t.textalignx},{"textaligny",t.textaligny},{"textscale",t.textscale},{"textpadding",t.textpadding},{"textStyle",t.textStyle},{"fontBlur",t.fontBlur},{"glowSize",t.glowSize},{"shadowSize",t.shadowSize}};}items.push_back(v);}return J{{"window",window(m.window)},{"font",string(m.font)},{"sound",string(m.soundName)},{"focus_color",array(m.focusColor)},{"disabled_color",array(m.disableColor)},{"initial_rect",rect(m.initialRectInfo)},{"items",items},{"fullScreen",m.fullScreen},{"ui3dWindowId",m.ui3dWindowId},{"fontIndex",m.fontIndex},{"fadeCycle",m.fadeCycle},{"priority",m.priority},{"fadeClamp",m.fadeClamp},{"fadeAmount",m.fadeAmount},{"fadeInAmount",m.fadeInAmount},{"blurRadius",m.blurRadius},{"openSlideSpeed",m.openSlideSpeed},{"closeSlideSpeed",m.closeSlideSpeed},{"openSlideDirection",m.openSlideDirection},{"closeSlideDirection",m.closeSlideDirection},{"openFadingTime",m.openFadingTime},{"closeFadingTime",m.closeFadingTime},{"showBits",m.showBits},{"hideBits",m.hideBits},{"imageTrack",m.imageTrack},{"control",m.control}};}
 
+inline J weapon_art(AssetDumpingContext& c,const WeaponVariantDef& v) {
+    J j{{"name",string(v.szInternalName)},{"gun_models",J::array()},{"world_models",J::array()},{"animations",J::array()},{"hide_tags",J::array()},{"view_attachments",J::array()},{"world_attachments",J::array()},{"unique_attachments",J::array()},{"stowed_offset",array(v.stowedModelOffsets)},{"stowed_rotation",array(v.stowedModelRotations)},{"left_hand_idle",array(v.ikLeftHandIdlePos)},{"left_hand_offset",array(v.ikLeftHandOffset)},{"left_hand_rotation",array(v.ikLeftHandRotation)}};
+    for(unsigned i=0;i<88;i++)j["animations"].push_back(v.szXAnims?string(v.szXAnims[i]):J(nullptr));
+    for(unsigned i=0;i<32;i++)j["hide_tags"].push_back(v.hideTags?J(c.m_zone.m_script_strings.Value(v.hideTags[i])):J(nullptr));
+    for(unsigned i=0;i<8;i++){
+        j["view_attachments"].push_back(J{{"model",v.attachViewModel&&v.attachViewModel[i]?string(v.attachViewModel[i]->name):J(nullptr)},{"tag",v.attachViewModelTag?string(v.attachViewModelTag[i]):J(nullptr)},{"offset",J::array({v.attachViewModelOffsets[i*3],v.attachViewModelOffsets[i*3+1],v.attachViewModelOffsets[i*3+2]})},{"rotation",J::array({v.attachViewModelRotations[i*3],v.attachViewModelRotations[i*3+1],v.attachViewModelRotations[i*3+2]})}});
+        j["world_attachments"].push_back(J{{"model",v.attachWorldModel&&v.attachWorldModel[i]?string(v.attachWorldModel[i]->name):J(nullptr)},{"tag",v.attachWorldModelTag?string(v.attachWorldModelTag[i]):J(nullptr)},{"offset",J::array({v.attachWorldModelOffsets[i*3],v.attachWorldModelOffsets[i*3+1],v.attachWorldModelOffsets[i*3+2]})},{"rotation",J::array({v.attachWorldModelRotations[i*3],v.attachWorldModelRotations[i*3+1],v.attachWorldModelRotations[i*3+2]})}});
+    }
+    for(unsigned i=0;i<95;i++)j["unique_attachments"].push_back(v.attachmentUniques&&v.attachmentUniques[i]?string(v.attachmentUniques[i]->szInternalName):J(nullptr));
+    if(v.weapDef){const auto& d=*v.weapDef;for(unsigned i=0;i<16;i++){j["gun_models"].push_back(d.gunXModel&&d.gunXModel[i]?string(d.gunXModel[i]->name):J(nullptr));j["world_models"].push_back(d.worldModel&&d.worldModel[i]?string(d.worldModel[i]->name):J(nullptr));}j["hand_model"]=d.handXModel?string(d.handXModel->name):J(nullptr);j["world_clip_model"]=d.worldClipModel?string(d.worldClipModel->name):J(nullptr);j["projectile_model"]=d.rocketModel?string(d.rocketModel->name):J(nullptr);j["camo"]=d.weaponCamo?string(d.weaponCamo->name):J(nullptr);}
+    return j;
+}
+inline J camo_art(const WeaponCamo& c) {
+    J j{{"name",string(c.name)},{"solid_base_image",c.solidBaseImage?string(c.solidBaseImage->name):J(nullptr)},{"pattern_base_image",c.patternBaseImage?string(c.patternBaseImage->name):J(nullptr)},{"sets",J::array()},{"materials",J::array()}};
+    for(unsigned i=0;i<c.numCamoSets;i++){const auto& s=c.camoSets[i];j["sets"].push_back(J{{"solid_image",s.solidCamoImage?string(s.solidCamoImage->name):J(nullptr)},{"pattern_image",s.patternCamoImage?string(s.patternCamoImage->name):J(nullptr)},{"pattern_offset",array(s.patternOffset)},{"pattern_scale",s.patternScale}});}
+    for(unsigned i=0;i<c.numCamoMaterials;i++){J materials=J::array();const auto& s=c.camoMaterials[i];for(unsigned k=0;k<s.numMaterials;k++){const auto& m=s.materials[k];J base=J::array(),camo=J::array();for(unsigned n=0;n<m.numBaseMaterials;n++){base.push_back(m.baseMaterials&&m.baseMaterials[n]?string(m.baseMaterials[n]->info.name):J(nullptr));camo.push_back(m.camoMaterials&&m.camoMaterials[n]?string(m.camoMaterials[n]->info.name):J(nullptr));}materials.push_back(J{{"replace_flags",m.replaceFlags},{"base_materials",base},{"camo_materials",camo},{"shader_constants",array(m.shaderConsts)}});}j["materials"].push_back(materials);}
+    return j;
+}
 class Dumper final:public IAssetDumper {
 public:
     size_t GetProgressTotalCount(AssetDumpingContext& c)const override{return 1;}
@@ -457,7 +492,13 @@ public:
             if(!a->IsReference()&&a->m_ptr){
                 std::string id=std::to_string(index);
                 switch(a->m_type){
+                case ASSET_TYPE_WEAPON:row["data"]=weapon_art(c,*static_cast<const WeaponVariantDef*>(a->m_ptr));break;
+                case ASSET_TYPE_WEAPON_CAMO:row["data"]=camo_art(*static_cast<const WeaponCamo*>(a->m_ptr));break;
+                case ASSET_TYPE_ATTACHMENT_UNIQUE:{const auto& v=*static_cast<const WeaponAttachmentUnique*>(a->m_ptr);J hide=J::array(),anims=J::array();for(unsigned i=0;i<32;i++)hide.push_back(v.hideTags?J(c.m_zone.m_script_strings.Value(v.hideTags[i])):J(nullptr));for(unsigned i=0;i<88;i++)anims.push_back(v.szXAnims?string(v.szXAnims[i]):J(nullptr));row["data"]=J{{"name",string(v.szInternalName)},{"view_model",v.viewModel?string(v.viewModel->name):J(nullptr)},{"additional_view_model",v.viewModelAdditional?string(v.viewModelAdditional->name):J(nullptr)},{"ads_view_model",v.viewModelADS?string(v.viewModelADS->name):J(nullptr)},{"world_model",v.worldModel?string(v.worldModel->name):J(nullptr)},{"additional_world_model",v.worldModelAdditional?string(v.worldModelAdditional->name):J(nullptr)},{"view_tag",string(v.viewModelTag)},{"world_tag",string(v.worldModelTag)},{"view_offset",array(v.viewModelOffsets)},{"world_offset",array(v.worldModelOffsets)},{"view_rotation",array(v.viewModelRotations)},{"world_rotation",array(v.worldModelRotations)},{"additional_view_offset",array(v.viewModelAddOffsets)},{"additional_world_offset",array(v.worldModelAddOffsets)},{"additional_view_rotation",array(v.viewModelAddRotations)},{"additional_world_rotation",array(v.worldModelAddRotations)},{"camo",v.weaponCamo?string(v.weaponCamo->name):J(nullptr)},{"hide_tags",hide},{"animations",anims},{"disable_base_attachment",v.disableBaseWeaponAttachment},{"disable_base_clip",v.disableBaseWeaponClip},{"override_base_attachment_offsets",v.overrideBaseWeaponAttachmentOffsets},{"base_view_offset",array(v.viewModelOffsetBaseAttachment)},{"base_world_offset",array(v.worldModelOffsetBaseAttachment)}};break;}
 
+                case ASSET_TYPE_RAWFILE:{const auto& m=*static_cast<const RawFile*>(a->m_ptr);std::string n=m.name?m.name:"";bool code=false;for(const char* suffix:{".gsc",".csc",".gsh",".csh",".lua",".luac",".c",".cpp",".h",".hpp",".asm"})if(n.ends_with(suffix))code=true;if(!code){std::string p="native-binary/raw-"+id+".bin";binary(c,p,m.buffer,m.len);row["data"]=J{{"name",n},{"payload",p},{"byte_length",m.len}};}break;}
+                case ASSET_TYPE_GLASSES:{const auto& m=*static_cast<const Glasses*>(a->m_ptr);J panes=J::array();for(unsigned i=0;i<m.numGlasses;i++){const auto& g=m.glasses[i];J outline=J::array(),axis=J::array();for(unsigned k=0;k<static_cast<unsigned char>(g.numOutlineVerts);k++)outline.push_back(array(g.outline[k]));for(auto& v:g.outlineAxis)axis.push_back(array(v));J pane{{"index",g.index},{"brush_model",g.brushModel},{"origin",array(g.origin)},{"angles",array(g.angles)},{"mins",array(g.absmin)},{"maxs",array(g.absmax)},{"planar",g.isPlanar},{"binormal_sign",g.binormalSign},{"outline",outline},{"outline_axis",axis},{"outline_origin",array(g.outlineOrigin)},{"uv_scale",g.uvScale},{"thickness",g.thickness}};if(g.glassDef){const auto& d=*g.glassDef;pane["definition"]=J{{"name",string(d.name)},{"thickness",d.thickness},{"min_shard_size",d.minShardSize},{"max_shard_size",d.maxShardSize},{"pristine_material",d.pristineMaterial?string(d.pristineMaterial->info.name):J(nullptr)},{"cracked_material",d.crackedMaterial?string(d.crackedMaterial->info.name):J(nullptr)},{"shard_material",d.shardMaterial?string(d.shardMaterial->info.name):J(nullptr)},{"crack_sound",string(d.crackSound)},{"shatter_sound",string(d.shatterShound)},{"auto_shatter_sound",string(d.autoShatterShound)},{"crack_effect",d.crackEffect?string(d.crackEffect->name):J(nullptr)},{"shatter_effect",d.shatterEffect?string(d.shatterEffect->name):J(nullptr)}};}panes.push_back(pane);}row["data"]=J{{"name",string(m.name)},{"panes",panes}};break;}
+                case ASSET_TYPE_DESTRUCTIBLEDEF:{const auto& m=*static_cast<const DestructibleDef*>(a->m_ptr);J pieces=J::array();for(int i=0;i<m.numPieces;i++){const auto& p=m.pieces[i];J stages=J::array();for(auto& s:p.stages){J models=J::array();for(auto* v:s.spawnModel)models.push_back(v?string(v->name):J(nullptr));stages.push_back(J{{"show_bone",c.m_zone.m_script_strings.Value(s.showBone)},{"effect",s.breakEffect?string(s.breakEffect->name):J(nullptr)},{"sound",string(s.breakSound)},{"loop_sound",string(s.loopSound)},{"spawn_models",models}});}pieces.push_back(J{{"stages",stages},{"parent_piece",p.parentPiece},{"hide_bones",array(p.hideBones)},{"enable_label",c.m_zone.m_script_strings.Value(p.enableLabel)},{"damage_sound",string(p.damageSound)},{"burn_effect",p.burnEffect?string(p.burnEffect->name):J(nullptr)},{"burn_sound",string(p.burnSound)}});}row["data"]=J{{"name",string(m.name)},{"model",m.model?string(m.model->name):J(nullptr)},{"pristine_model",m.pristineModel?string(m.pristineModel->name):J(nullptr)},{"pieces",pieces}};break;}
                 case ASSET_TYPE_SOUND:row["data"]=sound_bank(c,*static_cast<const SndBank*>(a->m_ptr),id);break;
                 case ASSET_TYPE_MENU:row["data"]=menu(*static_cast<const menuDef_t*>(a->m_ptr));break;
                 case ASSET_TYPE_MENULIST:{const auto& m=*static_cast<const MenuList*>(a->m_ptr);J menus=J::array();for(int i=0;i<m.menuCount;i++)if(m.menus[i])menus.push_back(menu(*m.menus[i]));row["data"]=J{{"name",string(m.name)},{"menus",menus}};break;}
@@ -475,7 +516,6 @@ public:
                 case ASSET_TYPE_XANIMPARTS:row["data"]=animation(c,*static_cast<const XAnimParts*>(a->m_ptr),id);break;
                 case ASSET_TYPE_FX:row["data"]=effect(*static_cast<const FxEffectDef*>(a->m_ptr));break;
                 case ASSET_TYPE_COMWORLD:{const auto& w=*static_cast<const ComWorld*>(a->m_ptr);J lights=J::array();for(unsigned i=0;i<w.primaryLightCount;i++){const auto& l=w.primaryLights[i];lights.push_back(J{{"type",l.type},{"can_shadow",l.canUseShadowMap},{"exponent",l.exponent},{"priority",l.priority},{"cull_distance",l.cullDist},{"color",array(l.color)},{"direction",array(l.dir)},{"origin",array(l.origin)},{"radius",l.radius},{"outer_fov_cos",l.cosHalfFovOuter},{"inner_fov_cos",l.cosHalfFovInner},{"expanded_fov_cos",l.cosHalfFovExpanded},{"diffuse_color",array(l.diffuseColor)},{"falloff",array(l.falloff)},{"angle",array(l.angle)},{"attenuation",l.dAttenuation},{"roundness",l.roundness},{"definition",string(l.defName)}});}row["data"]=J{{"name",string(w.name)},{"lights",lights}};break;}
-                case ASSET_TYPE_GAMEWORLD_SP:case ASSET_TYPE_GAMEWORLD_MP:{const auto& w=*static_cast<const GameWorldMp*>(a->m_ptr);J nodes=J::array();for(unsigned i=0;i<w.path.nodeCount;i++){const auto& n=w.path.nodes[i].constant;J links=J::array();for(unsigned k=0;k<n.totalLinkCount;k++){const auto& l=n.Links[k];links.push_back(J{{"distance",l.fDist},{"node",l.nodeNum},{"disconnect_count",l.disconnectCount},{"negotiation",l.negotiationLink}});}auto str=[&](unsigned s){return c.m_zone.m_script_strings.Value(s);};nodes.push_back(J{{"type",n.type},{"spawn_flags",n.spawnflags},{"origin",array(n.vOrigin)},{"angle",n.fAngle},{"forward",array(n.forward)},{"radius",n.fRadius},{"minimum_use_distance_squared",n.minUseDistSq},{"targetname",str(n.targetname)},{"script_linkname",str(n.script_linkName)},{"script_noteworthy",str(n.script_noteworthy)},{"target",str(n.target)},{"animscript",str(n.animscript)},{"links",links}});}row["data"]=J{{"name",string(w.name)},{"nodes",nodes},{"original_node_count",w.path.originalNodeCount}};break;}
                 default:break;
                 }
             }
@@ -542,7 +582,8 @@ def bootstrap_oat(work: Path, source_root: Path | None = None) -> tuple[Path, di
     if original.count(anchor) != 1:
         raise AssetError("Pinned upstream OAT writer registration changed")
     patched = b'#include "OriginsNativePools.h"\n' + original.replace(anchor, anchor + b"\n    RegisterAssetDumper(std::make_unique<origins_native::Dumper>());")
-    patched = patched.replace(b'    RegisterAssetDumper(std::make_unique<script::DumperT6>());\n', b'')
+    retained = {b"techset", b"image", b"sound", b"map_ents", b"light_def", b"font", b"localize", b"camo", b"tracer", b"phys_preset", b"phys_constraints"}
+    patched = re.sub(rb"    RegisterAssetDumper\(std::make_unique<([a-z_]+)::[^\n]+\n", lambda match: match[0] if match[1] in retained or match[1] == b"origins_native" else b"", patched)
     header = writer.with_name("OriginsNativePools.h")
     main_path = source / "src/UnlinkerCli/main.cpp"
     main_original = subprocess.check_output(["git", "show", f"{OAT_REVISION}:src/UnlinkerCli/main.cpp"], cwd=source)
@@ -685,12 +726,16 @@ def extract_native(install: Path, work: Path, inventory: dict, *, oat_source: Pa
         ff = inside(install, row["path"])
         if "embedded" in row:
             payload = clump_data[row["path"]][row["embedded"]["offset"]:row["embedded"]["offset"] + row["embedded"]["size"]]
-            ff = work / "clump-fastfiles" / f"{row['embedded']['name_hash']:08x}.ff"
+            ff = inside(work / "clump-fastfiles" / row["language"] / f"{row['embedded']['name_hash']:08x}", row["zone"] + ".ff")
             ff.parent.mkdir(parents=True, exist_ok=True)
             if not ff.is_file():
                 ff.write_bytes(payload)
         checked_hash(ff, row["sha256"], "original fastfile before extraction")
         receipt = work / "receipts" / f"{zone_id}.json"
+        if output.exists() and not receipt.exists():
+            failed = work / "failed-extractions" / f"{zone_id}-{time.time_ns()}"
+            failed.parent.mkdir(parents=True, exist_ok=True)
+            output.rename(failed)
         if not extraction_receipt(output, row, tool, receipt):
             output.mkdir()
             search = [install, install / "sound"] + sorted(path for path in (install / "zone").iterdir() if path.is_dir())
@@ -861,6 +906,44 @@ def game_quaternion(values):
     return result / norm
 
 
+def native_placement(origin, angles=None, axis=None, scale=1.):
+    if axis is None:
+        pitch, yaw, roll = np.deg2rad(np.asarray(angles or (0, 0, 0), dtype=np.float64))
+        sp, cp, sy, cy, sr, cr = math.sin(pitch), math.cos(pitch), math.sin(yaw), math.cos(yaw), math.sin(roll), math.cos(roll)
+        axis = ((cp*cy, cp*sy, -sp), (sr*sp*cy-cr*sy, sr*sp*sy+cr*cy, sr*cp), (cr*sp*cy+sr*sy, cr*sp*sy-sr*cy, cr*cp))
+    basis = np.asarray(((1,0,0),(0,0,1),(0,-1,0)), dtype=np.float64)
+    matrix = np.eye(4, dtype=np.float64)
+    matrix[:3,:3] = basis @ np.asarray(axis).T @ basis.T * scale
+    matrix[:3,3] = game_vector(origin, position=True)
+    return matrix.T.reshape(-1).tolist()
+
+
+def native_entities(path):
+    if not path.is_file():
+        return []
+    entities, current, key = [], None, None
+    for match in re.finditer(r'\{|\}|"((?:\\.|[^"\\])*)"', path.read_text(encoding="utf-8", errors="strict")):
+        token = match[0]
+        if token == "{":
+            if current is not None:
+                raise AssetError(f"Nested native entity record: {path}")
+            current, key = {}, None
+        elif token == "}":
+            if current is None or key is not None:
+                raise AssetError(f"Incomplete native entity record: {path}")
+            entities.append(current)
+            current = None
+        elif current is not None:
+            value = match[1].replace('\\"', '"').replace('\\\\', '\\')
+            if key is None:
+                key = value
+            else:
+                current[key], key = value, None
+    if current is not None:
+        raise AssetError(f"Unterminated native entity record: {path}")
+    return entities
+
+
 class GltfDocument:
     def __init__(self, name):
         self.data = {"asset": {"version": "2.0", "generator": "Origins original-art builder"}, "scene": 0, "scenes": [{"nodes": []}], "nodes": [], "meshes": [], "materials": [], "accessors": [], "bufferViews": [], "buffers": [{"byteLength": 0}], "extras": {"native_name": name, "units": "meters"}}
@@ -889,6 +972,35 @@ class GltfDocument:
         self.data["buffers"][0].update(byteLength=len(self.binary), uri=path.with_suffix(".bin").name)
         path.with_suffix(".bin").write_bytes(self.binary)
         write_json(path, self.data)
+
+
+def bind_model_animations(model_path, animations, output):
+    model = read_json(model_path)
+    bones = {node["name"]: index for index, node in enumerate(model["nodes"]) if "name" in node and "mesh" not in node}
+    model["animations"] = []
+    bindings = {}
+    for entry in animations:
+        required = set(entry["bones"])
+        if not required or not required.issubset(bones):
+            continue
+        source_path = inside(output, entry["uri"])
+        source = read_json(source_path)
+        buffer_offset, view_offset, accessor_offset = len(model["buffers"]), len(model["bufferViews"]), len(model["accessors"])
+        for buffer in source["buffers"]:
+            uri = os.path.relpath(reference_path(output, source_path.parent, buffer["uri"]), model_path.parent).replace("\\", "/")
+            model["buffers"].append({**buffer, "uri": uri})
+        model["bufferViews"].extend({**view, "buffer": view["buffer"] + buffer_offset} for view in source["bufferViews"])
+        model["accessors"].extend({**accessor, "bufferView": accessor["bufferView"] + view_offset} for accessor in source["accessors"])
+        animation = source["animations"][0]
+        animation["samplers"] = [{**sampler, "input": sampler["input"] + accessor_offset, "output": sampler["output"] + accessor_offset} for sampler in animation["samplers"]]
+        for channel in animation["channels"]:
+            channel["target"]["node"] = bones[source["nodes"][channel["target"]["node"]]["name"]]
+        bindings[entry["name"]] = len(model["animations"])
+        model["animations"].append(animation)
+    if not model["animations"]:
+        del model["animations"]
+    write_json(model_path, model)
+    return bindings
 
 
 def animation_curves(data: dict, root: Path) -> dict:
@@ -990,7 +1102,7 @@ def prepare_animation(data, root, path):
     document.data["animations"] = [animation]
     document.save(path)
     write_json(path.with_suffix(".native.json"), curves)
-    return {"loop": curves["loop"], "framerate": curves["framerate"], "notifications": curves["notifications"], "root_motion": curves["root_motion"]}
+    return {"loop": curves["loop"], "framerate": curves["framerate"], "notifications": curves["notifications"], "root_motion": curves["root_motion"], "bones": [track["name"] for track in curves["tracks"]]}
 
 
 def vertex_attributes(document, positions, normals, uv, colors, tangents=None):
@@ -1036,7 +1148,9 @@ def prepare_model(data, path, material_lookup, lod_index):
         uv = np.column_stack((game_half(uv & 65535), game_half(uv >> 16)))
         color = np.asarray([v["color_rgba8"] for v in vertices], dtype=np.uint32)
         color = np.stack([(color >> shift) & 255 for shift in (0,8,16,24)], axis=-1).astype(np.float32) / 255.0
-        attributes = vertex_attributes(document, position, normal, uv, color, tangent)
+        geometry={"position":position,"normal":normal,"uv":uv,"color":color,"tangent":tangent,"identity":f"{data['name']}/lod{lod_index}/{len(primitives)}"}
+        material = material_lookup(surface["material"], document, path.parent, geometry)
+        attributes = vertex_attributes(document,geometry["position"],geometry["normal"],geometry["uv"],geometry["color"],geometry["tangent"])
         if data["bones"]:
             joints = np.zeros((len(vertices), 4), dtype="<u2")
             weights = np.zeros((len(vertices), 4), dtype="<f4")
@@ -1066,7 +1180,6 @@ def prepare_model(data, path, material_lookup, lod_index):
                 raise AssetError(f"Incomplete native skin weights: {data['name']}")
             attributes["JOINTS_0"] = document.accessor(joints, "VEC4", target=34962)
             attributes["WEIGHTS_0"] = document.accessor(weights, "VEC4", target=34962)
-        material = material_lookup(surface["material"], document, path.parent)
         triangles = np.asarray(surface["triangles"], dtype="<u2")
         if triangles.size and int(triangles.max()) >= len(vertices):
             raise AssetError(f"Native model triangle index invalid: {data['name']}")
@@ -1153,13 +1266,20 @@ def material_geometry_atlas(geometry, dimensions):
     return grids
 
 
-def prepare_world(data, root, path, material_lookup):
+def prepare_world(data, root, path, material_lookup, panes=()):
     document = GltfDocument(data["name"])
     stream = inside(root, data["stream0"]).read_bytes()
     layer_stream = inside(root, data["stream1"]).read_bytes()
     indices = np.frombuffer(inside(root, data["indices"]).read_bytes(), dtype="<u2")
-    primitives = []
-    attributes_cache = {}
+    primitives = collections.defaultdict(list)
+    brush_surfaces = {}
+    for brush in data.get("brush_models", [])[1:]:
+        for surface in range(brush["first_surface"], brush["first_surface"] + brush["surface_count"]):
+            if surface in brush_surfaces:
+                raise AssetError(f"Overlapping native brush surface ranges: {data['name']}/{surface}")
+            brush_surfaces[surface] = brush["index"]
+    glass_materials = {pane["brush_model"]: pane.get("definition", {}).get("pristine_material") for pane in panes}
+    geometry_cache = {}
     for index, surface in enumerate(data["surfaces"]):
         offset = surface["stream0_offset"]
         count = surface["vertex_count"]
@@ -1168,7 +1288,7 @@ def prepare_world(data, root, path, material_lookup):
         if offset < 0 or offset + count * 36 > len(stream):
             raise AssetError(f"Native world vertex span invalid: {data['name']}/{index}")
         key = (offset, count)
-        if key not in attributes_cache:
+        if key not in geometry_cache:
             position = np.ndarray((count, 3), dtype="<f4", buffer=stream, offset=offset, strides=(36, 4))
             color = np.ndarray((count, 4), dtype="u1", buffer=stream, offset=offset + 16, strides=(36, 1)).astype(np.float32) / 255.0
             uv = np.ndarray((count, 2), dtype="<u2", buffer=stream, offset=offset + 20, strides=(36, 2))
@@ -1176,21 +1296,188 @@ def prepare_world(data, root, path, material_lookup):
             normal = np.ndarray((count,), dtype="<u4", buffer=stream, offset=offset + 24, strides=(36,))
             tangent = np.ndarray((count,), dtype="<u4", buffer=stream, offset=offset + 28, strides=(36,))
             sign = np.ndarray((count,), dtype="<f4", buffer=stream, offset=offset + 12, strides=(36,))
-            attributes_cache[key] = vertex_attributes(document, position, packed_normal(normal), uv, color, np.column_stack((packed_normal(tangent), sign)))
+            geometry_cache[key] = {"position": position, "normal": packed_normal(normal), "tangent": np.column_stack((packed_normal(tangent), sign)), "uv": uv, "color": color}
         start = surface["base_index"]
         end = start + surface["triangle_count"] * 3
         triangle = indices[start:end]
         if end > len(indices) or len(triangle) != end - start or int(triangle.max()) >= count:
             raise AssetError(f"Native world triangle span invalid: {data['name']}/{index}")
-        geometry = {"position": position, "normal": packed_normal(normal), "tangent": np.column_stack((packed_normal(tangent), sign)), "uv": uv, "color": color, "triangles": triangle.reshape(-1, 3), "surface": surface, "layer_stream": layer_stream}
-        material = material_lookup(surface["material"], document, path.parent, geometry)
+        geometry = {**geometry_cache[key], "triangles": triangle.reshape(-1, 3), "surface": surface, "layer_stream": layer_stream, "identity": f"{data['name']}/{index}"}
+        brush = brush_surfaces.get(index, 0)
+        material_name = glass_materials.get(brush) or surface["material"]
+        material = material_lookup(material_name, document, path.parent, geometry)
         attributes = vertex_attributes(document, geometry["position"], geometry["normal"], geometry["uv"], geometry["color"], geometry["tangent"])
-        primitives.append({"attributes": attributes, "indices": document.accessor(geometry["triangles"][:, [2,1,0]].reshape(-1), "SCALAR", target=34963), "material": material, "extras": {"native_surface": index, "native_material": surface["material"], "lightmap": surface["lightmap"], "reflection_probe": surface["reflection_probe"], "primary_light": surface["primary_light"], "flags": surface["flags"], "native_stream1_offset": surface["stream1_offset"]}})
-    document.data["meshes"] = [{"name": data["name"], "primitives": primitives}]
-    document.data["nodes"] = [{"name": data["name"], "mesh": 0}]
-    document.data["scenes"][0]["nodes"] = [0]
+        primitives[brush].append({"attributes": attributes, "indices": document.accessor(geometry["triangles"][:, [2,1,0]].reshape(-1), "SCALAR", target=34963), "material": material, "extras": {"native_surface": index, "native_material": material_name, "lightmap": surface["lightmap"], "reflection_probe": surface["reflection_probe"], "primary_light": surface["primary_light"], "flags": surface["flags"], "native_stream1_offset": surface["stream1_offset"]}})
+    brush_meshes = {}
+    for brush, surfaces in primitives.items():
+        brush_meshes[brush] = len(document.data["meshes"])
+        document.data["meshes"].append({"name": f"{data['name']}/*{brush}", "primitives": surfaces})
+    if 0 in brush_meshes:
+        document.data["nodes"].append({"name": data["name"], "mesh": brush_meshes[0]})
+    placed = set()
+    entity_files = sorted(root.glob("maps/**/*.ents"))
+    for entity_file in entity_files:
+        for entity in native_entities(entity_file):
+            model = entity.get("model", "")
+            if not re.fullmatch(r"\*\d+", model):
+                continue
+            brush = int(model[1:])
+            if brush not in brush_meshes:
+                continue
+            origin = [float(value) for value in entity.get("origin", "0 0 0").split()]
+            angles = [float(value) for value in entity.get("angles", "0 0 0").split()]
+            if "angle" in entity and "angles" not in entity:
+                angles = [0., float(entity["angle"]), 0.]
+            document.data["nodes"].append({"name": entity.get("targetname", model), "mesh": brush_meshes[brush], "matrix": native_placement(origin, angles), "extras": {"native_brush_model": model, "native_entity": entity}})
+            placed.add(brush)
+    for pane in panes:
+        brush = pane["brush_model"]
+        if brush in brush_meshes and brush not in placed:
+            document.data["nodes"].append({"name": f"glass-{pane['index']}", "mesh": brush_meshes[brush], "matrix": native_placement(pane["origin"], pane["angles"]), "extras": {"native_glass": pane}})
+            placed.add(brush)
+    unplaced = set(brush_meshes) - placed - {0}
+    if unplaced:
+        raise AssetError(f"Native brush models have no source placement: {data['name']}: {sorted(unplaced)}")
+    document.data["scenes"][0]["nodes"] = list(range(len(document.data["nodes"])))
     document.data["extras"].update(native_static_models=data["static_models"], native_hero_lights=data["hero_lights"], native_sun=data["initial_sun"], native_fog=data["initial_fog"])
     document.save(path)
+
+
+def clip_brush_indices(info, node):
+    result, pending, seen = set(), [node], set()
+    while pending:
+        index = pending.pop()
+        if index in seen:
+            raise AssetError("Native collision brush tree has a cycle")
+        if not 0 <= index < len(info["leaf_brush_nodes"]):
+            raise AssetError(f"Native collision brush node outside pool: {index}")
+        seen.add(index)
+        entry = info["leaf_brush_nodes"][index]
+        if entry["leaf_brush_count"] > 0:
+            result.update(entry["brushes"])
+        elif entry.get("children"):
+            pending.extend(index + offset for offset in entry["children"]["offsets"] if offset)
+    return result
+
+
+def brush_triangles(brush):
+    minimum, maximum = np.asarray(brush["mins"],dtype=np.float64), np.asarray(brush["maxs"],dtype=np.float64)
+    normals = np.concatenate((-np.eye(3), np.eye(3), np.asarray([side["plane"]["normal"] for side in brush["sides"]],dtype=np.float64).reshape(-1,3)))
+    distances = np.concatenate((-minimum,maximum,np.asarray([side["plane"]["distance"] for side in brush["sides"]],dtype=np.float64)))
+    vertices = np.asarray(brush["vertices"],dtype=np.float64).reshape(-1,3)
+    if not len(vertices):
+        triples = np.asarray(list(itertools.combinations(range(len(normals)),3)),dtype=np.int64)
+        matrices = normals[triples]
+        valid = np.abs(np.linalg.det(matrices)) > 1e-10
+        candidates = np.linalg.solve(matrices[valid],distances[triples[valid]][:,:,None])[:,:,0]
+        vertices = candidates[np.all(candidates @ normals.T <= distances + .002,axis=1)]
+        vertices = np.unique(np.round(vertices,5),axis=0)
+    triangles, flags = [], []
+    surface_flags = list(brush["axial_surface_flags"][0]) + list(brush["axial_surface_flags"][1]) + [side["surface_flags"] for side in brush["sides"]]
+    for normal,distance,flag in zip(normals,distances,surface_flags):
+        face = vertices[np.abs(vertices @ normal-distance) < .01]
+        if len(face)<3:
+            continue
+        center=face.mean(axis=0)
+        direction=face[0]-center
+        direction/=max(np.linalg.norm(direction),1e-12)
+        second=np.cross(normal,direction)
+        order=np.argsort(np.arctan2((face-center)@second,(face-center)@direction))
+        face=face[order]
+        for index in range(1,len(face)-1):
+            triangles.append((face[0],face[index+1],face[index]))
+            flags.append(flag)
+    return np.asarray(triangles,dtype=np.float32).reshape(-1,3,3), flags
+
+
+def prepare_collision(data, path):
+    document=GltfDocument(data["name"])
+    info=data["info"]
+    dynamic=set()
+    for submodel in data["submodels"][1:]:
+        if submodel["leaf_brush_node"]:
+            dynamic.update(clip_brush_indices(info,submodel["leaf_brush_node"]))
+    batches=collections.defaultdict(list)
+    for index,brush in enumerate(info["brushes"]):
+        if index in dynamic or not brush["contents"] & (1|0x10000):
+            continue
+        triangles,flags=brush_triangles(brush)
+        for triangle,flag in zip(triangles,flags):
+            batches[flag].append(triangle)
+    terrain=np.asarray(data["terrain_vertices"],dtype=np.float32)
+    if len(data["terrain_triangles"]):
+        triangles=np.asarray(data["terrain_triangles"],dtype=np.int64)
+        batches[0].extend(terrain[triangles[:,[2,1,0]]])
+    for flag,triangles in batches.items():
+        positions=np.asarray(triangles,dtype=np.float32).reshape(-1,3)
+        material=len(document.data["materials"])
+        name=next((entry["name"] for entry in info["materials"] if entry["surface_flags"] == flag),f"native-surface-{flag:08x}")
+        document.data["materials"].append({"name":name,"extras":{"surface":{"flags":flag}}})
+        document.data["meshes"].append({"name":name,"primitives":[{"attributes":{"POSITION":document.accessor(game_vector(positions,position=True),"VEC3",target=34962,bounds=True)},"indices":document.accessor(np.arange(len(positions),dtype="<u4"),"SCALAR",target=34963),"material":material}]})
+        document.data["nodes"].append({"name":name,"mesh":len(document.data["meshes"])-1})
+    document.data["scenes"][0]["nodes"]=list(range(len(document.data["nodes"])))
+    document.save(path)
+
+
+def prepare_model_collision(data, path):
+    document=GltfDocument(data["name"])
+    batches=collections.defaultdict(list)
+    for surface in data["collision_surfaces"]:
+        if not surface["contents"] & (1|0x10000):
+            continue
+        for triangle in surface["triangles"]:
+            planes=np.asarray([triangle[key] for key in ("plane","s_vector","t_vector")],dtype=np.float64)
+            matrix=planes[:,:3]
+            if abs(np.linalg.det(matrix))<1e-12:
+                raise AssetError(f"Degenerate native model collision triangle: {data['name']}")
+            offsets=planes[:,3]+np.asarray(((0,0,0),(0,1,0),(0,0,1)),dtype=np.float64)
+            vertices=np.linalg.solve(matrix,offsets.T).T
+            batches[surface["surface_flags"]].append(vertices[[0,2,1]])
+    for flag,triangles in batches.items():
+        positions=np.asarray(triangles,dtype=np.float32).reshape(-1,3)
+        document.data["materials"].append({"name":f"native-surface-{flag:08x}","extras":{"surface":{"flags":flag}}})
+        document.data["meshes"].append({"primitives":[{"attributes":{"POSITION":document.accessor(game_vector(positions,position=True),"VEC3",target=34962,bounds=True)},"indices":document.accessor(np.arange(len(positions),dtype="<u4"),"SCALAR",target=34963),"material":len(document.data["materials"])-1}]})
+        document.data["nodes"].append({"mesh":len(document.data["meshes"])-1})
+    document.data["scenes"][0]["nodes"]=list(range(len(document.data["nodes"])))
+    document.save(path)
+
+
+def compose_static_models(world, models, output, *, collision=False):
+    path=inside(output,world["collision_uri"] if collision else world["uri"])
+    document=read_json(path)
+    imported={}
+    for instance in world["static_models"]:
+        candidates=[model for model in models if model["name"]==instance["model"]]
+        model=next((model for model in candidates if model["zone"]==world["zone"]),candidates[0] if candidates else None)
+        if model is None:
+            raise AssetError(f"Unresolved native static model: {world['name']}/{instance['model']}")
+        uri=model.get("collision_uri") if collision else model["uri"]
+        if not uri:
+            if collision:
+                continue
+            raise AssetError(f"Native static model has no prepared geometry: {instance['model']}")
+        if uri not in imported:
+            source_path=inside(output,uri)
+            source=read_json(source_path)
+            offsets={key:len(document[key]) for key in ("buffers","bufferViews","accessors","materials","meshes")}
+            document["buffers"].extend({**buffer,"uri":os.path.relpath(reference_path(output,source_path.parent,buffer["uri"]),path.parent).replace("\\","/")} for buffer in source["buffers"])
+            document["bufferViews"].extend({**view,"buffer":view["buffer"]+offsets["buffers"]} for view in source["bufferViews"])
+            document["accessors"].extend({**accessor,"bufferView":accessor["bufferView"]+offsets["bufferViews"]} for accessor in source["accessors"])
+            document["materials"].extend(source["materials"])
+            meshes=[]
+            for mesh in source["meshes"]:
+                for primitive in mesh["primitives"]:
+                    primitive["attributes"]={key:index+offsets["accessors"] for key,index in primitive["attributes"].items() if key not in {"JOINTS_0","WEIGHTS_0"}}
+                    primitive["indices"]+=offsets["accessors"]
+                    primitive["material"]+=offsets["materials"]
+                meshes.append(len(document["meshes"]))
+                document["meshes"].append(mesh)
+            imported[uri]=meshes
+        for mesh in imported[uri]:
+            index=len(document["nodes"])
+            document["nodes"].append({"name":instance["model"],"mesh":mesh,"matrix":native_placement(instance["origin"],axis=instance["axis"],scale=instance["scale"]),"extras":{"static_instance":True,"source_model":instance["model"],"native_instance":instance["id"]}})
+            document["scenes"][0]["nodes"].append(index)
+    write_json(path,document)
 
 
 
@@ -1375,12 +1662,12 @@ def material_uv_sample(pixels, uv, sampler):
     return ((pixels[y0,x0]*(1-wx)+pixels[y0,x1]*wx)*(1-wy)+(pixels[y1,x0]*(1-wx)+pixels[y1,x1]*wx)*wy).astype(np.float32)
 
 
-def material_native_inputs(native, image_lookup):
+def material_native_inputs(native, image_lookup, inactive_textures=()):
     constants = {int(value["name_hash"]): value for value in native.get("constants", [])}
     textures = {int(value["name_hash"]): value for value in native.get("textures", [])}
-    used_constants, used_textures, evidence = set(), set(), []
+    used_constants, used_textures, evidence = set(), set(inactive_textures), []
     def constant(name, default):
-        hashed = material_hash(name)
+        hashed = name if isinstance(name, int) else material_hash(name)
         value = constants.get(hashed)
         if value:
             used_constants.add(hashed)
@@ -1407,8 +1694,53 @@ def material_native_inputs(native, image_lookup):
 
 def material_layer_result(native, channels, standard, evidence, approximations):
     presentation = material_presentation(native)
-    surface = {"version":3,"identity":native["name"],"channels":channels,"standard":standard,"presentation":presentation,"native_technique_set":native.get("technique_set"),"native_images":evidence,"native_constants":native.get("constants",[]),"approximations":approximations}
+    surface = {"version":3,"identity":native["name"],"brdf":"ggx","channels":channels,"standard":standard,"presentation":presentation,"native_technique_set":native.get("technique_set"),"native_images":evidence,"native_constants":native.get("constants",[]),"approximations":approximations}
     return {"name":native["name"],"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.,"roughnessFactor":1.},"alphaMode":"MASK" if presentation["alpha"]=="mask" else "OPAQUE" if presentation["alpha"]=="opaque" else "BLEND","alphaCutoff":presentation["cutoff"],"doubleSided":presentation["cull"]=="none","extras":{"surface":surface}}
+
+
+def material_ggx_roughness(gloss):
+    exponent = np.exp2(13 * np.clip(gloss, 0, 1))
+    return np.power(2 / (exponent + 2), .25)
+
+
+def prepare_flicker_material(native, image_lookup, output):
+    constant, texture, finish, evidence = material_native_inputs(native, image_lookup, (3533437591,))
+    flicker, normal = texture(23340576), texture(2485960688)
+    diffuse, emissive = texture(3574481249), texture(878789447)
+    hdr = float(constant(14836402, (1, 0, 0, 1))[0])
+    minimum = float(constant(23340854, (0, 0, 0, 1))[0])
+    maximum = float(constant(23340584, (1, 0, 0, 1))[0])
+    column = float(constant(1271696416, (0, 0, 0, 1))[0])
+    speed = float(constant(3936631419, (0, 0, 0, 1))[0])
+    finish()
+    width = max(item['pixels'].shape[1] for item in (diffuse, normal, emissive))
+    height = max(item['pixels'].shape[0] for item in (diffuse, normal, emissive))
+    def sample(item):
+        return material_sample(item['pixels'], width, height, item['sampler'])
+    base = sample(diffuse)
+    response = np.ones_like(base)
+    response[:, :, 1] = material_ggx_roughness(base[:, :, 3])
+    response[:, :, 2] = 0
+    base[:, :, :3] **= 2
+    base[:, :, 3] = 1
+    slopes = sample(normal)[:, :, :2] * (510/127) - (256/127)
+    directions = np.concatenate((slopes, np.ones((height, width, 1), dtype=np.float32)), axis=2)
+    directions /= np.maximum(np.linalg.norm(directions, axis=2, keepdims=True), 1e-8)
+    normal_pixels = np.concatenate((directions*.5+.5, np.ones((height, width, 1), dtype=np.float32)), axis=2)
+    emission = sample(emissive)
+    emission[:, :, :3] = (emission[:, :, :3] * emission[:, :, 3:4] * hdr)**2
+    emission[:, :, 3] = 1
+    channels = [material_texture(output, native['name'], role, pixels, srgb, sampler, normal=role == 'normal') for role, pixels, srgb, sampler in (('color', base, True, diffuse['sampler']), ('normal', normal_pixels, False, normal['sampler']), ('response', response, False, diffuse['sampler']), ('emissive', emission, True, emissive['sampler']))]
+    lookup_height = flicker['pixels'].shape[0]
+    coordinates = np.zeros((lookup_height, 1, 2), dtype=np.float32)
+    coordinates[:, :, 0] = column
+    coordinates[:, 0, 1] = (np.arange(lookup_height, dtype=np.float32)+.5)/lookup_height
+    lookup = material_uv_sample(flicker['pixels'], coordinates, flicker['sampler'])[:, 0, 0]
+    standard = {"roughness":1.,"metallic":1.,"reflectance":.5,"specular_transmission":0.,"diffuse_transmission":0.,"ior":1.5,"thickness":0.,"unlit":False,"base_color":[1.,1.,1.,1.],"emissive":[1.,1.,1.]}
+    result = material_layer_result(native, channels, standard, evidence, ["Native Blinn-Phong exponent exp2(13*gloss) is converted to GGX perceptual roughness (2/(exponent+2))^0.25; the resulting lighting lobe is a PBR approximation."])
+    result['extras']['surface']['scalar_animation'] = {"driver":"flicker","lookup":lookup.tolist(),"sampler":flicker['sampler'],"speed":speed,"minimum":minimum,"maximum":maximum,"script_vector":1,"script_component":0}
+    result['extras']['surface']['bake'] = {"vertex_color_power":2,"inactive_primary_pass_textures":[3533437591]}
+    return result
 
 
 def prepare_tile_material(native, image_lookup, output):
@@ -1416,7 +1748,7 @@ def prepare_tile_material(native, image_lookup, output):
     macro_normal, macro_ao = texture(329745474), texture(3976875907)
     color1, color2 = texture(3580385162), texture(2643103145)
     normal1, normal2 = texture(3069501348), texture(3400726183)
-    specular1, specular2 = texture(830013099), texture(2415611304)
+    specular1, specular2 = texture(830013099, False), texture(2415611304, False)
     scale1, scale2 = constant("Micro_1_Scale",(1,1,0,1))[:2], constant("Micro_2_Scale",(1,1,0,1))[:2]
     height_macro = float(constant("Macro_Height",(1,0,0,1))[0])
     height1 = float(constant("Micro_1_Height",(1,0,0,1))[0])
@@ -1424,7 +1756,7 @@ def prepare_tile_material(native, image_lookup, output):
     ao_adjust = float(constant("AO_Diffuse_Adj",(0,0,0,1))[0])
     reflection = float(constant("reflection_amount",(1,0,0,1))[0])
     finish()
-    sources = [(macro_normal,(1,1)),(macro_ao,(1,1)),(color1,scale1),(color2,scale2),(normal1,scale1),(normal2,scale2),(specular1,scale1),(specular2,scale2)]
+    sources = [(item,scale) for item,scale in [(macro_normal,(1,1)),(macro_ao,(1,1)),(color1,scale1),(color2,scale2),(normal1,scale1),(normal2,scale2),(specular1,scale1),(specular2,scale2)] if item is not None]
     width=max(max(1,math.ceil(item['pixels'].shape[1]*abs(float(scale[0])))) for item,scale in sources)
     height=max(max(1,math.ceil(item['pixels'].shape[0]*abs(float(scale[1])))) for item,scale in sources)
     if width>16384 or height>16384 or width*height>67108864:
@@ -1443,18 +1775,23 @@ def prepare_tile_material(native, image_lookup, output):
     normals=np.concatenate((slopes,np.ones((height,width,1),dtype=np.float32)),axis=2)
     normals/=np.maximum(np.linalg.norm(normals,axis=2,keepdims=True),1e-8)
     normal_pixels=np.concatenate((normals*.5+.5,np.ones((height,width,1),dtype=np.float32)),axis=2)
-    specular=sample(specular1,scale1)*(1-blend)+sample(specular2,scale2)*blend
+    specular=np.zeros((height,width,4),dtype=np.float32)
+    specular[:,:,1:4]=.2
+    if specular1 and specular2:
+        specular=sample(specular1,scale1)*(1-blend)+sample(specular2,scale2)*blend
+    elif specular1 or specular2:
+        raise AssetError(f"Native tile material has only one specular layer: {native['name']}")
     ao=np.clip(ao_source[:,:,0]**2+ao_adjust,0,1)
     response=np.ones((height,width,4),dtype=np.float32)
     response[:,:,0]=ao
-    response[:,:,1]=np.sqrt(1-np.clip(specular[:,:,0],0,1))
+    response[:,:,1]=material_ggx_roughness(specular[:,:,0])
     response[:,:,2]=0
     reflectance=np.ones_like(response)
     reflectance[:,:,:3]=specular[:,:,1:4]**2*max(0,reflection)*ao[:,:,None]/.16
     sampler=color1['sampler']
     channels=[material_texture(output,native['name'],'color',base,True,sampler),material_texture(output,native['name'],'normal',normal_pixels,False,sampler,normal=True),material_texture(output,native['name'],'response',response,False,sampler),material_texture(output,native['name'],'reflectance',reflectance,False,sampler)]
     standard={"roughness":1.,"metallic":1.,"reflectance":1.,"specular_transmission":0.,"diffuse_transmission":0.,"ior":1.5,"thickness":0.,"unlit":False,"base_color":[1.,1.,1.,1.],"emissive":[0.,0.,0.]}
-    return material_layer_result(native,channels,standard,evidence,["Native micro/macro tile textures, AO blend, scale and slope-height controls are flattened in UV0; the native specular lighting equation is approximated by StandardMaterial."])
+    return material_layer_result(native,channels,standard,evidence,["Native micro/macro tile textures, AO blend, scale and slope-height controls are flattened in UV0; native Blinn-Phong gloss is converted to GGX perceptual roughness (2/(exp2(13*gloss)+2))^0.25."])
 
 
 def prepare_crystal_material(native, image_lookup, output):
@@ -1491,7 +1828,7 @@ def prepare_crystal_material(native, image_lookup, output):
     directions/=np.maximum(np.linalg.norm(directions,axis=2,keepdims=True),1e-8)
     normal_pixels=np.concatenate((directions*.5+.5,np.ones((height,width,1),dtype=np.float32)),axis=2)
     response=np.ones((height,width,4),dtype=np.float32)
-    response[:,:,1]=math.sqrt(1-max(0,min(1,gloss)))
+    response[:,:,1]=material_ggx_roughness(gloss)
     response[:,:,2]=0
     reflectance=np.ones_like(response)
     reflectance[:,:,:3]=max(0,reflection)*max(0,min(1,.75+.25*gloss))/.16
@@ -1519,27 +1856,137 @@ def prepare_crystal_material(native, image_lookup, output):
         channels=[material_texture(output,native['name'],'emissive',emission,True,sampler)]+fixed
         standard={"roughness":1.,"metallic":1.,"reflectance":1.,"specular_transmission":0.,"diffuse_transmission":0.,"ior":1.5,"thickness":0.,"unlit":False,"base_color":[0.,0.,0.,1.],"emissive":[1.,1.,1.]}
         return {"channels":channels,"standard":standard}
-    animated=any(np.any(control['Scroll'][:2]) or float(control['Rotation'][0]*control['Rotation'][1])!=0 for control in controls)
+    rates=[]
+    for layer,control in zip(layers,controls):
+        for axis,clamp in enumerate((32,64)):
+            speed=float(control['Scroll'][axis])*float(control['Scale'][axis])
+            if speed and layer['sampler'] & clamp:
+                raise AssetError(f"Native crystal scroll uses a nonperiodic clamp sampler: {native['name']}")
+            if speed:rates.append(Fraction(speed))
+        rotation=Fraction(float(control['Rotation'][0]))*Fraction(float(control['Rotation'][1]))
+        if rotation:rates.append(rotation)
+    period=None
+    for rate in rates:
+        component=1/abs(rate)
+        period=component if period is None else Fraction(math.lcm(period.numerator,component.numerator),math.gcd(period.denominator,component.denominator))
+    period=period or Fraction(1)
+    if rates and period>32:
+        raise AssetError(f"Native crystal motion has no short exact UV/rotation repeat: {native['name']} ({period} seconds)")
+    fps=60.
+    time_frames=max(1,math.ceil(float(period)*fps)) if rates else 1
     first=frame(0,0)
     approximations=["Native layer transforms, alpha composition, HDR, normal height and gloss are baked at normal view incidence; view-dependent parallax and native reflection lighting are approximated by StandardMaterial."]
     result=material_layer_result(native,first['channels'],first['standard'],evidence,approximations)
     if staff:
-        last=max(1,math.ceil(charge_level))
-        on=frame(0,charge_level)
-        frames=[first if index<charge_level else on for index in range(last+1)]
-        result['extras']['surface']['animation']={"driver":"staff_charge","fps":1.,"frames":frames}
-        if animated:approximations.append("Staff charge selects authored off/on compositions; independently scrolling layer controls are retained in native metadata and sampled at time zero.")
-    elif animated:
-        frames=[first]+[frame(index/8,0) for index in range(1,16)]
-        result['extras']['surface']['animation']={"driver":"time","fps":8.,"frames":frames}
-        approximations.append("Authored scrolling and rotation are sampled at 8 Hz in a repeating two-second clip; the long native cycle remains preserved in the native controls.")
+        frames=[frame(index*float(period)/time_frames,charge) for charge in (0,charge_level) for index in range(time_frames)]
+        result['extras']['surface']['animation']={"driver":"staff_charge","fps":time_frames/float(period),"time_frames":time_frames,"state_threshold":charge_level,"period_seconds":float(period),"frames":frames}
+    elif rates:
+        frames=[first]+[frame(index*float(period)/time_frames,0) for index in range(1,time_frames)]
+        result['extras']['surface']['animation']={"driver":"time","fps":time_frames/float(period),"time_frames":time_frames,"period_seconds":float(period),"frames":frames}
+    if rates:
+        approximations.append("Continuous native layer motion is sampled at the recorded frame rate across its exact common UV/rotation period.")
     result['extras']['surface']['bake']={"layer_count":3,"view":"normal_incidence","native_depths":[float(control['Depth'][0]) for control in controls]}
     return result
 
 
-def prepare_material(native: dict, image_lookup, output: Path) -> dict:
+def material_uses_geometry(native):
+    return bool(re.search(r"lit_sm_[a-z0-9]+_(?:[a-z][1-9])+(?:_(?:[a-z][1-9])+)*$", native.get("technique_set", "")))
+
+
+def prepare_layered_material(native, image_lookup, output, geometry):
+    if geometry is None:
+        raise AssetError(f"Native layered material needs its authored world geometry: {native['name']}")
+    constant, texture, finish, evidence = material_native_inputs(native, image_lookup)
+    family = re.sub(r"^(?:mc|mlv|wpc)_", "", native["technique_set"].lower().lstrip(","))
+    tokens = family.removeprefix("lit_sm_").split("_")
+    layer_count = max(int(value) for value in re.findall(r"[cnsx](\d)", family)) + 1
+    layers, dimensions = [], []
+    for index in range(layer_count):
+        suffix = str(index) if index else ""
+        flags = next((token for token in tokens if f"c{index}" in token), "")
+        color = texture(material_hash(f"colorMap{suffix}"))
+        normal = texture(material_hash(f"normalMap{suffix}"), required=False)
+        specular = texture(material_hash(f"specularMap{suffix}"), required=False)
+        tint = constant(f"colorTint{suffix}", (1, 1, 1, 1))
+        reveal = constant(f"alphaRevealParms{suffix}", (.5, .5, 0, 0)) if f"v{index}" in flags else None
+        sizes = [item["pixels"].shape[1::-1] for item in (color, normal, specular) if item]
+        dimensions.append(np.max(sizes, axis=0))
+        layers.append((flags, color, normal, specular, tint, reveal))
+    occlusion = constant("occlusionAmount", (1, 1, 1, 1))
+    if not np.allclose(occlusion, (1, 1, 1, 1)):
+        raise AssetError(f"Layered lighting occlusion needs an independent lighting response: {native['name']}")
+    finish()
+    if "layer_stream" not in geometry:
+        raise AssetError(f"Layered native model vertex streams are not recovered: {native['name']}")
+    world_layer_geometry(native, geometry["layer_stream"], geometry["surface"], geometry)
+    if len(geometry["uvs"]) < layer_count:
+        raise AssetError(f"Missing authored UV sets for {native['name']}: {len(geometry['uvs'])}/{layer_count}")
+    grids = material_geometry_atlas(geometry, dimensions)
+    height, width = grids["uv0"].shape[:2]
+    base = np.ones((height, width, 4), dtype=np.float32)
+    slopes = np.zeros((height, width, 2), dtype=np.float32)
+    spec = np.zeros_like(base)
+    spec[:, :, :3] = .2
+    for index, (flags, color, normal, specular, tint, reveal) in enumerate(layers):
+        uv = grids[f"uv{index}"]
+        rgba = material_uv_sample(color["pixels"], uv, color["sampler"]) * tint
+        current_slope = np.zeros_like(slopes)
+        if normal:
+            current_slope = material_uv_sample(normal["pixels"], uv, normal["sampler"])[:, :, :2] * (510/127) - (256/127)
+            if index and f"rotation{index-1}" in grids:
+                rotation = grids[f"rotation{index-1}"]
+                current_slope = np.stack((np.sum(current_slope * rotation[:, :, :2], axis=2), np.sum(current_slope * rotation[:, :, 2:4], axis=2)), axis=2)
+        current_spec = np.empty_like(spec)
+        if specular:
+            current_spec[:] = material_uv_sample(specular["pixels"], uv, specular["sampler"])
+        else:
+            current_spec[:, :, :3] = .2
+            current_spec[:, :, 3] = rgba[:, :, 3] if f"x{index}" in flags else 0.
+        if index:
+            vertex_weight = np.clip(grids["color"][:, :, index:index+1], 0, 1)
+            if reveal is not None:
+                weight = vertex_weight * .998 + .001
+                inverse = 1 - weight
+                low = np.clip(inverse - float(reveal[0]) * weight ** float(reveal[1]), 0, 1)
+                high = np.clip(inverse + float(reveal[0]) * inverse ** float(reveal[1]), 0, 1)
+                weight = np.clip((rgba[:, :, 3:4] - low) / np.maximum(high - low, 1e-8), 0, 1)
+            else:
+                weight = np.clip(rgba[:, :, 3:4] * vertex_weight, 0, 1)
+            base[:, :, :3] += (rgba[:, :, :3] - base[:, :, :3]) * weight
+            slopes += (current_slope - slopes) * weight
+            spec += (current_spec - spec) * weight
+        else:
+            base[:, :, :3] = rgba[:, :, :3]
+            slopes[:] = current_slope
+            spec[:] = current_spec
+    base[:, :, :3] = np.maximum(base[:, :, :3], 0) ** 2
+    normal = np.concatenate((slopes, np.ones((height, width, 1), dtype=np.float32)), axis=2)
+    normal /= np.maximum(np.linalg.norm(normal, axis=2, keepdims=True), 1e-8)
+    normal = np.concatenate((normal * .5 + .5, np.ones((height, width, 1), dtype=np.float32)), axis=2)
+    response = np.ones_like(base)
+    response[:, :, 1] = material_ggx_roughness(spec[:, :, 3])
+    response[:, :, 2] = 0
+    reflectance = np.ones_like(base)
+    reflectance[:, :, :3] = np.maximum(spec[:, :, :3], 0) ** 2 / .16
+    identity = native["name"] + "@" + asset_key(native.get("_zone", ""), geometry["identity"])
+    channels = [material_texture(output, identity, role, pixels, srgb, 114, normal=role == "normal") for role, pixels, srgb in (("color", base, True), ("normal", normal, False), ("response", response, False), ("reflectance", reflectance, False))]
+    standard = {"roughness": 1., "metallic": 1., "reflectance": 1., "specular_transmission": 0., "diffuse_transmission": 0., "ior": 1.5, "thickness": 0., "unlit": False, "base_color": [1., 1., 1., 1.], "emissive": [0., 0., 0.]}
+    result = material_layer_result(native, channels, standard, evidence, ["Native per-triangle UV sets, vertex blend channels, reveal equations and tangent transforms are flattened into one atlas. Native environment and diffuse lighting are replaced by the StandardMaterial BRDF.", "Atlas charts have four-texel gutters; distant mip filtering can soften triangle boundaries."])
+    result["name"] = identity
+    result["extras"]["surface"]["identity"] = identity
+    result["extras"]["surface"]["bake"] = {"layer_count": layer_count, "native_material": native["name"], "native_surface": geometry["identity"], "texel_density_scale": grids["texel_density"], "width": width, "height": height}
+    if grids["texel_density"] < 1:
+        result["extras"]["surface"]["approximations"].append("The atlas reduces native texel density by the recorded scale to bound each surface to eight million chart texels.")
+    return result
+
+
+def prepare_material(native: dict, image_lookup, output: Path, geometry=None) -> dict:
     technique_name = native.get("technique_set", "").lower()
-    if "cod7_tile_blend_spec" in technique_name:
+    if "phong_simple_emissive_flicker_9j5f25q3" in technique_name:
+        return prepare_flicker_material(native, image_lookup, output)
+    if material_uses_geometry(native):
+        return prepare_layered_material(native, image_lookup, output, geometry)
+    if "cod7_tile_blend" in technique_name:
         return prepare_tile_material(native, image_lookup, output)
     if "unlit_3layer_normal_script" in technique_name or "wpn_zmb_staff_3layer" in technique_name:
         return prepare_crystal_material(native, image_lookup, output)
@@ -1547,9 +1994,12 @@ def prepare_material(native: dict, image_lookup, output: Path) -> dict:
     technique = native.get("technique_set", "").lower().lstrip(",")
     family = re.sub(r"^(?:mc|mlv|wpc)_", "", technique)
     generic_lit = bool(re.match(r"lit_sm_[a-z0-9]+_[a-z0-9]+$", family)) and not re.search(r"[bcnosx][1-9]", family.split("_")[2])
-    generic_unlit = bool(re.match(r"unlit_(?:replace|add)_[a-z0-9]+$", family))
-    emissive_lit = "phong_emissive_alcatraz" in family
-    if not (generic_lit or generic_unlit or emissive_lit):
+    generic_unlit = bool(re.match(r"(?:unlit_(?:replace|add|blend)|unlitdecalblend_(?:multiply|add))_[a-z0-9]+$", family)) or family == "trivial_9z33feqw" or "model_unlit_cheap_zombie_eyes" in family
+    emissive_lit = "phong_emissive" in family
+    glass_emissive = "glass_emissive" in family
+    character_lit = bool(re.search(r"char_(?:skin|cloth)_[a-z0-9]+$", family))
+    viewmodel_transparent = "viewmodel_transparent" in family
+    if not (generic_lit or generic_unlit or emissive_lit or glass_emissive or character_lit or viewmodel_transparent):
         raise AssetError(f"Native material technique requires authored geometry, time, or shader-specific baking: {name} ({technique})")
     constants = {int(value["name_hash"]): value for value in native.get("constants", [])}
     used_constants = set()
@@ -1577,12 +2027,14 @@ def prepare_material(native: dict, image_lookup, output: Path) -> dict:
             raise AssetError(f"Missing original native image {texture['image']}: {name}")
         source_images.append({"name": texture["image"], "sha256": result["sha256"], "semantic": texture["semantic"], "name_hash": texture["name_hash"], "sampler": texture["sampler"]})
         return {"pixels": decode_iwi_pixels(result["image"]), "sampler": int(texture["sampler"])}
-    color = source((2695565377,), (2,))
+    color = source((4030327853, 3053961470, 2695565377), (2,))
     normal = source((1507003663, 2485960688), (5,))
     specular = source((887934131, 2351529600), (8,))
-    emissive = source((1825069840,))
+    emissive = source((1825069840, 3229466552))
     detail = source((3948059469,))
     occlusion = source((), (10,))
+    camo_detail = source((3183121296,)) if generic_lit else None
+    rim = source((2247950716,)) if character_lit else None
     if any(texture["name_hash"] not in used_textures for texture in textures):
         missing = [str(texture["name_hash"]) for texture in textures if texture["name_hash"] not in used_textures]
         raise AssetError(f"Native material has unbaked texture inputs {','.join(missing)}: {name}")
@@ -1601,18 +2053,23 @@ def prepare_material(native: dict, image_lookup, output: Path) -> dict:
     def resample(entry, scale=(1., 1.)):
         return material_sample(entry["pixels"], width, height, entry["sampler"], scale)
     rgba = resample(color) if color else np.ones((height, width, 4), dtype=np.float32)
-    tint = constant(("colorTint", "scaleRGB"), (1., 1., 1., 1.))
+    tint = constant(("colorTint",), (1., 1., 1., 1.))
+    scale_rgb = float(constant(("scaleRGB",), (1., 0., 0., 0.))[0])
     base = rgba.copy()
-    base[:, :, :3] = np.maximum(base[:, :, :3] * tint[:3], 0)**2
+    base[:, :, :3] = np.maximum(base[:, :, :3] * tint[:3] * scale_rgb, 0)**2
     base[:, :, 3] *= tint[3]
-    if generic_lit and presentation["alpha"] in {"blend", "premultiplied", "add", "multiply"}:
+    if (generic_lit or glass_emissive or viewmodel_transparent) and presentation["alpha"] in {"blend", "premultiplied", "add", "multiply"}:
         base[:, :, 3] = np.sqrt(np.maximum(base[:, :, 3], 0))
     hdr = float(constant(("hdrAmount",), (1., 0., 0., 1.))[0])
+    emissive_depth = float(constant(("EmissiveDepth",), (0., 0., 0., 0.))[0]) if glass_emissive else 0.
     specular_amount = float(constant(("SpecularAmount", "Specular_Amount"), (1., 0., 0., 1.))[0])
     specular_push = float(constant(("Specular_Push",), (1., 0., 0., 1.))[0])
     reflection_amount = float(constant(("ReflectionAmount", "Reflection_Amount"), (1., 0., 0., 1.))[0])
     gloss_push = float(constant(("Gloss_Push", "Gloss_Amount"), (1., 0., 0., 1.))[0])
     occlusion_amount = constant(("occlusionAmount",), (1., 1., 1., 1.))
+    diffuse_normal_height = float(constant(("Diffuse_Normal_Height_Facing",), (1., 0., 0., 0.))[0]) if character_lit else 1.
+    if camo_detail:
+        constant(("colorDetailScale1",), (1.,1.,1.,1.))
     if generic_lit and not np.allclose(occlusion_amount, (1., 1., 1., 1.)):
         raise AssetError(f"Native lighting-specific occlusion controls need separate light response: {name}")
     channels = [material_texture(output, name, "color", base, True, sampler)]
@@ -1632,7 +2089,7 @@ def prepare_material(native: dict, image_lookup, output: Path) -> dict:
     if specular:
         specular_pixels = resample(specular)
         gloss = np.clip(specular_pixels[:, :, 3] * gloss_push, 0, 1)
-        native_f0 = np.maximum(specular_pixels[:, :, :3], 0)**2 * specular_amount * specular_push * reflection_amount * occlusion_amount[1]
+        native_f0 = np.maximum(specular_pixels[:, :, :3] * specular_push, 0)**2 * specular_amount * reflection_amount * occlusion_amount[1]
         reflectance[:, :, :3] = native_f0 / .16
         if presentation["alpha"] == "opaque" and generic_lit:
             response[:, :, 0] = np.clip(rgba[:, :, 3], 0, 1)
@@ -1644,7 +2101,7 @@ def prepare_material(native: dict, image_lookup, output: Path) -> dict:
     else:
         gloss = np.zeros((height, width), dtype=np.float32)
         reflectance[:, :, :3] = .04/.16
-    response[:, :, 1] = np.sqrt(1-gloss)
+    response[:, :, 1] = material_ggx_roughness(gloss)
     if occlusion:
         response[:, :, 0] *= np.clip(resample(occlusion)[:, :, 0], 0, 1)
     if not generic_unlit:
@@ -1653,10 +2110,21 @@ def prepare_material(native: dict, image_lookup, output: Path) -> dict:
     emissive_factor = [0., 0., 0.]
     if emissive:
         emission = resample(emissive)
+        push = float(constant(("Emissive_Push", "Emissive_Amount"), (1., 0., 0., 1.))[0])
+        if character_lit:
+            emission[:, :, :3] *= emission[:, :, 3:4] * push
+        elif emissive_lit:
+            emission[:, :, :3] *= emission[:, :, 3:4] * push**2 * hdr
+        else:
+            emission[:, :, :3] *= push * hdr
         emission[:, :, :3] = np.maximum(emission[:, :, :3], 0)**2
         channels.append(material_texture(output, name, "emissive", emission, True, emissive["sampler"]))
-        push = float(constant(("Emissive_Push", "Emissive_Amount"), (1., 0., 0., 1.))[0])
-        emissive_factor = [max(0., hdr*push)] * 3
+        emissive_factor = [1., 1., 1.]
+    if glass_emissive and color:
+        emission = rgba.copy()
+        emission[:, :, :3] = np.maximum(emission[:, :, :3] * emission[:, :, 3:4] * hdr, 0)**2
+        channels.append(material_texture(output, name, "emissive", emission, True, sampler))
+        emissive_factor = [1., 1., 1.]
     extra_constants = [value["name"] for key, value in constants.items() if key not in used_constants and not (detail and key == material_hash("detailScale"))]
     if extra_constants:
         raise AssetError(f"Native material has unbaked authored controls {','.join(extra_constants)}: {name}")
@@ -1665,8 +2133,118 @@ def prepare_material(native: dict, image_lookup, output: Path) -> dict:
     else:
         hdr_base = 1.
     standard = {"roughness": 1., "metallic": 1. if not generic_unlit else 0., "reflectance": 1., "specular_transmission": 0., "diffuse_transmission": 0., "ior": 1.5, "thickness": 0., "unlit": generic_unlit, "base_color": [hdr_base, hdr_base, hdr_base, 1.], "emissive": emissive_factor}
-    surface = {"version": 3, "identity": name, "channels": channels, "standard": standard, "presentation": presentation, "native_technique_set": native.get("technique_set"), "native_images": source_images, "native_constants": native.get("constants", []), "approximations": ["Native environment/specular lighting is represented by the StandardMaterial BRDF; native gloss maps to perceptual roughness sqrt(1-gloss).", "Native material gamma2 and slope normals are converted offline; renderer lighting and vertex color interpolation remain engine-native."]}
+    surface = {"version": 3, "identity": name, "brdf": "ggx", "channels": channels, "standard": standard, "presentation": presentation, "native_technique_set": native.get("technique_set"), "native_images": source_images, "native_constants": native.get("constants", []), "approximations": ["Native environment/specular lighting is represented by GGX StandardMaterial; native Blinn-Phong gloss maps to perceptual roughness (2/(exp2(13*gloss)+2))^0.25.", "Native material gamma2 and slope normals are converted offline; renderer lighting and vertex color interpolation remain engine-native."]}
+    if emissive_depth != 0:
+        surface["approximations"].append("Native glass emissive parallax is baked at normal incidence; its view-dependent UV offset is not represented by StandardMaterial.")
+    if character_lit:
+        surface["approximations"].append("The native character diffuse vertex-color fourth power is represented by engine vertex interpolation. Native diffuse and specular normals share the full specular normal in StandardMaterial.")
+        if rim:
+            surface["approximations"].append("Native view-dependent rim lighting is replaced by the StandardMaterial lighting response; the source rim mask is preserved in native images.")
+        surface["bake"]={"native_diffuse_normal_height":diffuse_normal_height,"vertex_color_power":4}
+    if viewmodel_transparent:
+        surface["approximations"].append("Native alpha-independent reflection/highlight compensation is approximated by StandardMaterial forward transparency.")
+    if camo_detail:
+        surface.setdefault("bake",{})["native_code_constants"]={"weaponParam2":[0.,0.,0.,0.]}
+    if family == "lit_sm_r0c0n0s0_4w3wqfe5":
+        surface["uv_animation"]={"translation":[0.,-1.],"time_mode":"fractional_second"}
     return {"name": name, "pbrMetallicRoughness": {"baseColorFactor": [1., 1., 1., 1.], "metallicFactor": 0., "roughnessFactor": 1.}, "alphaMode": "MASK" if presentation["alpha"] == "mask" else "OPAQUE" if presentation["alpha"] == "opaque" else "BLEND", "alphaCutoff": presentation["cutoff"], "doubleSided": presentation["cull"] == "none", "extras": {"surface": surface}}
+
+
+def prepare_world_art(data, zone, output, record_lookup, image_lookup):
+    model_record = record_lookup('xmodel', data['skybox_model'])
+    if model_record is None:
+        raise AssetError(f"Missing native sky model: {data['skybox_model']}")
+    model = read_json(model_record)['data']
+    material_record = record_lookup('material', model['surfaces'][0]['material'])
+    material = read_json(material_record)['data']
+    if material['technique_set'] != 'mc_skycubemaphdr_1f117w7u':
+        raise AssetError(f"Native sky technique is not prepared: {material['technique_set']}")
+    constants = {item['name_hash']: item['literal'] for item in material['constants']}
+    parameters = constants[343012833]
+    rotation = constants[3638790757]
+    binding = next(item for item in material['textures'] if item['name_hash'] == 2695565377)
+    source = image_lookup(binding['image'], 'linear')
+    image = source['image']
+    if image.faces != 6:
+        raise AssetError(f"Native sky is not a cubemap: {binding['image']}")
+    levels = []
+    for level, payload in enumerate(image.levels):
+        faces = [None] * 6
+        size = len(payload)//6
+        for face in range(6):
+            single = dataclasses.replace(image, width=max(1,image.width >> level), height=max(1,image.height >> level), faces=1, levels=(payload[face*size:(face+1)*size],))
+            pixels = decode_iwi_pixels(single)
+            pixels[:,:,:3] = pixels[:,:,:3]/(pixels[:,:,3:4]+np.float32(.000001)) if parameters[0]>0 else pixels[:,:,:3]**2
+            pixels[:,:,:3] *= parameters[1]
+            pixels[:,:,3] = 1
+            pixels = pixels[::-1] if face in (2,3) else pixels[:,::-1]
+            destination = 9-face if face in (4,5) else face
+            if not np.isfinite(pixels).all() or np.max(np.abs(pixels))>np.finfo(np.float16).max:
+                raise AssetError(f"Native sky exceeds finite RGBA16F: {binding['image']}")
+            faces[destination] = pixels.astype('<f2').tobytes()
+        levels.append(b''.join(faces))
+    sky_uri = f"prepared/images/{bytes_digest(b''.join(levels))}-sky.ktx2"
+    write_ktx2(inside(output,sky_uri),dataclasses.replace(image,format=19,levels=tuple(levels)),srgb=False)
+    lut_record = record_lookup('material', data['lut_material'])
+    lut_material = read_json(lut_record)['data']
+    lut_binding = next(item for item in lut_material['textures'] if item['name_hash'] == material_hash('colorMap'))
+    lut_source = image_lookup(lut_binding['image'], 'linear')
+    lut = decode_iwi_pixels(lut_source['image'])
+    if lut.shape[:2] != (64,1024):
+        raise AssetError(f"Native world color lookup needs a different layout: {data['base_name']}")
+    grade = np.rint(np.clip(lut,0,1)*255).astype(np.uint8).tobytes()
+    grade_uri = f"prepared/images/{bytes_digest(grade)}-grade.ktx2"
+    write_ktx2(inside(output,grade_uri),IwiImage(1024,64,1,1,1,2,1.,(),(grade,)),srgb=False)
+    def fog(value):
+        return {"distance":[value[key]*.0254 for key in ('base_distance','half_distance','base_height','half_height')],"sun_angles":[value[key] for key in ('sun_pitch','sun_yaw','sun_inner','sun_outer')],"color":value['color'],"opacity":value['opacity'],"sun_color":value['sun_color'],"sun_opacity":value['sun_opacity']}
+    volumes=[]
+    for order,volume in enumerate(data['fog_volumes']):
+        control=volume['control']
+        first,count=control >> 16,((control >> 8)&255)+1
+        planes=data['fog_volume_planes'][first:first+count]
+        if len(planes)!=count:
+            raise AssetError(f"Invalid native world fog plane range: {data['base_name']}/{order}")
+        volumes.append({"order":order,"bank":control&255,"script_id":volume['control_ex']&65535,"transition_seconds":.001/volume['transition_time'] if volume['transition_time'] else 0.,"planes":[[x,z,-y,distance*.0254] for x,y,z,distance in planes],"fog":fog(volume['fog'])})
+    visions={}
+    for suffix in ('','_rain','_snow'):
+        name=f"vision/{data['base_name']}{suffix}.vision"
+        record=record_lookup('rawfile',name)
+        if record is None:
+            raise AssetError(f"Missing native art vision settings: {name}")
+        raw=read_json(record)['data']
+        root=Path(zone['root'])
+        text=inside(root,raw['payload']).read_text(encoding='utf-8-sig').rstrip('\0')
+        visions[suffix or 'clear']={name:[float(number) for number in values.split()] for name,values in re.findall(r'(vc_\w+)\s+"([^"]+)"',text)}
+    sun=data['initial_sun']
+    atmosphere={"sun_angles":sun['angles'],"sun_color":sun['diffuse'][:3],"sun_brightness":sun['diffuse'][3],"snow_sun_color":[.769943,.894102,1.],"exposure":sun['exposure'],"fog":fog(data['initial_fog']),"fog_transition_seconds":.001/data['initial_fog']['transition_time'] if data['initial_fog']['transition_time'] else 0.,"volumes":volumes,"softclip":.25,"vision":visions,"sky_uri":sky_uri,"grade_uri":grade_uri,"sky_rotation_columns":[[rotation[1],0.,rotation[0]],[-rotation[2],0.,-rotation[1]],[0.,-1. if rotation[3]<0 else 1.,0.]],"native_sky_controls":material['constants'],"source_sky_sha256":source['sha256'],"source_grade_sha256":lut_source['sha256']}
+    uri=f"prepared/worlds/{asset_key(zone['id'],data['name'])}.atmosphere.json"
+    write_json(inside(output,uri),atmosphere)
+    return uri
+
+
+def prepare_runtime_index(manifest, output, native_records, issues):
+    audio_by_id = collections.defaultdict(list)
+    for sound in manifest["audio"]:
+        if sound["prepared"]:
+            audio_by_id[sound["id"]].append(sound)
+    sound_bindings = []
+    for (zone, kind, name), record in native_records.items():
+        if kind not in {"soundbank", "soundpatch"}:
+            continue
+        data = read_json(record).get("data", {})
+        bank_zones = {data.get(key, {}).get("zone") for key in ("stream", "load", "loaded_assets")}
+        for aliases in data.get("aliases", []):
+            for index, alias in enumerate(aliases["aliases"]):
+                candidates = audio_by_id.get(alias["assetId"], [])
+                local = [sound for sound in candidates if PurePosixPath(sound["source"]).stem.removesuffix(".en") in bank_zones]
+                unique = {sound["payload_sha256"]: sound for sound in local or candidates}
+                if len(unique) == 1:
+                    sound = next(iter(unique.values()))
+                    sound_bindings.append({"name": aliases["name"], "index": index, "zone": zone, "asset_id": alias["assetId"], "uri": sound["uri"]})
+                elif alias["assetId"]:
+                    issues.append({"category": "sound_binding", "zone": zone, "identity": aliases["name"], "index": index, "reason": "Native sound-bank payload is missing or ambiguous"})
+    runtime = {"schema_version": 1, "worlds": [{key: value for key, value in world.items() if key not in {"static_models", "hero_lights"}} for world in manifest["worlds"]], "models": [{key: value for key, value in model.items() if key in {"name", "zone", "uri", "lods", "animations"}} for model in manifest["models"]], "images": [{key: value for key, value in image.items() if key in {"name", "zone", "uris"}} for image in manifest["images"] if "name" in image], "sounds": sound_bindings}
+    write_json(output / "prepared" / "runtime.json", runtime)
 
 
 def native_pack(extraction: dict, install: Path, output: Path) -> dict:
@@ -1677,7 +2255,7 @@ def native_pack(extraction: dict, install: Path, output: Path) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     write_json(stamp, signature)
     native = output / "native"
-    manifest = {"schema_version": 1, "worlds": [], "models": [], "animations": [], "materials": [], "images": [], "audio": [], "cinematics": [], "native_art": {}}
+    manifest = {"schema_version": 1, "worlds": [], "collisions": [], "models": [], "animations": [], "materials": [], "images": [], "audio": [], "cinematics": [], "native_art": {}}
     identities = []
     categories = collections.defaultdict(collections.Counter)
     issues = []
@@ -1806,22 +2384,25 @@ def native_pack(extraction: dict, install: Path, output: Path) -> dict:
             uri = image["ktx2"].get(transfer)
             return {**image, "uri": uri} if uri else None
 
-        def material_lookup(name, document, directory):
-            for index, material in enumerate(document.data["materials"]):
-                if material.get("name") == name:
-                    return index
+        def material_lookup(name, document, directory, geometry=None):
             record_path = resolve_record(zone, "material", name)
             cache_key = str(record_path)
+            asset = read_json(record_path) if record_path else None
+            layered = asset is not None and material_uses_geometry(asset["data"])
+            if layered and geometry is None:
+                return None
+            if layered:
+                cache_key += "@" + geometry["identity"]
+            existing = next((index for index,material in enumerate(document.data["materials"]) if not layered and material.get("name")==name),None)
             if record_path and cache_key not in material_cache:
-                asset = read_json(record_path)
                 source_id = record_sources[record_path.relative_to(output).as_posix()]["zone"]
                 source_zone = next(item for item in extraction["zones"] if item["id"] == source_id)
                 data = {**asset["data"], "_source_root": Path(source_zone["root"]), "_zone": source_id}
                 try:
-                    material_cache[cache_key] = prepare_material(data, lambda name, transfer="linear": image_lookup(name, transfer, source_id), output)
-                    target = output / "prepared" / "materials" / f"{asset_key(source_id, name)}.json"
+                    material_cache[cache_key] = prepare_material(data, lambda name, transfer="linear": image_lookup(name, transfer, source_id), output, geometry)
+                    target = output / "prepared" / "materials" / f"{asset_key(source_id, material_cache[cache_key]['name'])}.json"
                     write_json(target, material_cache[cache_key])
-                    manifest["materials"].append({"name": name, "zone": source_id, "uri": target.relative_to(output).as_posix(), "native_record": record_path.relative_to(output).as_posix()})
+                    manifest["materials"].append({"name": material_cache[cache_key]["name"], "native_material": name, "zone": source_id, "uri": target.relative_to(output).as_posix(), "native_record": record_path.relative_to(output).as_posix()})
                 except AssetError as error:
                     issues.append({"category": "material", "zone": source_id, "identity": name, "reason": str(error)})
                     material_cache[cache_key] = {"name": name, "extras": {"native_record": record_path.relative_to(output).as_posix(), "preparation_incomplete": str(error)}}
@@ -1830,11 +2411,21 @@ def native_pack(extraction: dict, install: Path, output: Path) -> dict:
             else:
                 material = {"name": name, "extras": {"preparation_incomplete": "Unresolved original material definition"}}
                 issues.append({"category": "material", "zone": zone["id"], "identity": name, "reason": "Unresolved original material definition"})
+            if geometry is not None and not layered and "surface" in material.get("extras", {}):
+                surface=material["extras"]["surface"]
+                color=geometry["color"].copy()
+                color[:,:3]=np.maximum(color[:,:3],0)**surface.get("bake",{}).get("vertex_color_power",2)
+                if surface["presentation"]["alpha"] in {"blend","premultiplied"}:
+                    color[:,3]=np.sqrt(np.maximum(color[:,3],0))
+                geometry["color"]=color
+            if existing is not None:
+                return existing
             document.data["materials"].append(material)
             return len(document.data["materials"]) - 1
 
         root = Path(zone["root"])
-        for asset in pool_assets(root / "native-pools.json"):
+        zone_records = (read_json(record) for (source_zone, kind, name), record in native_records.items() if source_zone == zone["id"])
+        for asset in zone_records:
             if asset["reference"] or "data" not in asset:
                 continue
             data = asset["data"]
@@ -1850,17 +2441,55 @@ def native_pack(extraction: dict, install: Path, output: Path) -> dict:
                 elif asset["type"] == "xmodel":
                     lods = []
                     for lod_index, lod in enumerate(data["lods"]):
-                        target = output / "prepared" / "models" / f"{key}-lod{lod_index}.gltf"
+                        target = inside(output / "prepared" / "models" / zone["id"], f"{asset['name']}_lod{lod_index}.gltf")
                         prepare_model(data, target, material_lookup, lod_index)
                         lods.append({"uri": target.relative_to(output).as_posix(), "lod": lod_index, "distance": lod["distance"] * 0.0254, "native_distance": lod["distance"]})
-                    manifest["models"].append({**base, "uri": lods[0]["uri"] if lods else None, "lods": lods})
+                    collision = output / "prepared" / "collision" / f"{key}-model.gltf"
+                    prepare_model_collision(data, collision)
+                    manifest["models"].append({**base, "uri": lods[0]["uri"] if lods else None, "lods": lods, "collision_uri": collision.relative_to(output).as_posix()})
+                elif asset["type"] in {"clipmap", "clipmap_pvs"}:
+                    target = output / "prepared" / "collision" / f"{key}-world.gltf"
+                    prepare_collision(data, target)
+                    manifest["collisions"].append({**base, "uri": target.relative_to(output).as_posix()})
                 elif asset["type"] == "gfxworld":
                     target = output / "prepared" / "worlds" / f"{key}.gltf"
-                    prepare_world(data, root, target, material_lookup)
-                    manifest["worlds"].append({**base, "uri": target.relative_to(output).as_posix(), "static_models": data["static_models"], "hero_lights": data["hero_lights"], "skybox_model": data["skybox_model"]})
+                    atmosphere_uri = prepare_world_art(data,zone,output,lambda kind,name:resolve_record(zone,kind,name),image_lookup)
+                    panes = [pane for (source_zone, kind, name), record in native_records.items() if source_zone == zone["id"] and kind == "glasses" for pane in read_json(record).get("data", {}).get("panes", [])]
+                    prepare_world(data, root, target, material_lookup, panes)
+                    manifest["worlds"].append({**base, "map": data["base_name"], "uri": target.relative_to(output).as_posix(), "atmosphere_uri":atmosphere_uri,"source_surfaces": len(data["surfaces"]), "static_models": data["static_models"], "hero_lights": data["hero_lights"], "skybox_model": data["skybox_model"], "initial_sun": data["initial_sun"], "initial_fog": data["initial_fog"]})
             except (AssetError, ValueError, IndexError, KeyError) as error:
                 issues.append({"category": asset["type"], "zone": zone["id"], "identity": asset["name"], "reason": str(error)})
         print(f"Prepared geometry and animation art for {zone['id']}", flush=True)
+
+    for world in manifest["worlds"]:
+        collision = next((entry for entry in manifest["collisions"] if entry["zone"] == world["zone"] and entry["name"] == world["name"]), None)
+        if collision is None:
+            issues.append({"category":"gfxworld","identity":world["name"],"zone":world["zone"],"reason":"Missing prepared native collision world"})
+            continue
+        world["collision_uri"]=collision["uri"]
+        try:
+            compose_static_models(world,manifest["models"],output)
+            compose_static_models(world,manifest["models"],output,collision=True)
+            for uri_key, count_key in (("uri", "render_meshes"), ("collision_uri", "collision_meshes")):
+                scene = read_json(inside(output, world[uri_key]))
+                world[count_key] = sum(len(scene["meshes"][node["mesh"]]["primitives"]) for node in scene["nodes"] if "mesh" in node)
+            world["static_model_instances"] = len(world["static_models"])
+        except AssetError as error:
+            issues.append({"category":"gfxworld","identity":world["name"],"zone":world["zone"],"reason":str(error)})
+    for model in manifest["models"]:
+        candidates = {}
+        for animation in manifest["animations"]:
+            previous = candidates.get(animation["name"])
+            if previous is None or animation["zone"] == model["zone"]:
+                candidates[animation["name"]] = animation
+        compatible = sorted(candidates.values(), key=lambda entry: entry["name"])
+        bindings = None
+        for lod in model["lods"]:
+            current = bind_model_animations(inside(output, lod["uri"]), compatible, output)
+            if bindings is not None and bindings != current:
+                raise AssetError(f"Native LOD animation skeletons differ: {model['name']}")
+            bindings = current
+        model["animations"] = bindings or {}
 
     for row in extraction["containers"]:
         original = inside(install, row["path"])
@@ -1889,6 +2518,7 @@ def native_pack(extraction: dict, install: Path, output: Path) -> dict:
     write_json(native / "vertex-declarations.json", NATIVE_VERTEX_DECLARATIONS)
     write_json(native / "containers.json", {"schema_version": 1, "containers": extraction["containers"]})
     write_json(native / "asset-index.json", {"schema_version": 1, "assets": identities})
+    prepare_runtime_index(manifest, output, native_records, issues)
     write_json(output / "prepared" / "index.json", manifest)
     report = {"schema_version": 1, "tool": extraction["tool"], "zones": [{key: value for key, value in zone.items() if key != "root"} for zone in extraction["zones"]], "categories": {name: dict(counts) for name, counts in sorted(categories.items())}, "prepared_counts": {key: len(value) for key, value in manifest.items() if isinstance(value, list)}, "unprepared_art": issues, "runtime_pack_complete": False, "remaining_runtime_decoders": ["Native multi-UV/vertex-controlled material bakes for unsupported shader families", "Native dynamic UI, destructible/glass and remaining art pool structured decoding"]}
     write_json(output / "build-report.json", report)
@@ -1920,7 +2550,9 @@ def dependency_closure(pack: Path) -> dict:
                 for material in gltf.get("materials", []):
                     surface = material.get("extras", {}).get("surface")
                     if surface:
-                        for channel in surface.get("channels", []):
+                        frames = surface.get("animation", {}).get("frames", [])
+                        channels = surface.get("channels", []) + [channel for frame in frames for channel in frame.get("channels", [])]
+                        for channel in channels:
                             if channel.get("layer", 0) != 0 or channel.get("role") not in {"color", "normal", "response", "emissive", "reflectance"}:
                                 issues.append({"file": path.relative_to(pack).as_posix(), "reason": "Unsupported StandardMaterial channel"})
                             target = inside(pack, channel["uri"])

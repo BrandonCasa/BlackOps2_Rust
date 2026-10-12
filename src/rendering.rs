@@ -25,6 +25,7 @@ mod shadows;
 mod sky;
 mod solari;
 mod viewport;
+pub(crate) use opaque::NativeArtInputs;
 pub(crate) use opaque::OpaqueSurfaceStatus;
 #[cfg(feature = "dev-dynamic")]
 pub(crate) use opaque::weapon_material_snapshot;
@@ -121,7 +122,15 @@ impl Plugin for GameRenderingPlugin {
                         .in_set(SurfacePreparation),
                 ),
             )
-            .add_systems(PostUpdate, (opaque::animate,).chain());
+            .add_systems(
+                PostUpdate,
+                (
+                    opaque::animate,
+                    opaque::animate_scalars,
+                    opaque::animate_uvs,
+                )
+                    .chain(),
+            );
     }
 
     fn finish(&self, app: &mut App) {

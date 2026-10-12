@@ -131,7 +131,7 @@ impl AssetLoader for DecodedClipLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &["oga", "ogg", "spx"]
+        &["oga", "ogg", "spx", "flac", "mp3", "wav"]
     }
 }
 

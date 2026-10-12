@@ -40,6 +40,46 @@ struct Chest {
     source: Handle<Gltf>,
     glow: Option<Entity>,
     sound: Option<Entity>,
+    glow_ramps: Vec<BoxGlowRamp>,
+}
+struct BoxGlowRamp {
+    fading_in: bool,
+    timer: f32,
+    timer_wait: f32,
+    sample_wait: f32,
+}
+impl BoxGlowRamp {
+    fn new(fading_in: bool) -> Self {
+        Self {
+            fading_in,
+            timer: 0.,
+            timer_wait: 0.016,
+            sample_wait: 0.11,
+        }
+    }
+    fn tick(&mut self, dt: f32, inputs: &mut crate::rendering::NativeArtInputs) -> bool {
+        self.timer_wait -= dt;
+        if self.timer_wait <= 0. {
+            self.timer += 0.016;
+            self.timer_wait = 0.016;
+        }
+        self.sample_wait -= dt;
+        if self.sample_wait <= 0. {
+            inputs.script_vectors[1] = [
+                if self.fading_in {
+                    1. - self.timer
+                } else {
+                    self.timer
+                },
+                0.,
+                0.,
+                0.,
+            ];
+            self.sample_wait = 0.11;
+            return self.timer < 1.;
+        }
+        true
+    }
 }
 #[derive(Component)]
 struct Reward {
@@ -100,7 +140,9 @@ fn setup(
                     source: server.load(scene.split('#').next().unwrap_or(scene).to_owned()),
                     glow: None,
                     sound: None,
+                    glow_ramps: Vec::new(),
                 },
+                crate::rendering::NativeArtInputs::default(),
                 WorldAssetRoot(server.load(scene.clone())),
                 Transform::from_translation(position)
                     .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
@@ -114,7 +156,7 @@ fn tick(
     mut rewards: ResMut<CaptureRewards>,
     game: Res<GameDefinition>,
     server: Res<AssetServer>,
-    mut chests: Query<(Entity, &mut Chest)>,
+    mut chests: Query<(Entity, &mut Chest, &mut crate::rendering::NativeArtInputs)>,
     mut visuals: Query<(&Reward, &mut Transform)>,
 ) {
     let dt = time.delta_secs();
@@ -173,10 +215,15 @@ fn tick(
             ORIGINS[reward.index] + Vec3::Y * ((elapsed - 0.5).clamp(0., 2.) * 0.635);
         pose.rotate_y(dt);
     }
-    for (entity, mut chest) in &mut chests {
+    for (entity, mut chest, mut inputs) in &mut chests {
+        chest
+            .glow_ramps
+            .retain_mut(|ramp| ramp.tick(dt, &mut inputs));
         let elapsed = rewards.states[chest.index].elapsed.unwrap_or(100.);
         let glowing = (0.75..2.25).contains(&elapsed);
         if glowing && chest.glow.is_none() {
+            inputs.script_vectors[1] = [0.; 4];
+            chest.glow_ramps.push(BoxGlowRamp::new(true));
             chest.glow = Some(crate::native_fx::attach(
                 &mut commands,
                 "maps/zombie_tomb/fx_tomb_challenge_fire",
@@ -196,6 +243,8 @@ fn tick(
             chest.sound = Some(sound);
         } else if !glowing {
             if let Some(glow) = chest.glow.take() {
+                inputs.script_vectors[1] = [0.; 4];
+                chest.glow_ramps.push(BoxGlowRamp::new(false));
                 commands.entity(glow).try_despawn();
             }
             if let Some(sound) = chest.sound.take() {

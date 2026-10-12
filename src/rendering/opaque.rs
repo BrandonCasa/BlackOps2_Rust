@@ -47,7 +47,12 @@ impl SurfaceLibrary {
     pub(crate) fn textures_ready(&self, server: &AssetServer) -> Result<bool, String> {
         let mut ready = true;
         for definition in self.definitions.values() {
-            for image in definition.channels.values() {
+            for image in definition.channels.values().chain(
+                definition
+                    .frames
+                    .iter()
+                    .flat_map(|frame| frame.channels.values()),
+            ) {
                 if let Some(bevy::asset::LoadState::Failed(error)) =
                     server.get_load_state(image.id())
                 {
@@ -128,9 +133,38 @@ struct Frame {
 pub(super) struct AnimatedMaterial {
     driver: String,
     fps: f32,
+    time_frames: usize,
+    state_threshold: f32,
     owner: Option<Entity>,
     frames: Vec<Frame>,
     selected: usize,
+}
+
+#[derive(Component, Default)]
+pub(crate) struct NativeArtInputs {
+    pub script_vectors: [[f32; 4]; 4],
+    pub time_offset: f32,
+}
+
+#[derive(Component, serde::Deserialize)]
+pub(super) struct ScalarAnimation {
+    lookup: Vec<f32>,
+    sampler: u32,
+    speed: f32,
+    minimum: f32,
+    maximum: f32,
+    script_vector: usize,
+    script_component: usize,
+    #[serde(skip)]
+    owner: Option<Entity>,
+}
+
+#[derive(Component, serde::Deserialize)]
+pub(super) struct UvAnimation {
+    translation: [f32; 2],
+    time_mode: String,
+    #[serde(skip)]
+    owner: Option<Entity>,
 }
 
 pub(super) fn convert(
@@ -148,6 +182,7 @@ pub(super) fn convert(
     parents: Query<&ChildOf>,
     rigs: Query<&crate::presentation::Rig>,
     stones: Query<(), With<crate::staff_puzzles::IceStone>>,
+    art_inputs: Query<(), With<NativeArtInputs>>,
     mut library: ResMut<SurfaceLibrary>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     server: Res<AssetServer>,
@@ -172,6 +207,9 @@ pub(super) fn convert(
                 owner = Some(rig.owner);
             }
             if stones.contains(ancestor) {
+                owner = Some(ancestor);
+            }
+            if art_inputs.contains(ancestor) {
                 owner = Some(ancestor);
             }
             is_static |= extras
@@ -207,18 +245,38 @@ pub(super) fn convert(
             status.pending += 1;
             continue;
         }
+        if !frames.is_empty()
+            || !definition.metadata["scalar_animation"].is_null()
+            || !definition.metadata["uv_animation"].is_null()
+        {
+            commands
+                .entity(entity)
+                .insert(MeshMaterial3d(materials.add(base.clone())));
+        }
+        if !definition.metadata["scalar_animation"].is_null() {
+            let mut animation: ScalarAnimation =
+                serde_json::from_value(definition.metadata["scalar_animation"].clone())
+                    .expect("Source-built scalar material animation");
+            animation.owner = owner;
+            commands.entity(entity).insert(animation);
+        }
+        if !definition.metadata["uv_animation"].is_null() {
+            let mut animation: UvAnimation =
+                serde_json::from_value(definition.metadata["uv_animation"].clone())
+                    .expect("Source-built UV material animation");
+            animation.owner = owner;
+            commands.entity(entity).insert(animation);
+        }
         if !frames.is_empty() {
-            let handle = materials.add(base.clone());
-            commands.entity(entity).insert((
-                MeshMaterial3d(handle),
-                AnimatedMaterial {
-                    driver: animation["driver"].as_str().unwrap_or("time").into(),
-                    fps: animation["fps"].as_f64().unwrap_or(30.) as f32,
-                    owner,
-                    frames: frames.clone(),
-                    selected: usize::MAX,
-                },
-            ));
+            commands.entity(entity).insert(AnimatedMaterial {
+                driver: animation["driver"].as_str().unwrap_or("time").into(),
+                fps: animation["fps"].as_f64().unwrap_or(30.) as f32,
+                time_frames: animation["time_frames"].as_u64().unwrap_or(1).max(1) as usize,
+                state_threshold: animation["state_threshold"].as_f64().unwrap_or(1.) as f32,
+                owner,
+                frames: frames.clone(),
+                selected: usize::MAX,
+            });
         }
         status.static_models += is_static as usize;
         status.world += (!is_static) as usize;
@@ -244,11 +302,17 @@ pub(super) fn animate(
     for (mut animation, handle) in &mut entities {
         let count = animation.frames.len();
         let selected = match animation.driver.as_str() {
-            "staff_charge" => animation
-                .owner
-                .and_then(|owner| inventories.get(owner).ok())
-                .map_or(0, |inventory| inventory.charge_level as usize)
-                .min(count - 1),
+            "staff_charge" => {
+                let charged = animation
+                    .owner
+                    .and_then(|owner| inventories.get(owner).ok())
+                    .is_some_and(|inventory| {
+                        inventory.charge_level as f32 >= animation.state_threshold
+                    });
+                let phase = (time.elapsed_secs_f64() * animation.fps as f64).floor() as usize
+                    % animation.time_frames;
+                (charged as usize * animation.time_frames + phase).min(count - 1)
+            }
             "frozen_stone" => ((animation
                 .owner
                 .and_then(|owner| stones.get(owner).ok())
@@ -269,8 +333,80 @@ pub(super) fn animate(
             material.metallic_roughness_texture = frame.channels.get("response").cloned();
             material.occlusion_texture = frame.channels.get("response").cloned();
             material.emissive_texture = frame.channels.get("emissive").cloned();
+            material.specular_tint_texture = frame.channels.get("reflectance").cloned();
             apply_factors(&mut material, &frame.factors);
             animation.selected = selected;
+        }
+    }
+}
+
+pub(super) fn animate_uvs(
+    time: Res<Time>,
+    inputs: Query<&NativeArtInputs>,
+    entities: Query<(&UvAnimation, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (animation, handle) in &entities {
+        let input = animation.owner.and_then(|owner| inputs.get(owner).ok());
+        let seconds = time.elapsed_secs() - input.map_or(0., |input| input.time_offset);
+        let phase = if animation.time_mode == "fractional_second" {
+            seconds - seconds.floor()
+        } else {
+            seconds
+        };
+        if let Some(mut material) = materials.get_mut(&handle.0) {
+            material.uv_transform = bevy::math::Affine2::from_translation(
+                Vec2::from_array(animation.translation) * phase,
+            );
+        }
+    }
+}
+
+pub(super) fn animate_scalars(
+    time: Res<Time>,
+    inputs: Query<&NativeArtInputs>,
+    entities: Query<(&ScalarAnimation, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (animation, handle) in &entities {
+        let count = animation.lookup.len();
+        if count == 0 {
+            continue;
+        }
+        let input = animation.owner.and_then(|owner| inputs.get(owner).ok());
+        let seconds = time.elapsed_secs() - input.map_or(0., |input| input.time_offset);
+        let coordinate = seconds * animation.speed;
+        let coordinate = if animation.sampler & 64 != 0 {
+            coordinate.clamp(0., 1.)
+        } else {
+            coordinate.rem_euclid(1.)
+        };
+        let texel = coordinate * count as f32 - 0.5;
+        let at = |index: i64| {
+            let index = if animation.sampler & 64 != 0 {
+                index.clamp(0, count as i64 - 1)
+            } else {
+                index.rem_euclid(count as i64)
+            };
+            animation.lookup[index as usize]
+        };
+        let value = if animation.sampler & 7 == 1 {
+            at((texel + 0.5).floor() as i64)
+        } else {
+            let lower = texel.floor();
+            let fraction = texel - lower;
+            at(lower as i64) * (1. - fraction) + at(lower as i64 + 1) * fraction
+        };
+        let script = input
+            .and_then(|input| input.script_vectors.get(animation.script_vector))
+            .and_then(|vector| vector.get(animation.script_component))
+            .copied()
+            .unwrap_or(0.);
+        let intensity = (animation.minimum + (animation.maximum - animation.minimum) * value)
+            * (1. - script).clamp(0., 1.);
+        if let Some(mut material) = materials.get_mut(&handle.0) {
+            let emission = intensity * intensity;
+            material.emissive = LinearRgba::rgb(emission, emission, emission);
         }
     }
 }

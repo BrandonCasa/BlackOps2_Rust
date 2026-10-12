@@ -9,6 +9,8 @@ use bevy::{
 
 use crate::GameState;
 
+pub(crate) mod prepared;
+
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub enum MeshPreprocessing {
     Cpu,
@@ -388,7 +390,11 @@ pub(crate) fn begin_load(
         info!("Origins asset pack: {}", config.pack_root.display());
         reload_failed_pack_assets(&server, &config.pack_root);
         let path = config.pack_root.join("game.json");
-        let definition = GameDefinition::load(&path).map_err(|e| e.to_string())?;
+        let mut definition = GameDefinition::load(&path).map_err(|e| e.to_string())?;
+        let art = prepared::PreparedArt::load(&config.pack_root)?;
+        art.bind(&mut definition)?;
+        definition.validate().map_err(|error| error.to_string())?;
+        commands.insert_resource(art);
         Ok(definition)
     })();
     match definition {
@@ -458,7 +464,7 @@ pub(crate) fn native_scene<'a>(game: &'a GameDefinition, model: &str) -> Option<
         .iter()
         .filter_map(|p| p.scene.as_ref())
         .filter(|scene| scene.ends_with(&name))
-        .min_by_key(|scene| (!scene.contains("/zm_tomb/"), scene.as_str()))
+        .min_by_key(|scene| (!scene.contains("-zm_tomb/"), scene.as_str()))
 }
 
 fn scene_ready(
