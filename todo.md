@@ -51,8 +51,8 @@ Checked items mark implemented tasks. Compiler and gameplay validation are recor
 - [x] Restore native dive startup, minimum-speed, exhaustion, and post-move action gates.
 - [x] Restore native dive trajectory, apex timing, and collision-dependent slide response.
 - [x] Apply native dive-specific fall damage thresholds.
-- [ ] Apply native landing impact velocity and movement recovery penalties.
-- [ ] Import native slick-surface flags and apply their movement friction and acceleration rules.
+- [x] Apply native landing impact velocity and movement recovery penalties.
+- [x] Import native slick-surface flags and apply their movement friction and acceleration rules.
 - [x] Select the native solo last-stand pistol by owned weapon rank and preserve downed ammunition usage after revival.
 - [x] Add upgraded weapon attachment rotation.
 - [x] Feed soul collection from attributed death events.
@@ -490,7 +490,7 @@ Checked items mark implemented tasks. Compiler and gameplay validation are recor
 - [x] Play Shepherd of Fire after required log interactions.
 - [x] Add Aether generator-floor interaction sequence.
 - [x] Play Aether after the correct floor sequence.
-- [ ] Run the source-defined post-upgrade Morse and cipher light sequence.
+- [x] Run the source-defined post-upgrade Morse and cipher light sequence.
 - [x] Add free Zombie Blood reward cooldown.
 - [x] Add free Zombie Blood fire-extinguishing interactions.
 - [x] Spawn free Zombie Blood after required fires disappear.

@@ -101,7 +101,7 @@ def main():
                'game_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
                'limitations': ['Avian capsule contacts and stair handling reconstruct the original collision solver.',
                                'Native rules are sampled on the Bevy fixed timestep.',
-                               'Ground slide uses ordinary surface friction; original slick-surface flags are not imported.']}
+                               'Imported slick flags and landing recovery are exercised by the separate final landing scenario.']}
     args.receipt.parent.mkdir(parents=True, exist_ok=True)
     args.receipt.write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
     print(json.dumps({'native_tuning': values, 'receipt': str(args.receipt)}))

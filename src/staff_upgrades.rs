@@ -10,6 +10,7 @@ use crate::{
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
+pub(crate) mod lights;
 pub const ELEMENTS: [Element; 4] = [
     Element::Fire,
     Element::Ice,
@@ -113,6 +114,7 @@ impl Plugin for StaffUpgradePlugin {
                     .after(crate::staff_puzzles::relay)
                     .run_if(in_state(GameState::Playing)),
             );
+        lights::install(app);
     }
 }
 fn randomize(state: &mut StaffUpgrades, session: &mut crate::gameplay::Session) {

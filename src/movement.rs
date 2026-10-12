@@ -191,6 +191,7 @@ pub struct Mobility {
     pub recovery: f32,
     pub since_dive: Option<f32>,
     pub jump_recovery: f32,
+    pub landing_recovery: f32,
     pub airborne: bool,
     pub peak: f32,
     pub fall_speed: f32,
@@ -218,6 +219,7 @@ pub struct Landing {
     pub impact_height: f32,
     pub speed: f32,
     pub diving: bool,
+    pub surface_flags: u32,
 }
 #[derive(Resource, Default)]
 pub struct MovementEvidence {

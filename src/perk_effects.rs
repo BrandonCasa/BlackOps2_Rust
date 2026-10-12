@@ -362,22 +362,18 @@ fn land(
             continue;
         }
         let tuning = &game.tuning.mobility;
-        let (minimum, fatal) = if landing.diving {
-            (tuning.dive_fall_minimum, tuning.dive_fall_fatal)
-        } else {
-            (tuning.fall_minimum, tuning.fall_fatal)
-        };
-        let mut percent =
-            (((landing.impact_height - minimum) / (fatal - minimum)).clamp(0., 1.) * 100.) as u32;
-        if percent > 0
-            && game
-                .content
-                .perks
-                .iter()
-                .any(|perk| perk.fall_protection && owned.owned.contains(&perk.id))
-        {
-            percent = 1;
-        }
+        let protected = game
+            .content
+            .perks
+            .iter()
+            .any(|perk| perk.fall_protection && owned.owned.contains(&perk.id));
+        let percent = crate::movement::physics::fall_percent(
+            landing.impact_height,
+            landing.diving,
+            protected,
+            landing.surface_flags,
+            tuning,
+        );
         if percent > 0 {
             let fraction = if percent == 100 {
                 1.1

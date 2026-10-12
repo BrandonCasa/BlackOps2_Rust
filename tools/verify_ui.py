@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 from pathlib import Path
 import time
 
@@ -25,6 +26,8 @@ def text(ui, value):
 
 
 def capture(client, output, name):
+    if output is None:
+        return None
     path = output / (name + '.png')
     client.call('origins/capture', {'path': str(path)})
     deadline = time.monotonic() + 30
@@ -51,7 +54,24 @@ def select_menu(client, index):
     raise TimeoutError('Menu selection did not reach row ' + str(index))
 
 
-def run(client, report, output):
+def setup_playing(client, options, stage):
+    try:
+        return client.call('origins/setup', options)
+    except RuntimeError as error:
+        state = client.state()
+        player = state.get('player') or {}
+        player = {name: player.get(name) for name in ('life', 'health', 'position', 'grounded', 'mobility')}
+        raise RuntimeError(f'{stage}: {error}; state={state["state"]}; '
+                           f'player={player}; '
+                           f'landings={state.get("movement", {}).get("events", [])[-4:]}') from error
+
+
+def run(client, report, output, game=None):
+    if game is None:
+        identity = report['identity']
+        if 'asset_root' not in identity:
+            identity = json.loads(Path(identity['path']).read_bytes())
+        game = json.loads((Path(identity['asset_root']) / 'game.json').read_bytes())
     client.until(lambda state: state['state'] == 'Playing' and state.get('player'), timeout=300)
     report['protocol'] = client.call('rpc.discover')
     report['schema'] = client.call('origins/schema')
@@ -115,21 +135,47 @@ def run(client, report, output):
     check(report, 'normal_shovel_interaction_updates_equipment_icon', True, after=picked, ui=ui)
 
     client.reset()
-    client.call('origins/setup', fixture)
+    collection_fixture = {**fixture, 'owned_perks': ['perk.phd_flopper'],
+                          'open_connections': [door['connection'] for door in game['access']['doors']]}
+    setup_playing(client, collection_fixture, 'gramophone collection fixture')
     ui = client.call('origins/ui')
     part = next(item for item in ui['part_targets'] if item['id'] == 'part.gramophone_vinyl.player')
     collected = False
     point = part['position']
-    for dx, dz in ((0, 1.2), (1.2, 0), (0, -1.2), (-1.2, 0)):
-        client.call('origins/setup', {'position': [point[0] + dx, point[1] + .91, point[2] + dz]})
-        client.wait_ticks(3)
+    approaches = [
+        [point[0] + radius * math.sin(index * math.tau / 8), point[1] + height,
+         point[2] + radius * math.cos(index * math.tau / 8)]
+        for height in (.3, .91) for radius in (.8, 1.2, 1.7) for index in range(8)]
+    attempts = []
+    for position in approaches:
+        setup_playing(client, {'position': position}, f'gramophone approach {position}')
+        state = client.wait_ticks(3)
+        if state['state'] != 'Playing' or state['player']['life'] != 'Standing':
+            raise RuntimeError('Gramophone approach left active gameplay before aim: '
+                               + json.dumps({'state': state['state'],
+                                             'life': state['player']['life'],
+                                             'position': state['player']['position'],
+                                             'movement': state['movement']['events'][-4:]}))
         aim(client, [point[0], point[1] + .35, point[2]])
         state = client.wait_ticks(3)
+        player = state['player']
+        eye = list(player['position'])
+        eye[1] += player['eye_height'] - player['height'] / 2
+        attempts.append({'requested_position': position, 'position': player['position'],
+                         'grounded': player['grounded'], 'eye': eye,
+                         'target_distance': math.dist(eye, [point[0], point[1] + .35, point[2]]),
+                         'focus': state['focus']})
+        if state['state'] != 'Playing' or state['player']['life'] != 'Standing':
+            raise RuntimeError('Gramophone approach left active gameplay: '
+                               + json.dumps({'state': state['state'], 'player': state['player'],
+                                             'movement': state['movement']['events'][-4:]}))
         if state['focus']['target'] == part['entity']:
             tap(client, 'interact')
             collected = True
             break
-    check(report, 'normal_gramophone_interaction_collects_item', collected, target=part)
+    check(report, 'normal_gramophone_interaction_collects_item', collected, target=part,
+          fixture=collection_fixture, approaches=attempts,
+          fixture_note='Opened authored connections admit excavation approaches; PhD protects fixture teleports from landing damage.')
     ui = observe(client, lambda ui: ui['inventory']['gramophone'] and text(ui, 'Musical Parts'))
     check(report, 'collection_shows_original_inventory_preview',
           'ui/zom_hud_craftable_gramophone.ktx2' in ui['images'], ui=ui,
@@ -173,10 +219,15 @@ def run(client, report, output):
               for name in ['juggernaut', 'fastreload', 'marathon', 'doubletap']),
           fixture=perk_fixture, ui=ui, capture=capture(client, output, 'perks-and-staff'))
     hold(client, binding(client.state(), 'aim'))
-    aimed = client.until(lambda state: state['player']['ads'] > .95)
+    definition = next(w for w in game['content']['weapons'] if w['id'] == 'weapon.staff_fire_zm')
+    aimed = client.wait_ticks(math.ceil(definition['mechanics']['ads_seconds'][0]
+                                       / client.state()['fixed_delta_seconds']) + 4)
     ui = observe(client, lambda ui: ui['crosshair'])
-    check(report, 'native_staff_keeps_reticle_during_normal_aim',
-          'ui/hud_flamethrower_reticle.ktx2' in ui['images'], after=aimed, ui=ui)
+    check(report, 'native_staff_keeps_reticle_during_normal_aim_input',
+          'ui/hud_flamethrower_reticle.ktx2' in ui['images']
+          and (aimed['player']['ads'] > .95 if definition['mechanics']['ads_enabled']
+               else aimed['player']['ads'] == 0),
+          ads_enabled=definition['mechanics']['ads_enabled'], after=aimed, ui=ui)
     client.release()
     client.reset()
     client.call('origins/setup', fixture)
@@ -243,7 +294,8 @@ def main():
             path = args.identity.parent / name
             if digest(path) != expected:
                 raise ValueError('Pinned executable/DLL changed: ' + str(path))
-        run(client, report, output)
+        game = json.loads((Path(identity['asset_root']) / 'game.json').read_bytes())
+        run(client, report, output, game)
         report['assets_after'] = assets_match(identity)
         report['passed'] = True
     except Exception as error:

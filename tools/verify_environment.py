@@ -63,6 +63,29 @@ def approach(client, kind, value=None):
     raise RuntimeError(f'No usable authored {kind} {value}: {client.state()["focus"]}')
 
 
+def collect_hidden_bottle(client, item, limit):
+    point = list(item['position'])
+    point[1] += 1.016
+    before = client.state()
+    state = before
+    for _ in range(8):
+        if state['player']['life'] != 'Standing':
+            break
+        if state['environment']['digger']['perk_limit'] == limit:
+            return before, state
+        aim(client, point)
+        key = binding(client.state(), 'forward')
+        state = schedule(client, [edge(1, key, True), edge(9, key, False)])
+    if state['player']['life'] == 'Standing' and state['environment']['digger']['perk_limit'] == limit:
+        return before, state
+    if state['environment']['digger']['perk_limit'] == limit:
+        return before, state
+    raise RuntimeError('Hidden bottle touch failed: '+json.dumps({
+        'site': item['target']['value'], 'bottle': point, 'expected_limit': limit,
+        'before_player': before['player'], 'after_player': state['player'],
+        'digger': state['environment']['digger']}))
+
+
 def fixture(client, game, **options):
     client.reset()
     client.call('origins/setup', {'clear_enemies': True, 'pending': 1, 'pause_spawning_seconds': 300,
@@ -159,7 +182,9 @@ def run(client, game, record, selection, output):
         record('session_weather_dig_parts_reset', reset['environment']['weather']['kind'] == 'clear'
                and reset['environment']['weather']['last_snow'] == 0 and reset['environment']['weather']['last_rain'] == 0
                and reset['environment']['weather']['strikes'] == 0 and not state_digger(reset)['shovel']
-               and reset['environment']['parts']['pieces'] == {}, after=reset)
+               and bool(reset['environment']['parts']['pieces'])
+               and all(piece['state'] == 'available'
+                       for piece in reset['environment']['parts']['pieces'].values()), after=reset)
         for count in (15, 16):
             fixture(client, game, active_mounds=list(range(count)))
             before, after = ending(client, game, 1, 'clear')
@@ -391,12 +416,7 @@ def run(client, game, record, selection, output):
         before, item = approach(client, 'hidden')
         tap(client, 'interact')
         after = client.until(lambda s: state_digger(s)['hidden_found'] == 1)
-        client.call('origins/setup', {'position': [item['position'][0], item['position'][1]+.9, item['position'][2]+2.3]})
-        aim(client, [item['position'][0], item['position'][1]+.9, item['position'][2]])
-        before = client.wait_ticks(5)
-        key = binding(before, 'forward')
-        schedule(client, [edge(1, key, True), edge(25, key, False)])
-        after = client.until(lambda s: s['environment']['digger']['perk_limit'] == 5)
+        before, after = collect_hidden_bottle(client, item, 5)
         record('hidden_dig_normal_use_and_bottle_touch_reward', state_digger(after)['hidden_wait_round'] and target(after, 'hidden') is None, before=before, after=after)
         before, after = ending(client, game, 1, 'clear')
         after = client.until(lambda s: target(s, 'hidden') is not None)
@@ -411,11 +431,7 @@ def run(client, game, record, selection, output):
             before, item = approach(client, 'hidden')
             tap(client, 'interact')
             after = client.until(lambda s: state_digger(s)['hidden_found'] == found)
-            client.call('origins/setup', {'position': [item['position'][0], item['position'][1]+.9, item['position'][2]+2.3]})
-            aim(client, [item['position'][0], item['position'][1]+.9, item['position'][2]])
-            key = binding(client.wait_ticks(5), 'forward')
-            schedule(client, [edge(1, key, True), edge(25, key, False)])
-            after = client.until(lambda s: s['environment']['digger']['perk_limit'] == 4+found)
+            _, after = collect_hidden_bottle(client, item, 4+found)
             record('hidden_slot_'+str(found), len(state_digger(after)['hidden_used']) == found, before=before, after=after)
             before, after = ending(client, game, found, 'clear')
         after = client.wait_ticks(30)

@@ -269,13 +269,17 @@ pub(crate) fn souls(
                     && collector.collected < collector.required
                     && (!collector.ordinary_only
                         || *kind == crate::rounds::PopulationKind::Ordinary)
-                    && center.translation.distance_squared(pose.translation)
+                    && center
+                        .translation
+                        .xz()
+                        .distance_squared(pose.translation.xz())
                         <= collector.radius * collector.radius
             })
             .min_by(|(_, a, _), (_, b, _)| {
                 a.translation
-                    .distance_squared(pose.translation)
-                    .total_cmp(&b.translation.distance_squared(pose.translation))
+                    .xz()
+                    .distance_squared(pose.translation.xz())
+                    .total_cmp(&b.translation.xz().distance_squared(pose.translation.xz()))
             })
             .map(|(entity, _, _)| entity);
         let Some(entity) = selected else { continue };

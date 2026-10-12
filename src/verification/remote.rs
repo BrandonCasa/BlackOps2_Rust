@@ -24,6 +24,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, net::Ipv4Addr};
 mod environment;
+mod movement;
+mod quests;
+mod stations;
 
 #[derive(Resource, Default)]
 struct RemoteState {
@@ -124,6 +127,11 @@ pub(super) fn install(app: &mut App, port: u16) {
                 })
                 .with_method_main("origins/environment/schema", environment::schema)
                 .with_method_main("origins/environment/setup", environment::setup)
+                .with_method_main("origins/surfaces", movement::surfaces)
+                .with_method_main("origins/quests/schema", quests::schema)
+                .with_method_main("origins/quests/setup", quests::setup)
+                .with_method_main("origins/stations/setup", stations::setup)
+                .with_method_main("origins/stations", stations::snapshot)
                 .with_method_main("origins/materials", materials)
                 .with_method_main("origins/capture", capture)
                 .with_method_main("origins/preview", preview)
@@ -152,6 +160,7 @@ pub(super) fn install(app: &mut App, port: u16) {
                 crate::input::collect,
                 crate::input::menu::navigate.run_if(in_state(GameState::Paused)),
                 crate::input::pause_and_restart,
+                scheduled_transition,
             )
                 .chain(),
         );
@@ -228,6 +237,19 @@ fn scheduled(world: &mut World) {
             }
         }
     });
+}
+fn scheduled_transition(world: &mut World) {
+    let current = world.resource::<State<GameState>>().get();
+    let pending = world.resource::<NextState<GameState>>();
+    if matches!(current, GameState::Playing | GameState::Paused)
+        && matches!(
+            pending,
+            NextState::Pending(GameState::Playing | GameState::Paused)
+                | NextState::PendingIfDifferent(GameState::Playing | GameState::Paused)
+        )
+    {
+        world.run_schedule(bevy::state::state::StateTransition);
+    }
 }
 fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpResult {
     Ok(json!({
@@ -367,7 +389,7 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
         }).collect();
         result["player"] = json!({"entity":entity.to_bits(),"position":pose.translation.to_array(),"yaw":player.yaw,"pitch":player.pitch,"height":player.height,"eye_height":player.eye_height,"prone":player.prone,"crouched":player.crouched,"velocity":player.velocity.to_array(),"health":world.get::<Vitality>(entity).and_then(|v| v.current()),"active_slot":inventory.active_slot(),"action":format!("{:?}",inventory.action),"weapons":weapons,"ads":inventory.ads,"right_reload":inventory.hand_reload_timing(false),"left_reload":inventory.hand_reload_timing(true)});
         if let Some(mobility) = world.get::<crate::movement::Mobility>(entity) {
-            result["player"]["mobility"] = json!({"diving":mobility.dive.is_some(),"slide_remaining":mobility.dive.and_then(|d|d.slide_remaining),"recovery":mobility.recovery,"jump_recovery":mobility.jump_recovery,"since_dive":mobility.since_dive,"airborne":mobility.airborne,"busy":mobility.busy()});
+            result["player"]["mobility"] = json!({"diving":mobility.dive.is_some(),"slide_remaining":mobility.dive.and_then(|d|d.slide_remaining),"recovery":mobility.recovery,"jump_recovery":mobility.jump_recovery,"landing_recovery":mobility.landing_recovery,"since_dive":mobility.since_dive,"airborne":mobility.airborne,"busy":mobility.busy()});
         }
         if let Some(sprint) = world.get::<crate::movement::SprintState>(entity) {
             result["player"]["sprint"] = json!({"sprinting":sprint.sprinting,"continuous_seconds":sprint.continuous_seconds(),"remaining":sprint.remaining,"exhausted":sprint.exhausted});
@@ -375,6 +397,7 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     }
     let movement = world.resource::<crate::movement::MovementEvidence>();
     result["movement"] = json!({"events":movement.events,"motion":movement.motion});
+    result["staffs"] = quests::snapshot(world);
     result["movement"]["physics"] = json!(
         world
             .resource::<crate::movement::physics::PhysicsEvidence>()

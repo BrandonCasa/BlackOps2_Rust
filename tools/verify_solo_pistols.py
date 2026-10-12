@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 from pathlib import Path
 
 from gameplay_remote import Client, write_report
@@ -63,13 +64,22 @@ def run_case(client, report, game, held, expected):
     inputs = [event for tick in (1, 26, 51)
               for event in (edge(tick, fire, True), edge(tick + 1, fire, False))]
     after_firing = schedule(client, inputs)
+    pattern = definition['mechanics']['fire']
+    burst_shots = pattern['shots'] if pattern['mode'] == 'burst' else 1
+    settle_ticks = math.ceil((burst_shots - 1) * definition['fire_interval']
+                            / after_firing['fixed_delta_seconds']) + 2
+    if burst_shots > 1:
+        after_firing = client.wait_ticks(settle_ticks)
     fired_weapon = active(after_firing)
     used = (magazine + (downed_weapon['left_magazine'] or 0) + reserve
             - fired_weapon['magazine'] - (fired_weapon['left_magazine'] or 0)
             - fired_weapon['reserve'])
     check(report, 'normal_input_can_fire_downed_' + expected,
-          after_firing['player']['life'] == 'Downed' and used > 0,
-          inputs=inputs, consumed=used, player=after_firing['player'])
+          after_firing['player']['life'] == 'Downed' and used > 0
+          and (burst_shots == 1 or used == 3 * burst_shots),
+          inputs=inputs, consumed=used, burst_shots=burst_shots,
+          settle_ticks=settle_ticks if burst_shots > 1 else 0,
+          player=after_firing['player'])
     revived = client.until(lambda state: state['player']['life'] == 'Standing'
                            and state['player']['solo_charges'] == 0, timeout=30)
     elapsed = (revived['fixed_tick'] - admitted['fixed_tick']) * revived['fixed_delta_seconds']
@@ -110,7 +120,8 @@ def without_quick_revive(client, report, game):
     client.release()
     elapsed = (ended['fixed_tick'] - before['fixed_tick']) * before['fixed_delta_seconds']
     check(report, 'native_solo_without_quick_revive_ends_match',
-          ended['player']['life'] == 'HumanTerminal' and ended['session']['downs'] == 0
+          ended['player']['life'] == 'HumanTerminal'
+          and ended['session']['downs'] == before['session']['downs'] + 1
           and elapsed < grenade['prime_seconds'] + grenade['fuse_seconds'] + 1,
           fixture=fixture, inputs=inputs, elapsed=elapsed, before=before['player'],
           ended=ended['player'], session=ended['session'])

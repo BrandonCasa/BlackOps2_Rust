@@ -196,6 +196,7 @@ pub(crate) fn move_player(
     mut landings: MessageWriter<crate::movement::Landing>,
     mut evidence: ResMut<crate::movement::MovementEvidence>,
     mut physics_evidence: ResMut<crate::movement::physics::PhysicsEvidence>,
+    surfaces: Query<&crate::movement::physics::SurfaceFlags>,
 ) {
     let prone_edge = std::mem::take(&mut input.prone);
     let (jump, fire, melee, reload) = input.take_edges();
@@ -261,6 +262,7 @@ pub(crate) fn move_player(
     let m = &tuning.mobility;
     mobility.recovery = (mobility.recovery - dt).max(0.);
     mobility.jump_recovery = (mobility.jump_recovery - dt).max(0.);
+    mobility.landing_recovery = (mobility.landing_recovery - dt).max(0.);
     mobility.landing_dip = (mobility.landing_dip - m.landing_dip / m.landing_seconds * dt).max(0.);
     mobility.previous_eye = player.eye_height;
     if let Some(age) = mobility.since_dive.as_mut() {
@@ -406,7 +408,13 @@ pub(crate) fn move_player(
                 .filter(|hit| hit.normal.y >= tuning.physics.ground_normal_min)
                 .map(|hit| hit.normal)
         });
-    player.grounded = ground_normal.is_some() && (player.velocity.y <= 0. || !mobility.airborne);
+    player.grounded = ground_normal.is_some() && (player.velocity.y <= 1e-4 || !mobility.airborne);
+    let surface_flags = support
+        .map(|hit| hit.entity)
+        .or_else(|| ground.map(|hit| hit.entity))
+        .and_then(|entity| surfaces.get(entity).ok())
+        .map_or(0, |surface| surface.0);
+    let slick = surface_flags & 2 != 0;
     let feet = transform.translation - Vec3::Y * player.height * 0.5;
     if mobility.airborne && player.grounded && !launch_dive {
         let height = (mobility.peak - feet.y).max(0.);
@@ -422,14 +430,31 @@ pub(crate) fn move_player(
             impact_height,
             speed: mobility.fall_speed,
             diving,
+            surface_flags,
         });
+        let protected = definition
+            .content
+            .perks
+            .iter()
+            .any(|perk| perk.fall_protection && perks.owned.contains(&perk.id));
+        let percent = crate::movement::physics::fall_percent(
+            impact_height,
+            diving,
+            protected,
+            surface_flags,
+            m,
+        );
+        let (impact_scale, recovery) =
+            crate::movement::physics::landing_response(impact_height, percent, slick);
+        player.velocity *= impact_scale;
+        mobility.landing_recovery = recovery;
         mobility.airborne = false;
         mobility.jump_recovery = m.jump_recovery;
         if diving {
             mobility.dive.as_mut().unwrap().slide_remaining = Some(m.dive_slide);
         }
         mobility.landing_dip = (mobility.fall_speed / 20.).clamp(0., 1.) * m.landing_dip;
-        evidence.record(serde_json::json!({"event":"landed","seconds":time.elapsed_secs_f64(),"height":height,"impact_height":impact_height,"diving":diving,"position":feet.to_array(),"recovery":mobility.recovery}));
+        evidence.record(serde_json::json!({"event":"landed","seconds":time.elapsed_secs_f64(),"height":height,"impact_height":impact_height,"diving":diving,"position":feet.to_array(),"recovery":mobility.recovery,"landing_recovery":mobility.landing_recovery,"impact_scale":impact_scale,"percent":percent,"surface_flags":surface_flags}));
     }
     if launch_dive {
         mobility.dive = Some(crate::movement::Dive {
@@ -523,6 +548,7 @@ pub(crate) fn move_player(
         && !player.prone
         && !mobility.busy()
         && mobility.jump_recovery == 0.
+        && !slick
         && drinking.is_none();
     let motion_grounded = player.grounded && !launch_dive && !jump_started;
     let desired = tuning.physics.wish_velocity(
@@ -574,7 +600,7 @@ pub(crate) fn move_player(
             let fraction = 1. - remaining / m.dive_slide;
             let retained = (friction_speed
                 - friction_speed.max(tuning.physics.stop_speed)
-                    * tuning.physics.friction
+                    * if slick { 1.5 } else { tuning.physics.friction }
                     * fraction
                     * dt)
                 .max(0.)
@@ -609,6 +635,8 @@ pub(crate) fn move_player(
             ground_normal.filter(|_| motion_grounded),
             player.prone,
             player.crouched,
+            slick,
+            mobility.landing_recovery > 0.,
             dt,
         );
     }
@@ -623,7 +651,7 @@ pub(crate) fn move_player(
     if launch_dive || jump_started {
         player.grounded = false;
     }
-    let gravity_step = if !player.grounded || mobility.dive.is_some() {
+    let gravity_step = if !player.grounded || mobility.dive.is_some() || slick {
         tuning.gravity * dt
     } else {
         0.
@@ -678,6 +706,7 @@ pub(crate) fn move_player(
         physics_evidence.samples.push(serde_json::json!({
             "seconds":time.elapsed_secs_f64(),"dt":dt,"input":input.movement.to_array(),
             "grounded":player.grounded,"ground_normal":ground_normal.map(|n| n.to_array()),
+            "surface_flags":surface_flags,"landing_recovery":mobility.landing_recovery,
             "prone":player.prone,"crouched":player.crouched,"sprinting":sprint.sprinting,
             "diving":mobility.dive.is_some(),"wish":motion_wish.to_array(),
             "position_before":feet.to_array(),"position_after":(result.position-Vec3::Y*player.height*0.5).to_array(),

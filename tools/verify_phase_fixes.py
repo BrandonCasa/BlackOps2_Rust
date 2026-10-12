@@ -48,6 +48,8 @@ def run(client, report, output):
     after = client.state()
     check(report, 'all_scheduled_inputs_released', not after['held_inputs'] and not after['queued_inputs'])
     client.call('origins/setup', {'pitch': 0})
+    if output is None:
+        return
     screenshot = output.resolve() / 'phase-fixes.png'
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     client.call('origins/capture', {'path': str(screenshot)})

@@ -56,13 +56,14 @@ def freeze(client, state, held, ticks):
     events = []
     if state['state'] == 'Paused':
         events += [edge(1, 'Escape', True), edge(2, 'Escape', False)]
+    begin = 3 if state['state'] == 'Paused' else 1
     for action in held:
-        events += [edge(1, binding(state, action), True),
+        events += [edge(begin, binding(state, action), True),
                    edge(ticks + 2, binding(state, action), False)]
     events += [edge(ticks, 'Escape', True), edge(ticks + 1, 'Escape', False)]
     result = schedule(client, events)
     if result['state'] != 'Paused':
-        raise RuntimeError('Scheduled animation observation did not pause the game')
+        result = client.until(lambda s: s['state'] == 'Paused', timeout=5)
     return result, events
 
 
@@ -80,14 +81,14 @@ def prepare(client, weapon, empty, floor=None):
             and all(r['ready'] and r['clocks'] for r in weapon_rigs(o, weapon)), 90)
     if empty:
         active = next(w for w in state['player']['weapons'] if w['slot'] == state['player']['active_slot'])
-        interval = 30
-        events = [event for tick in range(1, active['magazine'] * interval + 1, interval)
-                  for event in (edge(tick, binding(state, 'fire'), True),
-                                edge(tick + 1, binding(state, 'fire'), False))]
+        interval = 12
+        duration = active['magazine'] * interval + 60
+        fire = binding(state, 'fire')
+        events = [edge(1, fire, True), edge(duration, fire, False)]
         state = schedule(client, events)
         state = client.until(lambda s: s['player']['action'] == 'Ready')
         if next(w for w in state['player']['weapons'] if w['slot'] == state['player']['active_slot'])['magazine']:
-            raise RuntimeError('Normal firing did not empty the weapon')
+            raise RuntimeError('Normal automatic firing did not empty the weapon: ' + str(state['player']))
         fixture['emptying_inputs'] = events
     return state, fixture
 
@@ -196,8 +197,7 @@ def crawl_case(client, report, game, identity, empty, clips):
                                      ('right', 'prone_right', 3), ('left', 'prone_left', 4)):
         duration = weapon['mechanics']['crawl_seconds'][index]
         ticks = math.ceil(duration * .5 / dt) + 5
-        if direction == 'forward':
-            ticks += math.ceil(weapon['mechanics']['crawl_seconds'][0] / dt)
+        ticks += math.ceil(sum(weapon['mechanics']['crawl_seconds'][i] for i in (0, 5)) / dt) + 3
         state, inputs = freeze(client, state, [direction], ticks)
         inspect_phase(client, report, weapon, action + suffix, state, inputs, prefix + '_' + direction, clips)
     state, inputs = freeze(client, state, [], math.ceil(weapon['mechanics']['crawl_seconds'][5] * .5 / dt))
@@ -216,14 +216,11 @@ def crawl_fire_case(client, report, game, identity, clips):
     dt = state['fixed_delta_seconds']
     prone = binding(state, 'prone')
     state = schedule(client, [edge(1, prone, True), edge(2, prone, False)])
-    state, movement_inputs = freeze(client, state, ['forward'],
-                                    math.ceil(weapon['mechanics']['crawl_seconds'][0] / dt) + 12)
-    inspect_phase(client, report, weapon, 'prone_loop', state, movement_inputs,
-                  identity + '_fire_setup', clips)
     fire, forward = binding(state, 'fire'), binding(state, 'forward')
-    inputs = [edge(1, 'Escape', True), edge(2, 'Escape', False), edge(1, forward, True),
-              edge(4, fire, True), edge(6, 'Escape', True), edge(7, 'Escape', False),
-              edge(8, fire, False), edge(8, forward, False)]
+    fire_tick = math.ceil(weapon['mechanics']['crawl_seconds'][0] / dt) + 12
+    inputs = [edge(1, forward, True), edge(fire_tick, fire, True),
+              edge(fire_tick + 2, 'Escape', True), edge(fire_tick + 3, 'Escape', False),
+              edge(fire_tick + 4, fire, False), edge(fire_tick + 4, forward, False)]
     before = state
     state = schedule(client, inputs)
     observation = inspect_phase(client, report, weapon, 'prone_leave', state, inputs,

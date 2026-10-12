@@ -16,8 +16,10 @@ import tomllib
 
 try:
     from .content_contract import initial_catalog
+    from .prepare_movement_surfaces import source_flags
 except ImportError:
     from content_contract import initial_catalog
+    from prepare_movement_surfaces import source_flags
 
 import numpy as np
 from PIL import Image
@@ -353,6 +355,7 @@ def model_accessor(document, index):
 
 def static_models(gltf, instances_path, model_root, output, world_root, config):
     from fixture_emitters import emitter_surface
+    material_root = external(Path(config["assets"]["inspection_output"]) / "bo2-library-extraction/zone/all/zm_tomb/materials")
     instances = json.loads(external(instances_path).read_text())
     surface_data = json.loads(external(instances_path.parent / "model-surfaces.json").read_text())
     providers = {}
@@ -369,7 +372,7 @@ def static_models(gltf, instances_path, model_root, output, world_root, config):
                 original = next((s for s in surface_data[name] if s["material"] == mat["name"]), None)
                 if original is None:
                     continue
-                material = {"name": mat["name"], "extras": {"surface": {"identity": mat["name"],
+                material = {"name": mat["name"], "extras": {"surface": {"identity": mat["name"], "flags": source_flags(material_root, mat["name"]),
                     "family": material_family(original["family"], sum(t["semantic"] == 2 for t in original["textures"]) > 1), "channels": []}}, "doubleSided": True, "pbrMetallicRoughness": {
                     "metallicFactor": 0, "roughnessFactor": 0.85}}
                 layers = {}
@@ -497,6 +500,7 @@ def static_models(gltf, instances_path, model_root, output, world_root, config):
 
 def prepare(scene_path, entity_path, output, instances_path, model_root, config):
     root = external(scene_path).parent
+    material_root = external(Path(config["assets"]["inspection_output"]) / "bo2-library-extraction/zone/all/zm_tomb/materials")
     output = external(output)
     manifest = json.loads(scene_path.read_text())
     inventory = json.loads((root / "inventory.private.json").read_text())
@@ -588,7 +592,7 @@ def prepare(scene_path, entity_path, output, instances_path, model_root, config)
             layers[role] = layer + 1
             channels.append({"role": role, "layer": layer, "texture": texture(binding)["index"],
                              "channels": "rgb:specular,a:gloss" if role == "specular_gloss" else "rgba"})
-        material = {"name": identity, "extras": {"surface": {"identity": identity, "family": material_family(family, len(colors) > 1), "channels": channels}},
+        material = {"name": identity, "extras": {"surface": {"identity": identity, "flags": source_flags(material_root, identity), "family": material_family(family, len(colors) > 1), "channels": channels}},
                     "doubleSided": True, "pbrMetallicRoughness": pbr}
         channels.sort(key=lambda c: (c["role"], c["layer"]))
         apply_presentation(material, presentation(inventory["materials"][index], family))

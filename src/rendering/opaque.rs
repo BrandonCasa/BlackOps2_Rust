@@ -23,6 +23,142 @@ pub(crate) fn bindless_supported(device: &bevy::render::renderer::RenderDevice) 
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
+#[derive(Component)]
+struct QuestLightMaterial {
+    handle: QuestLightId,
+    brightness: f32,
+    color: Vec3,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuestLightId {
+    Opaque(AssetId<OpaqueMaterial>),
+    Standard(AssetId<StandardMaterial>),
+}
+
+pub(crate) fn install_quest_lights(app: &mut App) {
+    app.add_systems(
+        Update,
+        quest_lights
+            .after(super::SurfacePreparation)
+            .after(crate::staff_upgrades::lights::LightPresentation),
+    );
+}
+
+#[cfg(feature = "dev-dynamic")]
+pub(crate) fn quest_light_snapshot(world: &mut World) -> serde_json::Value {
+    let materials = world.resource::<Assets<OpaqueMaterial>>();
+    let standard = world.resource::<Assets<StandardMaterial>>();
+    let mut result = Vec::new();
+    for entity in world.iter_entities() {
+        let Some(light) = entity.get::<QuestLightMaterial>() else {
+            continue;
+        };
+        let material = match light.handle {
+            QuestLightId::Opaque(id) => materials
+                .get(id)
+                .map(|material| ("opaque", format!("{id:?}"), &material.base)),
+            QuestLightId::Standard(id) => standard
+                .get(id)
+                .map(|material| ("standard", format!("{id:?}"), material)),
+        };
+        if let Some((kind, handle, material)) = material {
+            result.push(serde_json::json!({"entity":entity.id().to_bits(),
+                "material":handle,"kind":kind,"color":light.color.to_array(),
+                "emissive":[material.emissive.red,material.emissive.green,material.emissive.blue]}));
+        }
+    }
+    serde_json::json!(result)
+}
+
+fn quest_lights(
+    mut commands: Commands,
+    surfaces: Query<(
+        Entity,
+        &crate::staff_upgrades::lights::LightSurface,
+        &MeshMaterial3d<OpaqueMaterial>,
+        Option<&QuestLightMaterial>,
+    )>,
+    mut materials: ResMut<Assets<OpaqueMaterial>>,
+    standard_surfaces: Query<
+        (
+            Entity,
+            &crate::staff_upgrades::lights::LightSurface,
+            &MeshMaterial3d<StandardMaterial>,
+            Option<&QuestLightMaterial>,
+        ),
+        Without<MeshMaterial3d<OpaqueMaterial>>,
+    >,
+    mut standard: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, surface, current, cloned) in &surfaces {
+        let Some(source) = materials.get(&current.0) else {
+            continue;
+        };
+        let brightness = cloned
+            .filter(|cloned| cloned.handle == QuestLightId::Opaque(current.0.id()))
+            .map_or_else(
+                || source.base.emissive.red.max(1.),
+                |cloned| cloned.brightness,
+            );
+        let color = surface.color * surface.color * brightness;
+        if cloned.is_none_or(|cloned| cloned.handle != QuestLightId::Opaque(current.0.id())) {
+            let mut source = source.clone();
+            source.base.emissive = LinearRgba::rgb(color.x, color.y, color.z);
+            let handle = materials.add(source);
+            commands.entity(entity).insert((
+                MeshMaterial3d(handle.clone()),
+                QuestLightMaterial {
+                    handle: QuestLightId::Opaque(handle.id()),
+                    brightness,
+                    color: surface.color,
+                },
+            ));
+        } else if cloned.is_some_and(|cloned| cloned.color != surface.color) {
+            if let Some(mut material) = materials.get_mut(&current.0) {
+                material.base.emissive = LinearRgba::rgb(color.x, color.y, color.z);
+            }
+            commands.entity(entity).insert(QuestLightMaterial {
+                handle: QuestLightId::Opaque(current.0.id()),
+                brightness,
+                color: surface.color,
+            });
+        }
+    }
+    for (entity, surface, current, cloned) in &standard_surfaces {
+        let Some(source) = standard.get(&current.0) else {
+            continue;
+        };
+        let id = QuestLightId::Standard(current.0.id());
+        let brightness = cloned
+            .filter(|cloned| cloned.handle == id)
+            .map_or_else(|| source.emissive.red.max(1.), |cloned| cloned.brightness);
+        let color = surface.color * surface.color * brightness;
+        if cloned.is_none_or(|cloned| cloned.handle != id) {
+            let mut source = source.clone();
+            source.emissive = LinearRgba::rgb(color.x, color.y, color.z);
+            let handle = standard.add(source);
+            commands.entity(entity).insert((
+                MeshMaterial3d(handle.clone()),
+                QuestLightMaterial {
+                    handle: QuestLightId::Standard(handle.id()),
+                    brightness,
+                    color: surface.color,
+                },
+            ));
+        } else if cloned.is_some_and(|cloned| cloned.color != surface.color) {
+            if let Some(mut material) = standard.get_mut(&current.0) {
+                material.emissive = LinearRgba::rgb(color.x, color.y, color.z);
+            }
+            commands.entity(entity).insert(QuestLightMaterial {
+                handle: id,
+                brightness,
+                color: surface.color,
+            });
+        }
+    }
+}
+
 const SHADER: Handle<Shader> = uuid_handle!("d61788a5-711f-4eb1-a7f7-bd1b9558da81");
 const VERTEX_SHADER: Handle<Shader> = uuid_handle!("e6ed1727-30d7-4c74-b53d-59cb68d0fa84");
 const BINDINGS_SHADER: Handle<Shader> = uuid_handle!("20c29018-2914-4277-b41a-a97c8ad9cf0e");

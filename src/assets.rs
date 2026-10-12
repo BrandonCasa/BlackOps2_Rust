@@ -461,7 +461,11 @@ fn scene_ready(
     event: On<WorldInstanceReady>,
     roots: Query<&MapRoot>,
     children: Query<&Children>,
-    mesh_entities: Query<(&Mesh3d, Option<&bevy::gltf::GltfMaterialName>)>,
+    mesh_entities: Query<(
+        &Mesh3d,
+        Option<&bevy::gltf::GltfMaterialName>,
+        Option<&bevy::gltf::GltfMaterialExtras>,
+    )>,
     extras: Query<&bevy::gltf::GltfExtras>,
     definition: Res<GameDefinition>,
     meshes: Res<Assets<Mesh>>,
@@ -554,7 +558,7 @@ fn scene_ready(
     }
     if root.collision {
         for entity in children.iter_descendants(event.entity) {
-            if let Ok((mesh, material)) = mesh_entities.get(entity) {
+            if let Ok((mesh, material, metadata)) = mesh_entities.get(entity) {
                 let collider = cache.get(&mesh.0.id()).cloned().or_else(|| {
                     let collider = meshes.get(&mesh.0).and_then(Collider::trimesh_from_mesh)?;
                     cache.insert(mesh.0.id(), collider.clone());
@@ -565,6 +569,14 @@ fn scene_ready(
                         RigidBody::Static,
                         collider,
                         WorldCollider,
+                        crate::movement::physics::SurfaceFlags(
+                            metadata
+                                .and_then(|extras| {
+                                    serde_json::from_str::<serde_json::Value>(&extras.value).ok()
+                                })
+                                .and_then(|value| value["surface"]["flags"].as_u64())
+                                .unwrap_or(0) as u32,
+                        ),
                         crate::audio::SurfaceSound(
                             material
                                 .and_then(|m| definition.audio.surfaces.get(&m.0))

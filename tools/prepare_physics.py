@@ -84,7 +84,7 @@ def main():
                'game_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
                'limitations': ['Avian capsule contacts replace the original collision shape and solver.',
                                'One-inch ground probe and quarter-inch skin are Avian tolerances.',
-                               'Native slick-surface flags and landing impact slowdown remain unfinished.',
+                               'Landing recovery and imported slick flags are exercised by the separate final landing scenario.',
                                'Discrete 60 Hz input and contacts approximate original frame subdivision.']}
     args.receipt.parent.mkdir(parents=True, exist_ok=True)
     args.receipt.write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')

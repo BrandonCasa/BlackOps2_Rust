@@ -1,6 +1,44 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+#[derive(Component, Clone, Copy, Default)]
+pub struct SurfaceFlags(pub u32);
+
+pub fn fall_percent(
+    height: f32,
+    diving: bool,
+    protected: bool,
+    flags: u32,
+    tuning: &crate::movement::MobilityTuning,
+) -> u32 {
+    if flags & 1 != 0 {
+        return 0;
+    }
+    let (minimum, fatal) = if diving {
+        (tuning.dive_fall_minimum, tuning.dive_fall_fatal)
+    } else {
+        (tuning.fall_minimum, tuning.fall_fatal)
+    };
+    let percent = (((height - minimum) / (fatal - minimum)).clamp(0., 1.) * 100.) as u32;
+    if percent > 0 && protected { 1 } else { percent }
+}
+
+pub fn landing_response(height: f32, percent: u32, slick: bool) -> (f32, f32) {
+    if percent == 0 {
+        return (if height >= 12. * 0.0254 { 0.67 } else { 1. }, 0.);
+    }
+    if percent >= 100 || slick {
+        return (0.67, 0.);
+    }
+    let milliseconds = (500 + percent * 35).min(2000);
+    let scale = if milliseconds > 1499 {
+        0.2
+    } else {
+        0.5 - (milliseconds as f32 - 500.) * 0.001 * 0.3
+    };
+    (scale, milliseconds as f32 * 0.001)
+}
+
 #[derive(Clone, Copy, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PhysicsTuning {
@@ -118,6 +156,8 @@ impl PhysicsTuning {
         ground_normal: Option<Vec3>,
         prone: bool,
         crouched: bool,
+        slick: bool,
+        landing_recovery: bool,
         dt: f32,
     ) -> Vec3 {
         let mut velocity = velocity;
@@ -126,11 +166,15 @@ impl PhysicsTuning {
             velocity = ground_velocity(velocity, normal);
             wish = ground_velocity(wish, normal);
             let speed = velocity.xz().length();
+            let friction = if slick {
+                speed * 1.5
+            } else {
+                speed.max(self.stop_speed) * self.friction * if landing_recovery { 0.3 } else { 1. }
+            };
             velocity = if speed < 0.0254 {
                 Vec3::ZERO
             } else {
-                velocity
-                    * ((speed - speed.max(self.stop_speed) * self.friction * dt).max(0.) / speed)
+                velocity * ((speed - friction * dt).max(0.) / speed)
             };
         }
         let speed = wish.length();
@@ -138,6 +182,8 @@ impl PhysicsTuning {
             let direction = wish / speed;
             let acceleration = if ground_normal.is_none() {
                 self.air_acceleration
+            } else if slick {
+                2.
             } else if prone {
                 self.prone_acceleration
             } else if crouched {
@@ -145,8 +191,19 @@ impl PhysicsTuning {
             } else {
                 self.ground_acceleration
             };
+            let acceleration = acceleration * if landing_recovery { 0.25 } else { 1. };
             let addition = (speed - velocity.dot(direction)).max(0.);
             velocity += direction * addition.min(acceleration * speed.max(self.stop_speed) * dt);
+        }
+        if slick && let Some(normal) = ground_normal {
+            let direction = normal.with_y(0.).normalize_or_zero();
+            let wish_speed = 4000. * 0.0254;
+            let addition = (wish_speed - velocity.dot(direction)).max(0.);
+            velocity += direction * addition.min(2. * wish_speed * dt);
+            let cap = 500. * 0.0254;
+            if velocity.length() > 500. * 500. * 0.0254 {
+                velocity = velocity.normalize_or_zero() * cap;
+            }
         }
         velocity
     }

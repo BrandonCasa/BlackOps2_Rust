@@ -104,7 +104,19 @@ def speed(row, key='velocity_after'):
 
 def select_flat(client, report, game, candidates, native):
     attempts = []
-    for site in [c for c in candidates if c['normal'][1] > .9999 and c['radius'] > 6][:24]:
+    bounds = []
+    for trigger in game['environment']['triggers']:
+        if trigger.get('source', {}).get('script_noteworthy') not in ('player_volume', 'life_brush'):
+            continue
+        for volume in trigger.get('shape', {}).get('volumes', []):
+            points = np.array(volume['vertices']) + np.array(volume['position']) + np.array(trigger['position'])
+            bounds.append((points.min(axis=0), points.max(axis=0)))
+    eligible = [c for c in candidates if c['normal'][1] > .9999 and c['radius'] > 1.1
+                and any(all(np.all(np.array(c['center']) + offset >= low)
+                            and np.all(np.array(c['center']) + offset <= high)
+                            for offset in ([-2, .9, 2], [2, .9, 2], [0, .9, -8]))
+                        for low, high in bounds)]
+    for site in eligible[:24]:
         try:
             before, fixture = prepare(client, game, site)
             if abs(before['player']['position'][1] - before['player']['height'] / 2 - site['center'][1]) > .08:
@@ -115,7 +127,9 @@ def select_flat(client, report, game, candidates, native):
             rows = samples(after, marker)
             height = max(row['position_after'][1] for row in rows) - rows[0]['position_before'][1]
             attempts.append({'site': site, 'jump_height': height})
-            if abs(height - .0254 * 39) < .025:
+            settled = client.wait_ticks(math.ceil(4 / after['fixed_delta_seconds']))
+            attempts[-1]['boundary_life'] = settled['player']['life']
+            if abs(height - .0254 * 39) < .025 and settled['player']['life'] == 'Standing':
                 check(report, 'authored_open_floor_supports_native_jump', True, fixture=fixture,
                       site=site, height=height, attempts=attempts)
                 return site
@@ -301,7 +315,7 @@ def main():
               'focus': args.focus,
               'limitations': ['Direct position, enemy, weapon and door changes are scenario setup.',
                               'Movement and projectile outcomes use scheduled native input on imported map geometry.',
-                              'Original slick materials and landing impact slowdown remain unfinished.',
+                              'Imported slick flags and landing impact recovery are covered by the separate final landing scenario.',
                               'This measures native numeric contracts; subjective controller feel still needs player review.']}
     try:
         identity = json.loads(args.identity.read_bytes())

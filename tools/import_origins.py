@@ -246,7 +246,10 @@ def validate_gltf(root, relative, files, *, allow_native_transforms=False):
         require(set(metadata) <= {"surface"}, "unsupported material extras")
         if "surface" in metadata:
             surface = metadata["surface"]
-            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation", "presentation", "layers", "effect", "version", "physical_class", "coating_roughness", "provenance", "native_weapon", "frozen_stone"}, "invalid surface metadata")
+            require({"identity", "family", "channels"} <= set(surface) <= {"identity", "family", "channels", "preparation", "presentation", "layers", "effect", "version", "physical_class", "coating_roughness", "provenance", "native_weapon", "frozen_stone", "flags"}, "invalid surface metadata")
+            if "flags" in surface:
+                require(type(surface["flags"]) is int and 0 <= surface["flags"] <= 0xffffffff,
+                        "invalid native movement surface flags")
             require(surface.get("version") == 2, "prepare version-2 PBR materials before runtime import")
             frozen = surface.get("frozen_stone")
             if frozen is not None:

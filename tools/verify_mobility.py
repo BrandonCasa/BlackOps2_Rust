@@ -48,11 +48,15 @@ def blocked_case(client, report, native, game):
                 and not stopped['player']['mobility']['airborne']):
             after = client.until(lambda s: s['fixed_tick'] >= batch['finish_tick']
                                  and not s['held_inputs'] and not s['queued_inputs'], timeout=30)
+            entry = next(row for row in after['movement']['physics']
+                         if row['seconds'] > stopped['movement']['physics'][-1]['seconds']
+                         and row['prone'])
             check(report, 'solid_collision_stops_actual_velocity_and_rejects_dive',
                   after['player']['prone'] and not after['player']['mobility']['diving']
                   and not new_events(stopped, after, 'dive_started')
-                  and math.dist(stopped['player']['position'][::2], after['player']['position'][::2]) < .02,
-                  fixture=fixture, inputs=inputs, before=stopped, after=after, attempts=attempts)
+                  and math.hypot(*entry['velocity_before'][::2]) <= native['dive_minimum_speed'],
+                  fixture=fixture, inputs=inputs, before=stopped, after=after,
+                  prone_entry=entry, attempts=attempts)
             return
         client.release()
     check(report, 'find_authored_wall_for_minimum_speed_case', False, attempts=attempts)

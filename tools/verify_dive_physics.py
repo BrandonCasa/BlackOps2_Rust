@@ -82,8 +82,10 @@ def flat_motion(client, report, native, physics, floor):
           and any(sample['elapsed'] >= native['dive_apex_seconds']
                   and sample['velocity_after'][1] < -.1 for sample in airborne),
           errors=errors, motion=motion, events=after['movement']['events'])
+    motor_samples = {sample['seconds']: sample for sample in after['movement']['physics']}
     free = [sample for sample in airborne
-            if math.dist(sample['move_velocity'][::2], sample['velocity_after'][::2]) < .0001
+            if motor_samples[sample['seconds']]['ground_normal'] is None
+            and math.dist(sample['move_velocity'][::2], sample['velocity_after'][::2]) < .0001
             and abs(sample['move_velocity'][1] - sample['velocity_after'][1]
                     - sample['gravity_step'] * .5) < .0001]
     errors = [sample for sample in free
@@ -92,7 +94,6 @@ def flat_motion(client, report, native, physics, floor):
               or abs(sample['gravity_step'] - physics['gravity'] * sample['dt']) > .0001]
     check(report, 'free_dive_motion_uses_native_midpoint_gravity',
           len(free) >= 12 and not errors, samples=len(free), errors=errors)
-    motor_samples = {sample['seconds']: sample for sample in after['movement']['physics']}
     slide = [sample for sample in motion if sample['slide_remaining'] is not None
              and motor_samples[sample['seconds']]['grounded']]
     check(report, 'grounded_dive_keeps_native_air_solver_gravity',
@@ -120,9 +121,10 @@ def flat_motion(client, report, native, physics, floor):
 def fall_site(client, report, game):
     before, fixture = prepare(client)
     baseline = len(events(before, 'landed'))
+    surface = [-12.267935753, 1.016000032, -68.628486633]
     fixture.update(owned_perks=['perk.phd_flopper'],
                    open_connections=[door['connection'] for door in game['access']['doors']],
-                   position=[game['spawn'][0], game['spawn'][1] + 20, game['spawn'][2]])
+                   position=[surface[0], surface[1] + 20, surface[2]])
     client.call('origins/setup', fixture)
     after = client.until(lambda state: len(events(state, 'landed')) > baseline
                          and not state['player']['mobility']['airborne'], timeout=45)
@@ -130,9 +132,12 @@ def fall_site(client, report, game):
     feet[1] -= after['player']['height'] * .5
     check(report, 'find_authored_surface_with_clear_overhead_for_fall_fixtures',
           after['player']['health'] == before['player']['health']
+          and after['player']['life'] == 'Standing'
+          and abs(feet[1] - surface[1]) < .15
           and events(after, 'landed')[-1]['impact_height'] > 8,
-          fixture=fixture, surface=feet, landing=events(after, 'landed')[-1])
-    return feet
+          fixture=fixture, surface=surface, observed_feet=feet, landing=events(after, 'landed')[-1],
+          geometry={'node': 2729, 'triangle': 8, 'material': 'wpc/zm_tm_concrete_bunker01_bare'})
+    return surface
 
 
 def held_slide(client, report, native, motor, floor):
@@ -202,7 +207,10 @@ def fall_case(client, report, native, game, base, height, diving, perks):
     if percent > 0 and 'perk.phd_flopper' in perks:
         percent = 1
     fraction = f32(1.1) if percent == 100 else f32(percent * f32(.01))
-    expected = int(f32(before['player']['health'] * fraction))
+    maximum = max([game['player_health']['maximum']] + [perk['maximum_health']
+                  for perk in game['content']['perks']
+                  if perk['id'] in perks and perk.get('maximum_health') is not None])
+    expected = int(f32(maximum * fraction))
     impacts = [event for event in after['effects']['events'] if event.get('event') == 'fall_impact']
     if expected:
         check(report, f'fall_conversion_{diving}_{height}_{perks}',
@@ -225,35 +233,41 @@ def fall_case(client, report, native, game, base, height, diving, perks):
 
 
 def wall_dive(client, report, native, game):
-    before, fixture = prepare(client)
     connections = [door['connection'] for door in game['access']['doors']]
-    client.call('origins/setup', {'yaw': 0, 'open_connections': connections})
-    forward, sprint = [binding(before, name) for name in ('forward', 'sprint')]
-    end = math.ceil(2.5 / before['fixed_delta_seconds'])
-    schedule(client, [edge(1, forward, True), edge(1, sprint, True),
-                      edge(end, forward, False), edge(end, sprint, False)])
-    wall = client.state()['player']['position']
-    before, fixture = prepare(client)
-    position = [wall[0], wall[1], wall[2] + 3.5]
-    fixture.update(position=position, yaw=0, open_connections=connections)
-    client.call('origins/setup', fixture)
-    before = client.wait_ticks(6)
-    inputs = dive_inputs(before, native)
-    schedule(client, inputs)
-    after = client.until(lambda state: bool(events(state, 'dive_finished'))
-                         and not state['player']['mobility']['busy'])
-    motion = [sample for sample in after['movement']['motion'] if sample['diving']]
-    contacts = []
-    for sample, following in zip(motion, motion[1:]):
-        intended = math.hypot(*sample['move_velocity'][::2])
-        projected = math.hypot(*sample['velocity_after'][::2])
-        if intended - projected > .1 and sample['elapsed'] > 3 * sample['dt']:
-            contacts.append({'contact': sample, 'next': following,
-                             'retained': math.hypot(*following['move_velocity'][::2]) <= projected + .001})
-    check(report, 'authored_wall_projection_survives_next_dive_tick',
-          contacts and all(contact['retained'] for contact in contacts),
-          fixture=fixture, inputs=inputs, contacts=contacts, motion=motion,
-          events=after['movement']['events'])
+    attempts = []
+    for position in ([67.0, -8.20, -135.8], [65.0, -8.40, -134.0], [67.0, -8.30, -134.5]):
+        before, fixture = prepare(client)
+        fixture.update(position=position, yaw=0, open_connections=connections)
+        client.call('origins/setup', fixture)
+        before = client.until(lambda state: state['player']['grounded']
+                              and not state['player']['mobility']['airborne']
+                              and state['player']['action'] == 'Ready', timeout=5)
+        inputs = dive_inputs(before, native)
+        entered = schedule(client, inputs)
+        attempt = {'fixture': fixture, 'inputs': inputs, 'entry_player': entered['player'],
+                   'events': entered['movement']['events']}
+        attempts.append(attempt)
+        if not events(entered, 'dive_started'):
+            continue
+        after = client.until(lambda state: bool(events(state, 'dive_finished'))
+                             and not state['player']['mobility']['busy'], timeout=8)
+        motion = [sample for sample in after['movement']['motion'] if sample['diving']]
+        contacts = []
+        for sample, following in zip(motion, motion[1:]):
+            intended = math.hypot(*sample['move_velocity'][::2])
+            projected = math.hypot(*sample['velocity_after'][::2])
+            if (intended - projected > .1 and sample['elapsed'] > 3 * sample['dt']
+                    and abs(sample['feet_after'][2] + 140.8176) < .8):
+                contacts.append({'contact': sample, 'next': following,
+                                 'retained': math.hypot(*following['move_velocity'][::2]) <= projected + .001})
+        attempt.update(contacts=contacts, motion=motion, events=after['movement']['events'])
+        if contacts:
+            check(report, 'authored_wall_projection_survives_next_dive_tick',
+                  all(contact['retained'] for contact in contacts), attempts=attempts,
+                  authored_wall=[position[0], -8.0, -140.8176],
+                  fixture_note='Grounded interior approaches avoid the spawn rubble; normal sprint and prone inputs enter the dive before the authored wall.')
+            return
+    check(report, 'authored_wall_projection_survives_next_dive_tick', False, attempts=attempts)
 
 
 def main():
