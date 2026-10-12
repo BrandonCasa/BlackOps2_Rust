@@ -149,7 +149,7 @@ fn sample_third_specular(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec
     @if(!BINDLESS) return textureSampleGrad(third_specular, third_specular_sampler, uv, gradient[0], gradient[1]);
 }
 fn animation_time(slot: u32) -> f32 {
-    return globals.real_time;
+    return globals.time;
 }
 fn sample_reflectance_map(slot: u32, uv: vec2<f32>, gradient: mat2x2<f32>) -> vec3<f32> {
     @if(BINDLESS) return textureSampleGrad(bindless_textures_2d[surface_indices[slot].reflectance_map], bindless_samplers_filtering[surface_indices[slot].reflectance_sampler], uv, gradient[0], gradient[1]).rgb;

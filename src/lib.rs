@@ -108,6 +108,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let release_benchmark = options.release_benchmark;
     let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
     let ads_capture = options.verify_ads;
+    let fixed_resolution = ads_capture || benchmark || options.validation_remote.is_some();
     let flythrough = options.flythrough;
     app.insert_resource(options);
     let default_plugins = DefaultPlugins.build();
@@ -152,7 +153,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                         maximize: !ads_capture,
                         ..default()
                     },
-                    resolution: if ads_capture {
+                    resolution: if fixed_resolution {
                         bevy::window::WindowResolution::new(1920, 1080)
                             .with_scale_factor_override(1.)
                     } else {

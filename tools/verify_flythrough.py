@@ -53,7 +53,7 @@ def main():
     require(not output.is_relative_to(Path(__file__).resolve().parent.parent), "Evidence must be external")
     output.mkdir(parents=True, exist_ok=False)
     identity = json.loads((bundle / "identity.json").read_text(encoding="utf-8"))
-    require("origins_flythrough.exe" in identity["binaries"], "Bundle does not contain a pinned flythrough executable")
+    require("origins.exe" in identity["binaries"], "Bundle does not contain the pinned game executable")
     for name, expected in identity["binaries"].items():
         require(digest(bundle / name) == expected, f"Pinned binary changed: {name}")
     report = {"passed": False, "identity_sha256": digest(bundle / "identity.json"),
@@ -61,7 +61,7 @@ def main():
     client = Client(f"http://127.0.0.1:{args.port}")
     wait_for_slot()
     with (output / "game.log").open("w", encoding="utf-8") as log:
-        process = subprocess.Popen([str(bundle / "origins_flythrough.exe"), "--output", str(output),
+        process = subprocess.Popen([str(bundle / "origins.exe"), "--flythrough", "--output", str(output),
                                     "--speed", str(args.speed), "--validation-remote", str(args.port)],
                                    cwd=bundle, stdout=log, stderr=subprocess.STDOUT,
                                    env={**os.environ, "RUST_LOG": "info,wgpu=error,naga=warn", "NO_COLOR": "1"},

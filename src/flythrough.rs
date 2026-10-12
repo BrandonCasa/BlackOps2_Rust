@@ -110,7 +110,7 @@ pub fn app(mut arguments: impl Iterator<Item = OsString>) -> Result<App, String>
                 options.validation_remote = Some(arguments.next().and_then(|v| v.to_str()?.parse().ok())
                     .filter(|p: &u16| *p > 0 && *p != 15703).ok_or("--validation-remote requires a loopback port other than 15703")?);
             },
-            _ => return Err("Usage: origins_flythrough [--output directory] [--speed 0.25..8] [--exit-on-finish]".into()),
+            _ => return Err("Usage: origins --flythrough [--output directory] [--speed 0.25..8] [--exit-on-finish]".into()),
         }
     }
     if !settings.output.is_absolute() {

@@ -5,22 +5,16 @@ edition = "2024"
 rust-version = "1.99.0"
 publish = false
 default-run = "origins"
+autobins = false
 
 [[bin]]
-name = "origins_flythrough"
-path = "src/bin/origins_flythrough.rs"
+name = "origins"
+path = "src/main.rs"
 
 [workspace]
 members = ["."]
 exclude = ["vendor/wgpu-core", "vendor/wgpu-hal", "vendor/bevy_render", "vendor/bevy_render_macros", "vendor/bevy_pbr"]
 resolver = "3"
-
-[patch.crates-io]
-bevy_pbr = { path = "vendor/bevy_pbr" }
-bevy_render = { path = "vendor/bevy_render" }
-bevy_render_macros = { path = "vendor/bevy_render_macros" }
-wgpu-core = { path = "vendor/wgpu-core" }
-wgpu-hal = { path = "vendor/wgpu-hal" }
 
 [features]
 default = []
@@ -43,7 +37,7 @@ tracy-client = { version = "=0.19.0", default-features = false, features = ["onl
 
 [target.'cfg(windows)'.dependencies]
 keepawake = "=0.6.1"
-wgpu = { version = "=30.0.1", default-features = false, features = ["std", "dx12"] }
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "vulkan"] }
 
 [profile.dev]
 opt-level = 1

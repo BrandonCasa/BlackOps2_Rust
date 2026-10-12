@@ -73,19 +73,16 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Formatting check failed' }
     if ($Profile -eq 'Debug') {
         Write-Output (Join-Path $repository 'target/debug/origins.exe')
-        Write-Output (Join-Path $repository 'target/debug/origins_flythrough.exe')
         return
     }
     $release = Join-Path $repository 'release'
     'from pathlib import Path; from tools.import_origins import import_pack; result = import_pack(Path("assets/origins"), Path("release/assets/origins"), None); print({k: v for k, v in result.items() if k != "sha256"})' | & uv run --python '>=3.11' --with 'numpy>=2,<3' --with 'pillow>=12,<13' --with 'soundfile>=0.13,<0.14' python -
     if ($LASTEXITCODE -ne 0) { throw 'Runtime asset validation/copy failed; inspect the error above (LFS pointers require git lfs pull)' }
     Copy-Item -LiteralPath (Join-Path $repository 'target/release/origins.exe') -Destination (Join-Path $release 'origins.exe')
-    Copy-Item -LiteralPath (Join-Path $repository 'target/release/origins_flythrough.exe') -Destination (Join-Path $release 'origins_flythrough.exe')
     $oldConfig = [IO.Path]::GetFullPath((Join-Path $release 'config/local_assets.toml'))
     if (-not $oldConfig.StartsWith($release + [IO.Path]::DirectorySeparatorChar)) { throw 'Invalid release config path' }
     if (Test-Path -LiteralPath $oldConfig) { Remove-Item -LiteralPath $oldConfig }
     Write-Output (Join-Path $release 'origins.exe')
-    Write-Output (Join-Path $release 'origins_flythrough.exe')
 } finally {
     $env:RUSTC = $savedRustc
     $env:RUSTDOC = $savedRustdoc

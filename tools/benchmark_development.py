@@ -51,7 +51,7 @@ def cpu_snapshot():
     ))
 
 
-def run(executable, output, workload, expected_resolution=(1920, 1080)):
+def run(executable, output, workload, expected_resolution=(1920, 1080), profile="debug"):
     output.mkdir()
     wait_for_slot()
     cpu_before = {row["Id"]: row for row in cpu_snapshot()}
@@ -95,7 +95,8 @@ def run(executable, output, workload, expected_resolution=(1920, 1080)):
             }, indent=2) + "\n", encoding="utf-8")
     require(not interference, f"Concurrent game, capture, or compiler invalidated {output}")
     result = json.loads((output / "performance.json").read_text(encoding="utf-8"))
-    require(result["passed"] and result["build_profile"] == "debug", "Expected passing development workload")
+    require(result["passed"] and result["build_profile"] == profile, f"Expected passing {profile} workload")
+    require("Vulkan" in result["adapter"], "The measured adapter must use Vulkan")
     require(result["physical_resolution"] == list(expected_resolution), "Resolution changed")
     require(not result["profile_tracy"] and not result["profile_chrome"], "Tracing invalidates acceptance timing")
     require(result["sample_wall_seconds"] >= 30, "Incomplete workload")
@@ -113,6 +114,7 @@ def main():
     parser.add_argument("--repeats", type=int, default=1, choices=range(1, 10))
     parser.add_argument("--workload", choices=("combat", "moving"), default="combat")
     parser.add_argument("--target-fps", type=float)
+    parser.add_argument("--profile", choices=("debug", "release"), default="debug")
     parser.add_argument("--expected-resolution", type=int, nargs=2, default=(1920, 1080),
                         metavar=("WIDTH", "HEIGHT"))
     args = parser.parse_args()
@@ -121,8 +123,10 @@ def main():
     root = Path(__file__).resolve().parent.parent
     require(not output.is_relative_to(root), "Benchmark evidence must be external")
     identity = json.loads((bundle / "identity.json").read_text(encoding="utf-8"))
-    require(identity["source"]["profile"] == "dev" and identity["source"]["features"] == ["dev-dynamic"],
-            "Expected pinned dev-dynamic build")
+    expected_profile = "dev" if args.profile == "debug" else "release"
+    expected_features = ["dev-dynamic"] if args.profile == "debug" else []
+    require(identity["source"]["profile"] == expected_profile
+            and identity["source"]["features"] == expected_features, "Pinned build profile mismatch")
     for name, expected in identity["binaries"].items():
         require(digest(bundle / name) == expected, f"Pinned binary changed: {name}")
     output.mkdir(parents=True, exist_ok=False)
@@ -132,7 +136,7 @@ def main():
     try:
         for index in range(1, args.repeats + 1):
             receipt["runs"].append(run(bundle / "origins.exe", output / f"{args.workload}-{index}",
-                                       args.workload, args.expected_resolution))
+                                       args.workload, args.expected_resolution, args.profile))
         fps = [row["summary"]["fps"] for row in receipt["runs"]]
         receipt["summary"] = {
             "median_fps": statistics.median(fps), "min_fps": min(fps), "max_fps": max(fps),

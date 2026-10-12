@@ -91,7 +91,6 @@ fn damage_feedback(
     }
 }
 
-#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
 pub(crate) fn readout(world: &mut World) -> String {
     let state = *world.resource::<State<GameState>>().get();
     let scoreboard =
