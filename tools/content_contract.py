@@ -237,7 +237,9 @@ def validate_content(content, require):
                 resolve(owner, row.get("dual_weapon"), "weapon", True)
                 resolve(owner, row.get("ammo_group"), "definition", True)
                 actions = row.get("animation_actions", {})
-                require(isinstance(actions, dict) and set(actions) <= {"idle", "idle_empty", "last_shot", "rechamber", "ads_fire", "ads_last_shot", "ads_rechamber", "prime", "fire", "reload", "reload_empty", "reload_start", "reload_end", "equip", "unequip", "melee", "ads_enter", "ads_leave", "sprint_enter", "sprint_loop", "sprint_leave", "prone_enter", "prone_loop", "prone_leave", "dive_enter", "dive_loop", "dive_leave"}, "invalid weapon animation actions")
+                mobility_actions = {"prone_enter", "prone_loop", "prone_back", "prone_right", "prone_left", "prone_leave", "dive_enter", "dive_loop", "dive_leave"}
+                mobility_actions |= {action + "_empty" for action in tuple(mobility_actions)}
+                require(isinstance(actions, dict) and set(actions) <= {"idle", "idle_empty", "last_shot", "rechamber", "ads_fire", "ads_last_shot", "ads_rechamber", "prime", "fire", "reload", "reload_empty", "reload_start", "reload_end", "equip", "unequip", "melee", "ads_enter", "ads_leave", "sprint_enter", "sprint_loop", "sprint_leave"} | mobility_actions, "invalid weapon animation actions")
                 if row.get("throwable") is not None or row.get("mine") is not None:
                     require({"prime", "idle", "fire"} <= set(actions), "missing equipment deployment animation")
                 for identity in actions.values():
@@ -249,8 +251,9 @@ def validate_content(content, require):
                     required_fields = "delivery fire starting_reserve minimum_damage damage_range hit_multipliers pellets penetration recoil_pitch recoil_yaw recoil_recovery spread ads_fov ads_seconds ads_enabled ads_translation ads_rotation burst_delay movement empty_reload shell_reload shell_seconds equip_seconds unequip_seconds dual_wield projectile_speed projectile_lifetime explosion_radius explosion_damage melee_seconds fuse_seconds".split()
                     required_fields += ["reload_start_seconds", "reload_start_insert", "reload_end_seconds"]
                     required_fields += ["ads_zoom_fraction", "ads_pose", "ads_sight"]
-                    if isinstance(m, dict) and "sprint_seconds" in m:
-                        required_fields.append("sprint_seconds")
+                    for key in ("sprint_seconds", "crawl_seconds", "dive_seconds"):
+                        if isinstance(m, dict) and key in m:
+                            required_fields.append(key)
                     optional_fields = set("ads_recoil_recovery alternate player_damage projectile_trail projectile_loop projectile_effect weapon_class projectile_up_speed projectile_bounce".split())
                     require(isinstance(m, dict) and set(required_fields) <= set(m) <= set(required_fields) | optional_fields, "invalid weapon mechanics fields")
                     if m.get("ads_recoil_recovery") is not None: number(m["ads_recoil_recovery"])
@@ -262,10 +265,11 @@ def validate_content(content, require):
                     if "projectile_bounce" in m: require(type(m["projectile_bounce"]) is bool,"invalid projectile bounce flag")
                     for key in ("projectile_trail","projectile_loop","projectile_effect","weapon_class"):
                         require(m.get(key) is None or isinstance(m[key],str),"invalid native projectile identity")
-                    if "sprint_seconds" in m:
-                        require(isinstance(m["sprint_seconds"], list) and len(m["sprint_seconds"]) == 3, "invalid sprint timings")
-                        for value in m["sprint_seconds"]:
-                            number(value)
+                    for key, width in (("sprint_seconds", 3), ("crawl_seconds", 7), ("dive_seconds", 3)):
+                        if key in m:
+                            require(isinstance(m[key], list) and len(m[key]) == width, "invalid locomotion timings")
+                            for value in m[key]:
+                                number(value)
                     for key in ("reload_start_seconds", "reload_start_insert", "reload_end_seconds"):
                         number(m[key])
                     require(m["delivery"] in ("hitscan", "projectile", "melee", "equipment"), "invalid weapon delivery")

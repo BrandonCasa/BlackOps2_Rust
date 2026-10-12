@@ -46,13 +46,14 @@ Checked items mark implemented tasks. Compiler and gameplay validation are recor
 - [x] Add penetration damage attenuation.
 - [x] Prevent repeated hits on one penetrated actor.
 - [x] Add attachment-specific weapon modifiers.
-- [ ] Import native crawl and dive action durations and directional and empty-magazine clip variants.
-- [ ] Drive prone and dive weapon animation phases from player mobility through ECS playback.
+- [x] Import native crawl and dive action durations and directional and empty-magazine clip variants.
+- [x] Drive prone and dive weapon animation phases from player mobility through ECS playback.
 - [x] Restore native dive startup, minimum-speed, exhaustion, and post-move action gates.
 - [x] Restore native dive trajectory, apex timing, and collision-dependent slide response.
 - [x] Apply native dive-specific fall damage thresholds.
 - [ ] Apply native landing impact velocity and movement recovery penalties.
 - [ ] Import native slick-surface flags and apply their movement friction and acceleration rules.
+- [x] Select the native solo last-stand pistol by owned weapon rank and preserve downed ammunition usage after revival.
 - [x] Add upgraded weapon attachment rotation.
 - [x] Feed soul collection from attributed death events.
 - [x] Add zombie running states.

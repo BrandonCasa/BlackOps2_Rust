@@ -22,6 +22,7 @@ use bevy::{
 use std::collections::BTreeMap;
 
 pub(crate) mod camo;
+pub(crate) mod locomotion;
 pub(crate) mod offhand;
 pub use offhand::EquipmentPresentationEvidence;
 pub(crate) use offhand::selection as equipment_selection;
@@ -87,6 +88,7 @@ pub(crate) struct Rig {
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
         camo::install(app);
+        locomotion::install(app);
         app.init_resource::<EquipmentPresentationEvidence>()
             .add_systems(
                 Update,
@@ -923,7 +925,8 @@ pub(crate) fn animation_observation(world: &mut World) -> Vec<serde_json::Value>
             Some((name.as_str().to_owned(), serde_json::json!({"translation":pose.translation.to_array(),"rotation":pose.rotation.to_array()})))
         }).collect();
         serde_json::json!({"weapon":rig.weapon.0,"arms":rig.arms,"left":rig.left,"ready":rig.ready && (rig.arms || rig.attached),
-            "action":rig.playback.map(|a|format!("{a:?}")),"clocks":clocks,"bones":bones})
+            "action":rig.playback.map(|a|format!("{a:?}")),"clocks":clocks,"bones":bones,
+            "locomotion":world.get::<locomotion::WeaponLocomotion>(rig.owner).map(|state|state.observation())})
     }).collect()
 }
 pub(crate) fn hand_action(
@@ -1025,6 +1028,7 @@ fn animate(
     definition: Option<Res<GameDefinition>>,
     inventories: offhand::Inventories,
     sprints: Query<&crate::movement::SprintState>,
+    locomotions: Query<&locomotion::WeaponLocomotion>,
     mut evidence: ResMut<EquipmentPresentationEvidence>,
     mut rigs: Query<(&mut Rig, &mut Visibility)>,
     clips: Res<Assets<AnimationClip>>,
@@ -1098,6 +1102,23 @@ fn animate(
             || hand_action(inventory, weapon, &definition, rig.left),
             |s| (s.action, None),
         );
+        let locomotion = (selected.is_none()
+            && matches!(action, WeaponAnimation::Idle | WeaponAnimation::IdleEmpty))
+        .then(|| {
+            let empty = inventory.active().is_some_and(|w| {
+                if rig.left {
+                    w.left_magazine == Some(0)
+                } else {
+                    w.magazine == 0
+                }
+            });
+            locomotions.get(rig.owner).ok()?.sample(weapon, empty)
+        })
+        .flatten();
+        if let Some((phase, _, _, _)) = locomotion {
+            action = phase;
+            shot_seek = None;
+        }
         let sprint_duration = |action, index: usize| {
             let name = weapon
                 .animation_actions
@@ -1243,7 +1264,22 @@ fn animate(
             .or_else(|| inventory.hand_reload_timing(rig.left))
             .or_else(|| inventory.presentation_timing(weapon, melee));
         let seek = native_clip.and_then(|clip| {
-            if let Some(fraction) = sprint_fraction {
+            if let Some((_, elapsed, duration, looping)) = locomotion {
+                let duration = if duration > 0. {
+                    duration
+                } else {
+                    clip.duration()
+                };
+                if duration <= 0. {
+                    return None;
+                }
+                let elapsed = if looping {
+                    elapsed.rem_euclid(duration)
+                } else {
+                    elapsed.min(duration)
+                };
+                Some(elapsed / duration * clip.duration())
+            } else if let Some(fraction) = sprint_fraction {
                 Some(fraction.clamp(0., 1.) * clip.duration())
             } else if let Some((duration, remaining)) = timing {
                 Some(
@@ -1256,10 +1292,11 @@ fn animate(
                 None
             }
         });
-        let looping = matches!(
-            action,
-            WeaponAnimation::Idle | WeaponAnimation::IdleEmpty | WeaponAnimation::SprintLoop
-        );
+        let looping = locomotion.is_some_and(|(_, _, _, looping)| looping)
+            || matches!(
+                action,
+                WeaponAnimation::Idle | WeaponAnimation::IdleEmpty | WeaponAnimation::SprintLoop
+            );
         let mut playback =
             AnimationPlayback::new(graph, vec![AnimationLayer::new(node, seek, looping)]);
         playback.restart = rig.playback_revision;
