@@ -400,29 +400,11 @@ fn reload_failed_pack_assets(server: &AssetServer, pack: &crate::pack::Pack) {
 
 pub(crate) fn native_scene<'a>(game: &'a GameDefinition, model: &str) -> Option<&'a String> {
     let actor = format!("actor.{model}");
-    if let Some(scene) = game
-        .content
+    game.content
         .presentations
         .iter()
         .find(|presentation| presentation.id.0 == actor)
         .and_then(|presentation| presentation.scene.as_ref())
-    {
-        return Some(scene);
-    }
-    let name = format!("/{model}_lod0.gltf#Scene0");
-    let prepared = format!("-{model}.gltf#Scene0");
-    game.content
-        .presentations
-        .iter()
-        .filter_map(|p| p.scene.as_ref())
-        .filter(|scene| scene.ends_with(&name) || scene.ends_with(&prepared))
-        .min_by_key(|scene| {
-            (
-                !scene.contains("-zm_tomb_patch-"),
-                !scene.contains("-zm_tomb-"),
-                scene.as_str(),
-            )
-        })
 }
 
 fn scene_ready(

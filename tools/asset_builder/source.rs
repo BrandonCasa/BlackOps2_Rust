@@ -32,7 +32,7 @@ fn read_zones(install: &Path) -> Result<Vec<(String,native::Zone)>> {
     Ok(zones)
 }
 
-pub fn build(install: &Path, preview: Option<(&str, &Path)>) -> Result<()> {
+pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()> {
     let authorized = installation()?.canonicalize()?;
     let zones = read_zones(install)?;
     let catalog = convert::Catalog::new(&zones);
@@ -49,7 +49,7 @@ pub fn build(install: &Path, preview: Option<(&str, &Path)>) -> Result<()> {
     if !research.is_dir() {
         return Err("The authorized t6zm-master research workspace is missing".into());
     }
-    if let Some((name, output)) = preview {
+    if let Some(name) = preview {
         let key = name.to_ascii_lowercase();
         if let Some((model_name, zone, root)) = catalog.definitions(5).find(|(model, _, _)| model.eq_ignore_ascii_case(name)) {
             let lods = crate::geometry::model(&catalog, model_name, zone, root)?;
@@ -108,23 +108,83 @@ pub fn build(install: &Path, preview: Option<(&str, &Path)>) -> Result<()> {
         println!("Packed {} baked native surfaces into {}", baked.len(), output.display());
         return Ok(());
     }
-    if let Some(gap) = crate::material::unimplemented(&materials).first() {
-        return Err(format!("Required material conversion is unimplemented: {gap}").into());
+    let unsupported = crate::material::unimplemented(&materials);
+    if !unsupported.is_empty() {
+        return Err(format!("Required material conversion has {} unimplemented families:\n{}", unsupported.len(), unsupported.join("\n")).into());
     }
     let mut pack = pack::Pack::default();
-    let _collision = crate::collision::convert(&catalog, &mut pack)?;
-    let _sounds = crate::sound::convert(&authorized, &catalog, &mut pack)?;
-    let (_images, image_sources) = convert::images(&authorized, &catalog, &mut pack, None)?;
+    let collision = crate::collision::convert(&catalog, &mut pack)?;
+    let sounds = crate::sound::convert(&authorized, &catalog, &mut pack)?;
+    let (images, image_sources) = convert::images(&authorized, &catalog, &mut pack, None)?;
     let mut converted_materials = std::collections::BTreeMap::new();
     let baked = crate::bake::world(&catalog, &materials, &image_sources, &mut converted_materials, &mut pack)?;
     converted_materials.extend(crate::material::convert_known(&materials, &image_sources, &mut pack)?);
     let material_gaps = crate::material::missing(&materials, &converted_materials);
-    let _atmosphere = crate::atmosphere::read(&catalog, &image_sources, &mut pack)?;
-    if let Some(gap) = material_gaps.first() {
-        return Err(format!("Required material conversion is unresolved: {gap}").into());
+    let atmosphere = crate::atmosphere::read(&catalog, &image_sources, &mut pack)?;
+    if !material_gaps.is_empty() {
+        return Err(format!("Required material conversion has {} unresolved materials:\n{}", material_gaps.len(), material_gaps.join("\n")).into());
     }
-    let (_models, _worlds) = crate::scenes::convert(&catalog, &entities, &converted_materials, &baked, &mut pack)?;
-    Err("Native asset traversal and runtime conversion are not complete. No runtime pack was written.".into())
+    let (models, mut worlds) = crate::scenes::convert(&catalog, &entities, &converted_materials, &baked, &mut pack)?;
+    let atmosphere_uri = "prepared/worlds/zm_tomb.atmosphere.json";
+    pack.entries.insert(atmosphere_uri.into(), std::sync::Arc::new(serde_json::to_vec(&atmosphere)?));
+    for world in &mut worlds {
+        if world["map"] == "zm_tomb" {
+            world["collision_uri"] = collision["uri"].clone();
+            world["collision_meshes"] = collision["meshes"].clone();
+            world["atmosphere_uri"] = serde_json::json!(atmosphere_uri);
+        }
+    }
+    let runtime = runtime(&pack, models, worlds, images, sounds)?;
+    pack.entries.insert("prepared/runtime.json".into(), std::sync::Arc::new(serde_json::to_vec(&runtime)?));
+    crate::validate_pack(&pack)?;
+    pack.write(std::io::BufWriter::new(std::fs::File::create(output)?))?;
+    println!("Packed {} runtime entries into {}", pack.entries.len(), output.display());
+    Ok(())
+}
+
+fn runtime(pack: &pack::Pack, models: Vec<serde_json::Value>, worlds: Vec<serde_json::Value>, images: Vec<serde_json::Value>, sounds: Vec<serde_json::Value>) -> Result<serde_json::Value> {
+    use serde_json::{Value, json};
+    let game: Value = serde_json::from_slice(pack.get("game.json")
+        .map_err(|_| "Required game.json conversion is missing: native gameplay profiles, content tables, placements, presentation/animation bindings and UI/font definitions must be converted before writing origins.pack")?)?;
+    if game["version"] != 2 { return Err("Required game.json must use runtime content version 2".into()); }
+    let content = game["content"].as_object().ok_or("Required gameplay content catalog is missing")?;
+    let presentations = content.get("presentations").and_then(Value::as_array)
+        .ok_or("Required gameplay presentations are missing")?.iter().filter(|row| !row["scene"].is_null()).map(|row| {
+            let id = row["id"].as_str().ok_or("Gameplay presentation ID is missing")?;
+            let scene = row["scene"].as_str().ok_or("Gameplay presentation scene is missing")?;
+            let uri = scene.split('#').next().ok_or("Gameplay presentation URI is missing")?;
+            let model = models.iter().find(|model| model["uri"] == uri || model["lods"].as_array().into_iter().flatten().any(|lod| lod["uri"] == uri))
+                .ok_or_else(|| format!("Required gameplay presentation has no exact exported model binding: {id} ({scene})"))?;
+            pack.get(uri)?;
+            let animations = model["animations"].as_object().ok_or_else(|| format!("Native model animation bindings are missing: {id}"))?;
+            Ok(json!({"id":id,"uri":uri,"animations":animations,"name":model["name"],"zone":model["zone"]}))
+        }).collect::<Result<Vec<_>>>()?;
+    for animation in content.get("animations").and_then(Value::as_array).ok_or("Required gameplay animations are missing")? {
+        let id = animation["id"].as_str().ok_or("Gameplay animation ID is missing")?;
+        let owner = presentations.iter().find(|row| row["id"] == animation["skeleton"])
+            .ok_or_else(|| format!("Required gameplay animation has no exported skeleton: {id}"))?;
+        let matches: Vec<_> = owner["animations"].as_object().unwrap().iter()
+            .filter(|(name, _)| id.to_ascii_lowercase().ends_with(&format!(".{}", name.to_ascii_lowercase()))).collect();
+        if matches.len() != 1 || matches[0].1.as_u64().is_none() {
+            return Err(format!("Required gameplay animation has no unique exported clip binding: {id}").into());
+        }
+    }
+    let ui_assets = content.get("ui_assets").and_then(Value::as_array).ok_or("Required gameplay UI/font definitions are missing")?
+        .iter().map(|row| {
+            let id = row["id"].as_str().ok_or("Gameplay UI ID is missing")?;
+            let uri = row["path"].as_str().ok_or("Gameplay UI image URI is missing")?;
+            let image = images.iter().find(|image| image["uris"]["srgb"] == uri)
+                .ok_or_else(|| format!("Required gameplay UI image has no exact exported image binding: {id} ({uri})"))?;
+            pack.get(uri)?;
+            Ok(json!({"id":id,"name":image["name"],"zone":image["zone"],"uri":uri}))
+        }).collect::<Result<Vec<_>>>()?;
+    let effects_uri = "prepared/effects.nativefx";
+    let camo_uri = "prepared/camo.json";
+    pack.get(effects_uri).map_err(|_| "Required native FX conversion is missing; no runtime pack was written")?;
+    pack.get(camo_uri).map_err(|_| "Required native camo conversion is missing; no runtime pack was written")?;
+    if worlds.iter().all(|world| world["map"] != "zm_tomb") { return Err("Required Origins world scene is missing".into()); }
+    Ok(json!({"schema_version":1,"models":models,"worlds":worlds,"images":images,"sounds":sounds,
+        "presentations":presentations,"ui_assets":ui_assets,"effects_uri":effects_uri,"camo_uri":camo_uri}))
 }
 
 #[cfg(test)]
@@ -138,7 +198,7 @@ mod tests {
         let materials = crate::material::read_used(&catalog,&used).unwrap();
         let gaps = crate::material::unimplemented(&materials);
         println!("Installed material dispatch: {} unimplemented families",gaps.len());
-        if let Some(gap) = gaps.first() { println!("Next required material conversion: {gap}"); }
+        for gap in &gaps { println!("Required material conversion: {gap}"); }
         let mut mixed_frames = 0;
         for (_,zone,root) in catalog.definitions(17) {
             for surface in crate::geometry::world(&catalog,zone,root).unwrap() {

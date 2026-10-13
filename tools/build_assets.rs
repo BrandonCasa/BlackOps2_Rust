@@ -6,6 +6,8 @@ pub mod core;
 mod convert;
 #[path = "asset_builder/atmosphere.rs"]
 mod atmosphere;
+#[path = "asset_builder/animation.rs"]
+mod animation;
 #[path = "asset_builder/bake.rs"]
 mod bake;
 #[path = "asset_builder/collision.rs"]
@@ -59,6 +61,10 @@ fn dependency(pack: &pack::Pack, directory: &Path, uri: &str) -> Result<()> {
 
 fn check(path: &Path) -> Result<()> {
     let pack = pack::Pack::read(path)?;
+    validate_pack(&pack)
+}
+
+fn validate_pack(pack: &pack::Pack) -> Result<()> {
     let _: Value = serde_json::from_slice(pack.get("game.json")?)?;
     let art: Value = serde_json::from_slice(pack.get("prepared/runtime.json")?)?;
     if art["schema_version"] != 1 {
@@ -68,9 +74,24 @@ fn check(path: &Path) -> Result<()> {
         match data {
             Value::Object(fields) => {
                 for (key, value) in fields {
-                    if (key.ends_with("_uri") || matches!(key.as_str(), "uri" | "scene" | "texture"))
+                    if (key.ends_with("_uri") || matches!(key.as_str(), "uri" | "scene" | "texture" | "path"))
                         && let Some(uri) = value.as_str().filter(|uri| !uri.is_empty())
                     { dependency(pack, directory, uri)?; }
+                    if key == "uris" {
+                        for uri in value.as_object().into_iter().flat_map(|uris| uris.values()) {
+                            dependency(pack, directory, uri.as_str().ok_or("Runtime image URI is not a string")?)?;
+                        }
+                    }
+                    if key == "frames" {
+                        for uri in value.as_array().into_iter().flatten().filter_map(Value::as_str) {
+                            dependency(pack, directory, uri)?;
+                        }
+                    }
+                    if key == "models" {
+                        for uri in value.as_object().into_iter().flat_map(|models| models.values()).filter_map(Value::as_str) {
+                            dependency(pack, directory, uri)?;
+                        }
+                    }
                     links(pack, directory, value)?;
                 }
             }
@@ -86,15 +107,15 @@ fn check(path: &Path) -> Result<()> {
             Some("gltf") => {
                 let doc: Value = serde_json::from_slice(bytes)?;
                 for section in ["buffers", "images"] {
-                    links(&pack, path.parent().unwrap_or(Path::new("")), &doc[section])?;
+                    links(pack, path.parent().unwrap_or(Path::new("")), &doc[section])?;
                 }
                 for material in doc["materials"].as_array().into_iter().flatten() {
-                    links(&pack, Path::new(""), &material["extras"])?;
+                    links(pack, Path::new(""), &material["extras"])?;
                 }
             }
             Some("json" | "nativefx") => {
                 let doc: Value = serde_json::from_slice(bytes)?;
-                links(&pack, Path::new(""), &doc)?;
+                links(pack, Path::new(""), &doc)?;
             }
             _ => (),
         }
@@ -114,10 +135,10 @@ fn execute() -> Result<()> {
             if output.file_name().and_then(|name| name.to_str()) != Some("origins.pack") {
                 return Err("The runtime consumer expects origins.pack beside origins.exe".into());
             }
-            source::build(&source::installation()?, None)
+            source::build(&source::installation()?, &output, None)
         }
         Some("material" | "model") if args.len() == 4 && args[2] == "--output" =>
-            source::build(&source::installation()?, Some((&args[1], Path::new(&args[3])))),
+            source::build(&source::installation()?, Path::new(&args[3]), Some(&args[1])),
         Some("check") if args.len() == 2 => check(Path::new(&args[1])),
         _ => Err("Usage: build_assets build --output PATH/origins.pack | build_assets check PATH/origins.pack | build_assets material NAME --output PATH.pack | build_assets model NAME --output PATH.pack".into()),
     }

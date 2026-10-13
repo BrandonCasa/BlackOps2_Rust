@@ -1,28 +1,28 @@
 use bevy::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 #[derive(Resource)]
 pub(crate) struct PreparedArt {
     data: Value,
     indices: HashMap<String, HashMap<String, Vec<usize>>>,
-    pack: crate::pack::Pack,
 }
 
 impl PreparedArt {
     pub(crate) fn load(pack: &crate::pack::Pack) -> Result<Self, String> {
-        let bytes = pack.get("prepared/runtime.json").map_err(|error| error.to_string())?;
+        let bytes = pack
+            .get("prepared/runtime.json")
+            .map_err(|error| error.to_string())?;
         let data: Value = serde_json::from_slice(bytes)
             .map_err(|error| format!("Invalid runtime art data: {error}"))?;
         if data["schema_version"] != 1 {
             return Err("Unsupported prepared art schema".into());
         }
         let mut indices = HashMap::new();
-        for category in ["models", "images", "sounds", "presentations"] {
+        for category in ["models", "images", "sounds", "presentations", "ui_assets"] {
             let mut names: HashMap<String, Vec<usize>> = HashMap::new();
             for (index, row) in data[category].as_array().into_iter().flatten().enumerate() {
-                let key = if category == "presentations" {
+                let key = if matches!(category, "presentations" | "ui_assets") {
                     "id"
                 } else {
                     "name"
@@ -33,11 +33,7 @@ impl PreparedArt {
             }
             indices.insert(category.to_owned(), names);
         }
-        Ok(Self {
-            data,
-            indices,
-            pack: pack.clone(),
-        })
+        Ok(Self { data, indices })
     }
 
     fn priority(value: &Value) -> u8 {
@@ -78,24 +74,44 @@ impl PreparedArt {
 
     fn model(&self, scene: &str) -> Option<&Value> {
         let path = scene.split('#').next()?;
-        let stem = Path::new(path).file_stem()?.to_str()?;
-        let name = stem
-            .rsplit_once("_lod")
-            .filter(|(_, level)| level.parse::<usize>().is_ok())
-            .map_or(stem, |(name, _)| name);
-        let source_zone = path.strip_prefix("library/models/zone/").and_then(|path| {
-            let mut parts = path.split('/');
-            Some(format!("-{}-{}", parts.next()?, parts.next()?))
-        });
-        self.entries("models", name)
-            .filter(|value| {
-                source_zone.as_ref().is_none_or(|zone| {
-                    value["zone"]
-                        .as_str()
-                        .is_some_and(|value| value.ends_with(zone))
-                })
+        self.data["models"]
+            .as_array()?
+            .iter()
+            .filter(|model| {
+                model["uri"].as_str() == Some(path)
+                    || model["lods"].as_array().is_some_and(|lods| {
+                        lods.iter().any(|lod| lod["uri"].as_str() == Some(path))
+                    })
             })
             .min_by_key(|value| Self::priority(value))
+    }
+
+    fn ui_image(&self, id: &str, path: &str) -> Result<&str, String> {
+        if let Some(binding) = self.entry("ui_assets", id) {
+            let name = binding["name"]
+                .as_str()
+                .ok_or_else(|| format!("UI image has no native identity: {id}"))?;
+            let uri = binding["uri"]
+                .as_str()
+                .ok_or_else(|| format!("UI image has no prepared URI: {id}"))?;
+            return self
+                .entries("images", name)
+                .filter(|image| {
+                    binding["zone"]
+                        .as_str()
+                        .is_none_or(|zone| image["zone"].as_str() == Some(zone))
+                })
+                .find_map(|image| image["uris"]["srgb"].as_str().filter(|path| *path == uri))
+                .ok_or_else(|| {
+                    format!("Native UI image binding is not prepared: {id} ({name}, {uri})")
+                });
+        }
+        self.data["images"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|image| image["uris"]["srgb"].as_str().filter(|uri| *uri == path))
+            .ok_or_else(|| format!("UI image has no authoritative prepared binding: {id} ({path})"))
     }
 
     pub(crate) fn world(&self) -> Option<&Value> {
@@ -139,76 +155,28 @@ impl PreparedArt {
                 .and_then(|value| usize::try_from(value).ok())
                 .ok_or_else(|| format!("Prepared world is missing {key}"))?;
         }
-        let mut config: Value = serde_json::from_slice(
-            self.pack.get("game.json").map_err(|error| error.to_string())?,
-        ).map_err(|error| format!("Invalid gameplay art references: {error}"))?;
-        if let Some(content) = config["content"].as_object_mut() {
-            content.remove("presentations");
-            content.remove("animations");
-        }
-        fn references(value: &Value, required: &mut HashSet<String>) {
-            match value {
-                Value::String(value)
-                    if value.starts_with("source.model.") || value.starts_with("actor.weapon_") =>
-                {
-                    required.insert(value.clone());
-                }
-                Value::Array(values) => {
-                    for value in values {
-                        references(value, required);
-                    }
-                }
-                Value::Object(values) => {
-                    for value in values.values() {
-                        references(value, required);
-                    }
-                }
-                _ => {}
-            }
-        }
-        let mut required = HashSet::new();
-        references(&config, &mut required);
-        game.content.presentations.retain(|presentation| {
-            !presentation.id.0.starts_with("source.animation.")
-                && (!presentation.id.0.starts_with("source.model.")
-                    || required.contains(&presentation.id.0))
-                && (!presentation
-                    .id
-                    .0
-                    .strip_prefix("actor.weapon_")
-                    .is_some_and(|suffix| {
-                        suffix.len() == 24 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
-                    })
-                    || required.contains(&presentation.id.0))
-        });
-        let retained: HashSet<_> = game
-            .content
-            .presentations
-            .iter()
-            .map(|presentation| presentation.id.0.clone())
-            .collect();
-        game.content
-            .animations
-            .retain(|animation| retained.contains(&animation.skeleton.0));
         let mut skeletons = HashMap::new();
         for presentation in &mut game.content.presentations {
             let Some(scene) = &mut presentation.scene else {
                 continue;
             };
-            let model = self
-                .presentation(&presentation.id.0)
-                .or_else(|| self.model(scene))
-                .ok_or_else(|| {
-                    format!(
-                        "Native presentation is not prepared: {} ({scene})",
-                        presentation.id.0
-                    )
-                })?;
-            skeletons.insert(presentation.id.0.clone(), model);
-            *scene = format!("{}#Scene0", uri(model, "uri")?);
+            let binding = self.presentation(&presentation.id.0);
+            let model = binding.or_else(|| self.model(scene)).ok_or_else(|| {
+                format!(
+                    "Native presentation is not prepared: {} ({scene})",
+                    presentation.id.0
+                )
+            })?;
+            let path = if binding.is_some() {
+                uri(model, "uri")?
+            } else {
+                scene.split('#').next().unwrap_or_default().to_owned()
+            };
+            skeletons.insert(presentation.id.0.clone(), (model, path.clone()));
+            *scene = format!("{path}#Scene0");
         }
         for animation in &mut game.content.animations {
-            let model = skeletons.get(&animation.skeleton.0).ok_or_else(|| {
+            let (model, path) = skeletons.get(&animation.skeleton.0).ok_or_else(|| {
                 format!(
                     "Native animation skeleton is missing: {}",
                     animation.skeleton.0
@@ -220,9 +188,13 @@ impl PreparedArt {
                     animation.skeleton.0
                 )
             })?;
-            let mut matches = clips
-                .iter()
-                .filter(|(name, _)| animation.id.0.to_ascii_lowercase().ends_with(&format!(".{}", name.to_ascii_lowercase())));
+            let mut matches = clips.iter().filter(|(name, _)| {
+                animation
+                    .id
+                    .0
+                    .to_ascii_lowercase()
+                    .ends_with(&format!(".{}", name.to_ascii_lowercase()))
+            });
             let (name, index) = matches
                 .next()
                 .ok_or_else(|| format!("Native animation is not bound: {}", animation.id.0))?;
@@ -235,7 +207,7 @@ impl PreparedArt {
             let index = index
                 .as_u64()
                 .ok_or_else(|| format!("Invalid native animation index: {name}"))?;
-            animation.path = format!("{}#Animation{index}", uri(model, "uri")?);
+            animation.path = format!("{path}#Animation{index}");
         }
         let mut present: HashSet<_> = game
             .content
@@ -271,14 +243,7 @@ impl PreparedArt {
                 });
         }
         for image in &mut game.content.ui_assets {
-            let name = Path::new(&image.path)
-                .file_stem()
-                .and_then(|name| name.to_str())
-                .ok_or_else(|| format!("UI image has no native identity: {}", image.id.0))?;
-            image.path = self
-                .image(name, "srgb")
-                .ok_or_else(|| format!("Native UI image is not prepared: {name}"))?
-                .to_owned();
+            image.path = self.ui_image(&image.id.0, &image.path)?.to_owned();
         }
         let semantic_paths: HashSet<_> = game
             .content
@@ -317,6 +282,14 @@ impl PreparedArt {
         }
         for sound in &mut game.content.sounds {
             if !sound.id.0.starts_with("sound.native.") {
+                if self.data["sounds"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|binding| binding["uri"].as_str() == Some(sound.path.as_str()))
+                {
+                    continue;
+                }
                 sound.path = sound_paths
                     .get(&sound.path)
                     .ok_or_else(|| format!("Sound has no native alias payload: {}", sound.id.0))?

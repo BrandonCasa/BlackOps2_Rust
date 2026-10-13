@@ -13,6 +13,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn constant_rotation_avoids_single_key_cubic_loader_path() {
+        for frames in [0,10] {
+            let mut scene=Scene::new("native");
+            let owner=scene.node(json!({"name":"native"}));
+            let identity=[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.];
+            let joints=[crate::geometry::Joint {name:Some("root".into()),parent:None,bind:identity,
+                bind_local:identity,inverse_bind:identity,default_rotation:[0.,0.,0.,1.],default_translation:[0.;3]}];
+            scene.skin(owner,&joints).unwrap();
+            let clip=crate::animation::Clip {name:"constant".into(),frame_rate:30.,frames,source_flags:[0;8],notifies:Vec::new(),
+                bones:vec![crate::animation::Bone {name:Some("root".into()),rotation:Some(crate::animation::Track {
+                    frames:vec![0],values:vec![[0.,0.,0.,0.99997]]}),translation:None}]};
+            scene.animation(owner,&joints,&clip).unwrap();
+            let sampler=&scene.data["animations"][0]["samplers"][0];
+            let input=sampler["input"].as_u64().unwrap() as usize;
+            let output=sampler["output"].as_u64().unwrap() as usize;
+            assert_eq!(sampler["interpolation"],if frames == 0 {"LINEAR"} else {"CUBICSPLINE"});
+            assert_eq!(scene.data["accessors"][input]["count"],if frames == 0 {1} else {2});
+            assert_eq!(scene.data["accessors"][output]["count"],if frames == 0 {1} else {6});
+            let mut jumpcut=clip;
+            jumpcut.notifies.push((Some("jumpcut".into()),0.5));
+            assert!(scene.animation(owner,&joints,&jumpcut).is_err());
+            jumpcut.notifies.clear();
+            jumpcut.source_flags[0]=1;
+            assert!(scene.animation(owner,&joints,&jumpcut).is_err());
+        }
+    }
+
+    #[test]
     fn joint_trs_preserves_quarter_turn_and_half_turns() {
         let matrix = [0.,0.,-1.,0.,0.,1.,0.,0.,1.,0.,0.,0.,3.,-2.,5.,1.];
         let (node,_) = joint_transform(matrix).unwrap();
@@ -218,6 +246,83 @@ impl Scene {
         skins.push(json!({"joints":nodes,"inverseBindMatrices":accessor}));
         self.data["nodes"][owner]["skin"]=json!(index);
         Ok(())
+    }
+
+    pub fn animation(&mut self, owner: usize, joints: &[crate::geometry::Joint], clip: &crate::animation::Clip) -> Result<usize> {
+        if clip.source_flags.iter().any(|&flag| flag != 0) {
+            return Err(format!("Animation {} requires native source-mode flag interpretation before standalone export: {:?}",clip.name,clip.source_flags).into());
+        }
+        if clip.notifies.iter().any(|(name,_)| name.as_deref().is_some_and(|name| name.eq_ignore_ascii_case("jumpcut"))) {
+            return Err("Native animation jumpcut intervals require source-faithful stepped sampling".into());
+        }
+        let skin = self.data["nodes"][owner]["skin"].as_u64().ok_or("Animation owner has no native skin")? as usize;
+        let nodes = self.data["skins"][skin]["joints"].as_array().ok_or("Animation owner skin has no joints")?
+            .iter().map(|value| value.as_u64().map(|value| value as usize).ok_or("Invalid animation joint node"))
+            .collect::<std::result::Result<Vec<_>,_>>()?;
+        if nodes.len() != joints.len() { return Err("Animation skin and model joint counts differ".into()); }
+        let mut names=std::collections::BTreeSet::new();
+        for name in joints.iter().filter_map(|joint| joint.name.as_ref()) {
+            if !names.insert(name.to_ascii_lowercase()) { return Err("Native animation binding requires the DObj duplicate-bone consumer for repeated joint names".into()); }
+        }
+        let mut channels = Vec::new();
+        let mut samplers = Vec::new();
+        let mut matched = 0;
+        for (joint,&node) in joints.iter().zip(&nodes) {
+            let name = joint.name.as_deref();
+            let mut candidates = clip.bones.iter().filter(|bone| match (name,bone.name.as_deref()) {
+                (Some(a),Some(b)) => a.eq_ignore_ascii_case(b), _ => false,
+            });
+            let bone = candidates.next();
+            if candidates.next().is_some() { return Err(format!("Animation {} has ambiguous native bone name {name:?}",clip.name).into()); }
+            if bone.is_some() { matched+=1; }
+            for rotation in [true,false] {
+                let mut frames = vec![0,clip.frames];
+                frames.dedup();
+                let mut rotations = Vec::new();
+                let mut translations = Vec::new();
+                if rotation {
+                    if let Some(track) = bone.and_then(|bone| bone.rotation.as_ref()) {
+                        frames=track.frames.clone(); rotations=track.values.clone();
+                    } else { rotations.resize(frames.len(),joint.default_rotation); }
+                } else {
+                    if let Some(track) = bone.and_then(|bone| bone.translation.as_ref()) {
+                        frames=track.frames.clone();
+                        translations=track.values.iter().map(|value| std::array::from_fn(|axis| value[axis]+joint.default_translation[axis])).collect();
+                    } else { translations.resize(frames.len(),joint.default_translation); }
+                }
+                if frames.is_empty() { return Err("Native animation track has no keys".into()); }
+                if frames.len() != if rotation { rotations.len() } else { translations.len() } {
+                    return Err("Native animation key and value counts differ".into());
+                }
+                if frames.len() == 1 && frames[0] == 0 && clip.frames > 0 {
+                    frames.push(clip.frames);
+                    if rotation { rotations.push(rotations[0]); } else { translations.push(translations[0]); }
+                }
+                let time_bytes: Vec<_> = frames.iter().flat_map(|&frame| (frame as f32/clip.frame_rate).to_le_bytes()).collect();
+                let input=self.accessor(&time_bytes,frames.len(),5126,"SCALAR",0);
+                self.data["accessors"][input]["min"]=json!([frames[0] as f32/clip.frame_rate]);
+                self.data["accessors"][input]["max"]=json!([frames[frames.len()-1] as f32/clip.frame_rate]);
+                let (values,shape,count,interpolation) = if rotation {
+                    let (samples,interpolation)=crate::animation::rotation_samples(&frames,&rotations,clip.frame_rate)?;
+                    (samples.iter().flatten().flat_map(|value| value.to_le_bytes()).collect::<Vec<_>>(),"VEC4",samples.len(),interpolation)
+                } else {
+                    (translations.iter().flatten().flat_map(|value| value.to_le_bytes()).collect::<Vec<_>>(),"VEC3",translations.len(),"LINEAR")
+                };
+                let output=self.accessor(&values,count,5126,shape,0);
+                channels.push(json!({"sampler":samplers.len(),"target":{"node":node,"path":if rotation {"rotation"} else {"translation"}}}));
+                samplers.push(json!({"input":input,"output":output,"interpolation":interpolation}));
+            }
+        }
+        if matched == 0 { return Err(format!("Animation {} has no named bones on its explicitly selected model",clip.name).into()); }
+        let animations=self.data.as_object_mut().unwrap().entry("animations").or_insert_with(|| json!([])).as_array_mut().unwrap();
+        let index=animations.len();
+        animations.push(json!({"name":clip.name,"channels":channels,"samplers":samplers,
+            "extras":{"native_frame_rate":clip.frame_rate,"native_frames":clip.frames,"native_source_flags":clip.source_flags,
+                "native_notifies":clip.notifies.iter().map(|(name,time)| json!({"name":name,"fraction":time,"time":time*clip.frames as f32/clip.frame_rate})).collect::<Vec<_>>(),
+                "native_bones_outside_selected_model":clip.bones.iter().filter(|bone| bone.name.as_ref().is_none_or(|name| !names.contains(&name.to_ascii_lowercase()))).map(|bone| &bone.name).collect::<Vec<_>>(),
+                "native_rotation_interpolation":"component-linear quaternion interpolation preserved by normalized cubic output",
+                "native_pose_path":"standalone local tracks plus authored local defaults; no DObj attachments or additive blending"}}));
+        Ok(index)
     }
 
     pub fn collision(&mut self, name: &str, positions: &[[f32; 3]], flags: u32) -> Result<()> {
