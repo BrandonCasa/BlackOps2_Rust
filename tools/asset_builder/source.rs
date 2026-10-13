@@ -139,6 +139,18 @@ mod tests {
         let gaps = crate::material::unimplemented(&materials);
         println!("Installed material dispatch: {} unimplemented families",gaps.len());
         if let Some(gap) = gaps.first() { println!("Next required material conversion: {gap}"); }
+        let mut mixed_frames = 0;
+        for (_,zone,root) in catalog.definitions(17) {
+            for surface in crate::geometry::world(&catalog,zone,root).unwrap() {
+                if !crate::bake::supported(materials[&surface.material.to_ascii_lowercase()]["technique_set"].as_str().unwrap()) { continue; }
+                for triangle in surface.indices.chunks_exact(3) {
+                    let signs: Vec<_> = triangle.iter().map(|&index| surface.tangents[index as usize][3]).collect();
+                    assert!(signs.iter().all(|&sign| matches!(sign,-1. | 1.)),"Invalid source handedness in {}",surface.name);
+                    if signs[1] != signs[0] || signs[2] != signs[0] { mixed_frames+=1; }
+                }
+            }
+        }
+        println!("Validated source handedness for implemented layered materials: {mixed_frames} mixed-frame triangles");
         let mut bones = 0;
         let mut models = 0;
         for (name,zone,root) in catalog.definitions(5) {

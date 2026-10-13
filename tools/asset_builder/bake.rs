@@ -352,10 +352,10 @@ impl NormalFrame {
         let normals = std::array::from_fn(|i| surface.normals[first+i].map(f64::from));
         let tangents = std::array::from_fn(|i| std::array::from_fn(|axis| surface.tangents[first+i][axis] as f64));
         let sign = surface.tangents[first][3] as f64;
-        if !matches!(sign, -1. | 1.) || (1..3).any(|i| surface.tangents[first+i][3] as f64 != sign) {
-            return Err("Layered triangle changes tangent handedness".into());
+        if (0..3).any(|i| !matches!(surface.tangents[first+i][3], -1. | 1.)) {
+            return Err(format!("Layered surface {} triangle {} has invalid tangent handedness",surface.name,first/3).into());
         }
-        let bitangents = std::array::from_fn(|i| cross(normals[i],tangents[i]).map(|v| v*sign));
+        let bitangents = std::array::from_fn(|i| cross(normals[i],tangents[i]).map(|v| v*surface.tangents[first+i][3] as f64));
         Ok(Self {normals,tangents,bitangents,sign})
     }
 
@@ -515,6 +515,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
                 if varying_frame {
                     key.extend(surface.normals[first+i].map(f32::to_bits));
                     key.extend(surface.tangents[first+i].map(f32::to_bits));
+                    key.push(surface.tangents[first][3].to_bits());
                 }
                 key
             });
@@ -644,7 +645,8 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
             }
             surface.uv[first+order[index]]=[((chart.x+GUTTER) as f64+point[0]) as f32/width as f32,((chart.y+GUTTER) as f64+point[1]) as f32/height as f32];
         }
-        for index in first..first+3 { surface.colors[index]=[255;4]; }
+        let sign = surface.tangents[first][3];
+        for index in first..first+3 { surface.colors[index]=[255;4]; surface.tangents[index][3]=sign; }
         }
         }
         }
@@ -654,7 +656,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
         "varying_frame_triangles":basis_triangles,"converted_texel_samples":basis_texels,
         "maximum_precompression_solari_error_degrees":basis_errors[0],"maximum_precompression_raster_error_degrees":basis_errors[1]});
     if basis_triangles > 0 {
-        material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Native interpolated bitangent converted into Solari's reconstructed frame per texel; raster frame differs on varying-frame triangles, with precompression sampled angular error recorded in bake.normal_basis"));
+        material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Native per-vertex bitangents converted into Solari's reconstructed frame per texel; output handedness is constant per triangle. Raster frame differs on varying-frame triangles, with precompression sampled angular error recorded in bake.normal_basis"));
         println!("Converted {basis_triangles} varying-frame triangles ({basis_texels} texel samples); maximum precompression normal error Solari {:.9} degrees, raster {:.6} degrees",basis_errors[0],basis_errors[1]);
     }
     material["name"]=json!(identity);
@@ -801,6 +803,18 @@ mod tests {
         }
         let singular = NormalFrame {normals:[[0.,0.,1.];3],tangents:[[0.,0.,1.];3],bitangents:[[0.;3];3],sign:1.};
         assert!(singular.convert([1.,0.,0.],[0.,0.,1.,1.]).is_err());
+    }
+
+    #[test]
+    fn mixed_handedness_is_baked_into_a_consistent_output_frame() {
+        let frame = NormalFrame {normals:[[0.,0.,1.];3],tangents:[[1.,0.,0.];3],
+            bitangents:[[0.,1.,0.],[0.,-1.,0.],[0.,1.,0.]],sign:1.};
+        let (middle,errors) = frame.convert([0.5,0.5,0.],[0.,0.8,0.6,1.]).unwrap();
+        assert_eq!(middle,[0.,0.,1.,1.]);
+        assert_eq!(errors,[0.;2]);
+        let (second,errors) = frame.convert([0.,1.,0.],[0.,0.8,0.6,1.]).unwrap();
+        assert!((second[1]+0.8).abs() < 0.000001 && (second[2]-0.6).abs() < 0.000001);
+        assert!(errors.into_iter().all(|error| error < 0.00001));
     }
 
     #[test]
