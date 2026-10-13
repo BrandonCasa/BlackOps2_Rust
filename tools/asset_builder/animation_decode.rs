@@ -137,7 +137,10 @@ fn decode(catalog: &Catalog<'_>, name: &str, zone: usize, root: Address) -> Resu
         }
     }
     for cursor in [bytes,shorts,floats,random_shorts,random_bytes,fine] {cursor.finish()?;}
-    let source_flags=streams.read(root.add(16)?,8)?.try_into()?;
+    let source_flags=streams.read(root.add(16)?,4)?.try_into()?;
+    let streamed_file_size=streams.u32(root.add(20)?)?;
+    let loop_entry_time=f32::from_bits(streams.u32(root.add(60)?)?);
+    if !loop_entry_time.is_finite() { return Err("Native animation loop-entry time is non-finite".into()); }
     let notify_count=streams.u8(root.add(34)?)? as usize;
     let mut notifies=Vec::with_capacity(notify_count);
     if notify_count > 0 {
@@ -149,7 +152,7 @@ fn decode(catalog: &Catalog<'_>, name: &str, zone: usize, root: Address) -> Resu
             notifies.push((script_string(streams,streams.u16(entry)?)?,time));
         }
     }
-    Ok(DecodedClip {clip:Clip {name:name.into(),frame_rate,frames,source_flags,notifies,bones},has_root_delta:streams.u32(root.add(100)?)? != 0})
+    Ok(DecodedClip {clip:Clip {name:name.into(),frame_rate,frames,source_flags,streamed_file_size,loop_entry_time,notifies,bones},has_root_delta:streams.u32(root.add(100)?)? != 0})
 }
 
 pub fn read(catalog: &Catalog<'_>) -> Result<Vec<DecodedClip>> {

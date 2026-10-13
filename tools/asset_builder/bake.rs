@@ -304,7 +304,8 @@ impl Recipe {
             let layer = inputs[4].sample(uv1);
             let k = f32::from_bits(0x3e4ccccd);
             let rgb = std::array::from_fn(|c| (k+weight*(layer[c]-k)).powi(2));
-            let gloss = weight*layer[3];
+            let base_gloss = if self.base_alpha_response { c0[3] } else { 0. };
+            let gloss = base_gloss+weight*(layer[3]-base_gloss);
             let (base,metallic,roughness) = crate::material::pbr_pixel([color[0],color[1],color[2]],rgb,gloss);
             color = [base[0],base[1],base[2],1.];
             response = [1.,roughness,metallic,1.];
@@ -450,12 +451,14 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
 }
 
 fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<Recipe> {
-    let base_alpha_response = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
+    let base_alpha_reveal = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1s1v1";
+    let base_alpha_response = base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
     let reveal_decal = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1_m2c2";
     let decal = reveal_decal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1_m2c2";
-    let layer_specular = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
+    let layer_specular = base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
     let reveal = reveal_decal || layer_specular || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1";
-    let (vertex, pixel) = if base_alpha_response { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_cd368409.hlsl") }
+    let (vertex, pixel) = if base_alpha_reveal { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_7f753776.hlsl") }
+        else if base_alpha_response { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_cd368409.hlsl") }
         else if reveal_decal { ("pimp_shader_layer_lmap_b0b22809.hlsl", "pimp_shader_layer_lmap_5c9a2e1f.hlsl") }
         else if decal { ("pimp_shader_layer_lmap_b0b22809.hlsl", "pimp_shader_layer_lmap_89d59c60.hlsl") }
         else if layer_specular { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_4a20c8d9.hlsl") }
@@ -467,13 +470,23 @@ fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<R
     { return Err("Layered material selected programs differ from recovered source".into()); }
     let state = native["state_entries"][4].as_u64().ok_or("Layered lit state is missing")? as usize;
     if native["state_bits"][state] != json!([403867666_u32,13]) { return Err("Layered material has unreviewed render states".into()); }
+    if base_alpha_reveal {
+        let sun = native["techniques"].as_array().unwrap().iter().find(|value| value["index"] == 6).ok_or("Base-alpha reveal sun technique is missing")?;
+        let passes = sun["passes"].as_array().ok_or("Base-alpha reveal sun passes are missing")?;
+        let state = native["state_entries"][6].as_u64().ok_or("Base-alpha reveal sun state is missing")? as usize;
+        if passes.len() != 1 || passes[0]["vertex_shader"] != "pimp_shader_layer_lmap_420be797.hlsl"
+            || passes[0]["pixel_shader"] != "pimp_shader_layer_lmap_d5a3e40.hlsl"
+            || native["state_bits"][state] != json!([403867666_u32,13]) {
+            return Err("Base-alpha reveal sun programs or render states differ from recovered source".into());
+        }
+    }
     let reveal_parms = if reveal {
         if !passes[0]["arguments"].as_array().unwrap().iter().any(|arg| arg["type"] == 6 && arg["value"] == 2294217777_u32 && arg["buffer"] == 1 && arg["location"] == 944 && arg["size"] == 16) {
             return Err("Layered reveal parameter shader binding differs from recovered source".into());
         }
         let constant = native["constants"].as_array().unwrap().iter().find(|value| value["hash"] == 2294217777_u32).ok_or("Layered reveal parameters are missing")?;
         let values: [f32; 4] = serde_json::from_value(constant["literal"].clone())?;
-        if !values.iter().all(|value| value.is_finite()) || values[0] <= 0. || values[1] <= 0. { return Err("Layered reveal parameters are outside the recovered domain".into()); }
+        if !values.iter().all(|value| value.is_finite()) || values[0] <= 0. || values[1] < 0. || (!base_alpha_reveal && values[1] == 0.) { return Err("Layered reveal parameters are outside the recovered domain".into()); }
         values
     } else { [0.;4] };
     let expected = [(0,0),(1,2),(2,5),(3,1),(4,7),(5,6),(6,8),(8,10)];
@@ -696,7 +709,8 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
 
 fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[f32;4]>;4], sampler: u8, charts: usize, pack: &mut Pack) -> Result<Value> {
     let base_alpha_response = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
-    let layer_specular = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
+    let base_alpha_reveal = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1s1v1";
+    let layer_specular = base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
     let [albedo,normals,response,specular] = outputs;
     let mut channels = Vec::new();
     let mut outputs = vec![("color",albedo),("normal",normals)];
@@ -731,11 +745,14 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
     if base_alpha_response {
         material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Base color alpha retained in response alpha and fitted from native exponent exp2(13*a) to GGX perceptual roughness (2/(exp2(13*a)+2))^(1/4). Dielectric F0=0.04 uses the native sun-lobe floor; this cannot reproduce the native environment Fresnel/mip fit, direct-lobe geometry/amplitude or inverse-SH compensation exactly. View-dependent lighting is not baked into albedo or emission"));
     }
+    if base_alpha_reveal {
+        material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Source gloss mixes base color alpha and layer specular alpha with the authored reveal weight. Mixed linear RGB specular and encoded gloss retained in native-specular. The shared metallic/GGX fit cannot exactly reproduce the native probe Fresnel/mip response or direct-sun lobe geometry/amplitude; view-dependent lighting is not baked into albedo or emission"));
+    }
     Ok(material)
 }
 
 pub fn supported(family: &str) -> bool {
-    matches!(family,"lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1")
+    matches!(family,"lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1")
 }
 
 pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &BTreeMap<String, texture::Image>, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<BTreeMap<String, Vec<Surface>>> {
@@ -843,6 +860,25 @@ mod tests {
         let (second,errors) = frame.convert([0.,1.,0.],[0.,0.8,0.6,1.]).unwrap();
         assert!((second[1]+0.8).abs() < 0.000001 && (second[2]-0.6).abs() < 0.000001);
         assert!(errors.into_iter().all(|error| error < 0.00001));
+    }
+
+    #[test]
+    fn base_alpha_reveal_preserves_mixed_native_gloss_and_zero_exponent() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
+            input([0.8,0.6,0.2,0.5]),input([0.5,0.5,1.,1.]),input([0.6,0.4,0.2,0.25])],
+            decal:false,reveal:true,layer_specular:true,base_alpha_response:true,parms:[0.5,0.5,0.,0.]};
+        for (green,expected) in [(0.,[0.04,0.04,0.04,0.75]),(0.5,[0.16,0.09,0.04,0.5]),(1.,[0.36,0.16,0.04,0.25])] {
+            let actual = recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
+            for (value,expected) in actual[3].iter().zip(expected) { assert!((value-expected).abs()<0.000001); }
+            assert_eq!(actual[0][3],1.);
+        }
+        recipe.parms=[1.,0.,0.,0.];
+        let reference=recipe.sample([0.;2],[0.;2],[0.;2],0.,1.,[1.,0.,0.,1.]).unwrap();
+        for green in [0.,0.5,1.] {
+            assert_eq!(recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap(),reference);
+        }
+        assert!((reference[3][3]-0.5).abs()<0.000001);
     }
 
     #[test]

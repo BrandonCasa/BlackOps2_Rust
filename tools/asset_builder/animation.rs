@@ -15,7 +15,9 @@ pub struct Clip {
     pub name: String,
     pub frame_rate: f32,
     pub frames: u16,
-    pub source_flags: [u8;8],
+    pub source_flags: [u8;4],
+    pub streamed_file_size: u32,
+    pub loop_entry_time: f32,
     pub notifies: Vec<(Option<String>,f32)>,
     pub bones: Vec<Bone>,
 }

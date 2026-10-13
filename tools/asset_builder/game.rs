@@ -28,7 +28,46 @@ fn variable(catalog: &Catalog<'_>, name: &str, column: usize, fallback: Value) -
     Ok(fallback)
 }
 
-pub fn read(catalog: &Catalog<'_>) -> Result<Value> {
+pub fn read(catalog: &Catalog<'_>, entities: &[crate::entities::Entity]) -> Result<(Value, Vec<String>)> {
+    let mut native_gaps = Vec::new();
+    let mut native_triggers = Vec::new();
+    let mut radius_count = 0;
+    for (index, entity) in entities.iter().enumerate() {
+        let Some(class) = entity.get("classname") else { continue; };
+        if entity.get("model").is_some_and(|model| model.starts_with('*')) { continue; }
+        if class != "trigger_radius" {
+            if class.starts_with("trigger_") || class == "info_volume" {
+                native_gaps.push(format!("environment native non-brush trigger geometry for trigger.native.{index} ({class})"));
+            }
+            continue;
+        }
+        radius_count += 1;
+        let id = format!("trigger.native.{index}");
+        let origin = crate::entities::vector(entity,"origin").map_err(|error| format!("Native radius trigger {id}: {error}"))?;
+        let scalar = |key: &str| -> Result<Option<f32>> {
+            let Some(text) = entity.get(key) else { return Ok(None); };
+            let value: f32 = text.parse().map_err(|error| format!("Native radius trigger {id} has invalid {key} {text:?}: {error}"))?;
+            Ok((value.is_finite() && value > 0.).then_some(value*0.0254))
+        };
+        let radius = scalar("radius")?;
+        let height = scalar("height")?;
+        if let (Some([x,y,z]),Some(radius),Some(height)) = (origin,radius,height) {
+            if crate::entities::vector(entity,"angles")?.is_some_and(|angles| angles[0] != 0. || angles[2] != 0.) {
+                native_gaps.push(format!("environment native radius trigger orientation for {id} has source pitch/roll requiring primitive-link verification"));
+            }
+            native_triggers.push(json!({"id":id,"position":[x*0.0254,z*0.0254,-y*0.0254],"source":entity,
+                "shape":{"kind":"cylinder","radius":radius,"height":height}}));
+            let owner = if entity.get("targetname").is_some_and(|name| name == "player_slow_area") { "movement" }
+                else if entity.get("script_noteworthy").is_some_and(|name| name == "player_volume") { "boundary" }
+                else { "unresolved script" };
+            native_gaps.push(format!("environment {owner} ownership/shootability for {id} (native radius trigger flags require source mapping)"));
+            if owner == "movement" { native_gaps.push(format!("environment mud cylinder for {id} requires runtime cylinder-volume support")); }
+        } else {
+            native_gaps.push(format!("environment native trigger_radius {id} requires explicit source origin and positive finite radius/height; fields: {entity:?}"));
+        }
+    }
+    println!("Converted {} of {radius_count} native non-brush radius triggers; {} precise native-trigger gaps remain",native_triggers.len(),native_gaps.len());
+    for gap in &native_gaps { println!("Pending native trigger conversion: {gap}"); }
     let mut localized = Vec::new();
     for (name, zone, root) in catalog.definitions(24) {
         let streams = &catalog.zones[zone].1.streams;
@@ -59,12 +98,14 @@ pub fn read(catalog: &Catalog<'_>) -> Result<Value> {
     let solo = json!({"perk":"perk.quick_revive","seconds":10.,"bleedout_seconds":45.,"bleedout_poll_seconds":1.,
         "maximum_purchases":3,"downed_weapon":"weapon.c96_upgraded_zm","reserve_clips":2,"pistol_ranks":ranks,"pistol_replace_below":15});
     println!("Converted {} native localized strings, player health and recovered round/solo-revive parameters", localized.len());
-    Ok(json!({"version":2,"player_health":{
+    let mut game = json!({"version":2,"player_health":{
         "maximum":100,"regular_delay":2.4,"regular_step_fraction":1.,
         "critical_delay":5.,"critical_ratio":0.2,"critical_step_seconds":0.05,"critical_step_fraction":0.1,
         "worthy_damage_ratio":0.1,"immunity_regular":0.35,"immunity_critical_enter":0.5,
         "immunity_critical_repeat":0.3,"feedback_seconds":0.8},
-        "rounds":rounds,"solo_revive":solo,"content":{"localized_strings":localized}}))
+        "rounds":rounds,"solo_revive":solo,"content":{"localized_strings":localized}});
+    if !native_triggers.is_empty() { game["environment"] = json!({"triggers":native_triggers}); }
+    Ok((game,native_gaps))
 }
 
 fn brush_transform(value: &Value) -> Result<([f64; 3], [f64; 4])> {
@@ -156,8 +197,8 @@ fn rotated_volumes(row: &Value) -> Result<Vec<Value>> {
 
 fn environment(game: &mut Value, rows: Vec<Value>, missing: &mut Vec<String>) -> Result<()> {
     let mut brushes = Vec::new();
-    let mut triggers = Vec::new();
-    let mut owners = Vec::new();
+    let mut triggers = game["environment"]["triggers"].as_array().cloned().unwrap_or_default();
+    let mut owners = game["environment"]["ownership"].as_array().cloned().unwrap_or_default();
     let mut mud = Vec::new();
     for row in rows {
         let source = &row["source"];
@@ -193,11 +234,11 @@ fn environment(game: &mut Value, rows: Vec<Value>, missing: &mut Vec<String>) ->
     if !triggers.is_empty() { game["environment"]["triggers"] = json!(triggers); }
     if !owners.is_empty() { game["environment"]["ownership"] = json!(owners); }
     if !mud.is_empty() { game["environment"]["mud"] = json!({"scale":0.6,"stamin_scale":0.7,"step":0.4/4.,"stamin_step":0.3/6.,"interval":0.1,"volumes":mud}); }
-    missing.push("environment source conversion for non-brush native triggers and script-spawned trigger lifecycle".into());
+    missing.push("environment script-spawned trigger lifecycle conversion".into());
     Ok(())
 }
 
-pub fn write(mut game: Value, worlds: &[Value], collision: &Value, pack: &mut Pack) -> Result<()> {
+pub fn write((mut game, mut native_gaps): (Value, Vec<String>), worlds: &[Value], collision: &Value, pack: &mut Pack) -> Result<()> {
     let world = worlds.iter().find(|world| world["map"] == "zm_tomb").ok_or("Required Origins world scene is missing")?;
     for (target, source) in [("scene", "uri"), ("collision_scene", "collision_uri")] {
         let uri = world[source].as_str().ok_or_else(|| format!("Prepared world is missing {source}"))?;
@@ -209,6 +250,7 @@ pub fn write(mut game: Value, worlds: &[Value], collision: &Value, pack: &mut Pa
         game[key] = json!(count);
     }
     let (brushes, mut missing) = brushes(world,collision)?;
+    missing.append(&mut native_gaps);
     environment(&mut game,brushes,&mut missing)?;
     for key in ["mud", "triggers", "ownership", "digging", "parts"] {
         if game["environment"].get(key).is_none() { missing.push(format!("environment.{key}")); }

@@ -21,7 +21,7 @@ mod tests {
             let joints=[crate::geometry::Joint {name:Some("root".into()),parent:None,bind:identity,
                 bind_local:identity,inverse_bind:identity,default_rotation:[0.,0.,0.,1.],default_translation:[0.;3]}];
             scene.skin(owner,&joints).unwrap();
-            let clip=crate::animation::Clip {name:"constant".into(),frame_rate:30.,frames,source_flags:[0;8],notifies:Vec::new(),
+            let clip=crate::animation::Clip {name:"constant".into(),frame_rate:30.,frames,source_flags:[0;4],streamed_file_size:123456789,loop_entry_time:2.5,notifies:Vec::new(),
                 bones:vec![crate::animation::Bone {name:Some("root".into()),rotation:Some(crate::animation::Track {
                     frames:vec![0],values:vec![[0.,0.,0.,0.99997]]}),translation:None}]};
             scene.animation(owner,&joints,&clip).unwrap();
@@ -251,8 +251,9 @@ impl Scene {
     #[cfg(test)]
     pub fn animation(&mut self, owner: usize, joints: &[crate::geometry::Joint], clip: &crate::animation::Clip) -> Result<usize> {
         if clip.source_flags.iter().any(|&flag| flag != 0) {
-            return Err(format!("Animation {} requires native source-mode flag interpretation before standalone export: {:?}",clip.name,clip.source_flags).into());
+            return Err(format!("Animation {} requires native bLoop/bDelta/bDelta3D/bLeftHandGripIK interpretation before standalone export: {:?}; animation-tree composition must be selected separately",clip.name,clip.source_flags).into());
         }
+        if !clip.loop_entry_time.is_finite() { return Err("Native animation loop-entry time is non-finite".into()); }
         if clip.notifies.iter().any(|(name,_)| name.as_deref().is_some_and(|name| name.eq_ignore_ascii_case("jumpcut"))) {
             return Err("Native animation jumpcut intervals require source-faithful stepped sampling".into());
         }
@@ -319,6 +320,7 @@ impl Scene {
         let index=animations.len();
         animations.push(json!({"name":clip.name,"channels":channels,"samplers":samplers,
             "extras":{"native_frame_rate":clip.frame_rate,"native_frames":clip.frames,"native_source_flags":clip.source_flags,
+                "native_streamed_file_size":clip.streamed_file_size,"native_loop_entry_time":clip.loop_entry_time,
                 "native_notifies":clip.notifies.iter().map(|(name,time)| json!({"name":name,"fraction":time,"time":time*clip.frames as f32/clip.frame_rate})).collect::<Vec<_>>(),
                 "native_bones_outside_selected_model":clip.bones.iter().filter(|bone| bone.name.as_ref().is_none_or(|name| !names.contains(&name.to_ascii_lowercase()))).map(|bone| &bone.name).collect::<Vec<_>>(),
                 "native_rotation_interpolation":"component-linear quaternion interpolation preserved by normalized cubic output",

@@ -108,12 +108,12 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         println!("Packed {} baked native surfaces into {}", baked.len(), output.display());
         return Ok(());
     }
-    let game = crate::game::read(&catalog)?;
+    let game = crate::game::read(&catalog,&entities)?;
     let animations = crate::animation_decode::read(&catalog)?;
     let wide = animations.iter().filter(|entry| entry.clip.frames >= 256).count();
     let modes: std::collections::BTreeSet<_> = animations.iter().map(|entry| entry.clip.source_flags).collect();
     let jumpcuts = animations.iter().filter(|entry| entry.clip.notifies.iter().any(|(name,_)| name.as_deref().is_some_and(|name| name.eq_ignore_ascii_case("jumpcut")))).count();
-    println!("Validated {} native ordinary animation streams ({wide} wide); {} separate root-delta tracks, {} mode-byte patterns and {jumpcuts} jumpcut clips require playback/pose selection before export", animations.len(), animations.iter().filter(|entry| entry.has_root_delta).count(), modes.len());
+    println!("Validated {} native ordinary animation streams ({wide} wide); {} separate root-delta tracks, {} native loop/delta/IK flag patterns and {jumpcuts} jumpcut clips require playback/pose selection before export", animations.len(), animations.iter().filter(|entry| entry.has_root_delta).count(), modes.len());
     let unsupported = crate::material::unimplemented(&materials);
     if !unsupported.is_empty() {
         return Err(format!("Required material conversion has {} unimplemented families:\n{}", unsupported.len(), unsupported.join("\n")).into());
