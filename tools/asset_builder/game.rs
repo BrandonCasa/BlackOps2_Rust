@@ -31,42 +31,51 @@ fn variable(catalog: &Catalog<'_>, name: &str, column: usize, fallback: Value) -
 pub fn read(catalog: &Catalog<'_>, entities: &[crate::entities::Entity]) -> Result<(Value, Vec<String>)> {
     let mut native_gaps = Vec::new();
     let mut native_triggers = Vec::new();
-    let mut radius_count = 0;
+    let mut primitive_counts = [0_usize;2];
     for (index, entity) in entities.iter().enumerate() {
         let Some(class) = entity.get("classname") else { continue; };
         if entity.get("model").is_some_and(|model| model.starts_with('*')) { continue; }
-        if class != "trigger_radius" {
+        if !matches!(class.as_str(),"trigger_radius" | "trigger_box") {
             if class.starts_with("trigger_") || class == "info_volume" {
                 native_gaps.push(format!("environment native non-brush trigger geometry for trigger.native.{index} ({class})"));
             }
             continue;
         }
-        radius_count += 1;
+        primitive_counts[usize::from(class == "trigger_box")] += 1;
         let id = format!("trigger.native.{index}");
-        let origin = crate::entities::vector(entity,"origin").map_err(|error| format!("Native radius trigger {id}: {error}"))?;
+        let origin = crate::entities::vector(entity,"origin").map_err(|error| format!("Native primitive trigger {id}: {error}"))?;
         let scalar = |key: &str| -> Result<Option<f32>> {
             let Some(text) = entity.get(key) else { return Ok(None); };
-            let value: f32 = text.parse().map_err(|error| format!("Native radius trigger {id} has invalid {key} {text:?}: {error}"))?;
+            let value: f32 = text.parse().map_err(|error| format!("Native primitive trigger {id} has invalid {key} {text:?}: {error}"))?;
             Ok((value.is_finite() && value > 0.).then_some(value*0.0254))
         };
-        let radius = scalar("radius")?;
         let height = scalar("height")?;
-        if let (Some([x,y,z]),Some(radius),Some(height)) = (origin,radius,height) {
-            if crate::entities::vector(entity,"angles")?.is_some_and(|angles| angles[0] != 0. || angles[2] != 0.) {
-                native_gaps.push(format!("environment native radius trigger orientation for {id} has source pitch/roll requiring primitive-link verification"));
-            }
+        let shape = if class == "trigger_radius" {
+            scalar("radius")?.zip(height).map(|(radius,height)| json!({"kind":"cylinder","radius":radius,"height":height}))
+        } else {
+            let transform = crate::scenes::entity_matrix(entity)?;
+            scalar("width")?.zip(scalar("length")?).zip(height).map(|((width,length),height)| {
+                let half = [width*0.5,height*0.5,length*0.5];
+                let vertices: Vec<_> = (0..8).map(|corner| {
+                    let local: [f32;3] = std::array::from_fn(|axis| if corner & (1<<axis) == 0 { -half[axis] } else { half[axis] });
+                    std::array::from_fn::<_,3,_>(|axis| (0..3).map(|column| transform[column*4+axis]*local[column]).sum::<f32>())
+                }).collect();
+                json!({"kind":"convex","volumes":[{"id":format!("{id}.volume"),"position":[0.,0.,0.],"vertices":vertices}]})
+            })
+        };
+        if let (Some([x,y,z]),Some(shape)) = (origin,shape) {
             native_triggers.push(json!({"id":id,"position":[x*0.0254,z*0.0254,-y*0.0254],"source":entity,
-                "shape":{"kind":"cylinder","radius":radius,"height":height}}));
+                "shape":shape}));
             let owner = if entity.get("targetname").is_some_and(|name| name == "player_slow_area") { "movement" }
                 else if entity.get("script_noteworthy").is_some_and(|name| name == "player_volume") { "boundary" }
                 else { "unresolved script" };
-            native_gaps.push(format!("environment {owner} ownership/shootability for {id} (native radius trigger flags require source mapping)"));
-            if owner == "movement" { native_gaps.push(format!("environment mud cylinder for {id} requires runtime cylinder-volume support")); }
+            native_gaps.push(format!("environment {owner} ownership/activation/shootability for {id}: native contents and script lifecycle require integration (targetname {:?}, noteworthy {:?})",entity.get("targetname"),entity.get("script_noteworthy")));
+            if owner == "movement" { native_gaps.push(format!("environment mud primitive trigger for {id} requires source-selected volume integration")); }
         } else {
-            native_gaps.push(format!("environment native trigger_radius {id} requires explicit source origin and positive finite radius/height; fields: {entity:?}"));
+            native_gaps.push(format!("environment native {class} {id} requires explicit source origin and positive finite dimensions; fields: {entity:?}"));
         }
     }
-    println!("Converted {} of {radius_count} native non-brush radius triggers; {} precise native-trigger gaps remain",native_triggers.len(),native_gaps.len());
+    println!("Converted {} of {} native non-brush primitive triggers ({} radius, {} boxes); {} precise native-trigger gaps remain",native_triggers.len(),primitive_counts.iter().sum::<usize>(),primitive_counts[0],primitive_counts[1],native_gaps.len());
     for gap in &native_gaps { println!("Pending native trigger conversion: {gap}"); }
     let mut localized = Vec::new();
     for (name, zone, root) in catalog.definitions(24) {

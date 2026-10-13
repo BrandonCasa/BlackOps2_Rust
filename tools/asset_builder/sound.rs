@@ -154,7 +154,10 @@ pub fn convert(install: &Path, catalog: &Catalog<'_>, pack: &mut Pack) -> Result
             let streamed = (flags >> 15 & 3) >= 2;
             let language = if zone_name.starts_with("en_") { "english" } else { "all" };
             let mut row = json!({"name":name, "index":index, "zone":format!("{language}-{zone_name}"),
-                "asset_id":id, "flags":flags, "subtitle":text(streams, alias.add(8)?)?,
+                "asset_id":id, "flags":flags,"flags1":streams.u32(alias.add(28)?)?,
+                "list_sequence":streams.u32(list.add(16)?)?,"context_type":streams.u32(alias.add(36)?)?,
+                "context_value":streams.u32(alias.add(40)?)?,"probability":streams.u8(alias.add(88)?)?,
+                "start_delay":streams.u16(alias.add(54)?)?,"subtitle":text(streams, alias.add(8)?)?,
                 "secondary":text(streams, alias.add(12)?)?, "parameters":streams.read(alias.add(28)?, 68)?});
             if id == 0 {
                 row["silent"] = json!(true);

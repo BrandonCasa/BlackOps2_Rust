@@ -20,7 +20,7 @@ fn matrix(origin: [f32; 3], axis: [[f32; 3]; 3], scale: f32) -> [f32; 16] {
         origin[0]*0.0254, origin[2]*0.0254, -origin[1]*0.0254, 1.]
 }
 
-fn entity_matrix(entity: &Entity) -> Result<[f32; 16]> {
+pub fn entity_matrix(entity: &Entity) -> Result<[f32; 16]> {
     let origin = entities::vector(entity, "origin")?.unwrap_or([0.; 3]);
     let mut angles = entities::vector(entity, "angles")?.unwrap_or([0.; 3]);
     if !entity.contains_key("angles") && let Some(angle) = entity.get("angle") {

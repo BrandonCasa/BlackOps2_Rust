@@ -268,6 +268,11 @@ impl PreparedArt {
                 .filter(|value| value["index"] == index)
                 .min_by_key(|value| Self::priority(value))
                 .ok_or_else(|| format!("Native audio payload is not prepared: {name}/{index}"))?;
+            if binding["silent"].as_bool() == Some(true) {
+                return Err(format!(
+                    "Native silent sound variant {name}/{index} requires a payload-free audio schema and source context selection, secondary and subtitle lifecycle; runtime conversion is incomplete"
+                ));
+            }
             let prepared = uri(binding, "uri")?;
             if semantic_paths.contains(&sound.path)
                 && let Some(previous) = sound_paths.insert(sound.path.clone(), prepared.clone())
