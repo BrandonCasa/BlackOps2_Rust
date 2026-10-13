@@ -500,7 +500,7 @@ fn scene_ready(
                         .iter()
                         .find(|o| o.id == source.id),
                 );
-            } else {
+            } else if !definition.environment.triggers.iter().any(|trigger| trigger.id == id) {
                 failure.0 = format!("Unknown brush entity {id}");
                 next.set(GameState::LoadError);
             }

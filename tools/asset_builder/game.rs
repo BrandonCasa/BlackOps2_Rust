@@ -53,7 +53,7 @@ pub fn read(catalog: &Catalog<'_>) -> Result<Value> {
         "health_multiplier":variable(catalog,"zombie_health_increase_multiplier",2,json!(0.1))?,"exponential_round":10,
         "population_base":maximum,"solo_population_increment":extra,"population_round_divisor":5,
         "population_acceleration_round":10,"population_acceleration":0.15,"early_population":[0.25,0.3,0.5,0.7,0.9],
-        "ordinary_cap":maximum,"spawn_seconds":variable(catalog,"zombie_spawn_delay",2,json!(2.0))?,"spawn_decay":0.95,
+        "ordinary_cap":maximum,"actor_cap":32,"spawn_seconds":variable(catalog,"zombie_spawn_delay",2,json!(2.0))?,"spawn_decay":0.95,
         "minimum_spawn_seconds":0.08,"first_spawn_seconds":2.5,"between_round_seconds":variable(catalog,"zombie_between_round_time",1,json!(10))?,
         "speed_multiplier":variable(catalog,"zombie_move_speed_multiplier",2,json!(8))?,"speed_random_band":35,"gait_thresholds":[35,70]});
     let solo = json!({"perk":"perk.quick_revive","seconds":10.,"bleedout_seconds":45.,"bleedout_poll_seconds":1.,
@@ -116,7 +116,7 @@ fn brushes(world: &Value, collision: &Value) -> Result<(Vec<Value>, Vec<String>)
         let (position, rotation) = brush_transform(&entity["matrix"])?;
         let source = entity["source"].as_object().ok_or("Native brush entity source fields are missing")?;
         let class = source.get("classname").and_then(Value::as_str).ok_or("Native brush classname is missing")?;
-        if !matches!(class,"script_brushmodel" | "heli_height_lock") {
+        if !matches!(class,"script_brushmodel" | "heli_height_lock" | "trigger_multiple" | "trigger_use" | "trigger_damage" | "trigger_box" | "trigger_lookat" | "info_volume") {
             classifiers.push(format!("environment native classifier for {id} ({class}, *{index})"));
         }
         let volumes = model["volumes"].as_array().ok_or("Native brush convex volumes are missing")?.iter().map(|volume| {
@@ -141,6 +141,62 @@ fn brushes(world: &Value, collision: &Value) -> Result<(Vec<Value>, Vec<String>)
     Ok((rows,classifiers))
 }
 
+fn rotated_volumes(row: &Value) -> Result<Vec<Value>> {
+    let [x,y,z,w]: [f64;4] = serde_json::from_value(row["rotation"].clone())?;
+    let rotate = |value: &Value| -> Result<[f64;3]> {
+        let [a,b,c]: [f64;3] = serde_json::from_value(value.clone())?;
+        let [tx,ty,tz] = [2.*(y*c-z*b),2.*(z*a-x*c),2.*(x*b-y*a)];
+        Ok([a+w*tx+y*tz-z*ty,b+w*ty+z*tx-x*tz,c+w*tz+x*ty-y*tx])
+    };
+    row["volumes"].as_array().ok_or("Native trigger convex geometry is missing")?.iter().map(|volume| {
+        let vertices = volume["vertices"].as_array().ok_or("Native trigger vertices are missing")?.iter().map(rotate).collect::<Result<Vec<_>>>()?;
+        Ok(json!({"id":volume["id"],"position":rotate(&volume["position"])? ,"vertices":vertices}))
+    }).collect()
+}
+
+fn environment(game: &mut Value, rows: Vec<Value>, missing: &mut Vec<String>) -> Result<()> {
+    let mut brushes = Vec::new();
+    let mut triggers = Vec::new();
+    let mut owners = Vec::new();
+    let mut mud = Vec::new();
+    for row in rows {
+        let source = &row["source"];
+        let class = source["classname"].as_str().ok_or("Native environment classname is missing")?;
+        let id = row["id"].as_str().ok_or("Native environment identity is missing")?;
+        let movement = source["targetname"] == "player_slow_area";
+        let boundary = source["script_noteworthy"] == "player_volume";
+        let convex_trigger = matches!(class,"trigger_multiple" | "trigger_use" | "trigger_damage" | "trigger_box" | "trigger_lookat" | "info_volume");
+        if convex_trigger && row["triangle_shapes"].as_array().is_some_and(Vec::is_empty)
+            && row["volumes"].as_array().is_some_and(|volumes| !volumes.is_empty()) {
+            let volumes = rotated_volumes(&row)?;
+            if movement {
+                let position: [f64;3] = serde_json::from_value(row["position"].clone())?;
+                for volume in &volumes {
+                    let offset: [f64;3] = serde_json::from_value(volume["position"].clone())?;
+                    mud.push(json!({"id":format!("mud.{}",volume["id"].as_str().ok_or("Mud volume identity is missing")?),
+                        "position":std::array::from_fn::<_,3,_>(|axis| position[axis]+offset[axis]),"vertices":volume["vertices"]}));
+                }
+            }
+            triggers.push(json!({"id":id,"position":row["position"],"source":source,"shape":{"kind":"convex","volumes":volumes}}));
+        } else {
+            if convex_trigger { missing.push(format!("environment trigger shape for {id} ({class}) requires unsupported terrain or missing convex source geometry")); }
+            brushes.push(row.clone());
+        }
+        if (movement || boundary) && matches!(class,"trigger_multiple" | "info_volume") {
+            owners.push(json!({"id":id,"owner":if movement {"movement"} else {"boundary"},"shootable":false}));
+        } else {
+            missing.push(format!("environment script ownership for {id} ({class})"));
+        }
+    }
+    if game["environment"].is_null() { game["environment"] = json!({}); }
+    game["environment"]["brush_entities"] = json!(brushes);
+    if !triggers.is_empty() { game["environment"]["triggers"] = json!(triggers); }
+    if !owners.is_empty() { game["environment"]["ownership"] = json!(owners); }
+    if !mud.is_empty() { game["environment"]["mud"] = json!({"scale":0.6,"stamin_scale":0.7,"step":0.4/4.,"stamin_step":0.3/6.,"interval":0.1,"volumes":mud}); }
+    missing.push("environment source conversion for non-brush native triggers and script-spawned trigger lifecycle".into());
+    Ok(())
+}
+
 pub fn write(mut game: Value, worlds: &[Value], collision: &Value, pack: &mut Pack) -> Result<()> {
     let world = worlds.iter().find(|world| world["map"] == "zm_tomb").ok_or("Required Origins world scene is missing")?;
     for (target, source) in [("scene", "uri"), ("collision_scene", "collision_uri")] {
@@ -153,15 +209,14 @@ pub fn write(mut game: Value, worlds: &[Value], collision: &Value, pack: &mut Pa
         game[key] = json!(count);
     }
     let (brushes, mut missing) = brushes(world,collision)?;
-    if game["environment"].is_null() { game["environment"] = json!({}); }
-    game["environment"]["brush_entities"] = json!(brushes);
+    environment(&mut game,brushes,&mut missing)?;
     for key in ["mud", "triggers", "ownership", "digging", "parts"] {
         if game["environment"].get(key).is_none() { missing.push(format!("environment.{key}")); }
     }
     for key in ["spawn", "yaw", "spawn_points", "waypoints", "survey_views", "rounds", "solo_revive", "environment", "access", "audio", "tuning"] {
         if game.get(key).is_none() { missing.push(key.to_owned()); }
     }
-    for (profile, fields) in [("rounds", &["actor_cap", "gait_speeds"][..]), ("solo_revive", &["downed_height", "downed_speed"][..])] {
+    for (profile, fields) in [("rounds", &["gait_speeds"][..]), ("solo_revive", &["downed_height", "downed_speed"][..])] {
         for field in fields {
             if game[profile].get(field).is_none() { missing.push(format!("{profile}.{field}")); }
         }

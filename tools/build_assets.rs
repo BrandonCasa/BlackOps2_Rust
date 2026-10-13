@@ -8,6 +8,8 @@ mod convert;
 mod atmosphere;
 #[path = "asset_builder/animation.rs"]
 mod animation;
+#[path = "asset_builder/animation_decode.rs"]
+mod animation_decode;
 #[path = "asset_builder/bake.rs"]
 mod bake;
 #[path = "asset_builder/collision.rs"]

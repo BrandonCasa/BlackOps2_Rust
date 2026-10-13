@@ -109,6 +109,11 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         return Ok(());
     }
     let game = crate::game::read(&catalog)?;
+    let animations = crate::animation_decode::read(&catalog)?;
+    let wide = animations.iter().filter(|entry| entry.clip.frames >= 256).count();
+    let modes: std::collections::BTreeSet<_> = animations.iter().map(|entry| entry.clip.source_flags).collect();
+    let jumpcuts = animations.iter().filter(|entry| entry.clip.notifies.iter().any(|(name,_)| name.as_deref().is_some_and(|name| name.eq_ignore_ascii_case("jumpcut")))).count();
+    println!("Validated {} native ordinary animation streams ({wide} wide); {} separate root-delta tracks, {} mode-byte patterns and {jumpcuts} jumpcut clips require playback/pose selection before export", animations.len(), animations.iter().filter(|entry| entry.has_root_delta).count(), modes.len());
     let unsupported = crate::material::unimplemented(&materials);
     if !unsupported.is_empty() {
         return Err(format!("Required material conversion has {} unimplemented families:\n{}", unsupported.len(), unsupported.join("\n")).into());
@@ -191,6 +196,14 @@ fn runtime(pack: &pack::Pack, models: Vec<serde_json::Value>, worlds: Vec<serde_
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
+    fn installed_ordinary_animation_streams() {
+        let zones = super::read_zones(&super::installation().unwrap()).unwrap();
+        let catalog = crate::convert::Catalog::new(&zones);
+        crate::animation_decode::read(&catalog).unwrap();
+    }
+
     #[test]
     #[ignore = "requires the authorized Steam installation"]
     fn installed_collision_brush_models() {

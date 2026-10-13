@@ -248,6 +248,7 @@ impl Scene {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn animation(&mut self, owner: usize, joints: &[crate::geometry::Joint], clip: &crate::animation::Clip) -> Result<usize> {
         if clip.source_flags.iter().any(|&flag| flag != 0) {
             return Err(format!("Animation {} requires native source-mode flag interpretation before standalone export: {:?}",clip.name,clip.source_flags).into());
