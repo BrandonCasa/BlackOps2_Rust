@@ -135,7 +135,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
             world["atmosphere_uri"] = serde_json::json!(atmosphere_uri);
         }
     }
-    crate::game::write(game, &worlds, &mut pack)?;
+    crate::game::write(game, &worlds, &collision, &mut pack)?;
     let runtime = runtime(&pack, models, worlds, images, sounds)?;
     pack.entries.insert("prepared/runtime.json".into(), std::sync::Arc::new(serde_json::to_vec(&runtime)?));
     crate::validate_pack(&pack)?;

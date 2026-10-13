@@ -9,6 +9,16 @@ pub const BRUSH_LAYER: u32 = 16;
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct TriangleShape {
+    pub id: String,
+    pub contents: u32,
+    pub surface_flags: u32,
+    pub vertices: Vec<[f32; 3]>,
+    pub indices: Vec<[u32; 3]>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BrushDefinition {
     pub id: String,
     pub position: [f32; 3],
@@ -16,11 +26,13 @@ pub struct BrushDefinition {
     pub bounds: [[f32; 3]; 2],
     pub source: BTreeMap<String, String>,
     pub volumes: Vec<VolumeDefinition>,
+    #[serde(default)]
+    pub triangle_shapes: Vec<TriangleShape>,
     pub visual_meshes: usize,
 }
 impl BrushDefinition {
     pub fn collider(&self) -> Option<Collider> {
-        let pieces: Option<Vec<_>> = self
+        let mut pieces: Vec<_> = self
             .volumes
             .iter()
             .map(|v| {
@@ -33,8 +45,23 @@ impl BrushDefinition {
                 )
                 .map(|shape| (Vec3::from_array(v.position), Quat::IDENTITY, shape))
             })
-            .collect();
-        pieces.filter(|p| !p.is_empty()).map(Collider::compound)
+            .collect::<Option<Vec<_>>>()?;
+        for shape in &self.triangle_shapes {
+            for indices in &shape.indices {
+                let a = Vec3::from_array(*shape.vertices.get(indices[0] as usize)?);
+                let b = Vec3::from_array(*shape.vertices.get(indices[1] as usize)?);
+                let c = Vec3::from_array(*shape.vertices.get(indices[2] as usize)?);
+                if !a.is_finite()
+                    || !b.is_finite()
+                    || !c.is_finite()
+                    || (b - a).cross(c - a).length_squared() == 0.
+                {
+                    return None;
+                }
+                pieces.push((Vec3::ZERO, Quat::IDENTITY, Collider::triangle(a, b, c)));
+            }
+        }
+        (!pieces.is_empty()).then(|| Collider::compound(pieces))
     }
     pub fn transform(&self) -> Transform {
         Transform::from_translation(Vec3::from_array(self.position))
@@ -62,7 +89,7 @@ pub(super) fn valid(brushes: &[BrushDefinition]) -> bool {
                     .chain(b.bounds.iter().flatten())
                     .all(|v| v.is_finite())
                 && (Quat::from_array(b.rotation).length_squared() - 1.).abs() < 0.00001
-                && b.bounds[0].iter().zip(b.bounds[1]).all(|(a, z)| *a < z)
+                && b.bounds[0].iter().zip(b.bounds[1]).all(|(a, z)| *a <= z)
                 && b.visual_meshes <= 4096
                 && (1..=64).contains(&b.source.len())
                 && b.source.iter().all(|(k, v)| {
@@ -87,7 +114,25 @@ pub(super) fn valid(brushes: &[BrushDefinition]) -> bool {
                             .all(|p| p.is_finite())
                         && (4..=128).contains(&v.vertices.len())
                 })
-                && (b.volumes.is_empty() || b.collider().is_some())
+                && b.triangle_shapes.len() <= 4096
+                && b.triangle_shapes.iter().all(|shape| {
+                    identity(&shape.id)
+                        && pieces.insert(&shape.id)
+                        && (3..=65536).contains(&shape.vertices.len())
+                        && shape
+                            .vertices
+                            .iter()
+                            .flatten()
+                            .all(|value| value.is_finite())
+                        && (1..=65536).contains(&shape.indices.len())
+                        && shape
+                            .indices
+                            .iter()
+                            .flatten()
+                            .all(|&index| (index as usize) < shape.vertices.len())
+                })
+                && ((b.volumes.is_empty() && b.triangle_shapes.is_empty())
+                    || b.collider().is_some())
         })
         && pieces.len() <= 32768
 }

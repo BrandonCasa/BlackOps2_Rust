@@ -67,7 +67,81 @@ pub fn read(catalog: &Catalog<'_>) -> Result<Value> {
         "rounds":rounds,"solo_revive":solo,"content":{"localized_strings":localized}}))
 }
 
-pub fn write(mut game: Value, worlds: &[Value], pack: &mut Pack) -> Result<()> {
+fn brush_transform(value: &Value) -> Result<([f64; 3], [f64; 4])> {
+    let matrix = value.as_array().ok_or("Native brush transform is missing")?;
+    let matrix: Vec<_> = matrix.iter().map(|value| value.as_f64().filter(|value| value.is_finite())
+        .ok_or_else(|| "Native brush transform is non-finite".into())).collect::<Result<_>>()?;
+    let m: [f64; 16] = matrix.try_into().map_err(|_| "Native brush transform is not a 4x4 matrix")?;
+    if [m[3],m[7],m[11],m[15]] != [0.,0.,0.,1.] { return Err("Native brush transform is not affine".into()); }
+    for a in 0..3 { for b in 0..3 {
+        let dot: f64 = (0..3).map(|row| m[a*4+row] * m[b*4+row]).sum();
+        if (dot - if a == b { 1. } else { 0. }).abs() > 0.0001 {
+            return Err("Native brush transform contains unsupported scale or shear".into());
+        }
+    }}
+    let determinant = m[0]*(m[5]*m[10]-m[9]*m[6])-m[4]*(m[1]*m[10]-m[9]*m[2])+m[8]*(m[1]*m[6]-m[5]*m[2]);
+    if (determinant - 1.).abs() > 0.0001 { return Err("Native brush transform reverses handedness".into()); }
+    let mut rotation = if m[0]+m[5]+m[10] > 0. {
+        let s = (m[0]+m[5]+m[10]+1.).sqrt()*2.;
+        [(m[6]-m[9])/s,(m[8]-m[2])/s,(m[1]-m[4])/s,s*0.25]
+    } else if m[0] > m[5] && m[0] > m[10] {
+        let s = (1.+m[0]-m[5]-m[10]).sqrt()*2.;
+        [s*0.25,(m[4]+m[1])/s,(m[8]+m[2])/s,(m[6]-m[9])/s]
+    } else if m[5] > m[10] {
+        let s = (1.+m[5]-m[0]-m[10]).sqrt()*2.;
+        [(m[4]+m[1])/s,s*0.25,(m[9]+m[6])/s,(m[8]-m[2])/s]
+    } else {
+        let s = (1.+m[10]-m[0]-m[5]).sqrt()*2.;
+        [(m[8]+m[2])/s,(m[9]+m[6])/s,s*0.25,(m[1]-m[4])/s]
+    };
+    let length = rotation.iter().map(|value| value*value).sum::<f64>().sqrt();
+    if !length.is_finite() || length == 0. { return Err("Native brush rotation is invalid".into()); }
+    for value in &mut rotation { *value /= length; }
+    Ok(([m[12],m[13],m[14]],rotation))
+}
+
+fn brushes(world: &Value, collision: &Value) -> Result<(Vec<Value>, Vec<String>)> {
+    let models = collision["brush_models"].as_array().ok_or("Native collision brush-model index is missing")?;
+    let entities = world["brush_entities"].as_array().ok_or("Native world brush-entity index is missing")?;
+    let mut rows = Vec::new();
+    let mut classifiers = Vec::new();
+    let mut ids = std::collections::BTreeSet::new();
+    for entity in entities {
+        let id = entity["id"].as_str().ok_or("Native brush entity ID is missing")?;
+        if !ids.insert(id) { return Err(format!("Duplicate native brush entity: {id}").into()); }
+        let index = entity["native_brush_model"].as_u64().ok_or("Native brush model identity is missing")?;
+        let mut matching = models.iter().filter(|model| model["native_brush_model"] == index);
+        let model = matching.next().ok_or_else(|| format!("Native brush {id} has no collision submodel *{index}"))?;
+        if matching.next().is_some() { return Err(format!("Native brush {id} collision submodel *{index} is ambiguous").into()); }
+        let (position, rotation) = brush_transform(&entity["matrix"])?;
+        let source = entity["source"].as_object().ok_or("Native brush entity source fields are missing")?;
+        let class = source.get("classname").and_then(Value::as_str).ok_or("Native brush classname is missing")?;
+        if !matches!(class,"script_brushmodel" | "heli_height_lock") {
+            classifiers.push(format!("environment native classifier for {id} ({class}, *{index})"));
+        }
+        let volumes = model["volumes"].as_array().ok_or("Native brush convex volumes are missing")?.iter().map(|volume| {
+            let native = volume["native_brush"].as_u64().ok_or("Native convex brush identity is missing")?;
+            let vertices = volume["vertices"].as_array().ok_or("Native convex brush vertices are missing")?;
+            Ok(json!({"id":format!("{id}.convex.{native}"),"position":[0.,0.,0.],"vertices":vertices}))
+        }).collect::<Result<Vec<_>>>()?;
+        let triangles = model["triangle_shapes"].as_array().ok_or_else(|| format!("Native brush *{index} terrain-shape conversion is missing"))?
+            .iter().enumerate().map(|(shape_index, shape)| {
+                for key in ["contents","surface_flags","vertices","indices"] {
+                    if shape.get(key).is_none() { return Err(format!("Native brush *{index} terrain shape is missing {key}").into()); }
+                }
+                Ok(json!({"id":format!("{id}.triangle.{shape_index}"),"contents":shape["contents"],
+                    "surface_flags":shape["surface_flags"],"vertices":shape["vertices"],"indices":shape["indices"]}))
+            }).collect::<Result<Vec<_>>>()?;
+        let bounds = model["bounds"].as_array().filter(|bounds| bounds.len() == 2).ok_or("Native brush bounds are missing")?;
+        let visual_meshes = entity["visual_meshes"].as_u64().ok_or("Native brush visual mesh count is missing")?;
+        rows.push(json!({"id":id,"position":position,"rotation":rotation,"bounds":bounds,"source":source,
+            "volumes":volumes,"triangle_shapes":triangles,"visual_meshes":visual_meshes}));
+    }
+    println!("Joined {} native brush entities to collision submodels; {} source classifications remain unresolved", rows.len(), classifiers.len());
+    Ok((rows,classifiers))
+}
+
+pub fn write(mut game: Value, worlds: &[Value], collision: &Value, pack: &mut Pack) -> Result<()> {
     let world = worlds.iter().find(|world| world["map"] == "zm_tomb").ok_or("Required Origins world scene is missing")?;
     for (target, source) in [("scene", "uri"), ("collision_scene", "collision_uri")] {
         let uri = world[source].as_str().ok_or_else(|| format!("Prepared world is missing {source}"))?;
@@ -78,7 +152,12 @@ pub fn write(mut game: Value, worlds: &[Value], pack: &mut Pack) -> Result<()> {
         let count = world[key].as_u64().ok_or_else(|| format!("Prepared world is missing {key}"))?;
         game[key] = json!(count);
     }
-    let mut missing = Vec::new();
+    let (brushes, mut missing) = brushes(world,collision)?;
+    if game["environment"].is_null() { game["environment"] = json!({}); }
+    game["environment"]["brush_entities"] = json!(brushes);
+    for key in ["mud", "triggers", "ownership", "digging", "parts"] {
+        if game["environment"].get(key).is_none() { missing.push(format!("environment.{key}")); }
+    }
     for key in ["spawn", "yaw", "spawn_points", "waypoints", "survey_views", "rounds", "solo_revive", "environment", "access", "audio", "tuning"] {
         if game.get(key).is_none() { missing.push(key.to_owned()); }
     }

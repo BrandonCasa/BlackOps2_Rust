@@ -123,12 +123,129 @@ fn model(catalog: &Catalog<'_>, zone: usize, root: Address) -> Result<Batches> {
     Ok(batches)
 }
 
+fn terrain_partitions(streams: &Streams, root: Address, first: usize, count: usize) -> Result<BTreeSet<(usize, usize)>> {
+    if count == 0 { return Ok(BTreeSet::new()); }
+    let tree_count = streams.u32(root.add(136)?)? as usize;
+    if first.checked_add(count).is_none_or(|end| end > tree_count) { return Err("Native collision terrain root range exceeds AABB trees".into()); }
+    let trees = pointer(streams, root.add(140)?)?;
+    let partition_count = streams.u32(root.add(128)?)? as usize;
+    let mut result = BTreeSet::new();
+    for index in first..first + count {
+        let material = streams.u16(trees.add(index * 32 + 12)?)? as usize;
+        let mut pending = vec![(index, false)];
+        let mut active = BTreeSet::new();
+        let mut complete = BTreeSet::new();
+        while let Some((index, leaving)) = pending.pop() {
+            if leaving { active.remove(&index); complete.insert(index); continue; }
+            if complete.contains(&index) { continue; }
+            if index >= tree_count || !active.insert(index) { return Err("Invalid or cyclic native collision AABB tree".into()); }
+            let tree = trees.add(index * 32)?;
+            let children = streams.u16(tree.add(14)?)? as usize;
+            let target = streams.u32(tree.add(28)?)? as usize;
+            pending.push((index, true));
+            if children == 0 {
+                if target >= partition_count { return Err("Native collision AABB leaf exceeds partitions".into()); }
+                result.insert((target, material));
+            } else {
+                let end = target.checked_add(children).filter(|end| *end <= tree_count).ok_or("Native collision AABB child range exceeds trees")?;
+                for child in (target..end).rev() { pending.push((child, false)); }
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn triangle_shape(streams: &Streams, root: Address, info: Address, partition: usize, material: usize) -> Result<(Value, BTreeSet<usize>)> {
+    let material_count = streams.u32(info.add(8)?)? as usize;
+    if material >= material_count { return Err("Native collision terrain material exceeds ClipInfo materials".into()); }
+    let material = pointer(streams, info.add(12)?)?.add(material * 12)?;
+    let surface_flags = streams.u32(material.add(4)?)?;
+    let contents = streams.u32(material.add(8)?)?;
+    let entry = pointer(streams, root.add(132)?)?.add(partition * 16)?;
+    let count = streams.u8(entry)? as usize;
+    let first = streams.u32(entry.add(4)?)? as usize;
+    let triangle_count = streams.u32(root.add(116)?)? as usize;
+    let end = first.checked_add(count).filter(|end| *end <= triangle_count).ok_or("Native collision partition triangle range exceeds triangles")?;
+    let vertex_count = streams.u32(root.add(108)?)? as usize;
+    let source_vertices = pointer(streams, root.add(112)?)?;
+    let source_triangles = pointer(streams, root.add(120)?)?;
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let mut remap = BTreeMap::new();
+    let mut owned = BTreeSet::new();
+    for index in first..end {
+        let mut triangle = [0; 3];
+        for (corner, offset) in [4, 2, 0].into_iter().enumerate() {
+            let vertex = streams.u16(source_triangles.add(index * 6 + offset)?)? as usize;
+            if vertex >= vertex_count { return Err("Native collision partition triangle exceeds terrain vertices".into()); }
+            let next = u32::try_from(vertices.len())?;
+            triangle[corner] = *remap.entry(vertex).or_insert_with(|| next);
+            if triangle[corner] == next {
+                let [x,y,z] = vector(streams, source_vertices.add(vertex * 12)?)?;
+                vertices.push([x*0.0254,z*0.0254,-y*0.0254]);
+            }
+        }
+        indices.push(triangle);
+        owned.insert(index);
+    }
+    Ok((json!({"native_partition":partition,"contents":contents,"surface_flags":surface_flags,"vertices":vertices,"indices":indices}), owned))
+}
+
+fn inactive_terrain_triangles(streams: &Streams, root: Address) -> Result<BTreeSet<usize>> {
+    let partition_count = streams.u32(root.add(128)?)? as usize;
+    if partition_count == 0 { return Ok(BTreeSet::new()); }
+    let partitions = pointer(streams, root.add(132)?)?;
+    let tree_count = streams.u32(root.add(136)?)? as usize;
+    let mut referenced = BTreeSet::new();
+    if tree_count != 0 {
+        let trees = pointer(streams, root.add(140)?)?;
+        for index in 0..tree_count {
+            let tree = trees.add(index * 32)?;
+            if streams.u16(tree.add(14)?)? == 0 {
+                let partition = streams.u32(tree.add(28)?)? as usize;
+                if partition >= partition_count { return Err("Native AABB leaf references an invalid terrain partition".into()); }
+                referenced.insert(partition);
+            }
+        }
+    }
+    let triangle_count = streams.u32(root.add(116)?)? as usize;
+    let mut inactive = BTreeSet::new();
+    let mut active = BTreeSet::new();
+    for index in 0..partition_count {
+        let entry = partitions.add(index * 16)?;
+        let first = streams.u32(entry.add(4)?)? as usize;
+        let count = streams.u8(entry)? as usize;
+        if count == 0 { continue; }
+        let end = first.checked_add(count).filter(|end| *end <= triangle_count).ok_or("Native terrain partition storage exceeds triangle range")?;
+        if referenced.contains(&index) { active.extend(first..end); } else { inactive.extend(first..end); }
+    }
+    inactive.retain(|triangle| !active.contains(triangle));
+    Ok(inactive)
+}
+
 pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
     let (name, zone, root) = catalog.definitions(12).next().ok_or("Origins clip map is missing")?;
     let streams = &catalog.zones[zone].1.streams;
     let info = root.add(8)?;
     let world_brushes = pointer(streams, info.add(60)?)?;
     let mut dynamic = BTreeSet::new();
+    let mut dynamic_triangles = BTreeSet::new();
+    let mut static_triangles = BTreeMap::<usize, BTreeSet<(u32, u32)>>::new();
+    let leaf_count = streams.u32(root.add(100)?)? as usize;
+    if leaf_count != 0 {
+        let leaves = pointer(streams, root.add(104)?)?;
+        let mut partitions = BTreeSet::new();
+        for index in 0..leaf_count {
+            let leaf = leaves.add(index * 44)?;
+            partitions.extend(terrain_partitions(streams, root, streams.u16(leaf)? as usize, streams.u16(leaf.add(2)?)? as usize)?);
+        }
+        for (partition, material) in partitions {
+            let (shape, owned) = triangle_shape(streams, root, info, partition, material)?;
+            let flags = (shape["contents"].as_u64().ok_or("Missing native terrain contents")? as u32,
+                shape["surface_flags"].as_u64().ok_or("Missing native terrain surface flags")? as u32);
+            for triangle in owned { static_triangles.entry(triangle).or_default().insert(flags); }
+        }
+    }
     let mut brush_models = Vec::new();
     let count = streams.u32(root.add(144)?)? as usize;
     if count != 0 {
@@ -141,9 +258,13 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
                 pointer(streams, model.add(28)?)
                     .map_err(|error| format!("Native collision submodel {index} has an unresolved ClipInfo: {error}"))?
             };
-            let terrain_count = streams.u16(model.add(34)?)?;
-            if terrain_count != 0 {
-                return Err(format!("Native collision submodel {index} requires {terrain_count} terrain AABB trees starting at {}; dynamic terrain collision conversion is not recovered", streams.u16(model.add(32)?)?).into());
+            let terrain_count = streams.u16(model.add(34)?)? as usize;
+            let first_tree = streams.u16(model.add(32)?)? as usize;
+            let mut triangle_shapes = Vec::new();
+            for (partition, material) in terrain_partitions(streams, root, first_tree, terrain_count)? {
+                let (shape, owned) = triangle_shape(streams, root, info, partition, material)?;
+                dynamic_triangles.extend(owned);
+                if !shape["indices"].as_array().is_some_and(|indices| indices.is_empty()) { triangle_shapes.push(shape); }
             }
             let node = streams.u32(model.add(68)?)? as usize;
             let indices = if node == 0 { BTreeSet::new() } else { brushes_in_node(streams, model_info, node)? };
@@ -162,7 +283,7 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
             let maximum = vector(streams, model.add(12)?)?;
             brush_models.push(json!({"native_brush_model":index,
                 "bounds":[[minimum[0]*0.0254,minimum[2]*0.0254,-maximum[1]*0.0254],
-                    [maximum[0]*0.0254,maximum[2]*0.0254,-minimum[1]*0.0254]],"volumes":volumes}));
+                    [maximum[0]*0.0254,maximum[2]*0.0254,-minimum[1]*0.0254]],"volumes":volumes,"triangle_shapes":triangle_shapes}));
         }
     }
     let mut batches = Batches::new();
@@ -174,19 +295,46 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
             brush(streams, entry, &mut batches).map_err(|error| format!("Collision brush {index}: {error}"))?;
         }
     }
+    let mut terrain_batches = BTreeMap::<(u32, u32), Vec<Triangle>>::new();
+    let inactive_triangles = inactive_terrain_triangles(streams, root)?;
     let count = streams.u32(root.add(116)?)? as usize;
     if count != 0 {
         let vertices = pointer(streams, root.add(112)?)?;
         let vertex_count = streams.u32(root.add(108)?)? as usize;
         let triangles = pointer(streams, root.add(120)?)?;
         for index in 0..count {
+            if inactive_triangles.contains(&index) { continue; }
+            if dynamic_triangles.contains(&index) && !static_triangles.contains_key(&index) { continue; }
             let mut triangle = [[0.; 3]; 3];
             for (corner, offset) in [4, 2, 0].into_iter().enumerate() {
                 let vertex = streams.u16(triangles.add(index * 6 + offset)?)? as usize;
                 if vertex >= vertex_count { return Err("Native collision triangle exceeds terrain vertices".into()); }
                 triangle[corner] = vector(streams, vertices.add(vertex * 12)?)?;
             }
-            batches.entry(0).or_default().push(triangle);
+            if let Some(flags) = static_triangles.get(&index) {
+                for &(contents, surface_flags) in flags {
+                    if contents & 0x10001 != 0 { terrain_batches.entry((contents, surface_flags)).or_default().push(triangle); }
+                }
+            } else {
+                let partition_count = streams.u32(root.add(128)?)? as usize;
+                let partitions = pointer(streams, root.add(132)?)?;
+                let mut covering = BTreeSet::new();
+                for partition in 0..partition_count {
+                    let entry = partitions.add(partition * 16)?;
+                    let first = streams.u32(entry.add(4)?)? as usize;
+                    let length = streams.u8(entry)? as usize;
+                    let end = first.checked_add(length).ok_or("Native terrain partition range overflow")?;
+                    if (first..end).contains(&index) { covering.insert(partition); }
+                }
+                let tree_count = streams.u32(root.add(136)?)? as usize;
+                let trees = pointer(streams, root.add(140)?)?;
+                let mut leaf_references = 0;
+                for tree in 0..tree_count {
+                    let entry = trees.add(tree * 32)?;
+                    if streams.u16(entry.add(14)?)? == 0 && covering.contains(&(streams.u32(entry.add(28)?)? as usize)) { leaf_references += 1; }
+                }
+                return Err(format!("Native terrain triangle {index} has no static leaf or dynamic model owner; {} serialized partitions cover it and {leaf_references} AABB leaves reference those partitions", covering.len()).into());
+            }
         }
     }
     let count = streams.u32(root.add(84)?)? as usize;
@@ -218,8 +366,17 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
         triangles += batch.len();
         scene.collision(&format!("native-surface-{flags:08x}"), &positions, *flags)?;
     }
+    for ((contents, flags), batch) in &terrain_batches {
+        let positions: Vec<_> = batch.iter().flatten().map(|[x,y,z]| [(*x*0.0254) as f32,(*z*0.0254) as f32,(-*y*0.0254) as f32]).collect();
+        triangles += batch.len();
+        scene.collision(&format!("native-terrain-{contents:08x}-{flags:08x}"), &positions, *flags)?;
+        let material = scene.data["materials"].as_array_mut().ok_or("Collision scene has no materials")?.last_mut().ok_or("Collision terrain has no material")?;
+        material["extras"]["surface"]["contents"] = json!(contents);
+    }
     let uri = "prepared/worlds/zm_tomb.collision.gltf";
     scene.write(uri, pack)?;
-    println!("Converted native collision: {} meshes, {triangles} triangles, {} dynamic brushes excluded from static collision and {} native brush models retained", batches.len(), dynamic.len(), brush_models.len());
-    Ok(json!({"uri":uri,"meshes":batches.len(),"triangles":triangles,"brush_models":brush_models}))
+    let mesh_count = batches.len() + terrain_batches.len();
+    println!("Excluded {} terrain triangles belonging only to partitions unreferenced by every native AABB leaf", inactive_triangles.len());
+    println!("Converted native collision: {mesh_count} meshes, {triangles} triangles, {} dynamic brushes excluded from static collision and {} native brush models retained", dynamic.len(), brush_models.len());
+    Ok(json!({"uri":uri,"meshes":mesh_count,"triangles":triangles,"brush_models":brush_models}))
 }
