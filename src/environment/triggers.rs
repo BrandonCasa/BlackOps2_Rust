@@ -144,6 +144,9 @@ pub(super) fn spawn(
         return;
     }
     for trigger in &game.environment.triggers {
+        if game.environment.crafting_benches.iter().any(|bench| bench.source_trigger == trigger.id && bench.delete_source) {
+            continue;
+        }
         if let Some(shape) = trigger.collider() {
             let mut entity = commands.spawn((
                 MapTrigger(trigger.id.clone()),

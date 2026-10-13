@@ -17,6 +17,7 @@ pub struct EnvironmentDefinition {
     pub ownership: Vec<support::OwnershipDefinition>,
     pub digging: Option<digging::DigDefinition>,
     pub parts: Vec<parts::PartDefinition>,
+    pub crafting_benches: Vec<crate::crafting::BenchDefinition>,
 }
 #[derive(Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,10 +38,51 @@ pub struct VolumeDefinition {
 }
 impl EnvironmentDefinition {
     pub fn valid(&self, game: &GameDefinition) -> bool {
-        triggers::valid(&self.triggers)
+        !self.crafting_benches.is_empty()
+            && triggers::valid(&self.triggers)
             && brushes::valid(&self.brush_entities)
             && support::valid(self)
             && parts::valid(&self.parts, &game.content)
+            && self.crafting_benches.iter().all(|bench| {
+                !bench.id.is_empty()
+                    && !bench.source_trigger.is_empty()
+                    && !bench.targetname.is_empty()
+                    && !bench.equipname.is_empty()
+                    && self.triggers.iter().any(|trigger| {
+                        trigger.id == bench.source_trigger
+                            && trigger.source.get("targetname") == Some(&bench.targetname)
+                    })
+                    && self.ownership.iter().any(|owner| {
+                        owner.id == bench.source_trigger
+                            && owner.owner == support::EnvironmentOwner::Crafting
+                            && !owner.shootable
+                    })
+                    && bench
+                        .position
+                        .iter()
+                        .chain(&bench.angles)
+                        .all(|value| value.is_finite())
+                    && bench
+                        .dimensions
+                        .iter()
+                        .all(|value| value.is_finite() && *value > 0.)
+                    && bench.use_seconds.is_finite()
+                    && bench.use_seconds > 0.
+            })
+            && self
+                .crafting_benches
+                .iter()
+                .map(|bench| &bench.id)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == self.crafting_benches.len()
+            && self
+                .crafting_benches
+                .iter()
+                .map(|bench| &bench.source_trigger)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == self.crafting_benches.len()
             && self.digging.as_ref().is_none_or(|d| d.valid(game))
             && self.mud.as_ref().is_none_or(|m| {
                 [m.scale, m.stamin_scale, m.step, m.stamin_step, m.interval]

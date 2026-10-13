@@ -14,6 +14,24 @@ use bevy::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 mod source;
 
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BenchDefinition {
+    pub id: String,
+    pub source_trigger: String,
+    pub targetname: String,
+    pub equipname: String,
+    pub weaponname: String,
+    pub hint: String,
+    pub position: [f32; 3],
+    pub angles: [f32; 3],
+    pub dimensions: [f32; 3],
+    pub use_seconds: f32,
+    pub persistent: bool,
+    pub delete_source: bool,
+    pub require_look_at: bool,
+}
+
 #[derive(Component, Default)]
 pub struct BuildableInventory {
     pub equipped: Option<String>,
@@ -30,6 +48,7 @@ pub struct Crafting {
     pub records: BTreeSet<String>,
     pub gramophone: bool,
     benches: BTreeMap<usize, String>,
+    bench_positions: Vec<Vec3>,
     selected: BTreeMap<usize, usize>,
     active: Option<Entity>,
     progress: f32,
@@ -107,6 +126,7 @@ fn setup(
     mut crafting: ResMut<Crafting>,
     mut parts: ResMut<Parts>,
     mut session: ResMut<Session>,
+    game: Res<GameDefinition>,
 ) {
     *crafting = Crafting::default();
     for (name, sites) in source::PART_SITES {
@@ -122,11 +142,13 @@ fn setup(
             .id();
         parts.reveal(&id, entity);
     }
-    for (index, (name, position)) in source::BENCHES.iter().enumerate() {
+    for (index, bench) in game.environment.crafting_benches.iter().enumerate() {
+        let position = Vec3::from_array(bench.position);
+        crafting.bench_positions.push(position);
         commands.spawn((
-            CraftTarget::Bench(index, (*name).into()),
+            CraftTarget::Bench(index, bench.equipname.clone()),
             SessionEntity,
-            Transform::from_translation(Vec3::from_array(*position)),
+            Transform::from_translation(position),
         ));
     }
 }
@@ -322,7 +344,10 @@ pub(crate) fn interact(
             }
         }
         CraftTarget::Bench(index, name) => {
-            let recipe = if name == "open_craftable_trigger" {
+            let Some(bench) = definition.environment.crafting_benches.get(*index) else {
+                return;
+            };
+            let recipe = if name == "open_table" {
                 if let Some(recipe) = crafting.benches.get(index) {
                     recipe.clone()
                 } else {
@@ -347,7 +372,7 @@ pub(crate) fn interact(
                     choices[*crafting.selected.get(index).unwrap_or(&0) % choices.len()].to_string()
                 }
             } else {
-                format!("elemental_{}", name.trim_end_matches("_craftable_trigger"))
+                name.clone()
             };
             let crafted = crafting.crafted.contains(&recipe);
             focus.prompt = if crafted {
@@ -357,7 +382,7 @@ pub(crate) fn interact(
             } else {
                 format!("{}: missing parts", recipe.replace('_', " "))
             };
-            focus.hold_seconds = if crafted { 0. } else { 3. };
+            focus.hold_seconds = if crafted { 0. } else { bench.use_seconds };
             if !input.use_held || crafting.latched || busy {
                 crafting.progress = 0.;
                 if building {
@@ -393,7 +418,7 @@ pub(crate) fn interact(
                 }
                 crafting.progress += time.delta_secs();
                 focus.progress = crafting.progress;
-                if crafting.progress < 3. {
+                if crafting.progress < bench.use_seconds {
                     return;
                 }
                 for id in requirements(&recipe) {
@@ -488,8 +513,8 @@ impl Crafting {
         self.benches
             .iter()
             .find(|(_, recipe)| recipe.as_str() == DRONE)
-            .and_then(|(index, _)| source::BENCHES.get(*index))
-            .map(|(_, p)| Vec3::from_array(*p))
+            .and_then(|(index, _)| self.bench_positions.get(*index))
+            .copied()
     }
 }
 

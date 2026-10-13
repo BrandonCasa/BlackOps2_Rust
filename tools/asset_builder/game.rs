@@ -31,6 +31,8 @@ fn variable(catalog: &Catalog<'_>, name: &str, column: usize, fallback: Value) -
 pub fn read(catalog: &Catalog<'_>, entities: &[crate::entities::Entity]) -> Result<(Value, Vec<String>)> {
     let mut native_gaps = Vec::new();
     let mut native_triggers = Vec::new();
+    let mut native_owners = Vec::new();
+    let mut crafting_benches = Vec::new();
     let mut primitive_counts = [0_usize;2];
     for (index, entity) in entities.iter().enumerate() {
         let Some(class) = entity.get("classname") else { continue; };
@@ -66,7 +68,41 @@ pub fn read(catalog: &Catalog<'_>, entities: &[crate::entities::Entity]) -> Resu
         if let (Some([x,y,z]),Some(shape)) = (origin,shape) {
             native_triggers.push(json!({"id":id,"position":[x*0.0254,z*0.0254,-y*0.0254],"source":entity,
                 "shape":shape}));
-            let owner = if entity.get("targetname").is_some_and(|name| name == "player_slow_area") { "movement" }
+            let name = entity.get("targetname").map(String::as_str).unwrap_or("");
+            let crafting = match name {
+                "open_craftable_trigger" => Some(("open_table","","OPEN_CRAFTABLE",false)),
+                "quadrotor_zm_craftable_trigger" => Some(("equip_dieseldrone_zm","equip_dieseldrone_zm","ZM_TOMB_TQ",true)),
+                "riotshield_zm_craftable_trigger" => Some(("tomb_shield_zm","tomb_shield_zm","ZOMBIE_GRAB_RIOTSHIELD",true)),
+                "staff_air_craftable_trigger" => Some(("elemental_staff_air","staff_air_zm","ZM_TOMB_PUAS",true)),
+                "staff_fire_craftable_trigger" => Some(("elemental_staff_fire","staff_fire_zm","ZM_TOMB_PUFS",true)),
+                "staff_lightning_craftable_trigger" => Some(("elemental_staff_lightning","staff_lightning_zm","ZM_TOMB_PULS",true)),
+                "staff_water_craftable_trigger" => Some(("elemental_staff_water","staff_water_zm","ZM_TOMB_PUIS",true)),
+                "gramophone_craftable_trigger" => Some(("gramophone","gramophone","ZOMBIE_GRAB_GRAMOPHONE",true)),
+                _ => None,
+            };
+            if let Some((equipname,weaponname,hint,persistent)) = crafting {
+                let script_angles = crate::entities::vector(entity,"script_angles")?;
+                let offset_angles = script_angles.unwrap_or([0.;3]);
+                let angles = if let Some(angles) = script_angles.or(crate::entities::vector(entity,"angles")?) { angles }
+                    else { [0.,entity.get("angle").map(|value| value.parse::<f32>()).transpose()?.unwrap_or(0.),0.] };
+                let mut offset_entity = entity.clone();
+                offset_entity.insert("angles".into(),format!("{} {} {}",offset_angles[0],offset_angles[1],offset_angles[2]));
+                let transform = crate::scenes::entity_matrix(&offset_entity)?;
+                let origin = [x*0.0254,z*0.0254,-y*0.0254];
+                let position: [f32;3] = std::array::from_fn(|axis| origin[axis]-transform[8+axis]*(6.*0.0254));
+                let dimension = |key: &str, fallback: f32| -> Result<f32> {
+                    if entity.contains_key(key) { scalar(key)?.ok_or_else(|| format!("Crafting source {id} has invalid {key}").into()) }
+                    else { Ok(fallback*0.0254) }
+                };
+                let dimensions = [dimension("script_width",100.)?,dimension("script_length",32.)?,dimension("script_height",64.)?];
+                crafting_benches.push(json!({"id":format!("crafting.native.{index}"),"source_trigger":id,"targetname":name,
+                    "equipname":equipname,"weaponname":weaponname,"hint":hint,"position":position,"angles":angles,"dimensions":dimensions,
+                    "use_seconds":3.,"persistent":persistent,"delete_source":true,"require_look_at":true}));
+                native_owners.push(json!({"id":id,"owner":"crafting","shootable":false}));
+                if equipname == "gramophone" { native_gaps.push(format!("crafting gramophone recipe/purchase consumer for {id} requires source lifecycle integration")); }
+                continue;
+            }
+            let owner = if name == "player_slow_area" { "movement" }
                 else if entity.get("script_noteworthy").is_some_and(|name| name == "player_volume") { "boundary" }
                 else { "unresolved script" };
             native_gaps.push(format!("environment {owner} ownership/activation/shootability for {id}: native contents and script lifecycle require integration (targetname {:?}, noteworthy {:?})",entity.get("targetname"),entity.get("script_noteworthy")));
@@ -75,7 +111,9 @@ pub fn read(catalog: &Catalog<'_>, entities: &[crate::entities::Entity]) -> Resu
             native_gaps.push(format!("environment native {class} {id} requires explicit source origin and positive finite dimensions; fields: {entity:?}"));
         }
     }
+    if !crafting_benches.is_empty() { native_gaps.push("crafting native per-player unitrigger look/shape/persistence lifecycle conversion".into()); }
     println!("Converted {} of {} native non-brush primitive triggers ({} radius, {} boxes); {} precise native-trigger gaps remain",native_triggers.len(),primitive_counts.iter().sum::<usize>(),primitive_counts[0],primitive_counts[1],native_gaps.len());
+    println!("Converted {} source crafting bench bindings; native per-player unitrigger selection/persistence remains incomplete",crafting_benches.len());
     for gap in &native_gaps { println!("Pending native trigger conversion: {gap}"); }
     let mut localized = Vec::new();
     for (name, zone, root) in catalog.definitions(24) {
@@ -113,7 +151,7 @@ pub fn read(catalog: &Catalog<'_>, entities: &[crate::entities::Entity]) -> Resu
         "worthy_damage_ratio":0.1,"immunity_regular":0.35,"immunity_critical_enter":0.5,
         "immunity_critical_repeat":0.3,"feedback_seconds":0.8},
         "rounds":rounds,"solo_revive":solo,"content":{"localized_strings":localized}});
-    if !native_triggers.is_empty() { game["environment"] = json!({"triggers":native_triggers}); }
+    if !native_triggers.is_empty() { game["environment"] = json!({"triggers":native_triggers,"ownership":native_owners,"crafting_benches":crafting_benches}); }
     Ok((game,native_gaps))
 }
 
@@ -261,7 +299,7 @@ pub fn write((mut game, mut native_gaps): (Value, Vec<String>), worlds: &[Value]
     let (brushes, mut missing) = brushes(world,collision)?;
     missing.append(&mut native_gaps);
     environment(&mut game,brushes,&mut missing)?;
-    for key in ["mud", "triggers", "ownership", "digging", "parts"] {
+    for key in ["mud", "triggers", "ownership", "digging", "parts", "crafting_benches"] {
         if game["environment"].get(key).is_none() { missing.push(format!("environment.{key}")); }
     }
     for key in ["spawn", "yaw", "spawn_points", "waypoints", "survey_views", "rounds", "solo_revive", "environment", "access", "audio", "tuning"] {

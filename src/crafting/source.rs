@@ -107,28 +107,6 @@ pub const PART_SITES: &[(&str, &[[f32; 3]])] = &[
         &[[256.65176, -9.985502, 206.8068]],
     ),
 ];
-pub const BENCHES: &[(&str, [f32; 3])] = &[
-    ("open_craftable_trigger", [-22.5552, -4.9784, -59.2074]),
-    ("open_craftable_trigger", [58.7248, 1.016, -18.3642]),
-    ("open_craftable_trigger", [3.717366, 2.7432, 75.871832]),
-    (
-        "staff_air_craftable_trigger",
-        [-4.130548, -18.3388, -5.402326],
-    ),
-    (
-        "staff_lightning_craftable_trigger",
-        [1.563116, -18.3388, -6.617208],
-    ),
-    (
-        "staff_fire_craftable_trigger",
-        [4.124198, -18.3388, -5.401056],
-    ),
-    (
-        "staff_water_craftable_trigger",
-        [-1.599184, -18.3388, -6.635242],
-    ),
-];
-
 pub const PART_MODELS: &[(&str, &str)] = &[
     (
         "part.equip_dieseldrone_zm.body",
