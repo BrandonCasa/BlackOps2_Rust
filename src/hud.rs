@@ -112,7 +112,7 @@ pub(crate) fn readout(world: &mut World) -> String {
         .join("\n")
 }
 
-#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+#[cfg(all(debug_assertions, feature = "dev-tools"))]
 pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
     let labels: Vec<_> = world
         .query::<(

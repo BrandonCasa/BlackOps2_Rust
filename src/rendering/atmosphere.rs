@@ -273,7 +273,7 @@ pub(super) fn source_direction(pitch: f32, yaw: f32) -> Vec3 {
     Vec3::new(cp * cy, -sp, -cp * sy)
 }
 
-#[cfg(feature = "dev-dynamic")]
+#[cfg(feature = "dev-tools")]
 pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
     let state = world.resource::<AtmosphereState>();
     let mut result = serde_json::json!({

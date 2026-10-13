@@ -469,7 +469,7 @@ fn quest_lights(
     }
 }
 
-#[cfg(feature = "dev-dynamic")]
+#[cfg(feature = "dev-tools")]
 pub(crate) fn quest_light_snapshot(world: &mut World) -> Value {
     let materials = world.resource::<Assets<StandardMaterial>>();
     Value::Array(world.iter_entities().filter_map(|entity| {
@@ -479,7 +479,7 @@ pub(crate) fn quest_light_snapshot(world: &mut World) -> Value {
     }).collect())
 }
 
-#[cfg(feature = "dev-dynamic")]
+#[cfg(feature = "dev-tools")]
 pub(crate) fn weapon_material_snapshot(world: &mut World) -> Value {
     let materials = world.resource::<Assets<StandardMaterial>>();
     let server = world.resource::<AssetServer>();

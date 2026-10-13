@@ -180,7 +180,7 @@ pub struct AudioEvidence {
     pub events: BTreeMap<String, u32>,
     pub sinks: BTreeMap<String, u32>,
 }
-#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+#[cfg(all(debug_assertions, feature = "dev-tools"))]
 #[derive(Resource, Default)]
 pub(crate) struct RequestedAliases(pub BTreeMap<String, u32>);
 #[derive(Resource, Default)]
@@ -459,7 +459,7 @@ fn play(
         MessageWriter<PlaybackEvent>,
         ResMut<Lifetimes>,
     ),
-    #[cfg(all(debug_assertions, feature = "dev-dynamic"))] mut validation_requests: Option<
+    #[cfg(all(debug_assertions, feature = "dev-tools"))] mut validation_requests: Option<
         ResMut<RequestedAliases>,
     >,
 ) {
@@ -511,7 +511,7 @@ fn play(
             continue;
         }
         evidence.requested += 1;
-        #[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+        #[cfg(all(debug_assertions, feature = "dev-tools"))]
         if let Some(aliases) = validation_requests.as_mut() {
             *aliases.0.entry(request.alias.clone()).or_default() += 1;
         }

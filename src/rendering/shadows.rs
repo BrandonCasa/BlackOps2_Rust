@@ -66,7 +66,7 @@ pub(super) fn select_local_lights(
     }
 }
 
-#[cfg(feature = "dev-dynamic")]
+#[cfg(feature = "dev-tools")]
 pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
     use bevy::{
         camera::primitives::Aabb,

@@ -257,7 +257,7 @@ impl Film {
     }
 }
 
-#[cfg(feature = "dev-dynamic")]
+#[cfg(feature = "dev-tools")]
 pub(super) fn snapshot(world: &World) -> serde_json::Value {
     let grade = world.resource::<SourceGrade>();
     let source = world.resource::<SourceAtmosphere>();

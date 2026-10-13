@@ -27,7 +27,7 @@ mod solari;
 mod viewport;
 pub(crate) use opaque::NativeArtInputs;
 pub(crate) use opaque::OpaqueSurfaceStatus;
-#[cfg(feature = "dev-dynamic")]
+#[cfg(feature = "dev-tools")]
 pub(crate) use opaque::weapon_material_snapshot;
 pub(crate) use pbr::PbrReady;
 pub(crate) use preprocessing::PreprocessingStatus;
@@ -58,7 +58,7 @@ struct LanternLight;
 #[derive(Component)]
 pub(crate) struct FixtureEmitter(pub String);
 
-#[cfg(feature = "dev-dynamic")]
+#[cfg(feature = "dev-tools")]
 #[derive(Resource)]
 pub(crate) struct ValidationView(pub Transform);
 
@@ -231,7 +231,7 @@ pub(crate) fn setup(
 }
 
 fn camera_follow(
-    #[cfg(feature = "dev-dynamic")] validation_view: Option<Res<ValidationView>>,
+    #[cfg(feature = "dev-tools")] validation_view: Option<Res<ValidationView>>,
     players: Query<
         (
             &Player,
@@ -247,7 +247,7 @@ fn camera_follow(
     definition: Option<Res<GameDefinition>>,
     state: Res<State<GameState>>,
 ) {
-    #[cfg(feature = "dev-dynamic")]
+    #[cfg(feature = "dev-tools")]
     if let Some(view) = validation_view {
         for (mut transform, _) in &mut camera {
             *transform = view.0;

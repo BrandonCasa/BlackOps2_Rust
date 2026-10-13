@@ -80,7 +80,7 @@ impl LaunchOptions {
                 let port = args
                     .next()
                     .map_or(Some(15702), |v| v.to_str()?.parse::<u16>().ok());
-                if cfg!(all(debug_assertions, feature = "dev-dynamic"))
+                if cfg!(all(debug_assertions, feature = "dev-tools"))
                     && port.is_some_and(|p| p > 0 && p != 15703)
                     && args.next().is_none()
                 {

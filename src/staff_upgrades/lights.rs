@@ -236,7 +236,7 @@ fn bind(
     }
 }
 
-#[cfg(feature = "dev-dynamic")]
+#[cfg(feature = "dev-tools")]
 pub(crate) fn binding_snapshot(world: &mut World) -> serde_json::Value {
     let discs: Vec<_> = world
         .query::<(Entity, &Disc)>()

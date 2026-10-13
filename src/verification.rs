@@ -36,9 +36,9 @@ mod pipelines;
 mod placements;
 mod powerups;
 mod release_performance;
-#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+#[cfg(all(debug_assertions, feature = "dev-tools"))]
 mod remote;
-#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+#[cfg(all(debug_assertions, feature = "dev-tools"))]
 mod rendering;
 mod replacements;
 mod weapon_actions;
@@ -151,7 +151,7 @@ fn power_fixture(world: &mut World, placement: &str) {
 }
 impl Plugin for VerificationPlugin {
     fn build(&self, app: &mut App) {
-        #[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+        #[cfg(all(debug_assertions, feature = "dev-tools"))]
         if let Some(port) = app.world().resource::<LaunchOptions>().validation_remote {
             remote::install(app, port);
             rendering::install(app);

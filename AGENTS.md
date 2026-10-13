@@ -30,7 +30,7 @@ Keep `todo.md` as the sole project checklist, with concrete implementation tasks
 
 Use proportional checks and respect explicit instructions such as "do not test" or "do not commit." Keep compiler checks, actual-game behavior, visual inspection, and measured performance distinct. A review cannot prove that no bugs remain; compilation cannot prove gameplay correctness or an FPS improvement.
 
-Development builds use `cargo build --features dev-dynamic --locked`; release builds omit `dev-dynamic`. Build only when changed compiled inputs require it. Reuse `target/debug/origins.exe` with its matching development DLLs for repeated scenarios. Do not copy the executable alone. Use release builds for release performance comparisons and account for other system load.
+All game builds use static Bevy linking. Development builds use `cargo build --features dev-tools --locked`; release builds omit `dev-tools`. Build only when changed compiled inputs require it. Reuse `target/debug/origins.exe` for repeated scenarios. Use release builds for release performance comparisons and account for other system load.
 
 Before every game launch, check running game processes across all checkouts and worktrees and check for overlapping GPU captures. If either is active, wait and periodically recheck; continue independent work where possible and recheck immediately before launch. Do not launch another instance, stop another task's process, or ask for redundant launch approval. Close abandoned processes owned by this work normally. Cancel administrator prompts and use tools that do not require elevation.
 

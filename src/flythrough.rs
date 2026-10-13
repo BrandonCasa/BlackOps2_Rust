@@ -106,7 +106,7 @@ pub fn app(mut arguments: impl Iterator<Item = OsString>) -> Result<App, String>
                     .ok_or("--speed requires a number from 0.25 to 8")?;
             },
             Some("--exit-on-finish") => settings.exit_on_finish = true,
-            Some("--validation-remote") if cfg!(all(debug_assertions, feature = "dev-dynamic")) => {
+            Some("--validation-remote") if cfg!(all(debug_assertions, feature = "dev-tools")) => {
                 options.validation_remote = Some(arguments.next().and_then(|v| v.to_str()?.parse().ok())
                     .filter(|p: &u16| *p > 0 && *p != 15703).ok_or("--validation-remote requires a loopback port other than 15703")?);
             },
@@ -388,7 +388,7 @@ fn save(settings: &Settings, tour: &mut Tour, status: &mut TourStatus, window: O
     let report = serde_json::json!({
         "completed": status.phase == "finished", "phase":status.phase, "speed":settings.speed,
         "profile":if cfg!(debug_assertions) {"development"} else {"release"},
-        "dev_dynamic":cfg!(feature="dev-dynamic"), "executable":std::env::current_exe().ok(),
+        "dev_tools":cfg!(feature="dev-tools"), "executable":std::env::current_exe().ok(),
         "bundle_source":bundle.as_ref().map(|b| &b["source"]), "bundle_binaries":bundle.as_ref().map(|b| &b["binaries"]),
         "bundle_identity_file":std::env::current_exe().ok().map(|p|p.with_file_name("identity.json")),
         "physical_resolution":window.map(|w|[w.physical_width(),w.physical_height()]),

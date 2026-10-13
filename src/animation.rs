@@ -329,7 +329,7 @@ fn apply_playback(
     }
 }
 
-#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+#[cfg(all(debug_assertions, feature = "dev-tools"))]
 pub(crate) fn observation(world: &mut World) -> Vec<serde_json::Value> {
     let mut targets: HashMap<Entity, Vec<serde_json::Value>> = HashMap::new();
     for (owner, name, pose, rest) in world

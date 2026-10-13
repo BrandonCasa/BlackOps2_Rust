@@ -257,7 +257,7 @@ fn inspect(
     }
 }
 
-#[cfg(all(debug_assertions, feature = "dev-dynamic"))]
+#[cfg(all(debug_assertions, feature = "dev-tools"))]
 pub(super) fn snapshot(world: &World) -> serde_json::Value {
     serde_json::json!({"pending":world.resource::<PipelineReadiness>().0.load(Ordering::Relaxed),"error":world.resource::<PipelineFailures>().0.lock().ok().and_then(|v|v.clone()),
         "mesh_consistency":world.get_resource::<MeshConsistency>().and_then(|r|r.0.lock().ok().map(|v|v.clone()))})

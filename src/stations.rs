@@ -284,7 +284,7 @@ fn tick(
     };
 }
 
-#[cfg(feature = "dev-dynamic")]
+#[cfg(feature = "dev-tools")]
 pub(crate) fn snapshot(stations: &Stations) -> serde_json::Value {
     use serde_json::json;
     let boxes: Vec<_> = stations
