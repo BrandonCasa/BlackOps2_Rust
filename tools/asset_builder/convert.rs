@@ -125,11 +125,18 @@ pub fn images(install: &Path, catalog: &Catalog<'_>, pack: &mut Pack, required: 
         let semantic = zone.streams.u8(root.add(5)?)?;
         let role = match semantic { 5 => "normal", 8 => "response", _ => "color" };
         let mut uris = BTreeMap::new();
+        let mut linear: Option<Arc<Vec<u8>>> = None;
         for (transfer, srgb) in [("linear", false), ("srgb", true)] {
             let uri = format!("prepared/images/{}/{transfer}.ktx2", rows.len());
-            let bytes = texture::encode(&source, srgb, role)?;
-            texture::validate(&bytes).map_err(|error| format!("Converted image {name}/{transfer}: {error}"))?;
-            pack.entries.insert(uri.clone(), Arc::new(bytes));
+            let bytes = if srgb && (matches!(role,"normal" | "response") || source.format == 19) {
+                linear.as_ref().ok_or("Linear image encoding is missing")?.clone()
+            } else {
+                let bytes = texture::encode(&source, srgb, role)?;
+                texture::validate(&bytes).map_err(|error| format!("Converted image {name}/{transfer}: {error}"))?;
+                Arc::new(bytes)
+            };
+            if !srgb { linear = Some(bytes.clone()); }
+            pack.entries.insert(uri.clone(), bytes);
             uris.insert(transfer, uri);
         }
         let language = if zone_name.starts_with("en_") { "english" } else { "all" };

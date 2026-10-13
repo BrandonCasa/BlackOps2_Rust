@@ -392,6 +392,41 @@ pub fn world(catalog: &Catalog<'_>, zone: usize, root: Address) -> Result<Vec<Su
     Ok(meshes)
 }
 
+pub fn material_names(catalog: &Catalog<'_>) -> Result<std::collections::BTreeSet<String>> {
+    let mut names = std::collections::BTreeSet::new();
+    for (name,zone,root) in catalog.definitions(5) {
+        let streams = &catalog.zones[zone].1.streams;
+        let surfaces = pointer(streams,root.add(32)?)?;
+        let materials = pointer(streams,root.add(36)?)?;
+        let surface_count = streams.u8(root.add(6)?)? as usize;
+        let lod_count = streams.u16(root.add(196)?)? as usize;
+        if lod_count == 0 || lod_count > 4 { return Err(format!("Model {name} has invalid LOD count {lod_count}").into()); }
+        for lod in 0..lod_count {
+            let info = root.add(40+lod*28)?;
+            let count = streams.u16(info.add(4)?)? as usize;
+            let first = streams.u16(info.add(6)?)? as usize;
+            if first+count > surface_count { return Err(format!("Model {name} LOD material range exceeds surface array").into()); }
+            for index in first..first+count {
+                let surface = surfaces.add(index*80)?;
+                if streams.u16(surface.add(4)?)? != 0 && streams.u16(surface.add(6)?)? != 0 {
+                    names.insert(catalog.pointer(zone,materials.add(index*4)?,6)?.0);
+                }
+            }
+        }
+    }
+    for (_,zone,root) in catalog.definitions(17) {
+        let streams = &catalog.zones[zone].1.streams;
+        let surfaces = pointer(streams,root.add(872)?)?;
+        for index in 0..streams.u32(root.add(16)?)? as usize {
+            let surface = surfaces.add(index*80)?;
+            if streams.u16(surface.add(42)?)? != 0 {
+                names.insert(catalog.pointer(zone,surface.add(48)?,6)?.0);
+            }
+        }
+    }
+    Ok(names)
+}
+
 pub fn validate(catalog: &Catalog<'_>) -> Result<std::collections::BTreeSet<String>> {
     for (zone_name, zone) in catalog.zones {
         for asset in zone.assets.iter().filter(|asset| asset.kind == 17 && !asset.reference) {
@@ -434,6 +469,45 @@ pub fn validate(catalog: &Catalog<'_>) -> Result<std::collections::BTreeSet<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unlit_vertex_alpha_matches_constant_rgb_source_interpolation() {
+        let mut vertices = vec![0;3*32];
+        for (index,vertex) in vertices.chunks_exact_mut(32).enumerate() {
+            vertex[..4].copy_from_slice(&(index as f32).to_le_bytes());
+            vertex[12..16].copy_from_slice(&1_f32.to_le_bytes());
+            vertex[24..28].copy_from_slice(&1_u32.to_le_bytes());
+            vertex[28..32].copy_from_slice(&1024_u32.to_le_bytes());
+        }
+        let indices: Vec<_> = [0_u16,1,2].into_iter().flat_map(u16::to_le_bytes).collect();
+        let mut surface = Surface::read("unlit".into(),0,&vertices,32,&indices,"unlit".into()).unwrap();
+        surface.colors = vec![[128,64,32,0],[128,64,32,128],[128,64,32,255]];
+        for (transfer,coverage) in [("gamma2_alpha","unlit_blend"),("gamma2","unlit_add")] {
+            let mut scene = crate::gltf::Scene::new("unlit");
+            let converted = std::collections::BTreeMap::from([("unlit".into(),serde_json::json!({"name":"unlit",
+                "extras":{"surface":{"source_vertex_color_transfer":transfer,"source_coverage":coverage}}}))]);
+            let materials = scene.materials([&surface],&converted).unwrap();
+            scene.mesh("unlit",[&surface],&materials,false).unwrap();
+            let color_index = scene.data["meshes"][0]["primitives"][0]["attributes"]["COLOR_0"].as_u64().unwrap() as usize;
+            let accessor = &scene.data["accessors"][color_index];
+            assert_eq!(accessor["componentType"],5126);
+            let start = scene.data["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize]["byteOffset"].as_u64().unwrap() as usize;
+            let mut pack = crate::pack::Pack::default();
+            scene.write("prepared/unlit.gltf",&mut pack).unwrap();
+            let bytes = pack.get("prepared/unlit.bin").unwrap();
+            let values: [[f32;4];3] = std::array::from_fn(|i| std::array::from_fn(|c| f32::from_bits(u32_at(bytes,start+i*16+c*4))));
+            let weights = [0.2,0.3,0.5];
+            let alpha = 0.3*128./255.+0.5;
+            for c in 0..3 {
+                let interpolated: f32 = (0..3).map(|i| values[i][c]*weights[i]).sum();
+                let tint = [128.,64.,32.][c]/255.;
+                let expected = tint*tint*if coverage == "unlit_blend" {alpha} else {1.};
+                assert!((interpolated-expected).abs()<0.000001);
+            }
+            if coverage == "unlit_add" { assert!(values.iter().all(|value| value[3] == 1.)); }
+            else { assert_eq!(values.map(|value| value[3]),[0.,128./255.,1.]); }
+        }
+    }
 
     #[test]
     fn native_binding_groups_and_weight_endpoints() {

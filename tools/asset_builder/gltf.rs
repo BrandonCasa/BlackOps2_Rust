@@ -147,10 +147,13 @@ impl Scene {
             let indices = self.accessor(&index_bytes, surface.indices.len(), 5123, "SCALAR", 34963);
             let material = *materials.get(&surface.material.to_ascii_lowercase())
                 .ok_or_else(|| format!("Converted surface material is missing: {}", surface.material))?;
-            let colors = if self.data["materials"][material]["extras"]["surface"]["source_vertex_color_transfer"] == "gamma2" {
+            let surface_material = &self.data["materials"][material]["extras"]["surface"];
+            let transfer = surface_material["source_vertex_color_transfer"].as_str();
+            let colors = if matches!(transfer,Some("gamma2" | "gamma2_alpha")) {
                 let values: Vec<[f32; 4]> = surface.colors.iter().map(|color| std::array::from_fn(|c| {
                     let value = color[c] as f32 / 255.;
-                    if c < 3 { value * value } else { value }
+                    if c < 3 { value * value * if transfer == Some("gamma2_alpha") {color[3] as f32/255.} else {1.} }
+                    else if surface_material["source_coverage"] == "unlit_add" {1.} else {value}
                 })).collect();
                 self.floats(&values, "VEC4")
             } else {

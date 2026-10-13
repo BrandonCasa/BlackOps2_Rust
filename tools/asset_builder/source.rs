@@ -43,7 +43,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     let entities = crate::entities::read(&catalog)?;
     crate::scenes::validate_placements(&catalog, &entities)?;
     let used_materials = crate::geometry::validate(&catalog)?;
-    let materials = crate::material::read_used(&catalog, &used_materials)?;
+    let mut materials = crate::material::read_used(&catalog, &used_materials)?;
     let research = PathBuf::from(std::env::var_os("USERPROFILE").ok_or("USERPROFILE is unavailable")?)
         .join("Documents/T6ZMResearch/t6zm-master");
     if !research.is_dir() {
@@ -108,6 +108,13 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         println!("Packed {} baked native surfaces into {}", baked.len(), output.display());
         return Ok(());
     }
+    let camos = crate::material::read_camos(&catalog)?;
+    let camo_options = crate::material::read_camo_options(&catalog)?;
+    if camo_options[45].is_none() { return Err("Required Origins upgraded camo option is missing from the installed source table".into()); }
+    let camo_dependencies = crate::material::camo_dependencies(&camos,&camo_options,45);
+    let extra: std::collections::BTreeSet<_> = camo_dependencies.into_iter().filter(|name| !materials.contains_key(name)).collect();
+    materials.extend(crate::material::read_used(&catalog,&extra)?);
+    println!("Resolved {} native camo definitions and {} additional source/replacement material dependencies for Origins upgraded camo",camos.len(),extra.len());
     let game = crate::game::read(&catalog,&entities)?;
     let animations = crate::animation_decode::read(&catalog)?;
     let wide = animations.iter().filter(|entry| entry.clip.frames >= 256).count();
@@ -302,6 +309,91 @@ mod tests {
             }
         }
         println!("Converted five ordinary families: {} materials, {masked} masked, {normals} normal maps, {responses} response maps; exported {scenes} world/model LOD scenes and {triangles} triangles into {} in-memory pack entries",converted.len(),pack.entries.len());
+    }
+
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
+    fn installed_ordinary_materials_increment() {
+        let install = super::installation().unwrap();
+        let zones = super::read_zones(&install).unwrap();
+        let catalog = crate::convert::Catalog::new(&zones);
+        let used = crate::geometry::material_names(&catalog).unwrap();
+        let all = crate::material::read_used(&catalog,&used).unwrap();
+        assert_eq!(all.len(),1034);
+        let gaps = crate::material::unimplemented(&all);
+        assert_eq!(gaps.len(),138);
+        let camos = crate::material::read_camos(&catalog).unwrap();
+        let options = crate::material::read_camo_options(&catalog).unwrap();
+        assert_eq!(camos.len(),35);
+        assert!(options[45].unwrap().material);
+        assert_eq!(options[45].unwrap().selection,13);
+        let records: Vec<_> = camos.values().flat_map(|camo| camo.material_sets.get(12).into_iter().flatten()).collect();
+        assert_eq!(records.len(),68);
+        assert_eq!(records.iter().filter(|record| record.pairs.is_empty()).count(),7);
+        let dependencies = crate::material::camo_dependencies(&camos,&options,45);
+        let camo_materials = crate::material::read_used(&catalog,&dependencies).unwrap();
+        let initial = std::collections::BTreeMap::from([(181,[0.;4]),(185,[0.;4])]);
+        let mut camo_bindings = 0;
+        for camo in camos.values() {
+            let mut queue = Vec::new();
+            crate::material::queue_camo(camo,&options,45,0.,2,&camo_materials,&mut queue).unwrap();
+            assert!(queue.len()<=1024);
+            for original in camo_materials.keys() {
+                let selected = crate::material::camo_material(&queue,original,1);
+                if selected == original.as_str() { continue; }
+                let (bound,constants) = crate::material::camo_inputs(&queue,&camo_materials[selected],1,&initial).unwrap();
+                for texture in bound["textures"].as_array().unwrap() { catalog.resolve(8,texture["image"].as_str().unwrap()).unwrap(); }
+                assert_eq!(constants[&181],[0.;4]);
+                assert!(constants[&185].iter().all(|value| value.is_finite()));
+                camo_bindings+=1;
+            }
+        }
+        assert!(camo_bindings>0);
+        println!("Read {} installed camo definitions, {} material-set-13 records and {} source/replacement dependencies; resolved {camo_bindings} controlled model-index binding plans, not runtime-active descriptor selection",camos.len(),records.len(),dependencies.len());
+        let prior = ["mc_lit_sm_r0c0s0_986ezzjq","wpc_lit_sm_r0c0n0_80fe30wz","mc_lit_sm_t0c0_90wz6fe2",
+            "wpc_lit_sm_t0c0_2w3887e6","wpc_lit_sm_t0c0n0_9ew0jz24"];
+        let families = ["mc_lit_sm_t0c0n0_9qf6e4qj","wpc_lit_sm_t0c0n0s0_weef63f3","mc_lit_sm_b0c0_fw0jf955",
+            "mc_lit_sm_b0c0s0_805w75j2","wpc_lit_sm_b0c0n0_19f3588f","wpc_lit_sm_b0c0_6j30z67q",
+            "mc_lit_sm_b0c0n0_67fqj7jf","wpc_lit_sm_r0c0s0_qfqz7850","wpc_lit_sm_r0c0x0_5j63fj97","wpc_lit_sm_b0c0s0_3f3q946z",
+            "mc_unlit_replace_3j970129","mc_unlit_add_ww82zw88","mc_unlit_blend_588ewzff","wpc_unlit_add_8ez3wzw3","wpc_unlit_replace_4688792e"];
+        let selected: std::collections::BTreeMap<_,_> = all.iter().filter(|(_,material)| {
+            let family = material["technique_set"].as_str().unwrap(); families.contains(&family) || prior.contains(&family)
+        }).map(|(key,material)| (key.clone(),material.clone())).collect();
+        assert_eq!(selected.len(),83);
+        let required = crate::material::inputs(&selected,&catalog).unwrap();
+        assert!(!required.is_empty());
+        let names = ["mc/mtl_p6_zm_tm_foliage_trunk_splinter","mc/mtl_p6_zm_wood_fence","wpc/decal_trim_metal_grate01",
+            "mc/mtl_p6_zm_tm_science_glass","mc/me_glassdirt","mc/mtl_t6_veh_drone_quad_rotor_blades","wpc/zm_tm_decal_damage_crack_06",
+            "wpc/zm_tm_stencil_numbers","mc/zm_tm_wall_concrete_blend","wpc/mtl_p6_zm_tm_science_metal","wpc/com_black2","wpc/me_glassdirt",
+            "mc/mtl_p6_zm_tm_robot_map","mc/mtl_t6_attach_trinium_sight_green","mc/mat_veh_t6_dlc_zm_drone_water",
+            "wpc/pb_decal_wall_fillet_2","wpc/global_color_black_unlit"];
+        let samples = names.iter().map(|&name| (name.into(),selected[name].clone())).collect();
+        let sample_images = crate::material::inputs(&samples,&catalog).unwrap();
+        let mut pack = crate::pack::Pack::default();
+        let (rows,images) = crate::convert::images(&install,&catalog,&mut pack,Some(&sample_images)).unwrap();
+        let mut shared = 0;
+        for row in rows {
+            let a = &pack.entries[row["uris"]["linear"].as_str().unwrap()];
+            let b = &pack.entries[row["uris"]["srgb"].as_str().unwrap()];
+            if std::sync::Arc::ptr_eq(a,b) { shared+=1; }
+            crate::texture::validate(a).unwrap();
+            crate::texture::validate(b).unwrap();
+        }
+        assert!(shared>0);
+        let converted = crate::material::convert_known(&samples,&images,&mut pack).unwrap();
+        assert_eq!(converted.len(),names.len());
+        for material in converted.values() {
+            for channel in material["extras"]["surface"]["channels"].as_array().unwrap() {
+                crate::texture::validate(pack.get(channel["uri"].as_str().unwrap()).unwrap()).unwrap();
+            }
+        }
+        assert_eq!(converted.values().filter(|material| material["extras"]["surface"]["presentation"]["alpha"] == "mask").count(),3);
+        assert_eq!(converted.values().filter(|material| material["extras"]["surface"]["presentation"]["alpha"] == "premultiplied").count(),7);
+        assert_eq!(converted.values().filter(|material| material["extras"]["surface"]["standard"]["unlit"] == true).count(),5);
+        let pending = crate::material::missing(&samples,&converted);
+        assert_eq!(pending.len(),2);
+        assert!(pending.iter().all(|reason| reason.contains("Native ONE/ONE addition")));
+        println!("Checked exact programs, routes, active inputs and states for {} materials in twenty families; {} image definitions resolve; converted {} representative materials; reused {shared} identical image encodings; {} dispatch gaps and two sampled additive-fog runtime gaps remain",selected.len(),required.len(),converted.len(),gaps.len());
     }
 
     fn installed_material_families(families: &[&str], expected: usize) {
