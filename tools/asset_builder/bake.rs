@@ -4,6 +4,9 @@ use std::{collections::BTreeMap, sync::Arc};
 
 const GUTTER: usize = 8;
 
+#[path = "bake_gpu.rs"]
+mod gpu;
+
 struct Input {
     width: usize,
     height: usize,
@@ -17,6 +20,7 @@ impl Input {
         Ok(Self { width:image.width, height:image.height, sampler, pixels:texture::pixels(image, 0)? })
     }
 
+    #[cfg(test)]
     fn sample(&self, uv: [f32; 2]) -> [f32; 4] {
         texture::sample(&self.pixels,self.width,self.height,uv,self.sampler)
     }
@@ -316,6 +320,7 @@ struct Recipe {
 }
 
 impl Recipe {
+    #[cfg(test)]
     fn sample(&self, uv0: [f32;2], uv1: [f32;2], uv2: [f32;2], green: f32, blue: f32, transform: [f32;4]) -> Result<[[f32;4];4]> {
         let inputs = &self.inputs;
         if self.multiply || self.additive || self.blend_color {
@@ -458,18 +463,28 @@ fn periodic_key(surface: &Surface, first: usize, color_only_layer: bool) -> Resu
     Ok(Some(key))
 }
 
-fn periodic(native: &Value, recipe: &Recipe, key: &[u32], uri: &str, pack: &mut Pack) -> Result<Value> {
+fn periodic(native: &Value, recipe: &Recipe, baker: &gpu::Baker, key: &[u32], uri: &str, pack: &mut Pack) -> Result<Value> {
     let width = recipe.inputs.iter().map(|image| image.width).max().ok_or("Periodic material has no inputs")?;
     let height = recipe.inputs.iter().map(|image| image.height).max().unwrap();
     let mut outputs: [Vec<[f32;4]>;4] = std::array::from_fn(|_| Vec::with_capacity(width*height));
     let green = key[0] as f32/255.;
-    let transform = std::array::from_fn(|axis| 2.*f32::from_bits(key[axis+1])-1.);
+    let transform: [f32;4] = std::array::from_fn(|axis| 2.*f32::from_bits(key[axis+1])-1.);
     let offset: [f32;2] = std::array::from_fn(|axis| f32::from_bits(key[axis+5]));
-    for y in 0..height { for x in 0..width {
-        let uv0 = [(x as f32+0.5)/width as f32,(y as f32+0.5)/height as f32];
-        let uv1 = std::array::from_fn(|axis| uv0[axis]+offset[axis]);
-        for (output,pixel) in outputs.iter_mut().zip(recipe.sample(uv0,uv1,uv0,green,0.,transform)?) { output.push(pixel); }
-    }}
+    for start in (0..width*height).step_by(262_144) {
+        let mut samples = vec![[0.;12]; (width*height-start).min(262_144)];
+        parallel_chunks_mut(&mut samples, 4096, |base, samples| {
+            for (index, sample) in samples.iter_mut().enumerate() {
+                let index = start+base+index;
+                let uv0 = [((index%width) as f32+0.5)/width as f32,((index/width) as f32+0.5)/height as f32];
+                let uv1: [f32;2] = std::array::from_fn(|axis| uv0[axis]+offset[axis]);
+                *sample = [uv0[0],uv0[1],uv1[0],uv1[1],uv0[0],uv0[1],green,0.,transform[0],transform[1],transform[2],transform[3]];
+            }
+            Ok(())
+        })?;
+        for pixel in baker.sample(&samples)? {
+            for (output,pixel) in outputs.iter_mut().zip(pixel) { output.push(pixel); }
+        }
+    }
     let material = store(native,uri,width,height,outputs,20,0,pack)?;
     println!("Baked shared periodic recipe {uri}: {width}x{height}, source green {}",key[0]);
     Ok(material)
@@ -486,8 +501,10 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
     let mut image = texture::Image { width, height, depth:1, faces:1, format:if hdr {19} else {1}, flags:0, levels:Vec::new() };
     let (mut w, mut h, mut pixels) = (width, height, pixels);
     loop {
-        let mut bytes = Vec::with_capacity(w * h * if hdr {8} else {4});
-        for pixel in &pixels {
+        let stride = if hdr {8} else {4};
+        let mut bytes = vec![0;w*h*stride];
+        parallel_chunks_mut(&mut bytes, 4096*stride, |offset, bytes| {
+        for (bytes,pixel) in bytes.chunks_exact_mut(stride).zip(&pixels[offset/stride..]) {
             let mut value = *pixel;
             if role == "normal" {
                 let length = value[..3].iter().map(|v| v*v).sum::<f32>().sqrt();
@@ -503,21 +520,27 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
                 if value.iter().any(|v| !v.is_finite() || !(0. ..=65504.).contains(v)) || value[3] > 1. {
                     return Err("Baked material pixel exceeds half-float color range".into());
                 }
-                for component in value { bytes.extend(half::f16::from_f32(component).to_le_bytes()); }
+                for (bytes,component) in bytes.chunks_exact_mut(2).zip(value) { bytes.copy_from_slice(&half::f16::from_f32(component).to_le_bytes()); }
             } else {
                 if value.iter().any(|v| !v.is_finite() || !(0. ..=1.).contains(v)) { return Err("Baked material pixel exceeds UNORM range".into()); }
-                bytes.extend(value.map(|v| (v*255.).round() as u8));
+                bytes.copy_from_slice(&value.map(|v| (v*255.).round() as u8));
             }
         }
+        Ok(())
+        })?;
         image.levels.push(bytes);
         if w == 1 && h == 1 { break; }
         let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
-        let mut next = Vec::with_capacity(nw * nh);
-        for y in 0..nh { for x in 0..nw {
+        let mut next = vec![[0.;4];nw*nh];
+        parallel_chunks_mut(&mut next, 4096, |offset, next| {
+        for (index,pixel) in next.iter_mut().enumerate() {
+            let (x,y) = ((offset+index)%nw,(offset+index)/nw);
             let values = [pixels[(y*2).min(h-1)*w + (x*2).min(w-1)], pixels[(y*2).min(h-1)*w + (x*2+1).min(w-1)],
                 pixels[(y*2+1).min(h-1)*w + (x*2).min(w-1)], pixels[(y*2+1).min(h-1)*w + (x*2+1).min(w-1)]];
-            next.push(std::array::from_fn(|c| values.iter().map(|v| v[c]).sum::<f32>() * 0.25));
-        }}
+            *pixel=std::array::from_fn(|c| values.iter().map(|v| v[c]).sum::<f32>() * 0.25);
+        }
+        Ok(())
+        })?;
         (w, h, pixels) = (nw, nh, next);
     }
     Ok(image)
@@ -601,7 +624,7 @@ fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<R
     Ok(Recipe {inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:reveal_parms})
 }
 
-fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<Vec<Surface>> {
+fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, baker: &gpu::Baker, uri: &str, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<Vec<Surface>> {
     let (decal,layer_specular,inputs) = (recipe.decal,recipe.layer_specular,&recipe.inputs);
     let mut charts = Vec::<Chart>::new();
     let mut shared_charts = BTreeMap::<Vec<u32>,(usize,[usize;3])>::new();
@@ -707,10 +730,10 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
     let mut normals = vec![[0.,0.,1.,1.]; width*height];
     let mut response = if layer_specular || recipe.base_alpha_response { vec![[1.,1.,0.,1.];width*height] } else { Vec::new() };
     let mut specular = if layer_specular { vec![[0.04,0.04,0.04,0.];width*height] } else { Vec::new() };
-    let mut coverage = vec![f64::INFINITY;width*height];
     let mut basis_errors = [0_f64;2];
     let mut basis_texels = 0_usize;
     let mut basis_triangles = 0_usize;
+    let mut raster = Vec::new();
     for chart in &page.charts {
         for triangle in &chart.triangles {
         let surface = &surfaces[triangle.surface];
@@ -720,39 +743,71 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
         let lower: [usize;2] = std::array::from_fn(|axis| triangle.points.iter().map(|point| point[axis].floor().max(0.) as usize).min().unwrap());
         let upper: [usize;2] = std::array::from_fn(|axis| triangle.points.iter().map(|point| point[axis].ceil().max(0.) as usize).max().unwrap()+2*GUTTER);
         let end = [upper[0].min(chart.width+2*GUTTER),upper[1].min(chart.height+2*GUTTER)];
-        for y in lower[1]..end[1] { for x in lower[0]..end[0] {
-            let point = [x as f64+0.5-GUTTER as f64,y as f64+0.5-GUTTER as f64];
-            let (weights,distance) = triangle_weights(triangle.points,point)?;
-            if distance > (GUTTER*GUTTER) as f64 { continue; }
-            let index = (chart.y+y)*width+chart.x+x;
-            if coverage[index] <= distance { continue; }
-            coverage[index]=distance;
-            let interpolate = |values: [f32; 3]| values.into_iter().zip(weights).map(|(value, weight)| value as f64*weight).sum::<f64>() as f32;
-            let uv0 = std::array::from_fn(|axis| interpolate(std::array::from_fn(|i| surface.uv[triangle.first+i][axis])));
-            let uv1 = std::array::from_fn(|axis| interpolate(std::array::from_fn(|i| auxiliary[i].0[axis])));
-            let uv2 = std::array::from_fn(|axis| interpolate(std::array::from_fn(|i| auxiliary[i].1[axis])));
-            let transform: [f32; 4] = std::array::from_fn(|axis| 2.*interpolate(std::array::from_fn(|i| auxiliary[i].2[axis]))-1.);
-            let green = interpolate(std::array::from_fn(|i| surface.colors[triangle.first+i][1] as f32/255.));
-            let blue = interpolate(std::array::from_fn(|i| surface.colors[triangle.first+i][2] as f32/255.));
-            let mut pixel = recipe.sample(uv0,uv1,uv2,green,blue,transform)?;
-            if let Some(frame) = &frame {
-                let (normal,errors) = frame.convert(weights,pixel[1])?;
-                pixel[1]=normal;
-                for axis in 0..2 { basis_errors[axis]=basis_errors[axis].max(errors[axis]); }
-                basis_texels+=1;
-            }
-            if layer_specular || recipe.base_alpha_response {
-                response[index] = pixel[2];
-            }
-            if layer_specular {
-                specular[index] = pixel[3];
-            }
-            albedo[index]=pixel[0];
-            normals[index]=pixel[1];
-        }}
+        raster.push((chart,triangle,surface,frame,auxiliary,lower,end));
         }
     }
-    drop(coverage);
+    for band in (0..height).step_by(128) {
+        let end_y = (band+128).min(height);
+        let mut rows: Vec<Vec<(usize,usize,[f64;3],gpu::Sample)>> = (band..end_y).step_by(8).map(|_| Vec::new()).collect();
+        parallel_chunks_mut(&mut rows, 1, |offset, rows| {
+            for (row, jobs) in rows.iter_mut().enumerate() {
+                let y0 = band+(offset+row)*8;
+                let y1 = (y0+8).min(end_y);
+                let mut coverage = vec![f64::INFINITY;(y1-y0)*width];
+                for (triangle_index,(chart,triangle,surface,_,auxiliary,lower,end)) in raster.iter().enumerate() {
+                    let begin = (chart.y+lower[1]).max(y0);
+                    let finish = (chart.y+end[1]).min(y1);
+                    for y in begin..finish { for x in lower[0]..end[0] {
+                        let point = [x as f64+0.5-GUTTER as f64,(y-chart.y) as f64+0.5-GUTTER as f64];
+                        let (weights,distance) = triangle_weights(triangle.points,point)?;
+                        if distance > (GUTTER*GUTTER) as f64 { continue; }
+                        let local = (y-y0)*width+chart.x+x;
+                        if coverage[local] <= distance { continue; }
+                        coverage[local]=distance;
+                        let interpolate = |values: [f32;3]| values.into_iter().zip(weights).map(|(value,weight)| value as f64*weight).sum::<f64>() as f32;
+                        let uv0: [f32;2] = std::array::from_fn(|axis| interpolate(std::array::from_fn(|i| surface.uv[triangle.first+i][axis])));
+                        let uv1: [f32;2] = std::array::from_fn(|axis| interpolate(std::array::from_fn(|i| auxiliary[i].0[axis])));
+                        let uv2: [f32;2] = std::array::from_fn(|axis| interpolate(std::array::from_fn(|i| auxiliary[i].1[axis])));
+                        let transform: [f32;4] = std::array::from_fn(|axis| 2.*interpolate(std::array::from_fn(|i| auxiliary[i].2[axis]))-1.);
+                        let green = interpolate(std::array::from_fn(|i| surface.colors[triangle.first+i][1] as f32/255.));
+                        let blue = interpolate(std::array::from_fn(|i| surface.colors[triangle.first+i][2] as f32/255.));
+                        jobs.push((y*width+chart.x+x,triangle_index,weights,
+                            [uv0[0],uv0[1],uv1[0],uv1[1],uv2[0],uv2[1],green,blue,transform[0],transform[1],transform[2],transform[3]]));
+                    }}
+                }
+            }
+            Ok(())
+        })?;
+        let jobs: Vec<_> = rows.into_iter().flatten().collect();
+        let samples: Vec<_> = jobs.iter().map(|job| job.3).collect();
+        let mut pixels = baker.sample(&samples)?;
+        let statistics = std::sync::Mutex::new(([0_f64;2],0_usize));
+        parallel_chunks_mut(&mut pixels, 4096, |offset, pixels| {
+            let (mut maximum,mut count) = ([0_f64;2],0_usize);
+            for (pixel,job) in pixels.iter_mut().zip(&jobs[offset..]) {
+                if let Some(frame) = &raster[job.1].3 {
+                    let (normal,errors) = frame.convert(job.2,pixel[1])?;
+                    pixel[1]=normal;
+                    for axis in 0..2 { maximum[axis]=maximum[axis].max(errors[axis]); }
+                    count+=1;
+                }
+            }
+            let mut statistics = statistics.lock().map_err(|_| "Normal conversion worker panicked")?;
+            for axis in 0..2 { statistics.0[axis]=statistics.0[axis].max(maximum[axis]); }
+            statistics.1+=count;
+            Ok(())
+        })?;
+        let (maximum,count) = statistics.into_inner().map_err(|_| "Normal conversion worker panicked")?;
+        for axis in 0..2 { basis_errors[axis]=basis_errors[axis].max(maximum[axis]); }
+        basis_texels+=count;
+        for (job,pixel) in jobs.iter().zip(pixels) {
+            let index = job.0;
+            if layer_specular || recipe.base_alpha_response { response[index]=pixel[2]; }
+            if layer_specular { specular[index]=pixel[3]; }
+            albedo[index]=pixel[0];
+            normals[index]=pixel[1];
+        }
+    }
     for chart in &page.charts {
         for triangle in &chart.triangles {
         for &(surface,first,order) in &triangle.copies {
@@ -863,6 +918,7 @@ pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &B
         let source_counts: BTreeMap<_,_> = surfaces.iter().map(|surface| (surface.name.clone(),surface.indices.len())).collect();
         let input_triangles: usize = surfaces.iter().map(|surface| surface.indices.len()/3).sum();
         let material_recipe = recipe(material,images)?;
+        let baker = gpu::Baker::new(&material_recipe)?;
         let mut periodic_cache = BTreeMap::<Vec<u32>,String>::new();
         let mut remaining = Vec::new();
         let mut periodic_triangles = 0;
@@ -879,7 +935,7 @@ pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &B
                 let identity = if let Some(identity) = periodic_cache.get(&recipe) { identity.clone() } else {
                     let identity = format!("{key}#periodic{}",periodic_cache.len());
                     let uri = format!("prepared/materials/{}/periodic",converted.len());
-                    let mut value = periodic(material,&material_recipe,&recipe,&uri,pack)?;
+                    let mut value = periodic(material,&material_recipe,&baker,&recipe,&uri,pack)?;
                     value["name"] = json!(identity);
                     value["extras"]["surface"]["identity"] = json!(identity);
                     converted.insert(identity.clone(),value);
@@ -899,7 +955,7 @@ pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &B
         println!("Layered source partition {key}: {periodic_triangles} periodic triangles in {} shared recipes, {remaining_triangles} variable triangles",periodic_cache.len());
         let uri = format!("prepared/materials/{}/layered",converted.len());
         if !remaining.is_empty() {
-            for surface in layered(material,&remaining,&material_recipe,&uri,converted,pack)? { baked.entry(surface.name.clone()).or_default().push(surface); }
+            for surface in layered(material,&remaining,&material_recipe,&baker,&uri,converted,pack)? { baked.entry(surface.name.clone()).or_default().push(surface); }
         } else {
             let value = converted[periodic_cache.values().next().ok_or("Layered material has no geometry")?].clone();
             converted.insert(key.clone(),value);
@@ -916,6 +972,60 @@ pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &B
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gpu_matches_existing_material_equations_and_sampler_modes() {
+        let modes = [(false,false,false,false,false,false,false),(true,false,false,false,false,false,false),
+            (false,false,false,false,true,false,false),(true,false,false,false,true,false,false),
+            (false,false,false,false,true,true,false),(false,false,false,false,true,true,true),
+            (false,false,false,false,false,false,true),(false,false,false,false,true,false,true),
+            (false,true,false,false,false,false,false),(true,true,false,false,false,false,false),
+            (false,true,false,false,false,false,true),(false,false,true,false,false,false,true),
+            (false,false,false,true,false,false,true),(true,false,false,true,false,false,true)];
+        let mut maximum = 0_f32;
+        for (mode,&(decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response)) in modes.iter().enumerate() {
+            for sampler in [1,20,33,65,97,42,74,106] {
+                let inputs = (0..5).map(|input| Input {width:3,height:5,sampler,
+                    pixels:(0..15).map(|index| std::array::from_fn(|channel| ((index*7+input*11+channel*3)%31) as f32/31.)).collect()}).collect();
+                let recipe = Recipe {inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:[0.5,1.3,0.,0.]};
+                let samples: Vec<gpu::Sample> = (0..513).map(|index| {
+                    let u = (index%23) as f32/7.-1.5;
+                    let v = (index%17) as f32/6.-0.5;
+                    [u,v,u+0.31,v-0.27,u-0.61,v+0.43,(index%13) as f32/12.,(index%11) as f32/10.,0.,-1.,1.,0.]
+                }).collect();
+                let baker = gpu::Baker::new(&recipe).unwrap();
+                let actual = baker.sample(&samples).unwrap();
+                for (sample,actual) in samples.iter().zip(actual) {
+                    let expected = recipe.sample([sample[0],sample[1]],[sample[2],sample[3]],[sample[4],sample[5]],sample[6],sample[7],sample[8..12].try_into().unwrap()).unwrap();
+                    for (channel,(actual,expected)) in actual.into_iter().flatten().zip(expected.into_iter().flatten()).enumerate() {
+                        let error = (actual-expected).abs();
+                        maximum=maximum.max(error);
+                        assert!(error <= 0.00003,"mode {mode}, sampler {sampler}, channel {channel}: GPU {actual}, CPU {expected}, sample {sample:?}");
+                    }
+                }
+            }
+        }
+        println!("GPU parity: {} recipes, 8 samplers, 513 samples each; maximum absolute channel error {maximum}",modes.len());
+        let input = |value| Input {width:1,height:1,sampler:20,pixels:vec![value]};
+        let mut recipe = Recipe {inputs:vec![input([0.4,0.7,0.2,0.3]),input([0.5;4]),input([0.8,0.2,0.4,0.7]),input([0.6;4]),input([0.7;4])],
+            decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:true,base_alpha_response:true,parms:[0.5,1.3,0.,0.]};
+        let baker = gpu::Baker::new(&recipe).unwrap();
+        let sample = [0.25,0.5,0.25,0.5,0.25,0.5,0.6,0.,1.,0.,0.,1.];
+        let expected = baker.sample(&[sample]).unwrap()[0];
+        let samples = vec![sample;262_147];
+        let begin = std::time::Instant::now();
+        let actual = baker.sample(&samples).unwrap();
+        let gpu_time = begin.elapsed();
+        assert_eq!(actual.len(),samples.len());
+        assert!(actual.into_iter().all(|pixel| pixel == expected));
+        let begin = std::time::Instant::now();
+        for sample in &samples {
+            std::hint::black_box(recipe.sample([sample[0],sample[1]],[sample[2],sample[3]],[sample[4],sample[5]],sample[6],sample[7],sample[8..12].try_into().unwrap()).unwrap());
+        }
+        println!("262147 material samples including GPU transfer/readback: GPU {gpu_time:?}, serial CPU {:?}",begin.elapsed());
+        recipe.parms=[0.;4];
+        assert!(gpu::Baker::new(&recipe).unwrap().sample(&[sample]).unwrap_err().to_string().contains("thresholds"));
+    }
 
     #[test]
     fn varying_native_frame_converts_into_solari_basis() {

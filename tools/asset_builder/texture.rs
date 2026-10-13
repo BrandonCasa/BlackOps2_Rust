@@ -310,24 +310,38 @@ pub fn encode(source: &Image, srgb: bool, role: &str) -> Result<Vec<u8>> {
         let mut result = Vec::new();
         for face in data.chunks_exact(face_size) {
             let mut padded = vec![0; padded_width * padded_height * components];
-            for y in 0..padded_height {
+            parallel_chunks_mut(&mut padded, padded_width*components*16, |offset, padded| {
+            for (row, pixels) in padded.chunks_exact_mut(padded_width*components).enumerate() {
+                let y = offset/(padded_width*components)+row;
                 for x in 0..padded_width {
                     let src = (y.min(height - 1) * width + x.min(width - 1)) * stride;
-                    let dst = (y * padded_width + x) * components;
-                    padded[dst..dst + components].copy_from_slice(&face[src..src + components]);
+                    let dst = x*components;
+                    pixels[dst..dst + components].copy_from_slice(&face[src..src + components]);
                 }
             }
-            let (w, h, row) = (padded_width as u32, padded_height as u32, (padded_width * components) as u32);
-            result.extend(match encoding {
-                14 => encoder::bc5::compress_blocks(&RgSurface::new(&padded, w, h, row)),
-                22 => encoder::bc4::compress_blocks(&RSurface::new(&padded, w, h, row)),
-                23 => encoder::bc6h::compress_blocks(&encoder::bc6h::basic_settings(), &RgbaF16Surface::new(&padded, w, h, row)),
-                21 => encoder::bc7::compress_blocks(
+            Ok(())
+            })?;
+            let block_size = if encoding == 22 {8} else {16};
+            let block_row = padded_width/4*block_size;
+            let mut blocks = vec![0;block_row*(padded_height/4)];
+            parallel_chunks_mut(&mut blocks, block_row*4, |offset, blocks| {
+            let first_row = offset/block_row*4;
+            let rows = blocks.len()/block_row*4;
+            let pixels = &padded[first_row*padded_width*components..(first_row+rows)*padded_width*components];
+            let (w,h,row) = (padded_width as u32,rows as u32,(padded_width*components) as u32);
+            match encoding {
+                14 => encoder::bc5::compress_blocks_into(&RgSurface::new(pixels, w, h, row),blocks),
+                22 => encoder::bc4::compress_blocks_into(&RSurface::new(pixels, w, h, row),blocks),
+                23 => encoder::bc6h::compress_blocks_into(&encoder::bc6h::basic_settings(), &RgbaF16Surface::new(pixels, w, h, row),blocks),
+                21 => encoder::bc7::compress_blocks_into(
                     &if opaque { encoder::bc7::opaque_basic_settings() } else { encoder::bc7::alpha_basic_settings() },
-                    &RgbaSurface::new(&padded, w, h, row),
+                    &RgbaSurface::new(pixels, w, h, row),blocks,
                 ),
                 _ => unreachable!(),
-            });
+            }
+            Ok(())
+            })?;
+            result.extend(blocks);
         }
         Ok(result)
     }).collect::<Result<_>>()?;
@@ -490,4 +504,62 @@ pub fn validate(bytes: &[u8]) -> Result<Value> {
     Ok(
         json!({"vk_format":vk,"width":width,"height":height,"depth":depth,"faces":faces,"levels":levels}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ctt_intel_texture_compressor::{self as encoder, RSurface, RgSurface, RgbaSurface, RgbaF16Surface};
+
+    #[test]
+    fn worker_compression_matches_whole_surface_blocks() {
+        for (role,encoding,hdr,opaque) in [("normal",14,false,true),("mask",22,false,true),
+            ("color",21,false,true),("response",21,false,false),("sky",23,true,true)] {
+            for (width,height,faces) in [(4,4,1),(28,76,1),(68,12,6)] {
+                let mut source = Image {width,height,faces,depth:1,flags:0,format:if hdr {19} else {1},levels:Vec::new()};
+                let (mut w,mut h) = (width,height);
+                let mut expected = Vec::new();
+                loop {
+                    let stride = if hdr {8} else {4};
+                    let mut data = Vec::new();
+                    for index in 0..w*h*faces {
+                        if hdr {
+                            for value in [((index*13)%71) as f32*0.125,((index*7)%67) as f32*0.2,((index*19)%59) as f32*0.25,1.] {
+                                data.extend(f16::from_f32(value).to_le_bytes());
+                            }
+                        } else {
+                            data.extend([(index*13) as u8,(index*7) as u8,(index*19) as u8,if opaque {255} else {(index*11) as u8}]);
+                        }
+                    }
+                    let (pw,ph) = (w.next_multiple_of(4),h.next_multiple_of(4));
+                    let components = match encoding {14=>2,22=>1,_=>stride};
+                    let mut blocks = Vec::new();
+                    for face in data.chunks_exact(w*h*stride) {
+                        let padded: Vec<_> = (0..ph).flat_map(|y| (0..pw).flat_map(move |x| {
+                            let start = (y.min(h-1)*w+x.min(w-1))*stride;
+                            face[start..start+components].iter().copied()
+                        })).collect();
+                        let (pw,ph,row) = (pw as u32,ph as u32,(pw*components) as u32);
+                        blocks.extend(match encoding {
+                            14=>encoder::bc5::compress_blocks(&RgSurface::new(&padded,pw,ph,row)),
+                            22=>encoder::bc4::compress_blocks(&RSurface::new(&padded,pw,ph,row)),
+                            23=>encoder::bc6h::compress_blocks(&encoder::bc6h::basic_settings(),&RgbaF16Surface::new(&padded,pw,ph,row)),
+                            _=>encoder::bc7::compress_blocks(&if opaque {encoder::bc7::opaque_basic_settings()} else {encoder::bc7::alpha_basic_settings()},&RgbaSurface::new(&padded,pw,ph,row)),
+                        });
+                    }
+                    source.levels.push(data);
+                    expected.push(blocks);
+                    if w == 1 && h == 1 {break;}
+                    (w,h)=((w/2).max(1),(h/2).max(1));
+                }
+                let bytes = encode(&source,role == "color",role).unwrap();
+                validate(&bytes).unwrap();
+                for (level,expected) in expected.iter().enumerate() {
+                    let offset = u64_at(&bytes,80+level*24) as usize;
+                    let length = u64_at(&bytes,88+level*24) as usize;
+                    assert_eq!(&bytes[offset..offset+length],expected,"{role}, {width}x{height}, {faces} faces, mip {level}");
+                }
+            }
+        }
+    }
 }
