@@ -214,6 +214,37 @@ mod tests {
 
     #[test]
     #[ignore = "requires the authorized Steam installation"]
+    fn installed_multiply_materials() {
+        let install = super::installation().unwrap();
+        let zones = super::read_zones(&install).unwrap();
+        let catalog = crate::convert::Catalog::new(&zones);
+        let used = crate::geometry::validate(&catalog).unwrap();
+        let mut materials = crate::material::read_used(&catalog,&used).unwrap();
+        materials.retain(|_,material| matches!(material["technique_set"].as_str(),Some("lit_sm_r0c0n0_m1c1" | "lit_sm_r0c0n0_m1c1_m2c2")));
+        assert_eq!(materials.len(),5);
+        let required = materials.values().flat_map(|material| material["textures"].as_array().unwrap())
+            .map(|binding| binding["image"].as_str().unwrap().to_ascii_lowercase()).collect();
+        let mut pack = crate::pack::Pack::default();
+        let (_,images) = crate::convert::images(&install,&catalog,&mut pack,Some(&required)).unwrap();
+        let mut converted = std::collections::BTreeMap::new();
+        let baked = crate::bake::world(&catalog,&materials,&images,&mut converted,&mut pack).unwrap();
+        assert!(crate::material::missing(&materials,&converted).is_empty());
+        assert!(!baked.is_empty());
+        for material in converted.values() {
+            for channel in material["extras"]["surface"]["channels"].as_array().unwrap() {
+                crate::texture::validate(pack.get(channel["uri"].as_str().unwrap()).unwrap()).unwrap();
+            }
+        }
+        let mut scene = crate::gltf::Scene::new("multiply");
+        let indices = scene.materials(baked.values().flatten(),&converted).unwrap();
+        let mesh = scene.mesh("multiply",baked.values().flatten(),&indices,false).unwrap();
+        scene.node(serde_json::json!({"name":"multiply","mesh":mesh}));
+        scene.write("prepared/material.gltf",&mut pack).unwrap();
+        println!("Converted {} installed multiply materials, {} surfaces, {} triangles, {} packed entries; exported glTF bindings and KTX2 mip layouts resolved",materials.len(),baked.len(),baked.values().flatten().map(|surface| surface.indices.len()/3).sum::<usize>(),pack.entries.len());
+    }
+
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
     fn installed_geometry_bindings() {
         let zones = super::read_zones(&super::installation().unwrap()).unwrap();
         let catalog = crate::convert::Catalog::new(&zones);

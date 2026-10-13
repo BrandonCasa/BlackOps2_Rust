@@ -271,6 +271,7 @@ fn footprint(coordinates: &[[[f32;2];3]]) -> Result<[f64;3]> {
 struct Recipe {
     inputs: Vec<Input>,
     decal: bool,
+    multiply: bool,
     reveal: bool,
     layer_specular: bool,
     base_alpha_response: bool,
@@ -280,6 +281,16 @@ struct Recipe {
 impl Recipe {
     fn sample(&self, uv0: [f32;2], uv1: [f32;2], uv2: [f32;2], green: f32, blue: f32, transform: [f32;4]) -> Result<[[f32;4];4]> {
         let inputs = &self.inputs;
+        if self.multiply {
+            let (base, normal, layer) = (inputs[0].sample(uv0),inputs[1].sample(uv0),inputs[2].sample(uv1));
+            let second = if self.decal { inputs[3].sample(uv2) } else { [1.;4] };
+            let color = std::array::from_fn(|c| if c == 3 { 1. } else {
+                (base[c]*(1.+green*(layer[c]-1.))*(1.+blue*(second[c]-1.))).powi(2)
+            });
+            let slope = [normal[0],normal[1]].map(|value| value*f32::from_bits(0x40808102)+f32::from_bits(0xc0010204));
+            let length = (slope[0]*slope[0]+slope[1]*slope[1]+1.).sqrt();
+            return Ok([color,[slope[0]/length,slope[1]/length,1./length,1.],[1.,1.,0.,1.],[0.;4]]);
+        }
         let (c0,c1,n0,n1) = (inputs[0].sample(uv0),inputs[2].sample(uv1),inputs[1].sample(uv0),inputs[3].sample(uv1));
         let weight = if self.reveal {
             let a = green*f32::from_bits(0x3f7f7cee)+f32::from_bits(0x3a83126f);
@@ -317,15 +328,15 @@ impl Recipe {
     }
 }
 
-fn auxiliary(surface: &Surface, index: usize, decal: bool) -> Result<([f32; 2], [f32; 2], [f32; 4])> {
+fn auxiliary(surface: &Surface, index: usize, decal: bool, multiply: bool) -> Result<([f32; 2], [f32; 2], [f32; 4])> {
     let bytes = surface.auxiliary.get(index).ok_or("Layered world vertex has no auxiliary data")?;
-    let size = if decal { 12 } else { 8 };
+    let size = if multiply { if decal {8} else {4} } else if decal {12} else {8};
     if bytes.len() != size { return Err(format!("Layered world vertex requires {size} auxiliary bytes, found {}", bytes.len()).into()); }
     let uv = [half::f16::from_bits(u16_at(bytes, 0)).to_f32(), half::f16::from_bits(u16_at(bytes, 2)).to_f32()];
     if !uv.iter().all(|v| v.is_finite()) { return Err("Layered world UV is not finite".into()); }
     let uv2 = if decal { [half::f16::from_bits(u16_at(bytes, 4)).to_f32(), half::f16::from_bits(u16_at(bytes, 6)).to_f32()] } else { uv };
     if !uv2.iter().all(|v| v.is_finite()) { return Err("Layered decal UV is not finite".into()); }
-    Ok((uv, uv2, std::array::from_fn(|i| bytes[size - 4 + i] as f32 / 255.)))
+    Ok((uv, uv2, if multiply { [1.,0.,0.,1.] } else { std::array::from_fn(|i| bytes[size - 4 + i] as f32 / 255.) }))
 }
 
 fn constant_frame(surface: &Surface, first: usize) -> bool {
@@ -389,7 +400,7 @@ impl NormalFrame {
 
 fn periodic_key(surface: &Surface, first: usize) -> Result<Option<Vec<u32>>> {
     if !constant_frame(surface,first) { return Ok(None); }
-    let auxiliary = (0..3).map(|i| auxiliary(surface,first+i,false)).collect::<Result<Vec<_>>>()?;
+    let auxiliary = (0..3).map(|i| auxiliary(surface,first+i,false,false)).collect::<Result<Vec<_>>>()?;
     if !(1..3).all(|i| surface.colors[first+i][1] == surface.colors[first][1] && auxiliary[i].2 == auxiliary[0].2) { return Ok(None); }
     let offsets: [[f32;2];3] = std::array::from_fn(|i| std::array::from_fn(|axis| auxiliary[i].0[axis]-surface.uv[first+i][axis]));
     if offsets[1] != offsets[0] || offsets[2] != offsets[0] { return Ok(None); }
@@ -451,13 +462,17 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
 }
 
 fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<Recipe> {
+    let multiply_decal = native["technique_set"] == "lit_sm_r0c0n0_m1c1_m2c2";
+    let multiply = multiply_decal || native["technique_set"] == "lit_sm_r0c0n0_m1c1";
     let base_alpha_reveal = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1s1v1";
     let base_alpha_response = base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
     let reveal_decal = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1_m2c2";
-    let decal = reveal_decal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1_m2c2";
+    let decal = multiply_decal || reveal_decal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1_m2c2";
     let layer_specular = base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
     let reveal = reveal_decal || layer_specular || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1";
-    let (vertex, pixel) = if base_alpha_reveal { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_7f753776.hlsl") }
+    let (vertex, pixel) = if multiply_decal { ("pimp_shader_layer_lmap_e2f44d32.hlsl", "pimp_shader_layer_lmap_61a9e8fe.hlsl") }
+        else if multiply { ("pimp_shader_layer_lmap_f26e80c6.hlsl", "pimp_shader_layer_lmap_7982c7aa.hlsl") }
+        else if base_alpha_reveal { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_7f753776.hlsl") }
         else if base_alpha_response { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_cd368409.hlsl") }
         else if reveal_decal { ("pimp_shader_layer_lmap_b0b22809.hlsl", "pimp_shader_layer_lmap_5c9a2e1f.hlsl") }
         else if decal { ("pimp_shader_layer_lmap_b0b22809.hlsl", "pimp_shader_layer_lmap_89d59c60.hlsl") }
@@ -470,14 +485,14 @@ fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<R
     { return Err("Layered material selected programs differ from recovered source".into()); }
     let state = native["state_entries"][4].as_u64().ok_or("Layered lit state is missing")? as usize;
     if native["state_bits"][state] != json!([403867666_u32,13]) { return Err("Layered material has unreviewed render states".into()); }
-    if base_alpha_reveal {
-        let sun = native["techniques"].as_array().unwrap().iter().find(|value| value["index"] == 6).ok_or("Base-alpha reveal sun technique is missing")?;
-        let passes = sun["passes"].as_array().ok_or("Base-alpha reveal sun passes are missing")?;
-        let state = native["state_entries"][6].as_u64().ok_or("Base-alpha reveal sun state is missing")? as usize;
-        if passes.len() != 1 || passes[0]["vertex_shader"] != "pimp_shader_layer_lmap_420be797.hlsl"
-            || passes[0]["pixel_shader"] != "pimp_shader_layer_lmap_d5a3e40.hlsl"
+    if base_alpha_reveal || multiply {
+        let sun = native["techniques"].as_array().unwrap().iter().find(|value| value["index"] == 6).ok_or("Layered sun technique is missing")?;
+        let passes = sun["passes"].as_array().ok_or("Layered sun passes are missing")?;
+        let state = native["state_entries"][6].as_u64().ok_or("Layered sun state is missing")? as usize;
+        if passes.len() != 1 || passes[0]["vertex_shader"] != if multiply_decal { "pimp_shader_layer_lmap_694a87ca.hlsl" } else if multiply { "pimp_shader_layer_lmap_79d04a3e.hlsl" } else { "pimp_shader_layer_lmap_420be797.hlsl" }
+            || passes[0]["pixel_shader"] != if multiply_decal { "pimp_shader_layer_lmap_1386e1c8.hlsl" } else if multiply { "pimp_shader_layer_lmap_badce9c.hlsl" } else { "pimp_shader_layer_lmap_d5a3e40.hlsl" }
             || native["state_bits"][state] != json!([403867666_u32,13]) {
-            return Err("Base-alpha reveal sun programs or render states differ from recovered source".into());
+            return Err("Layered sun programs or render states differ from recovered source".into());
         }
     }
     let reveal_parms = if reveal {
@@ -490,18 +505,20 @@ fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<R
         values
     } else { [0.;4] };
     let expected = [(0,0),(1,2),(2,5),(3,1),(4,7),(5,6),(6,8),(8,10)];
+    let expected = if multiply { &expected[..7] } else { &expected[..] };
     let routes = passes[0]["vertex_routes"].as_array().ok_or("Layered vertex routes are missing")?;
-    if routes.len() != expected.len() || routes.iter().zip(expected).any(|(route, (source, destination))| route["source"] != source || route["destination"] != destination) {
+    if routes.len() != expected.len() || routes.iter().zip(expected.iter().copied()).any(|(route, (source, destination))| route["source"] != source || route["destination"] != destination) {
         return Err("Layered material vertex declaration differs from recovered source".into());
     }
     let mut inputs = Vec::new();
-    let mut bindings = vec![(2695565377_u32,20,0), (1507003663,20,257), (3054311504,20,514), (2486480606,20,if decal {1027} else {771})];
-    if decal { bindings.push((3054311507,10,772)); }
+    let mut bindings = vec![(2695565377_u32,20,0), (1507003663,20,257), (3054311504,if multiply {10} else {20},514)];
+    if !multiply { bindings.push((2486480606,20,if decal {1027} else {771})); }
+    if decal { bindings.push((3054311507,10,if multiply {771} else {772})); }
     if layer_specular { bindings.push((3532022562,20,1028)); }
     for (hash, expected_sampler, location) in bindings {
         let binding = native["textures"].as_array().unwrap().iter().find(|binding| binding["hash"] == hash).ok_or("Layered source texture binding is missing")?;
         let sampler = binding["sampler"].as_u64().and_then(|value| u8::try_from(value).ok()).ok_or("Layered sampler is not a byte")?;
-        if (sampler != expected_sampler && !(reveal_decal && hash == 3054311507 && sampler == 74))
+        if (sampler != expected_sampler && !((reveal_decal && hash == 3054311507 || multiply && hash == 3054311504) && sampler == 74))
             || !passes[0]["arguments"].as_array().unwrap().iter().any(|argument| argument["type"] == 2 && argument["value"] == hash && argument["location"] == location) {
             return Err("Layered texture has an unreviewed sampler or shader slot".into());
         }
@@ -510,7 +527,7 @@ fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<R
         println!("Layered input {name}: {}x{}",image.width,image.height);
         inputs.push(Input::read(image,sampler)?);
     }
-    Ok(Recipe {inputs,decal,reveal,layer_specular,base_alpha_response,parms:reveal_parms})
+    Ok(Recipe {inputs,decal,multiply,reveal,layer_specular,base_alpha_response,parms:reveal_parms})
 }
 
 fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<Vec<Surface>> {
@@ -521,14 +538,14 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
     for (surface_index, surface) in surfaces.iter().enumerate() {
         for first in (0..surface.positions.len()).step_by(3) {
             let varying_frame = !constant_frame(surface,first);
-            let auxiliary = (0..3).map(|i| auxiliary(surface, first+i, decal)).collect::<Result<Vec<_>>>()?;
+            let auxiliary = (0..3).map(|i| auxiliary(surface, first+i, decal, recipe.multiply)).collect::<Result<Vec<_>>>()?;
             let layer_uv: Vec<_> = auxiliary.iter().map(|value| value.0).collect();
             let decal_uv: Vec<_> = auxiliary.iter().map(|value| value.1).collect();
             let uv_streams = if decal { vec![&surface.uv[first..first+3],layer_uv.as_slice(),decal_uv.as_slice()] }
                 else { vec![&surface.uv[first..first+3],layer_uv.as_slice()] };
             let offsets: Vec<[f32;2]> = uv_streams.iter().enumerate().map(|(stream,uv)| std::array::from_fn(|axis| {
                 let clamped = inputs.iter().enumerate().any(|(input,image)| {
-                    let source = if input < 2 { 0 } else if decal && input == 4 { 2 } else { 1 };
+                    let source = if input < 2 { 0 } else if decal && input == if recipe.multiply {3} else {4} { 2 } else { 1 };
                     source == stream && image.sampler & (32 << axis) != 0
                 });
                 if clamped { 0. } else { uv.iter().map(|value| value[axis]).fold(f32::INFINITY,f32::min).floor() }
@@ -557,7 +574,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
                 continue;
             }
             let coordinates: Vec<[[f32;2];3]> = inputs.iter().enumerate().map(|(input,image)| {
-                    let uv = if input < 2 { &surface.uv[first..first+3] } else if decal && input == 4 { &decal_uv } else { &layer_uv };
+                    let uv = if input < 2 { &surface.uv[first..first+3] } else if decal && input == if recipe.multiply {3} else {4} { &decal_uv } else { &layer_uv };
                     std::array::from_fn(|i| [uv[i][0]*image.width as f32,uv[i][1]*image.height as f32])
             }).collect();
             let metric = footprint(&coordinates)?;
@@ -628,7 +645,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
         let surface = &surfaces[triangle.surface];
         let frame = if constant_frame(surface,triangle.first) { None } else { Some(NormalFrame::read(surface,triangle.first)?) };
         if frame.is_some() { basis_triangles+=triangle.copies.len(); }
-        let auxiliary = (0..3).map(|i| auxiliary(surface,triangle.first+i,decal)).collect::<Result<Vec<_>>>()?;
+        let auxiliary = (0..3).map(|i| auxiliary(surface,triangle.first+i,decal,recipe.multiply)).collect::<Result<Vec<_>>>()?;
         let lower: [usize;2] = std::array::from_fn(|axis| triangle.points.iter().map(|point| point[axis].floor().max(0.) as usize).min().unwrap());
         let upper: [usize;2] = std::array::from_fn(|axis| triangle.points.iter().map(|point| point[axis].ceil().max(0.) as usize).max().unwrap()+2*GUTTER);
         let end = [upper[0].min(chart.width+2*GUTTER),upper[1].min(chart.height+2*GUTTER)];
@@ -752,7 +769,7 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
 }
 
 pub fn supported(family: &str) -> bool {
-    matches!(family,"lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1")
+    matches!(family,"lit_sm_r0c0n0_m1c1_m2c2" | "lit_sm_r0c0n0_m1c1" | "lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1")
 }
 
 pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &BTreeMap<String, texture::Image>, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<BTreeMap<String, Vec<Surface>>> {
@@ -863,11 +880,52 @@ mod tests {
     }
 
     #[test]
+    fn multiply_layer_preserves_opaque_coverage_base_normal_and_transfer_order() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe = Recipe {inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
+            decal:false,multiply:true,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.;4]};
+        let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[0.,-1.,1.,0.]).unwrap();
+        let normal = sample(&recipe,0.)[1];
+        for (green,expected) in [(0.,[0.64,0.36,0.16]),(0.5,[0.36,0.140625,0.16]),(1.,[0.16,0.0225,0.16])] {
+            let actual = sample(&recipe,green);
+            for (value,expected) in actual[0][..3].iter().zip(expected) { assert!((value-expected).abs()<0.000001); }
+            assert_eq!(actual[0][3],1.);
+            assert_eq!(actual[1],normal);
+        }
+        let original = sample(&recipe,0.5);
+        recipe.inputs[0].pixels[0][3]=1.;
+        recipe.inputs[2].pixels[0][3]=1.;
+        assert_eq!(sample(&recipe,0.5),original);
+    }
+
+    #[test]
+    fn second_multiply_layer_uses_blue_and_its_own_uv_before_transfer() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe = Recipe {inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.]),
+            Input {width:2,height:1,sampler:10,pixels:vec![[0.25,1.,0.5,0.],[1.;4]]}],
+            decal:true,multiply:true,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.;4]};
+        let sample = |recipe: &Recipe,green,blue,uv2| recipe.sample([0.;2],[0.;2],uv2,green,blue,[1.,0.,0.,1.]).unwrap();
+        let normal = sample(&recipe,0.,0.,[0.25,0.5])[1];
+        for (green,blue,expected) in [(0.,1.,[0.04,0.36,0.04]),(1.,0.,[0.16,0.0225,0.16]),
+            (1.,1.,[0.01,0.0225,0.04]),(0.5,0.5,[0.140625,0.140625,0.09])] {
+            let actual = sample(&recipe,green,blue,[0.25,0.5]);
+            for (value,expected) in actual[0][..3].iter().zip(expected) { assert!((value-expected).abs()<0.000001); }
+            assert_eq!(actual[0][3],1.);
+            assert_eq!(actual[1],normal);
+        }
+        assert_eq!(sample(&recipe,1.,1.,[0.75,0.5]),sample(&recipe,1.,0.,[0.25,0.5]));
+        let original = sample(&recipe,0.5,0.5,[0.25,0.5]);
+        recipe.inputs[2].pixels[0][3]=1.;
+        recipe.inputs[3].pixels[0][3]=1.;
+        assert_eq!(sample(&recipe,0.5,0.5,[0.25,0.5]),original);
+    }
+
+    #[test]
     fn base_alpha_reveal_preserves_mixed_native_gloss_and_zero_exponent() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
         let mut recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.5,0.5,1.,1.]),input([0.6,0.4,0.2,0.25])],
-            decal:false,reveal:true,layer_specular:true,base_alpha_response:true,parms:[0.5,0.5,0.,0.]};
+            decal:false,multiply:false,reveal:true,layer_specular:true,base_alpha_response:true,parms:[0.5,0.5,0.,0.]};
         for (green,expected) in [(0.,[0.04,0.04,0.04,0.75]),(0.5,[0.16,0.09,0.04,0.5]),(1.,[0.36,0.16,0.04,0.25])] {
             let actual = recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
             for (value,expected) in actual[3].iter().zip(expected) { assert!((value-expected).abs()<0.000001); }
@@ -885,7 +943,7 @@ mod tests {
     fn layered_base_alpha_response_survives_complete_layer_coverage() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
         let mut recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
-            input([0.8,0.2,0.4,1.]),input([0.5,0.5,1.,1.])],decal:false,reveal:false,
+            input([0.8,0.2,0.4,1.]),input([0.5,0.5,1.,1.])],decal:false,multiply:false,reveal:false,
             layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         for (alpha,roughness) in [(0.,0.903602),(1.,0.12499237)] {
             recipe.inputs[0].pixels[0][3]=alpha;
@@ -911,7 +969,7 @@ mod tests {
             input([0.8,0.2,0.4,0.5]),input([0.75,0.25,1.,1.]),
             Input {width:2,height:2,sampler:74,pixels:vec![[0.9,0.8,0.7,1.],[0.1,0.2,0.3,1.],
                 [0.5,0.25,0.75,0.],[1.,0.5,0.25,0.]]}],
-            decal:true,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
+            decal:true,multiply:false,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
         let sample = |recipe: &Recipe, blue| recipe.sample([0.;2],[0.;2],[1.25,1.25],0.5,blue,[0.,-1.,1.,0.]).unwrap();
         let actual=sample(&recipe,0.5);
         for (value,expected) in actual[0][..3].iter().zip([0.140625,0.03515625,0.19140625]) {
@@ -931,7 +989,7 @@ mod tests {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
         let recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.5,0.5,1.,1.])],
-            decal:false,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
+            decal:false,multiply:false,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
         for (green,expected) in [(0.,[0.04,0.16,0.36]),(0.5,[0.25,0.25,0.16]),(1.,[0.64,0.36,0.04])] {
             let low = recipe.sample([0.;2],[0.;2],[0.;2],green,0.,[1.,0.,0.,1.]).unwrap();
             let high = recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
