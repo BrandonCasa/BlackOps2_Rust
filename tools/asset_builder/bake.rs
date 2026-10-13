@@ -46,6 +46,41 @@ struct AtlasPage {
 }
 
 fn place_pages(mut charts: Vec<Chart>) -> Result<Vec<AtlasPage>> {
+    for chart in &mut charts {
+        let limit = (8192-2*GUTTER) as f64;
+        if chart.width as f64 <= limit && chart.height as f64 <= limit { continue; }
+        let points: Vec<_> = chart.triangles.iter().flat_map(|triangle| triangle.points).collect();
+        let quarter = std::f64::consts::FRAC_PI_2;
+        let mut angles = vec![0.,quarter];
+        for (index,a) in points.iter().enumerate() { for b in &points[index+1..] {
+            let (x,y) = (b[0]-a[0],b[1]-a[1]);
+            let length = x.hypot(y);
+            if length <= limit { continue; }
+            let phase = y.atan2(x);
+            let boundary = (limit/length).acos();
+            for angle in [boundary-phase,-boundary-phase,quarter+boundary-phase,quarter-boundary-phase] {
+                angles.push(angle.rem_euclid(quarter));
+            }
+        }}
+        angles.sort_by(f64::total_cmp);
+        angles.dedup();
+        let candidates: Vec<_> = angles.windows(2).map(|pair| (pair[0]+pair[1])*0.5).chain(angles.iter().copied()).collect();
+        for angle in candidates {
+            let (sin,cos) = angle.sin_cos();
+            let rotate = |point: [f64;2]| [point[0]*cos-point[1]*sin,point[0]*sin+point[1]*cos];
+            let lower: [f64;2] = std::array::from_fn(|axis| points.iter().map(|&point| rotate(point)[axis]).fold(f64::INFINITY,f64::min));
+            let upper: [f64;2] = std::array::from_fn(|axis| points.iter().map(|&point| rotate(point)[axis]).fold(f64::NEG_INFINITY,f64::max));
+            let width = (upper[0]-lower[0]).ceil() as usize;
+            let height = (upper[1]-lower[1]).ceil() as usize;
+            if width+2*GUTTER > 8192 || height+2*GUTTER > 8192 { continue; }
+            for triangle in &mut chart.triangles {
+                for point in &mut triangle.points { *point=std::array::from_fn(|axis| rotate(*point)[axis]-lower[axis]); }
+            }
+            println!("Rotated oversized source chart {}x{} into {width}x{height} without changing source triangles or directional footprints",chart.width,chart.height);
+            chart.width=width.max(2); chart.height=height.max(2);
+            break;
+        }
+    }
     charts.sort_by_key(|chart| (std::cmp::Reverse(chart.height),std::cmp::Reverse(chart.width)));
     let mut pages = Vec::<AtlasPage>::new();
     for mut chart in charts {
@@ -272,6 +307,8 @@ struct Recipe {
     inputs: Vec<Input>,
     decal: bool,
     multiply: bool,
+    additive: bool,
+    blend_color: bool,
     reveal: bool,
     layer_specular: bool,
     base_alpha_response: bool,
@@ -281,15 +318,26 @@ struct Recipe {
 impl Recipe {
     fn sample(&self, uv0: [f32;2], uv1: [f32;2], uv2: [f32;2], green: f32, blue: f32, transform: [f32;4]) -> Result<[[f32;4];4]> {
         let inputs = &self.inputs;
-        if self.multiply {
+        if self.multiply || self.additive || self.blend_color {
             let (base, normal, layer) = (inputs[0].sample(uv0),inputs[1].sample(uv0),inputs[2].sample(uv1));
             let second = if self.decal { inputs[3].sample(uv2) } else { [1.;4] };
+            let tint: [f32;3] = std::array::from_fn(|c| 1.+green*(layer[c]-1.));
             let color = std::array::from_fn(|c| if c == 3 { 1. } else {
-                (base[c]*(1.+green*(layer[c]-1.))*(1.+blue*(second[c]-1.))).powi(2)
+                if self.blend_color {
+                    let first = base[c]+green*layer[3]*(layer[c]-base[c]);
+                    let weight = if self.decal {blue*second[3]} else {0.};
+                    (first+weight*(second[c]-first)).powi(2)
+                }
+                else if self.additive { (base[c]+layer[c]*green*layer[3]).powi(2) }
+                else { (base[c]*tint[c]*(1.+blue*(second[c]-1.))).powi(2) }
             });
+            let response = if self.base_alpha_response {
+                let gloss = if self.additive || self.blend_color {base[3]} else {base[3]*(tint[0]*0.3+tint[1]*0.6+tint[2]*0.1)};
+                [1.,(2./(2_f32.powf(13.*gloss)+2.)).powf(0.25),0.,gloss]
+            } else { [1.,1.,0.,1.] };
             let slope = [normal[0],normal[1]].map(|value| value*f32::from_bits(0x40808102)+f32::from_bits(0xc0010204));
             let length = (slope[0]*slope[0]+slope[1]*slope[1]+1.).sqrt();
-            return Ok([color,[slope[0]/length,slope[1]/length,1./length,1.],[1.,1.,0.,1.],[0.;4]]);
+            return Ok([color,[slope[0]/length,slope[1]/length,1./length,1.],response,[0.;4]]);
         }
         let (c0,c1,n0,n1) = (inputs[0].sample(uv0),inputs[2].sample(uv1),inputs[1].sample(uv0),inputs[3].sample(uv1));
         let weight = if self.reveal {
@@ -328,15 +376,15 @@ impl Recipe {
     }
 }
 
-fn auxiliary(surface: &Surface, index: usize, decal: bool, multiply: bool) -> Result<([f32; 2], [f32; 2], [f32; 4])> {
+fn auxiliary(surface: &Surface, index: usize, decal: bool, color_only_layer: bool) -> Result<([f32; 2], [f32; 2], [f32; 4])> {
     let bytes = surface.auxiliary.get(index).ok_or("Layered world vertex has no auxiliary data")?;
-    let size = if multiply { if decal {8} else {4} } else if decal {12} else {8};
+    let size = if color_only_layer { if decal {8} else {4} } else if decal {12} else {8};
     if bytes.len() != size { return Err(format!("Layered world vertex requires {size} auxiliary bytes, found {}", bytes.len()).into()); }
     let uv = [half::f16::from_bits(u16_at(bytes, 0)).to_f32(), half::f16::from_bits(u16_at(bytes, 2)).to_f32()];
     if !uv.iter().all(|v| v.is_finite()) { return Err("Layered world UV is not finite".into()); }
     let uv2 = if decal { [half::f16::from_bits(u16_at(bytes, 4)).to_f32(), half::f16::from_bits(u16_at(bytes, 6)).to_f32()] } else { uv };
     if !uv2.iter().all(|v| v.is_finite()) { return Err("Layered decal UV is not finite".into()); }
-    Ok((uv, uv2, if multiply { [1.,0.,0.,1.] } else { std::array::from_fn(|i| bytes[size - 4 + i] as f32 / 255.) }))
+    Ok((uv, uv2, if color_only_layer { [1.,0.,0.,1.] } else { std::array::from_fn(|i| bytes[size - 4 + i] as f32 / 255.) }))
 }
 
 fn constant_frame(surface: &Surface, first: usize) -> bool {
@@ -398,9 +446,9 @@ impl NormalFrame {
     }
 }
 
-fn periodic_key(surface: &Surface, first: usize) -> Result<Option<Vec<u32>>> {
+fn periodic_key(surface: &Surface, first: usize, color_only_layer: bool) -> Result<Option<Vec<u32>>> {
     if !constant_frame(surface,first) { return Ok(None); }
-    let auxiliary = (0..3).map(|i| auxiliary(surface,first+i,false,false)).collect::<Result<Vec<_>>>()?;
+    let auxiliary = (0..3).map(|i| auxiliary(surface,first+i,false,color_only_layer)).collect::<Result<Vec<_>>>()?;
     if !(1..3).all(|i| surface.colors[first+i][1] == surface.colors[first][1] && auxiliary[i].2 == auxiliary[0].2) { return Ok(None); }
     let offsets: [[f32;2];3] = std::array::from_fn(|i| std::array::from_fn(|axis| auxiliary[i].0[axis]-surface.uv[first+i][axis]));
     if offsets[1] != offsets[0] || offsets[2] != offsets[0] { return Ok(None); }
@@ -428,10 +476,17 @@ fn periodic(native: &Value, recipe: &Recipe, key: &[u32], uri: &str, pack: &mut 
 }
 
 fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> Result<texture::Image> {
-    let mut image = texture::Image { width, height, depth:1, faces:1, format:1, flags:0, levels:Vec::new() };
+    if width == 0 || height == 0 || width.checked_mul(height) != Some(pixels.len()) {
+        return Err("Baked material dimensions do not match pixel count".into());
+    }
+    if pixels.iter().flatten().any(|value| !value.is_finite() || role != "normal" && *value < 0.) {
+        return Err("Baked material has a non-finite or negative channel".into());
+    }
+    let hdr = role == "color" && pixels.iter().any(|pixel| pixel[..3].iter().any(|&value| value > 1.));
+    let mut image = texture::Image { width, height, depth:1, faces:1, format:if hdr {19} else {1}, flags:0, levels:Vec::new() };
     let (mut w, mut h, mut pixels) = (width, height, pixels);
     loop {
-        let mut bytes = Vec::with_capacity(w * h * 4);
+        let mut bytes = Vec::with_capacity(w * h * if hdr {8} else {4});
         for pixel in &pixels {
             let mut value = *pixel;
             if role == "normal" {
@@ -439,13 +494,20 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
                 if length < 1e-8 { value = [0., 0., 1., 1.]; }
                 else { for channel in &mut value[..3] { *channel /= length; } }
                 for channel in &mut value[..3] { *channel = *channel * 0.5 + 0.5; }
-            } else if role == "color" {
+            } else if role == "color" && !hdr {
                 for channel in &mut value[..3] {
                     *channel = if *channel <= 0.0031308 { *channel * 12.92 } else { 1.055 * channel.powf(1./2.4) - 0.055 };
                 }
             }
-            if value.iter().any(|v| !v.is_finite() || !(0. ..=1.).contains(v)) { return Err("Baked material pixel exceeds UNORM range".into()); }
-            bytes.extend(value.map(|v| (v*255.).round() as u8));
+            if hdr {
+                if value.iter().any(|v| !v.is_finite() || !(0. ..=65504.).contains(v)) || value[3] > 1. {
+                    return Err("Baked material pixel exceeds half-float color range".into());
+                }
+                for component in value { bytes.extend(half::f16::from_f32(component).to_le_bytes()); }
+            } else {
+                if value.iter().any(|v| !v.is_finite() || !(0. ..=1.).contains(v)) { return Err("Baked material pixel exceeds UNORM range".into()); }
+                bytes.extend(value.map(|v| (v*255.).round() as u8));
+            }
         }
         image.levels.push(bytes);
         if w == 1 && h == 1 { break; }
@@ -462,15 +524,24 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
 }
 
 fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<Recipe> {
+    let diffuse_reveal = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1v1";
+    let double_blend = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1_b2c2";
+    let blend_color = double_blend || native["technique_set"] == "lit_sm_r0c0n0x0_b1c1";
+    let additive = native["technique_set"] == "lit_sm_r0c0n0x0_a1c1";
+    let multiply_response = native["technique_set"] == "lit_sm_r0c0n0x0_m1c1";
     let multiply_decal = native["technique_set"] == "lit_sm_r0c0n0_m1c1_m2c2";
-    let multiply = multiply_decal || native["technique_set"] == "lit_sm_r0c0n0_m1c1";
+    let multiply = multiply_response || multiply_decal || native["technique_set"] == "lit_sm_r0c0n0_m1c1";
     let base_alpha_reveal = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1s1v1";
-    let base_alpha_response = base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
+    let base_alpha_response = diffuse_reveal || blend_color || additive || multiply_response || base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
     let reveal_decal = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1_m2c2";
-    let decal = multiply_decal || reveal_decal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1_m2c2";
+    let decal = double_blend || multiply_decal || reveal_decal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1_m2c2";
     let layer_specular = base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
-    let reveal = reveal_decal || layer_specular || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1";
-    let (vertex, pixel) = if multiply_decal { ("pimp_shader_layer_lmap_e2f44d32.hlsl", "pimp_shader_layer_lmap_61a9e8fe.hlsl") }
+    let reveal = diffuse_reveal || reveal_decal || layer_specular || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1";
+    let (vertex, pixel) = if diffuse_reveal { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_18793676.hlsl") }
+        else if double_blend { ("pimp_shader_layer_lmap_8b6985a0.hlsl", "pimp_shader_layer_lmap_cfff3f36.hlsl") }
+        else if blend_color { ("pimp_shader_layer_lmap_9bf34854.hlsl", "pimp_shader_layer_lmap_9f70e132.hlsl") }
+        else if additive || multiply_response { ("pimp_shader_layer_lmap_9bf34854.hlsl", if additive {"pimp_shader_layer_lmap_b50e886e.hlsl"} else {"pimp_shader_layer_lmap_254af097.hlsl"}) }
+        else if multiply_decal { ("pimp_shader_layer_lmap_e2f44d32.hlsl", "pimp_shader_layer_lmap_61a9e8fe.hlsl") }
         else if multiply { ("pimp_shader_layer_lmap_f26e80c6.hlsl", "pimp_shader_layer_lmap_7982c7aa.hlsl") }
         else if base_alpha_reveal { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_7f753776.hlsl") }
         else if base_alpha_response { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_cd368409.hlsl") }
@@ -485,12 +556,12 @@ fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<R
     { return Err("Layered material selected programs differ from recovered source".into()); }
     let state = native["state_entries"][4].as_u64().ok_or("Layered lit state is missing")? as usize;
     if native["state_bits"][state] != json!([403867666_u32,13]) { return Err("Layered material has unreviewed render states".into()); }
-    if base_alpha_reveal || multiply {
+    if base_alpha_reveal || diffuse_reveal || multiply || additive || blend_color {
         let sun = native["techniques"].as_array().unwrap().iter().find(|value| value["index"] == 6).ok_or("Layered sun technique is missing")?;
         let passes = sun["passes"].as_array().ok_or("Layered sun passes are missing")?;
         let state = native["state_entries"][6].as_u64().ok_or("Layered sun state is missing")? as usize;
-        if passes.len() != 1 || passes[0]["vertex_shader"] != if multiply_decal { "pimp_shader_layer_lmap_694a87ca.hlsl" } else if multiply { "pimp_shader_layer_lmap_79d04a3e.hlsl" } else { "pimp_shader_layer_lmap_420be797.hlsl" }
-            || passes[0]["pixel_shader"] != if multiply_decal { "pimp_shader_layer_lmap_1386e1c8.hlsl" } else if multiply { "pimp_shader_layer_lmap_badce9c.hlsl" } else { "pimp_shader_layer_lmap_d5a3e40.hlsl" }
+        if passes.len() != 1 || passes[0]["vertex_shader"] != if double_blend { "pimp_shader_layer_lmap_d74f58.hlsl" } else if additive || multiply_response || blend_color { "pimp_shader_layer_lmap_104d82ac.hlsl" } else if multiply_decal { "pimp_shader_layer_lmap_694a87ca.hlsl" } else if multiply { "pimp_shader_layer_lmap_79d04a3e.hlsl" } else { "pimp_shader_layer_lmap_420be797.hlsl" }
+            || passes[0]["pixel_shader"] != if diffuse_reveal { "pimp_shader_layer_lmap_6a563f40.hlsl" } else if double_blend { "pimp_shader_layer_lmap_bdd03600.hlsl" } else if blend_color { "pimp_shader_layer_lmap_ed5fe804.hlsl" } else if additive { "pimp_shader_layer_lmap_c7218158.hlsl" } else if multiply_response { "pimp_shader_layer_lmap_5765f9a1.hlsl" } else if multiply_decal { "pimp_shader_layer_lmap_1386e1c8.hlsl" } else if multiply { "pimp_shader_layer_lmap_badce9c.hlsl" } else { "pimp_shader_layer_lmap_d5a3e40.hlsl" }
             || native["state_bits"][state] != json!([403867666_u32,13]) {
             return Err("Layered sun programs or render states differ from recovered source".into());
         }
@@ -501,19 +572,19 @@ fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<R
         }
         let constant = native["constants"].as_array().unwrap().iter().find(|value| value["hash"] == 2294217777_u32).ok_or("Layered reveal parameters are missing")?;
         let values: [f32; 4] = serde_json::from_value(constant["literal"].clone())?;
-        if !values.iter().all(|value| value.is_finite()) || values[0] <= 0. || values[1] < 0. || (!base_alpha_reveal && values[1] == 0.) { return Err("Layered reveal parameters are outside the recovered domain".into()); }
+        if !values.iter().all(|value| value.is_finite()) || values[0] <= 0. || values[1] < 0. || (!base_alpha_reveal && !diffuse_reveal && values[1] == 0.) { return Err("Layered reveal parameters are outside the recovered domain".into()); }
         values
     } else { [0.;4] };
     let expected = [(0,0),(1,2),(2,5),(3,1),(4,7),(5,6),(6,8),(8,10)];
-    let expected = if multiply { &expected[..7] } else { &expected[..] };
+    let expected = if multiply || additive || blend_color { &expected[..7] } else { &expected[..] };
     let routes = passes[0]["vertex_routes"].as_array().ok_or("Layered vertex routes are missing")?;
     if routes.len() != expected.len() || routes.iter().zip(expected.iter().copied()).any(|(route, (source, destination))| route["source"] != source || route["destination"] != destination) {
         return Err("Layered material vertex declaration differs from recovered source".into());
     }
     let mut inputs = Vec::new();
     let mut bindings = vec![(2695565377_u32,20,0), (1507003663,20,257), (3054311504,if multiply {10} else {20},514)];
-    if !multiply { bindings.push((2486480606,20,if decal {1027} else {771})); }
-    if decal { bindings.push((3054311507,10,if multiply {771} else {772})); }
+    if !multiply && !additive && !blend_color { bindings.push((2486480606,20,if decal {1027} else {771})); }
+    if decal { bindings.push((3054311507,if double_blend {20} else {10},if multiply || blend_color {771} else {772})); }
     if layer_specular { bindings.push((3532022562,20,1028)); }
     for (hash, expected_sampler, location) in bindings {
         let binding = native["textures"].as_array().unwrap().iter().find(|binding| binding["hash"] == hash).ok_or("Layered source texture binding is missing")?;
@@ -527,7 +598,7 @@ fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<R
         println!("Layered input {name}: {}x{}",image.width,image.height);
         inputs.push(Input::read(image,sampler)?);
     }
-    Ok(Recipe {inputs,decal,multiply,reveal,layer_specular,base_alpha_response,parms:reveal_parms})
+    Ok(Recipe {inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:reveal_parms})
 }
 
 fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<Vec<Surface>> {
@@ -538,14 +609,14 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
     for (surface_index, surface) in surfaces.iter().enumerate() {
         for first in (0..surface.positions.len()).step_by(3) {
             let varying_frame = !constant_frame(surface,first);
-            let auxiliary = (0..3).map(|i| auxiliary(surface, first+i, decal, recipe.multiply)).collect::<Result<Vec<_>>>()?;
+            let auxiliary = (0..3).map(|i| auxiliary(surface, first+i, decal, recipe.multiply || recipe.additive || recipe.blend_color)).collect::<Result<Vec<_>>>()?;
             let layer_uv: Vec<_> = auxiliary.iter().map(|value| value.0).collect();
             let decal_uv: Vec<_> = auxiliary.iter().map(|value| value.1).collect();
             let uv_streams = if decal { vec![&surface.uv[first..first+3],layer_uv.as_slice(),decal_uv.as_slice()] }
                 else { vec![&surface.uv[first..first+3],layer_uv.as_slice()] };
             let offsets: Vec<[f32;2]> = uv_streams.iter().enumerate().map(|(stream,uv)| std::array::from_fn(|axis| {
                 let clamped = inputs.iter().enumerate().any(|(input,image)| {
-                    let source = if input < 2 { 0 } else if decal && input == if recipe.multiply {3} else {4} { 2 } else { 1 };
+                    let source = if input < 2 { 0 } else if decal && input == if recipe.multiply || recipe.blend_color {3} else {4} { 2 } else { 1 };
                     source == stream && image.sampler & (32 << axis) != 0
                 });
                 if clamped { 0. } else { uv.iter().map(|value| value[axis]).fold(f32::INFINITY,f32::min).floor() }
@@ -574,7 +645,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
                 continue;
             }
             let coordinates: Vec<[[f32;2];3]> = inputs.iter().enumerate().map(|(input,image)| {
-                    let uv = if input < 2 { &surface.uv[first..first+3] } else if decal && input == if recipe.multiply {3} else {4} { &decal_uv } else { &layer_uv };
+                    let uv = if input < 2 { &surface.uv[first..first+3] } else if decal && input == if recipe.multiply || recipe.blend_color {3} else {4} { &decal_uv } else { &layer_uv };
                     std::array::from_fn(|i| [uv[i][0]*image.width as f32,uv[i][1]*image.height as f32])
             }).collect();
             let metric = footprint(&coordinates)?;
@@ -645,7 +716,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
         let surface = &surfaces[triangle.surface];
         let frame = if constant_frame(surface,triangle.first) { None } else { Some(NormalFrame::read(surface,triangle.first)?) };
         if frame.is_some() { basis_triangles+=triangle.copies.len(); }
-        let auxiliary = (0..3).map(|i| auxiliary(surface,triangle.first+i,decal,recipe.multiply)).collect::<Result<Vec<_>>>()?;
+        let auxiliary = (0..3).map(|i| auxiliary(surface,triangle.first+i,decal,recipe.multiply || recipe.additive || recipe.blend_color)).collect::<Result<Vec<_>>>()?;
         let lower: [usize;2] = std::array::from_fn(|axis| triangle.points.iter().map(|point| point[axis].floor().max(0.) as usize).min().unwrap());
         let upper: [usize;2] = std::array::from_fn(|axis| triangle.points.iter().map(|point| point[axis].ceil().max(0.) as usize).max().unwrap()+2*GUTTER);
         let end = [upper[0].min(chart.width+2*GUTTER),upper[1].min(chart.height+2*GUTTER)];
@@ -725,7 +796,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
 }
 
 fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[f32;4]>;4], sampler: u8, charts: usize, pack: &mut Pack) -> Result<Value> {
-    let base_alpha_response = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
+    let base_alpha_response = matches!(native["technique_set"].as_str(),Some("lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_m1c1" | "lit_sm_r0c0n0x0_a1c1" | "lit_sm_r0c0n0x0_b1c1" | "lit_sm_r0c0n0x0_b1c1_b2c2" | "lit_sm_r0c0n0x0_b1c1n1v1"));
     let base_alpha_reveal = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1s1v1";
     let layer_specular = base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
     let [albedo,normals,response,specular] = outputs;
@@ -737,7 +808,8 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
     for (role, pixels) in outputs {
         let image = mip_chain(width,height,pixels,role)?;
         let path = format!("{uri}/{role}.ktx2");
-        let bytes = texture::encode(&image,role == "color",if role == "native-specular" { "reflectance" } else { role })?;
+        let srgb = role == "color" && image.format != 19;
+        let bytes = texture::encode(&image,srgb,if role == "native-specular" { "reflectance" } else { role })?;
         texture::validate(&bytes)?;
         pack.entries.insert(path.clone(),Arc::new(bytes));
         if role == "native-specular" { native_specular=json!({"uri":path,"specular_rgb":"linear","gloss_channel":"alpha"}); }
@@ -746,7 +818,7 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
                 native_specular=json!({"uri":path,"gloss_channel":"alpha","specular_rgb":"constant_0.04",
                     "source":"Direct-lobe Fresnel floor; native environment Fresnel fit differs"});
             }
-            channels.push(json!({"uri":path,"role":role,"layer":0,"color_space":if role == "color" {"srgb"} else {"linear"},"sampler":sampler}));
+            channels.push(json!({"uri":path,"role":role,"layer":0,"color_space":if srgb {"srgb"} else {"linear"},"sampler":sampler}));
         }
     }
     let mut material = json!({"name":native["name"],"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},
@@ -760,7 +832,10 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
         material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Coarse atlas mip levels can mix unrelated charts beyond the eight-pixel gutter"));
     }
     if base_alpha_response {
-        material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Base color alpha retained in response alpha and fitted from native exponent exp2(13*a) to GGX perceptual roughness (2/(exp2(13*a)+2))^(1/4). Dielectric F0=0.04 uses the native sun-lobe floor; this cannot reproduce the native environment Fresnel/mip fit, direct-lobe geometry/amplitude or inverse-SH compensation exactly. View-dependent lighting is not baked into albedo or emission"));
+        material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Source effective gloss retained in response alpha and fitted from native exponent exp2(13*a) to GGX perceptual roughness (2/(exp2(13*a)+2))^(1/4). Dielectric F0=0.04 uses the native sun-lobe floor; this cannot reproduce the native environment Fresnel/mip fit, direct-lobe geometry/amplitude or inverse-SH compensation exactly. View-dependent lighting is not baked into albedo or emission"));
+    }
+    if native["technique_set"] == "lit_sm_r0c0n0x0_m1c1" {
+        material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Source effective gloss is base color alpha multiplied by the encoded multiply tint luminance dot(tint, [0.3,0.6,0.1]); this effective gloss is retained in response alpha before the shared GGX fit"));
     }
     if base_alpha_reveal {
         material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Source gloss mixes base color alpha and layer specular alpha with the authored reveal weight. Mixed linear RGB specular and encoded gloss retained in native-specular. The shared metallic/GGX fit cannot exactly reproduce the native probe Fresnel/mip response or direct-sun lobe geometry/amplitude; view-dependent lighting is not baked into albedo or emission"));
@@ -769,7 +844,7 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
 }
 
 pub fn supported(family: &str) -> bool {
-    matches!(family,"lit_sm_r0c0n0_m1c1_m2c2" | "lit_sm_r0c0n0_m1c1" | "lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1")
+    matches!(family,"lit_sm_r0c0n0x0_b1c1n1v1" | "lit_sm_r0c0n0x0_b1c1_b2c2" | "lit_sm_r0c0n0x0_b1c1" | "lit_sm_r0c0n0x0_a1c1" | "lit_sm_r0c0n0x0_m1c1" | "lit_sm_r0c0n0_m1c1_m2c2" | "lit_sm_r0c0n0_m1c1" | "lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1")
 }
 
 pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &BTreeMap<String, texture::Image>, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<BTreeMap<String, Vec<Surface>>> {
@@ -792,11 +867,12 @@ pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &B
         let mut remaining = Vec::new();
         let mut periodic_triangles = 0;
         for surface in surfaces {
-            if (!material_recipe.reveal && !material_recipe.base_alpha_response) || material_recipe.decal { remaining.push(surface); continue; }
+            if (!material_recipe.reveal && !material_recipe.base_alpha_response) || material_recipe.decal
+                || material_recipe.multiply && material_recipe.inputs.iter().any(|image| image.sampler & 96 != 0) { remaining.push(surface); continue; }
             let mut triangles = BTreeMap::<Vec<u32>,Vec<usize>>::new();
             let mut variable = Vec::new();
             for triangle in 0..surface.indices.len()/3 {
-                if let Some(recipe) = periodic_key(&surface,triangle*3)? { triangles.entry(recipe).or_default().push(triangle); }
+                if let Some(recipe) = periodic_key(&surface,triangle*3,material_recipe.multiply || material_recipe.additive || material_recipe.blend_color)? { triangles.entry(recipe).or_default().push(triangle); }
                 else { variable.push(triangle); }
             }
             for (recipe,triangles) in triangles {
@@ -883,7 +959,7 @@ mod tests {
     fn multiply_layer_preserves_opaque_coverage_base_normal_and_transfer_order() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
         let mut recipe = Recipe {inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
-            decal:false,multiply:true,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.;4]};
+            decal:false,multiply:true,additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.;4]};
         let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[0.,-1.,1.,0.]).unwrap();
         let normal = sample(&recipe,0.)[1];
         for (green,expected) in [(0.,[0.64,0.36,0.16]),(0.5,[0.36,0.140625,0.16]),(1.,[0.16,0.0225,0.16])] {
@@ -903,7 +979,7 @@ mod tests {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
         let mut recipe = Recipe {inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.]),
             Input {width:2,height:1,sampler:10,pixels:vec![[0.25,1.,0.5,0.],[1.;4]]}],
-            decal:true,multiply:true,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.;4]};
+            decal:true,multiply:true,additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.;4]};
         let sample = |recipe: &Recipe,green,blue,uv2| recipe.sample([0.;2],[0.;2],uv2,green,blue,[1.,0.,0.,1.]).unwrap();
         let normal = sample(&recipe,0.,0.,[0.25,0.5])[1];
         for (green,blue,expected) in [(0.,1.,[0.04,0.36,0.04]),(1.,0.,[0.16,0.0225,0.16]),
@@ -921,11 +997,164 @@ mod tests {
     }
 
     #[test]
+    fn multiply_gloss_uses_encoded_tint_luminance_and_base_alpha() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe = Recipe {inputs:vec![input([0.8,0.6,0.4,0.8]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
+            decal:false,multiply:true,additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
+        let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
+        let mut previous_roughness = 0.;
+        for (green,gloss) in [(0.,0.8),(0.5,0.56),(1.,0.32)] {
+            let actual = sample(&recipe,green);
+            assert!((actual[2][3]-gloss).abs()<0.000001);
+            assert!(actual[2][1]>previous_roughness);
+            assert_eq!(actual[0][3],1.);
+            assert_eq!(actual[2][2],0.);
+            previous_roughness=actual[2][1];
+        }
+        let original = sample(&recipe,1.);
+        recipe.inputs[2].pixels[0][3]=1.;
+        assert_eq!(sample(&recipe,1.),original);
+        recipe.inputs[0].pixels[0][3]=0.;
+        let no_gloss = sample(&recipe,1.);
+        assert_eq!(no_gloss[0],original[0]);
+        assert_eq!(no_gloss[1],original[1]);
+        assert_eq!(no_gloss[2][3],0.);
+        assert!((no_gloss[2][1]-0.903602).abs()<0.000001);
+    }
+
+    #[test]
+    fn oversized_chart_rotation_preserves_geometry_and_directional_metric() {
+        let points = [[0.,0.],[11521.,0.],[5760.,64.]];
+        let a: [f64;2] = std::array::from_fn(|axis| points[1][axis]-points[0][axis]);
+        let b: [f64;2] = std::array::from_fn(|axis| points[2][axis]-points[0][axis]);
+        let metric = [a[0]*a[0]+a[1]*a[1],a[0]*b[0]+a[1]*b[1],b[0]*b[0]+b[1]*b[1]];
+        let triangle = ChartTriangle {surface:1,first:12,points,metric,copies:vec![(1,12,[0,1,2])]};
+        let pages = place_pages(vec![Chart {triangles:vec![triangle],width:11521,height:64,x:0,y:0}]).unwrap();
+        assert_eq!(pages.len(),1);
+        let chart = &pages[0].charts[0];
+        assert!(chart.width+2*GUTTER<=8192 && chart.height+2*GUTTER<=8192);
+        let triangle = &chart.triangles[0];
+        assert_eq!(triangle.copies,vec![(1,12,[0,1,2])]);
+        let a: [f64;2] = std::array::from_fn(|axis| triangle.points[1][axis]-triangle.points[0][axis]);
+        let b: [f64;2] = std::array::from_fn(|axis| triangle.points[2][axis]-triangle.points[0][axis]);
+        let rotated = [a[0]*a[0]+a[1]*a[1],a[0]*b[0]+a[1]*b[1],b[0]*b[0]+b[1]*b[1]];
+        assert!(dominates(rotated,metric) && dominates(metric,rotated));
+        let impossible = ChartTriangle {surface:0,first:0,points:[[0.,0.],[20000.,0.],[0.,20000.]],metric:[1.,0.,1.],copies:vec![(0,0,[0,1,2])]};
+        assert!(place_pages(vec![Chart {triangles:vec![impossible],width:20000,height:20000,x:0,y:0}]).is_err());
+    }
+
+    #[test]
+    fn additive_layer_uses_alpha_green_and_preserves_base_gloss() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe = Recipe {inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.8,0.4,0.2,0.5])],
+            decal:false,multiply:false,additive:true,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
+        let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
+        let original = sample(&recipe,0.);
+        for (green,expected) in [(0.,[0.64,0.36,0.16]),(0.5,[1.,0.49,0.2025]),(1.,[1.44,0.64,0.25])] {
+            let actual = sample(&recipe,green);
+            for (value,expected) in actual[0][..3].iter().zip(expected) { assert!((value-expected).abs()<0.000001); }
+            assert_eq!(actual[0][3],1.);
+            assert_eq!(actual[1],original[1]);
+            assert_eq!(actual[2],original[2]);
+            assert_eq!(actual[2][3],0.75);
+        }
+        recipe.inputs[2].pixels[0][3]=0.;
+        assert_eq!(sample(&recipe,1.),original);
+    }
+
+    #[test]
+    fn hdr_bake_preserves_linear_color_mips_and_runtime_color_space() {
+        let mut pixels = vec![[0.5,0.25,0.,1.];16];
+        pixels[0]=[2.5,0.25,0.,1.];
+        let image = mip_chain(4,4,pixels.clone(),"color").unwrap();
+        assert_eq!(image.format,19);
+        assert_eq!(texture::pixels(&image,0).unwrap(),pixels);
+        assert_eq!(texture::pixels(&image,1).unwrap()[0],[1.,0.25,0.,1.]);
+        assert_eq!(texture::pixels(&image,2).unwrap()[0],[0.625,0.25,0.,1.]);
+        let mut pack = Pack::default();
+        let native = json!({"name":"additive","technique_set":"lit_sm_r0c0n0x0_a1c1"});
+        let material = store(&native,"prepared/test",4,4,[pixels,vec![[0.,0.,1.,1.];16],vec![[1.,0.5,0.,0.75];16],Vec::new()],10,1,&mut pack).unwrap();
+        let color = &material["extras"]["surface"]["channels"][0];
+        assert_eq!(color["color_space"],"linear");
+        assert_eq!(texture::validate(pack.get(color["uri"].as_str().unwrap()).unwrap()).unwrap()["vk_format"],97);
+        assert!(mip_chain(0,1,Vec::new(),"color").is_err());
+        assert!(mip_chain(2,2,vec![[1.;4]],"color").is_err());
+        for value in [f32::NAN,f32::INFINITY,-0.1,70000.] {
+            assert!(mip_chain(1,1,vec![[value,0.,0.,1.]],"color").is_err());
+        }
+        assert!(mip_chain(1,1,vec![[2.,0.,0.,1.1]],"color").is_err());
+    }
+
+    #[test]
+    fn color_blend_uses_layer_alpha_green_and_preserves_base_normal_gloss() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe = Recipe {inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.2,0.4,0.8,0.5])],
+            decal:false,multiply:false,additive:false,blend_color:true,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
+        let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[0.,-1.,1.,0.]).unwrap();
+        let original = sample(&recipe,0.);
+        for (green,expected) in [(0.,[0.64,0.36,0.16]),(0.5,[0.4225,0.3025,0.25]),(1.,[0.25,0.25,0.36])] {
+            let actual = sample(&recipe,green);
+            for (value,expected) in actual[0][..3].iter().zip(expected) { assert!((value-expected).abs()<0.000001); }
+            assert_eq!(actual[0][3],1.);
+            assert_eq!(actual[1],original[1]);
+            assert_eq!(actual[2],original[2]);
+            assert_eq!(actual[2][3],0.75);
+        }
+        recipe.inputs[2].pixels[0][3]=0.;
+        assert_eq!(sample(&recipe,1.),original);
+        recipe.inputs[2].pixels[0][3]=1.;
+        let covered = sample(&recipe,1.);
+        for (value,expected) in covered[0][..3].iter().zip([0.04,0.16,0.64]) { assert!((value-expected).abs()<0.000001); }
+        assert_eq!(covered[2],original[2]);
+    }
+
+    #[test]
+    fn second_color_blend_uses_blue_alpha_uv2_and_ordered_encoded_composition() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe = Recipe {inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.2,0.4,0.8,0.5]),
+            Input {width:2,height:1,sampler:20,pixels:vec![[0.6,0.2,0.4,0.5],[1.,1.,1.,0.]]}],
+            decal:true,multiply:false,additive:false,blend_color:true,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
+        let sample = |recipe: &Recipe,green,blue,uv2| recipe.sample([0.;2],[0.;2],uv2,green,blue,[1.,0.,0.,1.]).unwrap();
+        let original = sample(&recipe,0.,0.,[0.25,0.5]);
+        for (green,blue,expected) in [(0.,1.,[0.49,0.16,0.16]),(1.,0.,[0.25,0.25,0.36]),
+            (1.,1.,[0.3025,0.1225,0.25]),(0.5,0.5,[0.40640625,0.21390625,0.225625])] {
+            let actual = sample(&recipe,green,blue,[0.25,0.5]);
+            for (value,expected) in actual[0][..3].iter().zip(expected) { assert!((value-expected).abs()<0.000001); }
+            assert_eq!(actual[0][3],1.);
+            assert_eq!(actual[1],original[1]);
+            assert_eq!(actual[2],original[2]);
+        }
+        assert_eq!(sample(&recipe,1.,1.,[0.75,0.5]),sample(&recipe,1.,0.,[0.25,0.5]));
+        recipe.inputs[3].pixels[0][3]=0.;
+        assert_eq!(sample(&recipe,1.,1.,[0.25,0.5]),sample(&recipe,1.,0.,[0.25,0.5]));
+    }
+
+    #[test]
+    fn diffuse_reveal_zero_exponent_blends_normals_without_replacing_base_gloss() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
+            input([0.8,0.6,0.2,0.5]),input([0.75,0.25,1.,1.])],
+            decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:false,base_alpha_response:true,parms:[0.25,0.,0.,0.]};
+        let sample = |green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
+        let original = sample(0.);
+        for (green,expected) in [(0.,[0.04,0.16,0.36]),(0.5,[0.25,0.25,0.16]),(1.,[0.64,0.36,0.04])] {
+            let actual = sample(green);
+            for (value,expected) in actual[0][..3].iter().zip(expected) { assert!((value-expected).abs()<0.000001); }
+            assert_eq!(actual[0][3],1.);
+            assert_eq!(actual[2],original[2]);
+            assert_eq!(actual[2][3],0.75);
+            assert!((actual[1][..3].iter().map(|v| v*v).sum::<f32>()-1.).abs()<0.000001);
+        }
+        assert!(sample(1.)[1][0]>sample(0.)[1][0]);
+        assert!(sample(1.)[1][1]<sample(0.)[1][1]);
+    }
+
+    #[test]
     fn base_alpha_reveal_preserves_mixed_native_gloss_and_zero_exponent() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
         let mut recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.5,0.5,1.,1.]),input([0.6,0.4,0.2,0.25])],
-            decal:false,multiply:false,reveal:true,layer_specular:true,base_alpha_response:true,parms:[0.5,0.5,0.,0.]};
+            decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:true,base_alpha_response:true,parms:[0.5,0.5,0.,0.]};
         for (green,expected) in [(0.,[0.04,0.04,0.04,0.75]),(0.5,[0.16,0.09,0.04,0.5]),(1.,[0.36,0.16,0.04,0.25])] {
             let actual = recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
             for (value,expected) in actual[3].iter().zip(expected) { assert!((value-expected).abs()<0.000001); }
@@ -943,7 +1172,7 @@ mod tests {
     fn layered_base_alpha_response_survives_complete_layer_coverage() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
         let mut recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
-            input([0.8,0.2,0.4,1.]),input([0.5,0.5,1.,1.])],decal:false,multiply:false,reveal:false,
+            input([0.8,0.2,0.4,1.]),input([0.5,0.5,1.,1.])],decal:false,multiply:false,additive:false,blend_color:false,reveal:false,
             layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         for (alpha,roughness) in [(0.,0.903602),(1.,0.12499237)] {
             recipe.inputs[0].pixels[0][3]=alpha;
@@ -969,7 +1198,7 @@ mod tests {
             input([0.8,0.2,0.4,0.5]),input([0.75,0.25,1.,1.]),
             Input {width:2,height:2,sampler:74,pixels:vec![[0.9,0.8,0.7,1.],[0.1,0.2,0.3,1.],
                 [0.5,0.25,0.75,0.],[1.,0.5,0.25,0.]]}],
-            decal:true,multiply:false,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
+            decal:true,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
         let sample = |recipe: &Recipe, blue| recipe.sample([0.;2],[0.;2],[1.25,1.25],0.5,blue,[0.,-1.,1.,0.]).unwrap();
         let actual=sample(&recipe,0.5);
         for (value,expected) in actual[0][..3].iter().zip([0.140625,0.03515625,0.19140625]) {
@@ -989,7 +1218,7 @@ mod tests {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
         let recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.5,0.5,1.,1.])],
-            decal:false,multiply:false,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
+            decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
         for (green,expected) in [(0.,[0.04,0.16,0.36]),(0.5,[0.25,0.25,0.16]),(1.,[0.64,0.36,0.04])] {
             let low = recipe.sample([0.;2],[0.;2],[0.;2],green,0.,[1.,0.,0.,1.]).unwrap();
             let high = recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();

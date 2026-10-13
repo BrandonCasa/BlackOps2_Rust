@@ -94,8 +94,16 @@ fn metallic_workflow(color: &texture::Image, specular: &texture::Image, samplers
     Ok((base,response))
 }
 
-fn ordinary_recipe(family: &str) -> Option<(&'static str,bool,u8,u8)> {
-    Some(match family {
+struct OrdinaryRecipe {
+    expected: &'static str,
+    normal: bool,
+    specular: u8,
+    coverage: u8,
+    programs: Option<[&'static str;3]>,
+}
+
+fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
+    let (expected,normal,specular,coverage) = match family {
         "mc_lit_sm_b0c0n0s0_91j5z9q9" => ("pimp_shader_lprobe_8bb4c6fc.hlsl", true, 1, 1),
         "wpc_lit_sm_r0c0n0s0_1zzj1138" => ("pimp_shader_lmap_353f0d80.hlsl", true, 1, 0),
         "mc_lit_sm_r0c0n0s0_zqq1fze7" => ("pimp_shader_lprobe_4bceb0cc.hlsl", true, 1, 0),
@@ -104,8 +112,23 @@ fn ordinary_recipe(family: &str) -> Option<(&'static str,bool,u8,u8)> {
         "mc_lit_sm_r0c0_77e21qq8" => ("pimp_shader_lprobe_9c5921d1.hlsl", false, 0, 0),
         "mc_lit_sm_r0c0n0_2z223015" => ("pimp_shader_lprobe_a06c1664.hlsl", true, 0, 0),
         "mc_lit_sm_t0c0n0s0_47jq982j" => ("pimp_shader_lprobe_b646e86e.hlsl", true, 1, 2),
+
+        "mc_lit_sm_r0c0s0_986ezzjq" => ("pimp_shader_lprobe_77fb8779.hlsl", false, 1, 0),
+        "wpc_lit_sm_r0c0n0_80fe30wz" => ("pimp_shader_lmap_c6b996da.hlsl", true, 0, 0),
+        "mc_lit_sm_t0c0_90wz6fe2" => ("pimp_shader_lprobe_61d17973.hlsl", false, 0, 2),
+        "wpc_lit_sm_t0c0_2w3887e6" => ("pimp_shader_lmap_2d3e6f96.hlsl", false, 0, 2),
+        "wpc_lit_sm_t0c0n0_9ew0jz24" => ("pimp_shader_lmap_439f5633.hlsl", true, 0, 2),
         _ => return None,
-    })
+    };
+    let programs = match family {
+        "mc_lit_sm_r0c0s0_986ezzjq" => Some(["pimp_shader_lprobe_eb01efa5.hlsl","pimp_shader_lprobe_dd5e5e9a.hlsl","pimp_shader_lprobe_2e19f64c.hlsl"]),
+        "wpc_lit_sm_r0c0n0_80fe30wz" => Some(["pimp_shader_lmap_d107eac0.hlsl","pimp_shader_lmap_5ab92038.hlsl","pimp_shader_lmap_b4969fec.hlsl"]),
+        "mc_lit_sm_t0c0_90wz6fe2" => Some(["pimp_shader_lprobe_eb01efa5.hlsl","pimp_shader_lprobe_dd5e5e9a.hlsl","pimp_shader_lprobe_38330846.hlsl"]),
+        "wpc_lit_sm_t0c0_2w3887e6" => Some(["pimp_shader_lmap_bfa6d365.hlsl","pimp_shader_lmap_3418199d.hlsl","pimp_shader_lmap_5f1166a0.hlsl"]),
+        "wpc_lit_sm_t0c0n0_9ew0jz24" => Some(["pimp_shader_lmap_d107eac0.hlsl","pimp_shader_lmap_5ab92038.hlsl","pimp_shader_lmap_31b05f05.hlsl"]),
+        _ => None,
+    };
+    Some(OrdinaryRecipe {expected,normal,specular,coverage,programs})
 }
 
 pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String, texture::Image>, pack: &mut Pack) -> Result<BTreeMap<String, Value>> {
@@ -114,7 +137,7 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
     let mut shared = BTreeMap::<(String, String), String>::new();
     for (key, material) in native {
         let family = material["technique_set"].as_str().ok_or("Missing native material technique")?;
-        let Some((expected, normal, specular, coverage)) = ordinary_recipe(family) else {
+        let Some(OrdinaryRecipe {expected,normal,specular,coverage,programs}) = ordinary_recipe(family) else {
             missing.entry(family.into()).or_default().push(key.clone()); continue;
         };
         let techniques = material["techniques"].as_array().ok_or("Missing native material techniques")?;
@@ -123,6 +146,21 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
         if passes.len() != 1 { return Err(format!("Ordinary lit material {key} has unsupported pass count").into()); }
         let shader = passes[0]["pixel_shader"].as_str().ok_or("Native pixel shader name is missing")?;
         if shader != expected { return Err(format!("Native technique {family} has an unreviewed pixel shader: {shader}").into()); }
+        if let Some([vertex,sun_vertex,sun_pixel]) = programs {
+            let sun = techniques.iter().find(|technique| technique["index"] == 6)
+                .ok_or_else(|| format!("Reviewed material {key} has no sun technique"))?;
+            let sun_passes = sun["passes"].as_array().ok_or("Native sun pass array is missing")?;
+            if passes[0]["vertex_shader"] != vertex || sun_passes.len() != 1
+                || sun_passes[0]["vertex_shader"] != sun_vertex || sun_passes[0]["pixel_shader"] != sun_pixel {
+                return Err(format!("Reviewed material {key} has unreviewed vertex or sun programs").into());
+            }
+            let lit_state = material["state_entries"][4].as_u64().ok_or("Reviewed lit state index is missing")? as usize;
+            let sun_state = material["state_entries"][6].as_u64().ok_or("Reviewed sun state index is missing")? as usize;
+            if material["state_bits"].get(lit_state).is_none() || material["state_bits"].get(sun_state).is_none()
+                || material["state_bits"][lit_state] != material["state_bits"][sun_state] {
+                return Err(format!("Reviewed material {key} has differing lit/sun render states").into());
+            }
+        }
         let mut channels = Vec::new();
         let mut bindings = vec![(2695565377_u32, if specular == 1 { Vec::new() } else { vec!["color"] })];
         if normal { bindings.push((1507003663, vec!["normal"])); }

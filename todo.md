@@ -21,6 +21,7 @@ This checklist includes graphics and rendering work because the user explicitly 
 - Use normal Git history and Cargo.lock. Do not add identity manifests, SHA gates, source snapshots, provenance systems, or external comparison receipts.
 - Preserve unrelated working-tree and staged changes. Stage or commit only when authorized.
 - Mark tasks complete only when their stated implementation and checks are actually finished. Record concrete remaining limitations beside the affected task.
+- Batch at least five concrete todo implementations before each new test run; prefer combined focused checks, as requested by the user.
 
 ## Current implementation to build on
 
@@ -28,7 +29,7 @@ The current checkout already contains the Rust pack builder and runtime pack int
 
 Relevant recent commits: 6f691a14c, 10ffa5a4d, ffc8d1961, a3607cfa1, cfb1b4abb, 8bd71a794, 0a67833bb, aa5665325, 88744c4a5, d07247bdb, and b13e79ab6. These describe the baseline to extend, not work to redo.
 
-The post-cutoff geometry-used material inventory contains 180 exact technique families and 1,034 materials. Starting dispatch covered 15 families. The multiply-layer extensions now cover two additional families in conversion; full runtime acceptance remains pending. Phase 1 below explicitly lists all 165 remaining families and their 664 currently used materials. Counts describe the starting backlog; an allow-list entry alone does not complete a family.
+The post-cutoff geometry-used material inventory contains 180 exact technique families and 1,034 materials. Starting dispatch covered 15 families. The extensions now cover twelve additional families and 72 geometry-used materials in conversion; full runtime acceptance remains pending. Phase 1 below explicitly lists all 165 remaining families and their 664 currently used materials. Counts describe the starting backlog; an allow-list entry alone does not complete a family.
 
 # Phase 1 - Complete all 165 remaining material families
 
@@ -36,7 +37,7 @@ Primary files: tools/asset_builder/material.rs, bake.rs, geometry.rs, texture.rs
 
 ## 1.1 Establish the exact material work inside the existing pipeline
 
-- [x] Reconcile the existing geometry-used family list against current ordinary_recipe and bake::supported dispatch before changing conversion. Installed-source check confirmed 1,034 materials, 180 families, 15 dispatched families and 165 missing families before extension. Exact checklist-family reconciliation passed after extension: 163 missing dispatch families plus the two newly converted multiply families match all 165 listed names.
+- [x] Reconcile the existing geometry-used family list against current ordinary_recipe and bake::supported dispatch before changing conversion. Installed-source check confirmed 1,034 materials, 180 families, 15 dispatched families and 165 missing families before extension. Exact checklist-family reconciliation passed after extension: 153 missing dispatch families plus the twelve newly converted families match all 165 listed names.
 - [ ] Keep all 165 listed families in scope, including one-material families and families used by infrequently visible content.
 - [ ] Include required material dependencies introduced by exact weapon, attachment, camo, FX, and presentation bindings.
 - [ ] Resolve each required material through the existing zone/patch selection rules.
@@ -133,20 +134,20 @@ Each family remains incomplete until its selected-program behavior is implemente
   - [ ] Resolve active occlusion/detail inputs and any scoped camo texture/constant overrides, then bind the source-selected material state.
 - [ ] Convert family `mlv_lit_sm_r0c0n0x0_619829wj` for all 23 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve the native vertex-lighting inputs and keep their lighting contribution separate from baked albedo.
-- [ ] Convert family `wpc_lit_sm_t0c0_2w3887e6` for all 15 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
-  - [ ] Resolve the selected pass's alpha-test/coverage equations, native threshold, normal inputs, and response inputs.
+- [ ] Convert family `wpc_lit_sm_t0c0_2w3887e6` for all 15 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented with exact lit vertex/pixel and sun program checks. Preserves geometric normals, diffuse-only response, source texture-alpha × vertex-alpha coverage and the native 128/255 cutoff. The five-family batch passed for all 38 installed materials, including 24 masked materials, eight normal-map and eight response-map bindings, 72 world/model LOD scenes, 35,863 triangles and 316 in-memory pack entries. Source RGB is constant within every used triangle in this batch, so existing vertex gamma transfer is equivalent for these inputs. Full-pack and actual-game acceptance remain pending.
+  - [x] Resolve the selected pass's alpha-test/coverage equations, native threshold, normal inputs, and response inputs.
 - [ ] Convert family `wpc_lit_sm_b0c0n0s0v0_efz5w56f` for all 10 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve the selected blend state, premultiplication/coverage equations, fog participation, and authored response inputs.
 - [ ] Convert family `mc_lit_sm_b0c0s0_805w75j2` for all 8 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve the selected blend state, premultiplication/coverage equations, fog participation, and authored response inputs.
-- [ ] Convert family `mc_lit_sm_r0c0s0_986ezzjq` for all 8 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
-  - [ ] Resolve active specular/gloss bindings and preserve the source transfer order in the existing PBR output.
+- [ ] Convert family `mc_lit_sm_r0c0s0_986ezzjq` for all 8 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented with exact lit vertex/pixel and sun program checks. Preserves geometric normals, authored specular RGB/gloss, source gamma transfer and existing metallic/GGX fitting. The five-family batch passed for all 38 installed materials, including 24 masked materials, eight normal-map and eight response-map bindings, 72 world/model LOD scenes, 35,863 triangles and 316 in-memory pack entries. Source RGB is constant within every used triangle in this batch, so existing vertex gamma transfer is equivalent for these inputs. Full-pack and actual-game acceptance remain pending.
+  - [x] Resolve active specular/gloss bindings and preserve the source transfer order in the existing PBR output.
 - [ ] Convert family `mlv_lit_sm_r0c0_j60qqj0e` for all 8 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve the native vertex-lighting inputs and keep their lighting contribution separate from baked albedo.
-- [ ] Convert family `mc_lit_sm_t0c0_90wz6fe2` for all 7 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
-  - [ ] Resolve the selected pass's alpha-test/coverage equations, native threshold, normal inputs, and response inputs.
-- [ ] Convert family `wpc_lit_sm_r0c0n0_80fe30wz` for all 6 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
-  - [ ] Resolve the actual selected color, geometric/mapped normal, lighting, coverage, and specular inputs without assuming another family's recipe.
+- [ ] Convert family `mc_lit_sm_t0c0_90wz6fe2` for all 7 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented with exact lit vertex/pixel and sun program checks. Preserves geometric normals, diffuse-only response, source texture-alpha × vertex-alpha coverage and the native 128/255 cutoff. The five-family batch passed for all 38 installed materials, including 24 masked materials, eight normal-map and eight response-map bindings, 72 world/model LOD scenes, 35,863 triangles and 316 in-memory pack entries. Source RGB is constant within every used triangle in this batch, so existing vertex gamma transfer is equivalent for these inputs. Full-pack and actual-game acceptance remain pending.
+  - [x] Resolve the selected pass's alpha-test/coverage equations, native threshold, normal inputs, and response inputs.
+- [ ] Convert family `wpc_lit_sm_r0c0n0_80fe30wz` for all 6 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented with exact lit vertex/pixel and sun program checks. Preserves authored normal slopes, diffuse-only response with no invented specular map, source gamma transfer and ordinary world bindings. The five-family batch passed for all 38 installed materials, including 24 masked materials, eight normal-map and eight response-map bindings, 72 world/model LOD scenes, 35,863 triangles and 316 in-memory pack entries. Source RGB is constant within every used triangle in this batch, so existing vertex gamma transfer is equivalent for these inputs. Full-pack and actual-game acceptance remain pending.
+  - [x] Resolve the actual selected color, geometric/mapped normal, lighting, coverage, and specular inputs without assuming another family's recipe.
 - [ ] Convert family `mlv_lit_sm_r0c0n0s0_wqqj839w` for all 5 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve the native vertex-lighting inputs and keep their lighting contribution separate from baked albedo.
 - [ ] Convert family `mc_lit_sm_b0c0_fw0jf955` for all 4 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
@@ -179,8 +180,8 @@ Each family remains incomplete until its selected-program behavior is implemente
   - [ ] Resolve the selected blend state, premultiplication/coverage equations, fog participation, and authored response inputs.
 - [ ] Convert family `wpc_lit_sm_b0c0n0v0_ew347fe3` for all 2 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve the selected blend state, premultiplication/coverage equations, fog participation, and authored response inputs.
-- [ ] Convert family `wpc_lit_sm_t0c0n0_9ew0jz24` for all 2 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
-  - [ ] Resolve the selected pass's alpha-test/coverage equations, native threshold, normal inputs, and response inputs.
+- [ ] Convert family `wpc_lit_sm_t0c0n0_9ew0jz24` for all 2 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented with exact lit vertex/pixel and sun program checks. Preserves authored normal slopes, diffuse-only response, source texture-alpha × vertex-alpha coverage and the native 128/255 cutoff. The five-family batch passed for all 38 installed materials, including 24 masked materials, eight normal-map and eight response-map bindings, 72 world/model LOD scenes, 35,863 triangles and 316 in-memory pack entries. Source RGB is constant within every used triangle in this batch, so existing vertex gamma transfer is equivalent for these inputs. Full-pack and actual-game acceptance remain pending.
+  - [x] Resolve the selected pass's alpha-test/coverage equations, native threshold, normal inputs, and response inputs.
 - [ ] Convert family `wpc_lit_sm_t0c0n0s0_weef63f3` for all 2 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve the selected pass's alpha-test/coverage equations, native threshold, normal inputs, and response inputs.
 - [ ] Convert family `mc_lit_sm_b0c0n0_67fqj7jf` for all 1 currently used material and connect its packed outputs to the existing runtime/Solari consumer.
@@ -230,26 +231,26 @@ Each family remains incomplete until its selected-program behavior is implemente
   - [ ] Resolve and implement the additional authored layer's UVs, weights, normal/response contributions, and operation order in the committed baker.
 - [ ] Convert family `lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2s2v2` for all 11 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve and implement the additional authored layer's UVs, weights, normal/response contributions, and operation order in the committed baker.
-- [ ] Convert family `lit_sm_r0c0n0x0_b1c1` for all 10 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
-  - [ ] Resolve and implement this layer combination's active color, normal, specular/gloss, coordinate, and vertex-weight inputs.
-- [ ] Convert family `lit_sm_r0c0n0x0_m1c1` for all 10 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
-  - [ ] Resolve and implement the authored multiply layer, including its vertex/mask weight and interaction with earlier color/response operations.
-- [ ] Convert family `lit_sm_r0c0n0x0_b1c1n1v1` for all 5 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
-  - [ ] Resolve and implement the selected reveal curve and its effect on color, normal, specular/gloss, and base-alpha response.
+- [ ] Convert family `lit_sm_r0c0n0x0_b1c1` for all 10 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented; all ten installed materials passed conversion/export checks across 84 surfaces and 441 triangles. Preserves layer-alpha × vertex-green encoded-color mixing before gamma transfer, base normal, and base-alpha gloss. Only the three selected texture arguments are applied; stored identity layer normals are inactive. Full-pack and actual-game acceptance remain pending.
+  - [x] Resolve and implement this layer combination's active color, normal, specular/gloss, coordinate, and vertex-weight inputs.
+- [ ] Convert family `lit_sm_r0c0n0x0_m1c1` for all 10 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented; all ten installed materials passed conversion/export checks across 116 surfaces and 1,002 triangles. Preserves multiply-before-gamma color, vertex-green weight, half2 UVs, authored wrap/clamp, base normal, and base-alpha gloss modulated by encoded tint luminance. Periodic baking is used only where UV/frame/sampler conditions permit it; other surfaces use the existing atlas path. Combined multiply-family checks passed for 15 materials, 168 surfaces, 1,371 triangles and 84 in-memory pack entries. Native environment/direct-lobe/GGX fitting and raster tangent-frame approximations remain explicit; full-pack and actual-game acceptance remain pending.
+  - [x] Resolve and implement the authored multiply layer, including its vertex/mask weight and interaction with earlier color/response operations.
+- [ ] Convert family `lit_sm_r0c0n0x0_b1c1n1v1` for all 5 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented; all five installed materials passed conversion/export checks across 159 surfaces, 2,052 triangles and 45 in-memory pack entries. Preserves the selected reveal curve including authored zero exponents, UV/auxiliary normal-frame inputs, reveal-weighted color/normal mixing, and unchanged base-alpha gloss. Native view-dependent response fitting and raster tangent-frame differences remain approximations; full-pack and actual-game acceptance remain pending.
+  - [x] Resolve and implement the selected reveal curve and its effect on color, normal, specular/gloss, and base-alpha response.
 - [ ] Convert family `lit_sm_r0c0n0x0_b1c1_b2c2n2s2v2` for all 4 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve and implement the additional authored layer's UVs, weights, normal/response contributions, and operation order in the committed baker.
 - [ ] Convert family `lit_sm_r0c0n0_m1c1` for all 3 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented with the recovered multiply-before-gamma equation, base normal, vertex-green weight, auxiliary half2 UVs, and source wrap/clamp samplers; installed conversion/export checks passed for all three materials across 46 surfaces and 343 triangles, with packed KTX2 mip layouts validated. Full-pack and actual-game acceptance remain pending.
-  - [ ] Resolve and implement the authored multiply layer, including its vertex/mask weight and interaction with earlier color/response operations.
+  - [x] Resolve and implement the authored multiply layer, including its vertex/mask weight and interaction with earlier color/response operations.
 - [ ] Convert family `lit_sm_r0c0n0s0_b1c1n1s1v1` for all 3 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve and implement the selected reveal curve and its effect on color, normal, specular/gloss, and base-alpha response.
-- [ ] Convert family `lit_sm_r0c0n0x0_a1c1` for all 3 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
+- [ ] Convert family `lit_sm_r0c0n0x0_a1c1` for all 3 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented; all three installed materials passed conversion/export checks across 62 surfaces, 314 triangles and 28 in-memory pack entries. Preserves source RGB × layer-alpha × vertex-green addition before gamma transfer, unchanged base normal/gloss, and auxiliary half2 UVs. Above-one color values use linear RGBA16F KTX2 with linear mips; existing PBR texture loading uses the matching linear color-space binding. Oversized charts are rotated into bounded pages where feasible without changing source triangles, UV metrics, or texel density; charts that cannot fit still fail explicitly. Sparse large charts incur substantial atlas/pack memory cost. Full-pack and actual-game acceptance remain pending.
   - [ ] Resolve and implement the authored add-layer contribution and its coverage, tint, and response ordering.
 - [ ] Convert family `lit_sm_r0c0n0x0_b1c1n1s1` for all 3 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve and implement this layer combination's active color, normal, specular/gloss, coordinate, and vertex-weight inputs.
 - [ ] Convert family `lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2` for all 3 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve and implement the authored multiply layer, including its vertex/mask weight and interaction with earlier color/response operations.
 - [ ] Convert family `lit_sm_r0c0n0_m1c1_m2c2` for all 2 currently used materials and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented and both installed materials passed conversion/export checks across six surfaces and 26 triangles. Green/blue weights, separate half2 UV pairs, multiply-before-gamma order, unchanged base normal, and authored samplers are preserved. The combined multiply-family check passed for five materials, 52 surfaces, 369 triangles and 22 in-memory pack entries. Full-pack and actual-game acceptance remain pending.
-  - [ ] Resolve and implement the authored multiply layer, including its vertex/mask weight and interaction with earlier color/response operations.
+  - [x] Resolve and implement the authored multiply layer, including its vertex/mask weight and interaction with earlier color/response operations.
 - [ ] Convert family `lit_sm_r0c0n0s0_b1c1n1_b2c2n2s2v2` for all 2 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve and implement the additional authored layer's UVs, weights, normal/response contributions, and operation order in the committed baker.
 - [ ] Convert family `lit_sm_r0c0n0s0_b1c1n1s1v1_b2c2n2s2v2` for all 2 currently used materials and connect its packed outputs to the existing runtime/Solari consumer.
@@ -268,8 +269,8 @@ Each family remains incomplete until its selected-program behavior is implemente
   - [ ] Resolve and implement this layer combination's active color, normal, specular/gloss, coordinate, and vertex-weight inputs.
 - [ ] Convert family `lit_sm_r0c0n0x0_a1c1_m2c2` for all 1 currently used material and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve and implement the combined multiply/add layer order and each layer's authored coordinates and masks.
-- [ ] Convert family `lit_sm_r0c0n0x0_b1c1_b2c2` for all 1 currently used material and connect its packed outputs to the existing runtime/Solari consumer.
-  - [ ] Resolve and implement the additional authored layer's UVs, weights, normal/response contributions, and operation order in the committed baker.
+- [ ] Convert family `lit_sm_r0c0n0x0_b1c1_b2c2` for all 1 currently used material and connect its packed outputs to the existing runtime/Solari consumer. Converter implemented; the installed material passed conversion/export checks across one surface and four triangles. Preserves ordered green/blue alpha-weighted color blends, separate UV pairs, base normal/gloss, opaque coverage, and selected-pass samplers. Combined color-blend checks passed for eleven materials, 85 surfaces, 445 triangles and 75 in-memory pack entries. Full-pack and actual-game acceptance remain pending.
+  - [x] Resolve and implement the additional authored layer's UVs, weights, normal/response contributions, and operation order in the committed baker.
 - [ ] Convert family `lit_sm_r0c0n0x0_b1c1_b2c2n2s2` for all 1 currently used material and connect its packed outputs to the existing runtime/Solari consumer.
   - [ ] Resolve and implement the additional authored layer's UVs, weights, normal/response contributions, and operation order in the committed baker.
 - [ ] Convert family `lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2_m3c3` for all 1 currently used material and connect its packed outputs to the existing runtime/Solari consumer.

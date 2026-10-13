@@ -215,13 +215,103 @@ mod tests {
     #[test]
     #[ignore = "requires the authorized Steam installation"]
     fn installed_multiply_materials() {
+        installed_material_families(&["lit_sm_r0c0n0_m1c1","lit_sm_r0c0n0_m1c1_m2c2","lit_sm_r0c0n0x0_m1c1"],15);
+    }
+
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
+    fn installed_additive_materials() {
+        installed_material_families(&["lit_sm_r0c0n0x0_a1c1"],3);
+    }
+
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
+    fn installed_color_blend_materials() {
+        installed_material_families(&["lit_sm_r0c0n0x0_b1c1","lit_sm_r0c0n0x0_b1c1_b2c2"],11);
+    }
+
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
+    fn installed_diffuse_reveal_materials() {
+        installed_material_families(&["lit_sm_r0c0n0x0_b1c1n1v1"],5);
+    }
+
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
+    fn installed_ordinary_materials_batch() {
         let install = super::installation().unwrap();
         let zones = super::read_zones(&install).unwrap();
         let catalog = crate::convert::Catalog::new(&zones);
         let used = crate::geometry::validate(&catalog).unwrap();
         let mut materials = crate::material::read_used(&catalog,&used).unwrap();
-        materials.retain(|_,material| matches!(material["technique_set"].as_str(),Some("lit_sm_r0c0n0_m1c1" | "lit_sm_r0c0n0_m1c1_m2c2")));
-        assert_eq!(materials.len(),5);
+        let families = ["mc_lit_sm_r0c0s0_986ezzjq","wpc_lit_sm_r0c0n0_80fe30wz","mc_lit_sm_t0c0_90wz6fe2",
+            "wpc_lit_sm_t0c0_2w3887e6","wpc_lit_sm_t0c0n0_9ew0jz24"];
+        materials.retain(|_,material| material["technique_set"].as_str().is_some_and(|family| families.contains(&family)));
+        assert_eq!(materials.len(),38);
+        let required = materials.values().flat_map(|material| material["textures"].as_array().unwrap())
+            .map(|binding| binding["image"].as_str().unwrap().to_ascii_lowercase()).collect();
+        let mut pack = crate::pack::Pack::default();
+        let (_,images) = crate::convert::images(&install,&catalog,&mut pack,Some(&required)).unwrap();
+        let converted = crate::material::convert_known(&materials,&images,&mut pack).unwrap();
+        assert!(crate::material::missing(&materials,&converted).is_empty());
+        let (mut masked,mut normals,mut responses) = (0,0,0);
+        for material in converted.values() {
+            let surface = &material["extras"]["surface"];
+            masked+=usize::from(surface["presentation"]["alpha"] == "mask");
+            for channel in surface["channels"].as_array().unwrap() {
+                normals+=usize::from(channel["role"] == "normal");
+                responses+=usize::from(channel["role"] == "response");
+                crate::texture::validate(pack.get(channel["uri"].as_str().unwrap()).unwrap()).unwrap();
+            }
+        }
+        assert_eq!((masked,normals,responses),(24,8,8));
+        let mut scenes = 0;
+        let mut triangles = 0;
+        for (_,zone,root) in catalog.definitions(17) {
+            let surfaces = crate::geometry::world(&catalog,zone,root).unwrap();
+            let selected: Vec<_> = surfaces.iter().filter(|surface| converted.contains_key(&surface.material.to_ascii_lowercase())).collect();
+            if selected.is_empty() { continue; }
+            let mut scene = crate::gltf::Scene::new("ordinary-world");
+            let indices = scene.materials(selected.iter().copied(),&converted).unwrap();
+            let mesh = scene.mesh("ordinary-world",selected.iter().copied(),&indices,false).unwrap();
+            scene.node(serde_json::json!({"mesh":mesh}));
+            triangles+=selected.iter().map(|surface| surface.indices.len()/3).sum::<usize>();
+            scene.write(&format!("prepared/ordinary/{scenes}.gltf"),&mut pack).unwrap();
+            scenes+=1;
+        }
+        for (name,zone,root) in catalog.definitions(5) {
+            for surfaces in crate::geometry::model(&catalog,name,zone,root).unwrap() {
+                let selected: Vec<_> = surfaces.iter().filter(|surface| converted.contains_key(&surface.material.to_ascii_lowercase())).collect();
+                if selected.is_empty() { continue; }
+                let mut scene = crate::gltf::Scene::new(name);
+                let indices = scene.materials(selected.iter().copied(),&converted).unwrap();
+                let mesh = scene.mesh(name,selected.iter().copied(),&indices,true).unwrap();
+                let owner = scene.node(serde_json::json!({"name":name,"mesh":mesh}));
+                scene.skin(owner,&crate::geometry::skeleton(&catalog,name,zone,root).unwrap()).unwrap();
+                triangles+=selected.iter().map(|surface| surface.indices.len()/3).sum::<usize>();
+                scene.write(&format!("prepared/ordinary/{scenes}.gltf"),&mut pack).unwrap();
+                scenes+=1;
+            }
+        }
+        assert!(scenes>1 && triangles>0);
+        for (uri,bytes) in &pack.entries {
+            if !uri.ends_with(".gltf") { continue; }
+            let doc: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+            for buffer in doc["buffers"].as_array().unwrap() {
+                crate::dependency(&pack,std::path::Path::new(uri).parent().unwrap(),buffer["uri"].as_str().unwrap()).unwrap();
+            }
+        }
+        println!("Converted five ordinary families: {} materials, {masked} masked, {normals} normal maps, {responses} response maps; exported {scenes} world/model LOD scenes and {triangles} triangles into {} in-memory pack entries",converted.len(),pack.entries.len());
+    }
+
+    fn installed_material_families(families: &[&str], expected: usize) {
+        let install = super::installation().unwrap();
+        let zones = super::read_zones(&install).unwrap();
+        let catalog = crate::convert::Catalog::new(&zones);
+        let used = crate::geometry::validate(&catalog).unwrap();
+        let mut materials = crate::material::read_used(&catalog,&used).unwrap();
+        materials.retain(|_,material| material["technique_set"].as_str().is_some_and(|family| families.contains(&family)));
+        assert_eq!(materials.len(),expected);
         let required = materials.values().flat_map(|material| material["textures"].as_array().unwrap())
             .map(|binding| binding["image"].as_str().unwrap().to_ascii_lowercase()).collect();
         let mut pack = crate::pack::Pack::default();
@@ -240,7 +330,7 @@ mod tests {
         let mesh = scene.mesh("multiply",baked.values().flatten(),&indices,false).unwrap();
         scene.node(serde_json::json!({"name":"multiply","mesh":mesh}));
         scene.write("prepared/material.gltf",&mut pack).unwrap();
-        println!("Converted {} installed multiply materials, {} surfaces, {} triangles, {} packed entries; exported glTF bindings and KTX2 mip layouts resolved",materials.len(),baked.len(),baked.values().flatten().map(|surface| surface.indices.len()/3).sum::<usize>(),pack.entries.len());
+        println!("Converted {} installed materials, {} surfaces, {} triangles, {} packed entries; exported glTF bindings and KTX2 mip layouts resolved",materials.len(),baked.len(),baked.values().flatten().map(|surface| surface.indices.len()/3).sum::<usize>(),pack.entries.len());
     }
 
     #[test]
