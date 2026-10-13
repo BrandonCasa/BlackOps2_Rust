@@ -28,6 +28,91 @@ fn variable(catalog: &Catalog<'_>, name: &str, column: usize, fallback: Value) -
     Ok(fallback)
 }
 
+fn zone_graph(game: &mut Value, entities: &[crate::entities::Entity], missing: &mut Vec<String>) -> Result<()> {
+    use std::collections::{BTreeMap,BTreeSet};
+    let mut zone_gaps = Vec::new();
+    let path = std::path::PathBuf::from(std::env::var_os("USERPROFILE").ok_or("USERPROFILE is unavailable")?)
+        .join("Documents/T6ZMResearch/t6zm-master/source/server-tomb/maps/mp/zm_tomb.gsc");
+    let source = std::fs::read_to_string(path)?;
+    if !source.contains("init_zones[0] = \"zone_start\";") { return Err("Original initial-zone source expression is unsupported".into()); }
+    let body = source.split_once("working_zone_init()").ok_or("Original working_zone_init source is missing")?.1;
+    let body = body.trim_start().strip_prefix('{').ok_or("Original working_zone_init body is missing")?;
+    let body = body.split_once('}').ok_or("Original working_zone_init body is unterminated")?.0;
+    let literals = |line: &str, call: &str| -> Result<Vec<String>> {
+        let args = line.strip_prefix(call).ok_or("Unsupported zone source call")?.trim()
+            .strip_prefix('(').and_then(|args| args.strip_suffix(");")).ok_or_else(|| format!("Unsupported literal zone call syntax: {line}"))?;
+        args.split(',').map(|arg| {
+            let value = arg.trim().strip_prefix('"').and_then(|arg| arg.strip_suffix('"')).ok_or_else(|| format!("Nonliteral zone call: {line}"))?;
+            if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') { return Err(format!("Unsupported zone source literal: {value}").into()); }
+            Ok(value.to_owned())
+        }).collect()
+    };
+    let mut zones = BTreeSet::new();
+    let mut edges = Vec::<(String,String,BTreeSet<String>)>::new();
+    let mut edge_indices = BTreeMap::new();
+    let mut activations = Vec::new();
+    let mut calls = 0;
+    for line in body.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if line.starts_with("add_adjacent_zone") {
+            let args = literals(line,"add_adjacent_zone")?;
+            let [a,b,flag]: [String;3] = args.try_into().map_err(|_| "Original adjacent zone call requires three literals")?;
+            zones.insert(a.clone()); zones.insert(b.clone()); calls += 1;
+            let key = if a <= b { (a.clone(),b.clone()) } else { (b.clone(),a.clone()) };
+            let index = *edge_indices.entry(key).or_insert_with(|| { edges.push((a,b,BTreeSet::new())); edges.len()-1 });
+            edges[index].2.insert(flag);
+        } else if line.starts_with("level thread activate_zone_trig") {
+            let args = literals(line,"level thread activate_zone_trig")?;
+            if !(2..=3).contains(&args.len()) { return Err("Original zone activation call requires two or three literals".into()); }
+            activations.push(args);
+        } else if line == "flag_init( \"always_on\" );" || line == "flag_set( \"always_on\" );" {
+        } else { return Err(format!("Unsupported working_zone_init statement: {line}").into()); }
+    }
+    for entity in entities {
+        if entity.get("script_noteworthy").is_some_and(|value| value == "player_volume") {
+            zones.insert(entity.get("targetname").ok_or("Native player_volume lacks its source zone targetname")?.clone());
+        }
+    }
+    let zone_id = |name: &str| format!("zone.{}",name.strip_prefix("zone_").unwrap_or(name));
+    let mut links = BTreeMap::<String,Vec<String>>::new();
+    let connections: Vec<_> = edges.iter().enumerate().map(|(index,(a,b,flags))| {
+        let id = format!("connection.native.{index}");
+        for flag in flags { links.entry(flag.clone()).or_default().push(id.clone()); }
+        json!({"id":id,"from":zone_id(a),"to":zone_id(b),"initially_open":flags.contains("always_on")})
+    }).collect();
+    game["content"]["zones"] = json!(zones.iter().map(|name| json!({"id":zone_id(name),"initially_open":name == "zone_start"})).collect::<Vec<_>>());
+    game["content"]["zone_connections"] = json!(connections);
+    let mut triggers = Vec::new();
+    let mut owners = game["environment"]["ownership"].as_array().cloned().unwrap_or_default();
+    for args in activations {
+        let matching: Vec<_> = entities.iter().enumerate().filter(|(_,entity)| entity.get("targetname") == Some(&args[0])).collect();
+        if matching.len() != 1 { zone_gaps.push(format!("access activation source {} resolves {} native entities",args[0],matching.len())); continue; }
+        let (index,entity) = matching[0];
+        let id = format!("trigger.native.{index}");
+        if entity.get("classname").map(String::as_str) != Some("trigger_box") || entity.get("model").is_some_and(|model| model.starts_with('*')) {
+            zone_gaps.push(format!("access activation source {} requires native representation integration: {entity:?}",args[0])); continue;
+        }
+        if !game["environment"]["triggers"].as_array().is_some_and(|rows| rows.iter().any(|row| row["id"] == id)) {
+            zone_gaps.push(format!("access activation source {} has no converted trigger geometry",args[0])); continue;
+        }
+        let flags: u32 = entity.get("spawnflags").ok_or("Native access trigger spawnflags are missing")?.parse()?;
+        let contents = if flags&8 == 0 {0x40000000} else {0} | if flags&1 != 0 {0x40000} else {0}
+            | if flags&2 != 0 {0x80000} else {0} | if flags&4 != 0 {0x100000} else {0} | if flags&16 != 0 {8} else {0} | 0x200000;
+        if contents&0x40000000 == 0 || contents&(8|0x400000|0x1c0000) != 0 {
+            zone_gaps.push(format!("access activation {id} requires unsupported native contact categories for contents {contents:#x}")); continue;
+        }
+        missing.retain(|gap| !gap.starts_with(&format!("environment unresolved script ownership/activation/shootability for {id}:")));
+        owners.push(json!({"id":id,"owner":"access","shootable":false}));
+        triggers.push(json!({"trigger":id,"flags":&args[1..],"contents":contents}));
+    }
+    if !owners.is_empty() { game["environment"]["ownership"] = json!(owners); }
+    game["access"] = json!({"flag_links":links.into_iter().map(|(flag,connections)| json!({"flag":flag,"connections":connections})).collect::<Vec<_>>(),"trigger_activations":triggers});
+    zone_gaps.push("access native client-mode synchronization, source zone events, spawn enablement, barriers and remaining flag producers require conversion".into());
+    println!("Converted {calls} source zone links into {} undirected connections and {} zone definitions",edges.len(),zones.len());
+    for gap in &zone_gaps { println!("Pending native zone conversion: {gap}"); }
+    missing.extend(zone_gaps);
+    Ok(())
+}
+
 pub fn read(catalog: &Catalog<'_>, entities: &[crate::entities::Entity]) -> Result<(Value, Vec<String>)> {
     let mut native_gaps = Vec::new();
     let mut native_triggers = Vec::new();
@@ -152,6 +237,7 @@ pub fn read(catalog: &Catalog<'_>, entities: &[crate::entities::Entity]) -> Resu
         "immunity_critical_repeat":0.3,"feedback_seconds":0.8},
         "rounds":rounds,"solo_revive":solo,"content":{"localized_strings":localized}});
     if !native_triggers.is_empty() { game["environment"] = json!({"triggers":native_triggers,"ownership":native_owners,"crafting_benches":crafting_benches}); }
+    zone_graph(&mut game,entities,&mut native_gaps)?;
     Ok((game,native_gaps))
 }
 
@@ -301,6 +387,9 @@ pub fn write((mut game, mut native_gaps): (Value, Vec<String>), worlds: &[Value]
     environment(&mut game,brushes,&mut missing)?;
     for key in ["mud", "triggers", "ownership", "digging", "parts", "crafting_benches"] {
         if game["environment"].get(key).is_none() { missing.push(format!("environment.{key}")); }
+    }
+    for key in ["doors", "volumes", "spawns"] {
+        if game["access"].get(key).is_none() { missing.push(format!("access.{key}")); }
     }
     for key in ["spawn", "yaw", "spawn_points", "waypoints", "survey_views", "rounds", "solo_revive", "environment", "access", "audio", "tuning"] {
         if game.get(key).is_none() { missing.push(key.to_owned()); }

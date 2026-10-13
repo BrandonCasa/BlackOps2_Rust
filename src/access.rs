@@ -16,7 +16,26 @@ pub struct AccessDefinition {
     pub doors: Vec<DoorDefinition>,
     pub volumes: Vec<ZoneVolumeDefinition>,
     pub spawns: Vec<SpawnDefinition>,
+    pub flag_links: Vec<ZoneFlagLinkDefinition>,
+    pub trigger_activations: Vec<TriggerActivationDefinition>,
 }
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ZoneFlagLinkDefinition {
+    pub flag: String,
+    pub connections: Vec<ContentId>,
+}
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TriggerActivationDefinition {
+    pub trigger: String,
+    pub flags: Vec<String>,
+    pub contents: u32,
+}
+#[derive(Component, Default)]
+pub struct TriggerClientMode(pub i32);
+#[derive(Message)]
+pub struct ZoneFlagSet(pub String);
 #[derive(Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ZoneVolumeDefinition {
@@ -51,8 +70,32 @@ pub struct DoorVisual {
     pub offset: [f32; 3],
 }
 impl AccessDefinition {
-    pub fn valid(&self, content: &ContentCatalog) -> bool {
-        self.volumes.len() <= 4096
+    pub fn valid(&self, content: &ContentCatalog, environment: &crate::environment::EnvironmentDefinition) -> bool {
+        self.flag_links.iter().all(|link| {
+            !link.flag.is_empty() && !link.connections.is_empty()
+                && link.connections.iter().all(|id| content.zone_connections.iter().any(|connection| connection.id == *id))
+        })
+            && self.flag_links.iter().map(|link| &link.flag).collect::<BTreeSet<_>>().len() == self.flag_links.len()
+            && self.trigger_activations.iter().all(|activation| {
+                !activation.trigger.is_empty() && !activation.flags.is_empty()
+                    && activation.contents == 0x40200000
+                    && activation.flags.iter().all(|flag| self.flag_links.iter().any(|link| link.flag == *flag))
+                    && environment.triggers.iter().any(|trigger| {
+                        trigger.id == activation.trigger
+                            && trigger.source.get("classname").is_some_and(|class| class == "trigger_box")
+                            && trigger.source.get("angles").is_none_or(|angles| {
+                                let values = angles.split_whitespace().map(str::parse::<f32>).collect::<Result<Vec<_>,_>>();
+                                values.is_ok_and(|values| values.len() == 3 && values.into_iter().all(|value| value == 0.))
+                            })
+                            && trigger.source.get("angle").is_none_or(|angle| angle.parse::<f32>().is_ok_and(|value| value == 0.))
+                            && trigger.source.get("spawnflags").is_some_and(|flags| flags.parse::<u32>().is_ok_and(|flags| flags&0x40 == 0))
+                            && trigger.source.get("wait").is_none_or(|wait| wait.parse::<f32>().is_ok_and(|value| value > 0.))
+                            && !trigger.source.contains_key("team") && !trigger.source.contains_key("teamnum")
+                            && matches!(&trigger.shape, crate::environment::triggers::TriggerShape::Convex { volumes } if volumes.len() == 1)
+                    })
+            })
+            && self.trigger_activations.iter().map(|activation| &activation.trigger).collect::<BTreeSet<_>>().len() == self.trigger_activations.len()
+            && self.volumes.len() <= 4096
             && self.volumes.iter().all(|v| {
                 content.zones.iter().any(|z| z.id == v.zone)
                     && v.volume.position.iter().all(|x| x.is_finite())
@@ -127,6 +170,7 @@ pub struct ZoneAccess {
     pub reachable: BTreeSet<ZoneId>,
     pub activated: BTreeSet<ZoneId>,
     pub purchases: u32,
+    pub flags: BTreeSet<String>,
 }
 impl ZoneAccess {
     pub fn opened(&self, id: &ContentId) -> bool {
@@ -250,6 +294,8 @@ impl Plugin for AccessPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ZoneAccess>()
             .register_required_components::<Player, ZoneCheckpoint>()
+            .register_required_components::<Player, TriggerClientMode>()
+            .add_message::<ZoneFlagSet>()
             .init_resource::<CurrentZone>()
             .init_resource::<DoorEvidence>()
             .add_systems(
@@ -259,7 +305,7 @@ impl Plugin for AccessPlugin {
             .add_systems(Update, audio_evidence)
             .add_systems(
                 FixedUpdate,
-                locate
+                (activate_triggers, apply_flags, locate).chain()
                     .in_set(GameStep::Movement)
                     .after(crate::player::move_player)
                     .run_if(in_state(GameState::Playing)),
@@ -272,6 +318,49 @@ impl Plugin for AccessPlugin {
                     .run_if(in_state(GameState::Playing)),
             );
     }
+}
+fn activate_triggers(
+    mut commands: Commands,
+    game: Res<GameDefinition>,
+    players: Query<(&Transform, &Player, &TriggerClientMode)>,
+    triggers: Query<(Entity, &crate::environment::triggers::MapTrigger)>,
+    mut flags: MessageWriter<ZoneFlagSet>,
+) {
+    for activation in &game.access.trigger_activations {
+        let Some((entity, _)) = triggers.iter().find(|(_, trigger)| trigger.0 == activation.trigger) else { continue; };
+        let Some(trigger) = game.environment.triggers.iter().find(|trigger| trigger.id == activation.trigger) else { continue; };
+        let crate::environment::triggers::TriggerShape::Convex { volumes } = &trigger.shape else { continue; };
+        if activation.contents != 0x40200000 || volumes.len() != 1 { continue; }
+        let volume = &volumes[0];
+        let minimum = volume.vertices.iter().copied().map(Vec3::from_array).fold(Vec3::splat(f32::INFINITY), Vec3::min);
+        let maximum = volume.vertices.iter().copied().map(Vec3::from_array).fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
+        let origin = Vec3::from_array(trigger.position)+Vec3::from_array(volume.position);
+        if players.iter().any(|(pose, player, mode)| {
+            if !(mode.0 < 2 || matches!(mode.0,7..=9)) { return false; }
+            let center = pose.translation-origin;
+            let radius = game.tuning.radius;
+            let half_segment = (player.height*0.5-radius).abs();
+            center.x >= minimum.x-radius && center.x <= maximum.x+radius
+                && center.z >= minimum.z-radius && center.z <= maximum.z+radius
+                && center.y+half_segment >= minimum.y-radius && center.y-half_segment <= maximum.y+radius
+        }) {
+            for flag in &activation.flags { flags.write(ZoneFlagSet(flag.clone())); }
+            commands.entity(entity).despawn();
+        }
+    }
+}
+fn apply_flags(
+    mut flags: MessageReader<ZoneFlagSet>,
+    game: Res<GameDefinition>,
+    mut access: ResMut<ZoneAccess>,
+) {
+    let mut changed = false;
+    for ZoneFlagSet(flag) in flags.read() {
+        let Some(link) = game.access.flag_links.iter().find(|link| link.flag == *flag) else { continue; };
+        access.flags.insert(flag.clone());
+        for connection in &link.connections { changed |= access.open.insert(connection.clone()); }
+    }
+    if changed { access.refresh(&game.content); }
 }
 fn assemble(
     mut commands: Commands,
@@ -312,6 +401,7 @@ fn assemble(
     }
     *evidence = default();
     *access = default();
+    if definition.access.flag_links.iter().any(|link| link.flag == "always_on") { access.flags.insert("always_on".into()); }
     access.open.extend(
         definition
             .content

@@ -199,7 +199,7 @@ impl GameDefinition {
                 .all(|v| v.is_finite())
             || !values.iter().all(|v| v.is_finite() && *v > 0.)
             || !self.environment.valid(self)
-            || !self.access.valid(&self.content)
+            || !self.access.valid(&self.content, &self.environment)
             || !self.tuning.physics.valid()
             || !self
                 .tuning
