@@ -1,75 +1,156 @@
-use bevy::{camera::visibility::VisibilityRange, gltf::GltfExtras, prelude::*};
+use bevy::{
+    camera::visibility::{VisibilityRange, VisibilitySystems},
+    gltf::GltfExtras,
+    prelude::*,
+    transform::TransformSystems,
+};
+use serde::Deserialize;
 
 pub(super) struct PropLodPlugin;
 
 impl Plugin for PropLodPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, prepare);
+        app.add_systems(Update, prepare).add_systems(
+            PostUpdate,
+            select
+                .after(bevy::camera::CameraUpdateSystems)
+                .after(TransformSystems::Propagate)
+                .before(VisibilitySystems::CheckVisibility),
+        );
     }
 }
 
 #[derive(Component)]
 struct LodReady;
 
+#[derive(Deserialize)]
+struct NativeDistances {
+    distances: Vec<f32>,
+    scale: f32,
+    cull_distance: f32,
+}
+
+#[derive(Component)]
+struct NativeLod {
+    level: usize,
+    source: NativeDistances,
+}
+
 fn prepare(
     mut commands: Commands,
     meshes: Query<Entity, (With<Mesh3d>, Without<LodReady>)>,
     extras: Query<&GltfExtras>,
     parents: Query<&ChildOf>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<crate::GameState>>,
 ) {
     for entity in &meshes {
-        let mut ancestor = Some(entity);
-        while let Some(current) = ancestor {
-            if let Some(lod) = extras.get(current).ok().and_then(|extras| {
-                serde_json::from_str::<serde_json::Value>(&extras.value)
-                    .ok()
-                    .and_then(|value| {
-                        value
-                            .get("mesh_lod")
-                            .or_else(|| value.get("prop_lod"))
-                            .cloned()
-                    })
-            }) {
-                let level = lod["level"].as_u64().unwrap_or(0);
-                let distances: Vec<f32> = lod["distances"].as_array().map_or_else(
-                    || match lod["levels"].as_u64().unwrap_or(1) {
-                        2 => vec![20.0],
-                        3 => vec![20.0, 45.0],
-                        _ => Vec::new(),
-                    },
-                    |values| {
-                        values
-                            .iter()
-                            .filter_map(|v| v.as_f64().map(|d| d as f32))
-                            .collect()
-                    },
-                );
-                let margin = |index: usize| {
-                    let distance = distances[index];
-                    let previous = index.checked_sub(1).map_or(0.0, |i| distances[i]);
-                    let next = distances.get(index + 1).copied().unwrap_or(f32::MAX);
-                    let width = (distance * 0.025)
-                        .min(0.5)
-                        .min((distance - previous) * 0.25)
-                        .min((next - distance) * 0.25)
-                        .max(0.0);
-                    (distance - width).max(0.0)..distance + width
-                };
-                commands.entity(entity).try_insert(VisibilityRange {
-                    start_margin: level
-                        .checked_sub(1)
-                        .map(|index| index as usize)
-                        .filter(|index| *index < distances.len())
-                        .map_or(0.0..0.0, margin),
-                    end_margin: distances
-                        .get(level as usize)
-                        .map_or(f32::MAX..f32::MAX, |_| margin(level as usize)),
-                    use_aabb: false,
-                });
-                break;
+        let result = (|| -> Result<Option<NativeLod>, String> {
+            let mut ancestor = Some(entity);
+            let mut level = None;
+            while let Some(current) = ancestor {
+                if let Ok(extras) = extras.get(current) {
+                    let value: serde_json::Value = serde_json::from_str(&extras.value)
+                        .map_err(|error| format!("Invalid native LOD extras: {error}"))?;
+                    if let Some(value) = value.get("native_lod_level") {
+                        level = Some(
+                            value
+                                .as_u64()
+                                .and_then(|v| usize::try_from(v).ok())
+                                .ok_or("Invalid native LOD level")?,
+                        );
+                    }
+                    if let Some(value) = value.get("native_lod") {
+                        let source: NativeDistances = serde_json::from_value(value.clone())
+                            .map_err(|error| format!("Invalid native LOD distances: {error}"))?;
+                        let level = level.ok_or("Native LOD instance has no mesh level")?;
+                        if level >= source.distances.len()
+                            || !source.distances.iter().all(|d| d.is_finite())
+                            || !source.scale.is_finite()
+                            || source.scale == 0.
+                            || !source.cull_distance.is_finite()
+                        {
+                            return Err("Invalid native LOD distance, scale or culling data".into());
+                        }
+                        return Ok(Some(NativeLod { level, source }));
+                    }
+                }
+                ancestor = parents.get(current).ok().map(ChildOf::parent);
             }
-            ancestor = parents.get(current).ok().map(ChildOf::parent);
+            if level.is_some() {
+                return Err("Native LOD mesh has no instance distances".into());
+            }
+            Ok(None)
+        })();
+        match result {
+            Ok(Some(lod)) => {
+                commands
+                    .entity(entity)
+                    .try_insert((lod, VisibilityRange::abrupt(0., 0.)));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                error!("{error}");
+                failure.0 = error;
+                next.set(crate::GameState::LoadError);
+            }
         }
         commands.entity(entity).try_insert(LodReady);
+    }
+}
+
+fn select(
+    cameras: Query<(Entity, &Projection, &GlobalTransform), With<super::GameCamera>>,
+    mut meshes: Query<(&NativeLod, &GlobalTransform, &mut VisibilityRange)>,
+    mut history: Local<Option<(Entity, f32)>>,
+) {
+    let Ok((camera, Projection::Perspective(projection), camera_transform)) = cameras.single()
+    else {
+        return;
+    };
+    let factor =
+        (projection.fov * 0.5).tan() * projection.aspect_ratio * f32::from_bits(0x40079857);
+    if !factor.is_finite() || factor <= 0. {
+        return;
+    }
+    let historical = match *history {
+        Some((owner, previous))
+            if owner == camera && previous > factor && previous / factor <= 1.25 =>
+        {
+            previous
+        }
+        _ => factor,
+    };
+    *history = Some((camera, historical));
+    for (lod, transform, mut range) in &mut meshes {
+        let raw = camera_transform
+            .translation()
+            .distance(transform.translation());
+        let biased = raw * historical;
+        let scale = lod.source.scale.max(1.);
+        let selected = if biased < lod.source.cull_distance {
+            lod.source
+                .distances
+                .iter()
+                .position(|threshold| biased / scale < *threshold)
+                .or_else(|| {
+                    (biased != raw)
+                        .then(|| {
+                            lod.source
+                                .distances
+                                .iter()
+                                .position(|threshold| raw / scale < *threshold)
+                        })
+                        .flatten()
+                })
+        } else {
+            None
+        };
+        let end = if selected == Some(lod.level) {
+            f32::MAX
+        } else {
+            0.
+        };
+        range.set_if_neq(VisibilityRange::abrupt(0., end));
     }
 }

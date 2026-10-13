@@ -108,6 +108,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         println!("Packed {} baked native surfaces into {}", baked.len(), output.display());
         return Ok(());
     }
+    let game = crate::game::read(&catalog)?;
     let unsupported = crate::material::unimplemented(&materials);
     if !unsupported.is_empty() {
         return Err(format!("Required material conversion has {} unimplemented families:\n{}", unsupported.len(), unsupported.join("\n")).into());
@@ -134,6 +135,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
             world["atmosphere_uri"] = serde_json::json!(atmosphere_uri);
         }
     }
+    crate::game::write(game, &worlds, &mut pack)?;
     let runtime = runtime(&pack, models, worlds, images, sounds)?;
     pack.entries.insert("prepared/runtime.json".into(), std::sync::Arc::new(serde_json::to_vec(&runtime)?));
     crate::validate_pack(&pack)?;

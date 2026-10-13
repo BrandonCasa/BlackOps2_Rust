@@ -14,6 +14,8 @@ mod bake;
 mod collision;
 #[path = "asset_builder/entities.rs"]
 mod entities;
+#[path = "asset_builder/game.rs"]
+mod game;
 #[path = "asset_builder/geometry.rs"]
 mod geometry;
 #[path = "asset_builder/gltf.rs"]

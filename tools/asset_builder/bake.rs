@@ -447,10 +447,12 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
 }
 
 fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<Recipe> {
-    let decal = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1_m2c2";
+    let reveal_decal = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1_m2c2";
+    let decal = reveal_decal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1_m2c2";
     let layer_specular = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
-    let reveal = layer_specular || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1";
-    let (vertex, pixel) = if decal { ("pimp_shader_layer_lmap_b0b22809.hlsl", "pimp_shader_layer_lmap_89d59c60.hlsl") }
+    let reveal = reveal_decal || layer_specular || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1";
+    let (vertex, pixel) = if reveal_decal { ("pimp_shader_layer_lmap_b0b22809.hlsl", "pimp_shader_layer_lmap_5c9a2e1f.hlsl") }
+        else if decal { ("pimp_shader_layer_lmap_b0b22809.hlsl", "pimp_shader_layer_lmap_89d59c60.hlsl") }
         else if layer_specular { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_4a20c8d9.hlsl") }
         else if reveal { ("pimp_shader_layer_lmap_a028e5fd.hlsl", "pimp_shader_layer_lmap_44b1014b.hlsl") }
         else { ("pimp_shader_layer_lmap_a028e5fd.hlsl", "pimp_shader_layer_lmap_91feb334.hlsl") };
@@ -478,9 +480,11 @@ fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<R
     let mut bindings = vec![(2695565377_u32,20,0), (1507003663,20,257), (3054311504,20,514), (2486480606,20,if decal {1027} else {771})];
     if decal { bindings.push((3054311507,10,772)); }
     if layer_specular { bindings.push((3532022562,20,1028)); }
-    for (hash, sampler, location) in bindings {
+    for (hash, expected_sampler, location) in bindings {
         let binding = native["textures"].as_array().unwrap().iter().find(|binding| binding["hash"] == hash).ok_or("Layered source texture binding is missing")?;
-        if binding["sampler"] != sampler || !passes[0]["arguments"].as_array().unwrap().iter().any(|argument| argument["type"] == 2 && argument["value"] == hash && argument["location"] == location) {
+        let sampler = binding["sampler"].as_u64().and_then(|value| u8::try_from(value).ok()).ok_or("Layered sampler is not a byte")?;
+        if (sampler != expected_sampler && !(reveal_decal && hash == 3054311507 && sampler == 74))
+            || !passes[0]["arguments"].as_array().unwrap().iter().any(|argument| argument["type"] == 2 && argument["value"] == hash && argument["location"] == location) {
             return Err("Layered texture has an unreviewed sampler or shader slot".into());
         }
         let name = binding["image"].as_str().ok_or("Layered source image name is missing")?;
@@ -707,7 +711,7 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
 }
 
 pub fn supported(family: &str) -> bool {
-    matches!(family,"lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1")
+    matches!(family,"lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2")
 }
 
 pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &BTreeMap<String, texture::Image>, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<BTreeMap<String, Vec<Surface>>> {
@@ -730,7 +734,7 @@ pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &B
         let mut remaining = Vec::new();
         let mut periodic_triangles = 0;
         for surface in surfaces {
-            if !material_recipe.reveal { remaining.push(surface); continue; }
+            if !material_recipe.reveal || material_recipe.decal { remaining.push(surface); continue; }
             let mut triangles = BTreeMap::<Vec<u32>,Vec<usize>>::new();
             let mut variable = Vec::new();
             for triangle in 0..surface.indices.len()/3 {
@@ -815,6 +819,28 @@ mod tests {
         let (second,errors) = frame.convert([0.,1.,0.],[0.,0.8,0.6,1.]).unwrap();
         assert!((second[1]+0.8).abs() < 0.000001 && (second[2]-0.6).abs() < 0.000001);
         assert!(errors.into_iter().all(|error| error < 0.00001));
+    }
+
+    #[test]
+    fn reveal_decal_preserves_uv2_axis_addressing_and_encoded_composition() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
+            input([0.8,0.2,0.4,0.5]),input([0.75,0.25,1.,1.]),
+            Input {width:2,height:2,sampler:74,pixels:vec![[0.9,0.8,0.7,1.],[0.1,0.2,0.3,1.],
+                [0.5,0.25,0.75,0.],[1.,0.5,0.25,0.]]}],
+            decal:true,reveal:true,layer_specular:false,parms:[0.0713300034403801,0.5,0.,0.]};
+        let sample = |recipe: &Recipe, blue| recipe.sample([0.;2],[0.;2],[1.25,1.25],0.5,blue,[0.,-1.,1.,0.]).unwrap();
+        let actual=sample(&recipe,0.5);
+        for (value,expected) in actual[0][..3].iter().zip([0.140625,0.03515625,0.19140625]) {
+            assert!((value-expected).abs()<0.000001);
+        }
+        assert_eq!(actual[1],sample(&recipe,0.)[1]);
+        assert_eq!(actual[2],[1.,1.,0.,1.]);
+        assert_eq!(actual[3],[0.;4]);
+        for pixel in &mut recipe.inputs[4].pixels { pixel[3]=1.-pixel[3]; }
+        assert_eq!(actual,sample(&recipe,0.5));
+        recipe.inputs[4].sampler=10;
+        assert_ne!(actual[0],sample(&recipe,0.5)[0]);
     }
 
     #[test]
