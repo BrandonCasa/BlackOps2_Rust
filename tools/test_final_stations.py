@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import json
 import math
 from pathlib import Path
@@ -47,8 +48,8 @@ def run(client, report, game, research, inspection):
     source = Path(research) / 'source/server-tomb/maps/mp/zm_tomb_capture_zones.gsc'
     entities_path = Path(inspection) / 'solo-content/doors-recovery/entities.json'
     bindings = dict((box, zone) for zone, box in re.findall(
-        r'register_mystery_box_for_zone\( "([^"]+)", "([^"]+)" \)', source.read_text()))
-    entities = json.loads(entities_path.read_bytes())
+        r'register_mystery_box_for_zone\( "([^"]+)", "([^"]+)" \)', asset_bytes(source).decode("utf-8")))
+    entities = json.loads(asset_bytes(entities_path))
     native = []
     for entity in entities:
         name = entity.get('script_noteworthy')

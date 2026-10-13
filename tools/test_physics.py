@@ -3,6 +3,8 @@
 # dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
 # ///
 
+from test_support import asset_bytes
+
 import argparse
 import json
 import math
@@ -23,8 +25,8 @@ def check(report, name, passed, **evidence):
 
 def surfaces(pack, game):
     path, scene = game['collision_scene'].split('#Scene')
-    document = json.loads((pack / path).read_bytes())
-    binary = (pack / document['buffers'][0]['uri']).read_bytes()
+    document = json.loads(asset_bytes(pack / path))
+    binary = asset_bytes(pack / document['buffers'][0]['uri'])
     candidates = []
     stair_candidates = []
     for index in document['scenes'][int(scene)]['nodes']:
@@ -318,7 +320,7 @@ def main():
                               'This measures native numeric contracts; subjective controller feel still needs player review.']}
     try:
         pack = Path(args.assets.resolve())
-        game = json.loads((pack / 'game.json').read_bytes())
+        game = json.loads(asset_bytes(pack / 'game.json'))
         native, mobility = native_tuning(args.research)
         check(report, 'pack_uses_native_motor_values', all(math.isclose(game['tuning'][key], value, abs_tol=1e-7)
               for key, value in native.items() if key != 'physics')

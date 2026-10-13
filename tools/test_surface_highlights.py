@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -24,8 +25,8 @@ def main():
     require(not output.is_relative_to(root), 'Evidence must stay external')
     output.mkdir(parents=True, exist_ok=False)
     report = {'passed': False, 'views': []}
-    game = json.loads((Path(bundle / 'assets/origins') / 'game.json').read_bytes())
-    atmosphere = json.loads((bundle / 'assets/origins' / json.loads((bundle / 'assets/origins/prepared/runtime.json').read_bytes())['worlds'][0]['atmosphere_uri']).read_bytes())
+    game = json.loads(asset_bytes(Path(bundle / 'origins.pack') / 'game.json'))
+    atmosphere = json.loads(asset_bytes(bundle / 'origins.pack' / json.loads(asset_bytes(bundle / 'origins.pack/prepared/runtime.json'))['worlds'][0]['atmosphere_uri']))
     yaw = math.radians(atmosphere['sun_angles'][1])
     direction = [math.cos(yaw), -math.sin(yaw)]
     points = [(1, game['survey_views'][1]), (2, game['survey_views'][6]),

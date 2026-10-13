@@ -1,3 +1,4 @@
+#![cfg(feature = "game")]
 #![forbid(unsafe_code)]
 
 #[cfg(all(not(debug_assertions), feature = "dev-tools"))]
@@ -49,6 +50,7 @@ pub mod movement;
 mod native_fx;
 pub mod navigation;
 pub mod origins;
+pub mod pack;
 pub mod panzer;
 pub mod perk_effects;
 pub mod perks;
@@ -102,12 +104,23 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let configuration = assets::AssetPack::discover();
     let mut app = App::new();
+    let root = bevy::asset::io::memory::Dir::default();
+    if let Ok(pack) = &configuration {
+        for (path, bytes) in &pack.contents.entries {
+            root.insert_asset(std::path::Path::new(path), bevy::asset::io::memory::Value::Vec(bytes.clone()));
+        }
+    }
+    app.register_asset_source(
+        bevy::asset::io::AssetSourceId::Default,
+        bevy::asset::io::AssetSourceBuilder::new(move || {
+            Box::new(bevy::asset::io::memory::MemoryAssetReader { root: root.clone() })
+        }),
+    );
     app.insert_resource(bevy::anti_alias::dlss::DlssProjectId(
         bevy::asset::uuid::uuid!("8981c4df-a1f4-4597-b6f1-6196f5cb5237"),
     ));
     let benchmark = options.benchmark;
     let release_benchmark = options.release_benchmark;
-    let gpu_preprocessing = options.mesh_preprocessing != assets::MeshPreprocessing::Cpu;
     let ads_capture = options.verify_ads;
     let fixed_resolution = ads_capture || benchmark || options.validation_remote.is_some();
     let flythrough = options.flythrough;
@@ -129,7 +142,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                 ..default()
             })
             .set(bevy::pbr::PbrPlugin {
-                use_gpu_instance_buffer_builder: gpu_preprocessing,
+                use_gpu_instance_buffer_builder: false,
                 ..default()
             })
             .set(WindowPlugin {
@@ -162,13 +175,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                 }),
                 ..default()
             })
-            .set(AssetPlugin {
-                file_path: configuration
-                    .as_ref()
-                    .map(|c| c.pack_root.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-                ..default()
-            }),
+
     )
     .add_plugins(bevy::anti_alias::dlss::DlssPlugin)
     .add_plugins(avian3d::prelude::PhysicsPlugins::default())

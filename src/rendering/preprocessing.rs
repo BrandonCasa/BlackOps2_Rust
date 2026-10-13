@@ -1,4 +1,3 @@
-use crate::assets::MeshPreprocessing;
 use bevy::{
     pbr::RenderMeshInstances,
     prelude::*,
@@ -31,17 +30,11 @@ pub(super) struct PreprocessingPlugin;
 
 impl Plugin for PreprocessingPlugin {
     fn build(&self, app: &mut App) {
-        let requested = app
-            .world()
-            .resource::<crate::assets::LaunchOptions>()
-            .mesh_preprocessing;
         let status = PreprocessingStatus::default();
         app.insert_resource(status.clone());
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.insert_resource(status);
-            render
-                .insert_resource(RequestedMode(requested))
-                .add_systems(
+            render.add_systems(
                     RenderStartup,
                     configure
                         .after(bevy::render::init_gpu_resource::<GpuPreprocessingSupport>)
@@ -52,15 +45,8 @@ impl Plugin for PreprocessingPlugin {
     }
 }
 
-#[derive(Resource)]
-struct RequestedMode(MeshPreprocessing);
-
-fn configure(mut support: ResMut<GpuPreprocessingSupport>, requested: Res<RequestedMode>) {
-    support.max_supported_mode = support.min(match requested.0 {
-        MeshPreprocessing::Cpu => GpuPreprocessingMode::None,
-        MeshPreprocessing::Gpu => GpuPreprocessingMode::PreprocessingOnly,
-        MeshPreprocessing::GpuCulling => GpuPreprocessingMode::Culling,
-    });
+fn configure(mut support: ResMut<GpuPreprocessingSupport>) {
+    support.max_supported_mode = GpuPreprocessingMode::None;
 }
 
 fn report(

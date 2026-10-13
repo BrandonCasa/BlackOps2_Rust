@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -176,7 +177,7 @@ def main():
         source = args.research / 'exports/functions/008a/008ad170.c'
         report['native_source'] = {'path': str(source.resolve())}
         native = native_tuning(args.research)
-        game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
+        game = json.loads(asset_bytes(Path(args.assets.resolve()) / 'game.json'))
         check(report, 'pack_preserves_native_dive_defaults',
               all(math.isclose(game['tuning']['mobility'][key], value, abs_tol=0.0000001)
                   for key, value in native.items()), native=native, pack=game['tuning']['mobility'])

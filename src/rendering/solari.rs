@@ -2,7 +2,7 @@ use bevy::{
     anti_alias::dlss::{DlssRayReconstructionSupported, DlssSuperResolutionSupported},
     asset::RenderAssetUsages,
     mesh::{
-        Indices, MeshRaytracingFlags, VertexAttributeValues,
+        Indices, VertexAttributeValues,
         skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     },
     prelude::*,
@@ -40,6 +40,7 @@ fn require_dlss(
 struct RayMeshSource {
     source: AssetId<Mesh>,
     skinned: bool,
+    pose: Vec<Mat4>,
 }
 
 fn prepare_meshes(
@@ -86,10 +87,28 @@ fn prepare_meshes(
                 RayMeshSource {
                     source: raster.0.id(),
                     skinned: false,
+                    pose: Vec::new(),
                 },
             ));
             continue;
         }
+        let matrices = if let Some(skin) = skin {
+            let Some(bindposes) = bindposes.get(&skin.inverse_bindposes) else {
+                continue;
+            };
+            let inverse = transform.affine().inverse();
+            let Some(matrices) = skin.joints.iter().zip(bindposes.iter()).map(|(joint, bind)| {
+                transforms.get(*joint).ok().map(|global| Mat4::from(inverse * global.affine()) * *bind)
+            }).collect::<Option<Vec<_>>>() else {
+                continue;
+            };
+            if current.is_some() && prepared.is_some_and(|p| p.source == raster.0.id() && p.pose == matrices) {
+                continue;
+            }
+            matrices
+        } else {
+            Vec::new()
+        };
         let Some(source) = meshes.get(&raster.0) else {
             continue;
         };
@@ -116,10 +135,7 @@ fn prepare_meshes(
             .indices()
             .map(|indices| indices.iter().map(|i| i as u32).collect())
             .unwrap_or_else(|| (0..count as u32).collect());
-        if let Some(skin) = skin {
-            let Some(bindposes) = bindposes.get(&skin.inverse_bindposes) else {
-                continue;
-            };
+        if skin.is_some() {
             let Some(VertexAttributeValues::Uint16x4(joints)) =
                 source.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
             else {
@@ -127,21 +143,6 @@ fn prepare_meshes(
             };
             let Some(VertexAttributeValues::Float32x4(weights)) =
                 source.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)
-            else {
-                continue;
-            };
-            let inverse = transform.affine().inverse();
-            let Some(matrices) = skin
-                .joints
-                .iter()
-                .zip(bindposes.iter())
-                .map(|(joint, bind)| {
-                    transforms
-                        .get(*joint)
-                        .ok()
-                        .map(|global| Mat4::from(inverse * global.affine()) * *bind)
-                })
-                .collect::<Option<Vec<_>>>()
             else {
                 continue;
             };
@@ -169,21 +170,22 @@ fn prepare_meshes(
                 tangents[i] = [tangent.x, tangent.y, tangent.z, tangents[i][3]];
             }
         }
-        let mut proxy = Mesh::new(source.primitive_topology(), RenderAssetUsages::default());
-        proxy.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-        proxy.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-        proxy.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
-        proxy.insert_attribute(Mesh::ATTRIBUTE_TANGENT, tangents);
-        proxy.insert_indices(Indices::U32(indices));
-        proxy.raytracing = MeshRaytracingFlags::OPAQUE | MeshRaytracingFlags::NON_OPAQUE;
         let handle = if let Some(current) =
             current.filter(|_| prepared.is_some_and(|p| p.source == raster.0.id() && p.skinned))
         {
-            meshes
-                .insert(current.0.id(), proxy)
-                .expect("Owned animated raytracing mesh");
+            let Some(mut proxy) = meshes.get_mut(&current.0) else { continue };
+            proxy.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+            proxy.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+            proxy.insert_attribute(Mesh::ATTRIBUTE_TANGENT, tangents);
             current.0.clone()
         } else {
+            let mut proxy = Mesh::new(source.primitive_topology(), RenderAssetUsages::default());
+            proxy.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+            proxy.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+            proxy.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+            proxy.insert_attribute(Mesh::ATTRIBUTE_TANGENT, tangents);
+            proxy.insert_indices(Indices::U32(indices));
+            proxy.enable_raytracing = true;
             meshes.add(proxy)
         };
         if skin.is_none() {
@@ -194,6 +196,7 @@ fn prepare_meshes(
             RayMeshSource {
                 source: raster.0.id(),
                 skinned: skin.is_some(),
+                pose: matrices,
             },
         ));
     }

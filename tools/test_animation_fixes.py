@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -196,7 +197,6 @@ def main():
     parser.add_argument('--url', default='http://127.0.0.1:15702')
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--assets', required=True, type=Path)
-    parser.add_argument('--preparation', required=True, type=Path)
     parser.add_argument('--native-weapons', required=True, type=Path)
     args = parser.parse_args()
     args.output = external_output(args.output)
@@ -212,9 +212,13 @@ def main():
     try:
         pack = Path(args.assets.resolve())
         game_path = pack / 'game.json'
-        game = json.loads(game_path.read_bytes())
-        report['preparation'] = {'path': str(args.preparation.resolve())}
-        states = json.loads(args.preparation.read_bytes())['states']
+        game = json.loads(asset_bytes(game_path))
+        states = {
+            name: {clip['animation'].rsplit('.', 1)[-1]
+                   for enemy in game['content']['enemies']
+                   for clip in enemy.get('combat_states', {}).get(name, [])}
+            for name in ('walk_melee', 'death')
+        }
         client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=180)
         report['protocol'] = client.call('rpc.discover')
         report['schema'] = client.call('origins/schema')

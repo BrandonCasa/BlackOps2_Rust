@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -111,8 +112,8 @@ def main():
                               "Capture defenders are removed as setup to isolate purchases; capture itself uses native input.",
                               "Earned slots are outside this scenario."]}
     try:
-        game_path = root / "assets/origins/game.json"
-        data = game_path.read_bytes()
+        game_path = root / "target/debug/origins.pack/game.json"
+        data = asset_bytes(game_path)
         report['content'] = {'path': str(game_path)}
         content = json.loads(data)
         client.until(lambda state: state.get("state") == "Playing" and state.get("player"), timeout=120)

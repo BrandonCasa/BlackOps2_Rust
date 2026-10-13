@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -282,7 +283,7 @@ def main():
     report = {'passed': False, 'cases': [], 'limitations': ['Solo gameplay only; no multiplayer or pixel-parity claim.', 'Advanced quests and completed recipes additionally require their gameplay scenarios.']}
     client = Client(args.url, request_timeout=20)
     try:
-        game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
+        game = json.loads(asset_bytes(Path(args.assets.resolve()) / 'game.json'))
         run(client, report, output, game)
         report['passed'] = True
     except Exception as error:

@@ -11,14 +11,6 @@ use crate::GameState;
 
 pub(crate) mod prepared;
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
-pub enum MeshPreprocessing {
-    Cpu,
-    Gpu,
-    #[default]
-    GpuCulling,
-}
-
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
     pub flythrough: bool,
@@ -68,7 +60,6 @@ pub struct LaunchOptions {
     pub verify_claymores: bool,
     pub verify_monkeys: bool,
     pub verify_equipment_refills: bool,
-    pub mesh_preprocessing: MeshPreprocessing,
     pub error: Option<String>,
 }
 
@@ -273,25 +264,8 @@ impl LaunchOptions {
                     }
                 }
             }
-            let mut preprocessing_override = false;
             for remaining in args.by_ref() {
-                if result.benchmark && remaining == "--cpu-preprocessing" && !preprocessing_override
-                {
-                    result.mesh_preprocessing = MeshPreprocessing::Cpu;
-                    preprocessing_override = true;
-                } else if result.benchmark
-                    && remaining == "--direct-preprocessing"
-                    && !preprocessing_override
-                {
-                    result.mesh_preprocessing = MeshPreprocessing::Gpu;
-                    preprocessing_override = true;
-                } else if result.benchmark
-                    && remaining == "--gpu-culling"
-                    && !preprocessing_override
-                {
-                    result.mesh_preprocessing = MeshPreprocessing::GpuCulling;
-                    preprocessing_override = true;
-                } else if !(result.verify_weapon_assemblies && remaining == "--dual-wield-only") {
+                if !(result.verify_weapon_assemblies && remaining == "--dual-wield-only") {
                     result.error = Some("Unexpected or repeated launch argument".into());
                 }
             }
@@ -307,33 +281,17 @@ impl LaunchOptions {
 #[derive(Debug)]
 pub struct AssetPack {
     pub pack_root: PathBuf,
+    pub contents: crate::pack::Pack,
 }
 
 impl AssetPack {
     pub fn discover() -> Result<Self, String> {
-        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
-        let directory = executable
-            .parent()
-            .ok_or("Executable directory is unavailable.")?;
-        let beside = directory.join("assets/origins");
-        let pack_root = if beside.exists() {
-            beside
-        } else if let Some(repository) = directory
-            .ancestors()
-            .find(|p| p.join("Cargo.toml").is_file() && p.join("src/main.rs").is_file())
-        {
-            repository.join("assets/origins")
-        } else {
-            beside
-        };
-        let pack_root = if pack_root.exists() {
-            pack_root.canonicalize().map_err(|e| {
-            format!("Cannot open asset pack {}: {e}\nRestore assets/origins beside origins.exe, or run git lfs pull in the checkout.", pack_root.display())
-        })?
-        } else {
-            pack_root
-        };
-        Ok(Self { pack_root })
+        let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+        let path = executable.parent().ok_or("Executable directory is unavailable")?.join("origins.pack");
+        let contents = crate::pack::Pack::read(&path).map_err(|error| {
+            format!("Cannot load runtime pack {}: {error}. Build origins.pack from the authorized game installation and place it beside origins.exe.", path.display())
+        })?;
+        Ok(Self { pack_root: path, contents })
     }
 }
 
@@ -381,6 +339,7 @@ pub(crate) fn begin_load(
         commands.entity(root).despawn();
     }
     commands.remove_resource::<Loading>();
+    commands.remove_resource::<prepared::PreparedArt>();
     failure.0.clear();
     let definition = (|| {
         if let Some(error) = &options.error {
@@ -388,10 +347,9 @@ pub(crate) fn begin_load(
         }
         let config = config.0.as_ref().map_err(Clone::clone)?;
         info!("Origins asset pack: {}", config.pack_root.display());
-        reload_failed_pack_assets(&server, &config.pack_root);
-        let path = config.pack_root.join("game.json");
-        let mut definition = GameDefinition::load(&path).map_err(|e| e.to_string())?;
-        let art = prepared::PreparedArt::load(&config.pack_root)?;
+        reload_failed_pack_assets(&server, &config.contents);
+        let mut definition = GameDefinition::load(config.contents.get("game.json").map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        let art = prepared::PreparedArt::load(&config.contents)?;
         art.bind(&mut definition)?;
         definition.validate().map_err(|error| error.to_string())?;
         commands.insert_resource(art);
@@ -430,41 +388,41 @@ pub(crate) fn begin_load(
     }
 }
 
-fn reload_failed_pack_assets(server: &AssetServer, root: &std::path::Path) {
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        let Ok(entries) = std::fs::read_dir(directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                pending.push(path);
-                continue;
-            }
-            let Ok(relative) = path.strip_prefix(root) else {
-                continue;
-            };
-            let asset = relative.to_string_lossy().replace('\\', "/");
-            if server
-                .get_path_ids(asset.clone())
-                .iter()
-                .any(|id| matches!(server.get_load_state(*id), Some(LoadState::Failed(_))))
-            {
-                server.reload(asset);
-            }
+fn reload_failed_pack_assets(server: &AssetServer, pack: &crate::pack::Pack) {
+    for path in pack.entries.keys() {
+        if server.get_path_ids(path.clone()).iter().any(|id| {
+            matches!(server.get_load_state(*id), Some(LoadState::Failed(_)))
+        }) {
+            server.reload(path.clone());
         }
     }
 }
 
 pub(crate) fn native_scene<'a>(game: &'a GameDefinition, model: &str) -> Option<&'a String> {
+    let actor = format!("actor.{model}");
+    if let Some(scene) = game
+        .content
+        .presentations
+        .iter()
+        .find(|presentation| presentation.id.0 == actor)
+        .and_then(|presentation| presentation.scene.as_ref())
+    {
+        return Some(scene);
+    }
     let name = format!("/{model}_lod0.gltf#Scene0");
+    let prepared = format!("-{model}.gltf#Scene0");
     game.content
         .presentations
         .iter()
         .filter_map(|p| p.scene.as_ref())
-        .filter(|scene| scene.ends_with(&name))
-        .min_by_key(|scene| (!scene.contains("-zm_tomb/"), scene.as_str()))
+        .filter(|scene| scene.ends_with(&name) || scene.ends_with(&prepared))
+        .min_by_key(|scene| {
+            (
+                !scene.contains("-zm_tomb_patch-"),
+                !scene.contains("-zm_tomb-"),
+                scene.as_str(),
+            )
+        })
 }
 
 fn scene_ready(
@@ -641,7 +599,7 @@ fn finish_load(
                 .map(|c| c.pack_root.display().to_string())
                 .unwrap_or_default();
             failure.0 = format!(
-                "Asset pack: {root}\nScene {:?}: {error}\nRestore the complete pack (map.gltf, map.bin and textures).\nFor a Git checkout, run git lfs pull; for a release, copy assets/origins beside origins.exe.",
+                "Asset pack: {root}\nScene {:?}: {error}\nReplace origins.pack with a complete runtime pack and restart the game.",
                 handle.path()
             );
             error!("Unable to load Origins: {}", failure.0);

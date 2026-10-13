@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -66,7 +67,7 @@ def run(client, output, report, asset_root, source, skip_views=False):
     client.until(lambda state: state['state'] == 'Playing' and state.get('player'), timeout=360)
     report['discovery'] = client.call('rpc.discover')
     report['schema'] = client.call('origins/schema')
-    game = json.loads((asset_root / 'game.json').read_bytes())
+    game = json.loads(asset_bytes(asset_root / 'game.json'))
     client.reset(timeout=90)
     client.call('origins/setup', {'clear_enemies': True, 'pending': 1, 'pause_spawning_seconds': 300})
     initial = observe(client, settled)
@@ -180,7 +181,7 @@ def main():
     bundle, output = args.bundle.resolve(), args.output.resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parents[1]), 'Evidence must be external')
     output.mkdir(parents=True, exist_ok=False)
-    source_path = bundle / 'assets/origins' / json.loads((bundle / 'assets/origins/prepared/runtime.json').read_bytes())['worlds'][0]['atmosphere_uri']
+    source_path = bundle / 'origins.pack' / json.loads(asset_bytes(bundle / 'origins.pack/prepared/runtime.json'))['worlds'][0]['atmosphere_uri']
     report = {'passed': False, 'skip_views': args.skip_views, 'limitations': ['Camera placement and initial weather are scenario setup.', 'Controlled final enemies are killed through normal melee input to exercise round-ending weather.', 'Legacy film response and native photometry require visual acceptance.']}
     client = Client(f'http://127.0.0.1:{args.port}', request_timeout=30, shutdown_timeout=60)
     wait_for_slot()
@@ -190,7 +191,7 @@ def main():
             env={**os.environ, 'WGPU_BACKEND': 'vulkan', 'RUST_LOG': 'info,wgpu=error,naga=warn', 'NO_COLOR': '1'})
         report['pid'] = process.pid
         try:
-            run(client, output, report, Path(bundle / 'assets/origins'), json.loads(source_path.read_bytes()), args.skip_views)
+            run(client, output, report, Path(bundle / 'origins.pack'), json.loads(asset_bytes(source_path)), args.skip_views)
             report['passed'] = True
         except Exception as error:
             report['error'] = f'{type(error).__name__}: {error}'

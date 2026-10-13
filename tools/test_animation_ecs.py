@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -23,9 +24,9 @@ def source_channels(pack, game, weapon_id):
              if animation['id'].rsplit('.', 1)[-1] in names}
     for name in sorted(paths):
         path = pack / name
-        if path.suffix != '.gltf' or not path.is_file():
+        if path.suffix != '.gltf':
             continue
-        document = json.loads(path.read_bytes())
+        document = json.loads(asset_bytes(path))
         for animation in document.get('animations', []):
             channels = result.setdefault(animation['name'], set())
             for channel in animation['channels']:
@@ -178,7 +179,7 @@ def main():
         reference = args.reference / 'source/client-tomb/clientscripts/mp/zm_tomb_capture_zones.csc'
         report['reference'] = {'path': str(reference.resolve())}
         pack = Path(args.assets.resolve())
-        game_bytes = (pack / 'game.json').read_bytes()
+        game_bytes = asset_bytes(pack / 'game.json')
         game = json.loads(game_bytes)
         weapon_case(client, report, game, source_channels(pack, game, 'weapon.mp40_zm'))
         generator_case(client, report)

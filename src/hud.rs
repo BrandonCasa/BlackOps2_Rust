@@ -21,7 +21,7 @@ impl Plugin for HudPlugin {
             performance::PerformanceOverlayPlugin,
             origins::OriginsHudPlugin,
         ))
-        .add_systems(Startup, setup.after(crate::rendering::setup))
+        .add_systems(OnEnter(GameState::PreparingShaders), setup)
         .add_systems(Update, damage_feedback);
     }
 }
@@ -30,13 +30,26 @@ fn setup(
     mut commands: Commands,
     cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     server: Res<AssetServer>,
+    game: Res<crate::assets::GameDefinition>,
+    existing: Query<Entity, With<DamageEdge>>,
 ) {
     let Ok(camera) = cameras.single() else { return };
+    for entity in &existing {
+        commands.entity(entity).despawn();
+    }
+    let Some(image) = game
+        .content
+        .ui_assets
+        .iter()
+        .find(|image| image.id.0 == "ui.overlay_low_health")
+    else {
+        return;
+    };
     commands.spawn((
         PlayerOverlay,
         DamageEdge,
         ImageNode {
-            image: server.load("ui/overlay_low_health.ktx2"),
+            image: server.load(image.path.clone()),
             color: Color::NONE,
             ..default()
         },

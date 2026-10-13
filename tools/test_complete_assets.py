@@ -1,110 +1,10 @@
+from test_support import asset_bytes
 import argparse
 import json
 from pathlib import Path
 import time
 
 from test_support import Client, write_report
-
-
-def audit(output):
-    pack = output.resolve()
-    index = json.loads((pack / 'prepared/index.json').read_bytes())
-    assert index['schema_version'] == 1
-    checked = set()
-    gltfs = set()
-
-    def asset(uri, parent=pack):
-        if uri.startswith('data:'):
-            return None
-        candidate = (parent / uri.split('#')[0]).resolve()
-        assert candidate.is_relative_to(pack), uri
-        assert candidate.is_file(), uri
-        checked.add(candidate)
-        if candidate.suffix == '.gltf':
-            gltfs.add(candidate)
-        return candidate
-
-    def material_links(material):
-        extras = material.get('extras', {})
-        if extras.get('native_record'):
-            asset(extras['native_record'])
-        surface = extras.get('surface')
-        if surface:
-            assert surface['version'] == 3
-            frames = [surface, *surface.get('animation', {}).get('frames', [])]
-            for frame in frames:
-                for channel in frame.get('channels', []):
-                    assert channel.get('layer', 0) == 0
-                    asset(channel['uri'])
-
-    counts = {}
-    for category in ('worlds', 'models', 'animations', 'materials', 'images', 'audio', 'cinematics'):
-        entries = index[category]
-        counts[category] = len(entries)
-        for entry in entries:
-            if category in ('worlds', 'models', 'animations'):
-                assert all(entry[key] for key in ('name', 'zone', 'source', 'source_sha256', 'native_record'))
-            elif category == 'materials':
-                assert all(entry[key] for key in ('name', 'zone', 'uri', 'native_record'))
-            elif category == 'images':
-                assert entry['source'] and entry['sha256'] and entry['uris']
-                if 'name_hash' in entry:
-                    assert isinstance(entry['name_hash'], int) and isinstance(entry['data_hash'], int)
-                    assert entry['source_sha256']
-                else:
-                    assert entry['name']
-            elif category == 'audio':
-                assert entry['source'] and entry['payload_sha256'] and entry['uri']
-                assert isinstance(entry['id'], int) and isinstance(entry['prepared'], bool)
-            elif category == 'cinematics':
-                assert entry['kind'] == 'cinematic' and entry['path'] and entry['sha256'] and entry['uri']
-            if entry.get('native_record'):
-                asset(entry['native_record'])
-            if entry.get('uri'):
-                path = asset(entry['uri'])
-                if category == 'materials':
-                    material_links(json.loads(path.read_bytes()))
-            for uri in entry.get('uris', {}).values():
-                asset(uri)
-            for lod in entry.get('lods', []):
-                asset(lod['uri'])
-            if entry.get('curves_uri'):
-                asset(entry['curves_uri'])
-    for path in sorted(gltfs):
-        document = json.loads(path.read_bytes())
-        assert document['asset']['version'] == '2.0'
-        for collection in ('buffers', 'images'):
-            for item in document.get(collection, []):
-                if 'uri' in item:
-                    asset(item['uri'], path.parent)
-        for material in document.get('materials', []):
-            material_links(material)
-    native = json.loads((pack / 'native/asset-index.json').read_bytes())
-    assert native['schema_version'] == 1
-    native_records = []
-    for entry in native['assets']:
-        asset(entry['native_record'])
-        native_records.append(entry['native_record'])
-    preserved_records = []
-    native_counts = {}
-    for kind, entries in index['native_art'].items():
-        native_counts[kind] = len(entries)
-        for entry in entries:
-            assert entry['type'] == kind
-            assert all(entry[key] for key in ('name', 'zone', 'source', 'source_sha256', 'native_record'))
-            asset(entry['native_record'])
-            preserved_records.append(entry['native_record'])
-    assert sorted(preserved_records) == sorted(native_records), 'Native art manifest differs from preserved asset index'
-    for path in (pack / 'native/ipak').glob('*/index.json'):
-        inventory = json.loads(path.read_bytes())
-        assert inventory['source'] and inventory['source_sha256']
-        for entry in inventory['assets']:
-            asset(entry['native_uri'])
-            for uri in entry.get('ktx2', {}).values():
-                asset(uri)
-    return {'prepared': counts, 'native_art': native_counts,
-            'native_art_records': len(native_records), 'dependency_files': len(checked),
-            'gltf_documents': len(gltfs)}
 
 
 def preview(client, presentation, animation=None, distance=.9):
@@ -124,7 +24,7 @@ def runtime(client, pack):
     protocol = client.call('origins/schema')
     assert 'origins/assets' in protocol['methods']
     client.reset()
-    game = json.loads((pack / 'game.json').read_bytes())
+    game = json.loads(asset_bytes(pack / 'game.json'))
     cases = []
     for relative in ('actors/c_zom_tomb_german_body_1a_lod0.gltf',
                      'actors/t6_wpn_smg_mp40_world_lod0.gltf',
@@ -132,7 +32,7 @@ def runtime(client, pack):
                      'props/zombie_vending_jugg_on_lod0.gltf',
                      'props/fxanim_zom_tomb_generator_pump_mod_lod0.gltf'):
         presentation = next(p for p in game['content']['presentations'] if p.get('scene') == relative + '#Scene0')
-        doc = json.loads((pack / relative).read_bytes())
+        doc = json.loads(asset_bytes(pack / relative))
         distances = next(n['extras']['mesh_lod']['distances'] for n in doc['nodes'] if 'mesh_lod' in n.get('extras', {}))
         probes = [max(.9, distances[0] * .5)] + [(a+b)*.5 for a, b in zip(distances, distances[1:])] + [distances[-1] + 3]
         for level, distance in enumerate(probes):
@@ -149,9 +49,9 @@ def runtime(client, pack):
                           'meshes': after['meshes']})
     animation_id = next(a['id'] for a in game['content']['animations'] if a['id'].startswith('animation.source.')
                         and a['path'].startswith('animations/')
-                        and json.loads((pack / a['path'].split('#')[0]).read_bytes())['animations'][0]['name'] == 'ai_zombie_walk_v1')
+                        and json.loads(asset_bytes(pack / a['path'].split('#')[0]))['animations'][0]['name'] == 'ai_zombie_walk_v1')
     source = next(p for p in game['content']['presentations'] if animation_id in p['animations'])
-    doc = json.loads((pack / source['scene'].split('#')[0]).read_bytes())
+    doc = json.loads(asset_bytes(pack / source['scene'].split('#')[0]))
     name = doc['animations'][0]['name']
     before = preview(client, source['id'], animation=name)
     changed = False
@@ -179,20 +79,18 @@ def runtime(client, pack):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--runtime', type=Path)
+    parser.add_argument('--assets', type=Path, required=True)
     args = parser.parse_args()
     report = {'passed': False}
-    client = Client() if args.runtime else None
+    client = Client()
     try:
-        if args.runtime:
-            report.update(runtime(client, args.runtime))
-        else:
-            report.update(audit(args.output))
+        report.update(runtime(client, args.assets.resolve()))
         report['passed'] = True
+    except Exception as error:
+        report['error'] = f'{type(error).__name__}: {error}'
     finally:
-        if client is not None:
-            client.shutdown(report)
-        path = write_report(args.output, 'complete-assets-runtime.json' if args.runtime else 'complete-assets-audit.json', report)
+        client.shutdown(report)
+        path = write_report(args.output, 'complete-assets-runtime.json', report)
         print(json.dumps({'report': str(path), 'passed': report['passed']}))
     raise SystemExit(0 if report['passed'] else 1)
 

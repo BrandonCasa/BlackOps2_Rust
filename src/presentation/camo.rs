@@ -11,7 +11,7 @@ use bevy::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Component)]
 pub(crate) struct WeaponMaterialContext(pub WeaponId);
@@ -23,27 +23,67 @@ struct Applied;
 struct Library {
     version: u32,
     camo_id: u32,
+    surface_version: u32,
     weapons: BTreeMap<String, BTreeMap<String, String>>,
     surfaces: BTreeMap<String, Value>,
+    pending_bakes: BTreeMap<String, String>,
 }
 
 pub(super) fn install(app: &mut App) {
-    app.add_systems(Startup, load)
+    app.add_systems(Update, load.before(apply))
         .add_systems(Update, apply.before(SurfacePreparation));
 }
 
 fn load(
     mut commands: Commands,
     configuration: Res<LoadConfiguration>,
+    art: Option<Res<crate::assets::prepared::PreparedArt>>,
+    game: Option<Res<crate::assets::GameDefinition>>,
+    library: Option<Res<Library>>,
+    rigs: Query<&Rig>,
+    contexts: Query<&WeaponMaterialContext>,
     mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
+    mut upgraded_ids: Local<HashSet<WeaponId>>,
 ) {
+    let Some(game) = game else { return };
+    if game.is_changed() || upgraded_ids.is_empty() {
+        *upgraded_ids = game.content
+            .weapons
+            .iter()
+            .filter_map(|weapon| weapon.upgraded.clone())
+            .collect();
+    }
+    let mut required = rigs
+        .iter()
+        .filter(|rig| !rig.arms && !rig.knife)
+        .map(|rig| &rig.weapon)
+        .chain(contexts.iter().map(|context| &context.0))
+        .filter(|id| upgraded_ids.contains(*id))
+        .peekable();
+    if required.peek().is_none() {
+        return;
+    }
+    if let Some(library) = library {
+        if let Some((id, reason)) = required
+            .find_map(|id| library.pending_bakes.get(&id.0).map(|reason| (id, reason)))
+        {
+            failure.0 = format!("Native weapon camo {} is not prepared: {reason}", id.0);
+            error!("{}", failure.0);
+            next.set(GameState::LoadError);
+        }
+        return;
+    }
+    let Some(art) = art else { return };
     let Ok(pack) = &configuration.0 else { return };
     let result = (|| {
-        let path = pack.pack_root.join("weapon_camos.json");
-        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let uri = art
+            .camo_uri()
+            .ok_or("Prepared native weapon camo library is missing")?;
+        crate::origins::validate_asset_path(uri).map_err(|error| error.to_string())?;
+        let bytes = pack.contents.get(uri).map_err(|error| error.to_string())?;
         let library: Library = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-        if library.version != 1 || library.camo_id != 45 {
+        if library.version != 2 || library.camo_id != 45 || library.surface_version != 3 {
             return Err("Unsupported native Origins weapon camo metadata".into());
         }
         for overrides in library.weapons.values() {
@@ -52,7 +92,10 @@ fn load(
                     .surfaces
                     .get(identity)
                     .ok_or_else(|| format!("Missing native weapon camo material {identity}"))?;
-                if surface["identity"] != *identity || surface["version"] != 2 {
+                if surface["identity"] != *identity
+                    || surface["version"] != 3
+                    || surface["brdf"] != "ggx"
+                {
                     return Err(format!("Invalid native weapon camo material {identity}"));
                 }
             }

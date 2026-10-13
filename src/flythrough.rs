@@ -381,16 +381,10 @@ fn save(settings: &Settings, tour: &mut Tour, status: &mut TourStatus, window: O
             .get(((sorted.len().saturating_sub(1)) as f64 * p).round() as usize)
             .copied()
     };
-    let bundle = std::env::current_exe()
-        .ok()
-        .and_then(|p| std::fs::read(p.with_file_name("identity.json")).ok())
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
     let report = serde_json::json!({
         "completed": status.phase == "finished", "phase":status.phase, "speed":settings.speed,
         "profile":if cfg!(debug_assertions) {"development"} else {"release"},
         "dev_tools":cfg!(feature="dev-tools"), "executable":std::env::current_exe().ok(),
-        "bundle_source":bundle.as_ref().map(|b| &b["source"]), "bundle_binaries":bundle.as_ref().map(|b| &b["binaries"]),
-        "bundle_identity_file":std::env::current_exe().ok().map(|p|p.with_file_name("identity.json")),
         "physical_resolution":window.map(|w|[w.physical_width(),w.physical_height()]),
         "logical_cpus":std::thread::available_parallelism().map_or(1,usize::from),
         "fps":if elapsed_ms>0. {Some(sorted.len() as f64*1000./elapsed_ms)} else {None},

@@ -48,9 +48,21 @@ pub(crate) fn install(app: &mut App) {
     app.insert_resource(progress.clone())
         .init_resource::<Preparation>()
         .add_systems(Startup, setup.after(crate::rendering::setup))
+        .add_systems(
+            Update,
+            setup.run_if(resource_exists::<crate::assets::prepared::PreparedArt>
+                .and_then(resource_changed::<crate::assets::prepared::PreparedArt>)),
+        )
         .add_systems(OnEnter(GameState::PreparingShaders), begin)
         .add_systems(OnExit(GameState::PreparingShaders), restore_culling)
-        .add_systems(Update, (advance, display).chain())
+        .add_systems(
+            Update,
+            (
+                advance.run_if(in_state(GameState::PreparingShaders)),
+                display,
+            )
+                .chain(),
+        )
         .add_systems(
             PostUpdate,
             warm_meshes
@@ -207,10 +219,18 @@ fn setup(
     mut commands: Commands,
     cameras: Query<Entity, With<GameCamera>>,
     server: Res<AssetServer>,
+    art: Option<Res<crate::assets::prepared::PreparedArt>>,
+    existing: Query<Entity, With<LoadingScreen>>,
 ) {
     let Ok(camera) = cameras.single() else {
         return;
     };
+    for entity in &existing {
+        commands.entity(entity).despawn();
+    }
+    let background = art
+        .as_ref()
+        .and_then(|art| art.image("loadscreen_zombie_le_tombeau", "srgb"));
     commands
         .spawn((
             LoadingScreen,
@@ -229,15 +249,17 @@ fn setup(
             },
         ))
         .with_children(|parent| {
-            parent.spawn((
-                ImageNode::new(server.load("ui/loadscreen_zombie_le_tombeau.ktx2")),
-                Node {
-                    position_type: PositionType::Absolute,
-                    width: percent(100.),
-                    height: percent(100.),
-                    ..default()
-                },
-            ));
+            if let Some(background) = background {
+                parent.spawn((
+                    ImageNode::new(server.load(background.to_owned())),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: percent(100.),
+                        height: percent(100.),
+                        ..default()
+                    },
+                ));
+            }
             parent.spawn((
                 LoadingLabel,
                 crate::hud::native::NativeText::new("ORIGINS", 34.),

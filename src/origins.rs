@@ -99,22 +99,8 @@ impl Default for Tuning {
 }
 
 impl GameDefinition {
-    pub fn load(path: &Path) -> Result<Self, ContentError> {
-        let size = std::fs::metadata(path)
-            .map_err(|source| ContentError::Io {
-                path: path.into(),
-                source,
-            })?
-            .len();
-        if size > 32 * 1024 * 1024 {
-            return Err(ContentError::InvalidDefinition(
-                "Gameplay definition exceeds 32 MiB.".into(),
-            ));
-        }
-        let bytes = std::fs::read(path).map_err(|source| ContentError::Io {
-            path: path.into(),
-            source,
-        })?;
+    pub fn load(bytes: &[u8]) -> Result<Self, ContentError> {
+        let path = Path::new("game.json");
         if bytes.len() > 32 * 1024 * 1024 {
             return Err(ContentError::InvalidDefinition(
                 "Gameplay definition exceeds 32 MiB.".into(),

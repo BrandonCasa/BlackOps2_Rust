@@ -78,7 +78,7 @@ impl AnimationGraphs {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct AnimationLayer {
     pub node: AnimationNodeIndex,
     pub seconds: Option<f32>,
@@ -102,7 +102,7 @@ impl AnimationLayer {
     }
 }
 
-#[derive(Component, Clone)]
+#[derive(Component, Clone, PartialEq)]
 #[require(AnimationPlayer, AppliedPlayback)]
 pub(crate) struct AnimationPlayback {
     pub graph: Handle<AnimationGraph>,
@@ -124,7 +124,7 @@ impl AnimationPlayback {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, PartialEq)]
 pub(crate) struct NativeAnimation {
     pub source: Handle<Gltf>,
     pub clip: String,
@@ -137,7 +137,7 @@ fn native_playback(
     roots: Query<(Entity, &NativeAnimation)>,
     children: Query<&Children>,
     parents: Query<&ChildOf>,
-    players: Query<(), With<AnimationPlayer>>,
+    players: Query<Option<&AnimationPlayback>, With<AnimationPlayer>>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut cache: ResMut<AnimationGraphs>,
@@ -169,7 +169,9 @@ fn native_playback(
                 )],
             );
             playback.restart = animation.restart;
-            commands.entity(player).insert(playback);
+            if players.get(player).ok().flatten() != Some(&playback) {
+                commands.entity(player).insert(playback);
+            }
         }
     }
 }
@@ -191,17 +193,61 @@ struct AppliedPlayback {
 #[derive(Component)]
 struct RestPose(Transform);
 
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct AnimationPoseModifiers;
+
+#[derive(Resource, Default)]
+struct AnimationPoseChanges(HashMap<Entity, (Transform, bevy::ecs::change_detection::Tick)>);
+
+fn remember_poses(
+    mut previous: ResMut<AnimationPoseChanges>,
+    targets: Query<(Entity, Ref<Transform>), With<RestPose>>,
+) {
+    previous.0.clear();
+    previous.0.extend(
+        targets
+            .iter()
+            .map(|(entity, pose)| (entity, (*pose, pose.last_changed()))),
+    );
+}
+
+fn retain_unchanged_poses(
+    previous: Res<AnimationPoseChanges>,
+    mut targets: Query<(Entity, &mut Transform), With<RestPose>>,
+) {
+    for (entity, mut pose) in &mut targets {
+        if let Some((before, tick)) = previous.0.get(&entity)
+            && *pose == *before
+        {
+            pose.set_last_changed(*tick);
+        }
+    }
+}
+
 pub(crate) struct GameAnimationPlugin;
 
 impl Plugin for GameAnimationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AnimationGraphs>()
+            .init_resource::<AnimationPoseChanges>()
             .add_observer(capture_rest_pose)
+            .configure_sets(
+                PostUpdate,
+                AnimationPoseModifiers
+                    .after(bevy::app::AnimationSystems)
+                    .before(retain_unchanged_poses),
+            )
             .add_systems(
                 PostUpdate,
-                (native_playback, apply_playback, restore_rest_pose)
+                (native_playback, apply_playback, remember_poses, restore_rest_pose)
                     .chain()
                     .before(bevy::app::AnimationSystems),
+            )
+            .add_systems(
+                PostUpdate,
+                retain_unchanged_poses
+                    .after(bevy::app::AnimationSystems)
+                    .before(bevy::transform::TransformSystems::Propagate),
             );
     }
 }
@@ -277,7 +323,10 @@ fn apply_playback(
                 })
                 .set_speed(1.);
             if let Some(seconds) = layer.seconds {
-                active.set_seek_time(seconds).pause();
+                if active.seek_time() != seconds {
+                    active.set_seek_time(seconds);
+                }
+                active.pause();
             } else if playing {
                 active.resume();
             } else {

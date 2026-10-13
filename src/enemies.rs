@@ -322,6 +322,7 @@ impl Plugin for EnemyPlugin {
                 PostUpdate,
                 (partial_roots, wounded_joints, follow_sockets)
                     .chain()
+                    .in_set(crate::animation::AnimationPoseModifiers)
                     .after(bevy::app::AnimationSystems)
                     .before(bevy::transform::TransformSystems::Propagate),
             )

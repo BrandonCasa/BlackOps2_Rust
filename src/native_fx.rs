@@ -70,7 +70,10 @@ struct Effect {
 #[derive(Deserialize)]
 struct NativeMaterial {
     texture: String,
-    native: serde_json::Value,
+    sampler: u32,
+    presentation: serde_json::Value,
+    columns: u32,
+    rows: u32,
 }
 #[derive(Deserialize)]
 struct Manifest {
@@ -111,26 +114,71 @@ impl AssetLoader for NativeFxLoader {
         let mut textures = Vec::new();
         let mut materials = BTreeMap::new();
         for (name, material) in manifest.materials {
-            let texture = context.load(material.texture);
+            let native = material.sampler;
+            let texture = context
+                .load_builder()
+                .with_settings(move |settings: &mut bevy::image::ImageLoaderSettings| {
+                    use bevy::image::{
+                        ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor,
+                    };
+                    settings.is_srgb = true;
+                    let point = native & 7 == 1;
+                    settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                        address_mode_u: if native & 32 != 0 {
+                            ImageAddressMode::ClampToEdge
+                        } else {
+                            ImageAddressMode::Repeat
+                        },
+                        address_mode_v: if native & 64 != 0 {
+                            ImageAddressMode::ClampToEdge
+                        } else {
+                            ImageAddressMode::Repeat
+                        },
+                        mag_filter: if point {
+                            ImageFilterMode::Nearest
+                        } else {
+                            ImageFilterMode::Linear
+                        },
+                        min_filter: if point {
+                            ImageFilterMode::Nearest
+                        } else {
+                            ImageFilterMode::Linear
+                        },
+                        mipmap_filter: if !point && native & 24 == 16 {
+                            ImageFilterMode::Linear
+                        } else {
+                            ImageFilterMode::Nearest
+                        },
+                        lod_max_clamp: if native & 24 == 0 { 0. } else { 32. },
+                        ..ImageSamplerDescriptor::linear()
+                    });
+                })
+                .load(material.texture);
             textures.push(texture.clone());
-            let states = material.native["stateBits"].as_array();
-            let state = states.and_then(|states| states.iter().find(|s| s["polymodeLine"] != true));
-            let blend = match state {
-                Some(s) if s["dstBlendRgb"] == "one" => AlphaMode::Add,
-                Some(s) if s["srcBlendRgb"] == "dst_color" => AlphaMode::Multiply,
-                Some(s) if s["srcBlendRgb"] == "one" && s["dstBlendRgb"] == "inv_src_alpha" => {
-                    AlphaMode::Premultiplied
-                }
-                _ => AlphaMode::Blend,
+            let blend = match material.presentation["alpha"].as_str() {
+                Some("opaque") => AlphaMode::Opaque,
+                Some("mask") => AlphaMode::Mask(
+                    material.presentation["cutoff"]
+                        .as_f64()
+                        .ok_or_else(|| io::Error::other("Prepared FX alpha cutoff is missing"))?
+                        as f32,
+                ),
+                Some("add") => AlphaMode::Add,
+                Some("multiply") => AlphaMode::Multiply,
+                Some("premultiplied") => AlphaMode::Premultiplied,
+                Some("blend") => AlphaMode::Blend,
+                _ => return Err(io::Error::other("Prepared FX blend state is invalid")),
             };
-            let atlas = &material.native["textureAtlas"];
+            if material.columns == 0 || material.rows == 0 {
+                return Err(io::Error::other("Prepared FX atlas dimensions are invalid"));
+            }
             materials.insert(
                 name,
                 FxMaterial {
                     texture,
                     blend,
-                    columns: atlas["columns"].as_u64().unwrap_or(1).max(1) as u32,
-                    rows: atlas["rows"].as_u64().unwrap_or(1).max(1) as u32,
+                    columns: material.columns,
+                    rows: material.rows,
                 },
             );
         }
@@ -188,7 +236,10 @@ impl Plugin for NativeFxPlugin {
         app.init_asset::<NativeFxPack>()
             .init_asset_loader::<NativeFxLoader>()
             .init_resource::<Diagnostics>()
-            .add_systems(OnEnter(GameState::Loading), load)
+            .add_systems(
+                OnEnter(GameState::Loading),
+                load.after(crate::assets::begin_load),
+            )
             .add_systems(
                 Update,
                 (spawn, animate)
@@ -203,13 +254,22 @@ fn load(
     server: Res<AssetServer>,
     existing: Option<Res<NativeFxAssets>>,
     packs: Res<Assets<NativeFxPack>>,
+    art: Option<Res<crate::assets::prepared::PreparedArt>>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<GameState>>,
 ) {
+    let Some(art) = art else { return };
+    let Some(uri) = art.effects_uri() else {
+        failure.0 = "Prepared native effects manifest is missing".into();
+        next.set(GameState::LoadError);
+        return;
+    };
     if let Some(existing) = existing {
         if matches!(
             server.get_load_state(existing.0.id()),
             Some(bevy::asset::LoadState::Failed(_))
         ) {
-            server.reload("effects/native.nativefx");
+            server.reload(uri.to_owned());
         }
         if let Some(pack) = packs.get(&existing.0) {
             for texture in &pack.textures {
@@ -232,7 +292,7 @@ fn load(
             }
         }
     } else {
-        commands.insert_resource(NativeFxAssets(server.load("effects/native.nativefx")));
+        commands.insert_resource(NativeFxAssets(server.load(uri.to_owned())));
     }
 }
 pub(crate) fn emit(

@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import time
@@ -134,8 +135,8 @@ def main():
     try:
         client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=180)
         report['schema'] = client.call('origins/schema')
-        game_path = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
-        run(client, report, json.loads(game_path.read_bytes()))
+        game_path = Path(__file__).resolve().parent.parent / 'target/debug/origins.pack/game.json'
+        run(client, report, json.loads(asset_bytes(game_path)))
         report['passed'] = True
     except Exception as error:
         report['error'] = str(error)

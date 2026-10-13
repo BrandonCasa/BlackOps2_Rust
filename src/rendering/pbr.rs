@@ -170,7 +170,7 @@ pub(super) fn prepare(
         material.base_color_texture = channel("color");
         material.normal_map_texture = channel("normal");
         material.metallic_roughness_texture = channel("response");
-        material.occlusion_texture = channel("response").or_else(|| channel("occlusion"));
+        material.occlusion_texture = channel("occlusion").or_else(|| channel("response"));
         material.emissive_texture = channel("emissive");
         material.specular_tint_texture =
             channel("reflectance").or_else(|| channel("specular_gloss"));

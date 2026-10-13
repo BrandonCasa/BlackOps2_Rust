@@ -34,6 +34,15 @@ pub struct Player {
     pub eye_height: f32,
 }
 
+#[derive(Component)]
+pub(crate) struct PreviousTranslation(pub Vec3);
+
+fn remember_translation(mut players: Query<(&Transform, &mut PreviousTranslation), With<Player>>) {
+    for (pose, mut previous) in &mut players {
+        previous.0 = pose.translation;
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct TickActions {
     pub fire: bool,
@@ -61,6 +70,12 @@ impl Plugin for PlayerPlugin {
                 PreUpdate,
                 look.after(crate::input::collect)
                     .after(crate::verification::drive),
+            )
+            .add_systems(
+                FixedUpdate,
+                remember_translation
+                    .before(GameStep::Movement)
+                    .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
                 FixedUpdate,
@@ -127,6 +142,7 @@ fn spawn_player(
                 .expect("validated starting grenade"),
         ),
         Transform::from_translation(Vec3::from_array(definition.spawn) + Vec3::Y * (height * 0.5)),
+        PreviousTranslation(Vec3::from_array(definition.spawn) + Vec3::Y * (height * 0.5)),
         Name::new("Player"),
     ));
 }

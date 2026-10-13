@@ -25,7 +25,7 @@ resolver = "3"
 [features]
 default = ["game"]
 game = ["dep:bevy", "dep:avian3d", "dep:bevy_input", "dep:keepawake", "dep:wgpu"]
-asset-builder = ["dep:sha2", "dep:md-5", "dep:rayon", "dep:half", "dep:regex", "dep:walkdir", "dep:image", "dep:glam", "dep:ctt-intel-texture-compressor"]
+asset-builder = ["dep:half", "dep:ctt-intel-texture-compressor", "dep:flate2"]
 dev-tools = ["bevy/bevy_remote", "bevy/png"]
 profile-tracy = ["bevy/trace_tracy", "bevy/debug", "dep:tracy-client"]
 profile-tracy-memory = ["profile-tracy", "bevy/trace_tracy_memory"]
@@ -41,24 +41,19 @@ log = { version = "=0.4.34", features = ["max_level_debug", "release_max_level_o
 tracing = { version = "=0.1.44", default-features = false, features = ["std", "release_max_level_off"] }
 tracy-client = { version = "=0.19.0", default-features = false, features = ["only-localhost"], optional = true }
 
-sha2 = { version = "=0.10.9", optional = true }
-md-5 = { version = "=0.10.6", optional = true }
-rayon = { version = "=1.12.0", optional = true }
 half = { version = "=2.7.1", optional = true }
-regex = { version = "=1.13.1", optional = true }
-walkdir = { version = "=2.5.0", optional = true }
-image = { version = "=0.25.10", default-features = false, features = ["bmp", "png", "jpeg", "tga"], optional = true }
-glam = { version = "=0.33.12", optional = true }
 ctt-intel-texture-compressor = { version = "=0.5.0", optional = true }
+flate2 = { version = "=1.1.10", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 keepawake = { version = "=0.6.1", optional = true }
 wgpu = { optional = true, version = "=30.0.1", default-features = false, features = ["std", "vulkan"] }
 
 [profile.dev]
-opt-level = 1
-lto = "off"
-codegen-units = 256
+opt-level = 3
+lto = true
+codegen-units = 64
+incremental = true
 debug = true
 debug-assertions = true
 
@@ -66,7 +61,7 @@ debug-assertions = true
 opt-level = 3
 lto = true
 codegen-units = 256
-incremental = false
+incremental = true
 debug = false
 debug-assertions = false
 panic = "abort"

@@ -90,12 +90,12 @@ impl Plugin for GameRenderingPlugin {
             .add_plugins(lighting_inspection::LightingInspectionPlugin)
             .add_plugins(readback_shutdown::ReadbackShutdownPlugin)
             .init_resource::<OpaqueSurfaceStatus>()
+            .init_resource::<opaque::MaterialTime>()
             .add_systems(Startup, setup)
             .add_systems(
                 OnEnter(GameState::Loading),
                 opaque::initialize.after(crate::assets::begin_load),
             )
-            .add_systems(PostStartup, sky::setup)
             .add_systems(
                 PostUpdate,
                 pbr::prepare_image_dimensions.after(bevy::asset::AssetEventSystems),
@@ -125,11 +125,13 @@ impl Plugin for GameRenderingPlugin {
             .add_systems(
                 PostUpdate,
                 (
+                    opaque::advance_time,
                     opaque::animate,
                     opaque::animate_scalars,
                     opaque::animate_uvs,
                 )
-                    .chain(),
+                    .chain()
+                    .run_if(in_state(GameState::Playing)),
             );
     }
 
@@ -150,7 +152,6 @@ fn cluster_capacity(mut settings: ResMut<bevy::light::cluster::GlobalClusterSett
 pub(crate) fn setup(
     mut commands: Commands,
     profile: Res<profile::VisualProfile>,
-    source: Res<atmosphere::SourceAtmosphere>,
 ) {
     commands.insert_resource(bevy::light::PointLightShadowMap {
         size: profile.lantern_shadow_map_size,
@@ -158,14 +159,55 @@ pub(crate) fn setup(
     commands.insert_resource(bevy::light::DirectionalLightShadowMap {
         size: profile.sun_shadow_map_size,
     });
-    commands.insert_resource(ClearColor(source.fog.native(source.exposure).color));
     commands.insert_resource(GlobalAmbientLight {
         color: profile::color(profile.ambient_color),
         brightness: profile.ambient_brightness,
         affects_lightmapped_meshes: false,
     });
-    let sun = commands
-        .spawn((
+    let mut camera = commands.spawn((
+        Camera3d::default(),
+        bevy::pbr::ScreenSpaceTransmission::default(),
+        GameCamera,
+        bevy::camera::ShadowLodOrigin,
+        DepthPrepass,
+        Transform::from_xyz(0., 2., 0.),
+        Hdr,
+        (
+            Tonemapping::TonyMcMapface,
+            bevy::render::view::ColorGrading::default(),
+            postprocess::bloom(&profile),
+            bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
+            Projection::Perspective(PerspectiveProjection {
+                fov: BASE_FOV_DEGREES.to_radians(),
+                near: 0.01,
+                ..default()
+            }),
+            Name::new("Origins camera"),
+        ),
+        bevy::core_pipeline::tonemapping::DebandDither::Disabled,
+        Msaa::Off,
+        bevy::solari::prelude::SolariLighting::default(),
+        bevy::camera::CameraMainTextureUsages::default().with(bevy::render::render_resource::TextureUsages::STORAGE_BINDING),
+        bevy::anti_alias::dlss::Dlss::<bevy::anti_alias::dlss::DlssRayReconstructionFeature>::default(),
+    ));
+    camera.insert(bevy::audio::SpatialListener::new(0.2));
+}
+
+fn configure(
+    mut commands: Commands,
+    profile: Res<profile::VisualProfile>,
+    source: Res<atmosphere::SourceAtmosphere>,
+    cameras: Query<Entity, With<GameCamera>>,
+    suns: Query<Entity, With<atmosphere::Sun>>,
+) {
+    commands.insert_resource(ClearColor(source.fog.native(source.exposure).color));
+    for sun in &suns {
+        commands.entity(sun).despawn();
+    }
+    for camera in &cameras {
+        commands.entity(camera).insert(source.camera_exposure(&profile));
+    }
+    commands.spawn((
             DirectionalLight {
                 illuminance: profile.sun_illuminance,
                 color: Color::linear_rgb(
@@ -194,40 +236,7 @@ pub(crate) fn setup(
             ),
             Name::new("Origins sunlight"),
             atmosphere::Sun,
-        ))
-        .id();
-    commands
-        .entity(sun)
-        .insert(bevy::render::occlusion_culling::OcclusionCulling);
-    let mut camera = commands.spawn((
-        Camera3d::default(),
-        bevy::pbr::ScreenSpaceTransmission::default(),
-        GameCamera,
-        bevy::camera::ShadowLodOrigin,
-        DepthPrepass,
-        Transform::from_xyz(0., 2., 0.),
-        Hdr,
-        source.camera_exposure(&profile),
-        (
-            Tonemapping::TonyMcMapface,
-            bevy::render::view::ColorGrading::default(),
-            postprocess::bloom(&profile),
-            bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
-            Projection::Perspective(PerspectiveProjection {
-                fov: BASE_FOV_DEGREES.to_radians(),
-                near: 0.01,
-                ..default()
-            }),
-            Name::new("Origins camera"),
-        ),
-        bevy::core_pipeline::tonemapping::DebandDither::Disabled,
-        Msaa::Off,
-        bevy::solari::prelude::SolariLighting::default(),
-        bevy::camera::CameraMainTextureUsages::default().with(bevy::render::render_resource::TextureUsages::STORAGE_BINDING),
-        bevy::anti_alias::dlss::Dlss::<bevy::anti_alias::dlss::DlssRayReconstructionFeature>::default(),
-    ));
-    camera.insert(bevy::audio::SpatialListener::new(0.2));
-    camera.insert(bevy::render::occlusion_culling::OcclusionCulling);
+        ));
 }
 
 fn camera_follow(
@@ -236,6 +245,7 @@ fn camera_follow(
         (
             &Player,
             &Transform,
+            &crate::player::PreviousTranslation,
             &crate::weapons::WeaponInventory,
             &crate::movement::Mobility,
             &crate::movement::MotionFeedback,
@@ -261,7 +271,7 @@ fn camera_follow(
         return;
     }
     let (
-        Ok((player, body, inventory, mobility, feedback)),
+        Ok((player, body, previous, inventory, mobility, feedback)),
         Some(definition),
         Ok((mut camera, mut projection)),
     ) = (players.single(), definition, camera.single_mut())
@@ -279,7 +289,11 @@ fn camera_follow(
         .previous_bob
         .lerp(feedback.bob, time.overstep_fraction());
     let target = Transform {
-        translation: body.translation
+        translation: (if **state == GameState::Playing {
+            previous.0.lerp(body.translation, time.overstep_fraction())
+        } else {
+            body.translation
+        })
             + Vec3::Y * (eye - player.height * 0.5)
             + Quat::from_rotation_y(player.yaw) * Vec3::new(bob.x, bob.y, 0.),
         rotation: Quat::from_rotation_y(player.yaw + inventory.recoil.x + feedback.rumble.x)

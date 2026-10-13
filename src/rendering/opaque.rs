@@ -70,6 +70,14 @@ impl SurfaceLibrary {
 
 pub(super) fn initialize(mut commands: Commands) {
     commands.insert_resource(SurfaceLibrary::default());
+    commands.insert_resource(MaterialTime::default());
+}
+
+#[derive(Resource, Default)]
+pub(super) struct MaterialTime(f64);
+
+pub(super) fn advance_time(time: Res<Time>, mut clock: ResMut<MaterialTime>) {
+    clock.0 += time.delta_secs_f64();
 }
 
 pub(super) fn register_prepared(
@@ -104,6 +112,18 @@ pub(super) fn apply_factors(material: &mut StandardMaterial, factors: &Value) {
     material.ior = scalar("ior", 1.5);
     material.thickness = scalar("thickness", 0.);
     material.unlit = factors["unlit"].as_bool().unwrap_or(false);
+    material.specular_tint = if let Some(color) = factors["specular_tint"]
+        .as_array()
+        .filter(|v| v.len() == 3)
+    {
+        Color::linear_rgb(
+            color[0].as_f64().unwrap_or(1.) as f32,
+            color[1].as_f64().unwrap_or(1.) as f32,
+            color[2].as_f64().unwrap_or(1.) as f32,
+        )
+    } else {
+        Color::WHITE
+    };
     if let Some(color) = factors["base_color"].as_array().filter(|v| v.len() == 4) {
         material.base_color = Color::linear_rgba(
             color[0].as_f64().unwrap_or(1.) as f32,
@@ -293,7 +313,7 @@ pub(super) fn convert(
 }
 
 pub(super) fn animate(
-    time: Res<Time>,
+    time: Res<MaterialTime>,
     inventories: Query<&crate::weapons::WeaponInventory>,
     stones: Query<&crate::staff_puzzles::FrozenStone>,
     mut entities: Query<(&mut AnimatedMaterial, &MeshMaterial3d<StandardMaterial>)>,
@@ -309,7 +329,7 @@ pub(super) fn animate(
                     .is_some_and(|inventory| {
                         inventory.charge_level as f32 >= animation.state_threshold
                     });
-                let phase = (time.elapsed_secs_f64() * animation.fps as f64).floor() as usize
+                let phase = (time.0 * animation.fps as f64).floor() as usize
                     % animation.time_frames;
                 (charged as usize * animation.time_frames + phase).min(count - 1)
             }
@@ -321,7 +341,7 @@ pub(super) fn animate(
                 * (count - 1) as f32)
                 .round() as usize)
                 .min(count - 1),
-            _ => ((time.elapsed_secs() * animation.fps).floor() as usize) % count,
+            _ => ((time.0 * animation.fps as f64).floor() as usize) % count,
         };
         if animation.selected == selected {
             continue;
@@ -331,7 +351,8 @@ pub(super) fn animate(
             material.base_color_texture = frame.channels.get("color").cloned();
             material.normal_map_texture = frame.channels.get("normal").cloned();
             material.metallic_roughness_texture = frame.channels.get("response").cloned();
-            material.occlusion_texture = frame.channels.get("response").cloned();
+            material.occlusion_texture = frame.channels.get("occlusion")
+                .or_else(|| frame.channels.get("response")).cloned();
             material.emissive_texture = frame.channels.get("emissive").cloned();
             material.specular_tint_texture = frame.channels.get("reflectance").cloned();
             apply_factors(&mut material, &frame.factors);
@@ -341,29 +362,33 @@ pub(super) fn animate(
 }
 
 pub(super) fn animate_uvs(
-    time: Res<Time>,
+    time: Res<MaterialTime>,
     inputs: Query<&NativeArtInputs>,
     entities: Query<(&UvAnimation, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (animation, handle) in &entities {
         let input = animation.owner.and_then(|owner| inputs.get(owner).ok());
-        let seconds = time.elapsed_secs() - input.map_or(0., |input| input.time_offset);
+        let seconds = time.0 as f32 - input.map_or(0., |input| input.time_offset);
         let phase = if animation.time_mode == "fractional_second" {
             seconds - seconds.floor()
         } else {
             seconds
         };
-        if let Some(mut material) = materials.get_mut(&handle.0) {
-            material.uv_transform = bevy::math::Affine2::from_translation(
+        let uv_transform = bevy::math::Affine2::from_translation(
                 Vec2::from_array(animation.translation) * phase,
             );
+        if let Some(material) = materials.get(&handle.0)
+            && material.uv_transform != uv_transform
+            && let Some(mut material) = materials.get_mut(&handle.0)
+        {
+            material.uv_transform = uv_transform;
         }
     }
 }
 
 pub(super) fn animate_scalars(
-    time: Res<Time>,
+    time: Res<MaterialTime>,
     inputs: Query<&NativeArtInputs>,
     entities: Query<(&ScalarAnimation, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -374,7 +399,7 @@ pub(super) fn animate_scalars(
             continue;
         }
         let input = animation.owner.and_then(|owner| inputs.get(owner).ok());
-        let seconds = time.elapsed_secs() - input.map_or(0., |input| input.time_offset);
+        let seconds = time.0 as f32 - input.map_or(0., |input| input.time_offset);
         let coordinate = seconds * animation.speed;
         let coordinate = if animation.sampler & 64 != 0 {
             coordinate.clamp(0., 1.)
@@ -404,9 +429,13 @@ pub(super) fn animate_scalars(
             .unwrap_or(0.);
         let intensity = (animation.minimum + (animation.maximum - animation.minimum) * value)
             * (1. - script).clamp(0., 1.);
-        if let Some(mut material) = materials.get_mut(&handle.0) {
-            let emission = intensity * intensity;
-            material.emissive = LinearRgba::rgb(emission, emission, emission);
+        let emission = intensity * intensity;
+        let emissive = LinearRgba::rgb(emission, emission, emission);
+        if let Some(material) = materials.get(&handle.0)
+            && material.emissive != emissive
+            && let Some(mut material) = materials.get_mut(&handle.0)
+        {
+            material.emissive = emissive;
         }
     }
 }

@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -92,8 +93,8 @@ def main():
                               'The empty round transition exercises the real round scheduler and refill consumers.']}
     try:
         report['schema'] = client.call('origins/schema')
-        path = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
-        run(client, report, json.loads(path.read_bytes()))
+        path = Path(__file__).resolve().parent.parent / 'target/debug/origins.pack/game.json'
+        run(client, report, json.loads(asset_bytes(path)))
         report['passed'] = True
     except Exception as error:
         report['error'] = str(error)

@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -545,7 +546,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15707')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--game', type=Path, default=Path(__file__).resolve().parents[1]/'assets/origins/game.json')
+    parser.add_argument('--game', type=Path, default=Path(__file__).resolve().parents[1]/'target/debug/origins.pack/game.json')
     parser.add_argument('--case', action='append')
     args = parser.parse_args()
     client = Client(args.url)
@@ -563,7 +564,7 @@ def main():
             client.reset()
         client.until(lambda s: s['state'] == 'Playing' and s.get('player'), timeout=180)
         game_path = args.game.resolve()
-        run(client, json.loads(game_path.read_text()), record, args.case, args.output)
+        run(client, json.loads(asset_bytes(game_path).decode("utf-8")), record, args.case, args.output)
         report['passed'] = True
     except Exception as error:
         report['error'] = str(error)

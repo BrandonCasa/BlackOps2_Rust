@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 from pathlib import Path
@@ -73,8 +74,8 @@ def main():
               'limitations': ['Connections opened and defenders removed as setup to isolate power and purchases; capture and purchase use native input.',
                               'Generator shutdown and attack waves remain unfinished.']}
     try:
-        game = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
-        content = json.loads(game.read_bytes())
+        game = Path(__file__).resolve().parent.parent / 'target/debug/origins.pack/game.json'
+        content = json.loads(asset_bytes(game))
         run(client, report, content)
         report['passed'] = True
     except Exception as error:

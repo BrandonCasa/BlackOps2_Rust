@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -152,8 +153,8 @@ def main():
                               'Interrupted phase timing derives from runtime fixed delta and native content.']}
     try:
         report['schema'] = client.call('origins/schema')
-        game_path = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
-        run(client, report, json.loads(game_path.read_bytes()))
+        game_path = Path(__file__).resolve().parent.parent / 'target/debug/origins.pack/game.json'
+        run(client, report, json.loads(asset_bytes(game_path)))
         report['passed'] = True
     except Exception as error:
         report['error'] = str(error)

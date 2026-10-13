@@ -72,7 +72,7 @@ struct PortalFrame {
 #[derive(Component)]
 pub(crate) enum Target {
     Gramophone(usize),
-    Entrance(usize),
+    Entrance,
     Return(usize),
 }
 pub struct PortalPlugin;
@@ -131,7 +131,7 @@ fn setup(
     for i in 0..4 {
         commands.spawn((
             SessionEntity,
-            Target::Entrance(i),
+            Target::Entrance,
             Transform::from_translation(Vec3::from_array(source::ENTRANCES[i])),
         ));
         commands.spawn((
@@ -318,7 +318,7 @@ pub(crate) fn interact(
     let candidate = targets
         .iter()
         .filter_map(|(entity, target, t)| {
-            if matches!(target, Target::Entrance(_))
+            if matches!(target, Target::Entrance)
                 || matches!(target, Target::Return(i) if !portals.return_unlocked[*i])
             {
                 return None;
@@ -430,7 +430,7 @@ pub(crate) fn interact(
             }
             focus.accepted += 1;
         }
-        Target::Entrance(_) => {}
+        Target::Entrance => {}
         Target::Return(index) => {
             focus.prompt = format!("Press {key} to open the return portal");
             if portals.returns[*index] > 0. || portals.return_closing[*index] > 0. {

@@ -25,14 +25,18 @@ impl SourceGrade {
     }
 }
 
-pub(super) fn setup(mut commands: Commands, server: Res<AssetServer>) {
+pub(super) fn setup(
+    mut commands: Commands,
+    server: Res<AssetServer>,
+    source: Res<SourceAtmosphere>,
+) {
     commands.insert_resource(SourceGrade {
         image: server
             .load_builder()
             .with_settings(|settings: &mut bevy::image::ImageLoaderSettings| {
                 settings.is_srgb = false
             })
-            .load("sky/zm_tomb_grade.ktx2"),
+            .load(source.grade_uri.clone()),
         pixels: None,
         lut: None,
         selected: None,

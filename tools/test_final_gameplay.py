@@ -3,6 +3,8 @@
 # dependencies = ["numpy>=2,<3", "pillow>=12,<13"]
 # ///
 
+from test_support import asset_bytes
+
 import argparse
 import json
 from pathlib import Path
@@ -39,7 +41,7 @@ def main():
     if output.is_relative_to(Path(__file__).resolve().parents[1]):
         raise ValueError('Validation output must be external')
     output.mkdir(parents=True, exist_ok=True)
-    game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
+    game = json.loads(asset_bytes(Path(args.assets.resolve()) / 'game.json'))
     client = Client(args.url, request_timeout=20, shutdown_timeout=45)
     report = {'passed': False, 'cases': [], 'sections': [], 'limitations': ['Fixtures establish preconditions; scheduled input and observed outcomes establish behavior.', 'This bounded integration suite does not establish exhaustive original-game parity or performance.']}
     selected = args.section or ['ui', 'session', 'projectiles', 'physics', 'mobility',
@@ -132,7 +134,7 @@ def main():
                                   if row['case'] == 'authored_open_floor_supports_native_jump' and row['passed']), None)
                     presentation = next(w['presentation'] for w in game['content']['weapons'] if w['id'] == 'weapon.mp40_zm')
                     row = next(p for p in game['content']['presentations'] if p['id'] == presentation)
-                    doc = json.loads((Path(args.assets.resolve()) / row['scene'].split('#')[0]).read_bytes())
+                    doc = json.loads(asset_bytes(Path(args.assets.resolve()) / row['scene'].split('#')[0]))
                     clips = {a['name']: max(doc['accessors'][s['input']]['max'][0] for s in a['samplers'])
                              for a in doc['animations']}
                     for empty in (False, True):

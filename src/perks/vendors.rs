@@ -122,6 +122,7 @@ impl Plugin for VendorPlugin {
             .add_systems(
                 PostUpdate,
                 ball_visibility
+                    .in_set(crate::animation::AnimationPoseModifiers)
                     .after(bevy::app::AnimationSystems)
                     .before(bevy::transform::TransformSystems::Propagate)
                     .run_if(in_state(GameState::Playing)),
@@ -162,13 +163,7 @@ fn setup(
             Visibility::Inherited,
         ));
         let mut source = None;
-        if let Some(scene) = game
-            .content
-            .presentations
-            .iter()
-            .filter_map(|p| p.scene.as_ref())
-            .find(|p| p.ends_with("/p6_zm_vending_diesel_magic_lod0.gltf#Scene0"))
-        {
+        if let Some(scene) = crate::assets::native_scene(&game, "p6_zm_vending_diesel_magic") {
             entity.insert(WorldAssetRoot(server.load(scene.clone())));
             source = Some(server.load(scene.split('#').next().unwrap_or(scene).to_owned()));
         }
@@ -324,12 +319,12 @@ fn presentation(
                 perk, remaining, ..
             } if bottle.index == state.active => (perk, 4. + 10. - *remaining, false, false),
             _ => {
-                *visibility = Visibility::Hidden;
+                visibility.set_if_neq(Visibility::Hidden);
                 continue;
             }
         };
         if elapsed < 1. {
-            *visibility = Visibility::Hidden;
+            visibility.set_if_neq(Visibility::Hidden);
             continue;
         }
         let selected = if rolling && elapsed < 4. {
@@ -349,7 +344,7 @@ fn presentation(
                     .insert(WorldAssetRoot(server.load(scene.clone())));
                 bottle.scene = Some(scene.clone());
             }
-            *visibility = Visibility::Inherited;
+            visibility.set_if_neq(Visibility::Inherited);
         }
         let yaw = [0_f32, 0., 210., 270., 315., 270.][bottle.index].to_radians();
         let movement = Quat::from_rotation_y(yaw) * Vec3::Z * 0.254;
@@ -388,10 +383,10 @@ fn machine_presentation(
     mut session: ResMut<Session>,
     children: Query<&Children>,
     names: Query<&Name>,
-    mut machines: Query<(Entity, &Machine, &Transform, &mut MachineVisual)>,
+    mut machines: Query<(Entity, &Machine, &Transform, &mut MachineVisual, Option<&crate::animation::NativeAnimation>)>,
 ) {
     let dt = time.delta_secs();
-    for (entity, machine, pose, mut visual) in &mut machines {
+    for (entity, machine, pose, mut visual, animation) in &mut machines {
         let active = state.active == machine.0 && !matches!(state.phase, BottlePhase::Moving(_));
         let cycling = active
             && matches!(
@@ -436,9 +431,7 @@ fn machine_presentation(
                 3 => ("turn_off", 3.4666667, false),
                 _ => ("on_idle", 5.9666667, true),
             };
-            commands
-                .entity(entity)
-                .insert(crate::animation::NativeAnimation {
+            let request = crate::animation::NativeAnimation {
                     source: source.clone(),
                     clip: format!("o_zombie_dlc4_vending_diesel_{clip}"),
                     seconds: if looping {
@@ -448,7 +441,10 @@ fn machine_presentation(
                     },
                     looping,
                     restart: visual.restart,
-                });
+                };
+            if animation != Some(&request) {
+                commands.entity(entity).insert(request);
+            }
         }
         let light = if !powered_index(machine.0, &game, &generators) {
             0
@@ -624,7 +620,10 @@ fn ball_visibility(
             if let Ok((name, mut pose)) = bones.get_mut(child)
                 && name.as_str() == "j_ball"
             {
-                pose.scale = Vec3::splat(if active { 1. } else { 0. });
+                let scale = Vec3::splat(if active { 1. } else { 0. });
+                if pose.scale != scale {
+                    pose.scale = scale;
+                }
             }
         }
     }
@@ -886,52 +885,6 @@ pub(crate) fn interact(
         BottlePhase::Rolling { .. } => focus.prompt = "Wunderfizz rolling".into(),
         BottlePhase::Moving(_) => focus.prompt = "Wunderfizz relocating".into(),
     }
-}
-pub(crate) fn spawn_random_bottle(
-    commands: &mut Commands,
-    server: &AssetServer,
-    game: &GameDefinition,
-    perks: &PerkInventory,
-    session: &mut Session,
-    position: Vec3,
-) -> Option<Entity> {
-    let candidates: Vec<_> = game
-        .content
-        .perks
-        .iter()
-        .filter(|perk| {
-            !perks.owned.contains(&perk.id)
-                && perk.has_supported_effect()
-                && perk.drink.is_some()
-                && (perk.id != game.solo_revive.perk
-                    || perks.can_buy_solo(&game.solo_revive).is_ok())
-        })
-        .collect();
-    if candidates.is_empty() {
-        return None;
-    }
-    let perk = candidates[session.random() as usize % candidates.len()];
-    let mut entity = commands.spawn((
-        SessionEntity,
-        PerkBottle {
-            perk: perk.id.clone(),
-            remaining: 30.,
-        },
-        Transform::from_translation(position + Vec3::Y * 0.5),
-        Visibility::Inherited,
-    ));
-    if let Some(drink) = &perk.drink
-        && let Some(weapon) = game.content.weapons.iter().find(|w| w.id == drink.bottle)
-        && let Some(scene) = game
-            .content
-            .presentations
-            .iter()
-            .find(|p| Some(&p.id) == weapon.pickup.as_ref())
-            .and_then(|p| p.scene.as_ref())
-    {
-        entity.insert(WorldAssetRoot(server.load(scene.clone())));
-    }
-    Some(entity.id())
 }
 fn ground_bottles(
     mut commands: Commands,

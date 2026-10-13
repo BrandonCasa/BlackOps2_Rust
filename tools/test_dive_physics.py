@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -288,7 +289,7 @@ def main():
         motor = native_motor(args.research)[0]
         report['native'] = {'mobility': native, 'physics': physics, 'motor': motor,
                             'perks': native_perks(args.research)}
-        game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
+        game = json.loads(asset_bytes(Path(args.assets.resolve()) / 'game.json'))
         check(report, 'pack_preserves_native_vertical_physics',
               all(math.isclose(game['tuning'][key], value, abs_tol=.000001)
                   for key, value in physics.items()), pack=game['tuning'], expected=physics)

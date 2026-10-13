@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -142,7 +143,7 @@ def main():
     try:
         source = args.research / 'source/server-patch/maps/mp/zombies/_zm.gsc'
         report['native_source'] = {'path': str(source)}
-        game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
+        game = json.loads(asset_bytes(Path(args.assets.resolve()) / 'game.json'))
         ranks, replacement = native_pistols(args.research)
         loaded = {weapon['id'] for weapon in game['content']['weapons']}
         native_profile = {'pistol_ranks': [row for row in ranks if row['weapon'] in loaded],

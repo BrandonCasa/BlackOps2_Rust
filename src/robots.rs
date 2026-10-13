@@ -153,6 +153,7 @@ impl Plugin for RobotPlugin {
             .add_systems(
                 PostUpdate,
                 follow_sockets
+                    .in_set(crate::animation::AnimationPoseModifiers)
                     .after(bevy::app::AnimationSystems)
                     .before(bevy::transform::TransformSystems::Propagate),
             )

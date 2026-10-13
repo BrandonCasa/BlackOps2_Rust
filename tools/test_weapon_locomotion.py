@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -27,12 +28,12 @@ TIMINGS = {
                       'crawlRightTime', 'crawlLeftTime', 'crawlOutTime', 'crawlOutFireTime'),
     'dive_seconds': ('dtpInTime', 'dtpLoopTime', 'dtpOutTime')}
 
-def source_bindings(report, game, pack, inspection, preparation):
+def source_bindings(report, game, pack, inspection):
     recovered = inspection / 'solo-content/recovered-gameplay.json'
     fields = {'weapon.' + row['source']: row['fields']
-              for row in json.loads(recovered.read_bytes())['weapons']}
+              for row in json.loads(asset_bytes(recovered))['weapons']}
     presentations = {row['id']: row for row in game['content']['presentations']}
-    actions, timings = preparation['action_fields'], preparation['timing_fields']
+    actions, timings = ACTIONS, TIMINGS
     scenes = {}
     count = 0
     for weapon in game['content']['weapons']:
@@ -54,7 +55,7 @@ def source_bindings(report, game, pack, inspection, preparation):
                 relative = presentations[rig]['scene'].split('#')[0]
                 if relative not in scenes:
                     scenes[relative] = {animation['name'] for animation in
-                                        json.loads((pack / relative).read_bytes()).get('animations', [])}
+                                        json.loads(asset_bytes(pack / relative)).get('animations', [])}
                 if clip not in scenes[relative]:
                     raise RuntimeError('Prepared rig lacks native clip: ' + rig + ':' + clip)
                 count += 1
@@ -255,7 +256,6 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--inspection', required=True, type=Path)
     parser.add_argument('--research', required=True, type=Path)
-    parser.add_argument('--preparation', required=True, type=Path)
     args = parser.parse_args()
     client = Client(args.url, shutdown_timeout=45)
     report = {'passed': False, 'cases': [], 'scenario': 'native_weapon_locomotion',
@@ -265,10 +265,8 @@ def main():
                               'The borrowed floor fixture requires matching collision assets; generic motor parity is a separate check.']}
     try:
         pack = Path(args.assets.resolve())
-        game = json.loads((pack / 'game.json').read_bytes())
-        preparation = json.loads(args.preparation.read_bytes())
-        report['preparation'] = {'path': str(args.preparation.resolve())}
-        source_bindings(report, game, pack, args.inspection, preparation)
+        game = json.loads(asset_bytes(pack / 'game.json'))
+        source_bindings(report, game, pack, args.inspection)
         from test_physics import surfaces, select_flat, native_tuning
         candidates, _ = surfaces(pack, game)
         client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), 240)
@@ -278,7 +276,7 @@ def main():
             if row['id'] != next(w['presentation'] for w in game['content']['weapons']
                                  if w['id'] == 'weapon.mp40_zm'):
                 continue
-            doc = json.loads((pack / row['scene'].split('#')[0]).read_bytes())
+            doc = json.loads(asset_bytes(pack / row['scene'].split('#')[0]))
             clips = {animation['name']: max(doc['accessors'][sampler['input']]['max'][0]
                                            for sampler in animation['samplers'])
                      for animation in doc['animations']}

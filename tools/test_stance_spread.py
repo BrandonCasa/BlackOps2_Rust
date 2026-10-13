@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 import math
@@ -82,8 +83,8 @@ def main():
         client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=180)
         report['protocol'] = client.call('rpc.discover')
         report['schema'] = client.call('origins/schema')
-        path = Path(__file__).resolve().parent.parent / 'assets/origins/game.json'
-        game = json.loads(path.read_bytes())
+        path = Path(__file__).resolve().parent.parent / 'target/debug/origins.pack/game.json'
+        game = json.loads(asset_bytes(path))
         report['native_weapons'] = {}
         names = ('fivesevendw_zm', 'fivesevendw_upgraded_zm') if args.dual else ('mp40_zm', 'ballista_zm')
         for name in names:

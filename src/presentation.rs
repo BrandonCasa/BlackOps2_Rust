@@ -101,6 +101,7 @@ impl Plugin for PresentationPlugin {
             .add_systems(
                 PostUpdate,
                 aim_pose
+                    .in_set(crate::animation::AnimationPoseModifiers)
                     .after(bevy::app::AnimationSystems)
                     .before(bevy::camera::CameraUpdateSystems)
                     .before(bevy::transform::TransformSystems::Propagate),
@@ -108,12 +109,14 @@ impl Plugin for PresentationPlugin {
             .add_systems(
                 PostUpdate,
                 hide_attachment_joints
+                    .in_set(crate::animation::AnimationPoseModifiers)
                     .after(bevy::app::AnimationSystems)
                     .before(bevy::transform::TransformSystems::Propagate),
             )
             .add_systems(
                 PostUpdate,
                 camera_pose
+                    .in_set(crate::animation::AnimationPoseModifiers)
                     .run_if(crate::flythrough::normal_play)
                     .in_set(CameraPose)
                     .after(aim_pose)
@@ -128,6 +131,7 @@ impl Plugin for PresentationPlugin {
             .add_systems(
                 PostUpdate,
                 follow_sockets
+                    .in_set(crate::animation::AnimationPoseModifiers)
                     .after(camera_pose)
                     .before(bevy::transform::TransformSystems::Propagate),
             )
@@ -208,7 +212,8 @@ fn spawn_viewmodels(
                 continue;
             };
             let character = ["dempsey", "nikolai", "richtofen", "takeo"][session.character];
-            let arms = format!("actors/c_zom_{character}_viewhands_lod0.gltf#Scene0");
+            let arms =
+                crate::assets::native_scene(&definition, &format!("c_zom_{character}_viewhands"));
             let root = commands
                 .spawn((
                     FirstPerson {
@@ -265,7 +270,7 @@ fn spawn_viewmodels(
                 })
                 .and_then(|p| p.scene.as_deref());
             for (is_arms, is_knife, is_ads, is_left, scene) in [
-                (true, false, false, false, Some(arms.as_str())),
+                (true, false, false, false, arms.map(String::as_str)),
                 (false, false, false, false, Some(scene.as_str())),
                 (false, true, false, false, knife),
                 (false, false, true, false, ads_scene),

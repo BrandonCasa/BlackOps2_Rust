@@ -3,6 +3,7 @@ use crate::environment::weather::{Weather, WeatherKind};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::{Component, Path};
 
 #[derive(Resource, Deserialize)]
 pub(crate) struct SourceAtmosphere {
@@ -14,23 +15,87 @@ pub(crate) struct SourceAtmosphere {
     pub(super) fog: WorldFog,
     fog_transition_seconds: f32,
     volumes: Vec<SourceVolume>,
+    modifiers: Vec<SourceModifier>,
     pub(super) softclip: f32,
     pub(super) vision: BTreeMap<String, BTreeMap<String, [f32; 4]>>,
+    pub(super) sky_uri: String,
+    pub(super) grade_uri: String,
+    sky_rotation_columns: [[f32; 3]; 3],
 }
 
 impl SourceAtmosphere {
+    fn load(pack: &crate::pack::Pack, art: &crate::assets::prepared::PreparedArt) -> Result<Self, String> {
+        let uri = art
+            .world()
+            .and_then(|world| world["atmosphere_uri"].as_str())
+            .ok_or("Prepared Origins world atmosphere is missing")?;
+        Self::validate_uri(uri)?;
+        let source: Self = serde_json::from_slice(pack.get(uri).map_err(|error| error.to_string())?)
+            .map_err(|error| format!("Invalid runtime atmosphere {uri}: {error}"))?;
+        Self::validate_uri(&source.sky_uri)?;
+        Self::validate_uri(&source.grade_uri)?;
+        for bank in ["clear", "_rain", "_snow"] {
+            let vision = source
+                .vision
+                .get(bank)
+                .ok_or_else(|| format!("Prepared atmosphere is missing vision bank {bank}"))?;
+            for key in [
+                "vc_RS", "vc_RE", "vc_FSM", "vc_SMR", "vc_MMR", "vc_HMR", "vc_SMG", "vc_MMG",
+                "vc_HMG", "vc_SMB", "vc_MMB", "vc_HMB", "vc_FGM", "vc_FBM",
+            ] {
+                if !vision
+                    .get(key)
+                    .is_some_and(|value| value.iter().all(|component| component.is_finite()))
+                {
+                    return Err(format!("Prepared atmosphere is missing valid {bank}/{key}"));
+                }
+            }
+        }
+        if !(source.sun_brightness.is_finite() && source.sun_brightness > 0.)
+            || !source.exposure.is_finite()
+            || !source
+                .sky_rotation_columns
+                .iter()
+                .flatten()
+                .all(|value| value.is_finite())
+        {
+            return Err(
+                "Prepared atmosphere has invalid exposure, sunlight or sky rotation".into(),
+            );
+        }
+        for modifier in &source.modifiers {
+            if !modifier.transition_rate.is_finite()
+                || modifier.transition_rate < 0.
+                || !modifier.factors().iter().all(|value| value.is_finite())
+                || modifier.planes.is_empty()
+                || !modifier.planes.iter().flatten().all(|value| value.is_finite())
+            {
+                return Err(format!("Invalid source fog modifier {}", modifier.order));
+            }
+        }
+        Ok(source)
+    }
+
+    fn validate_uri(uri: &str) -> Result<(), String> {
+        if uri.is_empty()
+            || Path::new(uri)
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            return Err(format!("Invalid prepared atmosphere asset URI: {uri}"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn sky_rotation(&self) -> Quat {
+        Quat::from_mat3(&Mat3::from_cols_array_2d(&self.sky_rotation_columns))
+    }
+
     pub(crate) fn camera_exposure(&self, profile: &VisualProfile) -> bevy::camera::Exposure {
         let radiance_scale = profile.sun_illuminance / (self.sun_brightness * std::f32::consts::PI);
         bevy::camera::Exposure {
             ev100: self.exposure + (radiance_scale / 1.2).log2(),
         }
-    }
-}
-
-impl Default for SourceAtmosphere {
-    fn default() -> Self {
-        serde_json::from_str(include_str!("../../config/origins-atmosphere.json"))
-            .expect("Prepared original Origins atmosphere")
     }
 }
 
@@ -45,6 +110,17 @@ pub(super) struct WorldFog {
 }
 
 impl WorldFog {
+    fn modified(mut self, factors: [f32; 6]) -> Self {
+        self.distance[1] *= factors[0];
+        for channel in 0..3 {
+            self.color[channel] *= factors[channel + 2];
+            self.sun_color[channel] *= factors[channel + 2];
+        }
+        self.opacity *= factors[5];
+        self.sun_opacity *= factors[5];
+        self
+    }
+
     fn blend(self, target: Self, fraction: f32) -> Self {
         let lerp = |a: f32, b: f32| a + (b - a) * fraction;
         Self {
@@ -92,6 +168,73 @@ struct SourceVolume {
     fog: WorldFog,
 }
 
+#[derive(Deserialize)]
+struct SourceModifier {
+    order: usize,
+    control: u32,
+    transition_rate: f32,
+    depth_scale: f32,
+    height_scale: f32,
+    color_adjust: [f32; 4],
+    planes: Vec<[f32; 4]>,
+}
+
+impl SourceModifier {
+    fn factors(&self) -> [f32; 6] {
+        let [r, g, b, a] = self.color_adjust;
+        [self.depth_scale, self.height_scale, r, g, b, a]
+    }
+}
+
+struct ModifierTransition {
+    target: Option<usize>,
+    elapsed_ms: f32,
+    rate: f32,
+    from: [f32; 6],
+    current: [f32; 6],
+    previous_camera: Option<Vec3>,
+}
+
+impl Default for ModifierTransition {
+    fn default() -> Self {
+        Self { target:None, elapsed_ms:0., rate:1., from:[1.; 6], current:[1.; 6], previous_camera:None }
+    }
+}
+
+impl ModifierTransition {
+    fn update(&mut self, source: &SourceAtmosphere, point: Vec3, mask: u8, delta: f32, reset: bool) {
+        if source.volumes.is_empty() {
+            *self = Self::default();
+            return;
+        }
+        let selected = source.modifiers.iter().enumerate()
+            .filter(|(_, modifier)| modifier.control & u32::from(mask & 15) != 0
+                && modifier.planes.iter().all(|plane| Vec4::from_array(*plane).dot(point.extend(1.)) <= 0.))
+            .min_by_key(|(_, modifier)| modifier.order).map(|(index, _)| index);
+        let snap = reset || self.previous_camera.is_none_or(|previous| previous.distance_squared(point) > (1024_f32 * 0.0254).powi(2));
+        self.previous_camera = Some(point);
+        if snap {
+            self.target = selected;
+            self.elapsed_ms = 0.;
+            self.current = selected.map_or([1.; 6], |index| source.modifiers[index].factors());
+            self.from = self.current;
+            self.rate = selected.map_or(1., |index| source.modifiers[index].transition_rate);
+            return;
+        }
+        self.elapsed_ms += delta * 1000.;
+        let t = (self.elapsed_ms * self.rate).min(1.);
+        let weight = t*t*(3. - 2.*t);
+        let target = self.target.map_or([1.; 6], |index| source.modifiers[index].factors());
+        self.current = std::array::from_fn(|index| self.from[index] * (1. - weight) + target[index] * weight);
+        if selected != self.target {
+            self.target = selected;
+            self.from = self.current;
+            self.elapsed_ms = 0.;
+            if let Some(index) = selected { self.rate = source.modifiers[index].transition_rate; }
+        }
+    }
+}
+
 #[derive(Component)]
 struct FogVolume {
     order: usize,
@@ -109,7 +252,7 @@ pub(super) struct Sun;
 pub(super) struct AtmosphereState {
     pub shader_ready: bool,
     initialized: bool,
-    bank: u8,
+    pub(super) bank: u8,
     volume: Option<usize>,
     script_id: u16,
     fog: WorldFog,
@@ -121,37 +264,87 @@ pub(super) struct AtmosphereState {
     vision_from: f32,
     vision_target: f32,
     vision_elapsed: f32,
+    modifier: ModifierTransition,
 }
 
 pub(super) struct AtmospherePlugin;
 impl Plugin for AtmospherePlugin {
     fn build(&self, app: &mut App) {
-        let source = SourceAtmosphere::default();
-        app.insert_resource(AtmosphereState {
-            shader_ready: true,
-            initialized: false,
-            bank: 1,
-            volume: None,
-            script_id: 0,
-            fog: source.fog,
-            from: source.fog,
-            target: source.fog,
-            elapsed: 0.,
-            duration: 0.,
-            vision_blend: 0.,
-            vision_from: 0.,
-            vision_target: 0.,
-            vision_elapsed: 0.,
-        })
-        .insert_resource(source)
-        .add_systems(Startup, (setup.after(super::setup), super::grading::setup))
-        .add_systems(Update, update.after(super::camera_follow))
-        .add_systems(Update, super::grading::prepare.after(update))
-        .add_systems(OnEnter(crate::GameState::PreparingShaders), reset);
+        app.add_systems(
+            OnEnter(crate::GameState::Loading),
+            load.after(crate::assets::begin_load),
+        )
+        .add_systems(
+            Update,
+            (super::configure, setup, super::sky::setup, super::grading::setup)
+                .chain()
+                .run_if(resource_exists::<SourceAtmosphere>.and_then(resource_changed::<SourceAtmosphere>))
+                .before(update),
+        )
+        .add_systems(
+            Update,
+            update.after(super::camera_follow).run_if(resource_exists::<SourceAtmosphere>),
+        )
+        .add_systems(
+            Update,
+            super::grading::prepare.after(update).run_if(resource_exists::<super::grading::SourceGrade>),
+        )
+        .add_systems(
+            OnEnter(crate::GameState::PreparingShaders),
+            reset.run_if(resource_exists::<AtmosphereState>),
+        );
     }
 }
 
-fn setup(mut commands: Commands, source: Res<SourceAtmosphere>) {
+fn load(
+    mut commands: Commands,
+    configuration: Res<crate::assets::LoadConfiguration>,
+    art: Option<Res<crate::assets::prepared::PreparedArt>>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<crate::GameState>>,
+) {
+    commands.remove_resource::<SourceAtmosphere>();
+    commands.remove_resource::<AtmosphereState>();
+    commands.remove_resource::<super::grading::SourceGrade>();
+    let (Ok(configuration), Some(art)) = (&configuration.0, art) else {
+        return;
+    };
+    match SourceAtmosphere::load(&configuration.contents, &art) {
+        Ok(source) => {
+            commands.insert_resource(AtmosphereState {
+                shader_ready: true,
+                initialized: false,
+                bank: 1,
+                volume: None,
+                script_id: 0,
+                fog: source.fog,
+                from: source.fog,
+                target: source.fog,
+                elapsed: 0.,
+                duration: 0.,
+                vision_blend: 0.,
+                vision_from: 0.,
+                vision_target: 0.,
+                vision_elapsed: 0.,
+                modifier: default(),
+            });
+            commands.insert_resource(source);
+        }
+        Err(error) => {
+            failure.0 = error;
+            next.set(crate::GameState::LoadError);
+        }
+    }
+}
+
+fn setup(
+    mut commands: Commands,
+    source: Res<SourceAtmosphere>,
+    existing: Query<Entity, With<FogVolume>>,
+) {
+    for entity in &existing {
+        commands.entity(entity).despawn();
+    }
     for volume in &source.volumes {
         commands.spawn((
             FogVolume {
@@ -178,6 +371,7 @@ fn reset(mut state: ResMut<AtmosphereState>) {
     state.vision_from = 0.;
     state.vision_target = 0.;
     state.vision_elapsed = 0.;
+    state.modifier = default();
 }
 
 fn update(
@@ -206,7 +400,9 @@ fn update(
         WeatherKind::Clear => 1,
         WeatherKind::Rain => 2,
         WeatherKind::Snow => 4,
-    };
+    } | (state.bank & 8);
+    let reset_modifier = !state.initialized;
+    state.modifier.update(&source, camera.translation, bank, delta, reset_modifier);
     let point = camera.translation.extend(1.);
     let volume = volumes
         .iter()
@@ -240,7 +436,7 @@ fn update(
     state.fog = state
         .from
         .blend(state.target, fraction * fraction * (3. - 2. * fraction));
-    *fog = state.fog.native(source.exposure);
+    *fog = state.fog.modified(state.modifier.current).native(source.exposure);
     let vision_target = if weather.presented == WeatherKind::Clear {
         0.
     } else {
@@ -279,6 +475,7 @@ pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
     let mut result = serde_json::json!({
         "shader_ready": state.shader_ready, "bank": state.bank, "volume": state.volume,
         "script_id": state.script_id, "fog": state.fog, "vision_blend": state.vision_blend,
+        "modifier": state.modifier.target, "modifier_factors": state.modifier.current,
         "fog_transition_seconds": state.duration, "fog_elapsed": state.elapsed,
         "lut_ready": world.resource::<super::grading::SourceGrade>().ready(),
         "grading": super::grading::snapshot(world),

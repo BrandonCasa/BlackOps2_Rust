@@ -1,3 +1,4 @@
+from test_support import asset_bytes
 import argparse
 import json
 from pathlib import Path
@@ -34,7 +35,7 @@ def capture(client, path):
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         if path.is_file() and path.stat().st_size > 100:
-            encoded = path.read_bytes()
+            encoded = asset_bytes(path)
             if encoded.startswith(b'\x89PNG\r\n\x1a\n') and encoded.endswith(b'\x00\x00\x00\x00IEND\xaeB\x60\x82'):
                 return {'path': str(path)}
         time.sleep(0.1)
@@ -68,9 +69,10 @@ def run(client, game, asset_root, output, selected, report, yaw):
         client.until(lambda s: s.get('player') and s['player']['weapons'][0]['id'] == weapon['id'], timeout=30)
         client.until(lambda s: s['player']['action'] == 'Ready', timeout=30)
         scene = presentations[weapon['presentation']]['scene'].split('#')[0]
-        expected = {m['name'] for m in json.loads((asset_root / scene).read_bytes()).get('materials', [])}
-        camo_path = asset_root / 'weapon_camos.json'
-        overrides = json.loads(camo_path.read_bytes())['weapons'].get(weapon['id'], {})
+        expected = {m['name'] for m in json.loads(asset_bytes(asset_root / scene)).get('materials', [])}
+        art = json.loads(asset_bytes(asset_root / 'prepared/runtime.json'))
+        camo_path = asset_root / art['camo_uri']
+        overrides = json.loads(asset_bytes(camo_path))['weapons'].get(weapon['id'], {})
         expected = {overrides.get(name, name) for name in expected}
         ready = wait_materials(client, expected=expected)
         case = {'weapon': weapon['id'], 'materials': {k: v for k, v in ready.items() if k != 'shadows'},
@@ -127,7 +129,7 @@ def run(client, game, asset_root, output, selected, report, yaw):
 def check_isolation(client, asset_root, output, report):
     base = 'weapon.c96_zm'
     upgraded = 'weapon.c96_upgraded_zm'
-    replacements = json.loads((asset_root / 'weapon_camos.json').read_bytes())['weapons'][upgraded]
+    replacements = json.loads(asset_bytes(asset_root / json.loads(asset_bytes(asset_root / 'prepared/runtime.json'))['camo_uri']))['weapons'][upgraded]
     assert len(set(replacements.values())) == 2
     cases = []
     report['camo_isolation'] = {'passed': False, 'cases': cases}
@@ -164,7 +166,7 @@ def main():
     client = Client(args.url)
     report = {'passed': False, 'cases': [], 'limitations': ['Weapon grants and world previews are scenario setup.', 'Readiness and screenshot capture do not establish visual fidelity.', 'Charge-shot gameplay is currently unfinished; a firing request need not produce a shot.']}
     try:
-        game = json.loads((Path(args.assets.resolve()) / 'game.json').read_bytes())
+        game = json.loads(asset_bytes(Path(args.assets.resolve()) / 'game.json'))
         report['view_yaw'] = args.yaw
         run(client, game, Path(args.assets.resolve()), args.output.resolve(), args.weapon, report, args.yaw)
         if not args.weapon:
