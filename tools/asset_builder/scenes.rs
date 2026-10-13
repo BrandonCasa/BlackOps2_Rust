@@ -108,14 +108,25 @@ pub fn convert(catalog: &Catalog<'_>, entities: &[Entity], materials: &BTreeMap<
         }
         if let Some(&mesh) = brush_meshes.get(&0) { scene.node(json!({"name":name,"mesh":mesh})); }
         let mut placed = BTreeSet::new();
-        for entity in entities {
+        let mut brush_entities = Vec::new();
+        for (entity_index, entity) in entities.iter().enumerate() {
             if let Some(index) = entity.get("model").and_then(|name| name.strip_prefix('*')) {
                 let index = index.parse::<usize>()?;
+                if index == 0 { return Err("Native brush entity references the world model".into()); }
+                let id = format!("brush.native.{entity_index}");
+                let transform = entity_matrix(entity)?;
+                let mut node = json!({"name":entity.get("targetname").or_else(|| entity.get("model")),
+                    "matrix":transform,"extras":{"brush_entity":id,"native_brush_model":index,
+                        "native_entity_index":entity_index,"native_entity":entity}});
+                let mut visual_meshes = 0;
                 if let Some(&mesh) = brush_meshes.get(&index) {
-                    scene.node(json!({"name":entity.get("targetname").or_else(|| entity.get("model")),"mesh":mesh,
-                        "matrix":entity_matrix(entity)?,"extras":{"native_brush_model":index,"native_entity":entity}}));
+                    node["mesh"] = json!(mesh);
+                    visual_meshes = scene.data["meshes"][mesh]["primitives"].as_array().ok_or("Native brush mesh has no primitives")?.len();
                     placed.insert(index);
                 }
+                scene.node(node);
+                brush_entities.push(json!({"id":id,"native_entity_index":entity_index,"native_brush_model":index,
+                    "matrix":transform,"source":entity,"visual_meshes":visual_meshes}));
             }
         }
         if brush_meshes.keys().any(|index| *index != 0 && !placed.contains(index)) { return Err("Unplaced rendered native brush model".into()); }
@@ -153,7 +164,7 @@ pub fn convert(catalog: &Catalog<'_>, entities: &[Entity], materials: &BTreeMap<
         let mesh_count = scene.data["meshes"].as_array().unwrap().len();
         scene.write(uri, pack)?;
         worlds.push(json!({"map":"zm_tomb","name":name,"zone":format!("all-{}",catalog.zones[zone].0),"uri":uri,
-            "source_surfaces":surfaces.len(),"render_meshes":mesh_count,"static_model_instances":count}));
+            "source_surfaces":surfaces.len(),"render_meshes":mesh_count,"static_model_instances":count,"brush_entities":brush_entities}));
     }
     println!("Packed {} native models and {} world scenes", models.len(), worlds.len());
     Ok((models, worlds))

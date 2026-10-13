@@ -273,6 +273,7 @@ struct Recipe {
     decal: bool,
     reveal: bool,
     layer_specular: bool,
+    base_alpha_response: bool,
     parms: [f32;4],
 }
 
@@ -308,6 +309,8 @@ impl Recipe {
             color = [base[0],base[1],base[2],1.];
             response = [1.,roughness,metallic,1.];
             specular = [rgb[0],rgb[1],rgb[2],gloss];
+        } else if self.base_alpha_response {
+            response = [1.,(2./(2_f32.powf(13.*c0[3])+2.)).powf(0.25),0.,c0[3]];
         }
         Ok([color,normal,response,specular])
     }
@@ -447,11 +450,13 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
 }
 
 fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<Recipe> {
+    let base_alpha_response = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
     let reveal_decal = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1_m2c2";
     let decal = reveal_decal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1_m2c2";
     let layer_specular = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
     let reveal = reveal_decal || layer_specular || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1";
-    let (vertex, pixel) = if reveal_decal { ("pimp_shader_layer_lmap_b0b22809.hlsl", "pimp_shader_layer_lmap_5c9a2e1f.hlsl") }
+    let (vertex, pixel) = if base_alpha_response { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_cd368409.hlsl") }
+        else if reveal_decal { ("pimp_shader_layer_lmap_b0b22809.hlsl", "pimp_shader_layer_lmap_5c9a2e1f.hlsl") }
         else if decal { ("pimp_shader_layer_lmap_b0b22809.hlsl", "pimp_shader_layer_lmap_89d59c60.hlsl") }
         else if layer_specular { ("pimp_shader_layer_lmap_c9b52d6f.hlsl", "pimp_shader_layer_lmap_4a20c8d9.hlsl") }
         else if reveal { ("pimp_shader_layer_lmap_a028e5fd.hlsl", "pimp_shader_layer_lmap_44b1014b.hlsl") }
@@ -492,7 +497,7 @@ fn recipe(native: &Value, images: &BTreeMap<String, texture::Image>) -> Result<R
         println!("Layered input {name}: {}x{}",image.width,image.height);
         inputs.push(Input::read(image,sampler)?);
     }
-    Ok(Recipe {inputs,decal,reveal,layer_specular,parms:reveal_parms})
+    Ok(Recipe {inputs,decal,reveal,layer_specular,base_alpha_response,parms:reveal_parms})
 }
 
 fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<Vec<Surface>> {
@@ -508,7 +513,13 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
             let decal_uv: Vec<_> = auxiliary.iter().map(|value| value.1).collect();
             let uv_streams = if decal { vec![&surface.uv[first..first+3],layer_uv.as_slice(),decal_uv.as_slice()] }
                 else { vec![&surface.uv[first..first+3],layer_uv.as_slice()] };
-            let offsets: Vec<[f32;2]> = uv_streams.iter().map(|uv| std::array::from_fn(|axis| uv.iter().map(|value| value[axis]).fold(f32::INFINITY,f32::min).floor())).collect();
+            let offsets: Vec<[f32;2]> = uv_streams.iter().enumerate().map(|(stream,uv)| std::array::from_fn(|axis| {
+                let clamped = inputs.iter().enumerate().any(|(input,image)| {
+                    let source = if input < 2 { 0 } else if decal && input == 4 { 2 } else { 1 };
+                    source == stream && image.sampler & (32 << axis) != 0
+                });
+                if clamped { 0. } else { uv.iter().map(|value| value[axis]).fold(f32::INFINITY,f32::min).floor() }
+            })).collect();
             let keys: [Vec<u32>;3] = std::array::from_fn(|i| {
                 let mut key = Vec::new();
                 for (uv,offset) in uv_streams.iter().zip(&offsets) { for axis in 0..2 { key.push((uv[i][axis]-offset[axis]).to_bits()); } }
@@ -593,7 +604,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
     println!("Baking atlas page {}/{}: {width}x{height}, {} islands",page_index+1,pages.len(),page.charts.len());
     let mut albedo = vec![[0.,0.,0.,1.]; width*height];
     let mut normals = vec![[0.,0.,1.,1.]; width*height];
-    let mut response = if layer_specular { vec![[1.,1.,0.,1.];width*height] } else { Vec::new() };
+    let mut response = if layer_specular || recipe.base_alpha_response { vec![[1.,1.,0.,1.];width*height] } else { Vec::new() };
     let mut specular = if layer_specular { vec![[0.04,0.04,0.04,0.];width*height] } else { Vec::new() };
     let mut coverage = vec![f64::INFINITY;width*height];
     let mut basis_errors = [0_f64;2];
@@ -629,8 +640,10 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
                 for axis in 0..2 { basis_errors[axis]=basis_errors[axis].max(errors[axis]); }
                 basis_texels+=1;
             }
-            if layer_specular {
+            if layer_specular || recipe.base_alpha_response {
                 response[index] = pixel[2];
+            }
+            if layer_specular {
                 specular[index] = pixel[3];
             }
             albedo[index]=pixel[0];
@@ -682,11 +695,13 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, uri: &str, con
 }
 
 fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[f32;4]>;4], sampler: u8, charts: usize, pack: &mut Pack) -> Result<Value> {
+    let base_alpha_response = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
     let layer_specular = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
     let [albedo,normals,response,specular] = outputs;
     let mut channels = Vec::new();
     let mut outputs = vec![("color",albedo),("normal",normals)];
-    if layer_specular { outputs.extend([("response",response),("native-specular",specular)]); }
+    if layer_specular || base_alpha_response { outputs.push(("response",response)); }
+    if layer_specular { outputs.push(("native-specular",specular)); }
     let mut native_specular = Value::Null;
     for (role, pixels) in outputs {
         let image = mip_chain(width,height,pixels,role)?;
@@ -695,11 +710,17 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
         texture::validate(&bytes)?;
         pack.entries.insert(path.clone(),Arc::new(bytes));
         if role == "native-specular" { native_specular=json!({"uri":path,"specular_rgb":"linear","gloss_channel":"alpha"}); }
-        else { channels.push(json!({"uri":path,"role":role,"layer":0,"color_space":if role == "color" {"srgb"} else {"linear"},"sampler":sampler})); }
+        else {
+            if role == "response" && base_alpha_response {
+                native_specular=json!({"uri":path,"gloss_channel":"alpha","specular_rgb":"constant_0.04",
+                    "source":"Direct-lobe Fresnel floor; native environment Fresnel fit differs"});
+            }
+            channels.push(json!({"uri":path,"role":role,"layer":0,"color_space":if role == "color" {"srgb"} else {"linear"},"sampler":sampler}));
+        }
     }
     let mut material = json!({"name":native["name"],"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},
         "extras":{"surface":{"version":3,"identity":native["name"],"native":native,"channels":channels,
-            "standard":{"roughness":1.,"metallic":if layer_specular {1.} else {0.},"reflectance":if layer_specular {0.5} else {0.},"base_color":[1.,1.,1.,1.]},
+            "standard":{"roughness":1.,"metallic":if layer_specular {1.} else {0.},"reflectance":if layer_specular || base_alpha_response {0.5} else {0.},"base_color":[1.,1.,1.,1.]},
             "native_specular":native_specular,
             "presentation":{"alpha":"opaque","cull":"back","fog":true,"visible":true},
             "bake":{"width":width,"height":height,"charts":charts,"source_texel_density":true,"layout":if sampler == 20 {"periodic"} else {"atlas"}},
@@ -707,11 +728,14 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
     if sampler != 20 {
         material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Coarse atlas mip levels can mix unrelated charts beyond the eight-pixel gutter"));
     }
+    if base_alpha_response {
+        material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Base color alpha retained in response alpha and fitted from native exponent exp2(13*a) to GGX perceptual roughness (2/(exp2(13*a)+2))^(1/4). Dielectric F0=0.04 uses the native sun-lobe floor; this cannot reproduce the native environment Fresnel/mip fit, direct-lobe geometry/amplitude or inverse-SH compensation exactly. View-dependent lighting is not baked into albedo or emission"));
+    }
     Ok(material)
 }
 
 pub fn supported(family: &str) -> bool {
-    matches!(family,"lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2")
+    matches!(family,"lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1")
 }
 
 pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &BTreeMap<String, texture::Image>, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<BTreeMap<String, Vec<Surface>>> {
@@ -734,7 +758,7 @@ pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &B
         let mut remaining = Vec::new();
         let mut periodic_triangles = 0;
         for surface in surfaces {
-            if !material_recipe.reveal || material_recipe.decal { remaining.push(surface); continue; }
+            if (!material_recipe.reveal && !material_recipe.base_alpha_response) || material_recipe.decal { remaining.push(surface); continue; }
             let mut triangles = BTreeMap::<Vec<u32>,Vec<usize>>::new();
             let mut variable = Vec::new();
             for triangle in 0..surface.indices.len()/3 {
@@ -822,13 +846,36 @@ mod tests {
     }
 
     #[test]
+    fn layered_base_alpha_response_survives_complete_layer_coverage() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
+            input([0.8,0.2,0.4,1.]),input([0.5,0.5,1.,1.])],decal:false,reveal:false,
+            layer_specular:false,base_alpha_response:true,parms:[0.;4]};
+        for (alpha,roughness) in [(0.,0.903602),(1.,0.12499237)] {
+            recipe.inputs[0].pixels[0][3]=alpha;
+            for green in [0.,0.5,1.] {
+                let actual=recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
+                assert!((actual[2][1]-roughness).abs()<0.000001);
+                assert_eq!(actual[2][2],0.);
+                assert_eq!(actual[2][3],alpha);
+                assert_eq!(actual[0][3],1.);
+                if green == 1. {
+                    for (value,expected) in actual[0][..3].iter().zip([0.64,0.04,0.16]) {
+                        assert!((value-expected).abs()<0.000001);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn reveal_decal_preserves_uv2_axis_addressing_and_encoded_composition() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
         let mut recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
             input([0.8,0.2,0.4,0.5]),input([0.75,0.25,1.,1.]),
             Input {width:2,height:2,sampler:74,pixels:vec![[0.9,0.8,0.7,1.],[0.1,0.2,0.3,1.],
                 [0.5,0.25,0.75,0.],[1.,0.5,0.25,0.]]}],
-            decal:true,reveal:true,layer_specular:false,parms:[0.0713300034403801,0.5,0.,0.]};
+            decal:true,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
         let sample = |recipe: &Recipe, blue| recipe.sample([0.;2],[0.;2],[1.25,1.25],0.5,blue,[0.,-1.,1.,0.]).unwrap();
         let actual=sample(&recipe,0.5);
         for (value,expected) in actual[0][..3].iter().zip([0.140625,0.03515625,0.19140625]) {
@@ -848,7 +895,7 @@ mod tests {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
         let recipe = Recipe {inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.5,0.5,1.,1.])],
-            decal:false,reveal:true,layer_specular:false,parms:[0.0713300034403801,0.5,0.,0.]};
+            decal:false,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
         for (green,expected) in [(0.,[0.04,0.16,0.36]),(0.5,[0.25,0.25,0.16]),(1.,[0.64,0.36,0.04])] {
             let low = recipe.sample([0.;2],[0.;2],[0.;2],green,0.,[1.,0.,0.,1.]).unwrap();
             let high = recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();

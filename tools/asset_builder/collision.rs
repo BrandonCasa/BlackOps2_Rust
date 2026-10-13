@@ -46,7 +46,7 @@ fn brushes_in_node(streams: &Streams, info: Address, first: usize) -> Result<BTr
     Ok(brushes)
 }
 
-fn brush(streams: &Streams, root: Address, batches: &mut Batches) -> Result<()> {
+fn brush_geometry(streams: &Streams, root: Address) -> Result<(Vec<Vector>, Vec<(Vector, f64, u32)>)> {
     let minimum = vector(streams, root)?; let maximum = vector(streams, root.add(16)?)?;
     let mut planes = Vec::new();
     for side in 0..2 { for axis in 0..3 {
@@ -79,6 +79,11 @@ fn brush(streams: &Streams, root: Address, batches: &mut Batches) -> Result<()> 
         }}}
     }
     if vertices.len() < 4 { return Err("Native solid collision brush has fewer than four vertices".into()); }
+    Ok((vertices, planes))
+}
+
+fn brush(streams: &Streams, root: Address, batches: &mut Batches) -> Result<()> {
+    let (vertices, planes) = brush_geometry(streams, root)?;
     for (normal, distance, flag) in planes {
         let mut face: Vec<_> = vertices.iter().copied().filter(|point| (dot(*point, normal) - distance).abs() < 0.01).collect();
         if face.len() < 3 { continue; }
@@ -122,13 +127,42 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
     let (name, zone, root) = catalog.definitions(12).next().ok_or("Origins clip map is missing")?;
     let streams = &catalog.zones[zone].1.streams;
     let info = root.add(8)?;
+    let world_brushes = pointer(streams, info.add(60)?)?;
     let mut dynamic = BTreeSet::new();
+    let mut brush_models = Vec::new();
     let count = streams.u32(root.add(144)?)? as usize;
     if count != 0 {
         let submodels = pointer(streams, root.add(148)?)?;
         for index in 1..count {
-            let node = streams.u32(submodels.add(index * 76 + 68)?)? as usize;
-            if node != 0 { dynamic.extend(brushes_in_node(streams, info, node)?); }
+            let model = submodels.add(index * 76)?;
+            let model_info = if streams.u32(model.add(28)?)? == 0 {
+                info
+            } else {
+                pointer(streams, model.add(28)?)
+                    .map_err(|error| format!("Native collision submodel {index} has an unresolved ClipInfo: {error}"))?
+            };
+            let terrain_count = streams.u16(model.add(34)?)?;
+            if terrain_count != 0 {
+                return Err(format!("Native collision submodel {index} requires {terrain_count} terrain AABB trees starting at {}; dynamic terrain collision conversion is not recovered", streams.u16(model.add(32)?)?).into());
+            }
+            let node = streams.u32(model.add(68)?)? as usize;
+            let indices = if node == 0 { BTreeSet::new() } else { brushes_in_node(streams, model_info, node)? };
+            let brush_count = streams.u16(model_info.add(56)?)? as usize;
+            let model_brushes = if indices.is_empty() { None } else { Some(pointer(streams, model_info.add(60)?)?) };
+            let mut volumes = Vec::new();
+            for brush_index in indices {
+                if brush_index >= brush_count { return Err(format!("Native collision submodel {index} brush {brush_index} exceeds ClipInfo brush count {brush_count}").into()); }
+                let entry = model_brushes.ok_or("Native collision submodel has no brushes")?.add(brush_index * 96)?;
+                let (vertices, _) = brush_geometry(streams, entry)?;
+                let vertices: Vec<_> = vertices.into_iter().map(|[x,y,z]| [x*0.0254,z*0.0254,-y*0.0254]).collect();
+                volumes.push(json!({"native_brush":brush_index,"contents":streams.u32(entry.add(12)?)?,"vertices":vertices}));
+                if model_brushes == Some(world_brushes) { dynamic.insert(brush_index); }
+            }
+            let minimum = vector(streams, model)?;
+            let maximum = vector(streams, model.add(12)?)?;
+            brush_models.push(json!({"native_brush_model":index,
+                "bounds":[[minimum[0]*0.0254,minimum[2]*0.0254,-maximum[1]*0.0254],
+                    [maximum[0]*0.0254,maximum[2]*0.0254,-minimum[1]*0.0254]],"volumes":volumes}));
         }
     }
     let mut batches = Batches::new();
@@ -177,6 +211,7 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
         }
     }
     let mut scene = Scene::new(name);
+    scene.data["extras"] = json!({"brush_models":brush_models});
     let mut triangles = 0;
     for (flags, batch) in &batches {
         let positions: Vec<_> = batch.iter().flatten().map(|[x, y, z]| [(*x * 0.0254) as f32, (*z * 0.0254) as f32, (-*y * 0.0254) as f32]).collect();
@@ -185,6 +220,6 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
     }
     let uri = "prepared/worlds/zm_tomb.collision.gltf";
     scene.write(uri, pack)?;
-    println!("Converted native collision: {} meshes, {triangles} triangles, {} dynamic brushes excluded", batches.len(), dynamic.len());
-    Ok(json!({"uri":uri,"meshes":batches.len(),"triangles":triangles}))
+    println!("Converted native collision: {} meshes, {triangles} triangles, {} dynamic brushes excluded from static collision and {} native brush models retained", batches.len(), dynamic.len(), brush_models.len());
+    Ok(json!({"uri":uri,"meshes":batches.len(),"triangles":triangles,"brush_models":brush_models}))
 }

@@ -193,6 +193,14 @@ fn runtime(pack: &pack::Pack, models: Vec<serde_json::Value>, worlds: Vec<serde_
 mod tests {
     #[test]
     #[ignore = "requires the authorized Steam installation"]
+    fn installed_collision_brush_models() {
+        let zones = super::read_zones(&super::installation().unwrap()).unwrap();
+        let catalog = crate::convert::Catalog::new(&zones);
+        crate::collision::convert(&catalog, &mut crate::pack::Pack::default()).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
     fn installed_geometry_bindings() {
         let zones = super::read_zones(&super::installation().unwrap()).unwrap();
         let catalog = crate::convert::Catalog::new(&zones);
