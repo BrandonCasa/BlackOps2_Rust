@@ -310,14 +310,18 @@ pub(super) fn register_prepared(
         return Err("Prepared surface identity is missing".into());
     };
     validate_animation(surface)?;
-    if let Some(existing) = library.definitions.get(identity) {
-        return if existing.metadata == *surface {
-            Ok(())
-        } else {
-            Err(format!(
+    if let Some(existing) = library.definitions.get_mut(identity) {
+        if existing.metadata != *surface {
+            return Err(format!(
                 "Conflicting packed definitions for material {identity}"
-            ))
-        };
+            ));
+        }
+        existing.channels.extend(
+            channels
+                .iter()
+                .map(|(texture, image)| ((texture.role.clone(), texture.layer), image.clone())),
+        );
+        return Ok(());
     }
     library.definitions.insert(
         identity.into(),
