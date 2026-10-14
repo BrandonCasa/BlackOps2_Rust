@@ -566,6 +566,15 @@ mod tests {
                             "Required superflare {name}/{index}: flags {}; native color samples {colors:?}; atlas {}",
                             element["flags"], element["atlas"]
                         );
+                        let bucket: Vec<_> = effect["elements"].as_array().unwrap().iter().enumerate()
+                            .filter(|(source_index, _)| (*source_index).min(7) == index.min(7))
+                            .map(|(source_index, definition)| json!({"index":source_index,"type":definition["type"],
+                                "flags":definition["flags"],"looping":definition["looping"],"emission":definition["emission"],
+                                "spawn":definition["spawn"],"delay":definition["delay"],"life":definition["life"],"sort_order":definition["sort_order"]})).collect();
+                        println!(
+                            "Required superflare bucket {name}/{index}: effect flags {}, loop_life {}, oneshot_life {}, definitions {bucket:?}",
+                            effect["flags"], effect["loop_life"], effect["oneshot_life"]
+                        );
                     }
                 }
             }
