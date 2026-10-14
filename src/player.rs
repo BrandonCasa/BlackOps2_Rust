@@ -69,7 +69,10 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 PreUpdate,
                 look.after(crate::input::collect)
-                    .after(crate::verification::drive),
+                    .after(crate::verification::drive)
+                    .run_if(|options: Res<crate::assets::LaunchOptions>| {
+                        options.validation_remote.is_none()
+                    }),
             )
             .add_systems(
                 FixedUpdate,
