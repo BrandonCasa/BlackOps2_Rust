@@ -476,9 +476,30 @@ mod tests {
         let roots = initial_roots(&catalog, &game).unwrap();
         let effects = Effects::read(&catalog, roots.clone()).unwrap();
         let mut kinds = BTreeMap::<u64, usize>::new();
-        for effect in effects.definitions.values() {
-            for element in effect["elements"].as_array().unwrap() {
+        for (name, effect) in &effects.definitions {
+            for (index, element) in effect["elements"].as_array().unwrap().iter().enumerate() {
                 *kinds.entry(element["type"].as_u64().unwrap()).or_default() += 1;
+                if matches!(element["type"].as_u64(), Some(9 | 11))
+                    || ["impact", "emitted", "attached"].iter().any(|field| {
+                        element[*field]
+                            .as_str()
+                            .is_some_and(|value| !value.is_empty())
+                    })
+                {
+                    println!(
+                        "Required FX {name}/{index}: type {}, visuals {}, marks {}, extended {}, impact {}, death {}, emitted {}, attached {}, emit_distance {}, emit_variance {}",
+                        element["type"],
+                        element["visuals"],
+                        element["marks"],
+                        element["extended"],
+                        element["impact"],
+                        element["death"],
+                        element["emitted"],
+                        element["attached"],
+                        element["emit_distance"],
+                        element["emit_variance"]
+                    );
+                }
             }
         }
         for name in &effects.materials {
