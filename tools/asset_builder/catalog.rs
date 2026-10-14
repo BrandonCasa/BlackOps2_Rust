@@ -46,12 +46,6 @@ impl<'a> Catalog<'a> {
         if let Some(&(zone, root, _)) = self.definitions.get(&key) {
             return Ok((zone, root));
         }
-        if kind == 6
-            && let Some(&(zone, root, _)) = self.definitions.get(&(kind, "$default".into()))
-        {
-            println!("Resolved native material {name} through the game's $default fallback");
-            return Ok((zone, root));
-        }
         Err(format!("Native asset definition is missing: type {kind} {name}").into())
     }
 }
