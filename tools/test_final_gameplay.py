@@ -140,6 +140,26 @@ def camera_snapshot(client):
 def initial_start(client, report, game, output):
     state = client.until(lambda s: s['state'] == 'Playing' and s.get('player')
                          and s['player']['grounded'] and s['player']['action'] == 'Ready', timeout=300)
+    scene = {'scene': game.get('scene'), 'collision_scene': game.get('collision_scene')}
+    report['initial_scene'] = scene
+    early = {'fixed_tick': state['fixed_tick'], 'state': state['state'],
+             'player': state['player'], 'session': state['session']}
+    scene['early'] = early
+    try:
+        observed = client.call('origins/materials')
+        early['readiness'] = {key: observed.get(key) for key in
+                              ('pending', 'pipelines', 'preparation', 'first_person')}
+    except Exception as error:
+        early['readiness_error'] = f'{type(error).__name__}: {error}'
+    try:
+        early['camera'] = camera_snapshot(client)
+        camera = early['camera']['cameras'][0]['entity']
+        early['camera_component_types'] = client.call('world.list_components', {'entity': camera})
+    except Exception as error:
+        early['camera_error'] = f'{type(error).__name__}: {error}'
+    early['capture_started_utc'] = datetime.now(timezone.utc).isoformat()
+    early['capture'] = ui.capture(client, output, 'initial-start-early')
+    early['capture_finished_utc'] = datetime.now(timezone.utc).isoformat()
     pistol = next(w for w in game['content']['weapons'] if w['id'] == 'weapon.c96_zm')
     frag = next(w['throwable'] for w in game['content']['weapons'] if w['id'] == 'weapon.frag_grenade_zm')
     owned = state['player']['weapons']
@@ -159,23 +179,39 @@ def initial_start(client, report, game, output):
           and state['player']['health'] == game['player_health']['maximum']
           and min(math.dist(state['player']['position'], spawn['position'])
                   for spawn in game['initial_spawns']) < 2, state=state)
-    materials = client.call('origins/materials')
+    deadline = time.monotonic() + 30
+    while True:
+        materials = client.call('origins/materials')
+        if materials['pipelines']['error'] is not None:
+            break
+        if (materials['pipelines']['pending'] == 0 and materials['pending'] == 0
+                and materials['first_person']
+                and all(row['textures_ready'] for row in materials['first_person'])):
+            break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(.05)
     check(report, 'initial_render_pipelines_ready', materials['pipelines']['pending'] == 0
           and materials['pipelines']['error'] is None, materials=materials)
     check(report, 'initial_first_person_model_and_textures_loaded', materials['pending'] == 0
           and bool(materials['first_person'])
           and all(row['textures_ready'] for row in materials['first_person']), materials=materials)
-    report['initial_scene'] = {'scene': game['scene'], 'collision_scene': game['collision_scene'],
-                               'materials': materials, 'animations': client.call('origins/animations')}
+    scene['materials'] = materials
     try:
-        report['initial_scene']['camera_before_capture'] = camera_snapshot(client)
-    except RuntimeError as error:
-        report['initial_scene']['camera_before_capture_error'] = str(error)
-    report['initial_scene']['capture'] = ui.capture(client, output, 'initial-start')
+        scene['animations'] = client.call('origins/animations')
+    except Exception as error:
+        scene['animations_error'] = f'{type(error).__name__}: {error}'
     try:
-        report['initial_scene']['camera_after_capture'] = camera_snapshot(client)
-    except RuntimeError as error:
-        report['initial_scene']['camera_after_capture_error'] = str(error)
+        scene['camera_before_capture'] = camera_snapshot(client)
+    except Exception as error:
+        scene['camera_before_capture_error'] = f'{type(error).__name__}: {error}'
+    scene['capture_started_utc'] = datetime.now(timezone.utc).isoformat()
+    scene['capture'] = ui.capture(client, output, 'initial-start')
+    scene['capture_finished_utc'] = datetime.now(timezone.utc).isoformat()
+    try:
+        scene['camera_after_capture'] = camera_snapshot(client)
+    except Exception as error:
+        scene['camera_after_capture_error'] = f'{type(error).__name__}: {error}'
     paths = {asset['id']: asset['path'] for asset in game['content']['ui_assets']}
     ammo = owned[0]
     expected = Counter(paths['ui.hud_zm_num_tomb_' + ('slash' if char == '/' else char)]
