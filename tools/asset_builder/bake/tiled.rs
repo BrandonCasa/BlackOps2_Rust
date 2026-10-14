@@ -308,6 +308,7 @@ pub(super) fn read(
         }
     }
     Ok(Recipe {
+        alpha_reveal: false,
         special: if water { 2 } else { 1 },
         special_parms,
         inputs,

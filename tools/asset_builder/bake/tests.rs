@@ -11,6 +11,7 @@ fn scripted_emission_preserves_fritz_warp_alpha_glow_base_and_inclusive_threshol
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 16,
         special_parms: [[0.5, 1., 0., 0.], [0., 0.5, 0., 0.], [0.; 4]],
         inputs: vec![
@@ -129,6 +130,7 @@ fn phong_emission_push_and_flicker_controls_preserve_source_amplitude_and_hdr_re
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 4,
         special_parms: [[0.; 4]; 3],
         inputs: vec![
@@ -208,6 +210,7 @@ fn special_surface_gpu_preserves_macro_mask_response_channels_and_bound_water_st
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 1,
         special_parms: [[0.; 4]; 3],
         inputs: vec![
@@ -470,6 +473,7 @@ fn gpu_matches_existing_material_equations_and_sampler_modes() {
                 })
                 .collect();
             let recipe = Recipe {
+                alpha_reveal: false,
                 special: 0,
                 special_parms: [[0.; 4]; 3],
                 third_multiply,
@@ -561,6 +565,7 @@ fn gpu_matches_existing_material_equations_and_sampler_modes() {
         pixels: vec![value],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -638,6 +643,7 @@ fn authored_specular_preserves_uv0_and_decal_gloss_order() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -730,6 +736,7 @@ fn add_multiply_and_second_normal_follow_source_order() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -864,6 +871,7 @@ fn second_reveal_preserves_ordered_encoded_specular_and_independent_gloss() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -950,6 +958,7 @@ fn third_multiply_uses_vertex_alpha_and_layer_selection_uses_inclusive_half() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: true,
@@ -1141,6 +1150,7 @@ fn multiply_layer_preserves_opaque_coverage_base_normal_and_transfer_order() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1199,6 +1209,7 @@ fn second_multiply_layer_uses_blue_and_its_own_uv_before_transfer() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1268,6 +1279,7 @@ fn multiply_gloss_uses_encoded_tint_luminance_and_base_alpha() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1386,6 +1398,7 @@ fn additive_layer_uses_alpha_green_and_preserves_base_gloss() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1488,6 +1501,7 @@ fn color_blend_uses_layer_alpha_green_and_preserves_base_normal_gloss() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1552,6 +1566,7 @@ fn second_color_blend_uses_blue_alpha_uv2_and_ordered_encoded_composition() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1623,6 +1638,7 @@ fn diffuse_reveal_zero_exponent_blends_normals_without_replacing_base_gloss() {
         pixels: vec![pixel],
     };
     let recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1682,6 +1698,7 @@ fn base_alpha_reveal_preserves_mixed_native_gloss_and_zero_exponent() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1746,6 +1763,7 @@ fn layered_base_alpha_response_survives_complete_layer_coverage() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1800,6 +1818,7 @@ fn reveal_decal_preserves_uv2_axis_addressing_and_encoded_composition() {
         pixels: vec![pixel],
     };
     let mut recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1869,6 +1888,7 @@ fn diffuse_reveal_uses_four_inputs_and_green_only() {
         pixels: vec![pixel],
     };
     let recipe = Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply: false,
@@ -1912,5 +1932,91 @@ fn diffuse_reveal_uses_four_inputs_and_green_only() {
         assert_eq!(low, high);
         assert_eq!(low[2], [1., 1., 0., 1.]);
         assert_eq!(low[3], [0.; 4]);
+    }
+}
+
+#[test]
+fn alpha_reveal_gpu_uses_interpolated_alpha_without_changing_rgb_or_specular() {
+    let input = |pixel| Input {
+        width: 1,
+        height: 1,
+        sampler: 20,
+        pixels: vec![pixel],
+    };
+    let mut recipe = Recipe {
+        alpha_reveal: true,
+        special: 0,
+        special_parms: [[0.; 4]; 3],
+        third_multiply: false,
+        layer_cutout: false,
+        second_reveal: false,
+        second_specular: false,
+        second_parms: [0.; 4],
+        second_additive: false,
+        second_normal: 0,
+        base_specular: true,
+        geometric_normal: false,
+        inputs: vec![
+            input([0.6, 0.5, 0.4, 0.6]),
+            input([0.5, 0.5, 1., 1.]),
+            input([0.2, 0.3, 0.4, 1.]),
+        ],
+        decal: false,
+        multiply: false,
+        additive: false,
+        blend_color: false,
+        reveal: false,
+        layer_specular: false,
+        base_alpha_response: false,
+        parms: [0.25, 0., 0., 0.],
+    };
+
+    for specular in [false, true] {
+        recipe.base_specular = specular;
+        for exponent in [0., 0.5] {
+            recipe.parms[1] = exponent;
+            let samples: Vec<gpu::Sample> = [0., 0.125, 0.25, 0.5, 0.75, 0.875, 1.]
+                .into_iter()
+                .map(|alpha| {
+                    let mut sample = [0.; 20];
+                    sample[6] = 0.91;
+                    sample[7] = 0.83;
+                    sample[18] = alpha;
+                    sample
+                })
+                .collect();
+            let actual = gpu::Baker::new(&recipe).unwrap().sample(&samples).unwrap();
+            for (sample, actual) in samples.iter().zip(&actual) {
+                let expected = recipe
+                    .sample_frames(
+                        [0.; 2],
+                        [0.; 2],
+                        [0.; 2],
+                        sample[6],
+                        sample[7],
+                        [0.; 4],
+                        [0.; 4],
+                        [0., 0., sample[18], 0.],
+                    )
+                    .unwrap();
+                for (actual, expected) in actual.iter().flatten().zip(expected.iter().flatten()) {
+                    assert!(
+                        (actual - expected).abs() < 0.00003,
+                        "GPU {actual}, CPU {expected}"
+                    );
+                }
+            }
+            assert!(actual[0][0][3] < 0.001);
+            let threshold_width = 0.25 * 0.5_f32.powf(exponent);
+            let expected_midpoint = (0.6 - (0.5 - threshold_width)) / (2. * threshold_width);
+            assert!((actual[3][0][3] - expected_midpoint).abs() < 0.00001);
+            assert!(actual[6][0][3] > 0.999);
+            for pixel in &actual[1..] {
+                assert_eq!(pixel[0][..3], actual[0][0][..3]);
+                assert_eq!(pixel[1], actual[0][1]);
+                assert_eq!(pixel[2], actual[0][2]);
+                assert_eq!(pixel[3], actual[0][3]);
+            }
+        }
     }
 }

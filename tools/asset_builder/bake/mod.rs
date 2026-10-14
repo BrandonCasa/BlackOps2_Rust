@@ -12,6 +12,7 @@ mod installed_tests;
 mod layered;
 mod output;
 mod recipe;
+mod reveal;
 mod special;
 #[cfg(test)]
 mod tests;
@@ -27,6 +28,7 @@ enum Family {
     Layered(layered::Definition),
     Tiled(tiled::Definition),
     Emissive(emissive::Definition),
+    AlphaReveal(bool),
 }
 
 fn family(name: &str) -> Option<Family> {
@@ -34,6 +36,7 @@ fn family(name: &str) -> Option<Family> {
         .map(Family::Layered)
         .or_else(|| tiled::lookup(name).map(Family::Tiled))
         .or_else(|| emissive::lookup(name).map(Family::Emissive))
+        .or_else(|| reveal::lookup(name).map(Family::AlphaReveal))
 }
 
 impl Family {
@@ -46,6 +49,7 @@ impl Family {
             Self::Layered(definition) => layered::read(definition, native, images),
             Self::Tiled(definition) => tiled::read(definition, native, images),
             Self::Emissive(definition) => emissive::read(definition, native, images),
+            Self::AlphaReveal(_) => reveal::read(native, images),
         }
     }
 
@@ -58,6 +62,10 @@ impl Family {
             },
             Self::Emissive(_) => Output {
                 layer_specular: true,
+                ..Default::default()
+            },
+            Self::AlphaReveal(specular) => Output {
+                layer_specular: *specular,
                 ..Default::default()
             },
         }
@@ -183,12 +191,20 @@ pub fn surfaces(
             .map(|surface| surface.indices.len() / 3)
             .sum();
         let material_recipe = recipe(material, Some(images))?;
+        let source_surface = if material_recipe.alpha_reveal {
+            converted
+                .get(key)
+                .map(|value| value["extras"]["surface"].clone())
+        } else {
+            None
+        };
         let baker = gpu::Baker::new(&material_recipe)?;
         let mut periodic_cache = BTreeMap::<Vec<u32>, String>::new();
         let mut remaining = Vec::new();
         let mut periodic_triangles = 0;
         for surface in surfaces {
             if (!material_recipe.reveal
+                && !material_recipe.alpha_reveal
                 && !material_recipe.base_alpha_response
                 && !material_recipe.base_specular)
                 || material_recipe.decal
@@ -203,9 +219,11 @@ pub fn surfaces(
             let mut triangles = BTreeMap::<Vec<u32>, Vec<usize>>::new();
             let mut variable = Vec::new();
             for triangle in 0..surface.indices.len() / 3 {
-                if let Some(recipe) =
+                if let Some(recipe) = if material_recipe.alpha_reveal {
+                    reveal::periodic_key(&surface, triangle * 3)
+                } else {
                     periodic_key(&surface, triangle * 3, material_recipe.color_only_layer())?
-                {
+                } {
                     triangles.entry(recipe).or_default().push(triangle);
                 } else {
                     variable.push(triangle);
@@ -219,6 +237,9 @@ pub fn surfaces(
                     let uri = format!("prepared/materials/{}/periodic", converted.len());
                     let mut value =
                         periodic(material, &material_recipe, &baker, &recipe, &uri, pack)?;
+                    if material_recipe.alpha_reveal {
+                        reveal::finish(source_surface.as_ref(), &mut value)?;
+                    }
                     value["name"] = json!(identity);
                     value["extras"]["surface"]["identity"] = json!(identity);
                     converted.insert(identity.clone(), value);
@@ -227,7 +248,13 @@ pub fn surfaces(
                 };
                 let mut part = surface.select_triangles(&triangles)?;
                 part.material = identity;
-                part.colors.fill([255; 4]);
+                if material_recipe.alpha_reveal {
+                    for color in &mut part.colors {
+                        color[3] = 255;
+                    }
+                } else {
+                    part.colors.fill([255; 4]);
+                }
                 periodic_triangles += triangles.len();
                 baked.entry(surface.name.clone()).or_default().push(part);
             }

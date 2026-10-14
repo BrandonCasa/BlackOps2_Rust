@@ -313,7 +313,9 @@ pub(in crate::bake) fn merge_islands(
             key.extend(surface.normals[vertex].map(f32::to_bits));
             key.extend(surface.tangents[vertex].map(f32::to_bits));
             key.extend(surface.colors[vertex].map(u32::from));
-            key.extend(surface.auxiliary[vertex].iter().map(|&value| value as u32));
+            if let Some(auxiliary) = surface.auxiliary.get(vertex) {
+                key.extend(auxiliary.iter().map(|&value| value as u32));
+            }
             key
         });
         for edge in 0..3 {

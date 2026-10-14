@@ -87,7 +87,7 @@ pub(super) fn periodic(
                     transform[3],
                     0.,
                     0.,
-                    0.,
+                    if recipe.alpha_reveal { green } else { 0. },
                     0.,
                 ];
             }
@@ -116,6 +116,17 @@ pub(super) fn layered(
     converted: &mut BTreeMap<String, Value>,
     pack: &mut Pack,
 ) -> Result<Vec<Surface>> {
+    let source_surface = if recipe.alpha_reveal {
+        converted
+            .get(
+                native["name"]
+                    .as_str()
+                    .ok_or("Alpha reveal material name is missing")?,
+            )
+            .map(|value| value["extras"]["surface"].clone())
+    } else {
+        None
+    };
     let (decal, layer_specular, inputs) = (recipe.decal, recipe.has_specular(), &recipe.inputs);
     let mut charts = Vec::<Chart>::new();
     let mut shared_charts = BTreeMap::<Vec<u32>, (usize, [usize; 3])>::new();
@@ -177,6 +188,9 @@ pub(super) fn layered(
                     key.push(surface.colors[first + i][2] as u32);
                 }
                 if recipe.third_multiply {
+                    key.push(surface.colors[first + i][3] as u32);
+                }
+                if recipe.alpha_reveal {
                     key.push(surface.colors[first + i][3] as u32);
                 }
                 key.extend(auxiliary[i].2.map(f32::to_bits));
@@ -360,7 +374,8 @@ pub(super) fn layered(
             pages.len(),
             page.charts.len()
         );
-        let mut albedo = vec![[0., 0., 0., 1.]; width * height];
+        let mut albedo =
+            vec![[0., 0., 0., if recipe.alpha_reveal { 0. } else { 1. }]; width * height];
         let mut normals = vec![[0., 0., 1., 1.]; width * height];
         let mut response = if layer_specular || recipe.base_alpha_response {
             vec![[1., 1., 0., 1.]; width * height]
@@ -577,7 +592,11 @@ pub(super) fn layered(
                     }
                     let sign = surface.tangents[first][3];
                     for index in first..first + 3 {
-                        surface.colors[index] = [255; 4];
+                        if recipe.alpha_reveal {
+                            surface.colors[index][3] = 255;
+                        } else {
+                            surface.colors[index] = [255; 4];
+                        }
                         surface.tangents[index][3] = sign;
                     }
                 }
@@ -600,6 +619,9 @@ pub(super) fn layered(
             page.charts.len(),
             pack,
         )?;
+        if recipe.alpha_reveal {
+            reveal::finish(source_surface.as_ref(), &mut material)?;
+        }
         material["extras"]["surface"]["bake"]["normal_basis"] = json!({"destination":"Solari interpolated normalized N/T; signed cross(N,T)",
         "varying_frame_triangles":basis_triangles,"converted_texel_samples":basis_texels,
         "maximum_precompression_solari_error_degrees":basis_errors[0],"maximum_precompression_raster_error_degrees":basis_errors[1]});

@@ -402,6 +402,7 @@ pub(super) fn read(
         }
     }
     Ok(Recipe {
+        alpha_reveal: false,
         special: if fritz {
             16
         } else if multi {

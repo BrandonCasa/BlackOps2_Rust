@@ -26,6 +26,7 @@ impl Input {
 }
 
 pub(super) struct Recipe {
+    pub(super) alpha_reveal: bool,
     pub(super) special: u8,
     pub(super) special_parms: [[f32; 4]; 3],
     pub(super) inputs: Vec<Input>,
@@ -69,7 +70,8 @@ impl Recipe {
             | (self.second_specular as u32) << 13
             | (self.third_multiply as u32) << 14
             | (self.layer_cutout as u32) << 15
-            | u32::from(self.special) << 16;
+            | u32::from(self.special) << 16
+            | (self.alpha_reveal as u32) << 23;
         let mut parameters = Vec::new();
         for value in [
             flags,
@@ -133,6 +135,13 @@ impl Recipe {
         surface: &Surface,
         index: usize,
     ) -> Result<([f32; 2], [f32; 2], [f32; 4], [f32; 4], [f32; 2])> {
+        if self.alpha_reveal {
+            let uv = *surface
+                .uv
+                .get(index)
+                .ok_or("Alpha reveal source UV is missing")?;
+            return Ok((uv, uv, [1., 0.5, 0.5, 1.], [1., 0.5, 0.5, 1.], uv));
+        }
         if self.third_multiply {
             let bytes = surface
                 .auxiliary
@@ -483,7 +492,9 @@ impl Recipe {
     }
 
     pub(super) fn input_uv(&self, index: usize) -> usize {
-        if self.third_multiply && index + 1 == self.inputs.len() {
+        if self.alpha_reveal {
+            0
+        } else if self.third_multiply && index + 1 == self.inputs.len() {
             3
         } else if index == 0
             || !self.geometric_normal && index == 1
@@ -537,6 +548,40 @@ impl Recipe {
         second_transform: [f32; 4],
         third: [f32; 4],
     ) -> Result<[[f32; 4]; 4]> {
+        if self.alpha_reveal {
+            let base = self.inputs[0].sample(uv0);
+            let sampled = self.inputs[1].sample(uv0);
+            let slope = [sampled[0], sampled[1]]
+                .map(|value| value * f32::from_bits(0x40808102) + f32::from_bits(0xc0010204));
+            let length = (slope[0] * slope[0] + slope[1] * slope[1] + 1.).sqrt();
+            let mut color = [
+                base[0] * base[0],
+                base[1] * base[1],
+                base[2] * base[2],
+                Self::reveal_weight(base[3], third[2], self.parms)?,
+            ];
+            let mut response = [1., 1., 0., 1.];
+            let mut specular = [0.; 4];
+            if self.base_specular {
+                let source = self.inputs[2].sample(uv0);
+                let rgb = [
+                    source[0] * source[0],
+                    source[1] * source[1],
+                    source[2] * source[2],
+                ];
+                let (base, metallic, roughness) =
+                    crate::material::pbr_pixel([color[0], color[1], color[2]], rgb, source[3]);
+                color[..3].copy_from_slice(&base);
+                response = [1., roughness, metallic, 1.];
+                specular = [rgb[0], rgb[1], rgb[2], source[3]];
+            }
+            return Ok([
+                color,
+                [slope[0] / length, slope[1] / length, 1. / length, 1.],
+                response,
+                specular,
+            ]);
+        }
         if self.special != 0 {
             return self.sample_special(uv0);
         }

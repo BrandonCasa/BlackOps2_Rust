@@ -22,6 +22,7 @@ const EMISSIVE_FRITZ: u32 = 1048576u;
 const EMISSIVE_SCRIPT_MULTI: u32 = 2097152u;
 const EMISSIVE_TOMB: u32 = 4194304u;
 const SPECIAL_SURFACE: u32 = 0x7f0000u;
+const ALPHA_REVEAL: u32 = 0x800000u;
 
 struct Parameters {
     flags: u32,
@@ -234,6 +235,22 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let blue = sample.uv2_color.w;
     let base = sample_image(0u, uv0);
     let n0 = sample_image(1u, uv0);
+    if flag(ALPHA_REVEAL) {
+        var result: Pixel;
+        result.color = vec4<f32>(base.rgb * base.rgb, 1.0);
+        result.normal = normal(decode(n0.xy));
+        result.response = vec4<f32>(1.0, 1.0, 0.0, 1.0);
+        result.specular = vec4<f32>(0.0);
+        if flag(BASE_SPECULAR) {
+            let specular = sample_image(2u, uv0);
+            result = fit_response(result, specular.rgb * specular.rgb, specular.a);
+        }
+        let coverage = reveal_weight(base.a, sample.third.z, recipe.parms);
+        if coverage < 0.0 { result.color.x = bitcast<f32>(0x7fc00001u); }
+        result.color.a = coverage;
+        output[index] = result;
+        return;
+    }
     let layer = sample_image(select(2u, 1u, flag(GEOMETRIC_NORMAL)), uv1);
     var result: Pixel;
     result.response = vec4<f32>(1.0, 1.0, 0.0, 1.0);

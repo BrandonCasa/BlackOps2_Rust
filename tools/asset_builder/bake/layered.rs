@@ -968,6 +968,7 @@ pub(super) fn read(
         }
     }
     Ok(Recipe {
+        alpha_reveal: false,
         special: 0,
         special_parms: [[0.; 4]; 3],
         third_multiply,
