@@ -104,13 +104,17 @@ def run_initial(client, report):
     forward, lethal = [binding(resumed, action) for action in ('forward', 'lethal')]
     client.call('origins/input', {'events': [edge(1, forward, True), edge(1, fire, True),
                                            edge(1, lethal, True), edge(3, pause, True),
-                                           edge(4, pause, False), edge(1800, forward, False),
+                                           edge(4, pause, False),
+                                           edge(120, 'ArrowDown', True), edge(121, 'ArrowDown', False),
+                                           edge(140, 'ArrowDown', True), edge(141, 'ArrowDown', False),
+                                           edge(160, 'ArrowDown', True), edge(161, 'ArrowDown', False),
+                                           edge(180, 'Enter', True), edge(181, 'Enter', False),
+                                           edge(1800, forward, False),
                                            edge(1800, fire, False), edge(1800, lethal, False)]})
-    client.until(lambda s: s['state'] == 'Paused' and bool(s['held_inputs']))
-    client.release()
+    held = client.until(lambda s: s['state'] == 'Paused' and bool(s['held_inputs']))
     from test_ui import key, observe, select_menu
-    select_menu(client, 3)
-    key(client, 'Enter')
+    check(report, 'initial_paused_restart_begins_with_held_native_inputs',
+          all(key in held['held_inputs'] for key in (forward, fire, lethal)), state=held)
     restarted = client.until(lambda s: s['state'] == 'Playing' and s.get('player')
                              and s['session_id'] > resumed['session_id'], timeout=120)
     check(report, 'initial_paused_menu_restart_clears_session_and_inputs',

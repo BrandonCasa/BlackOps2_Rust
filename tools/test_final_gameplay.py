@@ -425,7 +425,10 @@ def initial_revive(client, report, game, output):
           before=focused['player'], after=bought['player'], session=bought['session'])
     grenade = next(w['throwable'] for w in game['content']['weapons'] if w['id'] == 'weapon.frag_grenade_zm')
     native_cook_off(client, grenade)
-    downed = client.until(lambda s: s['player']['life'] == 'Downed')
+    downed = client.until(lambda s: s['player']['life'] == 'Downed'
+                          and s['player']['trigger_client_mode'] == 7
+                          and math.isclose(s['player']['height'], game['solo_revive']['downed_height'], abs_tol=1e-4)
+                          and math.isclose(s['player']['eye_height'], game['solo_revive']['downed_eye'], abs_tol=1e-4))
     check(report, 'initial_purchased_revive_admits_native_downed_state',
           downed['player']['trigger_client_mode'] == 7
           and not downed['player']['perks'] and downed['session']['downs'] == 1
@@ -438,7 +441,7 @@ def initial_revive(client, report, game, output):
     fired = client.until(lambda s: s['session']['shots'] > downed['session']['shots'])
     check(report, 'initial_downed_pistol_fires_from_input', fired['session']['shots'] > downed['session']['shots'],
           before=downed['player'], after=fired['player'])
-    revived = client.until(lambda s: s['player']['life'] == 'Standing'
+    revived = client.until(lambda s: s['player']['life'] == 'Standing' and s['player']['trigger_client_mode'] == 0
                            and s['player']['solo_charges'] == 0, timeout=30)
     event = next(event for event in reversed(revived['solo_revive_evidence']['events'])
                  if event.get('event') == 'revived' and event['target'] == downed['player']['entity'])
