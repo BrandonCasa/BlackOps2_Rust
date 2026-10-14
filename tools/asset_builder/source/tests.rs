@@ -200,6 +200,108 @@ fn installed_initial_material_dependencies() {
     assert!(materials.is_subset(&all) && materials.len() < all.len());
     let native = crate::material::read_used(&catalog, &materials).unwrap();
     let gaps = crate::material::unimplemented(&native);
+    let watched = |name: &str| {
+        [
+            "generator_115",
+            "soul_box_glow",
+            "crystal",
+            "plinth_glow",
+            "elm_spawn_glow",
+            "portal_vortex",
+            "rock_hex_glyph",
+            "elm_ltng_keys",
+            "rock_lava_molten",
+            "wallbuy",
+        ]
+        .iter()
+        .any(|part| name.contains(part))
+    };
+    for (name, material) in &native {
+        if watched(name)
+            || material["technique_set"]
+                .as_str()
+                .is_some_and(|family| family.contains("char_cloth_reveal2"))
+        {
+            println!(
+                "Initial material binding {name}: family {}",
+                material["technique_set"]
+            );
+        }
+    }
+    for (name, zone, root) in catalog
+        .definitions(5)
+        .filter(|(name, _, _)| models.contains(&name.to_ascii_lowercase()))
+    {
+        let streams = &catalog.zones[zone].1.streams;
+        let bindings =
+            crate::fastfile::Address::decode(streams.u32(root.add(36).unwrap()).unwrap()).unwrap();
+        let materials = (0..streams.u8(root.add(6).unwrap()).unwrap() as usize)
+            .map(|index| {
+                catalog
+                    .pointer(zone, bindings.add(index * 4).unwrap(), 6)
+                    .unwrap()
+                    .0
+                    .to_ascii_lowercase()
+            })
+            .filter(|material| watched(material))
+            .collect::<std::collections::BTreeSet<_>>();
+        if materials.is_empty() {
+            continue;
+        }
+        println!("Initial script material model {name}: {materials:?}");
+        for (index, entity) in entities.iter().enumerate().filter(|(_, entity)| {
+            entity
+                .get("model")
+                .is_some_and(|model| model.eq_ignore_ascii_case(name))
+        }) {
+            println!(
+                "Initial script model entity {index}: class {:?}, target {:?}, noteworthy {:?}, origin {:?}, angles {:?}, materials {materials:?}",
+                entity.get("classname"),
+                entity.get("targetname"),
+                entity.get("script_noteworthy"),
+                entity.get("origin"),
+                entity.get("angles")
+            );
+        }
+    }
+    for (_, zone, root) in catalog.definitions(17) {
+        let streams = &catalog.zones[zone].1.streams;
+        let surfaces =
+            crate::fastfile::Address::decode(streams.u32(root.add(872).unwrap()).unwrap()).unwrap();
+        let brushes =
+            crate::fastfile::Address::decode(streams.u32(root.add(540).unwrap()).unwrap()).unwrap();
+        for brush in 0..streams.u32(root.add(536).unwrap()).unwrap() as usize {
+            let model = brushes.add(brush * 64).unwrap();
+            let first = streams.u32(model.add(60).unwrap()).unwrap() as usize;
+            let count = streams.u32(model.add(56).unwrap()).unwrap() as usize;
+            let materials = (first..first + count)
+                .filter(|index| streams.u16(surfaces.add(index * 80 + 42).unwrap()).unwrap() != 0)
+                .map(|index| {
+                    catalog
+                        .pointer(zone, surfaces.add(index * 80 + 48).unwrap(), 6)
+                        .unwrap()
+                        .0
+                        .to_ascii_lowercase()
+                })
+                .filter(|name| watched(name))
+                .collect::<std::collections::BTreeSet<_>>();
+            if materials.is_empty() {
+                continue;
+            }
+            println!("Initial script material brush *{brush}: {materials:?}");
+            for (index, entity) in entities.iter().enumerate().filter(|(_, entity)| {
+                entity
+                    .get("model")
+                    .is_some_and(|model| model == &format!("*{brush}"))
+            }) {
+                println!(
+                    "Initial script brush entity {index}: target {:?}, noteworthy {:?}, materials {materials:?}",
+                    entity.get("targetname"),
+                    entity.get("script_noteworthy")
+                );
+            }
+        }
+    }
     assert!(
         gaps.is_empty(),
         "Initial material families remain:\n{}",
