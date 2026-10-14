@@ -731,11 +731,13 @@ fn assemble(
     query: SpatialQuery,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
+    session: Res<Session>,
 ) {
     if !players.is_empty() {
         return;
     }
     *barriers = Barriers::default();
+    barriers.round = session.round;
     for d in &definition.content.barriers {
         let Some(p) = definition
             .content
@@ -889,6 +891,8 @@ fn tick(
     blockers: Query<(Entity, &BarrierBlocker, Option<&ColliderDisabled>)>,
     enemies: Query<&crate::life::Vitality, With<crate::enemies::Zombie>>,
     players: Query<&crate::life::Vitality, With<Player>>,
+    session_id: Res<crate::session::SessionId>,
+    mut rounds: MessageReader<crate::rounds::RoundStarted>,
 ) {
     for seconds in barriers.repair_cooldowns.values_mut() {
         *seconds = (*seconds - time.delta_secs()).max(0.);
@@ -896,9 +900,11 @@ fn tick(
     for (_, seconds) in barriers.repairers.values_mut() {
         *seconds += time.delta_secs();
     }
-    if barriers.round != session.round {
-        barriers.round = session.round;
-        barriers.reward_counter = 0;
+    for event in rounds.read() {
+        if event.session == *session_id {
+            barriers.round = event.round;
+            barriers.reward_counter = 0;
+        }
     }
     let retired: Vec<_> = barriers
         .owners
@@ -990,7 +996,7 @@ fn tick(
                 continue;
             }
             barriers.reward_counter = barriers.reward_counter.saturating_add(d.repair_points);
-            if barriers.reward_counter < session.round.saturating_mul(50).min(500) {
+            if barriers.reward_counter < barriers.round.saturating_mul(50).min(500) {
                 let points = d.repair_points * effects.multiplier();
                 session.award(points);
                 barriers.awarded += points;

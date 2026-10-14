@@ -274,33 +274,11 @@ pub(crate) fn advance(
     }
     evidence.peak_ordinary = evidence.peak_ordinary.max(population.ordinary);
     let profile = &definition.rounds;
-    if session.round_complete(population.ordinary + population.special) && panzer_waves.pending == 0
-    {
-        if quest.round_held() {
-            return;
-        }
-        if session.intermission.is_none() {
-            ending.write(RoundEnding {
-                session: *session_id,
-                round: session.round,
-            });
-        }
-        let first_playable_complete = definition.delivery_scope
-            == crate::origins::DeliveryScope::FirstPlayableSolo
-            && session.round >= 5;
-        let timer = session.intermission.get_or_insert_with(|| {
-            Timer::from_seconds(profile.between_round_seconds, TimerMode::Once)
-        });
-        if first_playable_complete {
-            next.set(crate::GameState::Ending);
-            return;
-        }
+    if let Some(timer) = session.intermission.as_mut() {
         timer.tick(time.delta());
         if timer.is_finished() {
             evidence.intermission_seconds = timer.elapsed_secs();
             evidence.transitions += 1;
-            session.round = (session.round + 1).min(255);
-            session.pending = profile.population(session.round);
             session.intermission = None;
             session.spawn_timer = Timer::from_seconds(profile.first_spawn_seconds, TimerMode::Once);
             started.write(RoundStarted {
@@ -309,6 +287,30 @@ pub(crate) fn advance(
             });
             info!("Round {} begins, budget {}", session.round, session.pending);
         }
+        return;
+    }
+    if session.round_complete(population.ordinary + population.special) && panzer_waves.pending == 0
+    {
+        if quest.round_held() {
+            return;
+        }
+        ending.write(RoundEnding {
+            session: *session_id,
+            round: session.round,
+        });
+        let first_playable_complete = definition.delivery_scope
+            == crate::origins::DeliveryScope::FirstPlayableSolo
+            && session.round >= 5;
+        if first_playable_complete {
+            next.set(crate::GameState::Ending);
+            return;
+        }
+        session.round = (session.round + 1).min(255);
+        session.pending = profile.population(session.round);
+        session.intermission = Some(Timer::from_seconds(
+            profile.between_round_seconds,
+            TimerMode::Once,
+        ));
         return;
     }
     session.spawn_timer.tick(time.delta());
@@ -320,6 +322,7 @@ pub(crate) fn advance(
         >= (profile.ordinary_cap as usize).saturating_sub(reserve)
     {
         evidence.cap_waits += 1;
+        session.spawn_timer = Timer::from_seconds(0.1, TimerMode::Once);
         return;
     }
     if enemies.iter().count() + corpses.iter().count() >= profile.actor_cap as usize {
@@ -327,6 +330,7 @@ pub(crate) fn advance(
             commands.entity(entity).despawn();
         }
         evidence.cap_waits += 1;
+        session.spawn_timer = Timer::from_seconds(0.1, TimerMode::Once);
         return;
     }
     session.spawn_timer = Timer::from_seconds(profile.spawn_delay(session.round), TimerMode::Once);
