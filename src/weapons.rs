@@ -1068,6 +1068,11 @@ impl WeaponInventory {
         self.pending = WeaponIntent::default();
         self.emit(WeaponSignal::Idle);
     }
+    pub(crate) fn restore_offhand(&mut self, seconds: f32) {
+        self.cancel_action();
+        self.action = WeaponAction::Equipping { remaining: seconds };
+        self.emit(WeaponSignal::Equip);
+    }
     pub fn recoil_impulse(&mut self, definition: &WeaponDefinition, seed: u64) {
         let yaw = definition.mechanics.recoil_yaw;
         let pitch = definition.mechanics.recoil_pitch;

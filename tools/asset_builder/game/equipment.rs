@@ -232,6 +232,35 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
             mechanics["projectile_loop"] = json!(alias);
         }
         let throwable = if name == "frag_grenade_zm" {
+            let (pistol_zone, pistol_root) = catalog.resolve(25, "c96_zm")?;
+            let pistol_streams = &catalog.zones[pistol_zone].1.streams;
+            let pistol_definition = Address::decode(pistol_streams.u32(pistol_root.add(8)?)?)?;
+            let restore_milliseconds = pistol_streams.u32(pistol_definition.add(1224)?)?;
+            if restore_milliseconds > i32::MAX as u32 {
+                return Err("Initial C96 has negative native offhand restore time".into());
+            }
+            let missile_source = super::player::source("exports/functions/0060/00602790.c")?;
+            let view_source = super::player::source("exports/functions/008b/008b64d0.c")?;
+            let dvar = |source: &str, name: &str| -> Result<f32> {
+                let token = format!("FUN_00757df0(\"{name}\",");
+                let value = source
+                    .split_once(&token)
+                    .and_then(|(_, tail)| tail.split_once(','))
+                    .map(|(value, _)| value.trim())
+                    .ok_or_else(|| {
+                        format!("Native grenade dvar registration is missing: {name}")
+                    })?;
+                let bits = if let Some(hex) = value.strip_prefix("0x") {
+                    u32::from_str_radix(hex, 16)?
+                } else {
+                    value.parse()?
+                };
+                let value = f32::from_bits(bits);
+                if !value.is_finite() || value < 0. {
+                    return Err(format!("Native grenade dvar is invalid: {name}").into());
+                }
+                Ok(value)
+            };
             let bounce = |offset| -> Result<Vec<f32>> {
                 let table = Address::decode(streams.u32(definition.add(offset)?)?)?;
                 (0..32).map(|index| scalar(table, index * 4)).collect()
@@ -243,17 +272,38 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
                 )
                 .into());
             }
-            gaps.push(format!("Initial weapon {name} requires native rolling/friction trajectory, source weapon-view launch angles and tick-boundary prime/throw timing"));
+            let fire_seconds = seconds(definition, 1128)?;
+            let fire_delay = seconds(definition, 1072)?;
+            let release_delay = if fire_delay == 0. {
+                fire_seconds
+            } else {
+                fire_delay
+            };
             Some(
                 json!({"slot":"lethal","initial":0,"capacity":magazine,"round_award":2,
-                "prime_seconds":seconds(definition,1144)?,"throw_seconds":seconds(definition,1128)?,
-                "release_delay":seconds(definition,1072)?,"fuse_seconds":seconds(definition,1356)?,
+                "prime_seconds":seconds(definition,1144)?,"throw_seconds":fire_seconds.max(release_delay),
+                "release_delay":release_delay,"fuse_seconds":seconds(definition,1356)?,
                 "speed":integer(definition,1732)? as f32*0.0254,"up_speed":integer(definition,1736)? as f32*0.0254,
                 "radius":integer(definition,1708)? as f32*0.0254,"inner_radius":integer(definition,1712)? as f32*0.0254,
                 "inner_damage":integer(definition,1720)?,"outer_damage":integer(definition,1724)?,
                 "tangent_bounce":bounce(1880)?,"normal_bounce":bounce(1884)?,
                 "collision_radius":1.5_f32*0.0254,"collision_half_extents":([1.5_f32*0.0254;3]),
-                "native_launch":{"right_speed":integer(definition,1740)? as f32*0.0254,"horizontal_speed":integer(definition,1744)? as f32*0.0254},
+                "native_launch":{"right_speed":integer(definition,1740)? as f32*0.0254,"horizontal_speed":integer(definition,1744)? as f32*0.0254,
+                    "rolling":integer(definition,1688)? != 0,"rotating":streams.u8(definition.add(1852)?)? != 0,
+                    "rotation_mode":integer(definition,1844)?,"preserve_rotation":streams.u8(definition.add(1853)?)? != 0,
+                    "rest_speed":dvar(&missile_source,"grenadeRestThreshold")?*0.0254,
+                    "friction":[dvar(&missile_source,"grenadeFrictionLow")?,dvar(&missile_source,"grenadeFrictionHigh")?],
+                    "friction_speed":dvar(&missile_source,"grenadeFrictionMaxThresh")?*0.0254,
+                    "bump_frequency":dvar(&missile_source,"grenadeBumpFreq")?,"bump_magnitude":dvar(&missile_source,"grenadeBumpMag")?,
+                    "bump_speed":dvar(&missile_source,"grenadeBumpMax")?*0.0254,
+                    "wobble_frequency":dvar(&missile_source,"grenadeWobbleFreq")?/0.0254,
+                    "wobble_forward":dvar(&missile_source,"grenadeWobbleFwdMag")?*0.0254,
+                    "wobble_side":dvar(&missile_source,"grenadeWobbleSideMag")?*0.0254,
+                    "wobble_damping":dvar(&missile_source,"grenadeWobbleSideDamp")?/0.0254,
+                    "curve":dvar(&missile_source,"grenadeCurveMax")?*0.0254,
+                    "restitution_max":dvar(&missile_source,"grenadeBounceRestitutionMax")?,
+                    "view_kick":[dvar(&view_source,"bg_viewKickScale")?,dvar(&view_source,"bg_viewKickMin")?,dvar(&view_source,"bg_viewKickMax")?],
+                    "restore_seconds":restore_milliseconds as f32*0.001},
                 "cook_in_hand":streams.u8(definition.add(1604)?)? != 0,"sticky":false}),
             )
         } else {

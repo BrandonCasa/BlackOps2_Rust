@@ -43,6 +43,24 @@ pub struct ThrowableDefinition {
 pub struct GrenadeLaunch {
     pub right_speed: f32,
     pub horizontal_speed: f32,
+    pub rolling: bool,
+    pub rotating: bool,
+    pub rotation_mode: u32,
+    pub preserve_rotation: bool,
+    pub rest_speed: f32,
+    pub friction: [f32; 2],
+    pub friction_speed: f32,
+    pub bump_frequency: f32,
+    pub bump_magnitude: f32,
+    pub bump_speed: f32,
+    pub wobble_frequency: f32,
+    pub wobble_forward: f32,
+    pub wobble_side: f32,
+    pub wobble_damping: f32,
+    pub curve: f32,
+    pub restitution_max: f32,
+    pub view_kick: [f32; 3],
+    pub restore_seconds: f32,
 }
 
 fn native_launch_velocity(
@@ -88,7 +106,7 @@ impl ThrowableDefinition {
             && self.up_speed.is_finite()
             && self.release_delay.is_finite()
             && self.release_delay >= 0.
-            && self.release_delay < self.throw_seconds
+            && self.release_delay <= self.throw_seconds
             && self.inner_radius.is_finite()
             && self.inner_radius >= 0.
             && self.inner_radius < self.radius
@@ -101,7 +119,36 @@ impl ThrowableDefinition {
                 .collision_half_extents
                 .is_none_or(|v| v.into_iter().all(|v| v.is_finite() && v > 0.))
             && self.native_launch.as_ref().is_none_or(|native| {
-                native.right_speed.is_finite() && native.horizontal_speed.is_finite()
+                native.right_speed.is_finite()
+                    && native.horizontal_speed.is_finite()
+                    && native.rotation_mode <= 2
+                    && [
+                        native.rest_speed,
+                        native.friction_speed,
+                        native.bump_speed,
+                        native.wobble_frequency,
+                        native.wobble_forward,
+                        native.wobble_side,
+                        native.wobble_damping,
+                        native.curve,
+                        native.restore_seconds,
+                    ]
+                    .into_iter()
+                    .all(|value| value.is_finite() && value >= 0.)
+                    && native
+                        .friction
+                        .into_iter()
+                        .chain([
+                            native.bump_frequency,
+                            native.bump_magnitude,
+                            native.restitution_max,
+                        ])
+                        .all(|value| value.is_finite() && (0. ..=1.).contains(&value))
+                    && native
+                        .view_kick
+                        .into_iter()
+                        .all(|value| value.is_finite() && value >= 0.)
+                    && native.view_kick[1] <= native.view_kick[2]
             })
     }
 }
@@ -130,6 +177,7 @@ pub struct GrenadeInventory {
     pub capacity: u32,
     pub state: ThrowState,
     held: bool,
+    recovery: f32,
 }
 impl GrenadeInventory {
     pub fn new(id: WeaponId, tuning: &ThrowableDefinition) -> Self {
@@ -139,6 +187,7 @@ impl GrenadeInventory {
             capacity: tuning.capacity,
             state: default(),
             held: false,
+            recovery: 0.,
         }
     }
     pub fn busy(&self) -> bool {
@@ -152,6 +201,8 @@ impl GrenadeInventory {
             self.count = self.count.saturating_add(1).min(self.capacity);
         }
         self.state = ThrowState::Ready;
+        self.held = false;
+        self.recovery = 0.;
     }
     pub fn receive(
         &mut self,
@@ -227,6 +278,13 @@ pub struct Grenade {
     pub remaining: f32,
     elapsed: f32,
     radius: f32,
+    fresh: bool,
+    step_age: f32,
+    angular_velocity: Vec3,
+    angles: Vec3,
+    wobble: f32,
+    curve: f32,
+    random: u64,
     pub lure_active: bool,
 }
 impl Grenade {
@@ -235,6 +293,84 @@ impl Grenade {
             self.motion,
             GrenadeMotion::Resting | GrenadeMotion::Attached { .. }
         )
+    }
+}
+#[derive(Component)]
+pub struct WeaponViewKick {
+    started: f64,
+    angles: Vec2,
+}
+impl WeaponViewKick {
+    pub fn rotation(&self, now: f64) -> Quat {
+        let age = (now - self.started) as f32;
+        let ease = |value: f32| (2. - value.abs()) * value;
+        let scale = if age < 0. {
+            0.
+        } else if age < 0.1 {
+            ease(age * 10.)
+        } else if age < 0.5 {
+            1. - ease((age - 0.1) * 2.5)
+        } else {
+            0.
+        };
+        Quat::from_euler(
+            EulerRot::XYZ,
+            self.angles.x * scale,
+            0.,
+            self.angles.y * scale,
+        )
+    }
+}
+fn damage_view_kick(
+    mut commands: Commands,
+    time: Res<Time<Fixed>>,
+    game: Res<GameDefinition>,
+    mut damage: MessageReader<crate::damage::DamageApplied>,
+    players: Query<(&Player, &Transform, &Vitality), With<GrenadeInventory>>,
+    poses: Query<&Transform>,
+) {
+    let Some(native) = game
+        .content
+        .weapons
+        .iter()
+        .find(|weapon| weapon.id.0 == "weapon.frag_grenade_zm")
+        .and_then(|weapon| weapon.throwable.as_ref())
+        .and_then(|profile| profile.native_launch.as_ref())
+    else {
+        return;
+    };
+    for event in damage.read() {
+        let Ok((player, pose, vitality)) = players.get(event.impact.target) else {
+            continue;
+        };
+        if vitality.state() != LifeState::Standing {
+            continue;
+        }
+        let percent = event.impact.amount.saturating_mul(100) / game.player_health.maximum.max(1);
+        let amount = (percent.min(127) as f32 * native.view_kick[0])
+            .clamp(native.view_kick[1], native.view_kick[2])
+            .to_radians();
+        let direction = event
+            .impact
+            .point
+            .or_else(|| {
+                poses
+                    .get(event.impact.attacker)
+                    .ok()
+                    .map(|pose| pose.translation)
+            })
+            .map(|origin| (pose.translation - origin).normalize_or_zero());
+        let rotation = Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch);
+        let angles = direction.map_or(Vec2::new(amount, 0.), |direction| {
+            Vec2::new(
+                -direction.dot(rotation * Vec3::NEG_Z) * amount,
+                direction.dot(rotation * Vec3::X) * amount,
+            )
+        });
+        commands.entity(event.impact.target).insert(WeaponViewKick {
+            started: time.elapsed_secs_f64() - 0.02,
+            angles,
+        });
     }
 }
 pub(crate) fn dig_grenade(
@@ -265,6 +401,13 @@ pub(crate) fn dig_grenade(
             remaining: 3.,
             elapsed: 0.,
             radius: tuning.collision_radius,
+            fresh: true,
+            step_age: 0.,
+            angular_velocity: Vec3::ZERO,
+            angles: Vec3::ZERO,
+            wobble: 0.,
+            curve: 0.,
+            random: owner.to_bits(),
             lure_active: false,
         },
         Transform::from_translation(position),
@@ -330,6 +473,13 @@ impl Plugin for EquipmentPlugin {
         crate::lures::install(app);
         app.init_resource::<BlastQueue>()
             .init_resource::<EquipmentEvidence>()
+            .add_systems(
+                FixedUpdate,
+                damage_view_kick
+                    .in_set(GameStep::Damage)
+                    .after(crate::damage::resolve)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(
                 FixedUpdate,
                 (
@@ -412,6 +562,7 @@ pub(crate) fn throw_input(
         Has<crate::robots::StompReaction>,
         Has<crate::robots::RobotTransit>,
         Has<crate::tank::TankRescue>,
+        Option<&WeaponViewKick>,
     )>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
@@ -429,6 +580,7 @@ pub(crate) fn throw_input(
         stomp,
         robot_transit,
         tank_rescue,
+        view_kick,
     ) in &mut players
     {
         let standing = health.state() == LifeState::Standing;
@@ -504,7 +656,7 @@ pub(crate) fn throw_input(
                     evidence.primed += 1;
                 }
                 ThrowState::Priming { remaining } => {
-                    if remaining <= dt {
+                    if remaining <= dt + 0.000001 {
                         inventory.state = ThrowState::Cooking {
                             remaining: tuning.fuse_seconds,
                         };
@@ -515,10 +667,11 @@ pub(crate) fn throw_input(
                     }
                 }
                 ThrowState::Cooking { remaining } => {
-                    if tuning.cook_in_hand && remaining <= dt {
+                    if tuning.cook_in_hand && remaining <= dt + 0.000001 {
                         launch = Some((0., true, false));
                         evidence.cooked_off += 1;
                     } else if !held {
+                        inventory.recovery = tuning.throw_seconds;
                         inventory.state = ThrowState::Releasing {
                             remaining: tuning.release_delay,
                             fuse: if tuning.cook_in_hand {
@@ -541,11 +694,12 @@ pub(crate) fn throw_input(
                     }
                 }
                 ThrowState::Releasing { remaining, fuse } => {
+                    inventory.recovery = (inventory.recovery - dt).max(0.);
                     let fuse = if tuning.cook_in_hand { fuse - dt } else { fuse };
                     if tuning.cook_in_hand && fuse <= 0. {
                         launch = Some((0., true, false));
                         evidence.cooked_off += 1;
-                    } else if remaining <= dt {
+                    } else if remaining <= dt + 0.000001 {
                         launch = Some((fuse, false, false));
                     } else {
                         inventory.state = ThrowState::Releasing {
@@ -555,7 +709,10 @@ pub(crate) fn throw_input(
                     }
                 }
                 ThrowState::Recovery { remaining } => {
-                    inventory.state = if remaining <= dt {
+                    inventory.state = if remaining <= dt + 0.000001 {
+                        if let Some(native) = &tuning.native_launch {
+                            weapons.restore_offhand(native.restore_seconds + dt);
+                        }
                         ThrowState::Ready
                     } else {
                         ThrowState::Recovery {
@@ -566,8 +723,11 @@ pub(crate) fn throw_input(
                 _ => {}
             }
             if let Some((fuse, cooked, dropped)) = launch {
-                let rotation =
-                    Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch);
+                let rotation = Quat::from_rotation_y(player.yaw)
+                    * Quat::from_rotation_x(player.pitch)
+                    * view_kick.map_or(Quat::IDENTITY, |kick| {
+                        kick.rotation(time.elapsed_secs_f64())
+                    });
                 let forward = rotation * Vec3::NEG_Z;
                 let eye =
                     transform.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
@@ -585,6 +745,9 @@ pub(crate) fn throw_input(
                 } else {
                     native_launch_velocity(tuning, rotation, player.velocity)
                 };
+                let seed = owner.to_bits().wrapping_add(evidence.primed as u64);
+                let (angles, angular_velocity) =
+                    grenade_spin(tuning, velocity, seed, !cooked && !dropped);
                 let entity = commands
                     .spawn((
                         Grenade {
@@ -598,10 +761,18 @@ pub(crate) fn throw_input(
                             remaining: fuse,
                             elapsed: 0.,
                             radius: tuning.collision_radius,
+                            fresh: true,
+                            step_age: 0.,
+                            angular_velocity,
+                            angles,
+                            wobble: 0.,
+                            curve: 0.,
+                            random: seed,
                             lure_active: false,
                         },
                         SessionEntity,
-                        Transform::from_translation(position),
+                        Transform::from_translation(position)
+                            .with_rotation(source_rotation(angles)),
                         Visibility::default(),
                     ))
                     .id();
@@ -640,8 +811,11 @@ pub(crate) fn throw_input(
                     ThrowState::Ready
                 } else {
                     ThrowState::Recovery {
-                        remaining: tuning.throw_seconds
-                            - if cooked { 0. } else { tuning.release_delay },
+                        remaining: if cooked {
+                            tuning.throw_seconds
+                        } else {
+                            inventory.recovery
+                        },
                     }
                 };
                 evidence.thrown += u32::from(!cooked && !dropped);
@@ -650,6 +824,142 @@ pub(crate) fn throw_input(
         }
     }
 }
+fn source_rotation(angles: Vec3) -> Quat {
+    Quat::from_rotation_y(angles.y)
+        * Quat::from_rotation_z(-angles.x)
+        * Quat::from_rotation_x(angles.z)
+}
+
+fn grenade_spin(
+    tuning: &ThrowableDefinition,
+    velocity: Vec3,
+    seed: u64,
+    thrown: bool,
+) -> (Vec3, Vec3) {
+    let mut angles = Vec3::new(
+        (-velocity.y).atan2(velocity.xz().length()),
+        (-velocity.z).atan2(velocity.x),
+        0.,
+    );
+    let Some(native) = &tuning.native_launch else {
+        return (Vec3::ZERO, Vec3::ZERO);
+    };
+    if !native.rotating || !thrown {
+        return (angles, Vec3::ZERO);
+    }
+    angles.x -= 120_f32.to_radians();
+    let spin = if native.rotation_mode == 1 {
+        Vec3::new(1500_f32.to_radians(), 0., 0.)
+    } else {
+        let signed = |offset: u64, low: f32, high: f32| {
+            let sign = if crate::weapons::sample(seed.wrapping_add(offset)) < 0.5 {
+                -1.
+            } else {
+                1.
+            };
+            ((low + (high - low) * crate::weapons::sample(seed.wrapping_add(offset + 1))) * sign)
+                .trunc()
+                .to_radians()
+        };
+        Vec3::new(signed(1, 340., 800.), 0., signed(3, 180., 540.))
+    };
+    (angles, spin)
+}
+
+impl Grenade {
+    fn random(&mut self) -> f32 {
+        self.random = self.random.wrapping_add(1);
+        crate::weapons::sample(self.random)
+    }
+}
+
+fn native_contact(
+    grenade: &mut Grenade,
+    tuning: &ThrowableDefinition,
+    native: &GrenadeLaunch,
+    velocity: Vec3,
+    normal: Vec3,
+    surface: usize,
+    gravity: f32,
+) -> (Vec3, bool, Vec3) {
+    let impact_speed = velocity.dot(normal);
+    let mut next = velocity - normal * impact_speed * if native.rolling { 1. } else { 2. };
+    let mut displacement = Vec3::ZERO;
+    let mut rolling = false;
+    if velocity.length_squared() > 0. && impact_speed <= 0. {
+        if native.rolling {
+            let speed = next.length();
+            let direction = next.normalize_or_zero();
+            next *= 1. - native.friction[usize::from(speed > native.friction_speed)];
+            if impact_speed.abs() >= 25. * 0.0254 {
+                let restitution = tuning.normal_bounce.get(surface).copied().unwrap_or(0.);
+                let restitution = (1. - (1. - restitution) * normal.y)
+                    .min(native.restitution_max.max(restitution));
+                next -= normal * (restitution * impact_speed);
+            } else {
+                rolling = true;
+                if grenade.random() < native.bump_frequency {
+                    let bump = (native.bump_magnitude * speed).min(native.bump_speed);
+                    if bump > gravity * 0.05 {
+                        next += normal * bump;
+                    }
+                }
+                if direction.y < 25. && normal.y > 0.7 {
+                    let previous = grenade.wobble;
+                    grenade.wobble = (previous
+                        + native.wobble_frequency * speed * 0.05 * std::f32::consts::TAU)
+                        .rem_euclid(std::f32::consts::TAU);
+                    let oscillation = grenade.wobble.sin() - previous.sin();
+                    if speed > 0.01 * 0.0254 {
+                        next *= (speed + native.wobble_forward * oscillation) / speed;
+                    }
+                    let side = direction.cross(normal);
+                    let damping = 1. - native.wobble_damping * speed;
+                    if damping > 0. {
+                        displacement = side * native.wobble_side * oscillation * damping;
+                    }
+                    if grenade.curve == 0. {
+                        grenade.curve = grenade.random() * 2. - 1.;
+                    }
+                    next += side * native.curve * grenade.curve;
+                }
+                grenade.angles.y = (-next.z).atan2(next.x);
+                grenade.angles.z = std::f32::consts::FRAC_PI_2;
+                grenade.angular_velocity = Vec3::new(next.length() / (5. * 0.0254), 0., 0.);
+            }
+        } else {
+            let tangent = tuning.tangent_bounce.get(surface).copied().unwrap_or(0.);
+            let restitution = tuning.normal_bounce.get(surface).copied().unwrap_or(0.);
+            next = next * tangent + normal * next.dot(normal) * (restitution - tangent);
+        }
+    }
+    let speed = next.length();
+    let resting = (speed < 1. * 0.0254 || normal.y > 0.7) && speed < native.rest_speed;
+    if !native.preserve_rotation && (resting || (!rolling && next.dot(normal) > 25. * 0.0254)) {
+        if normal.y > 0.1 {
+            let (sin, cos) = grenade.angles.y.sin_cos();
+            let pitch = ((normal.x * cos - normal.z * sin) / normal.y).atan();
+            if resting {
+                grenade.angles.x = pitch
+                    + if grenade.angles.x.sin().atan2(grenade.angles.x.cos()).abs()
+                        > std::f32::consts::FRAC_PI_2
+                    {
+                        std::f32::consts::PI
+                    } else {
+                        0.
+                    };
+                if native.rotation_mode != 0 {
+                    grenade.angles.z = std::f32::consts::FRAC_PI_2;
+                }
+            }
+        }
+    }
+    if resting {
+        grenade.angular_velocity = Vec3::ZERO;
+    }
+    (next, resting, displacement)
+}
+
 pub(crate) fn flight(
     mut commands: Commands,
     session: Res<crate::session::SessionId>,
@@ -669,7 +979,6 @@ pub(crate) fn flight(
     mut lures: ResMut<crate::lures::LureEvidence>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
-    let dt = time.delta_secs();
     for (entity, mut grenade, mut transform) in &mut grenades {
         let Some(weapon) = definition
             .content
@@ -682,8 +991,25 @@ pub(crate) fn flight(
         let Some(tuning) = weapon.throwable.as_ref() else {
             continue;
         };
+        let dt = if grenade.fresh {
+            grenade.fresh = false;
+            0.
+        } else {
+            time.delta_secs()
+        };
         grenade.remaining -= dt;
         grenade.elapsed += dt;
+        let motion_dt = if tuning.native_launch.is_some() {
+            grenade.step_age += dt;
+            if grenade.step_age + 0.000001 >= 0.05 {
+                grenade.step_age = (grenade.step_age - 0.05).max(0.);
+                0.05
+            } else {
+                0.
+            }
+        } else {
+            dt
+        };
         if let GrenadeMotion::Attached {
             target,
             offset,
@@ -706,9 +1032,17 @@ pub(crate) fn flight(
         }
         if let GrenadeMotion::Flying(mut velocity) = grenade.motion
             && grenade.remaining > 0.
+            && motion_dt > 0.
         {
-            let gravity_step = definition.tuning.gravity * dt;
-            let delta = (velocity - Vec3::Y * gravity_step * 0.5) * dt;
+            let before = velocity;
+            let before_angles = grenade.angles;
+            let angular_velocity = grenade.angular_velocity;
+            grenade.angles += angular_velocity * motion_dt;
+            if tuning.native_launch.is_some() {
+                transform.rotation = source_rotation(grenade.angles);
+            }
+            let gravity_step = definition.tuning.gravity * motion_dt;
+            let delta = (velocity - Vec3::Y * gravity_step * 0.5) * motion_dt;
             velocity.y -= gravity_step;
             if let Ok(direction) = Dir3::new(delta) {
                 let shape = tuning.collision_half_extents.map_or_else(
@@ -726,7 +1060,13 @@ pub(crate) fn flight(
                 if let Some(hit) = hit {
                     let normal = hit.normal1;
                     transform.translation += direction.as_vec3() * hit.distance.max(0.);
-                    transform.translation += normal * 0.003;
+                    let fraction = (hit.distance / delta.length()).clamp(0., 1.);
+                    if tuning.native_launch.is_some() {
+                        velocity = before - Vec3::Y * gravity_step * fraction;
+                        grenade.angles = before_angles + angular_velocity * motion_dt * fraction;
+                    } else {
+                        transform.translation += normal * 0.003;
+                    }
                     let surface = surfaces.get(hit.entity).map_or(
                         if targets.contains(hit.entity) {
                             "flesh"
@@ -746,12 +1086,12 @@ pub(crate) fn flight(
                         },
                         surface
                     );
-                    crate::audio::emit(
-                        &mut commands,
-                        alias,
-                        crate::audio::SoundSource::World(transform.translation),
-                    );
                     if tuning.sticky {
+                        crate::audio::emit(
+                            &mut commands,
+                            alias,
+                            crate::audio::SoundSource::World(transform.translation),
+                        );
                         transform.rotation = Quat::from_rotation_arc(Vec3::Y, normal);
                         grenade.motion = if let Ok((local, global, parent)) = poses.get(hit.entity)
                         {
@@ -776,7 +1116,6 @@ pub(crate) fn flight(
                         evidence.surface_attachments += u32::from(!actor);
                         evidence.record(serde_json::json!({"event":"attach","target":hit.entity.to_bits(),"actor":actor,"position":transform.translation.to_array()}));
                     } else {
-                        let perpendicular = normal * velocity.dot(normal);
                         let surface_index = surfaces
                             .get(hit.entity)
                             .ok()
@@ -784,25 +1123,70 @@ pub(crate) fn flight(
                             .map_or(if targets.contains(hit.entity) { 7 } else { 0 }, |flags| {
                                 ((flags.0 >> 20) & 0x3f) as usize
                             });
-                        let tangent = tuning
-                            .tangent_bounce
-                            .get(surface_index)
-                            .copied()
-                            .unwrap_or(0.);
-                        let restitution = tuning
-                            .normal_bounce
-                            .get(surface_index)
-                            .copied()
-                            .unwrap_or(0.);
-                        velocity =
-                            (velocity - perpendicular) * tangent - perpendicular * restitution;
-                        grenade.motion = if normal.y > 0.6 && velocity.length() < 0.5 {
+                        let incident = velocity;
+                        let resting = if let Some(native) = &tuning.native_launch {
+                            let (next, resting, wobble) = native_contact(
+                                &mut grenade,
+                                tuning,
+                                native,
+                                velocity,
+                                normal,
+                                surface_index,
+                                definition.tuning.gravity,
+                            );
+                            velocity = next;
+                            if let Ok(direction) = Dir3::new(wobble) {
+                                let distance = query
+                                    .cast_shape(
+                                        &shape,
+                                        transform.translation,
+                                        Quat::IDENTITY,
+                                        direction,
+                                        &ShapeCastConfig::from_max_distance(wobble.length()),
+                                        &crate::environment::solids([grenade.owner]),
+                                    )
+                                    .map_or(wobble.length(), |hit| hit.distance.max(0.));
+                                transform.translation += direction.as_vec3() * distance;
+                            }
+                            if !resting {
+                                transform.translation +=
+                                    Vec3::new(normal.x, normal.y.min(0.), normal.z)
+                                        * (0.1 * 0.0254);
+                            }
+                            transform.rotation = source_rotation(grenade.angles);
+                            resting
+                        } else {
+                            let perpendicular = normal * velocity.dot(normal);
+                            let tangent = tuning
+                                .tangent_bounce
+                                .get(surface_index)
+                                .copied()
+                                .unwrap_or(0.);
+                            let restitution = tuning
+                                .normal_bounce
+                                .get(surface_index)
+                                .copied()
+                                .unwrap_or(0.);
+                            velocity =
+                                (velocity - perpendicular) * tangent - perpendicular * restitution;
+                            normal.y > 0.6 && velocity.length() < 0.5
+                        };
+                        if tuning.native_launch.is_none()
+                            || velocity.distance(incident) > 100. * 0.0254
+                        {
+                            crate::audio::emit(
+                                &mut commands,
+                                alias,
+                                crate::audio::SoundSource::World(transform.translation),
+                            );
+                        }
+                        grenade.motion = if resting {
                             GrenadeMotion::Resting
                         } else {
                             GrenadeMotion::Flying(velocity)
                         };
                         evidence.bounces += 1;
-                        evidence.record(serde_json::json!({"event":"bounce","normal":normal.to_array(),"position":transform.translation.to_array(),"speed":velocity.length()}));
+                        evidence.record(serde_json::json!({"event":"bounce","normal":normal.to_array(),"surface":surface_index,"position":transform.translation.to_array(),"speed":velocity.length(),"velocity":velocity.to_array(),"resting":resting,"rotation":transform.rotation.to_array()}));
                     }
                 } else {
                     if cfg!(debug_assertions)
@@ -810,7 +1194,7 @@ pub(crate) fn flight(
                         && physics_evidence.projectiles.len() < 512
                     {
                         physics_evidence.projectiles.push(serde_json::json!({
-                            "kind":"throwable","entity":entity.to_bits(),"weapon":weapon.id.0,"dt":dt,
+                            "kind":"throwable","entity":entity.to_bits(),"weapon":weapon.id.0,"dt":motion_dt,
                             "gravity":definition.tuning.gravity,
                             "position_before":transform.translation.to_array(),"position_after":(transform.translation+delta).to_array(),
                             "velocity_after":velocity.to_array()
