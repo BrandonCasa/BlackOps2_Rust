@@ -32,41 +32,63 @@ pub struct BrushDefinition {
 }
 impl BrushDefinition {
     pub fn collider(&self) -> Option<Collider> {
-        let mut pieces: Vec<_> = self
-            .volumes
-            .iter()
-            .map(|v| {
-                Collider::convex_hull(
-                    &v.vertices
-                        .iter()
-                        .copied()
-                        .map(Vec3::from_array)
-                        .collect::<Vec<_>>(),
-                )
-                .map(|shape| (Vec3::from_array(v.position), Quat::IDENTITY, shape))
-            })
-            .collect::<Option<Vec<_>>>()?;
-        for shape in &self.triangle_shapes {
-            for indices in &shape.indices {
-                let a = Vec3::from_array(*shape.vertices.get(indices[0] as usize)?);
-                let b = Vec3::from_array(*shape.vertices.get(indices[1] as usize)?);
-                let c = Vec3::from_array(*shape.vertices.get(indices[2] as usize)?);
-                if !a.is_finite()
-                    || !b.is_finite()
-                    || !c.is_finite()
-                    || (b - a).cross(c - a).length_squared() == 0.
-                {
-                    return None;
-                }
-                pieces.push((Vec3::ZERO, Quat::IDENTITY, Collider::triangle(a, b, c)));
-            }
-        }
-        (!pieces.is_empty()).then(|| Collider::compound(pieces))
+        compound(&self.volumes, &self.triangle_shapes)
     }
     pub fn transform(&self) -> Transform {
         Transform::from_translation(Vec3::from_array(self.position))
             .with_rotation(Quat::from_array(self.rotation))
     }
+}
+
+pub(crate) fn compound(
+    volumes: &[VolumeDefinition],
+    triangles: &[TriangleShape],
+) -> Option<Collider> {
+    let mut pieces: Vec<_> = volumes
+        .iter()
+        .map(|v| {
+            Collider::convex_hull(
+                &v.vertices
+                    .iter()
+                    .copied()
+                    .map(Vec3::from_array)
+                    .collect::<Vec<_>>(),
+            )
+            .map(|shape| (Vec3::from_array(v.position), Quat::IDENTITY, shape))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    for shape in triangles {
+        for indices in &shape.indices {
+            let a = Vec3::from_array(*shape.vertices.get(indices[0] as usize)?);
+            let b = Vec3::from_array(*shape.vertices.get(indices[1] as usize)?);
+            let c = Vec3::from_array(*shape.vertices.get(indices[2] as usize)?);
+            if !a.is_finite()
+                || !b.is_finite()
+                || !c.is_finite()
+                || (b - a).cross(c - a).length_squared() == 0.
+            {
+                return None;
+            }
+            pieces.push((Vec3::ZERO, Quat::IDENTITY, Collider::triangle(a, b, c)));
+        }
+    }
+    (!pieces.is_empty()).then(|| Collider::compound(pieces))
+}
+
+pub(crate) fn valid_triangle(shape: &TriangleShape) -> bool {
+    identity(&shape.id)
+        && (3..=65536).contains(&shape.vertices.len())
+        && shape
+            .vertices
+            .iter()
+            .flatten()
+            .all(|value| value.is_finite())
+        && (1..=65536).contains(&shape.indices.len())
+        && shape
+            .indices
+            .iter()
+            .flatten()
+            .all(|&index| (index as usize) < shape.vertices.len())
 }
 
 fn identity(id: &str) -> bool {
@@ -115,22 +137,9 @@ pub(super) fn valid(brushes: &[BrushDefinition]) -> bool {
                         && (4..=128).contains(&v.vertices.len())
                 })
                 && b.triangle_shapes.len() <= 4096
-                && b.triangle_shapes.iter().all(|shape| {
-                    identity(&shape.id)
-                        && pieces.insert(&shape.id)
-                        && (3..=65536).contains(&shape.vertices.len())
-                        && shape
-                            .vertices
-                            .iter()
-                            .flatten()
-                            .all(|value| value.is_finite())
-                        && (1..=65536).contains(&shape.indices.len())
-                        && shape
-                            .indices
-                            .iter()
-                            .flatten()
-                            .all(|&index| (index as usize) < shape.vertices.len())
-                })
+                && b.triangle_shapes
+                    .iter()
+                    .all(|shape| valid_triangle(shape) && pieces.insert(&shape.id))
                 && ((b.volumes.is_empty() && b.triangle_shapes.is_empty())
                     || b.collider().is_some())
         })

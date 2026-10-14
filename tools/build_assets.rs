@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+#[path = "../src/origins/camo.rs"]
+pub mod camo;
+
 #[path = "asset_builder/core.rs"]
 pub mod core;
 #[path = "asset_builder/convert.rs"]

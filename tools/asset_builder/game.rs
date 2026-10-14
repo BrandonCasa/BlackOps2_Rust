@@ -340,20 +340,24 @@ fn environment(game: &mut Value, rows: Vec<Value>, missing: &mut Vec<String>) ->
         let movement = source["targetname"] == "player_slow_area";
         let boundary = source["script_noteworthy"] == "player_volume";
         let convex_trigger = matches!(class,"trigger_multiple" | "trigger_use" | "trigger_damage" | "trigger_box" | "trigger_lookat" | "info_volume");
-        if convex_trigger && row["triangle_shapes"].as_array().is_some_and(Vec::is_empty)
-            && row["volumes"].as_array().is_some_and(|volumes| !volumes.is_empty()) {
-            let volumes = rotated_volumes(&row)?;
+        if convex_trigger && (row["triangle_shapes"].as_array().is_some_and(|shapes| !shapes.is_empty())
+            || row["volumes"].as_array().is_some_and(|volumes| !volumes.is_empty())) {
             if movement {
+                let volumes = rotated_volumes(&row)?;
                 let position: [f64;3] = serde_json::from_value(row["position"].clone())?;
                 for volume in &volumes {
                     let offset: [f64;3] = serde_json::from_value(volume["position"].clone())?;
                     mud.push(json!({"id":format!("mud.{}",volume["id"].as_str().ok_or("Mud volume identity is missing")?),
                         "position":std::array::from_fn::<_,3,_>(|axis| position[axis]+offset[axis]),"vertices":volume["vertices"]}));
                 }
+                if row["triangle_shapes"].as_array().is_some_and(|shapes| !shapes.is_empty()) {
+                    missing.push(format!("movement consumer for native triangle mud geometry {id}"));
+                }
             }
-            triggers.push(json!({"id":id,"position":row["position"],"source":source,"shape":{"kind":"convex","volumes":volumes}}));
+            triggers.push(json!({"id":id,"position":row["position"],"source":source,"shape":{"kind":"brush",
+                "rotation":row["rotation"],"volumes":row["volumes"],"triangle_shapes":row["triangle_shapes"]}}));
         } else {
-            if convex_trigger { missing.push(format!("environment trigger shape for {id} ({class}) requires unsupported terrain or missing convex source geometry")); }
+            if convex_trigger { missing.push(format!("environment trigger shape for {id} ({class}) has no native convex or triangle geometry")); }
             brushes.push(row.clone());
         }
         if (movement || boundary) && matches!(class,"trigger_multiple" | "info_volume") {

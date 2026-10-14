@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use serde::Deserialize;
 use std::path::Path;
 pub mod content;
+pub mod camo;
 pub use content::*;
 #[derive(Resource, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
