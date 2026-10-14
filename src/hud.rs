@@ -175,6 +175,7 @@ pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
     serde_json::json!({"labels":labels, "visible_images":visible_images.len(), "loaded_images":loaded,
         "images":paths, "crosshair":crosshair,"inventory":inventory,"part_targets":targets,
         "scoreboard":world.resource::<crate::input::GameInput>().scoreboard,
+        "selected_frontend_row":crate::frontend::selected_row(world),
         "selected_menu_row":(*world.resource::<State<GameState>>().get() == GameState::Paused)
             .then(|| world.resource::<crate::input::menu::ControlMenu>().selected)})
 }
