@@ -1634,3 +1634,34 @@ fn installed_geometry_bindings() {
     }
     println!("Validated glTF TRS bind hierarchies: {models} models, {bones} joints");
 }
+#[test]
+#[ignore = "requires the authorized Steam installation"]
+fn installed_initial_required_material_profiles() {
+    let zones = super::read_zones(&super::installation().unwrap()).unwrap();
+    let catalog = crate::catalog::Catalog::new(&zones);
+    for name in [
+        "mc/mtl_fx_decal_character_blood",
+        "mc/mtl_c_zom_tomb_crusader_body_3",
+        "mc/mtl_c_zom_tomb_crusader_skirt_3",
+        "mc/mtl_c_gen_gore_alpha",
+        "mc/mtl_c_gen_limb_gore",
+        "mc/mtl_fxuse_disc_electric",
+    ] {
+        let material = crate::material::read(&catalog, name).unwrap();
+        assert!(
+            crate::material::selected_technique(material["technique_set"].as_str().unwrap())
+                .is_some()
+        );
+        let inputs = crate::material::inputs(
+            &std::collections::BTreeMap::from([(name.to_owned(), material.clone())]),
+            &catalog,
+        )
+        .unwrap_or_else(|error| panic!("Required material {name}: {error}"));
+        assert!(!inputs.is_empty());
+        assert!(!inputs.contains("c_gen_arm_rim_mask_c"));
+        println!(
+            "Validated required material {name}: {} active images",
+            inputs.len()
+        );
+    }
+}

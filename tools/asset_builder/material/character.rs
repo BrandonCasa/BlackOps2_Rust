@@ -5,7 +5,11 @@ pub(super) enum CharacterRecipe {
     Cloth,
     ClothReveal,
     ClothRevealMask,
+    ClothRevealEmissive,
+    ClothRevealEmissiveMask,
     Skin,
+    SkinMask,
+    Hair,
     Cornea,
     Optic,
     Transparent,
@@ -19,7 +23,13 @@ pub(super) fn lookup(family: &str) -> Option<CharacterRecipe> {
         "mc_sw4_3d_char_cloth_4z8fq5wu" => CharacterRecipe::Cloth,
         "mc_sw4_3d_char_cloth_reveal2_9z738w66" => CharacterRecipe::ClothReveal,
         "mc_sw4_3d_char_cloth_reveal2_727ej010" => CharacterRecipe::ClothRevealMask,
+        "mc_sw4_3d_char_cloth_reveal2_emissive_5644z720" => CharacterRecipe::ClothRevealEmissive,
+        "mc_sw4_3d_char_cloth_reveal2_emissive_f88qewf4" => {
+            CharacterRecipe::ClothRevealEmissiveMask
+        }
         "mc_sw4_3d_char_skin_j92387z3" => CharacterRecipe::Skin,
+        "mc_sw4_3d_char_skin_3e77jj31" => CharacterRecipe::SkinMask,
+        "mc_sw4_3d_char_hair_287j114q" => CharacterRecipe::Hair,
         "mc_sw4_3d_char_eye_cornea_2eww29wu" => CharacterRecipe::Cornea,
         "mc_sw4_3d_optic_lens_4w47028j" => CharacterRecipe::Optic,
         "mc_sw4_3d_viewmodel_transparent_z9z0z75f" => CharacterRecipe::Transparent,
@@ -40,18 +50,80 @@ impl CharacterRecipe {
     }
 
     fn reveal(self) -> bool {
-        matches!(self, Self::ClothReveal | Self::ClothRevealMask)
+        matches!(
+            self,
+            Self::ClothReveal
+                | Self::ClothRevealMask
+                | Self::ClothRevealEmissive
+                | Self::ClothRevealEmissiveMask
+        )
+    }
+
+    fn reveal_emissive(self) -> bool {
+        matches!(
+            self,
+            Self::ClothRevealEmissive | Self::ClothRevealEmissiveMask
+        )
+    }
+
+    fn skin(self) -> bool {
+        matches!(self, Self::Skin | Self::SkinMask)
+    }
+
+    fn charred(self) -> bool {
+        matches!(
+            self,
+            Self::Cloth
+                | Self::ClothReveal
+                | Self::ClothRevealMask
+                | Self::ClothRevealEmissive
+                | Self::ClothRevealEmissiveMask
+                | Self::Skin
+                | Self::SkinMask
+        )
     }
 
     fn transparent(self) -> bool {
         matches!(
             self,
-            Self::Transparent | Self::Optic | Self::Cornea | Self::CanopyBlend
+            Self::Transparent | Self::Optic | Self::Cornea | Self::CanopyBlend | Self::Hair
         )
     }
 
     fn programs(self, sun: bool) -> (&'static str, &'static str) {
         match (self, sun) {
+            (Self::ClothRevealEmissive, false) => (
+                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
+                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_b6a2f4cb.hlsl",
+            ),
+            (Self::ClothRevealEmissive, true) => (
+                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
+                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_e4428e9e.hlsl",
+            ),
+            (Self::ClothRevealEmissiveMask, false) => (
+                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
+                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_ae63e624.hlsl",
+            ),
+            (Self::ClothRevealEmissiveMask, true) => (
+                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
+                "pimp_shader_sw4_3d_char_cloth_reveal2_emissive_fc839c71.hlsl",
+            ),
+            (Self::SkinMask, false) => (
+                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
+                "pimp_shader_sw4_3d_char_skin_bfafae7f.hlsl",
+            ),
+            (Self::SkinMask, true) => (
+                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
+                "pimp_shader_sw4_3d_char_skin_1399c375.hlsl",
+            ),
+            (Self::Hair, false) => (
+                "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
+                "pimp_shader_sw4_3d_char_hair_910a9f03.hlsl",
+            ),
+            (Self::Hair, true) => (
+                "pimp_shader_sw4_3d_phong_emissive_alcatraz_7c70ecc.hlsl",
+                "pimp_shader_sw4_3d_char_hair_3d3cf209.hlsl",
+            ),
             (Self::ClothReveal, false) => (
                 "pimp_shader_sw4_3d_phong_emissive_alcatraz_b7d697d7.hlsl",
                 "pimp_shader_sw4_3d_char_cloth_reveal2_35345000.hlsl",
@@ -137,16 +209,28 @@ impl CharacterRecipe {
 
     fn textures(self) -> Vec<(u32, u64, &'static str)> {
         match self {
+            Self::ClothRevealEmissive | Self::ClothRevealEmissiveMask => vec![
+                (2351529600, 1283, "source_specular_gloss"),
+                (2485960688, 1024, "source_normal"),
+                (2782436735, 769, "source_temporal"),
+                (3229466552, 260, "source_emissive"),
+                (4030327853, 514, "source_color"),
+            ],
             Self::ClothReveal | Self::ClothRevealMask => vec![
                 (2351529600, 771, "source_specular_gloss"),
                 (2485960688, 512, "source_normal"),
                 (2782436735, 257, "source_temporal"),
                 (4030327853, 1026, "source_color"),
             ],
-            Self::Cloth | Self::Skin => vec![
+            Self::Cloth | Self::Skin | Self::SkinMask => vec![
                 (2351529600, 514, "source_specular_gloss"),
                 (2485960688, 256, "source_normal"),
                 (4030327853, 769, "source_color"),
+            ],
+            Self::Hair => vec![
+                (2351529600, 514, "source_specular_gloss"),
+                (2485960688, 256, "source_normal"),
+                (2695565377, 769, "source_color"),
             ],
             Self::Transparent => vec![
                 (2351529600, 514, "source_specular_gloss"),
@@ -172,6 +256,17 @@ impl CharacterRecipe {
     fn constants(self, sun: bool) -> Vec<(u32, u64, u64, u64, u64)> {
         match self {
             Self::Cloth => Vec::new(),
+            Self::ClothRevealEmissive | Self::ClothRevealEmissiveMask => vec![
+                (348546551, 6, 2, 96, 12),
+                (1288488438, 6, 2, 128, 12),
+                (1307013020, 6, 2, 148, 4),
+                (2226647986, 6, 2, 144, 4),
+                (2251066627, 6, 2, 140, 4),
+                (3105072277, 6, 2, 112, 12),
+                (3218137492, 6, 2, 84, 12),
+                (3228582790, 6, 2, 80, 4),
+            ],
+            Self::Hair => vec![(1020264075, 6, 2, 80, 4)],
             Self::ClothReveal | Self::ClothRevealMask => vec![
                 (348546551, 6, 2, 96, 12),
                 (1288488438, 6, 2, 128, 12),
@@ -180,7 +275,7 @@ impl CharacterRecipe {
                 (3218137492, 6, 2, 84, 12),
                 (3228582790, 6, 2, 80, 4),
             ],
-            Self::Skin => vec![
+            Self::Skin | Self::SkinMask => vec![
                 (211931156, 6, 2, 80, 4),
                 (1012612089, 6, 2, 88, 4),
                 (1307013020, 6, 2, 84, 4),
@@ -300,20 +395,18 @@ impl CharacterRecipe {
                 }
                 contract::literal(native, hash)?;
             }
-            if matches!(
-                self,
-                Self::Cloth | Self::ClothReveal | Self::ClothRevealMask | Self::Skin
-            ) && arguments
-                .iter()
-                .filter(|argument| {
-                    argument["type"] == 5
-                        && argument["value"] == 16777385_u32
-                        && argument["buffer"] == 1
-                        && argument["location"] == 368
-                        && argument["size"] == 16
-                })
-                .count()
-                != 1
+            if self.charred()
+                && arguments
+                    .iter()
+                    .filter(|argument| {
+                        argument["type"] == 5
+                            && argument["value"] == 16777385_u32
+                            && argument["buffer"] == 1
+                            && argument["location"] == 368
+                            && argument["size"] == 16
+                    })
+                    .count()
+                    != 1
             {
                 return Err(format!(
                     "Character material {key} lacks the native charred object input"
@@ -360,7 +453,10 @@ impl CharacterRecipe {
             let allowed = match self {
                 Self::Cloth | Self::Skin => vec![(403867666, 13)],
                 Self::ClothReveal => vec![(403867666, 13), (403851282, 13)],
-                Self::ClothRevealMask => vec![(403853330, 13)],
+                Self::ClothRevealEmissive => vec![(403867666, 13)],
+                Self::ClothRevealMask | Self::ClothRevealEmissiveMask => vec![(403853330, 13)],
+                Self::SkinMask => vec![(403869714, 13)],
+                Self::Hair => vec![(422084965, 12)],
                 Self::Cornea => vec![(422084965, 12)],
                 Self::Optic => vec![(422084965, 12), (422068581, 12)],
                 Self::Transparent
@@ -563,7 +659,12 @@ impl CharacterRecipe {
         let specular = !self.canopy() && self != Self::Cornea;
         let alpha = if self.transparent() {
             "blend"
-        } else if self.canopy() || self == Self::ClothRevealMask {
+        } else if self.canopy()
+            || matches!(
+                self,
+                Self::ClothRevealMask | Self::ClothRevealEmissiveMask | Self::SkinMask
+            )
+        {
             "mask"
         } else {
             "opaque"
@@ -582,11 +683,17 @@ impl CharacterRecipe {
             ]);
         }
         match self {
-            Self::Cloth | Self::ClothReveal | Self::ClothRevealMask | Self::Skin => {
+            Self::Cloth
+            | Self::ClothReveal
+            | Self::ClothRevealMask
+            | Self::ClothRevealEmissive
+            | Self::ClothRevealEmissiveMask
+            | Self::Skin
+            | Self::SkinMask => {
                 surface["source_vertex_color_transfer"] =
                     json!("square_before_vertex_interpolation_then_square_in_fragment");
                 surface["source_character_lighting"] = json!({"diffuse":"square_diffuse_times_interpolated_vertex_squared","charred":{"code_constant":169,"component":0,"operation":"square_specular_rgb_after_multiplying_one_minus_saturated_charred","prepared_unmodulated":true},
-                    "reflection_amount":if self == Self::Skin {contract::literal(native,211931156)?[0]} else {1.},"specular_amount":if self == Self::Skin {contract::literal(native,1307013020)?[0]} else {1.}});
+                    "reflection_amount":if self.skin() {contract::literal(native,211931156)?[0]} else {1.},"specular_amount":if self.skin() {contract::literal(native,1307013020)?[0]} else {1.}});
                 if self.reveal() {
                     surface["source_character_lighting"]["specular_amount"] =
                         json!(contract::literal(native, 1307013020)?[0]);
@@ -594,8 +701,16 @@ impl CharacterRecipe {
                         "temporal":source_inputs["source_temporal"],"state1":contract::literal(native,3105072277)?,
                         "state2":contract::literal(native,1288488438)?,"edge1":contract::literal(native,3218137492)?,
                         "edge2":contract::literal(native,348546551)?,"edge_brightness":contract::literal(native,3228582790)?[0]});
+                    if self.reveal_emissive() {
+                        surface["source_script_layers"]["emissive"] = json!({
+                            "texture":source_inputs["source_emissive"],
+                            "amount":contract::literal(native,2251066627)?[0],
+                            "speed":contract::literal(native,2226647986)?[0],
+                            "operation":"square_color_vertex_emissive_mask_times_one_plus_amount_minus_one_times_half_plus_half_sine_game_time_speed"
+                        });
+                    }
                 }
-                if self == Self::Skin {
+                if self.skin() {
                     surface["source_character_lighting"]["diffuse_normal_height"] =
                         json!(contract::literal(native, 1012612089)?[0]);
                     surface["source_character_lighting"]["normal_operation"] =
@@ -603,11 +718,21 @@ impl CharacterRecipe {
                 }
                 surface["pending_runtime"] = json!(if self.reveal() {
                     "Native character temporal reveal requires the source per-object scriptVector3 initial state and runtime interpolation, mask-red smoothstep thresholds, red diffuse alteration, leading-edge emission, squared vertex color and dynamic charred specular suppression; source inputs are retained but these consumers remain unconnected"
-                } else if self == Self::Skin {
+                } else if self.skin() {
                     "Native skin requires squared vertex color before interpolation and another square in diffuse, independent diffuse/specular slope normals, dynamic object charred suppression of specular, separate reflection/direct-specular controls and native lighting/composition; those runtime consumers remain unconnected"
                 } else {
                     "Native cloth requires squared vertex color before interpolation and another square in diffuse, plus dynamic object charred suppression of specular and native lighting/composition; those runtime consumers remain unconnected"
                 });
+            }
+            Self::Hair => {
+                surface["source_vertex_color_transfer"] = json!("gamma2");
+                surface["source_fragment_alpha"] =
+                    json!("saturate_twice_fourth_root_texture_vertex_coverage");
+                surface["source_character_lighting"] =
+                    json!({"reflection_amount":contract::literal(native,1020264075)?[0]});
+                surface["pending_runtime"] = json!(
+                    "Native hair/gore requires twice fourth-root texture/vertex coverage, squared diffuse vertex color and native lighting/framebuffer composition; original color, normal, specular and reflection controls are retained"
+                );
             }
             Self::Transparent | Self::Optic => {
                 surface["source_vertex_color_transfer"] = json!("gamma2");

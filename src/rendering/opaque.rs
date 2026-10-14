@@ -132,6 +132,10 @@ pub(crate) struct NativeClock {
 }
 
 impl NativeClock {
+    pub(super) fn render_milliseconds(&self) -> Option<i32> {
+        self.render
+    }
+
     pub(crate) fn server_milliseconds(&self) -> Option<i32> {
         self.running.then_some(self.server)
     }
@@ -456,7 +460,7 @@ pub(crate) struct NativeArtInputs {
     pub shader_time: Option<(i32, f32)>,
 }
 
-fn game_time(milliseconds: i32, start_seconds: f32) -> Result<[f32; 4], String> {
+pub(super) fn game_time(milliseconds: i32, start_seconds: f32) -> Result<[f32; 4], String> {
     let seconds = milliseconds as f32 * f32::from_bits(0x3a83126f) - start_seconds;
     if !seconds.is_finite() {
         return Err("Native render-game time input is non-finite".into());

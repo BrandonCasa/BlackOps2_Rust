@@ -9,6 +9,7 @@ mod camo;
 mod character;
 pub(crate) mod contract;
 mod coverage;
+mod effect_model;
 mod falloff;
 mod ordinary;
 mod read;
@@ -55,6 +56,7 @@ enum Recipe {
     SingleUnlit(SingleUnlitRecipe),
     Falloff(FalloffRecipe),
     Character(character::CharacterRecipe),
+    EffectModel(effect_model::EffectModelRecipe),
     Smoke(smoke::SmokeRecipe),
     World(world::WorldRecipe),
     Baked,
@@ -68,6 +70,7 @@ impl Recipe {
             .or_else(|| single_unlit_recipe(family).map(Self::SingleUnlit))
             .or_else(|| falloff_recipe(family).map(Self::Falloff))
             .or_else(|| character::lookup(family).map(Self::Character))
+            .or_else(|| effect_model::lookup(family).map(Self::EffectModel))
             .or_else(|| smoke::lookup(family).map(Self::Smoke))
             .or_else(|| world::lookup(family).map(Self::World))
             .or_else(|| crate::bake::supported(family).then_some(Self::Baked))
@@ -80,6 +83,7 @@ impl Recipe {
             Self::SingleUnlit(recipe) => recipe.index,
             Self::Falloff(recipe) => recipe.index,
             Self::Character(recipe) => recipe.index(),
+            Self::EffectModel(recipe) => recipe.index(),
             Self::Smoke(recipe) => recipe.index(),
             Self::World(recipe) => recipe.index(),
         }
@@ -92,6 +96,7 @@ impl Recipe {
             Self::SingleUnlit(recipe) => validate_single_unlit(key, material, *recipe).map(|_| ()),
             Self::Falloff(recipe) => validate_falloff(key, material, *recipe).map(|_| ()),
             Self::Character(recipe) => recipe.validate(key, material),
+            Self::EffectModel(recipe) => recipe.validate(key, material),
             Self::Smoke(recipe) => recipe.validate(key, material),
             Self::World(recipe) => recipe.validate(key, material),
             Self::Baked => crate::bake::validate_native(material),
@@ -116,6 +121,7 @@ impl Recipe {
             }
             Self::Falloff(recipe) => convert_falloff(key, material, *recipe, images, shared, pack)?,
             Self::Character(recipe) => recipe.convert(key, material, images, shared, pack)?,
+            Self::EffectModel(recipe) => recipe.convert(key, material, images, shared, pack)?,
             Self::Smoke(recipe) => recipe.convert(key, material, images, shared, pack)?,
             Self::World(recipe) => recipe.convert(key, material, images, shared, pack)?,
             Self::Baked => return Ok(None),

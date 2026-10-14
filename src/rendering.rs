@@ -10,6 +10,7 @@ use bevy::{
     prelude::*,
 };
 pub(crate) mod atmosphere;
+mod effect_models;
 mod eyes;
 pub(crate) mod grading;
 mod lighting_inspection;
@@ -86,6 +87,7 @@ pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         preparation::install(app);
+        effect_models::install(app);
         app.add_plugins(solari::OriginsSolariPlugin)
             .add_plugins(lod::PropLodPlugin)
             .add_plugins(preprocessing::PreprocessingPlugin)
