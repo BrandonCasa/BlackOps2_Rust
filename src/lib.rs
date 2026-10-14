@@ -152,10 +152,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                 custom_layer: verification::error_layer,
                 ..default()
             })
-            .set(bevy::pbr::PbrPlugin {
-                use_gpu_instance_buffer_builder: false,
-                ..default()
-            })
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: if flythrough {

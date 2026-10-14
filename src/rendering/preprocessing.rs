@@ -34,19 +34,9 @@ impl Plugin for PreprocessingPlugin {
         app.insert_resource(status.clone());
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.insert_resource(status);
-            render.add_systems(
-                    RenderStartup,
-                    configure
-                        .after(bevy::render::init_gpu_resource::<GpuPreprocessingSupport>)
-                        .before(bevy::pbr::MeshPipelineSystems),
-                );
             render.add_systems(RenderStartup, report.after(bevy::pbr::MeshPipelineSystems));
         }
     }
-}
-
-fn configure(mut support: ResMut<GpuPreprocessingSupport>) {
-    support.max_supported_mode = GpuPreprocessingMode::None;
 }
 
 fn report(
