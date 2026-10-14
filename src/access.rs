@@ -180,7 +180,8 @@ impl AccessDefinition {
                     && s.id.len() < 128
                     && s.position.iter().all(|x| x.is_finite())
                     && s.yaw.is_finite()
-                    && s.desired_origin.is_none_or(|point| point.iter().all(|value| value.is_finite()))
+                    && s.desired_origin
+                        .is_none_or(|point| point.iter().all(|value| value.is_finite()))
                     && content.zones.iter().any(|z| z.id == s.zone)
             })
             && self.spawners.iter().all(|spawner| {
@@ -188,12 +189,20 @@ impl AccessDefinition {
                     && spawner.id.len() < 128
                     && spawner.position.iter().all(|value| value.is_finite())
                     && spawner.yaw.is_finite()
-                    && spawner.desired_origin.is_none_or(|point| point.iter().all(|value| value.is_finite()))
-                    && content.enemies.iter().any(|enemy| enemy.archetype == spawner.archetype)
+                    && spawner
+                        .desired_origin
+                        .is_none_or(|point| point.iter().all(|value| value.is_finite()))
+                    && content
+                        .enemies
+                        .iter()
+                        .any(|enemy| enemy.archetype == spawner.archetype)
             })
             && self.entrances.iter().all(|entrance| {
                 entrance.position.iter().all(|value| value.is_finite())
-                    && content.navigation_nodes.iter().any(|node| node.id == entrance.node && node.native.is_some_and(|native| native.r#type == 17))
+                    && content.navigation_nodes.iter().any(|node| {
+                        node.id == entrance.node
+                            && node.native.is_some_and(|native| native.r#type == 17)
+                    })
             })
             && self.doors.len() <= 256
             && self
@@ -561,6 +570,13 @@ impl Plugin for AccessPlugin {
                     .in_set(GameStep::Movement)
                     .after(crate::player::move_player)
                     .before(crate::environment::triggers::contacts)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                synchronize_client_modes
+                    .after(GameStep::PlayerLife)
+                    .before(GameStep::Rewards)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(

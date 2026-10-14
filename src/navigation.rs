@@ -58,15 +58,14 @@ pub struct Admission {
     pub yaw: f32,
     pub desired_origin: Option<Vec3>,
     pub activation: ZoneId,
-    node: usize,
 }
 #[derive(Resource, Default)]
 pub struct Navigation {
     nodes: Vec<Node>,
     edges: Vec<Vec<Edge>>,
-    incoming: Vec<Vec<(usize, usize)>>,
     spawns: Vec<Admission>,
     entrances: Vec<crate::access::SpawnEntranceDefinition>,
+    entrance_nodes: HashMap<ContentId, usize>,
     pub admissions: Vec<Admission>,
     cache: HashMap<(usize, usize), (Vec3, bool)>,
     order: VecDeque<(usize, usize)>,
@@ -407,17 +406,67 @@ impl Navigation {
             self.fallbacks += 1;
             return position;
         };
+        self.route(start, goal, target, access).0
+    }
+    pub(crate) fn entrance_destination(
+        &mut self,
+        position: Vec3,
+        entrance: &crate::access::SpawnEntranceDefinition,
+        access: &ZoneAccess,
+    ) -> Vec3 {
+        self.requests += 1;
+        let Some((start, goal)) = self
+            .nearest(position, access, true)
+            .zip(self.entrance_nodes.get(&entrance.node).copied())
+        else {
+            self.fallbacks += 1;
+            return position;
+        };
+        let (point, fallback) = self.route(start, goal, self.nodes[goal].point, access);
+        if fallback { position } else { point }
+    }
+    pub(crate) fn entrance_traversal(
+        &self,
+        position: Vec3,
+        entrance: &crate::access::SpawnEntranceDefinition,
+        access: &ZoneAccess,
+    ) -> Option<TraversalStep> {
+        let from = *self.entrance_nodes.get(&entrance.node)?;
+        if position.distance_squared(Vec3::from_array(entrance.position))
+            > (128. * 0.0254_f32).powi(2)
+        {
+            return None;
+        }
+        self.edges[from].iter().find_map(|edge| {
+            if matches!(edge.traversal, Traversal::Walk) || !self.allowed(from, edge, access) {
+                return None;
+            }
+            Some(TraversalStep {
+                start: self.nodes[from].point,
+                end: self.nodes[edge.to].point,
+                alias: edge.animation.clone()?,
+                yaw: edge.native.as_ref()?.1.start.yaw,
+            })
+        })
+    }
+    fn route(
+        &mut self,
+        start: usize,
+        goal: usize,
+        target: Vec3,
+        access: &ZoneAccess,
+    ) -> (Vec3, bool) {
         if start == goal {
             return if access.reachable.contains(&self.nodes[goal].zone) {
-                target
+                (target, false)
             } else {
-                self.nodes[start].point
+                (self.nodes[start].point, true)
             };
         }
         if let Some((point, fallback)) = self.cache.get(&(start, goal)).copied() {
             self.cache_hits += 1;
             self.fallbacks += u64::from(fallback);
-            return point;
+            return (point, fallback);
         }
         let mut costs = vec![f32::INFINITY; self.nodes.len()];
         let mut previous = vec![usize::MAX; self.nodes.len()];
@@ -470,7 +519,7 @@ impl Navigation {
         }
         self.cache.insert((start, goal), (point, fallback));
         self.order.push_back((start, goal));
-        point
+        (point, fallback)
     }
     pub fn traversal(
         &self,
@@ -741,13 +790,6 @@ fn refresh(
             nav.edges[from].push(edge);
             nav.rejected_links += usize::from(!ready);
         }
-        let mut incoming = vec![Vec::new(); count];
-        for (from, edges) in nav.edges.iter().enumerate() {
-            for (ordinal, edge) in edges.iter().enumerate() {
-                incoming[edge.to].push((from, ordinal));
-            }
-        }
-        nav.incoming = incoming;
         for spawn in &definition.access.spawns {
             nav.spawns.push(Admission {
                 position: Vec3::from_array(spawn.position),
@@ -757,10 +799,17 @@ fn refresh(
                 yaw: spawn.yaw,
                 desired_origin: spawn.desired_origin.map(Vec3::from_array),
                 activation: spawn.zone.clone(),
-                node: usize::MAX,
             });
         }
         nav.entrances = definition.access.entrances.clone();
+        nav.entrance_nodes = nav
+            .entrances
+            .iter()
+            .filter_map(|entrance| {
+                ids.get(&entrance.node)
+                    .map(|&index| (entrance.node.clone(), index))
+            })
+            .collect();
         info!(
             "Native navigation: {} nodes, {} links, {} spawn projections; {} rejected nodes, {} rejected links; geometry admission in {:.3}s",
             nav.node_count(),
@@ -796,46 +845,19 @@ fn refresh(
         return;
     }
     nav.player_node = node;
-    let Some(start) = node else {
+    if node.is_none() {
         nav.admissions.clear();
         return;
-    };
-    let _admissions = bevy::log::info_span!("navigation_spawn_admission").entered();
-    let mut reachable = vec![false; nav.nodes.len()];
-    let mut work = vec![start];
-    reachable[start] = true;
-    while let Some(to) = work.pop() {
-        for &(from, ordinal) in &nav.incoming[to] {
-            if !reachable[from] && nav.allowed(from, &nav.edges[from][ordinal], &access) {
-                reachable[from] = true;
-                work.push(from);
-            }
-        }
     }
+    let _admissions = bevy::log::info_span!("navigation_spawn_admission").entered();
     nav.admissions = nav
         .spawns
         .iter()
-        .filter_map(|s| {
-            if !access.active.contains(&s.activation) {
-                return None;
-            }
-            let (node, n) = nav
-                .nodes
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| reachable[*i])
-                .min_by(|(_, a), (_, b)| {
-                    a.point
-                        .distance_squared(s.position)
-                        .total_cmp(&b.point.distance_squared(s.position))
-                })?;
-            if n.point.distance_squared(s.position) > 100. {
-                return None;
-            }
-            let mut admission = s.clone();
-            admission.node = node;
-            Some(admission)
+        .filter(|spawn| {
+            access.active.contains(&spawn.activation)
+                && access.reachable.contains(&spawn.activation)
         })
+        .cloned()
         .collect();
 }
 fn clear_shape(
@@ -978,6 +1000,62 @@ mod tests {
         assert_eq!(
             navigation.destination(Vec3::ZERO, Vec3::X, &access),
             Vec3::X
+        );
+    }
+
+    #[test]
+    fn exterior_entrance_routes_to_authored_begin_without_reverse_or_closed_paths() {
+        let mut access = ZoneAccess::default();
+        access.reachable.insert(ZoneId("zone.start".into()));
+        let entrance = crate::access::SpawnEntranceDefinition {
+            node: ContentId("node.entrance".into()),
+            position: Vec3::X.to_array(),
+        };
+        let mut navigation = Navigation::default();
+        navigation.nodes = vec![
+            node(Vec3::ZERO, 1, 0),
+            node(Vec3::X, 1, 0),
+            node(Vec3::X * 2., 17, 0),
+        ];
+        navigation.entrance_nodes.insert(entrance.node.clone(), 2);
+        navigation.edges = vec![
+            vec![Edge {
+                to: 2,
+                traversal: Traversal::Walk,
+                animation: None,
+                blockers: Vec::new(),
+                ready: true,
+                cost: 2.,
+                native: None,
+            }],
+            Vec::new(),
+            Vec::new(),
+        ];
+        assert_eq!(
+            navigation.entrance_destination(Vec3::ZERO, &entrance, &access),
+            Vec3::X * 2.
+        );
+        navigation.edges.swap(0, 2);
+        navigation.edges[2][0].to = 0;
+        navigation.invalidate();
+        assert_eq!(
+            navigation.entrance_destination(Vec3::ZERO, &entrance, &access),
+            Vec3::ZERO
+        );
+        navigation.edges.swap(0, 2);
+        navigation.edges[0][0].to = 2;
+        let gate = ContentId("connection.closed".into());
+        navigation.edges[0][0].blockers.push(gate.clone());
+        navigation.invalidate();
+        assert_eq!(
+            navigation.entrance_destination(Vec3::ZERO, &entrance, &access),
+            Vec3::ZERO
+        );
+        access.open.insert(gate);
+        navigation.invalidate();
+        assert_eq!(
+            navigation.entrance_destination(Vec3::ZERO, &entrance, &access),
+            Vec3::X * 2.
         );
     }
 }
