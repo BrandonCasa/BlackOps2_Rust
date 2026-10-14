@@ -187,6 +187,11 @@ def initial_combat(client, report, game, output):
     check(report, 'initial_frag_preserves_source_fuse', len(launches) == len(detonations) == 1
           and math.isclose(detonations[0]['flight_seconds'], launches[0]['fuse'],
                            abs_tol=2 * before['fixed_delta_seconds']), events=events)
+    explode_alias = game['audio']['bindings']['weapon.frag_grenade_zm.explode']
+    heard = client.until(lambda s: s['audio']['sinks'].get(explode_alias, 0)
+                         > before['audio']['sinks'].get(explode_alias, 0), timeout=10)
+    check(report, 'initial_frag_creates_native_explosion_audio_sink', True,
+          alias=explode_alias, sinks=heard['audio']['sinks'])
     report['initial_combat_presentation'] = {'audio': blast['audio'],
                                             'animations': client.call('origins/animations'),
                                             'capture': ui.capture(client, output, 'initial-combat')}
@@ -424,18 +429,22 @@ def initial_revive(client, report, game, output):
     check(report, 'initial_purchased_revive_admits_native_downed_state',
           downed['player']['trigger_client_mode'] == 7
           and not downed['player']['perks'] and downed['session']['downs'] == 1
+          and math.isclose(downed['player']['height'], game['solo_revive']['downed_height'], abs_tol=1e-4)
+          and math.isclose(downed['player']['eye_height'], game['solo_revive']['downed_eye'], abs_tol=1e-4)
           and any(w['id'] == game['solo_revive']['downed_weapon'] for w in downed['player']['weapons']),
           downed=downed['player'])
     client.until(lambda s: s['player']['life'] == 'Downed' and s['player']['action'] == 'Ready')
     normal_action(client, 'fire')
-    fired = client.state()
+    fired = client.until(lambda s: s['session']['shots'] > downed['session']['shots'])
     check(report, 'initial_downed_pistol_fires_from_input', fired['session']['shots'] > downed['session']['shots'],
           before=downed['player'], after=fired['player'])
     revived = client.until(lambda s: s['player']['life'] == 'Standing'
                            and s['player']['solo_charges'] == 0, timeout=30)
-    elapsed = (revived['fixed_tick'] - downed['fixed_tick']) * revived['fixed_delta_seconds']
+    event = next(event for event in reversed(revived['solo_revive_evidence']['events'])
+                 if event.get('event') == 'revived' and event['target'] == downed['player']['entity'])
+    elapsed = event['seconds']
     check(report, 'initial_purchased_quick_revive_recovers_on_source_schedule',
-          abs(elapsed - game['solo_revive']['seconds']) <= .2
+          abs(elapsed - game['solo_revive']['seconds']) <= 2 * revived['fixed_delta_seconds']
           and revived['player']['trigger_client_mode'] == 0
           and revived['player']['health'] == game['player_health']['maximum']
           and not revived['player']['perks'], elapsed=elapsed, player=revived['player'])
