@@ -231,6 +231,8 @@ pub(super) fn read(
         "wait 0.05;",
         "newhealth = 1;",
         "self startfadingblur( 3, 0.8 );",
+        "self setnormalhealth( 2 / self.maxhealth );",
+        "invulworthyhealthdrop = 1;",
     ] {
         if !health.contains(expression) {
             return Err(

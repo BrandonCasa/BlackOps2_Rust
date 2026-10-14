@@ -82,7 +82,7 @@ impl Recovery {
         self.step = 0.;
         self.just_hurt = true;
         self.feedback = ((before - after) as f32 / maximum as f32).clamp(0., 1.);
-        if self.last_immune_ratio - ratio > profile.worthy_damage_ratio {
+        if after <= 1 || self.last_immune_ratio - ratio > profile.worthy_damage_ratio {
             self.immunity = if entered {
                 profile.immunity_critical_enter
             } else if self.critical {
@@ -176,6 +176,15 @@ fn regenerate(
             recovery.last_immune_ratio = 1.;
             recovery.step = 0.;
             continue;
+        }
+        if health.current() == Some(1) && recovery.age >= profile.critical_step_seconds {
+            if health.regenerate(1).is_ok_and(|healed| healed > 0) {
+                recovery.last_immune_ratio = 2. / health.maximum() as f32;
+                if evidence.heals.len() < 128 {
+                    evidence.heals.push(serde_json::json!({"target":entity.to_bits(),"before":1,"after":health.current(),
+                        "since_hit":recovery.age,"critical":recovery.critical,"kind":"damage_floor","state":format!("{:?}",health.state())}));
+                }
+            }
         }
         let delay = if recovery.critical {
             profile.critical_delay
