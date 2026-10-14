@@ -196,6 +196,7 @@ pub(super) fn valid(triggers: &[TriggerDefinition]) -> bool {
                             | "trigger_once"
                             | "trigger_use"
                             | "trigger_use_touch"
+                            | "trigger_box_use"
                             | "trigger_radius_use"
                             | "trigger_damage"
                             | "trigger_box"
@@ -408,6 +409,8 @@ impl TriggerState {
                 } else {
                     0
                 }
+        } else if class == "trigger_box_use" {
+            contact_contents(spawnflags) | 0x200000
         } else if matches!(
             class,
             "trigger_use" | "trigger_use_touch" | "trigger_radius_use"
@@ -855,6 +858,39 @@ mod tests {
         };
         assert!(use_trigger.accepts_actor(&use_actor, Some(0)));
         assert!(!use_trigger.accepts_contact(&use_actor, Some(0)));
+    }
+
+    #[test]
+    fn source_unitrigger_box_uses_centered_geometry_without_automatic_touch_activation() {
+        let source: TriggerDefinition = serde_json::from_value(serde_json::json!({
+            "id":"trigger.generator_start_bunker.use", "position":[0.,0.,0.],
+            "source":{"classname":"trigger_box_use"},
+            "shape":{"kind":"convex","volumes":[{
+                "id":"trigger.generator_start_bunker.use.volume", "position":[0.,0.,0.],
+                "vertices":(0..8).map(|corner| [
+                    if corner & 1 == 0 {-1.} else {1.},
+                    if corner & 2 == 0 {-1.} else {1.},
+                    if corner & 4 == 0 {-1.} else {1.}
+                ]).collect::<Vec<_>>()
+            }]}
+        }))
+        .unwrap();
+        assert!(valid(std::slice::from_ref(&source)));
+        let bounds = source
+            .collider()
+            .unwrap()
+            .aabb(Vec3::ZERO, Quat::IDENTITY, 0.);
+        assert_eq!(bounds.min, Vec3::splat(-1.));
+        assert_eq!(bounds.max, Vec3::ONE);
+        let state = TriggerState::from_definition(&source);
+        assert_eq!(state.contents, 0x40200000);
+        let actor = TriggerActor {
+            contact_mask: 0x200000,
+            ..default()
+        };
+        assert!(state.accepts_actor(&actor, Some(0)));
+        assert!(!state.accepts_contact(&TriggerActor::default(), Some(0)));
+        assert!(!state.automatic);
     }
 
     #[test]

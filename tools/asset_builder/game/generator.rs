@@ -40,6 +40,10 @@ pub(super) fn read(
         "s_unitrigger_stub.script_length = 128;",
         "s_unitrigger_stub.script_width = 128;",
         "s_unitrigger_stub.script_height = 128;",
+        "s_unitrigger_stub.origin = self.origin;",
+        "s_unitrigger_stub.angles = self.angles;",
+        "s_unitrigger_stub.script_unitrigger_type = \"unitrigger_box_use\";",
+        "s_unitrigger_stub.require_look_at = 1;",
         "return 200 * get_players().size;",
         "level.zone_capture.rate_capture_solo = get_update_rate( 12 );",
         "level.zone_capture.rate_decay = get_update_rate( 20 ) * -1;",
@@ -149,6 +153,11 @@ pub(super) fn read(
     let utility = source("source/server-tomb/maps/mp/zm_tomb_utility.gsc")?;
     let powerups = source("source/server-patch/maps/mp/zombies/_zm_powerups.gsc")?;
     if !utility.contains("reward_powerup_double_points, -1")
+        || !challenges.contains("s_unitrigger_stub.origin = self.origin + ( 0, 0, 0 );")
+        || !challenges.contains("s_unitrigger_stub.angles = self.angles;")
+        || !challenges.contains("s_unitrigger_stub.script_height = 64;")
+        || !challenges
+            .contains("s_unitrigger_stub.script_unitrigger_type = \"unitrigger_box_use\";")
         || !challenges.contains("s_unitrigger_stub.script_length = 64;")
         || !challenges.contains("s_unitrigger_stub.radius = 64;")
         || !powerups.contains("set_zombie_var( \"zombie_powerup_point_doubler_time\", 30,")
@@ -504,7 +513,11 @@ pub(super) fn prepare(
                 } else {
                     size * 0.5
                 },
-                if corner & 2 == 0 { 0. } else { size },
+                if corner & 2 == 0 {
+                    -size * 0.5
+                } else {
+                    size * 0.5
+                },
                 if corner & 4 == 0 {
                     -size * 0.5
                 } else {
@@ -536,7 +549,11 @@ pub(super) fn prepare(
             } else {
                 32. * 0.0254
             };
-            let y = if corner & 2 == 0 { 0. } else { 64. * 0.0254 };
+            let y = if corner & 2 == 0 {
+                -32. * 0.0254
+            } else {
+                32. * 0.0254
+            };
             let z = if corner & 4 == 0 {
                 -32. * 0.0254
             } else {
