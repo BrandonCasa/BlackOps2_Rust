@@ -143,6 +143,25 @@ impl GameInput {
     }
 }
 
+pub(crate) fn reset(world: &mut World) {
+    world.resource_scope(|world, mut actions: Mut<Actions>| {
+        actions.settings = world.resource::<ControlSettings>().clone();
+        actions.reset(
+            world.resource::<ButtonInput<KeyCode>>(),
+            world.resource::<ButtonInput<MouseButton>>(),
+            false,
+        );
+    });
+    world.resource_mut::<GameInput>().clear();
+    world.resource_mut::<ButtonInput<KeyCode>>().clear();
+    world.resource_mut::<ButtonInput<MouseButton>>().clear();
+    world.resource_mut::<Messages<KeyboardInput>>().clear();
+    world.resource_mut::<Messages<MouseButtonInput>>().clear();
+    world.resource_mut::<Messages<MouseMotion>>().clear();
+    world.resource_mut::<Messages<MouseWheel>>().clear();
+    menu::reset(world);
+}
+
 pub struct GameInputPlugin;
 #[derive(Message)]
 pub struct RestartGame;
@@ -373,6 +392,7 @@ pub(crate) fn pause_and_restart(
     if options.flythrough {
         return;
     }
+    let requested = restart.read().count() > 0;
     if menu.capturing.is_none()
         && !menu.handled_input
         && (keys.just_pressed(KeyCode::Escape)
@@ -392,8 +412,7 @@ pub(crate) fn pause_and_restart(
         next.set(GameState::Paused);
     }
     if **state == GameState::GameOver
-        && (settings.just_pressed(Action::Restart, &keys, &mouse)
-            || restart.read().next().is_some())
+        && (settings.just_pressed(Action::Restart, &keys, &mouse) || requested)
     {
         commands.queue(crate::session::teardown);
         next.set(GameState::PreparingShaders);
@@ -412,6 +431,70 @@ pub(crate) fn pause_and_restart(
         }
         if cursor.visible == capture {
             cursor.visible = !capture;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_reset_discards_actions_and_buffers_until_held_buttons_are_released() {
+        let mut world = World::new();
+        world.init_resource::<Actions>();
+        world.init_resource::<GameInput>();
+        world.init_resource::<ControlSettings>();
+        world.init_resource::<menu::ControlMenu>();
+        world.init_resource::<ButtonInput<KeyCode>>();
+        world.init_resource::<ButtonInput<MouseButton>>();
+        world.init_resource::<Messages<KeyboardInput>>();
+        world.init_resource::<Messages<MouseButtonInput>>();
+        world.init_resource::<Messages<MouseMotion>>();
+        world.init_resource::<Messages<MouseWheel>>();
+        world.resource_mut::<ControlSettings>().crouch_mode = PressMode::Toggle;
+        world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyW);
+        world
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        {
+            let mut actions = world.resource_mut::<Actions>();
+            actions.event(Binding::Key(KeyCode::KeyW), true);
+            actions.event(Binding::Key(KeyCode::ControlLeft), true);
+            actions.event(Binding::Mouse(MouseButton::Left), true);
+        }
+        world.resource_mut::<GameInput>().fire = true;
+        world.resource_mut::<GameInput>().movement = Vec2::Y;
+        world.write_message(MouseMotion { delta: Vec2::ONE });
+
+        reset(&mut world);
+
+        assert_eq!(world.resource::<GameInput>().movement, Vec2::ZERO);
+        assert!(!world.resource::<GameInput>().fire);
+        assert!(world.resource::<Messages<MouseMotion>>().is_empty());
+        assert!(
+            !world
+                .resource::<ButtonInput<KeyCode>>()
+                .just_pressed(KeyCode::KeyW)
+        );
+        assert!(
+            world
+                .resource::<ButtonInput<KeyCode>>()
+                .pressed(KeyCode::KeyW)
+        );
+        let mut actions = world.resource_mut::<Actions>();
+        assert!(!actions.active(Action::Crouch));
+        for (binding, action) in [
+            (Binding::Key(KeyCode::KeyW), Action::Forward),
+            (Binding::Mouse(MouseButton::Left), Action::Fire),
+        ] {
+            actions.event(binding, true);
+            assert!(!actions.active(action));
+            actions.event(binding, false);
+            actions.event(binding, true);
+            assert!(actions.active(action));
         }
     }
 }

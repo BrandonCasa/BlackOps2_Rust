@@ -189,11 +189,21 @@ pub(super) fn install(app: &mut App) {
     if !remote {
         app.add_systems(
             Update,
-            navigate.before(rebuild).run_if(in_state(GameState::Paused)),
+            navigate
+                .before(rebuild)
+                .before(crate::frontend::ApplyFrontendActions)
+                .run_if(in_state(GameState::Paused)),
         );
     }
 }
 fn open(mut menu: ResMut<ControlMenu>) {
+    *menu = ControlMenu {
+        revision: menu.revision.wrapping_add(1),
+        ..default()
+    };
+}
+pub(super) fn reset(world: &mut World) {
+    let mut menu = world.resource_mut::<ControlMenu>();
     *menu = ControlMenu {
         revision: menu.revision.wrapping_add(1),
         ..default()

@@ -70,6 +70,9 @@ struct FrontendButton(FrontendAction, usize);
 #[derive(Resource, Default)]
 struct FrontendSelection(usize);
 
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ApplyFrontendActions;
+
 pub struct FrontendPlugin;
 
 impl Plugin for FrontendPlugin {
@@ -78,7 +81,15 @@ impl Plugin for FrontendPlugin {
             .init_resource::<FrontendSelection>()
             .add_message::<FrontendAction>()
             .add_observer(buttons)
-            .add_systems(Update, (shortcuts, apply_actions, selection).chain())
+            .add_systems(
+                Update,
+                (
+                    shortcuts,
+                    apply_actions.in_set(ApplyFrontendActions),
+                    selection,
+                )
+                    .chain(),
+            )
             .add_systems(OnEnter(GameState::MainMenu), show)
             .add_systems(OnEnter(GameState::LoadError), show)
             .add_systems(OnEnter(GameState::GameOver), show)
@@ -166,10 +177,10 @@ fn show(
                         font_size: FontSize::Px(24.),
                         ..default()
                     },
-                    rect(110., 120., 900., 400.),
+                    rect(110., 92., 1040., 430.),
                 ));
             }
-            if **state != GameState::GameOver {
+            if !matches!(**state, GameState::GameOver | GameState::LoadError) {
                 if let Some(game) = &game {
                     parent.spawn((
                         native::image(game, &server, "menu_zm_map_tomb"),
@@ -189,7 +200,7 @@ fn show(
                     parent.spawn((NativeText::new("STARTING AREA - ROUNDS 1 THROUGH 5\nLater Origins content is unavailable in this build.",18.),rect(110.,218.,540.,44.)));
                 }
             }
-            let y = if **state == GameState::GameOver {
+            let y = if matches!(**state, GameState::GameOver | GameState::LoadError) {
                 558.
             } else {
                 264.
@@ -204,10 +215,21 @@ fn show(
                         BackgroundColor(Color::NONE),
                     ))
                     .with_children(|button| {
-                        button.spawn((
-                            NativeText::new(label.to_uppercase(), 27.),
-                            rect(10., 0., 460., 34.),
-                        ));
+                        if **state == GameState::LoadError {
+                            button.spawn((
+                                Text::new(label.to_uppercase()),
+                                TextFont {
+                                    font_size: FontSize::Px(27.),
+                                    ..default()
+                                },
+                                rect(10., 0., 460., 34.),
+                            ));
+                        } else {
+                            button.spawn((
+                                NativeText::new(label.to_uppercase(), 27.),
+                                rect(10., 0., 460., 34.),
+                            ));
+                        }
                     });
             }
             parent.spawn((
@@ -343,7 +365,8 @@ fn apply_actions(
                 next.set(GameState::MainMenu);
             }
             FrontendAction::RetryLoad if **state == GameState::LoadError => {
-                next.set(GameState::Loading)
+                commands.queue(crate::session::teardown);
+                next.set(GameState::Loading);
             }
             FrontendAction::Exit => {
                 exit.write(AppExit::Success);

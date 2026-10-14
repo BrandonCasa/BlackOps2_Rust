@@ -61,7 +61,7 @@ fn initialize(world: &mut World) {
         difficulty: *world.resource::<crate::frontend::Difficulty>(),
         character: definition.audio.character,
         pending: definition.rounds.population(1),
-        spawn_timer: Timer::from_seconds(definition.rounds.first_spawn_seconds, TimerMode::Once),
+        spawn_timer: Timer::from_seconds(definition.rounds.initial_spawn_seconds, TimerMode::Once),
         ..default()
     };
     if world
@@ -93,6 +93,7 @@ fn initialize(world: &mut World) {
     world.insert_resource(crate::environment::digging::Digging::default());
     world.insert_resource(crate::environment::support::EnvironmentEvidence::default());
     world.insert_resource(crate::movement::MovementEvidence::default());
+    world.insert_resource(crate::equipment::EquipmentEvidence::default());
 }
 
 pub(crate) fn teardown(world: &mut World) {
@@ -135,13 +136,15 @@ pub(crate) fn teardown(world: &mut World) {
         .resource_mut::<crate::life::LifeCommandResults>()
         .drain()
         .for_each(drop);
+    crate::solo_revive::reset(world);
+    crate::enemies::reset(world);
     world.resource_mut::<crate::damage::DamageQueue>().0.clear();
     world
         .resource_mut::<crate::equipment::BlastQueue>()
         .0
         .clear();
     world.insert_resource(crate::interactions::InteractionFocus::default());
-    world.insert_resource(crate::input::GameInput::default());
+    crate::input::reset(world);
     world.insert_resource(crate::player::TickActions::default());
     world.insert_resource(crate::access::CurrentZone::default());
     world.insert_resource(crate::access::PlayerZoneContacts::default());
@@ -156,6 +159,7 @@ pub(crate) fn teardown(world: &mut World) {
     clear::<crate::movement::Landing>(world);
     clear::<crate::environment::Footstep>(world);
     clear::<crate::input::RestartGame>(world);
+    clear::<crate::frontend::FrontendAction>(world);
     world.insert_resource(crate::lures::Attractions::default());
     clear::<crate::rounds::RoundStarted>(world);
     clear::<crate::rounds::RoundEnding>(world);
