@@ -687,7 +687,7 @@ pub(super) fn prepare(
             &MeshMaterial3d<StandardMaterial>,
             &GltfMaterialExtras,
         ),
-        Without<PbrReady>,
+        (Without<PbrReady>, Without<crate::assets::WorldCollider>),
     >,
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
