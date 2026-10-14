@@ -91,6 +91,30 @@ fn native_bounds(
     }
 }
 
+fn character_inputs(
+    game: Res<GameDefinition>,
+    mut actors: Query<(&Zombie, &mut crate::rendering::NativeArtInputs)>,
+) {
+    if game.delivery_scope != crate::origins::DeliveryScope::FirstPlayableSolo {
+        return;
+    }
+    for (zombie, mut inputs) in &mut actors {
+        if !game.content.enemies.iter().any(|enemy| {
+            enemy.id == zombie.definition
+                && enemy.physics.is_some()
+                && matches!(enemy.family.as_str(), "german" | "capture")
+        }) {
+            continue;
+        }
+        for vector in [0, 3] {
+            if inputs.script_available & (1 << vector) == 0 {
+                inputs.script_vectors[vector] = [0.; 4];
+                inputs.script_available |= 1 << vector;
+            }
+        }
+    }
+}
+
 #[derive(Component)]
 #[require(
     RigidBody::Kinematic,
@@ -511,7 +535,7 @@ impl Plugin for EnemyPlugin {
         app.init_resource::<EnemyEvidence>()
             .add_systems(
                 Update,
-                eyes::update
+                (character_inputs, eyes::update).chain()
                     .after(crate::rendering::opaque::advance_native_time)
                     .before(crate::rendering::SurfacePreparation)
                     .run_if(in_state(GameState::Playing)),
