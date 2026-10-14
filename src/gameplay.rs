@@ -160,7 +160,10 @@ pub(crate) fn combat(
     mut hit_evidence: ResMut<crate::hit_regions::HitEvidence>,
     mut firing_evidence: ResMut<crate::perks::FiringEvidence>,
     mut reloads: MessageWriter<crate::perk_effects::ReloadEvent>,
-    environmental: crate::environment::support::ShootableTargets,
+    (environmental, trigger_targets): (
+        crate::environment::support::ShootableTargets,
+        crate::environment::support::DamageTriggerTargets,
+    ),
     surfaces: crate::hit_regions::PenetrationSurfaces,
     mut environment_hits: MessageWriter<crate::environment::support::EnvironmentalHit>,
 ) {
@@ -412,6 +415,27 @@ pub(crate) fn combat(
                     weapon.map_or(0., |w| w.mechanics.penetration),
                 )
             };
+            let category = if melee {
+                crate::origins::DamageCategory::Melee
+            } else {
+                weapon.map_or(crate::origins::DamageCategory::Bullet, |w| w.category)
+            };
+            let native_mod = crate::environment::support::weapon_damage_mod(weapon, melee);
+            crate::environment::support::trace_damage(
+                &trigger_targets,
+                &query,
+                &mut environment_hits,
+                entity,
+                &weapon_id,
+                category,
+                native_mod,
+                damage,
+                origin,
+                direction,
+                actor_hits
+                    .first()
+                    .map_or(if melee { 2.2 } else { 100. }, |(hit, _)| hit.hit.distance),
+            );
             if let Some((target, distance)) = crate::environment::support::cast(
                 &environmental,
                 &query,
@@ -427,6 +451,8 @@ pub(crate) fn combat(
                     target,
                     attacker: entity,
                     weapon: weapon_id.clone(),
+                    category,
+                    native_mod,
                     amount: weapon.map_or(damage, |w| {
                         crate::weapons::damage_at(w, distance, crate::weapons::HitRegion::Torso)
                     }),

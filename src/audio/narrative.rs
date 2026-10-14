@@ -42,9 +42,11 @@ struct Narrative {
     pools: BTreeMap<String, Vec<String>>,
     encourage_after: f32,
     clock: f32,
+    pap_discovered: BTreeSet<Entity>,
 }
 pub(super) fn install(app: &mut App) {
     app.init_resource::<Narrative>()
+        .add_observer(discover_pap)
         .add_message::<NarrativeProgress>()
         .add_message::<RobotPurgeReady>()
         .add_systems(OnEnter(GameState::PreparingShaders), reset)
@@ -54,6 +56,79 @@ pub(super) fn install(app: &mut App) {
                 .after(GameStep::Rounds)
                 .run_if(in_state(GameState::Playing)),
         );
+}
+
+fn discover_pap(
+    event: On<crate::environment::triggers::TriggerActivated>,
+    mut state: ResMut<Narrative>,
+    game: Res<GameDefinition>,
+    mut session: ResMut<Session>,
+    reservation: Res<StoryReservation>,
+    players: Query<(Entity, &Player, &Transform)>,
+    triggers: Query<&crate::environment::triggers::MapTrigger>,
+    sounds: Query<&PlayingSound>,
+) {
+    if state.pap_discovered.contains(&event.activator) || reservation.0.is_some() {
+        return;
+    }
+    let Ok(trigger) = triggers.get(event.trigger) else {
+        return;
+    };
+    let Some(source) = game.environment.triggers.iter().find(|source| {
+        source.id == trigger.0
+            && source
+                .source
+                .get("targetname")
+                .is_some_and(|name| name == "pack_a_punch_intro_trigger")
+    }) else {
+        return;
+    };
+    let Some(target) = source.target_position.map(Vec3::from_array) else {
+        return;
+    };
+    let Ok((speaker, player, pose)) = players.get(event.activator) else {
+        return;
+    };
+    let origin = pose.translation - Vec3::Y * player.height * 0.5;
+    let direction = Vec3::new(
+        -player.yaw.sin() * player.pitch.cos(),
+        player.pitch.sin(),
+        -player.yaw.cos() * player.pitch.cos(),
+    );
+    if direction.dot((target - origin).normalize_or_zero()) <= 0.8
+        || sounds.iter().any(|sound| {
+            sound.channel == Channel::Dialogue
+                && matches!(sound.source, SoundSource::Entity { entity, .. } if entity == speaker)
+        })
+    {
+        return;
+    }
+    if category(
+        &mut state,
+        &game,
+        &mut session,
+        "pap_discovered",
+        SoundSource::attached(speaker),
+        None,
+    ) {
+        for (entity, _, location) in &players {
+            if location.translation.distance(pose.translation) < 800. * 0.0254 {
+                state.pap_discovered.insert(entity);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+
+    #[test]
+    fn environment_trigger_discovery_observer_access() {
+        let mut world = World::new();
+        world.add_observer(discover_pap);
+        world.flush();
+    }
 }
 fn reset(mut commands: Commands, mut state: ResMut<Narrative>) {
     *state = default();

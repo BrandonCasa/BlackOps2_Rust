@@ -274,9 +274,11 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
             for brush_index in indices {
                 if brush_index >= brush_count { return Err(format!("Native collision submodel {index} brush {brush_index} exceeds ClipInfo brush count {brush_count}").into()); }
                 let entry = model_brushes.ok_or("Native collision submodel has no brushes")?.add(brush_index * 96)?;
-                let (vertices, _) = brush_geometry(streams, entry)?;
+                let (vertices, planes) = brush_geometry(streams, entry)?;
                 let vertices: Vec<_> = vertices.into_iter().map(|[x,y,z]| [x*0.0254,z*0.0254,-y*0.0254]).collect();
-                volumes.push(json!({"native_brush":brush_index,"contents":streams.u32(entry.add(12)?)?,"vertices":vertices}));
+                let surface_flags: Vec<_> = planes.iter().map(|(_,_,flags)| *flags).collect();
+                volumes.push(json!({"native_brush":brush_index,"contents":streams.u32(entry.add(12)?)?,
+                    "surface_flags":surface_flags,"vertices":vertices}));
                 if model_brushes == Some(world_brushes) { dynamic.insert(brush_index); }
             }
             let minimum = vector(streams, model)?;

@@ -245,7 +245,7 @@ fn setup(
         Collider::cuboid(80. * 0.0254, 150. * 0.0254, 64. * 0.0254),
         Sensor,
         CollisionLayers::new(crate::environment::triggers::TRIGGER_LAYER, LayerMask::NONE),
-        Transform::from_translation(Vec3::new(-493., 389. + 75., 198.) * 0.0254),
+        Transform::from_translation(Vec3::new(-493., 389., 198.) * 0.0254),
     ));
     access.activated.extend(
         game.content

@@ -123,7 +123,8 @@ pub(super) fn observe(
         }
         visuals += root.visual_meshes;
         if root.visual_meshes != source.visual_meshes
-            || collider.is_some() != !source.volumes.is_empty()
+            || collider.is_some()
+                != (!source.volumes.is_empty() || !source.triangle_shapes.is_empty())
         {
             errors.push(format!("Wrong brush mesh/hull closure {}", root.id));
         }
@@ -132,7 +133,14 @@ pub(super) fn observe(
         }
         for volume in &source.volumes {
             interiors += 1;
-            let point = pose.transform_point(Vec3::from_array(volume.position));
+            let center = volume
+                .vertices
+                .iter()
+                .copied()
+                .map(Vec3::from_array)
+                .sum::<Vec3>()
+                / volume.vertices.len() as f32;
+            let point = pose.transform_point(Vec3::from_array(volume.position) + center);
             let touching = query
                 .shape_intersections(&probe, point, Quat::IDENTITY, &filter)
                 .contains(&entity);
@@ -147,7 +155,28 @@ pub(super) fn observe(
                 errors.push(format!("Missing brush hull {}", volume.id));
             }
         }
-        if !source.volumes.is_empty() {
+        for shape in &source.triangle_shapes {
+            for indices in &shape.indices {
+                interiors += 1;
+                let center = indices
+                    .iter()
+                    .map(|&index| Vec3::from_array(shape.vertices[index as usize]))
+                    .sum::<Vec3>()
+                    / 3.;
+                let touching = query
+                    .shape_intersections(
+                        &probe,
+                        pose.transform_point(center),
+                        Quat::IDENTITY,
+                        &filter,
+                    )
+                    .contains(&entity);
+                if touching == (is_ice_tile && disabled) {
+                    errors.push(format!("Wrong brush triangle touching {}", shape.id));
+                }
+            }
+        }
+        if collider.is_some() {
             outside += 1;
             let max = source
                 .volumes
@@ -157,6 +186,12 @@ pub(super) fn observe(
                         .iter()
                         .map(|p| Vec3::from_array(v.position) + Vec3::from_array(*p))
                 })
+                .chain(
+                    source
+                        .triangle_shapes
+                        .iter()
+                        .flat_map(|shape| shape.vertices.iter().copied().map(Vec3::from_array)),
+                )
                 .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
             if query
                 .shape_intersections(

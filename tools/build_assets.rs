@@ -147,7 +147,13 @@ fn execute() -> Result<()> {
         Some("material" | "model") if args.len() == 4 && args[2] == "--output" =>
             source::build(&source::installation()?, Path::new(&args[3]), Some(&args[1])),
         Some("check") if args.len() == 2 => check(Path::new(&args[1])),
-        _ => Err("Usage: build_assets build --output PATH/origins.pack | build_assets check PATH/origins.pack | build_assets material NAME --output PATH.pack | build_assets model NAME --output PATH.pack".into()),
+        Some("triggers") if args.len() == 1 => {
+            let zones = source::read_zones(&source::installation()?)?;
+            let catalog = convert::Catalog::new(&zones);
+            let entities = entities::read(&catalog)?;
+            game::check_triggers(&catalog,&entities)
+        }
+        _ => Err("Usage: build_assets build --output PATH/origins.pack | build_assets check PATH/origins.pack | build_assets triggers | build_assets material NAME --output PATH.pack | build_assets model NAME --output PATH.pack".into()),
     }
 }
 

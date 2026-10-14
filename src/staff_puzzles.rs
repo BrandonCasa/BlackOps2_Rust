@@ -1246,7 +1246,10 @@ fn fire(
     game: Res<crate::assets::GameDefinition>,
     server: Res<AssetServer>,
     spatial: SpatialQuery,
-    volumes: Query<&crate::environment::triggers::MapTrigger>,
+    volumes: Query<(
+        &crate::environment::triggers::MapTrigger,
+        &crate::environment::triggers::TriggerState,
+    )>,
     players: Query<(Entity, &Transform, &WeaponInventory), With<Player>>,
     enemies: Query<(
         &Transform,
@@ -1327,6 +1330,8 @@ fn fire(
             )
             .iter()
             .filter_map(|e| volumes.get(*e).ok())
+            .filter(|(_, state)| state.enabled)
+            .map(|(volume, _)| volume)
             .any(|v| {
                 game.environment
                     .triggers

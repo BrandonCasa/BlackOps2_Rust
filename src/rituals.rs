@@ -124,7 +124,10 @@ fn track(
         ),
         With<crate::enemies::Zombie>,
     >,
-    volumes: Query<&crate::environment::triggers::MapTrigger>,
+    volumes: Query<(
+        &crate::environment::triggers::MapTrigger,
+        &crate::environment::triggers::TriggerState,
+    )>,
     query: SpatialQuery,
     game: Res<GameDefinition>,
     generators: Res<crate::generators::Generators>,
@@ -179,6 +182,8 @@ fn track(
             let inside = touched
                 .iter()
                 .filter_map(|e| volumes.get(*e).ok())
+                .filter(|(_, state)| state.enabled)
+                .map(|(volume, _)| volume)
                 .any(|volume| {
                     game.environment
                         .triggers

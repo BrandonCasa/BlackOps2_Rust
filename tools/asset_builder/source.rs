@@ -7,7 +7,7 @@ pub fn installation() -> Result<PathBuf> {
         .join("Steam/steamapps/common/Call of Duty Black Ops II"))
 }
 
-fn read_zones(install: &Path) -> Result<Vec<(String,native::Zone)>> {
+pub(crate) fn read_zones(install: &Path) -> Result<Vec<(String,native::Zone)>> {
     let authorized = installation()?.canonicalize()?;
     if install.canonicalize()? != authorized {
         return Err("Assets must be read directly from the authorized Steam installation".into());
@@ -164,7 +164,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
             world["atmosphere_uri"] = serde_json::json!(atmosphere_uri);
         }
     }
-    crate::game::write(game, &worlds, &collision, &mut pack)?;
+    crate::game::write(game, &entities, &worlds, &collision, &mut pack)?;
     let runtime = runtime(&pack, models, worlds, images, sounds)?;
     pack.entries.insert("prepared/runtime.json".into(), std::sync::Arc::new(serde_json::to_vec(&runtime)?));
     crate::validate_pack(&pack)?;

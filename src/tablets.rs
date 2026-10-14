@@ -16,8 +16,8 @@ pub struct Tablet {
     pub reclean: bool,
     reward_delay: f32,
 }
-#[derive(Component)]
-pub(crate) enum Target {
+#[derive(Clone, Copy)]
+enum Target {
     Bunker,
     Church,
 }
@@ -147,16 +147,6 @@ fn setup(
             sticky: false,
         });
     }
-    commands.spawn((
-        SessionEntity,
-        Target::Bunker,
-        Transform::from_translation(Vec3::new(-3.5814, -8.2296, -113.4618)),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Target::Church,
-        Transform::from_translation(Vec3::new(23.368, 9.0678, 67.056)),
-    ));
     let scene = game
         .content
         .presentations
@@ -196,7 +186,10 @@ fn track(
     mut deaths: MessageReader<crate::damage::EnemyDeath>,
     game: Res<crate::assets::GameDefinition>,
     spatial: SpatialQuery,
-    volumes: Query<&crate::environment::triggers::MapTrigger>,
+    volumes: Query<(
+        &crate::environment::triggers::MapTrigger,
+        &crate::environment::triggers::TriggerState,
+    )>,
     enemies: Query<&Transform, With<crate::enemies::Zombie>>,
     mut players: Query<(&mut Tablet, &Vitality, &crate::environment::TerrainMotion), With<Player>>,
     mut models: Query<(&TabletModel, &mut Visibility)>,
@@ -244,6 +237,8 @@ fn track(
             )
             .iter()
             .filter_map(|e| volumes.get(*e).ok())
+            .filter(|(_, state)| state.enabled)
+            .map(|(volume, _)| volume)
             .any(|v| {
                 game.environment
                     .triggers
@@ -297,7 +292,15 @@ pub(crate) fn interact(
     game: Res<crate::assets::GameDefinition>,
     spatial: SpatialQuery,
     mut progress: ResMut<TabletProgress>,
-    targets: Query<(Entity, &Target, &Transform), Without<Player>>,
+    source_triggers: Query<(
+        Entity,
+        &crate::environment::triggers::MapTrigger,
+        &Collider,
+        &Transform,
+        &crate::environment::triggers::TriggerState,
+    )>,
+    client_modes: Query<&crate::access::TriggerClientMode>,
+    mut trigger_queue: ResMut<crate::environment::triggers::TriggerQueue>,
     mut players: Query<(
         Entity,
         &Player,
@@ -332,24 +335,32 @@ pub(crate) fn interact(
     }
     let eye = pose.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
     let forward = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
-    let selected = targets
+    let selected = source_triggers
         .iter()
-        .filter_map(|(e, t, p)| {
-            let delta = p.translation - eye;
-            let distance = delta.length();
-            let direction = Dir3::new(delta).ok()?;
-            (distance < 2.54
-                && forward.dot(*direction) > 0.7
-                && spatial
-                    .cast_ray(
-                        eye,
-                        direction,
-                        (distance - 0.1).max(0.),
-                        true,
-                        &crate::environment::solids([owner]),
-                    )
-                    .is_none())
-            .then_some((e, t, distance))
+        .filter_map(|(entity, trigger, shape, pose, state)| {
+            let source = game
+                .environment
+                .triggers
+                .iter()
+                .find(|source| source.id == trigger.0)?;
+            let target = match source.source.get("targetname")?.as_str() {
+                "trigger_oneinchpunch_bunker_table" => Target::Bunker,
+                "trigger_oneinchpunch_church_birdbath" => Target::Church,
+                _ => return None,
+            };
+            let score = crate::environment::support::use_candidate(
+                entity,
+                shape,
+                pose,
+                state,
+                &spatial,
+                owner,
+                client_modes.get(owner).ok()?.0,
+                eye,
+                forward,
+                false,
+            )?;
+            Some((entity, target, score))
         })
         .min_by(|a, b| a.2.total_cmp(&b.2));
     let Some((entity, target, _)) = selected else {
@@ -414,6 +425,7 @@ pub(crate) fn interact(
         _ => return,
     };
     latch.held = true;
+    trigger_queue.push(entity, owner);
     focus.accepted += 1;
     crate::audio::emit(
         &mut commands,
@@ -440,6 +452,7 @@ fn bombard(
     volumes: Query<(
         &crate::environment::triggers::MapTrigger,
         Option<&crate::environment::hazards::BoundaryVolume>,
+        &crate::environment::triggers::TriggerState,
     )>,
     mut progress: ResMut<TabletProgress>,
     mut grenades: Query<
@@ -475,29 +488,29 @@ fn bombard(
                 Quat::IDENTITY,
                 &SpatialQueryFilter::from_mask(crate::environment::triggers::TRIGGER_LAYER),
             );
-            let valid =
-                touching
-                    .iter()
-                    .filter_map(|e| volumes.get(*e).ok())
-                    .any(|(volume, boundary)| match boundary {
-                        Some(crate::environment::hazards::BoundaryVolume::Playable(zone)) => {
-                            access.reachable.contains(zone)
-                        }
-                        _ => {
-                            quest.enabled
-                                && quest.stage == crate::quests::QuestStage::BreakSeal
-                                && game
-                                    .environment
-                                    .triggers
-                                    .iter()
-                                    .find(|t| t.id == volume.0)
-                                    .is_some_and(|t| {
-                                        t.source
-                                            .get("targetname")
-                                            .is_some_and(|n| n == "fire_link_damage")
-                                    })
-                        }
-                    });
+            let valid = touching
+                .iter()
+                .filter_map(|e| volumes.get(*e).ok())
+                .filter(|(_, _, state)| state.enabled)
+                .any(|(volume, boundary, _)| match boundary {
+                    Some(crate::environment::hazards::BoundaryVolume::Playable(zone)) => {
+                        access.reachable.contains(zone)
+                    }
+                    _ => {
+                        quest.enabled
+                            && quest.stage == crate::quests::QuestStage::BreakSeal
+                            && game
+                                .environment
+                                .triggers
+                                .iter()
+                                .find(|t| t.id == volume.0)
+                                .is_some_and(|t| {
+                                    t.source
+                                        .get("targetname")
+                                        .is_some_and(|n| n == "fire_link_damage")
+                                })
+                    }
+                });
             if !valid {
                 grenade.lure_active = false;
                 grenade.remaining = 100.;

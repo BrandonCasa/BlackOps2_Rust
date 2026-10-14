@@ -98,6 +98,202 @@ struct FlameIgnited {
     pulse: f32,
     sound: Entity,
 }
+
+#[derive(Component)]
+struct FlameVolume {
+    owner: Option<Entity>,
+}
+#[derive(Component)]
+struct ClawTrigger(Entity);
+
+fn bind_triggers(
+    mut commands: Commands,
+    game: Res<GameDefinition>,
+    panzers: Query<(Entity, &Panzer)>,
+    rigs: Query<&crate::enemies::ActorRig>,
+    sockets: Query<&GlobalTransform>,
+    mut volumes: Query<(
+        Entity,
+        &crate::environment::triggers::MapTrigger,
+        &mut Transform,
+        Option<&mut FlameVolume>,
+        &mut crate::environment::triggers::TriggerState,
+    )>,
+    mut claws: Query<
+        (
+            Entity,
+            &ClawTrigger,
+            &mut Transform,
+            &mut crate::environment::triggers::TriggerState,
+        ),
+        Without<crate::environment::triggers::MapTrigger>,
+    >,
+) {
+    let mut occupied = BTreeSet::new();
+    for (_, _, _, volume, _) in &volumes {
+        if let Some(owner) = volume.and_then(|volume| volume.owner)
+            && panzers
+                .get(owner)
+                .is_ok_and(|(_, panzer)| !matches!(panzer.phase, PanzerPhase::Dead(_)))
+        {
+            occupied.insert(owner);
+        }
+    }
+    for (entity, trigger, mut pose, volume, mut state) in &mut volumes {
+        let Some(source) = game.environment.triggers.iter().find(|source| {
+            source.id == trigger.0
+                && source
+                    .source
+                    .get("script_noteworthy")
+                    .is_some_and(|name| name == "flamethrower_trigger")
+        }) else {
+            continue;
+        };
+        let mut owner = volume
+            .as_ref()
+            .and_then(|volume| volume.owner)
+            .filter(|owner| occupied.contains(owner));
+        if owner.is_none() {
+            owner = panzers
+                .iter()
+                .find(|(owner, panzer)| {
+                    !occupied.contains(owner)
+                        && matches!(
+                            panzer.phase,
+                            PanzerPhase::FlameWindup(_)
+                                | PanzerPhase::Flame(_)
+                                | PanzerPhase::HeldBurn(_)
+                        )
+                        && rigs
+                            .iter()
+                            .any(|rig| rig.socket(*owner, "tag_flamethrower_FX").is_some())
+                })
+                .map(|(owner, _)| owner);
+            if let Some(owner) = owner {
+                occupied.insert(owner);
+            }
+        }
+        state.automatic = false;
+        state.enabled = owner.is_some();
+        if let Some(owner) = owner
+            && let Some(socket) = rigs
+                .iter()
+                .find_map(|rig| rig.socket(owner, "tag_flamethrower_FX"))
+            && let Ok(socket) = sockets.get(socket)
+        {
+            *pose = socket.compute_transform();
+        } else {
+            *pose = source.transform();
+        }
+        if let Some(mut volume) = volume {
+            volume.owner = owner;
+        } else {
+            commands.entity(entity).insert(FlameVolume { owner });
+        }
+    }
+    let mut claw_owners: BTreeSet<_> = claws.iter().map(|(_, claw, _, _)| claw.0).collect();
+    for (entity, claw, mut pose, mut state) in &mut claws {
+        let Ok((_, panzer)) = panzers.get(claw.0) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        if matches!(panzer.phase, PanzerPhase::Dead(_)) {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        state.enabled = true;
+        if let Some(socket) = rigs.iter().find_map(|rig| rig.socket(claw.0, "tag_claw"))
+            && let Ok(socket) = sockets.get(socket)
+        {
+            *pose = socket.compute_transform();
+        }
+    }
+    for (owner, panzer) in &panzers {
+        if claw_owners.contains(&owner) || matches!(panzer.phase, PanzerPhase::Dead(_)) {
+            continue;
+        }
+        let Some(socket) = rigs.iter().find_map(|rig| rig.socket(owner, "tag_claw")) else {
+            continue;
+        };
+        let Ok(socket) = sockets.get(socket) else {
+            continue;
+        };
+        let definition = crate::environment::triggers::TriggerDefinition {
+            id: format!("script.panzer.claw.{}", owner.to_bits()),
+            position: socket.translation().to_array(),
+            target_position: None,
+            source: [
+                ("classname".into(), "trigger_damage".into()),
+                ("spawnflags".into(), "0".into()),
+            ]
+            .into(),
+            shape: crate::environment::triggers::TriggerShape::Cylinder {
+                radius: 3. * 0.0254,
+                height: 15. * 0.0254,
+            },
+        };
+        if let Some(entity) = crate::environment::triggers::spawn_owned(
+            &mut commands,
+            &definition,
+            owner,
+            crate::environment::support::EnvironmentOwner::Enemy,
+        ) {
+            commands
+                .entity(entity)
+                .remove::<crate::environment::triggers::MapTrigger>()
+                .insert((ClawTrigger(owner), socket.compute_transform()));
+            claw_owners.insert(owner);
+        }
+    }
+}
+
+fn claw_hits(
+    mut hits: MessageReader<crate::environment::support::EnvironmentalHit>,
+    triggers: Query<(&ClawTrigger, &crate::environment::triggers::TriggerState)>,
+    panzers: Query<&Panzer>,
+    players: Query<&Vitality, With<Player>>,
+    mut damage: ResMut<DamageQueue>,
+) {
+    for hit in hits.read() {
+        let Ok((claw, state)) = triggers.get(hit.target) else {
+            continue;
+        };
+        if !state.enabled
+            || !players
+                .get(hit.attacker)
+                .is_ok_and(|health| health.state() == LifeState::Standing)
+            || !panzers.get(claw.0).is_ok_and(|panzer| {
+                matches!(
+                    panzer.phase,
+                    PanzerPhase::Claw { .. } | PanzerPhase::Pulling(_)
+                )
+            })
+        {
+            continue;
+        }
+        damage.0.push(Impact {
+            attacker: hit.attacker,
+            target: claw.0,
+            source: ImpactSource::Weapon(hit.weapon.clone()),
+            category: hit.category,
+            region: HitRegion::LeftArm,
+            amount: 1,
+        });
+    }
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+
+    #[test]
+    fn environment_trigger_query_access() {
+        let mut world = World::new();
+        IntoSystem::into_system(bind_triggers).initialize(&mut world);
+        IntoSystem::into_system(claw_hits).initialize(&mut world);
+        IntoSystem::into_system(behavior).initialize(&mut world);
+    }
+}
 #[derive(Resource)]
 pub struct PanzerWaves {
     pub next_round: u32,
@@ -145,9 +341,24 @@ impl Plugin for PanzerPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (nukes, behavior, burning, feedback, part_failsafe)
+                (
+                    bind_triggers,
+                    nukes,
+                    behavior,
+                    burning,
+                    feedback,
+                    part_failsafe,
+                )
                     .chain()
                     .in_set(GameStep::EnemyIntent)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                claw_hits
+                    .in_set(GameStep::Combat)
+                    .after(crate::gameplay::combat)
+                    .after(crate::projectiles::flight)
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
@@ -381,10 +592,13 @@ fn behavior(
     mut session: ResMut<Session>,
     game: Res<GameDefinition>,
     mut released: MessageWriter<PanzerClawReleased>,
-    mut ignitable: Query<
-        (Entity, &Transform, &Vitality, Has<FlameIgnited>),
-        (With<Zombie>, Without<Player>, Without<Panzer>),
-    >,
+    (mut ignitable, flame_volumes): (
+        Query<
+            (Entity, &Transform, &Vitality, Has<FlameIgnited>),
+            (With<Zombie>, Without<Player>, Without<Panzer>),
+        >,
+        Query<(&FlameVolume, &Collider, &Transform), (Without<Panzer>, Without<Player>)>,
+    ),
 ) {
     let dt = time.delta_secs();
     for event in received.read() {
@@ -617,10 +831,22 @@ fn behavior(
             }
             PanzerPhase::Flame(remaining) | PanzerPhase::HeldBurn(remaining) => {
                 let held = matches!(panzer.phase, PanzerPhase::HeldBurn(_));
+                let touching = flame_volumes
+                    .iter()
+                    .find(|(volume, _, _)| volume.owner == Some(entity))
+                    .map(|(_, shape, pose)| {
+                        query.shape_intersections(
+                            shape,
+                            pose.translation,
+                            pose.rotation,
+                            &SpatialQueryFilter::default().with_excluded_entities([entity]),
+                        )
+                    })
+                    .unwrap_or_default();
                 panzer.flame_tick -= dt;
                 if panzer.flame_tick <= 0. {
                     panzer.flame_tick += 0.5;
-                    if (held || distance < 6. && facing > 26_f32.to_radians().cos()) && visible {
+                    if touching.contains(&owner) {
                         let juggernog = perks.owned.iter().any(|id| id.0 == "perk.juggernog");
                         strike(
                             &mut damage,
@@ -631,35 +857,21 @@ fn behavior(
                         );
                     }
                 }
-                for (target, body, vitality, burning) in &mut ignitable {
-                    let to = body.translation - pose.translation;
+                for (target, _, vitality, burning) in &mut ignitable {
                     if !burning
                         && vitality.state() == LifeState::ActorAlive
-                        && to.length() < 6.
-                        && to.normalize_or_zero().dot(forward) > 26_f32.to_radians().cos()
+                        && touching.contains(&target)
                     {
-                        if let Ok(ray) = Dir3::new(to)
-                            && query
-                                .cast_ray(
-                                    pose.translation,
-                                    ray,
-                                    to.length(),
-                                    true,
-                                    &crate::environment::solids([entity, target]),
-                                )
-                                .is_none()
-                        {
-                            let sound = crate::audio::emit_loop(
-                                &mut commands,
-                                "zmb_fire_loop",
-                                crate::audio::SoundSource::attached(target),
-                            );
-                            commands.entity(target).insert(FlameIgnited {
-                                remaining: 12.,
-                                pulse: 0.,
-                                sound,
-                            });
-                        }
+                        let sound = crate::audio::emit_loop(
+                            &mut commands,
+                            "zmb_fire_loop",
+                            crate::audio::SoundSource::attached(target),
+                        );
+                        commands.entity(target).insert(FlameIgnited {
+                            remaining: 12.,
+                            pulse: 0.,
+                            sound,
+                        });
                     }
                 }
                 if remaining > dt {

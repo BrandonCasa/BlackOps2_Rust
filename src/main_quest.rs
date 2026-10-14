@@ -141,7 +141,10 @@ fn progress(
     brushes: Query<(Entity, &crate::environment::brushes::MapBrush)>,
     mut targets: Query<(&Target, &mut Visibility)>,
     spatial: SpatialQuery,
-    triggers: Query<&crate::environment::triggers::MapTrigger>,
+    triggers: Query<(
+        &crate::environment::triggers::MapTrigger,
+        &crate::environment::triggers::TriggerState,
+    )>,
     waves: Res<crate::panzer::PanzerWaves>,
 ) {
     for (target, mut visible) in &mut targets {
@@ -193,6 +196,8 @@ fn progress(
             )
             .iter()
             .filter_map(|e| triggers.get(*e).ok())
+            .filter(|(_, state)| state.enabled)
+            .map(|(trigger, _)| trigger)
             .any(|v| {
                 game.environment
                     .triggers
