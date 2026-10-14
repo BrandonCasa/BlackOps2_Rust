@@ -145,6 +145,17 @@ fn inspect_meshes(
             >,
         >,
     >,
+    gpu_assets: (
+        Res<bevy::render::render_asset::RenderAssets<bevy::render::mesh::RenderMesh>>,
+        Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
+        Res<bevy::render::erased_render_asset::ErasedRenderAssets<bevy::pbr::PreparedMaterial>>,
+    ),
+    scene: Option<Res<bevy::solari::scene::RaytracingSceneBindings>>,
+    uploads: Res<bevy::render::render_asset::RenderAssetBytesPerFrameLimiter>,
+    views: Query<(
+        &bevy::render::view::ExtractedView,
+        &bevy::core_pipeline::prepass::ViewPrepassTextures,
+    )>,
 ) {
     let Some(buffers) = buffers else { return };
     let mut checked = 0;
@@ -195,8 +206,43 @@ fn inspect_meshes(
                     serde_json::json!(mismatches)
                 }
             });
+        let phases: Vec<_> = buffers.phase_instance_buffers.iter().map(|(id, phase)| {
+            let name = if *id == std::any::TypeId::of::<bevy::core_pipeline::deferred::Opaque3dDeferred>() {
+                "opaque_deferred"
+            } else if *id == std::any::TypeId::of::<bevy::core_pipeline::deferred::AlphaMask3dDeferred>() {
+                "alpha_mask_deferred"
+            } else if *id == std::any::TypeId::of::<bevy::core_pipeline::core_3d::Opaque3d>() {
+                "opaque_forward"
+            } else if *id == std::any::TypeId::of::<bevy::core_pipeline::core_3d::AlphaMask3d>() {
+                "alpha_mask_forward"
+            } else if *id == std::any::TypeId::of::<bevy::core_pipeline::prepass::Opaque3dPrepass>() {
+                "opaque_prepass"
+            } else if *id == std::any::TypeId::of::<bevy::core_pipeline::prepass::AlphaMask3dPrepass>() {
+                "alpha_mask_prepass"
+            } else {
+                "other"
+            };
+            serde_json::json!({"phase":name,"uniforms":phase.data_buffer.len(),
+                "buffer_bytes":phase.data_buffer.buffer().map(|buffer| buffer.size()),
+                "views":phase.work_item_buffers.keys().map(|view| format!("{view:?}")).collect::<Vec<_>>()})
+        }).collect();
+        let prepasses: Vec<_> = views
+            .iter()
+            .map(|(view, textures)| {
+                serde_json::json!({"view":format!("{:?}",view.retained_view_entity),
+                "depth":textures.depth.is_some(),"deferred":textures.deferred.is_some(),
+                "motion_vectors":textures.motion_vectors.is_some(),
+                "width":textures.size.width,"height":textures.size.height})
+            })
+            .collect();
         *report = serde_json::json!({"frames":frames,"checked":checked,"mismatch_frames":mismatch_frames,
-            "mismatches":mismatches,"first_mismatches":first});
+            "mismatches":mismatches,"first_mismatches":first,
+            "gpu_assets":{"meshes":gpu_assets.0.iter().count(),"images":gpu_assets.1.iter().count(),
+                "materials":gpu_assets.2.iter().count(),
+                "upload_bytes_this_frame":uploads.bytes_written.load(Ordering::Relaxed),
+                "upload_budget_bytes":uploads.max_bytes},
+            "solari_scene_ready":scene.is_some_and(|scene|scene.bind_group.is_some()),
+            "phase_buffers":phases,"prepass_views":prepasses});
     }
 }
 
