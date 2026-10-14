@@ -22,7 +22,6 @@ pub(crate) struct PerkMachine {
     paths_disconnected: bool,
 }
 impl PerkMachine {
-    #[cfg(feature = "dev-tools")]
     pub(crate) fn retired(&self) -> bool {
         self.expiry.is_some_and(|elapsed| elapsed >= 5.)
             && self.visual.is_none()

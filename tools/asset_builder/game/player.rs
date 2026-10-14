@@ -330,20 +330,6 @@ pub(super) fn read(
     game["solo_revive"]["downed_height"] = json!(30. * units);
     game["solo_revive"]["downed_eye"] = json!(22. * units);
     game["solo_revive"]["downed_speed"] = json!(speed * 0.15);
-    let enabled_weapons = game["content"]["weapons"]
-        .as_array()
-        .ok_or("Native initial weapons are missing")?
-        .iter()
-        .filter_map(|weapon| weapon["id"].as_str().map(str::to_owned))
-        .collect::<std::collections::BTreeSet<_>>();
-    game["solo_revive"]["pistol_ranks"]
-        .as_array_mut()
-        .ok_or("Native initial solo pistol ranking is missing")?
-        .retain(|pistol| {
-            pistol["weapon"]
-                .as_str()
-                .is_some_and(|id| enabled_weapons.contains(id))
-        });
     let capture = source("source/server-tomb/maps/mp/zm_tomb_capture_zones.gsc")?;
     for expression in [
         "cost = 500;",
