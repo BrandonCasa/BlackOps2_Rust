@@ -36,6 +36,14 @@ struct RemoteState {
     queue: BTreeMap<u64, Vec<InputEvent>>,
     held: BTreeMap<String, Edge>,
 }
+#[derive(Resource, Default)]
+struct MaterialProbeState(Vec<(Entity, Handle<StandardMaterial>)>);
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct MaterialProbeRequest {
+    entities: Vec<u64>,
+}
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Edge {
@@ -136,6 +144,7 @@ pub(super) fn install(app: &mut App, port: u16) {
     }
     app.add_observer(preview_ready)
         .init_resource::<RemoteState>()
+        .init_resource::<MaterialProbeState>()
         .init_resource::<crate::audio::RequestedAliases>()
         .configure_sets(PreUpdate, InputSystems.run_if(|| false))
         .add_plugins((
@@ -153,6 +162,7 @@ pub(super) fn install(app: &mut App, port: u16) {
                 .with_method_main("origins/stations/setup", stations::setup)
                 .with_method_main("origins/stations", stations::snapshot)
                 .with_method_main("origins/materials", materials)
+                .with_method_main("origins/material-probe", material_probe)
                 .with_method_main("origins/capture", capture)
                 .with_method_main("origins/preview", preview)
                 .with_method_main("origins/assets", asset_observation)
@@ -886,6 +896,87 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
     Ok(
         json!({"setup_applied":true,"gameplay_evidence":false,"enemies":spawned,"pickups":spawned_pickups}),
     )
+}
+
+fn material_probe(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let request: MaterialProbeRequest = parse(value)?;
+    if !matches!(
+        world.resource::<State<GameState>>().get(),
+        GameState::Playing | GameState::Paused
+    ) {
+        return Err(error("Material probe requires Playing or Paused"));
+    }
+    if request.entities.len() > 2
+        || (request.entities.len() == 2 && request.entities[0] == request.entities[1])
+    {
+        return Err(error("Select at most two distinct existing meshes"));
+    }
+    if request.entities.is_empty() {
+        let originals = std::mem::take(&mut world.resource_mut::<MaterialProbeState>().0);
+        let mut restored = 0;
+        for (entity, original) in originals {
+            if let Some(mut material) = world.get_mut::<MeshMaterial3d<StandardMaterial>>(entity) {
+                material.0 = original;
+                restored += 1;
+            }
+        }
+        super::pipelines::probe_entities(world, &[]);
+        return Ok(json!({"setup_applied":true,"gameplay_evidence":false,"restored":restored}));
+    }
+    if !world.resource::<MaterialProbeState>().0.is_empty() {
+        return Err(error(
+            "Restore the existing material probe before selecting new meshes",
+        ));
+    }
+    let mut selected = Vec::new();
+    for bits in request.entities {
+        let entity = Entity::try_from_bits(bits).ok_or_else(|| error("Invalid mesh entity"))?;
+        if world.get::<Mesh3d>(entity).is_none() {
+            return Err(error("Selected entity is not an existing mesh"));
+        }
+        let handle = world
+            .get::<MeshMaterial3d<StandardMaterial>>(entity)
+            .map(|material| material.0.clone())
+            .ok_or_else(|| error("Selected mesh requires StandardMaterial"))?;
+        let material = world
+            .resource::<Assets<StandardMaterial>>()
+            .get(&handle)
+            .cloned()
+            .ok_or_else(|| error("Selected source material is unavailable"))?;
+        selected.push((entity, handle, material));
+    }
+    let mut changed = Vec::new();
+    for (index, (entity, original, source)) in selected.into_iter().enumerate() {
+        let color = if index == 0 {
+            Color::linear_rgb(1., 0., 1.)
+        } else {
+            Color::linear_rgb(0., 1., 1.)
+        };
+        let handle = world
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial {
+                base_color: color,
+                unlit: true,
+                fog_enabled: false,
+                cull_mode: source.cull_mode,
+                double_sided: source.double_sided,
+                alpha_mode: source.alpha_mode,
+                depth_bias: source.depth_bias,
+                opaque_render_method: bevy::material::OpaqueRendererMethod::Forward,
+                ..default()
+            });
+        world.entity_mut(entity).insert(MeshMaterial3d(handle));
+        world
+            .resource_mut::<MaterialProbeState>()
+            .0
+            .push((entity, original));
+        changed.push(json!({"entity":entity.to_bits(),"name":world.get::<Name>(entity).map(Name::as_str),
+            "color":color.to_linear().to_f32_array(),"unlit":true,"source_cull":format!("{:?}",source.cull_mode),
+            "source_double_sided":source.double_sided}));
+    }
+    let entities: Vec<_> = world.resource::<MaterialProbeState>().0.iter().map(|(entity, _)| *entity).collect();
+    super::pipelines::probe_entities(world, &entities);
+    Ok(json!({"setup_applied":true,"gameplay_evidence":false,"meshes":changed}))
 }
 
 fn materials(_: In<Option<Value>>, world: &mut World) -> BrpResult {

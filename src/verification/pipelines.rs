@@ -152,9 +152,11 @@ fn inspect_meshes(
     ),
     scene: Option<Res<bevy::solari::scene::RaytracingSceneBindings>>,
     uploads: Res<bevy::render::render_asset::RenderAssetBytesPerFrameLimiter>,
+    materials: Res<bevy::pbr::RenderMaterialInstances>,
     views: Query<(
         &bevy::render::view::ExtractedView,
         &bevy::core_pipeline::prepass::ViewPrepassTextures,
+        &bevy::render::view::RenderVisibleEntities,
     )>,
 ) {
     let mut checked = 0;
@@ -194,6 +196,26 @@ fn inspect_meshes(
         }
     }
     if let Ok(mut report) = consistency.0.lock() {
+        let targets = report["probe_entities"].clone();
+        let probes: Vec<_> = targets.as_array().into_iter().flatten().filter_map(|bits| {
+            let entity = Entity::try_from_bits(bits.as_u64()?)?;
+            let main = bevy::render::sync_world::MainEntity::from(entity);
+            let mesh = instances.mesh_asset_id(main);
+            let material = materials.instances.get(&main).map(|material| material.asset_id);
+            let per_view: Vec<_> = views.iter().map(|(view, _, visible)| {
+                let visible = visible.get::<Mesh3d>().is_some_and(|visible| {
+                    visible.entities_cpu_culling.iter().any(|(_, entity)| *entity == main)
+                        || visible.entities_gpu_culling.contains_key(&main)
+                });
+                serde_json::json!({"view":format!("{:?}",view.retained_view_entity),"visible":visible,
+                    "phase_membership":null,"phase_membership_limit":"GPU multidraw membership has no public accessor"})
+            }).collect();
+            Some(serde_json::json!({"entity":entity.to_bits(),
+                "queue_data_available":instances.render_mesh_queue_data(main).is_some(),
+                "mesh_gpu_ready":mesh.is_some_and(|mesh|gpu_assets.0.get(mesh).is_some()),
+                "material_gpu_ready":material.is_some_and(|material|gpu_assets.2.get(material).is_some()),
+                "material_asset":material.map(|material|format!("{material:?}")),"views":per_view}))
+        }).collect();
         let frames = report["frames"].as_u64().unwrap_or(0) + 1;
         let mismatch_frames =
             report["mismatch_frames"].as_u64().unwrap_or(0) + u64::from(!mismatches.is_empty());
@@ -230,7 +252,7 @@ fn inspect_meshes(
         }).collect();
         let prepasses: Vec<_> = views
             .iter()
-            .map(|(view, textures)| {
+            .map(|(view, textures, _)| {
                 serde_json::json!({"view":format!("{:?}",view.retained_view_entity),
                 "depth":textures.depth.is_some(),"deferred":textures.deferred.is_some(),
                 "motion_vectors":textures.motion_vectors.is_some(),
@@ -245,7 +267,8 @@ fn inspect_meshes(
                 "upload_bytes_this_frame":uploads.bytes_written.load(Ordering::Relaxed),
                 "upload_budget_bytes":uploads.max_bytes},
             "solari_scene_ready":scene.is_some_and(|scene|scene.bind_group.is_some()),
-            "phase_buffers":phases,"prepass_views":prepasses});
+            "phase_buffers":phases,"prepass_views":prepasses,
+            "probe_entities":targets,"material_probes":probes});
     }
 }
 
@@ -303,6 +326,15 @@ fn inspect(
             });
             return;
         }
+    }
+}
+
+#[cfg(all(debug_assertions, feature = "dev-tools"))]
+pub(super) fn probe_entities(world: &World, entities: &[Entity]) {
+    if let Some(consistency) = world.get_resource::<MeshConsistency>()
+        && let Ok(mut report) = consistency.0.lock()
+    {
+        report["probe_entities"] = serde_json::json!(entities.iter().map(|entity|entity.to_bits()).collect::<Vec<_>>());
     }
 }
 
