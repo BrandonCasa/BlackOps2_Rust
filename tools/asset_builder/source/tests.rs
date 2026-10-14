@@ -527,7 +527,21 @@ fn installed_last_material_families() {
     for (name, material) in &controlled {
         let surface = &material["extras"]["surface"];
         assert_eq!(
-            surface["source_script_layers"]["composed_color_available"], true,
+            surface["source_script_layers"]["composed_color_available"], false,
+            "{name}"
+        );
+        assert_eq!(
+            surface["source_script_layers"]["state"],
+            json!([0.5, 0.25, 0., 0.]),
+            "{name}"
+        );
+        assert_eq!(
+            surface["source_script_layers"]["consumer"], "native_live_layers",
+            "{name}"
+        );
+        assert_eq!(
+            surface["source_layers"].as_array().unwrap().len(),
+            3,
             "{name}"
         );
         assert!(surface["pending_runtime"].is_string());
