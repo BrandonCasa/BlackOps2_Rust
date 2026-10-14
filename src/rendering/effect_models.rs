@@ -366,5 +366,16 @@ mod tests {
             ShaderDefVal::Bool("VIEW_PROJECTION_PERSPECTIVE".into(), true),
         ];
         cache.get(0, id, &definitions).unwrap();
+        let water = AssetId::Uuid {
+            uuid: bevy::asset::uuid::Uuid::from_u128(index + 2),
+        };
+        cache.set_shader(
+            water,
+            Shader::from_wesl(
+                include_str!("water.wesl"),
+                "embedded://origins/rendering/water.wesl",
+            ),
+        );
+        cache.get(1, water, &definitions).unwrap();
     }
 }

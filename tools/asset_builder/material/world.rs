@@ -356,7 +356,15 @@ impl WorldRecipe {
                     "coverage":"view_color_alpha_times_primary_vertex_alpha_times_depth",
                     "composition":"lerp_squared_refracted_scene_divided_by_scene_hdr_with_one_minus_fresnel_times_water_color_times_light_by_coverage_plus_fresnel_times_probe_times_depth",
                     "fog":"source_fog_amount_times_source_fog_alpha_times_depth","fragment_alpha":0.});
+                surface["channels"] = json!([{"uri":surface["source_water"]["layers"][0]["uri"],"role":"normal","layer":0,"color_space":"linear","sampler":20}]);
+                surface["standard"]["base_color"] = json!(controls.color_s);
+                surface["presentation"]["alpha"] = json!("blend");
                 surface["presentation"]["fog"] = json!(true);
+                surface["source_water"]["consumer"] =
+                    json!("native_world_normals_and_palette_shared_pbr");
+                surface["approximations"] = json!([
+                    "Four native world-position/time slope domains, authored view palette, Fresnel controls and vertex coverage use shared PBR lighting; native scene-depth/refraction, lightmap/reflection-SH and gamma framebuffer composition are deferred"
+                ]);
                 surface["pending_runtime"] = json!(
                     "Native water requires four source-position XY/time normal domains and world-oriented slope sum, live view color/Fresnel, scene depth/refraction, lightmap/reflection-SH response, vertex alpha and depth-weighted fog/HDR composition; matching geometry and scene consumers are not connected"
                 );

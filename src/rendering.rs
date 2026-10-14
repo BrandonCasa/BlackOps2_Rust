@@ -88,6 +88,7 @@ impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         preparation::install(app);
         effect_models::install(app);
+        pbr::install(app);
         app.add_plugins(solari::OriginsSolariPlugin)
             .add_plugins(lod::PropLodPlugin)
             .add_plugins(preprocessing::PreprocessingPlugin)

@@ -175,6 +175,27 @@ pub fn accept_initial_visual_approximations(
                 continue;
             }
             "native_character_lighting_and_coverage_to_shared_pbr"
+        } else if world::lookup(family) == Some(world::WorldRecipe::Water) {
+            world::WorldRecipe::Water.validate(name, material)?;
+            let water = &surface["source_water"];
+            if water["consumer"] != "native_world_normals_and_palette_shared_pbr"
+                || water["game_time_code"] != 25
+                || water["game_time_component"] != 3
+                || water["layers"]
+                    .as_array()
+                    .is_none_or(|layers| layers.len() != 4)
+                || water["layers"].as_array().unwrap().iter().any(|layer| {
+                    layer["uri"].as_str().is_none_or(str::is_empty)
+                        || layer["sampler"] != 20
+                        || layer["coordinates"] != "source_position_xy"
+                        || layer["normal_space"] != "source_world_xy"
+                })
+            {
+                continue;
+            }
+            roles.clear();
+            roles.push("normal");
+            "native_water_world_normals_and_palette_to_shared_pbr"
         } else if world::lookup(family) == Some(world::WorldRecipe::Shadow) {
             world::WorldRecipe::Shadow.validate(name, material)?;
             let shadow = &surface["source_shadow_only"];
