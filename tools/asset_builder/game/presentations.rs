@@ -304,7 +304,6 @@ pub(super) fn initial_ui(catalog: &Catalog<'_>, game: &mut Value) -> Result<()> 
         "hud_us_grenade",
         "damage_feedback",
         "specialty_2x_zombies",
-        "menu_zm_map_tomb",
         "hud_zm_num_tomb_slash",
         "zm_capture_meter_back",
         "zm_capture_meter_dial",
