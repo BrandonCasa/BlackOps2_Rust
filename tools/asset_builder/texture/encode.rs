@@ -110,7 +110,7 @@ pub fn encode(source: &Image, srgb: bool, role: &str) -> Result<Vec<u8>> {
         return ktx2(source, srgb);
     }
     let encoding = if source.format == 19 {
-        if !matches!(role, "sky" | "emissive" | "fx-color")
+        if !matches!(role, "color" | "sky" | "emissive" | "fx-color")
             || source.levels.iter().any(|level| {
                 level.chunks_exact(8).any(|pixel| {
                     (0..3).any(|i| f16::from_bits(u16_at(pixel, i * 2)).to_f32() < 0.)

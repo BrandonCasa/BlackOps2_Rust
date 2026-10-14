@@ -1509,10 +1509,28 @@ fn hdr_bake_preserves_linear_color_mips_and_runtime_color_space() {
     .unwrap();
     let color = &material["extras"]["surface"]["channels"][0];
     assert_eq!(color["color_space"], "linear");
+    let bytes = pack.get(color["uri"].as_str().unwrap()).unwrap();
+    let metadata = texture::validate(bytes).unwrap();
+    assert_eq!(metadata["vk_format"], 143);
+    assert_eq!(metadata["width"], 4);
+    assert_eq!(metadata["height"], 4);
+    assert_eq!(metadata["levels"], 3);
+    assert_eq!(bytes[u32_at(bytes, 48) as usize + 14], 1);
     assert_eq!(
-        texture::validate(pack.get(color["uri"].as_str().unwrap()).unwrap()).unwrap()["vk_format"],
-        97
+        texture::encode(&image, true, "color").unwrap().as_slice(),
+        bytes
     );
+    for level in 0..image.levels.len() {
+        assert_eq!(u64_at(bytes, 88 + level * 24), 16);
+        for (channel, value) in [(3, 0.5), (0, -0.25)] {
+            let mut guarded = image.clone();
+            guarded.levels[level][channel * 2..channel * 2 + 2]
+                .copy_from_slice(&half::f16::from_f32(value).to_le_bytes());
+            let encoded = texture::encode(&guarded, true, "color").unwrap();
+            assert_eq!(texture::validate(&encoded).unwrap()["vk_format"], 97);
+            assert_eq!(encoded, texture::ktx2(&guarded, false).unwrap());
+        }
+    }
     assert!(mip_chain(0, 1, Vec::new(), "color").is_err());
     assert!(mip_chain(2, 2, vec![[1.; 4]], "color").is_err());
     for value in [f32::NAN, f32::INFINITY, -0.1, 70000.] {
