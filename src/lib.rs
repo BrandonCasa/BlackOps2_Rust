@@ -136,6 +136,9 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let fixed_resolution = ads_capture || benchmark || options.validation_remote.is_some();
     let flythrough = options.flythrough;
     app.insert_resource(options);
+    app.insert_resource(bevy::render::render_asset::RenderAssetBytesPerFrame::new(
+        64 * 1024 * 1024,
+    ));
     let default_plugins = DefaultPlugins.build();
     #[cfg(not(debug_assertions))]
     let default_plugins = default_plugins.disable::<bevy::log::LogPlugin>();
