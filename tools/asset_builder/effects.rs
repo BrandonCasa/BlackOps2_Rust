@@ -188,11 +188,40 @@ impl Effects {
                 Ok((name, format!("{uri}#Scene0")))
             })
             .collect::<Result<BTreeMap<_, _>>>()?;
+        let mut document =
+            json!({"effects":self.definitions,"materials":materials,"models":models});
+        if initial {
+            let mut approximations = Vec::new();
+            for (name, effect) in &self.definitions {
+                for (index, element) in effect["elements"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                {
+                    let kind = element["type"]
+                        .as_u64()
+                        .ok_or("Required FX element type is absent")?;
+                    match kind {
+                        5 | 6 => approximations.push(format!("{name}/{index}: native trail/cloud geometry uses the original texture and sampled curves")),
+                        9 | 11 => approximations.push(format!("{name}/{index}: native {} is retained but not rendered", if kind == 9 { "spotlight" } else { "projected decal" })),
+                        _ => (),
+                    }
+                    for field in ["impact", "emitted", "attached"] {
+                        if let Some(child) =
+                            element[field].as_str().filter(|child| !child.is_empty())
+                        {
+                            approximations.push(format!("{name}/{index}: native {field} effect {child} is retained; source collision/emission-distance consumer is unconnected"));
+                        }
+                    }
+                }
+            }
+            document["approximation_scope"] = json!("first_playable_solo");
+            document["approximations"] = json!(approximations);
+        }
         pack.entries.insert(
             "prepared/effects.nativefx".into(),
-            std::sync::Arc::new(serde_json::to_vec(
-                &json!({"effects":self.definitions,"materials":materials,"models":models}),
-            )?),
+            std::sync::Arc::new(serde_json::to_vec(&document)?),
         );
         Ok(())
     }
