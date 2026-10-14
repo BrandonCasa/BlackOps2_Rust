@@ -754,7 +754,7 @@ pub(crate) enum PlaybackStatus {
     Cancelled,
 }
 #[derive(Resource, Default)]
-struct Lifetimes(BTreeMap<Entity, bool>);
+pub(crate) struct Lifetimes(BTreeMap<Entity, bool>);
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
