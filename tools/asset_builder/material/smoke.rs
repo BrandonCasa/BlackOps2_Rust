@@ -30,6 +30,7 @@ pub(super) fn lookup(family: &str) -> Option<SmokeRecipe> {
     (family == "mc_sw4_3d_zmb_smoke_pillar_cheap_w6w7e738").then_some(SmokeRecipe)
 }
 
+#[cfg(test)]
 fn scroll_uv(uv: [f32; 2], scale: [f32; 2], speed: [f32; 2], time: f32) -> [f32; 2] {
     std::array::from_fn(|axis| {
         let phase = time * speed[axis] * scale[axis];
@@ -37,10 +38,12 @@ fn scroll_uv(uv: [f32; 2], scale: [f32; 2], speed: [f32; 2], time: f32) -> [f32;
     })
 }
 
+#[cfg(test)]
 fn mask_uv(uv: [f32; 2], scale: [f32; 2], offset: [f32; 2]) -> [f32; 2] {
     std::array::from_fn(|axis| (uv[axis] - offset[axis]) * scale[axis] + offset[axis])
 }
 
+#[cfg(test)]
 fn smoke_pixel(
     samples: [[f32; 4]; 6],
     color: [f32; 4],
@@ -65,90 +68,6 @@ fn smoke_pixel(
             .powi(2);
     }
     output
-}
-
-fn image(
-    sources: [&texture::Image; 6],
-    color: [f32; 4],
-    hdr: f32,
-    scales: [[f32; 2]; 4],
-    speeds: [[f32; 2]; 3],
-    mask_offset: [f32; 2],
-) -> Result<texture::Image> {
-    if sources.iter().any(|source| {
-        source.width == 0
-            || source.height == 0
-            || source.depth != 1
-            || source.faces != 1
-            || source.levels.is_empty()
-    }) {
-        return Err("Smoke pillar requires valid 2D source images".into());
-    }
-    let width = sources.iter().map(|source| source.width).max().unwrap();
-    let height = sources.iter().map(|source| source.height).max().unwrap();
-    let mut output = texture::Image {
-        width,
-        height,
-        depth: 1,
-        faces: 1,
-        format: 19,
-        flags: 0,
-        levels: Vec::new(),
-    };
-    let decoded = sources
-        .iter()
-        .map(|source| {
-            (0..source.levels.len())
-                .map(|level| texture::pixels(source, level))
-                .collect::<Result<Vec<_>>>()
-        })
-        .collect::<Result<Vec<_>>>()?;
-    for level in 0..sources
-        .iter()
-        .map(|source| source.levels.len())
-        .max()
-        .unwrap()
-    {
-        let (w, h) = ((width >> level).max(1), (height >> level).max(1));
-        let mut bytes = Vec::with_capacity(w * h * 8);
-        for y in 0..h {
-            for x in 0..w {
-                let uv = [(x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32];
-                let domains = [
-                    scroll_uv(uv, scales[0], speeds[0], 0.),
-                    scroll_uv(uv, scales[1], speeds[1], 0.),
-                    scroll_uv(uv, scales[2], speeds[2], 0.),
-                    mask_uv(uv, scales[3], mask_offset),
-                ];
-                let samples = std::array::from_fn(|index| {
-                    let source = sources[index];
-                    let bias = width.max(height).ilog2() - source.width.max(source.height).ilog2();
-                    let lod = level
-                        .saturating_sub(bias as usize)
-                        .min(source.levels.len() - 1);
-                    texture::sample(
-                        &decoded[index][lod],
-                        (source.width >> lod).max(1),
-                        (source.height >> lod).max(1),
-                        domains[TEXTURES[index].4],
-                        TEXTURES[index].2,
-                    )
-                });
-                let pixel = smoke_pixel(samples, color, hdr, [1.; 4], 1., 1., 0., 1.);
-                if pixel
-                    .iter()
-                    .any(|value| !value.is_finite() || !(0. ..=65504.).contains(value))
-                {
-                    return Err("Smoke pillar color exceeds the finite half-float domain".into());
-                }
-                for value in pixel {
-                    bytes.extend(half::f16::from_f32(value).to_le_bytes());
-                }
-            }
-        }
-        output.levels.push(bytes);
-    }
-    Ok(output)
 }
 
 impl SmokeRecipe {
@@ -256,9 +175,7 @@ impl SmokeRecipe {
         let mask_offset = vec2(3599644333)?;
         let color = contract::literal(native, 116600957)?;
         let hdr = contract::literal(native, 14836402)?[0];
-        let mut sources = Vec::new();
         let mut layers = Vec::new();
-        let mut names = Vec::new();
         for &(hash, _, sampler, role, domain) in &TEXTURES {
             let binding = contract::texture_binding(native, hash)?;
             let name = binding["image"]
@@ -286,45 +203,15 @@ impl SmokeRecipe {
                 uri
             };
             layers.push(json!({"uri":uri,"hash":hash,"role":role,"sampler":sampler,"domain":domain,"color_space":"native_encoded"}));
-            names.push(name);
-            sources.push(source);
         }
-        let color_key = (
-            names.join("|"),
-            format!("smoke:{color:?}:{hdr:?}:{scales:?}:{speeds:?}:{mask_offset:?}"),
-        );
-        let uri = if let Some(uri) = shared.get(&color_key) {
-            uri.clone()
-        } else {
-            let output = image(
-                [
-                    sources[0], sources[1], sources[2], sources[3], sources[4], sources[5],
-                ],
-                color,
-                hdr,
-                scales,
-                speeds,
-                mask_offset,
-            )?;
-            let uri = store_image(
-                &output,
-                format!("prepared/material-channels/{}/color.ktx2", shared.len()),
-                false,
-                "color",
-                pack,
-            )?;
-            shared.insert(color_key, uri.clone());
-            uri
-        };
         let surface = json!({"version":3,"identity":key,"native":native,
-            "channels":[{"uri":uri,"role":"color","layer":0,"color_space":"linear","sampler":20}],
+            "channels":[],
             "source_layers":layers,
             "standard":{"unlit":true,"roughness":1.,"metallic":0.,"reflectance":0.,"base_color":[1.,1.,1.,1.]},
             "presentation":{"alpha":"add","cull":"back","fog":false,"visible":true},
-            "source_smoke":{"color":color,"hdr_amount":hdr,"density":"alpha_red_times_mask_red_times_sum_alpha_plus_red_and_alpha_minus_red",
+            "source_smoke":{"consumer":"native_layers_vertex_time_depth_forward","color":color,"hdr_amount":hdr,"density":"alpha_red_times_mask_red_times_sum_alpha_plus_red_and_alpha_minus_red",
                 "rgb":"square_sum_color_plus_rgb_and_color_minus_rgb_times_vertex_rgb_times_color_rgb_times_density_times_vertex_alpha_squared_times_depth_fade_times_color_alpha_times_hdr_amount",
-                "fragment_alpha":1.,"prepared_time":0.,"prepared_vertex":[1.,1.,1.,1.],"prepared_depth_fade":1.,
-                "prepared_stage":"authored_uv_and_color_density_at_zero_time_with_unit_vertex_and_depth_fade"},
+                "fragment_alpha":1.,"evaluation":"live_fragment","model_fx_shader_start":0.},
             "source_uv_animation":{"game_time_code":25,"component":3,"evaluation":"fragment","scale":scales,"speed":speeds,"mask_offset":mask_offset,
                 "scroll":"uv_times_scale_plus_fraction_game_time_w_times_speed_times_scale","mask":"uv_minus_offset_times_scale_plus_offset",
                 "domains":["alpha","plus","minus","mask"],"independent_domains":true},
@@ -334,7 +221,8 @@ impl SmokeRecipe {
             "source_vertex_color_transfer":"linear_primary_vertex_rgb_and_squared_primary_vertex_alpha",
             "source_emissive":{"output_transfer":"sqrt_after_scene_hdr_control0"},
             "source_blend":{"rgb":[2,2,1],"alpha":[1,2,1]},
-            "pending_runtime":"Native smoke pillar requires independent live game-time scrolling domains, primary vertex RGB and squared alpha, scene depth/render-target/near-plane/clip-w softness, scene HDR control0 and native additive/destination-alpha gamma2 framebuffer composition"});
+            "approximations":["Native six-layer scrolling, interpolated primary RGBA and source-unit depth softness use a linear additive forward consumer; native scene HDR control and gamma2 framebuffer composition use the shared Bevy exposure and framebuffer"],
+            "pending_runtime":"Native smoke scene HDR control0 and gamma2 framebuffer composition are approximated by the shared linear forward renderer"});
         Ok(
             json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},"extras":{"surface":surface}}),
         )

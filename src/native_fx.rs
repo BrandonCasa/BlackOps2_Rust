@@ -583,6 +583,7 @@ fn spawn(
                             particle,
                             particle_pose,
                             WorldAssetRoot(model.clone()),
+                            crate::rendering::opaque::NativeShaderStart(0.),
                         ));
                     } else {
                         diagnose(

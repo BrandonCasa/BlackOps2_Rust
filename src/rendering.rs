@@ -10,6 +10,7 @@ use bevy::{
     prelude::*,
 };
 pub(crate) mod atmosphere;
+mod animated_surfaces;
 mod effect_models;
 mod eyes;
 pub(crate) mod grading;
@@ -89,6 +90,7 @@ impl Plugin for GameRenderingPlugin {
         preparation::install(app);
         effect_models::install(app);
         pbr::install(app);
+        animated_surfaces::install(app);
         app.add_plugins(solari::OriginsSolariPlugin)
             .add_plugins(lod::PropLodPlugin)
             .add_plugins(preprocessing::PreprocessingPlugin)
@@ -150,9 +152,11 @@ impl Plugin for GameRenderingPlugin {
                     (
                         pbr::refresh,
                         pbr::prepare,
+                        animated_surfaces::prepare,
                         surfaces,
                         fixture_lights,
                         opaque::convert,
+                        animated_surfaces::pending,
                         eyes::prepare.run_if(opaque::material_scene_active),
                     )
                         .chain()

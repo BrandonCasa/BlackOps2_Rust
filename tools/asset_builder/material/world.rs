@@ -381,61 +381,15 @@ impl WorldRecipe {
                     let uri = source_image(native, images, hash, "ember-source", shared, pack)?;
                     sources.push(json!({"uri":uri,"hash":hash,"role":role,"sampler":20,"color_space":"native_encoded"}));
                 }
-                let channel_key = (
-                    key.into(),
-                    format!("ember-input-at-zero:{:?}", parameters.bits()),
-                );
-                let uri = if let Some(uri) = shared.get(&channel_key) {
-                    uri.clone()
-                } else {
-                    let baked = bake_embers(native, images, parameters, 0.)?;
-                    let uri = store_image(
-                        &baked,
-                        format!(
-                            "prepared/material-channels/{}/ember-input.ktx2",
-                            shared.len()
-                        ),
-                        false,
-                        "color",
-                        pack,
-                    )?;
-                    shared.insert(channel_key, uri.clone());
-                    uri
-                };
-                let normal_key = (
-                    contract::texture_binding(native, 2485960688)?["image"]
-                        .as_str()
-                        .unwrap()
-                        .to_ascii_lowercase(),
-                    "ember-decoded-normal".into(),
-                );
-                let normal_uri = if let Some(uri) = shared.get(&normal_key) {
-                    uri.clone()
-                } else {
-                    let baked = ordinary::bake(image(native, images, 2485960688)?, "normal", None)?;
-                    let uri = store_image(
-                        &baked,
-                        format!(
-                            "prepared/material-channels/{}/ember-normal.ktx2",
-                            shared.len()
-                        ),
-                        false,
-                        "normal",
-                        pack,
-                    )?;
-                    shared.insert(normal_key, uri.clone());
-                    uri
-                };
-                surface["channels"] = json!([{"uri":uri,"role":"color","layer":0,"color_space":"linear","sampler":20},
-                    {"uri":normal_uri,"role":"normal","layer":0,"color_space":"linear","sampler":20}]);
                 surface["presentation"]["alpha"] = json!("blend");
                 surface["presentation"]["fog"] = json!(true);
                 surface["source_layers"] = json!(sources);
-                surface["source_embers"] = json!({"scale":parameters.scale,"direction":parameters.direction,"flicker_min":parameters.minimum,
+                surface["source_vertex_color_transfer"] = json!("native_fragment_composition");
+                surface["source_embers"] = json!({"consumer":"native_layers_vertex_time_shared_pbr","scale":parameters.scale,"direction":parameters.direction,"flicker_min":parameters.minimum,
                     "flicker_max":parameters.maximum,"seed":parameters.seed,"game_time_code":25,"game_time_component":3,
                     "sample_rate_hz":10.,"repeat_period":Value::Null,"flicker_weights":FLICKER_WEIGHTS,
                     "quantization":"ten_times_time_minus_frac_ten_times_time_then_times_one_tenth_plus_seed",
-                    "flicker_updates":[0,1,2,3,0,1,2,0],"prepared_time_seconds":0.,"prepared_stage":"squared_mixed_texture_rgb_and_raw_mixed_alpha_before_vertex_color_and_lighting",
+                    "flicker_updates":[0,1,2,3,0,1,2,0],"evaluation":"live_fragment",
                     "uv":"uv0_times_scale_plus_frac_time_times_direction_times_scale",
                     "mask_channels":{"r":"ember_intensity","g":"diffuse_ember_mix","b":"native_specular_response"},
                     "candidate_rgb_scale":6.,"has_additive_emission":false,
@@ -447,14 +401,14 @@ impl WorldRecipe {
                         "operation":"saturate_dot_normal_sun_divided_by_dot_half_sun_squared_times_0_545_plus_0_465_times_saturate_dot_normal_half_times_0_375_times_mask_b_squared_plus_one_minus_mask_b_squared_times_exp2_negative_ten_dot_half_sun_times_0_25"},
                     "lighting":"directional_lightmap_plus_sun_times_shadow_and_separate_reflection_spherical_harmonic_ratio",
                     "reflection_lightmap_normal":"geometric_normal_before_normal_map_perturbation",
-                    "color_matrix":{"buffer":0,"rows":[114,115,116],"stage":"linear_lit_rgb_times_coverage_before_fog_and_hdr"},
+                    "hero_lighting":{"buffer":0,"rows":[114,115,116],"stage":"linear_lit_rgb_times_coverage_before_fog_and_hdr"},
                     "flicker_precision":"float32_cpu_dp4_reduction_can_differ_from_native_gpu_instruction_rounding"});
                 surface["source_blend"] = json!({"rgb":[5,6,1],"alpha":[8,2,1],"polygon_offset":1,"depth_write":false,"alpha_test":"gt_zero"});
                 surface["approximations"] = json!([
-                    "Prepared color is the native texture equation at explicit time zero before vertex color and lighting; live layers are retained and no short repeating animation or additive emission is invented"
+                    "Native unwrapped 10Hz seeded flicker, independent ember scrolling, encoded texture and interpolated vertex composition, normal-map slopes, lit RGB coverage and sqrt alpha use the live forward consumer; native mask-B direct/reflection BRDF, directional lightmaps, reflection SH, hero lighting, polygon offset1, destination-alpha and gamma2 fog/HDR framebuffer composition use shared PBR and linear alpha blending"
                 ]);
                 surface["pending_runtime"] = json!(
-                    "Native burning embers requires unwrapped clock, deterministic 10Hz seeded flicker and independent ember scrolling, vertex RGBA before squaring, packed-mask B direct/reflection BRDF, lightmap/reflection-SH lighting, sqrt coverage with lit RGB coverage and native alpha/depth-offset/fog/color-matrix/HDR composition; matching consumers are not connected"
+                    "Native ember mask-B BRDF, directional lightmap/reflection-SH, hero lighting, polygon offset1 and gamma2 alpha/fog/HDR framebuffer composition are approximated by shared PBR lighting and linear blending"
                 );
             }
         }
