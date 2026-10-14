@@ -380,7 +380,7 @@ fn attach_weapons(
             }
             commands.entity(entity).insert((
                 SocketAttachment(*socket),
-                Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+                Transform::default(),
                 if rig.knife {
                     Visibility::Hidden
                 } else {
@@ -545,11 +545,7 @@ fn follow_sockets(
                 local = pose.to_matrix() * local;
                 cursor = ancestor.parent();
             }
-            Some(
-                Transform::from_matrix(local).mul_transform(Transform::from_rotation(
-                    Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
-                )),
-            )
+            Some(Transform::from_matrix(local))
         })
         .collect();
     for ((_, _, mut pose), followed) in poses.p1().iter_mut().zip(followed) {
@@ -708,6 +704,15 @@ fn aim_pose(
         pose.rotation *= joint.rotation;
     }
 }
+fn camera_tag_pose(local: Mat4) -> Transform {
+    let basis = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+    let (_, rotation, translation) = local.to_scale_rotation_translation();
+    Transform {
+        translation: basis * translation,
+        rotation: basis * rotation * basis.inverse(),
+        ..default()
+    }
+}
 fn camera_pose(
     state: Res<State<GameState>>,
     rigs: Query<(Entity, &Rig)>,
@@ -769,16 +774,7 @@ fn camera_pose(
             if cursor != root {
                 continue;
             }
-            let basis = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
-            let (_, rotation, translation) = local.to_scale_rotation_translation();
-            let eye = Transform {
-                translation: basis * translation,
-                rotation: basis
-                    * rotation
-                    * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)
-                    * basis.inverse(),
-                ..default()
-            };
+            let eye = camera_tag_pose(local);
             eyes.push((
                 rig.owner,
                 eye,
@@ -1276,5 +1272,72 @@ fn animate(
         rig.sequence = Some(sequence);
         rig.phase = selected.as_ref().map(|s| s.action);
         rig.playback = Some(action);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converted_camera_tags_preserve_neutral_and_native_motion() {
+        assert!(
+            camera_tag_pose(Mat4::IDENTITY)
+                .to_matrix()
+                .abs_diff_eq(Mat4::IDENTITY, 1e-6)
+        );
+        let angle = 0.37;
+        for (tag_rotation, camera_rotation) in [
+            (Quat::from_rotation_x(angle), Quat::from_rotation_z(-angle)),
+            (Quat::from_rotation_y(angle), Quat::from_rotation_y(angle)),
+            (Quat::from_rotation_z(angle), Quat::from_rotation_x(angle)),
+        ] {
+            let eye = camera_tag_pose(Mat4::from_rotation_translation(
+                tag_rotation,
+                Vec3::new(0.1, 0.2, 0.3),
+            ));
+            assert!(eye.translation.abs_diff_eq(Vec3::new(0.3, 0.2, -0.1), 1e-6));
+            for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+                assert!((eye.rotation * axis).abs_diff_eq(camera_rotation * axis, 1e-6));
+            }
+        }
+    }
+
+    #[test]
+    fn converted_weapon_model_follows_socket_without_an_extra_axis_rotation() {
+        let mut app = App::new();
+        app.add_systems(Update, follow_sockets);
+        let root = app
+            .world_mut()
+            .spawn(Transform::from_rotation(Quat::from_rotation_y(
+                std::f32::consts::FRAC_PI_2,
+            )))
+            .id();
+        let ancestor_pose =
+            Transform::from_xyz(0.2, -0.1, 0.3).with_rotation(Quat::from_rotation_y(0.2));
+        let ancestor = app.world_mut().spawn((ChildOf(root), ancestor_pose)).id();
+        let socket = app
+            .world_mut()
+            .spawn((ChildOf(ancestor), Transform::default()))
+            .id();
+        let model = app
+            .world_mut()
+            .spawn((
+                ChildOf(root),
+                SocketAttachment(socket),
+                Transform::default(),
+            ))
+            .id();
+        for socket_pose in [
+            Transform::default(),
+            Transform::from_xyz(0.4, -0.2, 0.1)
+                .with_rotation(Quat::from_rotation_x(0.4) * Quat::from_rotation_z(-0.3)),
+        ] {
+            *app.world_mut().get_mut::<Transform>(socket).unwrap() = socket_pose;
+            app.update();
+            let actual = app.world().get::<Transform>(model).unwrap();
+            let expected = ancestor_pose.to_matrix() * socket_pose.to_matrix();
+            assert!(actual.to_matrix().abs_diff_eq(expected, 1e-6));
+        }
     }
 }
