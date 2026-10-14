@@ -230,8 +230,8 @@ fn layer_controls(
             .ok_or("Non-finite native layer scalar".into())
     };
     let normal = &surface["source_normal"];
-    let mut normal_scale = [1., 1.];
-    let mut decode = [1., 0.];
+    let mut normal_scale: [f32; 2] = [1., 1.];
+    let mut decode: [f32; 2] = [1., 0.];
     if !normal.is_null() {
         let uri = normal["uri"]
             .as_str()
