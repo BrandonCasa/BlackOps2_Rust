@@ -3,7 +3,7 @@ struct Parameters {
     count: u32,
     padding: vec2<u32>,
     parms: vec4<f32>,
-    images: array<vec4<u32>, 5>,
+    images: array<vec4<u32>, 7>,
 }
 struct Sample {
     uv01: vec4<f32>,
@@ -54,6 +54,24 @@ fn normal(slope: vec2<f32>) -> vec4<f32> {
 }
 fn brightness(rgb: vec3<f32>) -> f32 { return sqrt(rgb.x * rgb.x * 0.299 + rgb.y * rgb.y * 0.587 + rgb.z * rgb.z * 0.114); }
 
+
+fn fit_response(value: Pixel, rgb: vec3<f32>, gloss: f32) -> Pixel {
+    var pixel = value;
+    let energy = 1.0 - max(0.0, max(rgb.x, max(rgb.y, rgb.z)));
+    let specular_brightness = brightness(rgb);
+    var metallic = 0.0;
+    if specular_brightness >= 0.04 {
+        let b = brightness(pixel.color.rgb) * energy / 0.96 + specular_brightness - 0.08;
+        metallic = clamp((-b + sqrt(max(b * b - 0.16 * (0.04 - specular_brightness), 0.0))) / 0.08, 0.0, 1.0);
+    }
+    let from_diffuse = pixel.color.rgb * energy / 0.96 / max(1.0 - metallic, 0.000001);
+    let from_specular = (rgb - vec3<f32>(0.04 * (1.0 - metallic))) / max(metallic, 0.000001);
+    pixel.color = vec4<f32>(clamp(from_diffuse + (from_specular - from_diffuse) * metallic * metallic, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    pixel.response = vec4<f32>(1.0, roughness(gloss), metallic, 1.0);
+    pixel.specular = vec4<f32>(rgb, gloss);
+    return pixel;
+}
+
 @compute @workgroup_size(64)
 fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let index = invocation.x;
@@ -66,11 +84,11 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let blue = sample.uv2_color.w;
     let base = sample_image(0u, uv0);
     let n0 = sample_image(1u, uv0);
-    let layer = sample_image(2u, uv1);
+    let layer = sample_image(select(2u, 1u, flag(256u)), uv1);
     var result: Pixel;
     result.response = vec4<f32>(1.0, 1.0, 0.0, 1.0);
     result.specular = vec4<f32>(0.0);
-    if flag(2u) || flag(4u) || flag(8u) {
+    if flag(2u) || flag(4u) || flag(8u) || flag(256u) {
         var second = vec4<f32>(1.0);
         if flag(1u) { second = sample_image(3u, uv2); }
         let tint = vec3<f32>(1.0) + green * (layer.rgb - vec3<f32>(1.0));
@@ -88,7 +106,12 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
             if !flag(4u) && !flag(8u) { gloss = base.a * (tint.x * 0.3 + tint.y * 0.6 + tint.z * 0.1); }
             result.response = vec4<f32>(1.0, roughness(gloss), 0.0, gloss);
         }
-        result.normal = normal(decode(n0.xy));
+        result.normal = vec4<f32>(0.0, 0.0, 1.0, 1.0);
+        if !flag(256u) { result.normal = normal(decode(n0.xy)); }
+        if flag(128u) {
+            let specular = sample_image(recipe.padding.x - 1u, uv0);
+            result = fit_response(result, specular.rgb * specular.rgb, specular.a);
+        }
         output[index] = result;
         return;
     }
@@ -114,26 +137,23 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let s1 = decode(n1.xy);
     let rotated = vec2<f32>(s1.x * sample.transform.x + s1.y * sample.transform.y, s1.x * sample.transform.z + s1.y * sample.transform.w);
     result.normal = normal(s0 + weight * (rotated - s0));
-    if flag(32u) {
-        let specular = sample_image(4u, uv1);
+    if flag(32u) || flag(128u) {
         let k = bitcast<f32>(0x3e4ccccdu);
-        let encoded_rgb = vec3<f32>(k) + weight * (specular.rgb - vec3<f32>(k));
-        let rgb = encoded_rgb * encoded_rgb;
         var base_gloss = 0.0;
         if flag(64u) { base_gloss = base.a; }
-        let gloss = base_gloss + weight * (specular.a - base_gloss);
-        let energy = 1.0 - max(0.0, max(rgb.x, max(rgb.y, rgb.z)));
-        let specular_brightness = brightness(rgb);
-        var metallic = 0.0;
-        if specular_brightness >= 0.04 {
-            let b = brightness(result.color.rgb) * energy / 0.96 + specular_brightness - 0.08;
-            metallic = clamp((-b + sqrt(max(b * b - 0.16 * (0.04 - specular_brightness), 0.0))) / 0.08, 0.0, 1.0);
+        var specular = vec4<f32>(k, k, k, base_gloss);
+        if flag(128u) { specular = sample_image(recipe.padding.x - 1u, uv0); }
+        if flag(32u) {
+            let layer_specular = sample_image(select(4u, 5u, flag(1u)), uv1);
+            specular = specular + weight * (layer_specular - specular);
         }
-        let from_diffuse = result.color.rgb * energy / 0.96 / max(1.0 - metallic, 0.000001);
-        let from_specular = (rgb - vec3<f32>(0.04 * (1.0 - metallic))) / max(metallic, 0.000001);
-        result.color = vec4<f32>(clamp(from_diffuse + (from_specular - from_diffuse) * metallic * metallic, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
-        result.response = vec4<f32>(1.0, roughness(gloss), metallic, 1.0);
-        result.specular = vec4<f32>(rgb, gloss);
+        let rgb = specular.rgb * specular.rgb;
+        var gloss = specular.a;
+        if flag(1u) {
+            let tint = vec3<f32>(1.0) + blue * (decal.rgb - vec3<f32>(1.0));
+            gloss = gloss * (tint.x * 0.3 + tint.y * 0.6 + tint.z * 0.1);
+        }
+        result = fit_response(result, rgb, gloss);
     } else if flag(64u) { result.response = vec4<f32>(1.0, roughness(base.a), 0.0, base.a); }
     output[index] = result;
 }

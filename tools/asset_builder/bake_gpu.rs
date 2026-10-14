@@ -71,12 +71,13 @@ impl Baker {
             .as_ref().map_err(|error| format!("GPU material baking initialization failed: {error}"))?;
         let flags = recipe.decal as u32 | (recipe.multiply as u32) << 1 | (recipe.additive as u32) << 2
             | (recipe.blend_color as u32) << 3 | (recipe.reveal as u32) << 4
-            | (recipe.layer_specular as u32) << 5 | (recipe.base_alpha_response as u32) << 6;
+            | (recipe.layer_specular as u32) << 5 | (recipe.base_alpha_response as u32) << 6
+            | (recipe.base_specular as u32) << 7 | (recipe.geometric_normal as u32) << 8;
         let mut parameters = Vec::new();
-        for value in [flags, 0, 0, 0] { push32(&mut parameters, value); }
+        for value in [flags, 0, recipe.inputs.len() as u32, 0] { push32(&mut parameters, value); }
         for value in recipe.parms { push32(&mut parameters, value.to_bits()); }
         let mut image_data = Vec::new();
-        for index in 0..5 {
+        for index in 0..7 {
             let metadata = if let Some(input) = recipe.inputs.get(index) {
                 let offset = u32::try_from(image_data.len() / 16)?;
                 for pixel in &input.pixels { for value in pixel { push32(&mut image_data, value.to_bits()); } }
