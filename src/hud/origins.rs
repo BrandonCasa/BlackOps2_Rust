@@ -220,8 +220,18 @@ fn setup(
             .into_iter()
             .enumerate()
             {
-                if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo {
-                    break;
+                if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
+                    && !game.content.powerups.iter().any(|powerup| {
+                        powerup.id.0
+                            == [
+                                "powerup.double_points",
+                                "powerup.insta_kill",
+                                "powerup.zombie_blood",
+                                "powerup.fire_sale",
+                            ][index]
+                    })
+                {
+                    continue;
                 }
                 parent.spawn((
                     Powerup(index),
