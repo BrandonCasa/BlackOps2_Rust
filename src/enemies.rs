@@ -2141,6 +2141,11 @@ pub(crate) fn animation_observation(world: &mut World) -> Vec<serde_json::Value>
         let game = world.resource::<GameDefinition>();
         let clip = game.content.enemies.iter().find(|e|e.id == zombie.definition).and_then(|e|zombie.combat_clip(e));
         (entity, serde_json::json!({"entity":entity.to_bits(),"action":format!("{:?}",zombie.action),
+            "definition":zombie.definition.0,"completed_emerging":zombie.completed_emerging(),
+            "entrance":zombie.source_entrance.as_ref().map(|entrance|serde_json::json!({"node":entrance.node.0,"position":entrance.position})),
+            "barrier_slot":zombie.barrier_slot.as_ref().map(|(id,slot)|serde_json::json!({"barrier":id.0,"slot":slot})),
+            "traversal":zombie.traversal.as_ref().map(|motion|&motion.alias),
+            "barrier_action":zombie.barrier_action.as_ref().map(|action|serde_json::json!({"barrier":action.barrier.0,"enter":action.enter,"reach":action.reach,"seconds":action.clip.seconds})),
             "position":transform.translation.to_array(),"forward":(transform.rotation * Vec3::X).to_array(),
             "gait":format!("{:?}",zombie.gait),"elapsed":zombie.elapsed,"sequence":zombie.animation_sequence,
             "combat_state":zombie.combat.map(|(s,_)|format!("{s:?}")),"combat_clip":clip.map(|c|&c.animation.0),
