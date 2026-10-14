@@ -20,6 +20,9 @@ struct Coverage {
     third_picture: bool,
     restrictions: bool,
     heals: usize,
+    completed_events: Vec<serde_json::Value>,
+    completed_perk_events: Vec<serde_json::Value>,
+    completed_deaths: u32,
     snapshots: Vec<serde_json::Value>,
 }
 pub fn install(app: &mut App) {
@@ -69,7 +72,10 @@ fn drive(
     focus: Res<crate::interactions::InteractionFocus>,
     evidence: Res<SoloReviveEvidence>,
     health_evidence: Res<crate::player_health::HealthEvidence>,
-    machines: Query<&crate::interactions::Usable>,
+    machines: Query<(
+        &crate::interactions::Usable,
+        Option<&crate::perks::PerkMachine>,
+    )>,
     perk_evidence: Res<crate::perks::PerkEvidence>,
     mut impacts: ResMut<crate::damage::DamageQueue>,
 ) {
@@ -175,7 +181,13 @@ fn drive(
                 if coverage.cycle == 2 {
                     coverage.machine_removed = !machines
                         .iter()
-                        .any(|m| m.source.id.0 == "interaction.quick_revive");
+                        .any(|(usable, native)| {
+                            usable.source.id.0 == "interaction.quick_revive"
+                                && native.is_none_or(|machine| !machine.retired())
+                        });
+                    if !coverage.machine_removed {
+                        return;
+                    }
                     if !coverage.third_picture {
                         picture(
                             &mut commands,
@@ -299,13 +311,16 @@ fn drive(
                 "no-charge-game-over.png",
             );
             coverage.snapshots.push(serde_json::json!({"event":"terminal","health":health.current(),"purchases":perks.solo_purchases,"charges":perks.solo_charges,"deaths":health_evidence.death_events}));
+            coverage.completed_events = evidence.events.clone();
+            coverage.completed_perk_events = perk_evidence.events.clone();
+            coverage.completed_deaths = health_evidence.death_events;
             commands.write_message(crate::input::RestartGame);
             coverage.phase = 8;
             coverage.elapsed = 0.;
         }
         8 if **state == GameState::Playing && coverage.elapsed > 0.5 => {
-            let revives: Vec<_> = evidence
-                .events
+            let revives: Vec<_> = coverage
+                .completed_events
                 .iter()
                 .filter(|e| e["event"] == "revived")
                 .collect();
@@ -329,15 +344,20 @@ fn drive(
                 && perks.solo_charges == 0
                 && perks.owned.is_empty()
                 && episode.is_none()
-                && health_evidence.death_events == 1
-                && perk_evidence
-                    .events
+                && coverage.completed_deaths == 1
+                && health_evidence.death_events == 0
+                && health_evidence.hits.is_empty()
+                && health_evidence.heals.is_empty()
+                && evidence.events.is_empty()
+                && perk_evidence.events.is_empty()
+                && coverage
+                    .completed_perk_events
                     .iter()
                     .filter(|e| e["event"] == "perk_activated")
                     .count()
                     == 3
-                && perk_evidence
-                    .events
+                && coverage
+                    .completed_perk_events
                     .iter()
                     .filter(|e| e["event"] == "perk_activated")
                     .all(|e| {
@@ -346,7 +366,7 @@ fn drive(
                             .is_some_and(|v| (v - 3.3).abs() < 0.04)
                     });
             picture(&mut commands, &verification.output, "restart-clear.png");
-            let receipt = serde_json::json!({"passed":passed,"scope":"controlled travel and 499/500-point budgets; real held-F purchases, natural enemy attacks, three automatic revivals, fourth lethal episode and restart; downed firing does not qualify native projectile delivery", "events":evidence.events,"snapshots":coverage.snapshots,"crawl_meters":coverage.crawl,"downed_shot":coverage.downed_shot,"restored":coverage.restored,"timings":timings,"perk_events":perk_evidence.events,"machine_removed":coverage.machine_removed,"restrictions":coverage.restrictions,"restart_owner":owner.to_bits()});
+            let receipt = serde_json::json!({"passed":passed,"scope":"controlled travel and 499/500-point budgets; real held-F purchases, natural enemy attacks, three automatic revivals, fourth lethal episode and restart; downed firing does not qualify native projectile delivery", "events":coverage.completed_events,"snapshots":coverage.snapshots,"crawl_meters":coverage.crawl,"downed_shot":coverage.downed_shot,"restored":coverage.restored,"timings":timings,"perk_events":coverage.completed_perk_events,"machine_removed":coverage.machine_removed,"restrictions":coverage.restrictions,"restart_owner":owner.to_bits()});
             let _ = std::fs::write(
                 verification.output.join("solo-revive.json"),
                 receipt.to_string(),
@@ -452,10 +472,8 @@ fn drive(
                     point: None,
                     attacker: owner,
                     target: owner,
-                    source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(
-                        "weapon.frag_grenade_zm".into(),
-                    )),
-                    category: crate::origins::DamageCategory::Explosive,
+                    source: crate::damage::ImpactSource::Fall,
+                    category: crate::origins::DamageCategory::Environmental,
                     region: crate::weapons::HitRegion::Torso,
                     amount: 300,
                 });
@@ -475,8 +493,8 @@ fn drive(
                 && perks.solo_purchases == 0
                 && drinking.is_none()
                 && session.points == 0
-                && health_evidence.death_events == 2;
-            let receipt = serde_json::json!({"passed":passed,"scope":"real paid bottle purchase, then controlled resolved lethal self-projectile impact before activation; qualifies drinking cancellation and lost purchase, not projectile delivery", "perk_events":perk_evidence.events,"points":session.points,"purchases":perks.solo_purchases,"charges":perks.solo_charges,"deaths":health_evidence.death_events});
+                && health_evidence.death_events == 1;
+            let receipt = serde_json::json!({"passed":passed,"scope":"real paid bottle purchase, then controlled resolved lethal fall impact before activation; qualifies drinking cancellation and lost purchase, not fall delivery", "perk_events":perk_evidence.events,"points":session.points,"purchases":perks.solo_purchases,"charges":perks.solo_charges,"deaths":health_evidence.death_events});
             let _ = std::fs::write(
                 verification.output.join("perk-drinking-abort.json"),
                 receipt.to_string(),
