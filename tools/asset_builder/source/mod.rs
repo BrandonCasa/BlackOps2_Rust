@@ -244,7 +244,38 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     };
     let (images, image_sources) =
         images::convert(&authorized, &catalog, &mut pack, required_images.as_ref())?;
-    let mut converted_materials = std::collections::BTreeMap::new();
+    let mut conversion_inputs = materials.clone();
+    for (name, material) in camo_variants {
+        if conversion_inputs.insert(name.clone(), material).is_some() {
+            return Err(format!("Duplicate camo conversion identity {name}").into());
+        }
+    }
+    let mut converted_materials =
+        crate::material::convert_known(&conversion_inputs, &image_sources, &mut pack)?;
+    if initial {
+        for approximation in crate::material::accept_initial_visual_approximations(
+            &materials,
+            &mut converted_materials,
+        )? {
+            println!("Initial visual approximation: {approximation}");
+        }
+    }
+    let known_materials = materials
+        .iter()
+        .filter(|(_, material)| {
+            !crate::bake::supported(material["technique_set"].as_str().unwrap_or_default())
+        })
+        .map(|(name, material)| (name.clone(), material.clone()))
+        .collect();
+    let known_gaps = crate::material::missing(&known_materials, &converted_materials);
+    if !known_gaps.is_empty() {
+        return Err(format!(
+            "Required non-baked material conversion has {} unresolved materials:\n{}",
+            known_gaps.len(),
+            known_gaps.join("\n")
+        )
+        .into());
+    }
     let mut geometry = Vec::new();
     for (_, zone, root) in catalog.definitions(17) {
         geometry.extend(crate::geometry::world(&catalog, zone, root)?);
@@ -282,17 +313,6 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         &mut converted_materials,
         &mut pack,
     )?;
-    let mut conversion_inputs = materials.clone();
-    for (name, material) in camo_variants {
-        if conversion_inputs.insert(name.clone(), material).is_some() {
-            return Err(format!("Duplicate camo conversion identity {name}").into());
-        }
-    }
-    converted_materials.extend(crate::material::convert_known(
-        &conversion_inputs,
-        &image_sources,
-        &mut pack,
-    )?);
     if initial {
         for approximation in crate::material::accept_initial_visual_approximations(
             &materials,
