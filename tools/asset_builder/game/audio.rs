@@ -414,25 +414,20 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
             });
         }
         buses.push(1.);
-        master = Some(json!({"buses":buses,"gain":scalar(100)?}));
-        for (label, enabled, gain) in [
-            ("low shelf", 36, 40),
-            ("peak1", 52, 56),
-            ("peak2", 68, 72),
-            ("high shelf", 84, 88),
-        ] {
-            if streams.u32(entry.add(enabled)?)? != 0 && scalar(gain)?.abs() > 1.52879e-05 {
-                gaps.push(format!("Initial native default master {label} gain {} requires its source biquad consumer006f6010",scalar(gain)?));
-            }
-        }
-        for (label, enabled, offset) in [("compressor", 104, 108), ("limiter", 132, 136)] {
-            if streams.u32(entry.add(enabled)?)? != 0 {
-                let parameters = (0..6)
-                    .map(|index| scalar(offset + index * 4))
-                    .collect::<Result<Vec<_>>>()?;
-                gaps.push(format!("Initial native default master {label} parameters {parameters:?} require source consumer00835603"));
-            }
-        }
+        let equalizers = [36, 52, 68, 84].into_iter().map(|offset| {
+            Ok(json!({"enabled":streams.u32(entry.add(offset)?)? != 0,
+                "gain":scalar(offset + 4)?,"frequency":scalar(offset + 8)?,"quality":scalar(offset + 12)?}))
+        }).collect::<Result<Vec<_>>>()?;
+        let dynamics = |offset| -> Result<Value> {
+            Ok(json!({"enabled":streams.u32(entry.add(offset)?)? != 0,
+                "pre_gain":scalar(offset + 4)?,"post_gain":scalar(offset + 8)?,
+                "threshold":scalar(offset + 12)?,"ratio":scalar(offset + 16)?,
+                "attack":scalar(offset + 20)?,"release":scalar(offset + 24)?}))
+        };
+        master = Some(
+            json!({"buses":buses,"gain":scalar(100)?,"equalizers":equalizers,
+            "compressor":dynamics(104)?,"limiter":dynamics(132)?}),
+        );
     }
     game["audio"]["master"] = master.ok_or("Native default master fallback is absent")?;
     let curve = |index: usize| -> Result<(String, Vec<[f32; 2]>)> {

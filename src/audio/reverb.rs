@@ -57,6 +57,7 @@ impl Default for ListenerRoom {
                 room: state,
                 voices: Vec::new(),
                 gain: 1.,
+                master: None,
             })),
             started: false,
         }
@@ -71,6 +72,17 @@ pub(super) fn update(
     let Some(game) = game else {
         return;
     };
+    {
+        let mut mixer = room.mixer.lock().unwrap_or_else(|error| error.into_inner());
+        if mixer.master.is_none() {
+            mixer.master = game.audio.master.as_ref().map(super::master::Master::new);
+        }
+        mixer.gain = game
+            .audio
+            .master
+            .as_ref()
+            .map_or(1., |master| master.buses[0]);
+    }
     if room.room != weather.ambient_room || room.room.is_empty() {
         let Some(profile) = game
             .audio
@@ -90,14 +102,6 @@ pub(super) fn update(
             .write()
             .unwrap_or_else(|error| error.into_inner())
             .0 = profile.parameters;
-        room.mixer
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .gain = game
-            .audio
-            .master
-            .as_ref()
-            .map_or(1., |master| master.gain * master.buses[0]);
         room.room = weather.ambient_room.clone();
         room.elapsed = 0.;
     }
@@ -255,6 +259,10 @@ pub(super) struct VoiceControl {
     pub(super) speed: AtomicU32,
     pub(super) paused: AtomicBool,
     pub(super) stopped: AtomicBool,
+    pub(super) dry: AtomicU32,
+    pub(super) spatial: [AtomicU32; 2],
+    pub(super) done: Arc<AtomicBool>,
+    pub(super) positioned: bool,
     pan: [[f32; 2]; 2],
 }
 impl VoiceControl {
@@ -264,6 +272,9 @@ impl VoiceControl {
         speed: f32,
         paused: bool,
         pan: [[f32; 2]; 2],
+        dry: f32,
+        done: Arc<AtomicBool>,
+        positioned: bool,
     ) -> Self {
         Self {
             gain,
@@ -271,6 +282,10 @@ impl VoiceControl {
             speed: AtomicU32::new(speed.to_bits()),
             paused: AtomicBool::new(paused),
             stopped: AtomicBool::new(false),
+            dry: AtomicU32::new(dry.to_bits()),
+            spatial: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),
+            done,
+            positioned,
             pan,
         }
     }
@@ -279,7 +294,6 @@ struct Reader {
     source: Box<dyn Source<Item = Sample> + Send>,
     channels: usize,
     rate: u32,
-    duration: Option<Duration>,
     current: Option<[f32; 2]>,
     next: Option<[f32; 2]>,
     fraction: u32,
@@ -293,12 +307,10 @@ impl Reader {
         let source = input.source(looping);
         let channels = source.channels().get() as usize;
         let rate = source.sample_rate().get();
-        let duration = source.total_duration();
         let mut reader = Self {
             source,
             channels,
             rate,
-            duration,
             current: None,
             next: None,
             fraction: 0,
@@ -368,18 +380,32 @@ struct WetMixer {
     room: Arc<RwLock<Preset>>,
     voices: Vec<Reader>,
     gain: f32,
+    master: Option<super::master::Master>,
 }
 impl WetMixer {
     fn render(&mut self) -> Vec<f32> {
         let preset = *self.room.read().unwrap_or_else(|error| error.into_inner());
         self.network.update(preset);
         let mut output = Vec::with_capacity(512);
-        for _ in 0..256 {
+        for frame in 0..256 {
             let mut input = [0.; 4];
+            let mut dry = [0.; 2];
             self.voices.retain_mut(|voice| {
                 let Some(sample) = voice.sample() else {
+                    voice.control.done.store(true, Ordering::Release);
                     return false;
                 };
+                let gain = f32::from_bits(voice.control.dry.load(Ordering::Relaxed));
+                for channel in 0..2 {
+                    dry[channel] += if voice.control.positioned {
+                        (sample[0] + sample[1])
+                            * 0.5
+                            * gain
+                            * f32::from_bits(voice.control.spatial[channel].load(Ordering::Relaxed))
+                    } else {
+                        sample[channel] * gain
+                    };
+                }
                 let gain = (f32::from_bits(voice.control.gain.load(Ordering::Relaxed)) * preset.1)
                     .clamp(0., 1.);
                 input[0] += sample[0] * gain;
@@ -387,7 +413,12 @@ impl WetMixer {
                 true
             });
             let wet = self.network.sample(input);
-            output.extend([wet[0] * self.gain, wet[2] * self.gain]);
+            let mixed = [dry[0] + wet[0] * self.gain, dry[1] + wet[2] * self.gain];
+            output.extend(
+                self.master
+                    .as_mut()
+                    .map_or(mixed, |master| master.sample(mixed, frame)),
+            );
         }
         output
     }
@@ -453,53 +484,34 @@ impl Source for BusSamples {
 }
 #[derive(Asset, TypePath)]
 pub(super) struct RoomClip {
-    input: Input,
     dry_done: Arc<AtomicBool>,
-    looping: bool,
     control: Arc<VoiceControl>,
 }
 impl RoomClip {
-    pub(super) fn new(
-        input: Input,
-        dry_done: Arc<AtomicBool>,
-        looping: bool,
-        control: Arc<VoiceControl>,
-    ) -> Self {
-        Self {
-            input,
-            dry_done,
-            looping,
-            control,
-        }
+    pub(super) fn new(dry_done: Arc<AtomicBool>, control: Arc<VoiceControl>) -> Self {
+        Self { dry_done, control }
     }
 }
 impl Decodable for RoomClip {
     type Decoder = RoomSamples;
     fn decoder(&self) -> RoomSamples {
         RoomSamples {
-            reader: Reader::new(&self.input, self.looping, self.control.clone()),
             dry_done: self.dry_done.clone(),
-            pending: None,
+            control: self.control.clone(),
         }
     }
 }
 pub(super) struct RoomSamples {
-    reader: Reader,
     dry_done: Arc<AtomicBool>,
-    pending: Option<f32>,
+    control: Arc<VoiceControl>,
 }
 impl Iterator for RoomSamples {
     type Item = Sample;
     fn next(&mut self) -> Option<Sample> {
-        if let Some(sample) = self.pending.take() {
-            return Some(sample);
-        }
-        let Some(sample) = self.reader.sample() else {
-            self.dry_done.store(true, Ordering::Release);
+        if self.dry_done.load(Ordering::Acquire) || self.control.stopped.load(Ordering::Acquire) {
             return None;
-        };
-        self.pending = Some(sample[1]);
-        Some(sample[0])
+        }
+        Some(0.)
     }
 }
 impl Source for RoomSamples {
@@ -513,7 +525,7 @@ impl Source for RoomSamples {
         SampleRate::new(48000).unwrap()
     }
     fn total_duration(&self) -> Option<Duration> {
-        self.reader.duration
+        None
     }
 }
 fn low_pass(filter: f32, rate: f32) -> [f32; 2] {
@@ -543,6 +555,7 @@ mod tests {
             room,
             voices: Vec::new(),
             gain: 1.,
+            master: None,
         };
         mixer.network.parameters = preset;
         mixer.network.update(preset);

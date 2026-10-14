@@ -14,6 +14,7 @@ use std::{
 };
 mod decoded;
 mod gameplay;
+mod master;
 mod narrative;
 mod obstruction;
 mod reverb;
@@ -367,14 +368,7 @@ pub struct AudioDefinition {
 impl AudioDefinition {
     pub fn valid(&self, game: &GameDefinition) -> bool {
         self.character < 4
-            && self.master.as_ref().is_none_or(|master| {
-                master.gain.is_finite()
-                    && master.gain >= 0.
-                    && master
-                        .buses
-                        .iter()
-                        .all(|gain| gain.is_finite() && *gain >= 0.)
-            })
+            && self.master.as_ref().is_none_or(MasterDefinition::valid)
             && self
                 .rooms
                 .values()
@@ -762,6 +756,60 @@ pub(crate) struct Lifetimes(BTreeMap<Entity, bool>);
 pub struct MasterDefinition {
     pub buses: [f32; 9],
     pub gain: f32,
+    pub equalizers: [EqualizerDefinition; 4],
+    pub compressor: DynamicsDefinition,
+    pub limiter: DynamicsDefinition,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EqualizerDefinition {
+    pub enabled: bool,
+    pub gain: f32,
+    pub frequency: f32,
+    pub quality: f32,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DynamicsDefinition {
+    pub enabled: bool,
+    pub pre_gain: f32,
+    pub post_gain: f32,
+    pub threshold: f32,
+    pub ratio: f32,
+    pub attack: f32,
+    pub release: f32,
+}
+
+impl MasterDefinition {
+    fn valid(&self) -> bool {
+        self.gain.is_finite()
+            && self.gain >= 0.
+            && self
+                .buses
+                .iter()
+                .all(|gain| gain.is_finite() && *gain >= 0.)
+            && self.equalizers.iter().all(|eq| {
+                [eq.gain, eq.frequency, eq.quality]
+                    .iter()
+                    .all(|value| value.is_finite())
+                    && (!eq.enabled || (eq.frequency > 0. && eq.quality > 0.))
+            })
+            && [&self.compressor, &self.limiter].iter().all(|dynamics| {
+                [
+                    dynamics.pre_gain,
+                    dynamics.post_gain,
+                    dynamics.threshold,
+                    dynamics.ratio,
+                    dynamics.attack,
+                    dynamics.release,
+                ]
+                .iter()
+                .all(|value| value.is_finite() && *value >= 0.)
+                    && (!dynamics.enabled || (dynamics.threshold > 0. && dynamics.ratio > 0.))
+            })
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -1723,18 +1771,7 @@ fn play(
             Transform::from_translation(position),
         ));
         let mut semantic = SemanticPlayback::default();
-        if alias.reverb_send > 0.
-            || native.is_some_and(|native| {
-                !native.panning
-                    || native.distance_low_pass
-                    || native.obstruction > 0.
-                    || game
-                        .audio
-                        .ducks
-                        .values()
-                        .any(|duck| duck.filter[native.duck_group as usize] != 1.)
-            })
-        {
+        if alias.reverb_send > 0. || native.is_some() {
             semantic.dry_done = Some(Arc::new(AtomicBool::new(false)));
             semantic.wet = Some(Arc::new(AtomicU32::new(
                 (alias.reverb_send / 100.).to_bits(),
@@ -1829,7 +1866,7 @@ fn maintain(
     settings: Res<AudioSettings>,
     time: Res<Time>,
     game: Option<Res<GameDefinition>>,
-    camera: Query<Entity, With<crate::rendering::GameCamera>>,
+    camera: Query<(Entity, &SpatialListener), With<crate::rendering::GameCamera>>,
     mut queries: ParamSet<(
         TransformHelper,
         Query<(
@@ -1862,11 +1899,17 @@ fn maintain(
         .map(|(e, s, ..)| (e, s.source))
         .collect();
     let transforms = queries.p0();
-    let listener = camera
+    let listener_pose = camera
         .single()
         .ok()
-        .and_then(|e| transforms.compute_global_transform(e).ok())
-        .map_or(Vec3::ZERO, |t| t.translation());
+        .and_then(|(e, _)| transforms.compute_global_transform(e).ok())
+        .unwrap_or_default();
+    let listener = listener_pose.translation();
+    let ears = camera
+        .single()
+        .map_or_else(|_| SpatialListener::default(), |(_, ears)| ears.clone());
+    let left_ear = listener_pose.transform_point(ears.left_ear_offset);
+    let right_ear = listener_pose.transform_point(ears.right_ear_offset);
     let positions: BTreeMap<_, _> = sources
         .into_iter()
         .map(|(e, source)| (e, source.position(&transforms)))
@@ -2011,7 +2054,9 @@ fn maintain(
         if let Some(native) = native {
             sound.gain *= ducks.gain(native.duck_group);
             if native.spatial && native.obstruction > 0. && !playback.paused {
-                if !semantic.accepted || (entity.to_bits() as u32 + *obstruction_frame) & 3 == 0 {
+                if !semantic.accepted
+                    || (entity.to_bits() as u32).wrapping_add(*obstruction_frame) & 3 == 0
+                {
                     semantic.obstruction_target =
                         obstruction::amount(listener, pose.translation, |start, end| {
                             let delta = end - start;
@@ -2180,9 +2225,7 @@ fn maintain(
                 * game
                     .as_ref()
                     .and_then(|game| game.audio.master.as_ref())
-                    .map_or(1., |master| {
-                        master.gain * master.buses[native.unwrap().bus as usize]
-                    })
+                    .map_or(1., |master| master.buses[native.unwrap().bus as usize])
         } else {
             source_volume.clamp(0., 1.)
         });
@@ -2192,6 +2235,25 @@ fn maintain(
             native.is_some(),
         );
         if let Some(voice) = &semantic.voice {
+            voice
+                .dry
+                .store(volume.to_linear().to_bits(), Ordering::Relaxed);
+            if voice.positioned {
+                let scale = 1. / (sound.distance + 0.2);
+                let left_squared = left_ear.distance_squared(pose.translation) * scale * scale;
+                let right_squared = right_ear.distance_squared(pose.translation) * scale * scale;
+                let maximum_difference = left_ear.distance(right_ear) * scale;
+                for (channel, (near, far)) in
+                    [(left_squared, right_squared), (right_squared, left_squared)]
+                        .into_iter()
+                        .enumerate()
+                {
+                    let pan =
+                        (((near.sqrt() - far.sqrt()) / maximum_difference + 1.) / 4. + 0.5).min(1.);
+                    voice.spatial[channel]
+                        .store((pan * (1. / near).min(1.)).to_bits(), Ordering::Relaxed);
+                }
+            }
             voice
                 .speed
                 .store(playback.speed.to_bits(), Ordering::Relaxed);
@@ -2336,27 +2398,27 @@ fn route(
                     })
                     .filter(|native| !native.panning)
                     .map_or([[1.; 2]; 2], |native| native.pan),
+                0.,
+                semantic.dry_done.as_ref().unwrap().clone(),
+                playback.spatial,
             ));
-            if semantic.send > 0. {
-                room.enqueue(&input, sound.looping, voice.clone());
-                if !room.started {
-                    let bus = buses.add(room.bus());
-                    commands.spawn((
-                        SessionEntity,
-                        AudioPlayer::<reverb::RoomBus>(bus),
-                        PlaybackSettings::ONCE,
-                    ));
-                    room.started = true;
-                }
+            room.enqueue(&input, sound.looping, voice.clone());
+            if !room.started {
+                let bus = buses.add(room.bus());
+                commands.spawn((
+                    SessionEntity,
+                    AudioPlayer::<reverb::RoomBus>(bus),
+                    PlaybackSettings::ONCE,
+                ));
+                room.started = true;
             }
             let clip = assets.add(reverb::RoomClip::new(
-                input,
                 semantic.dry_done.as_ref().unwrap().clone(),
-                sound.looping,
                 voice.clone(),
             ));
             semantic.voice = Some(voice);
             playback.speed = 1.;
+            playback.spatial = false;
             commands
                 .entity(entity)
                 .remove::<PendingRoom>()
