@@ -581,7 +581,11 @@ def main():
         if not math.isfinite(args.round_timeout) or args.round_timeout <= 0:
             raise ValueError('Round timeout must be positive and finite')
         game = json.loads(asset_bytes(Path(args.assets.resolve()) / 'game.json'))
-        client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), 300)
+        ready = client.until(lambda s: s['state'] == 'LoadError'
+                             or s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), 300)
+        report['initial_state'] = ready
+        if ready['state'] == 'LoadError':
+            raise RuntimeError('Game asset loading failed: ' + json.dumps(ready))
         report['protocol'] = client.call('rpc.discover')
         report['schema'] = client.call('origins/schema')
         for name in selected:
