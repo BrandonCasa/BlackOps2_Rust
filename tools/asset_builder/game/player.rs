@@ -38,6 +38,20 @@ fn dvar(source: &str, name: &str, integer: bool) -> Result<f32> {
     Ok(value)
 }
 
+fn script_number(source: &str, assignment: &str) -> Result<f32> {
+    let value = source
+        .split_once(&format!("{assignment} = "))
+        .and_then(|(_, tail)| tail.split_once(';'))
+        .ok_or_else(|| format!("Native player script assignment is missing: {assignment}"))?
+        .0
+        .trim()
+        .parse::<f32>()?;
+    if !value.is_finite() {
+        return Err(format!("Native player script assignment is non-finite: {assignment}").into());
+    }
+    Ok(value)
+}
+
 pub(super) fn append(game: &mut Value, key: &str, row: Value) -> Result<()> {
     if game["content"][key].is_null() {
         game["content"][key] = json!([]);
@@ -164,6 +178,8 @@ pub(super) fn read(
     let tomb = source("source/server-tomb/maps/mp/zm_tomb.gsc")?;
     let slow = source("source/server-tomb/maps/mp/zm_tomb_utility.gsc")?;
     let laststand = source("source/server-patch/maps/mp/zombies/_zm.gsc")?;
+    let health = source("source/server-patch/maps/mp/zombies/_zm_playerhealth.gsc")?;
+    let perks = source("source/server-patch/maps/mp/zombies/_zm_perks.gsc")?;
     for (body, expression) in [
         (&tomb, "self setsprintduration( 4 );"),
         (&tomb, "self setsprintcooldown( 0 );"),
@@ -189,6 +205,39 @@ pub(super) fn read(
     let speed = dvar(&server, "g_speed", true)? * units;
     let gravity = dvar(&movement, "bg_gravity", false)? * units;
     let jump_height = dvar(&jump, "jump_height", false)? * units;
+    let reboot = perks
+        .split_once("else if ( perk == \"health_reboot\" )")
+        .ok_or("Native player health reboot branch is missing")?
+        .1;
+    let maximum = script_number(reboot, "max_total_health")?;
+    if maximum.fract() != 0. || maximum <= 0. || maximum > i32::MAX as f32 {
+        return Err("Native player maximum health is invalid".into());
+    }
+    game["player_health"] = json!({
+        "maximum":maximum as u32,
+        "regular_delay":script_number(&health,"level.playerhealth_regularregendelay")? * 0.001,
+        "regular_step_fraction":1.,
+        "critical_delay":script_number(&health,"level.longregentime")? * 0.001,
+        "critical_ratio":script_number(&health,"level.healthoverlaycutoff")?,
+        "critical_step_seconds":0.05,
+        "critical_step_fraction":script_number(&health,"regenrate")?,
+        "worthy_damage_ratio":script_number(&health,"level.worthydamageratio")?,
+        "immunity_regular":script_number(&health,"level.invultime_preshield")?,
+        "immunity_critical_enter":script_number(&health,"level.invultime_onshield")?,
+        "immunity_critical_repeat":script_number(&health,"level.invultime_postshield")?,
+        "feedback_seconds":0.8
+    });
+    for expression in [
+        "wait 0.05;",
+        "newhealth = 1;",
+        "self startfadingblur( 3, 0.8 );",
+    ] {
+        if !health.contains(expression) {
+            return Err(
+                format!("Native player health expression is unsupported: {expression}").into(),
+            );
+        }
+    }
     let pistol = game["content"]["weapons"]
         .as_array()
         .and_then(|rows| rows.iter().find(|row| row["id"] == "weapon.c96_zm"))
@@ -276,12 +325,25 @@ pub(super) fn read(
     ];
     game["tuning"]["mobility"]["stance"] =
         json!({"seconds":[0.2,0.2,0.6,0.4],"other_speed":180.*units,"curves":curves});
-    game["solo_revive"]["seconds"] = json!(10.);
+    game["solo_revive"]["seconds"] = json!(script_number(&laststand, "solo_revive_time")?);
     game["solo_revive"]["bleedout_seconds"] = json!(45.);
     game["solo_revive"]["downed_height"] = json!(30. * units);
     game["solo_revive"]["downed_eye"] = json!(22. * units);
     game["solo_revive"]["downed_speed"] = json!(speed * 0.15);
-    let perks = source("source/server-patch/maps/mp/zombies/_zm_perks.gsc")?;
+    let enabled_weapons = game["content"]["weapons"]
+        .as_array()
+        .ok_or("Native initial weapons are missing")?
+        .iter()
+        .filter_map(|weapon| weapon["id"].as_str().map(str::to_owned))
+        .collect::<std::collections::BTreeSet<_>>();
+    game["solo_revive"]["pistol_ranks"]
+        .as_array_mut()
+        .ok_or("Native initial solo pistol ranking is missing")?
+        .retain(|pistol| {
+            pistol["weapon"]
+                .as_str()
+                .is_some_and(|id| enabled_weapons.contains(id))
+        });
     let capture = source("source/server-tomb/maps/mp/zm_tomb_capture_zones.gsc")?;
     for expression in [
         "cost = 500;",
@@ -505,6 +567,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_player_script_scalars_reject_missing_or_unsupported_expressions() {
+        let source = "level.delay = 2400; regenrate = 0.1;";
+        assert_eq!(script_number(source, "level.delay").unwrap(), 2400.);
+        assert_eq!(script_number(source, "regenrate").unwrap(), 0.1);
+        assert!(script_number(source, "missing").is_err());
+        assert!(script_number("delay = undefined;", "delay").is_err());
+        assert!(script_number("delay = NaN;", "delay").is_err());
+    }
+
+    #[test]
     fn native_player_dvars_preserve_integer_and_float_registration_types() {
         let source =
             "FUN_00757df0(\"speed\",0x433e0000,0,0,0,0); FUN_00757cf0(\"height\",0x3c,0,0,0,0);";
@@ -535,6 +607,17 @@ mod tests {
             json!([0.2, 0.2, 0.6, 0.4])
         );
         assert_eq!(game["solo_revive"]["maximum_purchases"], 3);
+        assert_eq!(
+            game["solo_revive"]["pistol_ranks"],
+            json!([
+                {"weapon":"weapon.c96_zm","rank":1},
+                {"weapon":"weapon.c96_upgraded_zm","rank":17}
+            ])
+        );
+        assert_eq!(game["player_health"]["maximum"], 100);
+        assert!((scalar(&game["player_health"]["regular_delay"]) - 2.4).abs() < 0.000001);
+        assert_eq!(game["player_health"]["critical_delay"], 5.);
+        assert_eq!(game["player_health"]["immunity_critical_enter"], json!(0.5_f32));
         let perk = game["content"]["perks"]
             .as_array()
             .unwrap()
