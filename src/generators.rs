@@ -55,6 +55,7 @@ pub struct Capture {
     rotation: Option<(usize, f32)>,
     progress_clock: f32,
     source_progress: f32,
+    cleanup_clock: Timer,
 }
 impl Default for Capture {
     fn default() -> Self {
@@ -69,6 +70,7 @@ impl Default for Capture {
             rotation: None,
             progress_clock: 0.,
             source_progress: 0.,
+            cleanup_clock: Timer::default(),
         }
     }
 }
@@ -106,6 +108,7 @@ pub struct Generators {
     pub(crate) raid_active: bool,
     initial_reward: bool,
     retirement_pending: bool,
+    retirement_clock: Timer,
     spawn_clock: f32,
     used_emergence: BTreeMap<ContentId, BTreeSet<usize>>,
     capture_points_round: u32,
@@ -178,6 +181,7 @@ impl Generators {
         };
         self.activations += 1;
         self.retirement_pending = true;
+        self.retirement_clock = Timer::default();
         Ok(())
     }
     pub fn powered(&self, id: &ContentId) -> bool {
@@ -209,7 +213,7 @@ pub struct GeneratorVisual {
 #[derive(Component)]
 struct GeneratorAudio(ContentId, ContentId);
 #[derive(Component)]
-struct CaptureRetirement;
+struct CaptureRetirement(Timer);
 
 #[derive(Component)]
 pub struct GeneratorDefender {
@@ -438,29 +442,38 @@ fn defender_intent(
 }
 fn retire_excess(
     mut commands: Commands,
+    time: Res<Time<Fixed>>,
     mut generators: ResMut<Generators>,
     definition: Res<GameDefinition>,
     mut session: ResMut<Session>,
     actors: Query<
-        (Entity, &Vitality, &crate::rounds::PopulationKind),
+        (
+            Entity,
+            &Vitality,
+            &crate::rounds::PopulationKind,
+            &crate::enemies::Zombie,
+            &Transform,
+        ),
         With<crate::enemies::Zombie>,
     >,
-    retiring: Query<Entity, With<CaptureRetirement>>,
+    mut retiring: Query<(Entity, &mut CaptureRetirement)>,
     mut barriers: ResMut<crate::barriers::Barriers>,
 ) {
-    for entity in &retiring {
-        commands.entity(entity).despawn();
-        generators.excess_retired += 1;
+    for (entity, mut retirement) in &mut retiring {
+        if retirement.0.tick(time.delta()).is_finished() {
+            commands.entity(entity).despawn();
+            generators.excess_retired += 1;
+        }
     }
     if !generators.retirement_pending {
         return;
     }
     let candidates: Vec<_> = actors
         .iter()
-        .filter_map(|(entity, health, kind)| {
+        .filter_map(|(entity, health, kind, zombie, pose)| {
             (health.state() == LifeState::ActorAlive
                 && *kind == crate::rounds::PopulationKind::Ordinary)
-                .then_some(entity)
+                .then_some((entity, zombie, pose))
         })
         .collect();
     let cap = (definition.rounds.ordinary_cap as usize).saturating_sub(generators.reserve());
@@ -468,33 +481,79 @@ fn retire_excess(
         generators.retirement_pending = false;
         return;
     }
-    let entity = candidates[session.random() as usize % candidates.len()];
+    if !generators.retirement_clock.tick(time.delta()).is_finished() {
+        return;
+    }
+    generators.retirement_clock = Timer::from_seconds(0.1, TimerMode::Once);
+    let (entity, zombie, pose) = candidates[session.random() as usize % candidates.len()];
+    capture_retirement_fx(&mut commands, &definition, zombie, pose);
     barriers.release(entity);
-    commands
-        .entity(entity)
-        .remove::<Vitality>()
-        .insert((CaptureRetirement, avian3d::prelude::ColliderDisabled));
+    commands.entity(entity).remove::<Vitality>().insert((
+        CaptureRetirement(Timer::from_seconds(0.1, TimerMode::Once)),
+        avian3d::prelude::ColliderDisabled,
+    ));
+}
+
+fn capture_retirement_fx(
+    commands: &mut Commands,
+    game: &GameDefinition,
+    zombie: &crate::enemies::Zombie,
+    pose: &Transform,
+) {
+    if let Some(profile) = game
+        .content
+        .enemies
+        .iter()
+        .find(|profile| profile.id == zombie.definition)
+    {
+        crate::native_fx::emit(
+            commands,
+            "maps/zombie_alcatraz/fx_alcatraz_afterlife_zmb_tport",
+            Transform::from_translation(
+                pose.translation - crate::enemies::body_center(profile, false),
+            ),
+        );
+    }
 }
 
 fn clear_defenders(
+    mut commands: Commands,
+    time: Res<Time<Fixed>>,
+    definition: Res<GameDefinition>,
     mut generators: ResMut<Generators>,
     mut defenders: Query<
-        (&mut Vitality, &GeneratorDefender),
+        (
+            &mut Vitality,
+            &GeneratorDefender,
+            &crate::enemies::Zombie,
+            &Transform,
+        ),
         (With<crate::enemies::Zombie>, With<Transform>),
     >,
 ) {
-    for (mut health, guard) in &mut defenders {
-        if generators
-            .sites
-            .get(&guard.generator)
-            .is_none_or(|s| s.state != GeneratorState::Capturing)
-            && health.state() == LifeState::ActorAlive
-            && let Ok(damage) = crate::life::ResolvedDamage::new(health.current().unwrap_or(1))
+    let mut cleared = 0;
+    for (id, site) in &mut generators.sites {
+        if site.state == GeneratorState::Capturing
+            || !site.cleanup_clock.tick(time.delta()).is_finished()
         {
-            let _ = health.apply(damage);
-            generators.defenders_cleared += 1;
+            continue;
+        }
+        for (mut health, guard, zombie, pose) in &mut defenders {
+            if guard.generator != *id || health.state() != LifeState::ActorAlive {
+                continue;
+            }
+            if let Ok(damage) =
+                crate::life::ResolvedDamage::new(health.current().unwrap_or(1).saturating_add(100))
+            {
+                capture_retirement_fx(&mut commands, &definition, zombie, pose);
+                let _ = health.apply(damage);
+                site.cleanup_clock = Timer::from_seconds(0.1, TimerMode::Once);
+                cleared += 1;
+            }
+            break;
         }
     }
+    generators.defenders_cleared += cleared;
 }
 fn defenders(
     mut commands: Commands,
