@@ -1,10 +1,71 @@
-use std::{collections::BTreeMap, io::{self, Read, Write}, path::Path, sync::Arc};
+use std::{collections::BTreeMap, io::{self, Read, Seek, SeekFrom, Write}, path::{Path, PathBuf}, sync::Arc};
 
 const MAGIC: &[u8; 8] = b"ORIGPAK1";
 
 #[derive(Clone, Debug, Default)]
 pub struct Pack {
     pub entries: BTreeMap<String, Arc<Vec<u8>>>,
+}
+
+#[derive(Debug)]
+pub struct PackIndex {
+    path: PathBuf,
+    pub entries: BTreeMap<String, (u64, u64)>,
+}
+
+impl PackIndex {
+    pub fn read(path: &Path) -> io::Result<Self> {
+        let mut reader = io::BufReader::new(std::fs::File::open(path)?);
+        let length = reader.get_ref().metadata()?.len();
+        let mut magic = [0; 8];
+        reader.read_exact(&mut magic)?;
+        if &magic != MAGIC { return Err(invalid("Unsupported runtime pack")); }
+        let mut count = [0; 4];
+        reader.read_exact(&mut count)?;
+        let count = u32::from_le_bytes(count);
+        if u64::from(count) > length.saturating_sub(12) / 13 {
+            return Err(invalid("Invalid runtime pack entry count"));
+        }
+        let mut entries = BTreeMap::new();
+        for _ in 0..count {
+            let mut header = [0; 12];
+            reader.read_exact(&mut header)?;
+            let name_length = u32::from_le_bytes(header[..4].try_into().unwrap()) as usize;
+            let size = u64::from_le_bytes(header[4..].try_into().unwrap());
+            let start = reader.stream_position()?;
+            let end = start.checked_add(name_length as u64).and_then(|offset| offset.checked_add(size))
+                .filter(|end| *end <= length).ok_or_else(|| invalid("Truncated runtime pack"))?;
+            let mut name = vec![0; name_length];
+            reader.read_exact(&mut name)?;
+            let name = String::from_utf8(name).map_err(|_| invalid("Invalid runtime asset path encoding"))?;
+            if !valid_path(&name) { return Err(invalid(format!("Invalid runtime asset path: {name}"))); }
+            if entries.insert(name.clone(), (start + name_length as u64, size)).is_some() {
+                return Err(invalid(format!("Duplicate runtime asset: {name}")));
+            }
+            reader.seek(SeekFrom::Start(end))?;
+        }
+        if reader.stream_position()? != length { return Err(invalid("Unexpected trailing runtime pack bytes")); }
+        Ok(Self { path: path.to_owned(), entries })
+    }
+
+    pub fn get(&self, path: &str) -> io::Result<Vec<u8>> {
+        let &(offset, length) = self.entries.get(path).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, format!("Runtime pack is missing {path}"))
+        })?;
+        let length = usize::try_from(length).map_err(|_| invalid("Runtime asset is too large"))?;
+        let mut reader = std::fs::File::open(&self.path)?;
+        reader.seek(SeekFrom::Start(offset))?;
+        let mut bytes = vec![0; length];
+        reader.read_exact(&mut bytes)?;
+        Ok(bytes)
+    }
+
+    pub fn metadata(&self) -> io::Result<Pack> {
+        let entries = self.entries.keys().filter(|path| path.ends_with(".json") || path.ends_with(".collision.gltf"))
+            .map(|path| self.get(path).map(|bytes| (path.clone(), Arc::new(bytes))))
+            .collect::<io::Result<_>>()?;
+        Ok(Pack { entries })
+    }
 }
 
 fn invalid(message: impl Into<String>) -> io::Error {
@@ -115,6 +176,32 @@ mod tests {
         for end in 0..bytes.len() {
             assert!(Pack::decode(&bytes[..end]).is_err());
         }
+    }
+
+    #[test]
+    fn indexed_pack_reads_payloads_without_retaining_them() {
+        let path = std::env::temp_dir().join(format!("origins-pack-index-{}.pack", std::process::id()));
+        let pack = Pack { entries: BTreeMap::from([
+            ("game.json".into(), Arc::new(b"{}".to_vec())),
+            ("prepared/world.collision.gltf".into(), Arc::new(b"collision".to_vec())),
+            ("prepared/image.ktx2".into(), Arc::new(vec![17; 4096])),
+        ]) };
+        let mut bytes = Vec::new();
+        pack.write(&mut bytes).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        let index = PackIndex::read(&path).unwrap();
+        assert_eq!(index.entries.len(), 3);
+        let metadata = index.metadata().unwrap();
+        assert_eq!(metadata.entries.len(), 2);
+        assert_eq!(index.get("prepared/image.ktx2").unwrap(), vec![17; 4096]);
+        assert_eq!(index.get("missing").unwrap_err().kind(), io::ErrorKind::NotFound);
+        for invalid in [entry("../escape", &[]), {
+            let mut trailing = bytes.clone(); trailing.push(0); trailing
+        }, bytes[..bytes.len()-1].to_vec()] {
+            std::fs::write(&path, invalid).unwrap();
+            assert!(PackIndex::read(&path).is_err());
+        }
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

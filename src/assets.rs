@@ -10,6 +10,8 @@ use bevy::{
 use crate::GameState;
 
 pub(crate) mod prepared;
+mod reader;
+pub(crate) use reader::PackAssetReader;
 
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
@@ -282,6 +284,7 @@ impl LaunchOptions {
 pub struct AssetPack {
     pub pack_root: PathBuf,
     pub contents: crate::pack::Pack,
+    pub index: std::sync::Arc<crate::pack::PackIndex>,
 }
 
 impl AssetPack {
@@ -291,12 +294,14 @@ impl AssetPack {
             .parent()
             .ok_or("Executable directory is unavailable")?
             .join("origins.pack");
-        let contents = crate::pack::Pack::read(&path).map_err(|error| {
+        let index = crate::pack::PackIndex::read(&path).map_err(|error| {
             format!("Cannot load runtime pack {}: {error}. Build origins.pack from the authorized game installation and place it beside origins.exe.", path.display())
         })?;
+        let contents = index.metadata().map_err(|error| error.to_string())?;
         Ok(Self {
             pack_root: path,
             contents,
+            index: std::sync::Arc::new(index),
         })
     }
 }
@@ -523,7 +528,7 @@ pub(crate) fn begin_load(
         }
         let config = config.0.as_ref().map_err(Clone::clone)?;
         info!("Origins asset pack: {}", config.pack_root.display());
-        reload_failed_pack_assets(&server, &config.contents);
+        reload_failed_pack_assets(&server, &config.index);
         let mut definition = GameDefinition::load(
             config
                 .contents
@@ -581,7 +586,7 @@ pub(crate) fn begin_load(
     }
 }
 
-fn reload_failed_pack_assets(server: &AssetServer, pack: &crate::pack::Pack) {
+fn reload_failed_pack_assets(server: &AssetServer, pack: &crate::pack::PackIndex) {
     for path in pack.entries.keys() {
         if server
             .get_path_ids(path.clone())

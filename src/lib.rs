@@ -112,19 +112,11 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         .and_then(|value| serde_json::from_value::<origins::DeliveryScope>(value).ok())
         .unwrap_or_default();
     let mut app = App::new();
-    let root = bevy::asset::io::memory::Dir::default();
-    if let Ok(pack) = &configuration {
-        for (path, bytes) in &pack.contents.entries {
-            root.insert_asset(
-                std::path::Path::new(path),
-                bevy::asset::io::memory::Value::Vec(bytes.clone()),
-            );
-        }
-    }
+    let index = configuration.as_ref().ok().map(|pack| pack.index.clone());
     app.register_asset_source(
         bevy::asset::io::AssetSourceId::Default,
         bevy::asset::io::AssetSourceBuilder::new(move || {
-            Box::new(bevy::asset::io::memory::MemoryAssetReader { root: root.clone() })
+            Box::new(assets::PackAssetReader(index.clone()))
         }),
     );
     app.insert_resource(bevy::anti_alias::dlss::DlssProjectId(
