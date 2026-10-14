@@ -70,6 +70,14 @@ struct FrontendButton(FrontendAction, usize);
 #[derive(Resource, Default)]
 struct FrontendSelection(usize);
 
+pub(crate) fn selected_row(world: &World) -> Option<usize> {
+    matches!(
+        world.resource::<State<GameState>>().get(),
+        GameState::MainMenu | GameState::LoadError | GameState::GameOver | GameState::Ending
+    )
+    .then(|| world.resource::<FrontendSelection>().0)
+}
+
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ApplyFrontendActions;
 
@@ -112,7 +120,7 @@ fn show(
     mut selected: ResMut<FrontendSelection>,
     failure: Res<crate::assets::LoadFailure>,
 ) {
-    if options.verify.is_some() || options.validation_remote.is_some() || options.flythrough {
+    if options.verify.is_some() || options.flythrough {
         return;
     }
     let Ok(camera) = cameras.single() else { return };
@@ -170,7 +178,7 @@ fn show(
             if **state == GameState::LoadError {
                 parent.spawn((
                     Text::new(format!(
-                        "Unable to load Origins\n{}\nENTER  Retry     ESC  Exit",
+                        "Unable to load Origins\n{}\nENTER  Select     ESC  Exit     Arrow Keys  Navigate",
                         failure.0
                     )),
                     TextFont {
@@ -297,7 +305,7 @@ fn shortcuts(
         }
         GameState::LoadError => {
             if keys.just_pressed(KeyCode::Enter) {
-                actions.write(FrontendAction::RetryLoad);
+                actions.write(chosen.unwrap_or(FrontendAction::RetryLoad));
             }
             if keys.just_pressed(KeyCode::Escape) {
                 actions.write(FrontendAction::Exit);
