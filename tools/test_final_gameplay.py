@@ -6,6 +6,7 @@
 from test_support import asset_bytes
 
 import argparse
+from collections import Counter
 import csv
 from datetime import datetime, timezone
 import json
@@ -132,13 +133,20 @@ def initial_start(client, report, game, output):
     check(report, 'initial_first_person_model_and_textures_loaded', materials['pending'] == 0
           and bool(materials['first_person'])
           and all(row['textures_ready'] for row in materials['first_person']), materials=materials)
-    hud = ui.observe(client, lambda h: h['visible_images'] > 0
-                     and h['loaded_images'] == h['visible_images'] and h['crosshair'])
-    check(report, 'initial_hud_images_loaded', ui.text(hud, str(state['session']['points']))
-          and any('hud_tomb_zom_num_' in name for name in hud['images']), ui=hud)
     report['initial_scene'] = {'scene': game['scene'], 'collision_scene': game['collision_scene'],
                                'materials': materials, 'animations': client.call('origins/animations'),
                                'capture': ui.capture(client, output, 'initial-start')}
+    paths = {asset['id']: asset['path'] for asset in game['content']['ui_assets']}
+    ammo = owned[0]
+    expected = Counter(paths['ui.hud_zm_num_tomb_' + ('slash' if char == '/' else char)]
+                       for char in f"{ammo['magazine']}/{ammo['reserve']}")
+    expected[paths['ui.chalkmarks_hellcatraz_' + str(state['session']['round'])]] += 1
+    hud = ui.observe(client, lambda h: h['visible_images'] > 0
+                     and h['loaded_images'] == h['visible_images'] and h['crosshair']
+                     and ui.text(h, str(state['session']['points'])))
+    check(report, 'initial_hud_images_loaded', ui.text(hud, str(state['session']['points']))
+          and all(hud['images'].get(path, 0) >= count for path, count in expected.items()),
+          expected_glyph_images=dict(expected), expected_points=state['session']['points'], ui=hud)
 
 
 def initial_controls(client, report, game):
