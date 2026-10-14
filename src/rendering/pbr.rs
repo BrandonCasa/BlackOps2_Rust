@@ -10,7 +10,7 @@ use bevy::{
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub(super) struct PreparedTexture {
     pub uri: String,
     pub role: String,
@@ -22,6 +22,75 @@ pub(super) struct PreparedTexture {
 
 #[derive(Component)]
 pub(crate) struct PbrReady;
+
+pub(super) fn textures(value: &serde_json::Value) -> Result<Vec<PreparedTexture>, String> {
+    let textures: Vec<PreparedTexture> = serde_json::from_value(value.clone())
+        .map_err(|error| format!("Invalid material channels: {error}"))?;
+    let mut roles = std::collections::HashSet::new();
+    for texture in &textures {
+        crate::origins::validate_asset_path(&texture.uri).map_err(|error| error.to_string())?;
+        if !matches!(texture.color_space.as_str(), "srgb" | "linear")
+            || texture.layer != 0
+            || !matches!(
+                texture.role.as_str(),
+                "color"
+                    | "normal"
+                    | "response"
+                    | "occlusion"
+                    | "emissive"
+                    | "reflectance"
+                    | "specular_gloss"
+            )
+            || !roles.insert((texture.role.clone(), texture.layer))
+        {
+            return Err(format!(
+                "Invalid or duplicate material channel {}: {}",
+                texture.role, texture.uri
+            ));
+        }
+    }
+    Ok(textures)
+}
+
+pub(super) fn validate(surface: &serde_json::Value) -> Result<(), String> {
+    if surface["version"] != 3 || surface["identity"].as_str().is_none_or(str::is_empty) {
+        return Err("Unsupported prepared material version or missing identity".into());
+    }
+    if let Some(reason) = surface["pending_runtime"].as_str() {
+        return Err(format!("Unresolved material runtime binding: {reason}"));
+    }
+    textures(&surface["channels"])?;
+    let state = &surface["presentation"];
+    if !matches!(
+        state["alpha"].as_str(),
+        Some("opaque" | "mask" | "blend" | "premultiplied" | "add" | "multiply")
+    ) || !matches!(state["cull"].as_str(), Some("none" | "front" | "back"))
+        || !matches!(
+            state["fog_mode"].as_str(),
+            None | Some("color" | "attenuation")
+        )
+    {
+        return Err("Unsupported prepared material presentation state".into());
+    }
+    if state["alpha"] == "mask"
+        && state["cutoff"]
+            .as_f64()
+            .is_none_or(|value| !(0. ..=1.).contains(&value))
+    {
+        return Err("Invalid material alpha cutoff".into());
+    }
+    Ok(())
+}
+
+pub(super) fn refresh(
+    mut commands: Commands,
+    surfaces: Query<Entity, (With<PbrReady>, Changed<GltfMaterialExtras>)>,
+) {
+    for entity in &surfaces {
+        let mut entity = commands.entity(entity);
+        super::opaque::reset_binding(&mut entity);
+    }
+}
 
 pub(super) fn prepare_image_dimensions(
     mut events: MessageReader<AssetEvent<Image>>,
@@ -121,6 +190,9 @@ pub(super) fn prepare(
     mut next: ResMut<NextState<crate::GameState>>,
     mut library: Option<ResMut<super::opaque::SurfaceLibrary>>,
 ) {
+    if library.as_ref().is_some_and(|library| library.is_added()) {
+        pending.clear();
+    }
     for (entity, handle, extras) in &entities {
         let value: serde_json::Value = match serde_json::from_str(&extras.value) {
             Ok(value) => value,
@@ -135,9 +207,14 @@ pub(super) fn prepare(
             commands.entity(entity).insert(PbrReady);
             continue;
         }
+        if let Err(error) = validate(surface) {
+            failure.0 = format!("Material {}: {error}", surface["identity"]);
+            next.set(crate::GameState::LoadError);
+            return;
+        }
         let channels = pending.entry(handle.0.id()).or_insert_with(|| {
-            serde_json::from_value::<Vec<PreparedTexture>>(surface["channels"].clone())
-                .expect("Source-built material channels")
+            textures(&surface["channels"])
+                .unwrap()
                 .into_iter()
                 .map(|texture| {
                     let image = load(&server, &texture);
@@ -174,11 +251,7 @@ pub(super) fn prepare(
         material.emissive_texture = channel("emissive");
         material.specular_tint_texture =
             channel("reflectance").or_else(|| channel("specular_gloss"));
-        if surface["version"] != 3 {
-            material.flip_normal_map_y = channels.iter().any(|(texture, _)| {
-                texture.role == "normal" && surface["native_weapon"].is_object()
-            });
-        }
+        material.flip_normal_map_y = false;
         material.clearcoat = 0.;
         if material.metallic_roughness_texture.is_some() {
             material.metallic = 1.;
@@ -213,9 +286,41 @@ pub(super) fn prepare(
             commands.entity(entity).insert(bevy::light::NotShadowCaster);
         }
         if let Some(ref mut library) = library {
-            super::opaque::register_prepared(library, surface, channels);
+            if let Err(error) = super::opaque::register_prepared(library, surface, channels) {
+                failure.0 = format!("Material {}: {error}", surface["identity"]);
+                next.set(crate::GameState::LoadError);
+                return;
+            }
         }
         pending.remove(&handle.0.id());
         commands.entity(entity).insert(PbrReady);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn corrupt_material_metadata_reports_the_dependency() {
+        let mut surface = json!({"version":3,"identity":"test",
+            "channels":[{"uri":"../outside.ktx2","role":"color","color_space":"srgb","sampler":0}],
+            "presentation":{"alpha":"opaque","cull":"back"}});
+        assert!(validate(&surface).is_err());
+        surface["channels"][0]["uri"] = json!("prepared/test.ktx2");
+        assert!(validate(&surface).is_ok());
+        surface["presentation"]["alpha"] = json!("unsupported");
+        assert!(validate(&surface).is_err());
+        surface["presentation"]["alpha"] = json!("mask");
+        assert!(validate(&surface).is_err());
+        surface["presentation"]["cutoff"] = json!(128. / 255.);
+        assert!(validate(&surface).is_ok());
+        surface["pending_runtime"] = json!("missing source consumer");
+        assert!(
+            validate(&surface)
+                .unwrap_err()
+                .contains("missing source consumer")
+        );
     }
 }

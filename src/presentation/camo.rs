@@ -3,7 +3,7 @@ use crate::{
     GameState,
     assets::{LoadConfiguration, LoadFailure},
     origins::content::WeaponId,
-    rendering::{PbrReady, SurfacePreparation},
+    rendering::SurfacePreparation,
 };
 use bevy::{
     gltf::{GltfMaterialExtras, GltfMaterialName},
@@ -17,7 +17,12 @@ use std::collections::{BTreeMap, HashSet};
 pub(crate) struct WeaponMaterialContext(pub WeaponId);
 
 #[derive(Component)]
-struct Applied;
+struct Applied {
+    weapon: Option<WeaponId>,
+    name: String,
+    material: Handle<StandardMaterial>,
+    extras: Option<GltfMaterialExtras>,
+}
 
 #[derive(Resource, Deserialize)]
 struct Library {
@@ -30,8 +35,27 @@ struct Library {
 }
 
 pub(super) fn install(app: &mut App) {
+    app.add_systems(OnEnter(GameState::Loading), reset);
     app.add_systems(Update, load.before(apply))
         .add_systems(Update, apply.before(SurfacePreparation));
+}
+
+fn reset(mut commands: Commands, surfaces: Query<(Entity, &Applied)>) {
+    commands.remove_resource::<Library>();
+    for (entity, applied) in &surfaces {
+        let mut target = commands.entity(entity);
+        target.insert((
+            MeshMaterial3d(applied.material.clone()),
+            GltfMaterialName(applied.name.clone()),
+        ));
+        if let Some(extras) = &applied.extras {
+            target.insert(extras.clone());
+        } else {
+            target.remove::<GltfMaterialExtras>();
+        }
+        crate::rendering::opaque::reset_binding(&mut target);
+        target.remove::<Applied>();
+    }
 }
 
 fn load(
@@ -48,7 +72,8 @@ fn load(
 ) {
     let Some(game) = game else { return };
     if game.is_changed() || upgraded_ids.is_empty() {
-        *upgraded_ids = game.content
+        *upgraded_ids = game
+            .content
             .weapons
             .iter()
             .filter_map(|weapon| weapon.upgraded.clone())
@@ -65,8 +90,8 @@ fn load(
         return;
     }
     if let Some(library) = library {
-        if let Some((id, reason)) = required
-            .find_map(|id| library.pending_bakes.get(&id.0).map(|reason| (id, reason)))
+        if let Some((id, reason)) =
+            required.find_map(|id| library.pending_bakes.get(&id.0).map(|reason| (id, reason)))
         {
             failure.0 = format!("Native weapon camo {} is not prepared: {reason}", id.0);
             error!("{}", failure.0);
@@ -123,8 +148,9 @@ fn apply(
             &MeshMaterial3d<StandardMaterial>,
             &GltfMaterialName,
             Option<&GltfMaterialExtras>,
+            Option<&Applied>,
         ),
-        (Without<Applied>, Without<PbrReady>),
+        Without<crate::assets::WorldCollider>,
     >,
     parents: Query<&ChildOf>,
     rigs: Query<&Rig>,
@@ -132,7 +158,7 @@ fn apply(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let Some(library) = library else { return };
-    for (entity, handle, name, extras) in &entities {
+    for (entity, handle, name, extras, applied) in &entities {
         let mut ancestor = Some(entity);
         let mut weapon = None;
         while let Some(current) = ancestor {
@@ -148,33 +174,60 @@ fn apply(
             }
             ancestor = parents.get(current).ok().map(ChildOf::parent);
         }
+        if applied.is_some_and(|applied| applied.weapon.as_ref() == weapon) {
+            continue;
+        }
+        let source_name = applied.map_or(name.0.as_str(), |applied| applied.name.as_str());
+        let source_extras = applied.map_or(extras, |applied| applied.extras.as_ref());
         let replacement = weapon
             .and_then(|weapon| library.weapons.get(&weapon.0))
-            .and_then(|overrides| overrides.get(&name.0));
-        let staff = extras
+            .and_then(|overrides| overrides.get(source_name));
+        let staff = source_extras
             .and_then(|e| serde_json::from_str::<Value>(&e.value).ok())
             .is_some_and(|v| v["surface"]["native_weapon"]["kind"] == "staff");
         if replacement.is_none() && !staff {
-            commands.entity(entity).try_insert(Applied);
+            if let Some(applied) = applied {
+                let mut target = commands.entity(entity);
+                target.insert((
+                    MeshMaterial3d(applied.material.clone()),
+                    GltfMaterialName(applied.name.clone()),
+                ));
+                if let Some(extras) = &applied.extras {
+                    target.insert(extras.clone());
+                } else {
+                    target.remove::<GltfMaterialExtras>();
+                }
+                crate::rendering::opaque::reset_binding(&mut target);
+                target.remove::<Applied>();
+            }
             continue;
         }
-        let identity = replacement.unwrap_or(&name.0);
-        let Some(original) = materials.get(&handle.0).cloned() else {
+        let identity = replacement.map(String::as_str).unwrap_or(source_name);
+        let source_material = applied.map_or(&handle.0, |applied| &applied.material);
+        let Some(original) = materials.get(source_material).cloned() else {
             continue;
         };
-        let mut value = extras
+        let mut value = source_extras
             .and_then(|e| serde_json::from_str::<Value>(&e.value).ok())
             .unwrap_or_else(|| serde_json::json!({}));
         if let Some(surface) = library.surfaces.get(identity) {
             value["surface"] = surface.clone();
         }
-        commands.entity(entity).try_insert((
+        let applied = Applied {
+            weapon: weapon.cloned(),
+            name: source_name.into(),
+            material: source_material.clone(),
+            extras: source_extras.cloned(),
+        };
+        let mut target = commands.entity(entity);
+        crate::rendering::opaque::reset_binding(&mut target);
+        target.try_insert((
             MeshMaterial3d(materials.add(original)),
-            GltfMaterialName(identity.clone()),
+            GltfMaterialName(identity.into()),
             GltfMaterialExtras {
                 value: value.to_string(),
             },
-            Applied,
+            applied,
         ));
     }
 }

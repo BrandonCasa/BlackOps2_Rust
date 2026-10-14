@@ -111,7 +111,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     let camos = crate::material::read_camos(&catalog)?;
     let camo_options = crate::material::read_camo_options(&catalog)?;
     if camo_options[45].is_none() { return Err("Required Origins upgraded camo option is missing from the installed source table".into()); }
-    let camo_dependencies = crate::material::camo_dependencies(&camos,&camo_options,45);
+    let camo_dependencies = crate::camo::camo_dependencies(&camos,&camo_options,45);
     let extra: std::collections::BTreeSet<_> = camo_dependencies.into_iter().filter(|name| !materials.contains_key(name)).collect();
     materials.extend(crate::material::read_used(&catalog,&extra)?);
     println!("Resolved {} native camo definitions and {} additional source/replacement material dependencies for Origins upgraded camo",camos.len(),extra.len());
@@ -203,6 +203,33 @@ fn runtime(pack: &pack::Pack, models: Vec<serde_json::Value>, worlds: Vec<serde_
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
+    fn installed_zone_activation_geometry() {
+        let zones = super::read_zones(&super::installation().unwrap()).unwrap();
+        let catalog = crate::convert::Catalog::new(&zones);
+        let entities = crate::entities::read(&catalog).unwrap();
+        let collision = crate::collision::convert(&catalog, &mut crate::pack::Pack::default()).unwrap();
+        for name in ["trig_zone_bunker_1", "trig_zone_bunker_2", "trig_zone_bunker_4", "trig_zone_bunker_6"] {
+            let matching: Vec<_> = entities.iter().enumerate()
+                .filter(|(_, entity)| entity.get("targetname").is_some_and(|target| target == name)).collect();
+            assert_eq!(matching.len(), 1, "Source zone activation {name}");
+            let (index, entity) = matching[0];
+            if let Some(model) = entity.get("model").and_then(|model| model.strip_prefix('*')) {
+                let model: u64 = model.parse().unwrap();
+                let shape = collision["brush_models"].as_array().unwrap().iter()
+                    .find(|shape| shape["native_brush_model"] == model).unwrap();
+                assert!(!shape["volumes"].as_array().unwrap().is_empty()
+                    || !shape["triangle_shapes"].as_array().unwrap().is_empty());
+                println!("Source activation {name}, entity {index}, fields {entity:?}, brush {model}, {} convex volumes, {} triangle shapes; contents {:?}",
+                    shape["volumes"].as_array().unwrap().len(), shape["triangle_shapes"].as_array().unwrap().len(),
+                    shape["volumes"].as_array().unwrap().iter().map(|volume| &volume["contents"]).collect::<Vec<_>>());
+            } else {
+                println!("Source activation {name}, entity {index}, fields {entity:?}");
+            }
+        }
+    }
+
     #[test]
     #[ignore = "requires the authorized Steam installation"]
     fn installed_ordinary_animation_streams() {
@@ -330,18 +357,18 @@ mod tests {
         let records: Vec<_> = camos.values().flat_map(|camo| camo.material_sets.get(12).into_iter().flatten()).collect();
         assert_eq!(records.len(),68);
         assert_eq!(records.iter().filter(|record| record.pairs.is_empty()).count(),7);
-        let dependencies = crate::material::camo_dependencies(&camos,&options,45);
+        let dependencies = crate::camo::camo_dependencies(&camos,&options,45);
         let camo_materials = crate::material::read_used(&catalog,&dependencies).unwrap();
         let initial = std::collections::BTreeMap::from([(181,[0.;4]),(185,[0.;4])]);
         let mut camo_bindings = 0;
         for camo in camos.values() {
             let mut queue = Vec::new();
-            crate::material::queue_camo(camo,&options,45,0.,2,&camo_materials,&mut queue).unwrap();
+            crate::camo::queue_camo(camo,&options,45,0.,2,&camo_materials,&mut queue).unwrap();
             assert!(queue.len()<=1024);
             for original in camo_materials.keys() {
-                let selected = crate::material::camo_material(&queue,original,1);
+                let selected = crate::camo::camo_material(&queue,original,1);
                 if selected == original.as_str() { continue; }
-                let (bound,constants) = crate::material::camo_inputs(&queue,&camo_materials[selected],1,&initial).unwrap();
+                let (bound,constants) = crate::camo::camo_inputs(&queue,&camo_materials[selected],1,&initial).unwrap();
                 for texture in bound["textures"].as_array().unwrap() { catalog.resolve(8,texture["image"].as_str().unwrap()).unwrap(); }
                 assert_eq!(constants[&181],[0.;4]);
                 assert!(constants[&185].iter().all(|value| value.is_finite()));
@@ -376,12 +403,12 @@ mod tests {
             "mc/mtl_fx_char_gib_chunks","mc/mtl_t6_attach_gl_ammo","mc/mtl_t5_weapon_camera_spike",
             "mc/mtl_weapon_m14_scope_rail","mc/mtl_veh_t6_dlc_mkiv_tank_catwalk"];
         let mut samples: std::collections::BTreeMap<String,_> = names.iter().map(|&name| (name.into(),selected[name].clone())).collect();
-        let (bound,constants) = crate::material::camo_inputs(&[],&selected["mc/mtl_t6_attach_fastmag"],1,
+        let (bound,constants) = crate::camo::camo_inputs(&[],&selected["mc/mtl_t6_attach_fastmag"],1,
             &std::collections::BTreeMap::from([(181,[0.25,-0.5,3.,1.])])).unwrap();
         assert_eq!(constants[&181],[0.25,-0.5,3.,1.]);
         samples.insert("explicit_camo_state".into(),bound);
         for (key,name) in [("explicit_occlusion_camo_state","mc/mtl_t6_attach_gl_ammo"),("explicit_color_matrix_camo_state","mc/mtl_weapon_m14_scope_rail")] {
-            let (bound,_) = crate::material::camo_inputs(&[],&selected[name],1,
+            let (bound,_) = crate::camo::camo_inputs(&[],&selected[name],1,
                 &std::collections::BTreeMap::from([(181,[0.25,-0.5,3.,1.])])).unwrap();
             samples.insert(key.into(),bound);
         }

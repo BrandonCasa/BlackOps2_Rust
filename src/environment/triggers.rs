@@ -19,13 +19,28 @@ pub struct TriggerDefinition {
 #[derive(Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerShape {
-    Convex { volumes: Vec<VolumeDefinition> },
-    Cylinder { radius: f32, height: f32 },
+    Convex {
+        volumes: Vec<VolumeDefinition>,
+    },
+    Cylinder {
+        radius: f32,
+        height: f32,
+    },
+    Brush {
+        rotation: [f32; 4],
+        volumes: Vec<VolumeDefinition>,
+        triangle_shapes: Vec<super::brushes::TriangleShape>,
+    },
 }
 
 impl TriggerDefinition {
     pub fn collider(&self) -> Option<Collider> {
         match &self.shape {
+            TriggerShape::Brush {
+                volumes,
+                triangle_shapes,
+                ..
+            } => super::brushes::compound(volumes, triangle_shapes),
             TriggerShape::Convex { volumes } => {
                 let pieces: Option<Vec<_>> = volumes
                     .iter()
@@ -49,9 +64,37 @@ impl TriggerDefinition {
             )])),
         }
     }
+    pub fn transform(&self) -> Transform {
+        let rotation = match &self.shape {
+            TriggerShape::Brush { rotation, .. } => Quat::from_array(*rotation),
+            _ => Quat::IDENTITY,
+        };
+        Transform::from_translation(Vec3::from_array(self.position)).with_rotation(rotation)
+    }
     pub fn interior_points(&self) -> Vec<Vec3> {
         let origin = Vec3::from_array(self.position);
         match &self.shape {
+            TriggerShape::Brush {
+                volumes,
+                triangle_shapes,
+                ..
+            } => {
+                let pose = self.transform();
+                volumes
+                    .iter()
+                    .map(|volume| pose.transform_point(Vec3::from_array(volume.position)))
+                    .chain(triangle_shapes.iter().flat_map(|shape| {
+                        shape.indices.iter().map(move |indices| {
+                            pose.transform_point(
+                                (Vec3::from_array(shape.vertices[indices[0] as usize])
+                                    + Vec3::from_array(shape.vertices[indices[1] as usize])
+                                    + Vec3::from_array(shape.vertices[indices[2] as usize]))
+                                    / 3.,
+                            )
+                        })
+                    }))
+                    .collect()
+            }
             TriggerShape::Convex { volumes } => volumes
                 .iter()
                 .map(|v| origin + Vec3::from_array(v.position))
@@ -61,6 +104,28 @@ impl TriggerDefinition {
     }
     pub fn outside_point(&self) -> Vec3 {
         let max = match &self.shape {
+            TriggerShape::Brush {
+                volumes,
+                triangle_shapes,
+                ..
+            } => {
+                let rotation = self.transform().rotation;
+                volumes
+                    .iter()
+                    .flat_map(|volume| {
+                        volume.vertices.iter().map(move |vertex| {
+                            rotation
+                                * (Vec3::from_array(volume.position) + Vec3::from_array(*vertex))
+                        })
+                    })
+                    .chain(triangle_shapes.iter().flat_map(|shape| {
+                        shape
+                            .vertices
+                            .iter()
+                            .map(|vertex| rotation * Vec3::from_array(*vertex))
+                    }))
+                    .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max)
+            }
             TriggerShape::Convex { volumes } => volumes
                 .iter()
                 .flat_map(|v| {
@@ -107,6 +172,33 @@ pub(super) fn valid(triggers: &[TriggerDefinition]) -> bool {
                             | "trigger_lookat"
                             | "info_volume"
                     ) && match &t.shape {
+                        TriggerShape::Brush {
+                            rotation,
+                            volumes,
+                            triangle_shapes,
+                        } => {
+                            class != "trigger_radius"
+                                && rotation.iter().all(|value| value.is_finite())
+                                && (Quat::from_array(*rotation).length_squared() - 1.).abs()
+                                    < 0.00001
+                                && (!volumes.is_empty() || !triangle_shapes.is_empty())
+                                && volumes.len() <= 4096
+                                && triangle_shapes.len() <= 4096
+                                && volumes.iter().all(|volume| {
+                                    stable_id(&volume.id)
+                                        && pieces.insert(&volume.id)
+                                        && (4..=128).contains(&volume.vertices.len())
+                                        && volume
+                                            .position
+                                            .iter()
+                                            .chain(volume.vertices.iter().flatten())
+                                            .all(|value| value.is_finite())
+                                })
+                                && triangle_shapes.iter().all(|shape| {
+                                    super::brushes::valid_triangle(shape)
+                                        && pieces.insert(&shape.id)
+                                })
+                        }
                         TriggerShape::Convex { volumes } => {
                             class != "trigger_radius"
                                 && (1..=4096).contains(&volumes.len())
@@ -144,16 +236,22 @@ pub(super) fn spawn(
         return;
     }
     for trigger in &game.environment.triggers {
-        if game.environment.crafting_benches.iter().any(|bench| bench.source_trigger == trigger.id && bench.delete_source) {
+        if game
+            .environment
+            .crafting_benches
+            .iter()
+            .any(|bench| bench.source_trigger == trigger.id && bench.delete_source)
+        {
             continue;
         }
         if let Some(shape) = trigger.collider() {
             let mut entity = commands.spawn((
                 MapTrigger(trigger.id.clone()),
+                crate::gameplay::SessionEntity,
                 shape,
                 Sensor,
                 CollisionLayers::new(TRIGGER_LAYER, LayerMask::NONE),
-                Transform::from_translation(Vec3::from_array(trigger.position)),
+                trigger.transform(),
                 Name::new(trigger.id.clone()),
             ));
             if let Some(owner) = game

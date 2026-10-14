@@ -52,6 +52,9 @@ pub(crate) struct ActorSurface;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct SurfacePreparation;
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct MaterialAnimation;
+
 #[derive(Component)]
 struct LanternLight;
 
@@ -117,7 +120,7 @@ impl Plugin for GameRenderingPlugin {
                 Update,
                 (
                     camera_follow.run_if(crate::flythrough::normal_play),
-                    (pbr::prepare, surfaces, fixture_lights, opaque::convert)
+                    (pbr::refresh, pbr::prepare, surfaces, fixture_lights, opaque::convert)
                         .chain()
                         .in_set(SurfacePreparation),
                 ),
@@ -126,11 +129,13 @@ impl Plugin for GameRenderingPlugin {
                 PostUpdate,
                 (
                     opaque::advance_time,
+                    opaque::refresh_owners,
                     opaque::animate,
                     opaque::animate_scalars,
                     opaque::animate_uvs,
                 )
                     .chain()
+                    .in_set(MaterialAnimation)
                     .run_if(in_state(GameState::Playing)),
             );
     }

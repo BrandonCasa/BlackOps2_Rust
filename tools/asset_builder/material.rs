@@ -746,32 +746,7 @@ pub fn read(catalog: &Catalog<'_>, name: &str) -> Result<Value> {
         "state_entries":streams.read(root.add(48)?, 36)?,"state_bits":states}))
 }
 
-#[derive(Clone,Debug,serde::Serialize)]
-pub struct CamoPattern {
-    pub images: [Option<String>;2],
-    pub offset: [f32;2],
-    pub scale: f32,
-}
-
-#[derive(Clone,Debug,serde::Serialize)]
-pub struct CamoRecord {
-    pub flags: u16,
-    pub pairs: Vec<(Option<String>,Option<String>)>,
-    pub constants: [f32;8],
-}
-
-#[derive(Clone,Debug,serde::Serialize)]
-pub struct CamoDefinition {
-    pub images: [Option<String>;2],
-    pub patterns: Vec<CamoPattern>,
-    pub material_sets: Vec<Vec<CamoRecord>>,
-}
-
-#[derive(Clone,Copy,Debug,serde::Serialize)]
-pub struct CamoOption {
-    pub selection: i32,
-    pub material: bool,
-}
+use crate::camo::{CamoPattern, CamoRecord, CamoDefinition, CamoOption};
 
 fn camo_asset(catalog: &Catalog<'_>, zone: usize, field: Address, kind: u32) -> Result<Option<String>> {
     if catalog.zones[zone].1.streams.u32(field)? == 0 { return Ok(None); }
@@ -864,103 +839,36 @@ pub fn read_camo_options(catalog: &Catalog<'_>) -> Result<Vec<Option<CamoOption>
     Ok(options)
 }
 
-pub fn camo_dependencies(camos: &BTreeMap<String,CamoDefinition>, options: &[Option<CamoOption>], packed_options: u32) -> std::collections::BTreeSet<String> {
-    let mut names = std::collections::BTreeSet::new();
-    let id = (packed_options&127) as usize;
-    let Some(option) = options.get(id).copied().flatten().filter(|option| id != 0 && option.material) else { return names; };
-    let Some(index) = option.selection.checked_sub(1).and_then(|value| usize::try_from(value).ok()) else { return names; };
-    for camo in camos.values() {
-        for record in camo.material_sets.get(index).into_iter().flatten() {
-            for (from,to) in &record.pairs {
-                if let (Some(from),Some(to)) = (from,to) && from != to { names.extend([from.clone(),to.clone()]); }
-            }
-        }
+pub fn read_material_selection(catalog: &Catalog<'_>) -> Result<(BTreeMap<String,crate::camo::WeaponMaterials>, BTreeMap<String,crate::camo::AttachmentMaterials>)> {
+    let mut attachments = BTreeMap::new();
+    for (name,zone,root) in catalog.definitions(30) {
+        let streams = &catalog.zones[zone].1.streams;
+        attachments.insert(name.to_ascii_lowercase(),crate::camo::AttachmentMaterials {
+            camo:camo_asset(catalog,zone,root.add(164)?,31)?, attachment_type:streams.u32(root.add(4)?)?,
+            chain_next:streams.u32(root.add(8)?)?,chain_head:streams.u32(root.add(12)?)?, combination_mask:streams.u32(root.add(16)?)?,
+            suppress168:streams.u8(root.add(168)?)?,suppress169:streams.u8(root.add(169)?)?,
+            models:[camo_asset(catalog,zone,root.add(40)?,5)?,camo_asset(catalog,zone,root.add(44)?,5)?,camo_asset(catalog,zone,root.add(48)?,5)?],
+        });
     }
-    names
-}
-
-#[derive(Clone,Debug)]
-pub enum CamoOverride {
-    Image {mask:u32,scope:Option<String>,from:String,to:String},
-    Material {mask:u32,from:String,to:String},
-    Constant {mask:u32,scope:Option<String>,index:u32,value:[f32;4]},
-}
-
-fn queue_camo_image(queue: &mut Vec<CamoOverride>, mask: u32, scope: Option<&str>, from: Option<&str>, to: Option<&str>) -> bool {
-    let (Some(from),Some(to)) = (from,to) else { return false; };
-    if from == to || queue.len() >= 1024 { return false; }
-    queue.push(CamoOverride::Image {mask,scope:scope.map(str::to_owned),from:from.into(),to:to.into()}); true
-}
-
-fn queue_camo_constant(queue: &mut Vec<CamoOverride>, mask: u32, scope: Option<&str>, index: u32, value: [f32;4]) {
-    if queue.len() < 1024 { queue.push(CamoOverride::Constant {mask,scope:scope.map(str::to_owned),index,value}); }
-}
-
-pub fn queue_camo(camo: &CamoDefinition, options: &[Option<CamoOption>], packed_options: u32, mapped_distance: f32,
-    mask: u32, materials: &BTreeMap<String,Value>, queue: &mut Vec<CamoOverride>) -> Result<()> {
-    let id = (packed_options&127) as usize;
-    let Some(option) = options.get(id).copied().flatten().filter(|_| id != 0 && mapped_distance < 1250.) else { return Ok(()); };
-    let Some(index) = option.selection.checked_sub(1).and_then(|value| usize::try_from(value).ok()) else { return Ok(()); };
-    if !option.material {
-        if let Some(pattern) = camo.patterns.get(index)
-            && queue_camo_image(queue,mask,None,camo.images[0].as_deref(),pattern.images[0].as_deref())
-            && queue_camo_image(queue,mask,None,camo.images[1].as_deref(),pattern.images[1].as_deref()) {
-            queue_camo_constant(queue,mask,None,181,[pattern.offset[0],pattern.offset[1],pattern.scale,1.]);
-        }
-        return Ok(());
+    let mut weapons = BTreeMap::new();
+    for (name,zone,root) in catalog.definitions(25) {
+        let streams = &catalog.zones[zone].1.streams;
+        let definition = Address::decode(streams.u32(root.add(8)?)?)?;
+        let array = |field: Address,count: usize,kind: u32| -> Result<Vec<Option<String>>> {
+            let pointer = streams.u32(field)?;
+            if pointer == 0 { return Ok(vec![None;count]); }
+            let table = Address::decode(pointer)?;
+            (0..count).map(|index| camo_asset(catalog,zone,table.add(index*4)?,kind)).collect()
+        };
+        weapons.insert(format!("weapon.{}",name.to_ascii_lowercase()),crate::camo::WeaponMaterials {
+            camo:camo_asset(catalog,zone,definition.add(2420)?,31)?,
+            main_models:array(definition.add(4)?,16,5)?,
+            variant_models:array(root.add(40)?,8,5)?.try_into().map_err(|_| "Native viewmodel variant count is not eight")?,
+            attachments:array(root.add(28)?,95,30)?,
+            definition28:streams.u32(definition.add(28)?)?,definition44:streams.u32(definition.add(44)?)?,
+        });
     }
-    for record in camo.material_sets.get(index).into_iter().flatten() {
-        for (from,to) in &record.pairs {
-            let (Some(from),Some(to)) = (from,to) else { continue; };
-            if from == to || queue.len() >= 1024 { continue; }
-            let source = materials.get(from).ok_or_else(|| format!("Camo source material {from} is missing"))?;
-            let destination = materials.get(to).ok_or_else(|| format!("Camo destination material {to} is missing"))?;
-            queue.push(CamoOverride::Material {mask,from:from.clone(),to:to.clone()});
-            queue_camo_constant(queue,mask,Some(to),185,[record.constants[0],record.constants[1],record.constants[2],
-                record.constants[3]+if record.flags&2 != 0 {10.} else {0.}]);
-            for (flag,source_semantic,destination_semantic) in [(1,2,2),(2,5,13),(4,8,14)] {
-                if record.flags&flag == 0 { continue; }
-                for a in source["textures"].as_array().ok_or("Missing camo source texture table")?.iter().filter(|texture| texture["semantic"] == source_semantic) {
-                    for b in destination["textures"].as_array().ok_or("Missing camo destination texture table")?.iter().filter(|texture| texture["semantic"] == destination_semantic) {
-                        queue_camo_image(queue,mask,Some(to),b["image"].as_str(),a["image"].as_str());
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-pub fn camo_material<'a>(queue: &'a [CamoOverride], original: &'a str, model_index: u32) -> &'a str {
-    let bit = u32::from((1_u32<<(model_index&31)) as u16);
-    queue.iter().rev().find_map(|command| if let CamoOverride::Material {mask,from,to} = command {
-        (*mask&bit != 0 && from == original).then_some(to.as_str())
-    } else {None}).unwrap_or(original)
-}
-
-pub fn camo_inputs(queue: &[CamoOverride], material: &Value, model_index: u32, initial: &BTreeMap<u32,[f32;4]>) -> Result<(Value,BTreeMap<u32,[f32;4]>)> {
-    let mut result = material.clone();
-    let name = material["name"].as_str().ok_or("Camo material identity is missing")?;
-    let bit = u32::from((1_u32<<(model_index&31)) as u16);
-    let mut constants = initial.clone();
-    for texture in result["textures"].as_array_mut().ok_or("Missing selected camo texture table")? {
-        texture["image"] = json!(texture["image"].as_str().ok_or("Missing selected camo image identity")?.to_ascii_lowercase());
-    }
-    for command in queue.iter().rev() {
-        match command {
-            CamoOverride::Image {mask,scope,from,to} if mask&bit != 0 && scope.as_deref().is_none_or(|scope| scope == name) => {
-                for texture in result["textures"].as_array_mut().ok_or("Missing selected camo texture table")? {
-                    if texture["image"] == *from { texture["image"] = json!(to); }
-                }
-            }
-            CamoOverride::Constant {mask,scope,index,value} if mask&bit != 0 && scope.as_deref().is_none_or(|scope| scope == name) => {
-                constants.insert(*index,*value);
-            }
-            _ => (),
-        }
-    }
-    result["code_constants"] = json!(constants);
-    Ok((result,constants))
+    Ok((weapons,attachments))
 }
 
 pub fn read_used(catalog: &Catalog<'_>, names: &std::collections::BTreeSet<String>) -> Result<BTreeMap<String, Value>> {
@@ -1009,85 +917,7 @@ mod tests {
         assert!(bake(&base,"normal",Some((&detail,20,[8.,f32::NAN,1.,0.]))).is_err());
     }
 
-    #[test]
-    fn camo_pattern_requires_both_image_swaps_and_keeps_partial_failure() {
-        let mut options = vec![None;128];
-        options[1] = Some(CamoOption {selection:1,material:false});
-        let mut camo = CamoDefinition {images:[Some("solid".into()),Some("pattern".into())],
-            patterns:vec![CamoPattern {images:[Some("red".into()),Some("stripes".into())],offset:[0.25,-0.5],scale:3.}],material_sets:Vec::new()};
-        let mut queue = Vec::new();
-        queue_camo(&camo,&options,129,0.,2,&BTreeMap::new(),&mut queue).unwrap();
-        let material = json!({"name":"weapon","textures":[{"image":"solid"},{"image":"pattern"}]});
-        let initial = BTreeMap::from([(181,[0.;4]),(185,[0.;4])]);
-        let (bound,constants) = camo_inputs(&queue,&material,1,&initial).unwrap();
-        assert_eq!(bound["textures"][0]["image"],"red");
-        assert_eq!(bound["textures"][1]["image"],"stripes");
-        assert_eq!(constants[&181],[0.25,-0.5,3.,1.]);
-        assert_eq!(camo_inputs(&queue,&material,0,&initial).unwrap().1[&181],[0.;4]);
-        camo.patterns[0].images[1]=Some("pattern".into());
-        queue.clear();
-        queue_camo(&camo,&options,1,0.,2,&BTreeMap::new(),&mut queue).unwrap();
-        assert_eq!(queue.len(),1);
-        let (bound,constants) = camo_inputs(&queue,&material,1,&initial).unwrap();
-        assert_eq!(bound["textures"][0]["image"],"red");
-        assert_eq!(bound["textures"][1]["image"],"pattern");
-        assert_eq!(constants[&181],[0.;4]);
-        camo.patterns[0].images[1]=Some("stripes".into());
-        queue = vec![CamoOverride::Constant {mask:0,scope:None,index:181,value:[0.;4]};1023];
-        queue_camo(&camo,&options,1,0.,2,&BTreeMap::new(),&mut queue).unwrap();
-        assert_eq!(queue.len(),1024);
-        assert_eq!(camo_inputs(&queue,&material,1,&initial).unwrap().1[&181],[0.;4]);
-        for (id,distance) in [(0,0.),(1,1250.),(1,f32::NAN)] {
-            queue.clear();
-            queue_camo(&camo,&options,id,distance,2,&BTreeMap::new(),&mut queue).unwrap();
-            assert!(queue.is_empty());
-        }
-    }
 
-    #[test]
-    fn camo_material_preserves_scope_semantics_and_native_consumer_order() {
-        let mut options = vec![None;128];
-        options[1] = Some(CamoOption {selection:1,material:true});
-        let camo = CamoDefinition {images:[None,None],patterns:Vec::new(),material_sets:vec![vec![CamoRecord {
-            flags:7,pairs:vec![(Some("a".into()),Some("b".into()))],constants:[6.,6.,0.55,0.,1.,2.,3.,4.]}]]};
-        let materials = BTreeMap::from([
-            ("a".into(),json!({"name":"a","textures":[{"semantic":2,"image":"basecolor"},{"semantic":5,"image":"basenormal"},{"semantic":8,"image":"basespec"}]})),
-            ("b".into(),json!({"name":"b","textures":[{"semantic":2,"image":"camocolor"},{"semantic":13,"image":"camonormal"},{"semantic":14,"image":"camospec"}]})),
-        ]);
-        let mut queue = Vec::new();
-        queue_camo(&camo,&options,1,0.,2,&materials,&mut queue).unwrap();
-        assert_eq!(queue.len(),5);
-        assert_eq!(camo_material(&queue,"a",1),"b");
-        assert_eq!(camo_material(&queue,"a",0),"a");
-        assert_eq!(camo_material(&queue,"a",17),"a");
-        assert_eq!(camo_material(&queue,"a",33),"b");
-        let initial = BTreeMap::from([(181,[0.;4]),(185,[0.;4])]);
-        let (bound,constants) = camo_inputs(&queue,&materials["b"],1,&initial).unwrap();
-        assert_eq!(constants[&185],[6.,6.,0.55,10.]);
-        assert_eq!(constants[&181],[0.;4]);
-        assert_eq!(bound["textures"].as_array().unwrap().iter().map(|texture| texture["image"].as_str().unwrap()).collect::<Vec<_>>(),["basecolor","basenormal","basespec"]);
-        assert_eq!(camo_inputs(&queue,&materials["b"],17,&initial).unwrap().1[&185],[0.;4]);
-        let other = json!({"name":"other","textures":[{"image":"camonormal"}]});
-        assert_eq!(camo_inputs(&queue,&other,1,&initial).unwrap().0["textures"][0]["image"],"camonormal");
-        queue.push(CamoOverride::Material {mask:2,from:"b".into(),to:"c".into()});
-        assert_eq!(camo_material(&queue,"a",1),"b");
-        queue.push(CamoOverride::Material {mask:2,from:"a".into(),to:"d".into()});
-        assert_eq!(camo_material(&queue,"a",1),"d");
-        queue.clear();
-        queue_camo_constant(&mut queue,2,Some("b"),185,[1.;4]);
-        queue_camo_constant(&mut queue,2,Some("b"),185,[2.;4]);
-        queue_camo_image(&mut queue,2,Some("b"),Some("camocolor"),Some("red"));
-        queue_camo_image(&mut queue,2,Some("b"),Some("red"),Some("blue"));
-        let (bound,constants) = camo_inputs(&queue,&materials["b"],1,&initial).unwrap();
-        assert_eq!(constants[&185],[1.;4]);
-        assert_eq!(bound["textures"][0]["image"],"red");
-        let empty = CamoDefinition {material_sets:vec![vec![CamoRecord {pairs:Vec::new(),flags:7,constants:[9.;8]}]],..camo};
-        queue.clear();
-        queue_camo(&empty,&options,1,0.,2,&materials,&mut queue).unwrap();
-        assert!(queue.is_empty());
-    }
-
-    #[test]
     fn implemented_dispatch_does_not_satisfy_converted_material_closure() {
         let native = BTreeMap::from([
             ("ordinary".into(),json!({"technique_set":"mc_lit_sm_r0c0n0_2z223015"})),

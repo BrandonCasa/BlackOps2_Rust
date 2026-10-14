@@ -19,6 +19,7 @@ impl Plugin for OriginsSolariPlugin {
             .add_systems(
                 PostUpdate,
                 prepare_meshes
+                    .after(super::MaterialAnimation)
                     .after(bevy::transform::TransformSystems::Propagate)
                     .after(super::SurfacePreparation)
                     .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
@@ -41,6 +42,7 @@ struct RayMeshSource {
     source: AssetId<Mesh>,
     skinned: bool,
     pose: Vec<Mat4>,
+    uv_transform: bevy::math::Affine2,
 }
 
 fn prepare_meshes(
@@ -54,6 +56,7 @@ fn prepare_meshes(
             Option<&SkinnedMesh>,
             Option<&RaytracingMesh3d>,
             Option<&RayMeshSource>,
+            &MeshMaterial3d<StandardMaterial>,
         ),
         (
             With<MeshMaterial3d<StandardMaterial>>,
@@ -64,9 +67,30 @@ fn prepare_meshes(
     bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut cache: Local<HashMap<AssetId<Mesh>, Handle<Mesh>>>,
+    materials: Res<Assets<StandardMaterial>>,
+    mut events: MessageReader<AssetEvent<Mesh>>,
 ) {
-    for (entity, raster, transform, visibility, skin, current, prepared) in &surfaces {
-        if !visibility.get() {
+    let changed: std::collections::HashSet<_> = events
+        .read()
+        .filter_map(|event| match event {
+            AssetEvent::Modified { id } => meshes
+                .get(*id)
+                .filter(|mesh| mesh.try_attributes().is_ok())
+                .map(|_| *id),
+            AssetEvent::Removed { id } => Some(*id),
+            _ => None,
+        })
+        .collect();
+    cache.retain(|id, _| !changed.contains(id) && meshes.contains(*id));
+    for (entity, raster, transform, visibility, skin, current, prepared, material) in &surfaces {
+        let Some(material) = materials.get(&material.0) else {
+            continue;
+        };
+        if !visibility.get()
+            || material.unlit
+            || material.specular_transmission > 0.
+            || !matches!(material.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_))
+        {
             if current.is_some() {
                 commands.entity(entity).remove::<RaytracingMesh3d>();
             }
@@ -75,11 +99,15 @@ fn prepare_meshes(
         if let Some(prepared) = prepared
             && prepared.source == raster.0.id()
             && !prepared.skinned
+            && skin.is_none()
+            && prepared.uv_transform == material.uv_transform
+            && !changed.contains(&raster.0.id())
             && current.is_some()
         {
             continue;
         }
         if skin.is_none()
+            && material.uv_transform == bevy::math::Affine2::IDENTITY
             && let Some(handle) = cache.get(&raster.0.id())
         {
             commands.entity(entity).insert((
@@ -88,6 +116,7 @@ fn prepare_meshes(
                     source: raster.0.id(),
                     skinned: false,
                     pose: Vec::new(),
+                    uv_transform: material.uv_transform,
                 },
             ));
             continue;
@@ -97,12 +126,28 @@ fn prepare_meshes(
                 continue;
             };
             let inverse = transform.affine().inverse();
-            let Some(matrices) = skin.joints.iter().zip(bindposes.iter()).map(|(joint, bind)| {
-                transforms.get(*joint).ok().map(|global| Mat4::from(inverse * global.affine()) * *bind)
-            }).collect::<Option<Vec<_>>>() else {
+            let Some(matrices) = skin
+                .joints
+                .iter()
+                .zip(bindposes.iter())
+                .map(|(joint, bind)| {
+                    transforms
+                        .get(*joint)
+                        .ok()
+                        .map(|global| Mat4::from(inverse * global.affine()) * *bind)
+                })
+                .collect::<Option<Vec<_>>>()
+            else {
                 continue;
             };
-            if current.is_some() && prepared.is_some_and(|p| p.source == raster.0.id() && p.pose == matrices) {
+            if current.is_some()
+                && prepared.is_some_and(|p| {
+                    p.source == raster.0.id()
+                        && p.pose == matrices
+                        && p.uv_transform == material.uv_transform
+                })
+                && !changed.contains(&raster.0.id())
+            {
                 continue;
             }
             matrices
@@ -123,10 +168,16 @@ fn prepare_meshes(
             Some(VertexAttributeValues::Float32x3(values)) => values.clone(),
             _ => vec![[0., 1., 0.]; count],
         };
-        let uv = match source.attribute(Mesh::ATTRIBUTE_UV_0) {
+        let mut uv = match source.attribute(Mesh::ATTRIBUTE_UV_0) {
             Some(VertexAttributeValues::Float32x2(values)) => values.clone(),
             _ => vec![[0.; 2]; count],
         };
+        for value in &mut uv {
+            *value = material
+                .uv_transform
+                .transform_point2(Vec2::from_array(*value))
+                .to_array();
+        }
         let mut tangents = match source.attribute(Mesh::ATTRIBUTE_TANGENT) {
             Some(VertexAttributeValues::Float32x4(values)) => values.clone(),
             _ => vec![[1., 0., 0., 1.]; count],
@@ -170,13 +221,19 @@ fn prepare_meshes(
                 tangents[i] = [tangent.x, tangent.y, tangent.z, tangents[i][3]];
             }
         }
-        let handle = if let Some(current) =
-            current.filter(|_| prepared.is_some_and(|p| p.source == raster.0.id() && p.skinned))
-        {
-            let Some(mut proxy) = meshes.get_mut(&current.0) else { continue };
+        let handle = if let Some(current) = current.filter(|_| {
+            prepared.is_some_and(|p| {
+                p.source == raster.0.id()
+                    && (p.skinned || p.uv_transform != bevy::math::Affine2::IDENTITY)
+            })
+        }) {
+            let Some(mut proxy) = meshes.get_mut(&current.0) else {
+                continue;
+            };
             proxy.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
             proxy.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
             proxy.insert_attribute(Mesh::ATTRIBUTE_TANGENT, tangents);
+            proxy.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
             current.0.clone()
         } else {
             let mut proxy = Mesh::new(source.primitive_topology(), RenderAssetUsages::default());
@@ -188,7 +245,7 @@ fn prepare_meshes(
             proxy.enable_raytracing = true;
             meshes.add(proxy)
         };
-        if skin.is_none() {
+        if skin.is_none() && material.uv_transform == bevy::math::Affine2::IDENTITY {
             cache.insert(raster.0.id(), handle.clone());
         }
         commands.entity(entity).insert((
@@ -197,6 +254,7 @@ fn prepare_meshes(
                 source: raster.0.id(),
                 skinned: skin.is_some(),
                 pose: matrices,
+                uv_transform: material.uv_transform,
             },
         ));
     }

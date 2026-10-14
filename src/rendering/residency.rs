@@ -22,7 +22,11 @@ fn release(
     mut meshes: ResMut<Assets<Mesh>>,
     mut finished: Local<bool>,
 ) {
-    if *finished || **state == GameState::Loading || !status.ready() {
+    if **state == GameState::Loading {
+        *finished = false;
+        return;
+    }
+    if *finished || !status.ready() {
         return;
     }
     let Some(library) = library else {
@@ -72,6 +76,7 @@ fn release(
         .filter_map(|(id, mesh)| {
             (server.get_path(id).is_some()
                 && library.prepared_meshes.contains(&id)
+                && !library.live_meshes.contains(&id)
                 && mesh.asset_usage.contains(RenderAssetUsages::MAIN_WORLD)
                 && mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX).is_none()
                 && mesh.try_attributes().is_ok())
