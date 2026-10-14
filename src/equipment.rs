@@ -1278,7 +1278,7 @@ pub(crate) fn flight(
                                 "motion":if resting {"resting"} else if rolling {"rolling"} else {"bouncing"},
                                 "normal":normal.to_array(),"surface":surface_index,
                                 "position":transform.translation.to_array(),"position_before":position_before.to_array(),
-                                "position_after":transform.translation.to_array(),"ground_point":ground_point.map(Vec3::to_array),
+                                "position_after":transform.translation.to_array(),"ground_point":ground_point.map(|point| point.to_array()),
                                 "speed":velocity.length(),"velocity":velocity.to_array(),"resting":resting,
                                 "rotation":transform.rotation.to_array()}));
                         }
