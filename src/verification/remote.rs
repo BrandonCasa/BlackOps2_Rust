@@ -406,6 +406,10 @@ fn animations(_: In<Option<Value>>, world: &mut World) -> BrpResult {
 fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     let remote = world.resource::<RemoteState>();
     let mut result = json!({"fixed_tick":remote.tick,"epoch":remote.epoch,"reset_pending":remote.reset,"state":format!("{:?}",world.resource::<State<GameState>>().get()),"queued_inputs":remote.queue.values().map(Vec::len).sum::<usize>(),"held_inputs":remote.held.keys().collect::<Vec<_>>(),"player":null});
+    result["load_failure"] = json!(world.get_resource::<crate::assets::LoadFailure>().map(|failure| failure.0.as_str()));
+    if !world.contains_resource::<GameDefinition>() {
+        return Ok(result);
+    }
     result["fixed_delta_seconds"] = json!(world.resource::<Time<Fixed>>().timestep().as_secs_f64());
     result["render_frame"] = json!(world.resource::<bevy::diagnostic::FrameCount>().0);
     result["frame_seconds"] = json!(world.resource::<Time<Real>>().delta_secs_f64());
@@ -1144,6 +1148,20 @@ fn preview_ready(
 #[cfg(test)]
 mod input_tests {
     use super::*;
+
+    #[test]
+    fn loading_and_failed_content_remain_observable_without_a_game_definition() {
+        let mut world = World::new();
+        world.init_resource::<RemoteState>();
+        world.insert_resource(crate::assets::LoadFailure("Invalid weapon tuning".into()));
+        for state in [GameState::Loading, GameState::LoadError] {
+            world.insert_resource(State::new(state));
+            let reply = snapshot(In(None), &mut world).unwrap();
+            assert_eq!(reply["state"], format!("{state:?}"));
+            assert_eq!(reply["load_failure"], "Invalid weapon tuning");
+            assert!(reply["player"].is_null());
+        }
+    }
 
     #[test]
     fn scheduled_mouse_motion_and_buttons_keep_native_timing_and_release() {
