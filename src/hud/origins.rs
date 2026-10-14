@@ -382,8 +382,8 @@ fn update(
             &crate::equipment::TacticalInventory,
             &crate::mines::MineInventory,
             &crate::crafting::BuildableInventory,
-            &crate::environment::digging::Digger,
-            &crate::tablets::Tablet,
+            Option<&crate::environment::digging::Digger>,
+            Option<&crate::tablets::Tablet>,
             Option<&crate::solo_revive::SoloEpisode>,
         ),
         With<Player>,
@@ -510,17 +510,17 @@ fn update(
                 "hud_quadrotor_tomb",
             ),
             "shovel" => (
-                dig.shovel,
-                if dig.golden {
+                dig.is_some_and(|dig| dig.shovel),
+                if dig.is_some_and(|dig| dig.golden) {
                     "zom_hud_shovel_gold"
                 } else {
                     "zom_hud_craftable_tank_shovel"
                 },
             ),
-            "helmet" => (dig.helmet, "zom_hud_helmet_gold"),
+            "helmet" => (dig.is_some_and(|dig| dig.helmet), "zom_hud_helmet_gold"),
             "tablet" => (
-                tablet.stage > 0 && tablet.stage < 4,
-                if tablet.stage >= 2 && !tablet.reclean {
+                tablet.is_some_and(|tablet| tablet.stage > 0 && tablet.stage < 4),
+                if tablet.is_some_and(|tablet| tablet.stage >= 2 && !tablet.reclean) {
                     "zm_hud_icon_oneinch_clean"
                 } else {
                     "zm_hud_icon_oneinch_dirty"
