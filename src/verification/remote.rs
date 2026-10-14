@@ -166,6 +166,10 @@ pub(super) fn install(app: &mut App, port: u16) {
                 .with_address(Ipv4Addr::LOCALHOST)
                 .with_port(port),
         ))
+        .add_systems(
+            OnEnter(GameState::PreparingShaders),
+            reset_inputs.before(crate::session::SessionSetup::Initialize),
+        )
         .add_systems(Update, preview_animation)
         .add_systems(
             FixedPreUpdate,
@@ -361,6 +365,10 @@ fn release(_: In<Option<Value>>, world: &mut World) -> BrpResult {
         send(world, &edge)?;
     }
     Ok(json!({"released":true}))
+}
+fn reset_inputs(world: &mut World) {
+    let _ = release(In(None), world);
+    world.resource_mut::<RemoteState>().reset = false;
 }
 fn reset(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
     let options: ResetOptions = parse(value)?;
@@ -1194,5 +1202,39 @@ mod input_tests {
             assert!(input(In(Some(json!({"events":events}))), app.world_mut()).is_err());
             assert!(app.world().resource::<RemoteState>().queue.is_empty());
         }
+    }
+
+    #[test]
+    fn session_restart_releases_buttons_and_cancels_future_motion() {
+        let mut app = App::new();
+        app.init_resource::<RemoteState>()
+            .add_message::<MouseMotion>()
+            .add_message::<KeyboardInput>()
+            .add_message::<MouseButtonInput>();
+        app.world_mut().spawn(PrimaryWindow);
+        input(
+            In(Some(json!({"events":[
+                {"tick":1,"key":"MouseLeft","pressed":true},
+                {"tick":2,"motion":[12.,-4.]}
+            ]}))),
+            app.world_mut(),
+        )
+        .unwrap();
+        scheduled(app.world_mut());
+        app.world_mut()
+            .resource_mut::<Messages<MouseButtonInput>>()
+            .clear();
+        reset_inputs(app.world_mut());
+        scheduled(app.world_mut());
+        assert!(app.world().resource::<Messages<MouseMotion>>().is_empty());
+        let released: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<MouseButtonInput>>()
+            .drain()
+            .collect();
+        assert_eq!(released.len(), 1);
+        assert_eq!(released[0].state, ButtonState::Released);
+        assert!(app.world().resource::<RemoteState>().queue.is_empty());
+        assert!(app.world().resource::<RemoteState>().held.is_empty());
     }
 }
