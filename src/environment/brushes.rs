@@ -29,6 +29,16 @@ pub struct BrushDefinition {
     #[serde(default)]
     pub triangle_shapes: Vec<TriangleShape>,
     pub visual_meshes: usize,
+    #[serde(default)]
+    pub initial_state: Option<InitialBrushState>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InitialBrushState {
+    pub visible: bool,
+    pub solid: bool,
+    pub removed: bool,
 }
 impl BrushDefinition {
     pub fn collider(&self) -> Option<Collider> {
@@ -37,6 +47,22 @@ impl BrushDefinition {
     pub fn transform(&self) -> Transform {
         Transform::from_translation(Vec3::from_array(self.position))
             .with_rotation(Quat::from_array(self.rotation))
+    }
+
+    fn solid_collider(&self) -> Option<Collider> {
+        let volumes = self
+            .volumes
+            .iter()
+            .filter(|volume| volume.contents & 0x10001 != 0)
+            .cloned()
+            .collect::<Vec<_>>();
+        let triangles = self
+            .triangle_shapes
+            .iter()
+            .filter(|shape| shape.contents & 0x10001 != 0)
+            .cloned()
+            .collect::<Vec<_>>();
+        compound(&volumes, &triangles)
     }
 }
 
@@ -170,6 +196,14 @@ pub(crate) fn bind(
     visual_meshes: usize,
     ownership: Option<&super::support::OwnershipDefinition>,
 ) {
+    if source
+        .initial_state
+        .as_ref()
+        .is_some_and(|state| state.removed)
+    {
+        commands.entity(entity).despawn();
+        return;
+    }
     commands.entity(entity).insert(MapBrush {
         id: source.id.clone(),
         visual_meshes,
@@ -188,5 +222,26 @@ pub(crate) fn bind(
             Sensor,
             CollisionLayers::new(BRUSH_LAYER, LayerMask::NONE),
         ));
+    }
+    if source
+        .initial_state
+        .as_ref()
+        .is_some_and(|state| state.solid)
+        && let Some(shape) = source.solid_collider()
+    {
+        commands.spawn((
+            ChildOf(entity),
+            Transform::IDENTITY,
+            RigidBody::Static,
+            shape,
+            CollisionLayers::new(1, LayerMask::ALL),
+        ));
+    }
+    if source
+        .initial_state
+        .as_ref()
+        .is_some_and(|state| !state.visible)
+    {
+        commands.entity(entity).insert(Visibility::Hidden);
     }
 }

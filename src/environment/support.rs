@@ -363,6 +363,7 @@ fn contacts(
         ) {
             if targets.contains(target) {
                 damage.0.push(Impact {
+                    point: None,
                     attacker: owner,
                     target,
                     source: emitter.source(),

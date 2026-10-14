@@ -66,6 +66,7 @@ impl ImpactSource {
 }
 #[derive(Clone, Debug)]
 pub struct Impact {
+    pub point: Option<Vec3>,
     pub attacker: Entity,
     pub target: Entity,
     pub source: ImpactSource,
@@ -94,6 +95,7 @@ pub struct EnemyDeath(pub DamageReceipt);
 #[derive(Message, Clone, Debug)]
 pub(crate) struct DamageApplied {
     pub(crate) impact: Impact,
+    pub(crate) before: u32,
     pub(crate) base_amount: u32,
     pub(crate) lethal: bool,
     pub(crate) aimed_bullet: bool,
@@ -322,6 +324,17 @@ pub(crate) fn resolve(
                 }
             }
         }
+        if !matches!(impact.category, DamageCategory::Melee)
+            && !matches!(
+                impact.source,
+                ImpactSource::Weapon(_) | ImpactSource::Projectile(_) | ImpactSource::Status(_)
+            )
+        {
+            impact.amount = (impact.amount as f64
+                * definition.tuning.global_hit_multipliers[impact.region.native_index()] as f64)
+                .trunc()
+                .max(1.) as u32;
+        }
         let base_amount = impact.amount;
         if panzer.is_some()
             && matches!(impact.category, DamageCategory::Ice)
@@ -466,6 +479,7 @@ pub(crate) fn resolve(
         };
         accepted.write(DamageApplied {
             impact,
+            before,
             base_amount,
             lethal,
             aimed_bullet,
@@ -497,9 +511,14 @@ fn rewards(
             0
         } else if is_melee {
             melee
-        } else if matches!(impact.region, HitRegion::Head) {
+        } else if impact.region.head() {
             head
-        } else if matches!(impact.region, HitRegion::Torso | HitRegion::UpperTorso) {
+        } else if impact.region == HitRegion::Neck {
+            definition.tuning.combat_neck_points
+        } else if matches!(
+            impact.region,
+            HitRegion::Torso | HitRegion::UpperTorso | HitRegion::LowerTorso
+        ) {
             torso
         } else {
             0
@@ -574,7 +593,7 @@ pub(crate) fn reward_deaths(
         session.kills = session.kills.saturating_add(1);
         if matches!(receipt.impact.category, DamageCategory::Melee) {
             history.melee_kills = history.melee_kills.saturating_add(1);
-        } else if matches!(receipt.impact.region, HitRegion::Head) {
+        } else if receipt.impact.region.head() {
             history.headshot_kills = history.headshot_kills.saturating_add(1);
         }
     }

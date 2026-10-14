@@ -37,7 +37,7 @@ impl Armor {
     }
     pub fn absorb(&mut self, impact: &Impact, shotgun: bool, insta_kill: bool) -> u32 {
         let amount = impact.amount;
-        let head = impact.region == HitRegion::Head;
+        let head = impact.region.head();
         let elemental = impact.source.id().contains("staff_");
         let explosive = matches!(impact.category, DamageCategory::Explosive);
         let mut body: f32 = if insta_kill { 1. } else { 0.1 };
@@ -78,6 +78,129 @@ impl Armor {
         delivered
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyGib {
+    Guts,
+    RightArm,
+    LeftArm,
+    RightLeg,
+    LeftLeg,
+    NoLegs,
+}
+
+#[cfg(test)]
+mod native_gib_tests {
+    use super::*;
+
+    #[test]
+    fn source_gib_choices_preserve_living_leg_exclusion_and_explosion_weights() {
+        assert!(gib_refs(HitRegion::LeftLowerLeg, false, None, |_| None).is_empty());
+        assert_eq!(
+            gib_refs(HitRegion::LeftLowerLeg, true, None, |_| None),
+            vec![
+                BodyGib::LeftLeg,
+                BodyGib::LeftLeg,
+                BodyGib::LeftLeg,
+                BodyGib::NoLegs
+            ]
+        );
+        assert_eq!(
+            gib_refs(HitRegion::None, false, Some(Vec3::ZERO), |name| Some(
+                if name == "j_knee_le" {
+                    Vec3::ZERO
+                } else {
+                    Vec3::X
+                }
+            )),
+            vec![BodyGib::LeftLeg, BodyGib::NoLegs]
+        );
+        assert_eq!(
+            gib_refs(HitRegion::UpperTorso, false, None, |_| None),
+            vec![BodyGib::Guts, BodyGib::RightArm]
+        );
+        assert_eq!(
+            gib_refs(HitRegion::MidTorso, false, None, |_| None).len(),
+            6
+        );
+    }
+}
+
+fn gib_refs(
+    region: HitRegion,
+    lethal: bool,
+    point: Option<Vec3>,
+    joint: impl Fn(&str) -> Option<Vec3>,
+) -> Vec<BodyGib> {
+    use BodyGib::*;
+    if region.head() || region == HitRegion::Neck {
+        return Vec::new();
+    }
+    if matches!(
+        region,
+        HitRegion::UpperTorso | HitRegion::LowerTorso | HitRegion::Torso
+    ) {
+        return vec![Guts, RightArm];
+    }
+    if region.right_arm() {
+        return vec![RightArm];
+    }
+    if region.left_arm() {
+        return vec![LeftArm];
+    }
+    if region.leg() {
+        if !lethal {
+            return Vec::new();
+        }
+        return if matches!(
+            region,
+            HitRegion::LeftUpperLeg | HitRegion::LeftLowerLeg | HitRegion::LeftFoot
+        ) {
+            vec![LeftLeg, LeftLeg, LeftLeg, NoLegs]
+        } else {
+            vec![RightLeg, RightLeg, RightLeg, NoLegs]
+        };
+    }
+    if region == HitRegion::None {
+        let Some(point) = point else {
+            return Vec::new();
+        };
+        let tags = [
+            "j_spinelower",
+            "j_spineupper",
+            "j_spine4",
+            "j_shoulder_le",
+            "j_elbow_le",
+            "j_wrist_le",
+            "j_shoulder_ri",
+            "j_elbow_ri",
+            "j_wrist_ri",
+            "j_hip_le",
+            "j_knee_le",
+            "j_ankle_le",
+            "j_hip_ri",
+            "j_knee_ri",
+            "j_ankle_ri",
+        ];
+        let nearest = tags
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, name)| {
+                joint(name).map(|position| (index, position.distance_squared(point)))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|entry| entry.0);
+        return match nearest {
+            Some(0..=2) => vec![Guts, RightArm],
+            Some(3..=5) => vec![LeftArm],
+            Some(6..=8) => vec![RightArm],
+            Some(9..=11) => vec![LeftLeg, NoLegs],
+            Some(12..=14) => vec![RightLeg, NoLegs],
+            _ => Vec::new(),
+        };
+    }
+    vec![Guts, RightArm, LeftArm, RightLeg, LeftLeg, NoLegs]
+}
+
 #[derive(Component, Default)]
 pub struct Wounds {
     pub limbs: [u32; 3],
@@ -90,6 +213,8 @@ pub struct Wounds {
     pub shattered: bool,
     pub left_arm: bool,
     pub right_arm: bool,
+    pub body_gib: Option<BodyGib>,
+    pub hatless: bool,
     pub ice_recovery: f32,
     pub field_captured: bool,
     pub disintegrated: bool,
@@ -101,7 +226,7 @@ pub struct Wounds {
     ice_owner: Option<(Entity, WeaponId)>,
     bleed_tick: f32,
     bleed_amount: u32,
-    bleed_owner: Option<(Entity, WeaponId)>,
+    bleed_impact: Option<Impact>,
     knockback: Vec3,
 }
 impl Wounds {
@@ -218,6 +343,10 @@ fn observe(
     positions: Query<&Transform>,
     mut session: ResMut<crate::gameplay::Session>,
     effects: Res<crate::powerups::PowerupEffects>,
+    definition: Res<crate::origins::GameDefinition>,
+    shooters: Query<&crate::weapons::WeaponInventory, With<crate::player::Player>>,
+    rigs: Query<&crate::enemies::ActorRig>,
+    joints: Query<&GlobalTransform>,
 ) {
     for event in applied.read() {
         let hit = &event.impact;
@@ -234,46 +363,91 @@ fn observe(
             ImpactSource::Weapon(id) | ImpactSource::Projectile(id) => Some(id.clone()),
             _ => None,
         };
-        let previous = health
-            .current()
-            .unwrap_or(0)
-            .saturating_add(hit.amount)
-            .max(1);
+        let joint = |name: &str| {
+            rigs.iter()
+                .find_map(|rig| rig.socket(hit.target, name))
+                .and_then(|entity| joints.get(entity).ok())
+                .map(GlobalTransform::translation)
+        };
+        let current_weapon = shooters
+            .get(hit.attacker)
+            .ok()
+            .and_then(|inventory| inventory.active())
+            .map(|weapon| weapon.definition.0.trim_start_matches("weapon."));
+        let grenade = weapon
+            .as_ref()
+            .and_then(|id| {
+                definition
+                    .content
+                    .weapons
+                    .iter()
+                    .find(|weapon| weapon.id == *id)
+            })
+            .is_some_and(|weapon| weapon.throwable.is_some());
         let gib = *kind == crate::rounds::PopulationKind::Ordinary
             && wounds.burning == 0.
             && matches!(
                 hit.category,
                 DamageCategory::Bullet | DamageCategory::Explosive
             )
-            && !hit.source.id().contains("c96_zm")
-            && !hit.source.id().contains("slipgun")
-            && hit.amount as f32 / previous as f32 >= 0.1;
+            && (!matches!(hit.category, DamageCategory::Bullet)
+                || current_weapon.is_some_and(|weapon| weapon != "c96_zm"))
+            && (!matches!(hit.category, DamageCategory::Explosive)
+                || grenade
+                || !current_weapon
+                    .is_some_and(|weapon| matches!(weapon, "slipgun_zm" | "slipgun_upgraded_zm")))
+            && hit.amount as f32 / event.before.max(1) as f32 >= 0.1;
         if gib {
-            let limb = match hit.region {
-                HitRegion::Head => Some(0),
-                HitRegion::Arm | HitRegion::LeftArm | HitRegion::RightArm => Some(1),
-                HitRegion::Leg => Some(2),
-                _ => None,
+            let limb = if hit.region.head() || hit.region == HitRegion::Neck {
+                Some(0)
+            } else if hit.region.left_arm() || hit.region.right_arm() {
+                Some(1)
+            } else if hit.region.leg() {
+                Some(2)
+            } else {
+                None
             };
             if let Some(index) = limb {
                 wounds.limbs[index] = wounds.limbs[index].saturating_add(hit.amount);
             }
-            if hit.region == HitRegion::Head
-                && health.current().unwrap_or(0) <= health.maximum() / 10
-                && !wounds.headless
-            {
+            let head_point = if matches!(hit.category, DamageCategory::Explosive) {
+                hit.point.zip(joint("j_head")).is_some_and(|(point, head)| {
+                    point.distance(head) <= if grenade { 55. * 0.0254 } else { 10. * 0.0254 }
+                })
+            } else {
+                (hit.region.head() || hit.region == HitRegion::Neck)
+                    && health.current().unwrap_or(0) <= health.maximum() / 10
+            };
+            if head_point && !wounds.headless && shooters.contains(hit.attacker) {
                 wounds.headless = true;
+                wounds.hatless = true;
                 wounds.bleed_tick = 1.;
                 wounds.bleed_amount = health.current().unwrap_or(0).div_ceil(5);
-                wounds.bleed_owner = weapon.clone().map(|id| (hit.attacker, id));
-            } else if !event.lethal {
-                match hit.region {
-                    HitRegion::LeftArm => wounds.left_arm = true,
-                    HitRegion::RightArm | HitRegion::Arm => wounds.right_arm = true,
-                    HitRegion::Leg if matches!(hit.category, DamageCategory::Explosive) => {
-                        wounds.crawler = true
+                let mut bleed = hit.clone();
+                if let Some(weapon) = weapon.clone() {
+                    bleed.source = ImpactSource::Status(weapon);
+                }
+                bleed.amount = wounds.bleed_amount;
+                wounds.bleed_impact = Some(bleed);
+            } else {
+                if (hit.region.head() || hit.region == HitRegion::Neck)
+                    && health.current().unwrap_or(0) > health.maximum() / 10
+                    && shooters.contains(hit.attacker)
+                {
+                    wounds.hatless = true;
+                }
+                if wounds.body_gib.is_none() {
+                    let refs = gib_refs(hit.region, event.lethal, hit.point, joint);
+                    if !refs.is_empty() {
+                        let selected = refs[session.random() as usize % refs.len()];
+                        wounds.body_gib = Some(selected);
+                        wounds.left_arm = selected == BodyGib::LeftArm;
+                        wounds.right_arm = selected == BodyGib::RightArm;
+                        wounds.crawler = matches!(
+                            selected,
+                            BodyGib::LeftLeg | BodyGib::RightLeg | BodyGib::NoLegs
+                        );
                     }
-                    _ => {}
                 }
             }
         }
@@ -350,6 +524,7 @@ fn tick(
     slide: MoveAndSlide,
     mut damage: ResMut<DamageQueue>,
     effects: Res<crate::powerups::PowerupEffects>,
+    definition: Res<crate::origins::GameDefinition>,
 ) {
     let dt = time.delta_secs();
     for (entity, health, collider, mut pose, mut wounds, mut zombie) in &mut actors {
@@ -376,6 +551,7 @@ fn tick(
                 && let Some((owner, weapon)) = wounds.ice_owner.take()
             {
                 damage.0.push(Impact {
+                    point: None,
                     attacker: owner,
                     target: entity,
                     source: ImpactSource::Status(weapon),
@@ -398,6 +574,7 @@ fn tick(
                     wounds.burn_amount
                 };
                 damage.0.push(Impact {
+                    point: None,
                     attacker: owner,
                     target: entity,
                     source: ImpactSource::Status(weapon),
@@ -410,17 +587,20 @@ fn tick(
         if wounds.headless {
             wounds.bleed_tick -= dt;
             if wounds.bleed_tick <= 0.
-                && let Some((owner, weapon)) = wounds.bleed_owner.clone()
+                && let Some(mut impact) = wounds.bleed_impact.clone()
             {
                 wounds.bleed_tick += 1.;
-                damage.0.push(Impact {
-                    attacker: owner,
-                    target: entity,
-                    source: ImpactSource::Status(weapon),
-                    category: DamageCategory::Bullet,
-                    region: HitRegion::Head,
-                    amount: wounds.bleed_amount,
-                });
+                impact.point = None;
+                if let Some(weapon) = definition
+                    .content
+                    .weapons
+                    .iter()
+                    .find(|weapon| weapon.id.0 == impact.source.id())
+                {
+                    impact.amount =
+                        crate::weapons::location_damage(weapon, impact.amount, impact.region);
+                }
+                damage.0.push(impact);
             }
         }
         if wounds.knockback.length_squared() > 0.01 {

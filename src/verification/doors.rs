@@ -349,7 +349,6 @@ fn drive(
                                     start + Vec3::Y * 0.85,
                                     enemy.id.clone(),
                                     crate::rounds::Gait::Walk,
-                                    enemy.speed,
                                 ),
                                 crate::player::capsule(0.3, 1.7),
                                 crate::life::Vitality::ordinary_actor(150, 150).unwrap(),
@@ -489,13 +488,8 @@ fn drive(
                 .find(|e| e.family == "german" && e.traversals.contains_key("rise"))
                 .unwrap();
             let point = c.aim;
-            let mut zombie = Zombie::new(
-                point,
-                enemy.id.clone(),
-                crate::rounds::Gait::Walk,
-                enemy.speed,
-            )
-            .rising(&enemy.traversals["rise"]);
+            let mut zombie = Zombie::new(point, enemy.id.clone(), crate::rounds::Gait::Walk)
+                .rising(&enemy.traversals["rise"][0]);
             zombie.stunned = 100.;
             c.actor = Some(
                 commands
@@ -602,13 +596,8 @@ fn drive(
                 .find(|e| e.family == "german")
                 .unwrap();
             let point = c.aim;
-            let mut zombie = Zombie::new(
-                point,
-                enemy.id.clone(),
-                crate::rounds::Gait::Walk,
-                enemy.speed,
-            )
-            .rising(&enemy.traversals["rise"]);
+            let mut zombie = Zombie::new(point, enemy.id.clone(), crate::rounds::Gait::Walk)
+                .rising(&enemy.traversals["rise"][0]);
             zombie.stunned = 100.;
             c.actor = Some(
                 commands

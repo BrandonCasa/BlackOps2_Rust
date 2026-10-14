@@ -449,6 +449,7 @@ fn drive(
                     return;
                 }
                 impacts.0.push(crate::damage::Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(

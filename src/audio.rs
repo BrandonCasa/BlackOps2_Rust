@@ -108,6 +108,19 @@ impl AudioDefinition {
                 .bindings
                 .values()
                 .all(|name| self.aliases.contains_key(name))
+            && game.content.barriers.iter().all(|barrier| {
+                barrier
+                    .audio
+                    .repair
+                    .iter()
+                    .flatten()
+                    .chain(barrier.boards.iter().flat_map(|board| {
+                        [&board.audio.opening, &board.audio.hover]
+                            .into_iter()
+                            .flatten()
+                    }))
+                    .all(|name| self.aliases.contains_key(name))
+            })
             && self.timelines.iter().all(|(id, notes)| {
                 game.content.animations.iter().any(|a| a.id.0 == *id)
                     && notes.iter().all(|n| {

@@ -824,6 +824,7 @@ fn foot_events(
                     crate::audio::SoundSource::attached(owner),
                 );
                 damage.0.push(Impact {
+                    point: None,
                     attacker: entity,
                     target: owner,
                     source: crate::damage::ImpactSource::Robot(format!("robot.{}", foot.robot)),
@@ -836,6 +837,7 @@ fn foot_events(
         for (target, _, health) in &enemies {
             if health.state() == LifeState::ActorAlive && touching.contains(&target) {
                 damage.0.push(Impact {
+                    point: None,
                     attacker: entity,
                     target,
                     source: crate::damage::ImpactSource::Robot(format!("robot.{}", foot.robot)),

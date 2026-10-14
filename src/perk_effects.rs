@@ -300,6 +300,7 @@ fn deliver(
                 });
             }
             queue.0.push(crate::damage::Impact {
+                point: None,
                 attacker: shock.owner,
                 target: shock.target,
                 source: crate::damage::ImpactSource::Perk(shock.perk.clone()),
@@ -382,6 +383,7 @@ fn land(
             };
             let amount = (fraction * health.maximum() as f32) as u32;
             damage.0.push(crate::damage::Impact {
+                point: None,
                 attacker: landing.owner,
                 target: landing.owner,
                 source: crate::damage::ImpactSource::Fall,

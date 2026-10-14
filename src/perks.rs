@@ -55,7 +55,10 @@ impl PerkDrinking {
             duration: drink.seconds,
             elapsed: 0.,
             activated: false,
-            activation_at: drink.seconds + drink.activation_delay,
+            activation_at: drink.seconds
+                + drink
+                    .activation_delay
+                    .min(drink.lower_seconds + primary.mechanics.equip_seconds),
             lower_seconds: drink.lower_seconds,
             return_weapon: primary.id.clone(),
             return_seconds: primary.mechanics.equip_seconds,

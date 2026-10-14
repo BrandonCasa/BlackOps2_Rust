@@ -1211,11 +1211,15 @@ fn animate(
                 None
             }
         });
-        let looping = locomotion.is_some_and(|(_, _, _, looping)| looping)
-            || matches!(
-                action,
-                WeaponAnimation::Idle | WeaponAnimation::IdleEmpty | WeaponAnimation::SprintLoop
-            );
+        let looping = clip
+            .and_then(|id| {
+                definition
+                    .content
+                    .animations
+                    .iter()
+                    .find(|source| source.id == *id)
+            })
+            .is_some_and(|source| source.looping);
         let mut playback =
             AnimationPlayback::new(graph, vec![AnimationLayer::new(node, seek, looping)]);
         playback.restart = rig.playback_revision;

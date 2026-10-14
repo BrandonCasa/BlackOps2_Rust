@@ -318,6 +318,7 @@ fn actions(
                 continue;
             }
             damage.0.push(Impact {
+                point: None,
                 attacker: owner,
                 target,
                 source: ImpactSource::Weapon(WeaponId("weapon.tomb_shield_zm".into())),
@@ -590,6 +591,7 @@ fn drone_fire(
             drone.burst -= dt;
             if drone.cooldown <= 0. {
                 damage.0.push(Impact {
+                    point: None,
                     attacker: drone.owner,
                     target: hit.target,
                     source: ImpactSource::Weapon(weapon.id.clone()),

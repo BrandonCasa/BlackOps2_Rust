@@ -139,7 +139,6 @@ mod tests {
                     Vec3::ZERO,
                     crate::origins::content::ContentId("enemy.test".into()),
                     crate::rounds::Gait::Walk,
-                    1.,
                 ),
                 Vitality::ordinary_actor(100, 100).unwrap(),
                 NativeArtInputs {
@@ -172,7 +171,6 @@ mod tests {
             Vec3::ZERO,
             crate::origins::content::ContentId("enemy.test".into()),
             crate::rounds::Gait::Walk,
-            1.,
         ));
         app.update();
         assert!(app.world().get::<ActorEyes>(actor).is_some());

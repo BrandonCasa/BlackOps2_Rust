@@ -383,7 +383,13 @@ fn machine_presentation(
     mut session: ResMut<Session>,
     children: Query<&Children>,
     names: Query<&Name>,
-    mut machines: Query<(Entity, &Machine, &Transform, &mut MachineVisual, Option<&crate::animation::NativeAnimation>)>,
+    mut machines: Query<(
+        Entity,
+        &Machine,
+        &Transform,
+        &mut MachineVisual,
+        Option<&crate::animation::NativeAnimation>,
+    )>,
 ) {
     let dt = time.delta_secs();
     for (entity, machine, pose, mut visual, animation) in &mut machines {
@@ -432,16 +438,16 @@ fn machine_presentation(
                 _ => ("on_idle", 5.9666667, true),
             };
             let request = crate::animation::NativeAnimation {
-                    source: source.clone(),
-                    clip: format!("o_zombie_dlc4_vending_diesel_{clip}"),
-                    seconds: if looping {
-                        visual.age % duration
-                    } else {
-                        visual.age.min(duration)
-                    },
-                    looping,
-                    restart: visual.restart,
-                };
+                source: source.clone(),
+                clip: format!("o_zombie_dlc4_vending_diesel_{clip}"),
+                seconds: if looping {
+                    visual.age % duration
+                } else {
+                    visual.age.min(duration)
+                },
+                looping,
+                restart: visual.restart,
+            };
             if animation != Some(&request) {
                 commands.entity(entity).insert(request);
             }

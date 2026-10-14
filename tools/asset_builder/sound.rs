@@ -28,6 +28,126 @@ fn text(streams: &Streams, field: Address) -> Result<String> {
     Ok(streams.text(Address::decode(pointer)?)?)
 }
 
+pub(crate) fn alias_hashes(catalog: &Catalog<'_>) -> Result<BTreeMap<u32, String>> {
+    let mut names = BTreeMap::<u32, String>::new();
+    for (_, zone) in catalog.zones {
+        let streams = &zone.streams;
+        for asset in zone
+            .assets
+            .iter()
+            .filter(|asset| asset.kind == 9 && !asset.reference)
+        {
+            let count = streams.u32(asset.root.add(4)?)? as usize;
+            if count == 0 {
+                continue;
+            }
+            let lists = Address::decode(streams.u32(asset.root.add(8)?)?)?;
+            for index in 0..count {
+                let list = lists.add(index * 20)?;
+                let hash = streams.u32(list.add(4)?)?;
+                let name = text(streams, list)?;
+                if hash == 0 || name.is_empty() {
+                    return Err("Native sound alias list lacks its ID or name".into());
+                }
+                if names
+                    .get(&hash)
+                    .is_some_and(|existing| !existing.eq_ignore_ascii_case(&name))
+                {
+                    return Err(format!(
+                        "Native sound alias ID {hash:#010x} resolves conflicting names"
+                    )
+                    .into());
+                }
+                names.insert(hash, name);
+            }
+        }
+    }
+    Ok(names)
+}
+
+pub(crate) fn definitions(
+    catalog: &Catalog<'_>,
+    required: &std::collections::BTreeSet<String>,
+    missing: &mut Vec<String>,
+) -> Result<Vec<Value>> {
+    let mut lists = BTreeMap::new();
+    for (zone_index, (_, zone)) in catalog.zones.iter().enumerate() {
+        let streams = &zone.streams;
+        for asset in zone
+            .assets
+            .iter()
+            .filter(|asset| asset.kind == 9 && !asset.reference)
+        {
+            let count = streams.u32(asset.root.add(4)?)? as usize;
+            if count == 0 {
+                continue;
+            }
+            let lists_address = Address::decode(streams.u32(asset.root.add(8)?)?)?;
+            for index in 0..count {
+                let list = lists_address.add(index * 20)?;
+                lists.insert(
+                    text(streams, list)?.to_ascii_lowercase(),
+                    (zone_index, list),
+                );
+            }
+        }
+    }
+    let mut pending: Vec<_> = required
+        .iter()
+        .map(|name| {
+            (
+                name.to_ascii_lowercase(),
+                "selected initial consumer".to_owned(),
+            )
+        })
+        .collect();
+    let mut selected = std::collections::BTreeSet::new();
+    let mut rows = Vec::new();
+    while let Some((name, consumer)) = pending.pop() {
+        if !selected.insert(name.clone()) {
+            continue;
+        }
+        let Some(&(zone, list)) = lists.get(&name) else {
+            missing.push(format!("Initial sound alias {name} referenced by {consumer} has no installed native bank definition"));
+            continue;
+        };
+        let streams = &catalog.zones[zone].1.streams;
+        let count = streams.u32(list.add(12)?)? as usize;
+        if count == 0 {
+            return Err(format!("Required native sound alias {name} has no variants").into());
+        }
+        let aliases = Address::decode(streams.u32(list.add(8)?)?)?;
+        for index in 0..count {
+            let row = definition(streams, &name, index, list, aliases.add(index * 96)?)?;
+            if let Some(secondary) = row["secondary"].as_str().filter(|name| !name.is_empty()) {
+                pending.push((
+                    secondary.to_ascii_lowercase(),
+                    format!("secondaryName of {name}/{index}"),
+                ));
+            }
+            rows.push(row);
+        }
+    }
+    Ok(rows)
+}
+
+fn definition(
+    streams: &Streams,
+    name: &str,
+    index: usize,
+    list: Address,
+    alias: Address,
+) -> Result<Value> {
+    Ok(
+        json!({"name":name,"index":index,"asset_id":streams.u32(alias.add(16)?)?,
+        "flags":streams.u32(alias.add(24)?)?,"flags1":streams.u32(alias.add(28)?)?,
+        "list_sequence":streams.u32(list.add(16)?)?,"context_type":streams.u32(alias.add(36)?)?,
+        "context_value":streams.u32(alias.add(40)?)?,"probability":streams.u8(alias.add(88)?)?,
+        "start_delay":streams.u16(alias.add(54)?)?,"subtitle":text(streams,alias.add(8)?)?,
+        "secondary":text(streams,alias.add(12)?)?,"parameters":streams.read(alias.add(28)?,68)?}),
+    )
+}
+
 impl Bank {
     fn open(path: &Path, streamed: bool) -> Result<Self> {
         let mut file = File::open(path)?;
@@ -265,12 +385,8 @@ pub fn convert(
             } else {
                 "all"
             };
-            let mut row = json!({"name":name, "index":index, "zone":format!("{language}-{zone_name}"),
-                "asset_id":id, "flags":flags,"flags1":streams.u32(alias.add(28)?)?,
-                "list_sequence":streams.u32(list.add(16)?)?,"context_type":streams.u32(alias.add(36)?)?,
-                "context_value":streams.u32(alias.add(40)?)?,"probability":streams.u8(alias.add(88)?)?,
-                "start_delay":streams.u16(alias.add(54)?)?,"subtitle":text(streams, alias.add(8)?)?,
-                "secondary":text(streams, alias.add(12)?)?, "parameters":streams.read(alias.add(28)?, 68)?});
+            let mut row = definition(streams, &name, index, list, alias)?;
+            row["zone"] = json!(format!("{language}-{zone_name}"));
             if id == 0 {
                 row["silent"] = json!(true);
                 rows.push(row);

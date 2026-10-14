@@ -246,7 +246,7 @@ fn drive(
                 .unwrap()
                 .id
                 .clone();
-            let mut zombie = Zombie::new(position, id, crate::rounds::Gait::Walk, 0.);
+            let mut zombie = Zombie::new(position, id, crate::rounds::Gait::Walk);
             zombie.stunned = 5.;
             commands.spawn((
                 zombie,

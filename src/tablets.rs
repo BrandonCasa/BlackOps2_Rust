@@ -140,9 +140,10 @@ fn setup(
             inner_radius: 0.,
             inner_damage: 5000,
             outer_damage: 2000,
-            tangent_bounce: 0.5,
-            normal_bounce: 0.25,
+            tangent_bounce: [0.5; 32],
+            normal_bounce: [0.25; 32],
             collision_radius: 0.08,
+            collision_half_extents: None,
             cook_in_hand: false,
             sticky: false,
         });
@@ -723,6 +724,7 @@ fn bombard(
                 let distance = p.translation.distance(center);
                 if health.state() == LifeState::ActorAlive && distance <= 5.08 {
                     damage.0.push(crate::damage::Impact {
+                        point: None,
                         attacker: grenade.owner,
                         target: enemy,
                         source: crate::damage::ImpactSource::Weapon(grenade.definition.clone()),

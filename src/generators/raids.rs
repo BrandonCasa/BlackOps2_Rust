@@ -256,13 +256,12 @@ pub fn tick(
     let Ok(health) = Vitality::ordinary_actor(health, health) else {
         return;
     };
-    let zombie = Zombie::new(
-        position,
-        enemy.id.clone(),
-        Gait::Sprint,
-        game.rounds.speed(Gait::Sprint),
-    );
-    let zombie = if let Some(rise) = enemy.traversals.get("rise") {
+    let zombie = Zombie::new(position, enemy.id.clone(), Gait::Sprint);
+    let zombie = if let Some(rise) = enemy
+        .traversals
+        .get("rise")
+        .and_then(|profiles| profiles.first())
+    {
         zombie.rising(rise)
     } else {
         zombie

@@ -28,9 +28,11 @@ pub struct ThrowableDefinition {
     pub inner_radius: f32,
     pub inner_damage: u32,
     pub outer_damage: u32,
-    pub tangent_bounce: f32,
-    pub normal_bounce: f32,
+    pub tangent_bounce: [f32; 32],
+    pub normal_bounce: [f32; 32],
     pub collision_radius: f32,
+    #[serde(default)]
+    pub collision_half_extents: Option<[f32; 3]>,
     pub cook_in_hand: bool,
     pub sticky: bool,
 }
@@ -64,9 +66,14 @@ impl ThrowableDefinition {
             && self.inner_radius.is_finite()
             && self.inner_radius >= 0.
             && self.inner_radius < self.radius
-            && [self.normal_bounce, self.tangent_bounce]
+            && self
+                .normal_bounce
                 .iter()
+                .chain(self.tangent_bounce.iter())
                 .all(|v| v.is_finite() && (0. ..=1.).contains(v))
+            && self
+                .collision_half_extents
+                .is_none_or(|v| v.into_iter().all(|v| v.is_finite() && v > 0.))
     }
 }
 #[derive(Clone, Copy, Debug, Default)]
@@ -616,7 +623,10 @@ pub(crate) fn flight(
     mut grenades: Query<(Entity, &mut Grenade, &mut Transform)>,
     targets: Query<(), (With<Vitality>, With<Transform>, Without<Grenade>)>,
     poses: Query<(&Transform, &GlobalTransform, Has<ChildOf>), Without<Grenade>>,
-    surfaces: Query<&crate::audio::SurfaceSound>,
+    surfaces: Query<(
+        &crate::audio::SurfaceSound,
+        Option<&crate::movement::physics::SurfaceFlags>,
+    )>,
     query: SpatialQuery,
     mut blasts: ResMut<BlastQueue>,
     mut lures: ResMut<crate::lures::LureEvidence>,
@@ -664,8 +674,12 @@ pub(crate) fn flight(
             let delta = (velocity - Vec3::Y * gravity_step * 0.5) * dt;
             velocity.y -= gravity_step;
             if let Ok(direction) = Dir3::new(delta) {
+                let shape = tuning.collision_half_extents.map_or_else(
+                    || Collider::sphere(grenade.radius),
+                    |half| Collider::cuboid(half[0] * 2., half[1] * 2., half[2] * 2.),
+                );
                 let hit = query.cast_shape(
-                    &Collider::sphere(grenade.radius),
+                    &shape,
                     transform.translation,
                     Quat::IDENTITY,
                     direction,
@@ -682,7 +696,7 @@ pub(crate) fn flight(
                         } else {
                             "default"
                         },
-                        |s| s.0.as_str(),
+                        |(s, _)| s.0.as_str(),
                     );
                     let alias = format!(
                         "{}_{}",
@@ -726,8 +740,25 @@ pub(crate) fn flight(
                         evidence.record(serde_json::json!({"event":"attach","target":hit.entity.to_bits(),"actor":actor,"position":transform.translation.to_array()}));
                     } else {
                         let perpendicular = normal * velocity.dot(normal);
-                        velocity = (velocity - perpendicular) * tuning.tangent_bounce
-                            - perpendicular * tuning.normal_bounce;
+                        let surface_index = surfaces
+                            .get(hit.entity)
+                            .ok()
+                            .and_then(|(_, flags)| flags)
+                            .map_or(if targets.contains(hit.entity) { 7 } else { 0 }, |flags| {
+                                ((flags.0 >> 20) & 0x3f) as usize
+                            });
+                        let tangent = tuning
+                            .tangent_bounce
+                            .get(surface_index)
+                            .copied()
+                            .unwrap_or(0.);
+                        let restitution = tuning
+                            .normal_bounce
+                            .get(surface_index)
+                            .copied()
+                            .unwrap_or(0.);
+                        velocity =
+                            (velocity - perpendicular) * tangent - perpendicular * restitution;
                         grenade.motion = if normal.y > 0.6 && velocity.length() < 0.5 {
                             GrenadeMotion::Resting
                         } else {
@@ -919,7 +950,7 @@ pub(crate) fn resolve_blasts(
             &format!("{}.explode", blast.definition.0),
             crate::audio::SoundSource::World(center),
         );
-        for (target, vitality, pose, player, hitboxes) in &targets {
+        for (target, vitality, pose, player, _hitboxes) in &targets {
             if !matches!(
                 vitality.state(),
                 LifeState::Standing | LifeState::ActorAlive
@@ -962,16 +993,37 @@ pub(crate) fn resolve_blasts(
             } else {
                 [blast.inner_damage, blast.outer_damage]
             };
-            let damage = (inner as f32 + (outer as f32 - inner as f32) * ratio).round() as u32;
+            let raw_damage = inner as f32 + (outer as f32 - inner as f32) * ratio;
+            let weapon_damage = !player
+                && blast.source.as_ref().is_none_or(|source| {
+                    matches!(
+                        source,
+                        crate::damage::ImpactSource::Weapon(_)
+                            | crate::damage::ImpactSource::Projectile(_)
+                    )
+                });
+            let damage = if weapon_damage
+                && let Some(weapon) = game
+                    .content
+                    .weapons
+                    .iter()
+                    .find(|weapon| weapon.id == blast.definition)
+            {
+                (raw_damage as f64 * weapon.mechanics.hit_multipliers[0] as f64)
+                    .trunc()
+                    .max(1.) as u32
+            } else {
+                raw_damage.round() as u32
+            };
             impacts.0.push(crate::damage::Impact {
+                point: Some(center),
                 attacker: blast.owner,
                 target,
                 source: blast.source.clone().unwrap_or_else(|| {
                     crate::damage::ImpactSource::Projectile(blast.definition.clone())
                 }),
                 category: blast.category.unwrap_or(DamageCategory::Explosive),
-                region: hitboxes
-                    .map_or(HitRegion::None, |boxes| boxes.nearest_region(pose, center)),
+                region: HitRegion::None,
                 amount: damage,
             });
             if player {

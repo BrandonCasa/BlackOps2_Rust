@@ -48,6 +48,8 @@ pub(crate) fn synchronize_client_modes(
 }
 #[derive(Message)]
 pub struct ZoneFlagSet(pub String);
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
+pub struct NewZoneActive(pub ZoneId);
 #[derive(Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ZoneVolumeDefinition {
@@ -211,10 +213,32 @@ pub struct ZoneAccess {
     pub activated: BTreeSet<ZoneId>,
     pub purchases: u32,
     pub flags: BTreeSet<String>,
+    pub occupied: BTreeSet<ZoneId>,
+    pub active: BTreeSet<ZoneId>,
 }
 impl ZoneAccess {
     pub fn opened(&self, id: &ContentId) -> bool {
         self.open.contains(id)
+    }
+    fn set_flag(
+        &mut self,
+        content: &ContentCatalog,
+        definition: &AccessDefinition,
+        flag: &str,
+    ) -> bool {
+        if !self.flags.insert(flag.to_owned()) {
+            return false;
+        }
+        if let Some(link) = definition.flag_links.iter().find(|link| link.flag == flag) {
+            let mut changed = false;
+            for connection in &link.connections {
+                changed |= self.open.insert(connection.clone());
+            }
+            if changed {
+                self.refresh(content);
+            }
+        }
+        true
     }
     pub fn refresh(&mut self, content: &ContentCatalog) {
         self.reachable = content
@@ -284,12 +308,130 @@ pub struct CurrentZone(pub Option<ZoneId>);
 #[derive(Resource, Default)]
 pub struct PlayerZoneContacts(pub BTreeSet<ZoneId>);
 
+#[derive(Resource)]
+pub(crate) struct ZoneScan {
+    timer: Timer,
+    cursor: usize,
+    choke: usize,
+    previous: Option<ZoneId>,
+    occupied: BTreeSet<ZoneId>,
+    active: BTreeSet<ZoneId>,
+}
+impl Default for ZoneScan {
+    fn default() -> Self {
+        Self {
+            timer: Timer::from_seconds(0., TimerMode::Once),
+            cursor: 0,
+            choke: 0,
+            previous: None,
+            occupied: BTreeSet::new(),
+            active: BTreeSet::new(),
+        }
+    }
+}
+impl ZoneScan {
+    fn update(
+        &mut self,
+        delta: std::time::Duration,
+        content: &ContentCatalog,
+        contacts: &BTreeSet<ZoneId>,
+        access: &mut ZoneAccess,
+    ) -> Vec<NewZoneActive> {
+        self.timer.tick(delta);
+        if !self.timer.is_finished() {
+            return Vec::new();
+        }
+        if self.cursor == 0 {
+            self.occupied.clear();
+            self.active.clear();
+        }
+        let mut events = Vec::new();
+        while let Some(zone) = content.zones.get(self.cursor) {
+            self.cursor += 1;
+            if !access.reachable.contains(&zone.id) {
+                continue;
+            }
+            if contacts.contains(&zone.id) {
+                self.occupied.insert(zone.id.clone());
+                self.active.insert(zone.id.clone());
+                if self.previous.as_ref() != Some(&zone.id) {
+                    events.push(NewZoneActive(zone.id.clone()));
+                    self.previous = Some(zone.id.clone());
+                }
+                for connection in &content.zone_connections {
+                    if !access.open.contains(&connection.id) {
+                        continue;
+                    }
+                    let adjacent = if connection.from == zone.id {
+                        Some(&connection.to)
+                    } else if connection.to == zone.id {
+                        Some(&connection.from)
+                    } else {
+                        None
+                    };
+                    if let Some(adjacent) = adjacent
+                        && access.reachable.contains(adjacent)
+                    {
+                        self.active.insert(adjacent.clone());
+                    }
+                }
+            }
+            self.choke += 1;
+            if self.choke == 3 {
+                self.choke = 0;
+                self.timer = Timer::new(std::time::Duration::from_millis(50), TimerMode::Once);
+                return events;
+            }
+        }
+        if self.active.is_empty()
+            && let Some(initial) = content.zones.iter().find(|zone| zone.initially_open)
+        {
+            self.active.insert(initial.id.clone());
+            self.occupied.insert(initial.id.clone());
+        }
+        if access.active != self.active {
+            access.active.clone_from(&self.active);
+        }
+        if access.occupied != self.occupied {
+            access.occupied.clone_from(&self.occupied);
+        }
+        self.cursor = 0;
+        self.timer = Timer::from_seconds(1., TimerMode::Once);
+        events
+    }
+}
+
+fn scan_zones(
+    time: Res<Time<Fixed>>,
+    game: Res<GameDefinition>,
+    contacts: Res<PlayerZoneContacts>,
+    mut scan: ResMut<ZoneScan>,
+    mut access: ResMut<ZoneAccess>,
+    mut active: MessageWriter<NewZoneActive>,
+) {
+    let previous = (access.active.clone(), access.occupied.clone());
+    active.write_batch(scan.update(
+        time.delta(),
+        &game.content,
+        &contacts.0,
+        access.bypass_change_detection(),
+    ));
+    if previous.0 != access.active || previous.1 != access.occupied {
+        access.set_changed();
+    }
+}
+
 fn clear_removed_player_contacts(
-    players: Query<(), With<Player>>,
+    players: Query<&crate::life::Vitality, With<Player>>,
     mut zone: ResMut<CurrentZone>,
     mut contacts: ResMut<PlayerZoneContacts>,
 ) {
-    if players.is_empty() {
+    if !players.iter().any(|life| {
+        matches!(
+            life.state(),
+            crate::life::LifeState::Standing | crate::life::LifeState::Downed
+        )
+    }) {
         zone.0 = None;
         contacts.0.clear();
     }
@@ -303,18 +445,32 @@ struct ZoneSensor {
 }
 fn locate(
     query: SpatialQuery,
-    mut players: Query<(&mut Transform, &mut Player, &mut ZoneCheckpoint, &Collider)>,
+    mut players: Query<(
+        &mut Transform,
+        &mut Player,
+        &mut ZoneCheckpoint,
+        &Collider,
+        &crate::life::Vitality,
+    )>,
     volumes: Query<&ZoneSensor, Without<Player>>,
     mut zone: ResMut<CurrentZone>,
     mut contacts: ResMut<PlayerZoneContacts>,
     access: Res<ZoneAccess>,
     game: Res<GameDefinition>,
 ) {
-    let Ok((mut pose, mut player, mut checkpoint, shape)) = players.single_mut() else {
+    let Ok((mut pose, mut player, mut checkpoint, shape, life)) = players.single_mut() else {
         zone.0 = None;
         contacts.0.clear();
         return;
     };
+    if !matches!(
+        life.state(),
+        crate::life::LifeState::Standing | crate::life::LifeState::Downed
+    ) {
+        zone.0 = None;
+        contacts.0.clear();
+        return;
+    }
     let filter = SpatialQueryFilter::from_mask(ZONE_SENSOR_LAYER);
     let touching: BTreeSet<_> = query
         .shape_intersections(shape, pose.translation, pose.rotation, &filter)
@@ -346,9 +502,11 @@ impl Plugin for AccessPlugin {
             .register_required_components::<Player, ZoneCheckpoint>()
             .register_required_components::<Player, TriggerClientMode>()
             .add_message::<ZoneFlagSet>()
+            .add_message::<NewZoneActive>()
             .add_observer(activate_triggers)
             .init_resource::<CurrentZone>()
             .init_resource::<PlayerZoneContacts>()
+            .init_resource::<ZoneScan>()
             .init_resource::<DoorEvidence>()
             .add_systems(
                 OnEnter(GameState::PreparingShaders),
@@ -372,7 +530,7 @@ impl Plugin for AccessPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (apply_flags, locate)
+                (apply_flags, locate, scan_zones)
                     .chain()
                     .in_set(GameStep::Movement)
                     .after(crate::player::move_player)
@@ -391,12 +549,19 @@ fn activate_triggers(
     event: On<crate::environment::triggers::TriggerActivated>,
     mut commands: Commands,
     game: Res<GameDefinition>,
-    triggers: Query<&crate::environment::triggers::MapTrigger>,
+    mut access: ResMut<ZoneAccess>,
+    mut triggers: Query<(
+        &crate::environment::triggers::MapTrigger,
+        &mut crate::environment::triggers::TriggerState,
+    )>,
     mut flags: MessageWriter<ZoneFlagSet>,
 ) {
-    let Ok(trigger) = triggers.get(event.trigger) else {
+    let Ok((trigger, mut state)) = triggers.get_mut(event.trigger) else {
         return;
     };
+    if !state.enabled {
+        return;
+    }
     let Some(activation) = game
         .access
         .trigger_activations
@@ -405,33 +570,20 @@ fn activate_triggers(
     else {
         return;
     };
+    state.enabled = false;
     for flag in &activation.flags {
+        access.set_flag(&game.content, &game.access, flag);
         flags.write(ZoneFlagSet(flag.clone()));
     }
-    commands.entity(event.trigger).despawn();
+    commands.entity(event.trigger).try_despawn();
 }
 pub(crate) fn apply_flags(
     mut flags: MessageReader<ZoneFlagSet>,
     game: Res<GameDefinition>,
     mut access: ResMut<ZoneAccess>,
 ) {
-    let mut changed = false;
     for ZoneFlagSet(flag) in flags.read() {
-        let Some(link) = game
-            .access
-            .flag_links
-            .iter()
-            .find(|link| link.flag == *flag)
-        else {
-            continue;
-        };
-        access.flags.insert(flag.clone());
-        for connection in &link.connections {
-            changed |= access.open.insert(connection.clone());
-        }
-    }
-    if changed {
-        access.refresh(&game.content);
+        access.set_flag(&game.content, &game.access, flag);
     }
 }
 fn assemble(
@@ -444,12 +596,14 @@ fn assemble(
     volumes: Query<(), With<ZoneSensor>>,
     mut zone: ResMut<CurrentZone>,
     mut contacts: ResMut<PlayerZoneContacts>,
+    mut scan: ResMut<ZoneScan>,
 ) {
     if !players.is_empty() {
         return;
     }
     zone.0 = None;
     contacts.0.clear();
+    *scan = default();
     if volumes.is_empty() {
         for v in &definition.access.volumes {
             if let Some(shape) = Collider::convex_hull(
@@ -610,6 +764,132 @@ mod tests {
         }
     }
 
+    fn source_zones() -> (ContentCatalog, ZoneAccess) {
+        let content: ContentCatalog = serde_json::from_value(serde_json::json!({
+            "weapons":[],"enemies":[],"perks":[],"zones":[
+                {"id":"zone.start","initially_open":true},
+                {"id":"zone.start_a","initially_open":false},
+                {"id":"zone.start_b","initially_open":false},
+                {"id":"zone.deferred","initially_open":false}],
+            "definitions":[],"placements":[],"interactions":[],"zone_connections":[
+                {"id":"connection.start_a","from":"zone.start","to":"zone.start_a","initially_open":true},
+                {"id":"connection.start_b","from":"zone.start","to":"zone.start_b","initially_open":true},
+                {"id":"connection.a_b","from":"zone.start_a","to":"zone.start_b","initially_open":true}],
+            "navigation_nodes":[],"navigation_links":[],"presentations":[],"sounds":[],"animations":[],"ui_assets":[]
+        })).unwrap();
+        let mut access = ZoneAccess::default();
+        access.open.extend(
+            content
+                .zone_connections
+                .iter()
+                .map(|connection| connection.id.clone()),
+        );
+        access.refresh(&content);
+        (content, access)
+    }
+
+    #[test]
+    fn overlapping_source_zones_preserve_scan_order_choke_and_active_neighbors() {
+        use std::time::Duration;
+        let (content, mut access) = source_zones();
+        let mut scan = ZoneScan::default();
+        let start = ZoneId("zone.start".into());
+        let a = ZoneId("zone.start_a".into());
+        let touching = BTreeSet::from([start.clone(), a.clone()]);
+        assert_eq!(
+            scan.update(Duration::ZERO, &content, &touching, &mut access),
+            vec![NewZoneActive(start.clone()), NewZoneActive(a.clone())]
+        );
+        assert!(access.active.is_empty());
+        assert!(
+            scan.update(Duration::from_millis(49), &content, &touching, &mut access)
+                .is_empty()
+        );
+        assert!(access.occupied.is_empty());
+        assert!(
+            scan.update(Duration::from_millis(1), &content, &touching, &mut access)
+                .is_empty()
+        );
+        assert_eq!(access.occupied, touching);
+        assert_eq!(access.active, access.reachable);
+        assert!(
+            scan.update(Duration::from_millis(999), &content, &touching, &mut access)
+                .is_empty()
+        );
+        assert_eq!(
+            scan.update(Duration::from_millis(1), &content, &touching, &mut access),
+            vec![NewZoneActive(start), NewZoneActive(a)]
+        );
+    }
+
+    #[test]
+    fn source_zone_scan_ignores_disabled_contacts_and_uses_initial_fallback() {
+        use std::time::Duration;
+        let (content, mut access) = source_zones();
+        let mut scan = ZoneScan::default();
+        let start = ZoneId("zone.start".into());
+        let disabled = BTreeSet::from([ZoneId("zone.deferred".into())]);
+        assert!(
+            scan.update(Duration::ZERO, &content, &disabled, &mut access)
+                .is_empty()
+        );
+        assert!(
+            scan.update(Duration::from_millis(50), &content, &disabled, &mut access)
+                .is_empty()
+        );
+        assert_eq!(access.active, BTreeSet::from([start.clone()]));
+        assert_eq!(access.occupied, BTreeSet::from([start.clone()]));
+        assert_eq!(
+            scan.update(
+                Duration::from_secs(1),
+                &content,
+                &BTreeSet::from([start.clone()]),
+                &mut access
+            ),
+            vec![NewZoneActive(start.clone())]
+        );
+        scan.update(
+            Duration::from_millis(50),
+            &content,
+            &BTreeSet::from([start.clone()]),
+            &mut access,
+        );
+        assert_eq!(access.active, access.reachable);
+        assert!(
+            scan.update(
+                Duration::from_secs(1),
+                &content,
+                &BTreeSet::from([start]),
+                &mut access
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn source_zone_flags_open_grouped_connections_once() {
+        let (content, mut access) = source_zones();
+        access.open.clear();
+        access.refresh(&content);
+        let definition = AccessDefinition {
+            flag_links: vec![ZoneFlagLinkDefinition {
+                flag: "source.activation".into(),
+                connections: vec![
+                    ContentId("connection.start_a".into()),
+                    ContentId("connection.start_b".into()),
+                ],
+            }],
+            ..default()
+        };
+        assert_eq!(access.reachable.len(), 1);
+        assert!(access.set_flag(&content, &definition, "source.activation"));
+        assert_eq!(access.reachable.len(), 3);
+        assert_eq!(access.open.len(), 2);
+        assert!(!access.set_flag(&content, &definition, "source.activation"));
+        assert_eq!(access.flags.len(), 1);
+        assert_eq!(access.purchases, 0);
+    }
+
     #[test]
     fn client_contact_modes_follow_damage_revive_and_respawn() {
         let mut app = App::new();
@@ -641,6 +921,11 @@ mod tests {
         );
         app.update();
         assert_eq!(app.world().get::<TriggerClientMode>(owner).unwrap().0, 0);
+        app.world_mut().resource_mut::<CurrentZone>().0 = Some(ZoneId("zone.start".into()));
+        app.world_mut()
+            .resource_mut::<PlayerZoneContacts>()
+            .0
+            .insert(ZoneId("zone.start".into()));
         app.world_mut()
             .get_mut::<Vitality>(owner)
             .unwrap()
@@ -650,6 +935,11 @@ mod tests {
         let mode = app.world().get::<TriggerClientMode>(owner).unwrap().0;
         assert_eq!(mode, 7);
         assert!(trigger.accepts_player(mode));
+        assert_eq!(
+            app.world().resource::<CurrentZone>().0,
+            Some(ZoneId("zone.start".into()))
+        );
+        assert_eq!(app.world().resource::<PlayerZoneContacts>().0.len(), 1);
         {
             let mut life = app.world_mut().get_mut::<Vitality>(owner).unwrap();
             let episode = life.downed_episode().unwrap();
@@ -659,6 +949,10 @@ mod tests {
         }
         app.update();
         assert_eq!(app.world().get::<TriggerClientMode>(owner).unwrap().0, 0);
+        assert_eq!(
+            app.world().resource::<CurrentZone>().0,
+            Some(ZoneId("zone.start".into()))
+        );
         {
             let mut life = app.world_mut().get_mut::<Vitality>(owner).unwrap();
             life.apply(ResolvedDamage::new(100).unwrap()).unwrap();
@@ -668,6 +962,8 @@ mod tests {
         app.update();
         let mode = app.world().get::<TriggerClientMode>(owner).unwrap().0;
         assert!(!trigger.accepts_player(mode));
+        assert!(app.world().resource::<CurrentZone>().0.is_none());
+        assert!(app.world().resource::<PlayerZoneContacts>().0.is_empty());
         app.world_mut().resource_mut::<CurrentZone>().0 = Some(ZoneId("zone.start".into()));
         app.world_mut()
             .resource_mut::<PlayerZoneContacts>()

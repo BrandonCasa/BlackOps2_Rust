@@ -963,7 +963,7 @@ fn feedback(
         if nuked.contains(receipt.impact.target) {
             continue;
         }
-        let event = if receipt.impact.region == crate::weapons::HitRegion::Head {
+        let event = if receipt.impact.region.head() {
             Some("kill_headshot")
         } else if matches!(
             receipt.impact.source,

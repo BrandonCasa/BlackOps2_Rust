@@ -13,8 +13,8 @@ use bevy::world_serialization::WorldInstanceReady;
 use std::collections::{BTreeMap, BTreeSet};
 mod raids;
 mod rewards;
-pub(crate) use rewards::BoxGlowRamp;
 pub use raids::GeneratorRaids;
+pub(crate) use rewards::BoxGlowRamp;
 
 pub(crate) fn use_point(origin: Vec3, eye: Vec3, box_size: f32) -> Vec3 {
     let center = origin + Vec3::Y * box_size * 0.5;
@@ -416,13 +416,12 @@ fn defenders(
     let Ok(health) = Vitality::ordinary_actor(health, health) else {
         return;
     };
-    let mut zombie = crate::enemies::Zombie::new(
-        position,
-        enemy.id.clone(),
-        crate::rounds::Gait::Run,
-        definition.rounds.speed(crate::rounds::Gait::Run),
-    );
-    let rise = enemy.traversals.get("rise");
+    let mut zombie =
+        crate::enemies::Zombie::new(position, enemy.id.clone(), crate::rounds::Gait::Run);
+    let rise = enemy
+        .traversals
+        .get("rise")
+        .and_then(|profiles| profiles.first());
     if let Some(rise) = rise {
         zombie = zombie.rising(rise);
     }

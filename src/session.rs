@@ -145,6 +145,8 @@ pub(crate) fn teardown(world: &mut World) {
     world.insert_resource(crate::player::TickActions::default());
     world.insert_resource(crate::access::CurrentZone::default());
     world.insert_resource(crate::access::PlayerZoneContacts::default());
+    world.insert_resource(crate::access::ZoneScan::default());
+    clear::<crate::access::NewZoneActive>(world);
     clear::<crate::damage::DamageApplied>(world);
     clear::<crate::damage::EnemyDeath>(world);
     clear::<crate::player_health::PlayerDamage>(world);

@@ -1,5 +1,149 @@
 #[test]
 #[ignore = "requires the authorized Steam installation"]
+fn installed_initial_equipment_profiles() {
+    let zones = super::read_zones(&super::installation().unwrap()).unwrap();
+    let catalog = crate::catalog::Catalog::new(&zones);
+    let entities = crate::entities::read(&catalog).unwrap();
+    let (game, gaps) = crate::game::read(&catalog, &entities).unwrap();
+    let weapons = game["content"]["weapons"].as_array().unwrap();
+    let pistol = weapons.iter().find(|w| w["id"] == "weapon.c96_zm").unwrap();
+    assert_eq!(pistol["magazine"], 8);
+    assert_eq!(pistol["mechanics"]["starting_reserve"], 32);
+    assert_eq!(pistol["reserve"], 80);
+    assert_eq!(pistol["damage"], 20);
+    assert_eq!(pistol["mechanics"]["fire"]["mode"], "semi");
+    let depths = pistol["mechanics"]["penetration"].as_array().unwrap();
+    assert_eq!(depths.len(), 32);
+    for (index, inches) in [
+        (0, 0.),
+        (5, 6.),
+        (7, 32.),
+        (9, 72.),
+        (13, 12.),
+        (21, 12.),
+        (29, 0.),
+    ] {
+        assert!((depths[index].as_f64().unwrap() - inches * 0.0254).abs() < 0.00001);
+    }
+    let knife = weapons
+        .iter()
+        .find(|w| w["id"] == "weapon.knife_zm")
+        .unwrap();
+    assert_eq!(knife["damage"], 150);
+    assert_eq!(knife["mechanics"]["delivery"], "melee");
+    assert_eq!(
+        game["solo_revive"]["pistol_ranks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    for weapon in weapons {
+        for clip in weapon["animation_actions"].as_object().unwrap().values() {
+            assert!(
+                game["content"]["animations"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["id"] == *clip)
+            );
+        }
+        assert!(
+            game["content"]["presentations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["id"] == weapon["presentation"])
+        );
+    }
+    for gap in gaps.iter().filter(|gap| gap.starts_with("Initial weapon")) {
+        println!("Equipment gap: {gap}");
+    }
+    assert!((knife["mechanics"]["range"].as_f64().unwrap() - 55. * 0.0254).abs() < 0.00001);
+    let grenade = weapons
+        .iter()
+        .find(|w| w["id"] == "weapon.frag_grenade_zm")
+        .unwrap();
+    assert_eq!(grenade["magazine"], 4);
+    assert_eq!(
+        grenade["mechanics"]["explosion_damage"],
+        serde_json::json!([300, 75])
+    );
+    assert!((grenade["mechanics"]["fuse_seconds"].as_f64().unwrap() - 3.5).abs() < 0.00001);
+}
+
+#[test]
+#[ignore = "requires the authorized Steam installation"]
+fn installed_initial_animation_bindings() {
+    use std::collections::{BTreeMap, BTreeSet};
+    let zones = super::read_zones(&super::installation().unwrap()).unwrap();
+    let catalog = crate::catalog::Catalog::new(&zones);
+    let entities = crate::entities::read(&catalog).unwrap();
+    let (game, _) = crate::game::read(&catalog, &entities).unwrap();
+    let definitions = game["content"]["animations"].as_array().unwrap();
+    let required = definitions
+        .iter()
+        .map(|row| row["source_clip"].as_str().unwrap().to_ascii_lowercase())
+        .collect::<BTreeSet<_>>();
+    let decoded = crate::animation::read(&catalog, Some(&required)).unwrap();
+    for clip in decoded
+        .iter()
+        .filter(|clip| clip.clip.loop_entry_time != 0.)
+    {
+        println!(
+            "Selected nonzero loop-entry clip {}: {}",
+            clip.clip.name, clip.clip.loop_entry_time
+        );
+    }
+    let index = decoded
+        .iter()
+        .map(|clip| (clip.clip.name.to_ascii_lowercase(), clip))
+        .collect::<BTreeMap<_, _>>();
+    let mut gaps = BTreeSet::new();
+    let mut bindings = 0;
+    for presentation in game["content"]["presentations"].as_array().unwrap() {
+        let name = presentation["source_model"].as_str().unwrap();
+        let (zone, root) = catalog.resolve(5, name).unwrap();
+        let joints = crate::geometry::skeleton(&catalog, name, zone, root).unwrap();
+        let mut scene = crate::gltf::Scene::new(name);
+        let owner = scene.node(serde_json::json!({"name":name}));
+        scene.skin(owner, &joints).unwrap();
+        for definition in definitions
+            .iter()
+            .filter(|row| row["skeleton"] == presentation["id"])
+        {
+            let clip = index[&definition["source_clip"]
+                .as_str()
+                .unwrap()
+                .to_ascii_lowercase()];
+            if clip.has_root_delta && definition["root_motion"] != crate::game::root_motion(clip) {
+                gaps.insert(format!(
+                    "{} has unmatched runtime root-motion samples",
+                    clip.clip.name
+                ));
+            }
+            match scene.animation(owner, &joints, &clip.clip) {
+                Ok(_) => bindings += 1,
+                Err(error) => {
+                    gaps.insert(error.to_string());
+                }
+            }
+        }
+    }
+    assert!(
+        gaps.is_empty(),
+        "{} selected animation export gaps:\n{}",
+        gaps.len(),
+        gaps.iter().take(20).cloned().collect::<Vec<_>>().join("\n")
+    );
+    println!(
+        "Validated {bindings} exact initial model/clip bindings from {} native clips",
+        decoded.len()
+    );
+}
+
+#[test]
+#[ignore = "requires the authorized Steam installation"]
 fn installed_initial_material_dependencies() {
     let zones = super::read_zones(&super::installation().unwrap()).unwrap();
     let catalog = crate::catalog::Catalog::new(&zones);

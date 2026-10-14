@@ -91,7 +91,7 @@ fn drive(world: &mut World) {
                         + forward * (2.5 + (i / 7) as f32 * 1.3)
                         + right * ((i % 7) as f32 - 3.) * 0.7;
                     let mut zombie =
-                        Zombie::new(position, enemy.id.clone(), crate::rounds::Gait::Walk, 0.);
+                        Zombie::new(position, enemy.id.clone(), crate::rounds::Gait::Walk);
                     zombie.stunned = 600.;
                     let e = world
                         .spawn((
@@ -131,7 +131,7 @@ fn drive(world: &mut World) {
                     zombie.action = *action;
                     for seed in 0..64 {
                         let candidate =
-                            Zombie::new(Vec3::ZERO, id.clone(), crate::rounds::Gait::Walk, 0.)
+                            Zombie::new(Vec3::ZERO, id.clone(), crate::rounds::Gait::Walk)
                                 .with_locomotion_seed(seed);
                         let mut candidate = candidate;
                         candidate.action = *action;

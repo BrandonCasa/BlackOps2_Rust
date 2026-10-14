@@ -279,6 +279,7 @@ pub(crate) fn flight(
                         continue;
                     }
                     damage.0.push(crate::damage::Impact {
+                        point: None,
                         attacker: projectile.owner,
                         target,
                         source: crate::damage::ImpactSource::Weapon(projectile.weapon.clone()),
@@ -445,6 +446,7 @@ pub(crate) fn flight(
                 || weapon.mechanics.explosion_radius <= 0.
             {
                 damage.0.push(crate::damage::Impact {
+                    point: Some(hit.hit.point),
                     attacker: projectile.owner,
                     target: hit.target,
                     source: crate::damage::ImpactSource::Projectile(projectile.weapon.clone()),

@@ -176,8 +176,26 @@ pub enum WeaponEmission {
 #[serde(rename_all = "snake_case")]
 pub enum HitRegion {
     None,
+    Helmet,
     Head,
+    Neck,
     UpperTorso,
+    MidTorso,
+    LowerTorso,
+    RightUpperArm,
+    LeftUpperArm,
+    RightLowerArm,
+    LeftLowerArm,
+    RightHand,
+    LeftHand,
+    RightUpperLeg,
+    LeftUpperLeg,
+    RightLowerLeg,
+    LeftLowerLeg,
+    RightFoot,
+    LeftFoot,
+    Gun,
+    Shield,
     Torso,
     Arm,
     LeftArm,
@@ -185,7 +203,68 @@ pub enum HitRegion {
     Powerplant,
     Leg,
 }
+impl HitRegion {
+    pub fn native_index(self) -> usize {
+        match self {
+            Self::None => 0,
+            Self::Helmet => 1,
+            Self::Head => 2,
+            Self::Neck => 3,
+            Self::UpperTorso => 4,
+            Self::MidTorso | Self::Torso | Self::Powerplant => 5,
+            Self::LowerTorso => 6,
+            Self::RightUpperArm | Self::RightArm | Self::Arm => 7,
+            Self::LeftUpperArm | Self::LeftArm => 8,
+            Self::RightLowerArm => 9,
+            Self::LeftLowerArm => 10,
+            Self::RightHand => 11,
+            Self::LeftHand => 12,
+            Self::RightUpperLeg | Self::Leg => 13,
+            Self::LeftUpperLeg => 14,
+            Self::RightLowerLeg => 15,
+            Self::LeftLowerLeg => 16,
+            Self::RightFoot => 17,
+            Self::LeftFoot => 18,
+            Self::Gun => 19,
+            Self::Shield => 20,
+        }
+    }
+    pub fn head(self) -> bool {
+        matches!(self, Self::Head | Self::Helmet)
+    }
+    pub fn left_arm(self) -> bool {
+        matches!(
+            self,
+            Self::LeftArm | Self::LeftUpperArm | Self::LeftLowerArm | Self::LeftHand
+        )
+    }
+    pub fn right_arm(self) -> bool {
+        matches!(
+            self,
+            Self::Arm
+                | Self::RightArm
+                | Self::RightUpperArm
+                | Self::RightLowerArm
+                | Self::RightHand
+        )
+    }
+    pub fn leg(self) -> bool {
+        matches!(
+            self,
+            Self::Leg
+                | Self::RightUpperLeg
+                | Self::LeftUpperLeg
+                | Self::RightLowerLeg
+                | Self::LeftLowerLeg
+                | Self::RightFoot
+                | Self::LeftFoot
+        )
+    }
+}
 pub fn damage_at(definition: &WeaponDefinition, distance: f32, region: HitRegion) -> u32 {
+    if definition.mechanics.delivery == crate::origins::content::WeaponDelivery::Melee {
+        return definition.damage;
+    }
     let [near, far] = definition.mechanics.damage_range;
     let fraction = if far > near {
         ((distance - near) / (far - near)).clamp(0., 1.)
@@ -194,18 +273,33 @@ pub fn damage_at(definition: &WeaponDefinition, distance: f32, region: HitRegion
     };
     let damage = definition.damage as f32
         + (definition.mechanics.minimum_damage as f32 - definition.damage as f32) * fraction;
-    let index = match region {
-        HitRegion::None => return damage.round().max(1.) as u32,
-        HitRegion::Head => 0,
-        HitRegion::UpperTorso => 1,
-        HitRegion::Torso => 2,
-        HitRegion::Arm | HitRegion::LeftArm | HitRegion::RightArm => 3,
-        HitRegion::Powerplant => 2,
-        HitRegion::Leg => 4,
-    };
-    (damage * definition.mechanics.hit_multipliers[index])
-        .round()
+    location_damage(definition, damage as u32, region)
+}
+pub fn location_damage(definition: &WeaponDefinition, damage: u32, region: HitRegion) -> u32 {
+    if definition.mechanics.delivery == crate::origins::content::WeaponDelivery::Melee {
+        return damage;
+    }
+    (damage as f64 * definition.mechanics.hit_multipliers[region.native_index()] as f64)
+        .trunc()
         .max(1.) as u32
+}
+
+#[cfg(test)]
+mod native_location_tests {
+    use super::*;
+
+    #[test]
+    fn source_location_multipliers_preserve_sides_truncation_and_melee_bypass() {
+        let mut weapon: WeaponDefinition = serde_json::from_value(serde_json::json!({"id":"weapon.test","name":"test","damage":101,"category":"bullet","magazine":1,"reserve":0,"fire_interval":0.1,"reload_seconds":1.,"mechanics":{"minimum_damage":101}})).unwrap();
+        weapon.mechanics.hit_multipliers[9] = 0.51;
+        weapon.mechanics.hit_multipliers[10] = 0.79;
+        weapon.mechanics.hit_multipliers[0] = 0.8;
+        assert_eq!(damage_at(&weapon, 0., HitRegion::RightLowerArm), 51);
+        assert_eq!(damage_at(&weapon, 0., HitRegion::LeftLowerArm), 79);
+        assert_eq!(damage_at(&weapon, 0., HitRegion::None), 80);
+        weapon.mechanics.delivery = crate::origins::content::WeaponDelivery::Melee;
+        assert_eq!(damage_at(&weapon, 0., HitRegion::Head), 101);
+    }
 }
 pub fn sample(seed: u64) -> f32 {
     let mut value = seed.wrapping_add(0x9e3779b97f4a7c15);

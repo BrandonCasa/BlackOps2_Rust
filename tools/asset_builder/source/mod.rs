@@ -120,6 +120,23 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
             .collect::<std::collections::BTreeSet<_>>()
     });
     let animations = crate::animation::read(&catalog, required_animations.as_ref())?;
+    for definition in game.0["content"]["animations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let name = definition["source_clip"]
+            .as_str()
+            .ok_or("Selected animation source clip is missing")?;
+        let decoded = animations
+            .iter()
+            .find(|clip| clip.clip.name.eq_ignore_ascii_case(name))
+            .ok_or_else(|| format!("Selected source animation {name} was not decoded"))?;
+        if decoded.has_root_delta && definition["root_motion"] != crate::game::root_motion(decoded)
+        {
+            return Err(format!("Required animation {name} has native root-delta tracks without matching runtime motion data").into());
+        }
+    }
     let wide = animations
         .iter()
         .filter(|entry| entry.clip.frames >= 256)
@@ -170,6 +187,14 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
             .map(|(name, _)| name.to_ascii_lowercase())
             .collect();
         aliases.extend(
+            game.0["audio"]["bindings"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter_map(|(_, alias)| alias.as_str())
+                .map(str::to_ascii_lowercase),
+        );
+        aliases.extend(
             game.0["content"]["sounds"]
                 .as_array()
                 .into_iter()
@@ -180,6 +205,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         aliases
     });
     let sounds = crate::sound::convert(&authorized, &catalog, required_sounds.as_ref(), &mut pack)?;
+    crate::game::bind_audio(&mut game.0, &sounds)?;
     let required_images = if initial {
         let mut images = crate::material::inputs(&materials, &catalog)?;
         images.extend(crate::atmosphere::inputs(&catalog)?);

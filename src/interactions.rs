@@ -168,13 +168,13 @@ fn assemble(
             if let Some(scene) = scene {
                 entity.insert(WorldAssetRoot(server.load(scene.clone())));
             }
-            entity.with_children(|parent| {
+            if source.source_trigger.is_none() { entity.with_children(|parent| {
                 parent.spawn((
                     RigidBody::Static,
                     Collider::cuboid(1.66, 2.17, 0.9),
                     Transform::from_xyz(-0.203, 1.085, 0.152),
                 ));
-            });
+            }); }
         }
         if let InteractionAction::Weapon { weapon, .. } = &source.action {
             let scene = definition
@@ -262,7 +262,10 @@ pub(crate) fn interact(
     mut session: ResMut<Session>,
     mut access: ResMut<crate::access::ZoneAccess>,
     mut barriers: ResMut<crate::barriers::Barriers>,
-    windows: Query<(Entity, &crate::barriers::BarrierBlocker)>,
+    (repair_triggers, player_shapes): (
+        Query<&crate::barriers::BarrierRepairTrigger>,
+        Query<&Collider, With<Player>>,
+    ),
     mut generators: ResMut<crate::generators::Generators>,
     (native_triggers, client_modes, mut trigger_queue, mut native_flags): (
         Query<(
@@ -278,6 +281,7 @@ pub(crate) fn interact(
     ),
 ) {
     let use_key = settings.label(crate::input::Action::Interact);
+    let barrier_use_held = barriers.update_use(input.use_held, time.delta_secs());
     let Ok((
         player_entity,
         player,
@@ -310,14 +314,45 @@ pub(crate) fn interact(
         * Quat::from_rotation_x((player.pitch + inventory.recoil.y).clamp(-1.5, 1.5))
         * Vec3::NEG_Z;
     let filter = crate::environment::solids([player_entity]);
+    let barrier_contacts = player_shapes
+        .get(player_entity)
+        .map(|shape| {
+            query
+                .shape_intersections(
+                    shape,
+                    body.translation,
+                    body.rotation,
+                    &SpatialQueryFilter::from_mask(crate::barriers::REPAIR_TRIGGER_LAYER),
+                )
+                .into_iter()
+                .filter_map(|entity| {
+                    repair_triggers
+                        .get(entity)
+                        .ok()
+                        .map(|trigger| trigger.0.clone())
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+        })
+        .unwrap_or_default();
     let candidate = targets
         .iter()
         .filter_map(|(entity, usable, transform)| {
             if matches!(&usable.source.action, InteractionAction::Generator { generator } if !generators.available(generator)) { return None; }
             if matches!(&usable.source.action, InteractionAction::Barrier { barrier } if !barriers.repairable(barrier)) {return None;}
+            if let InteractionAction::Barrier { barrier } = &usable.source.action {
+                if !barrier_contacts.contains(barrier) {return None;}
+                let distance = origin.distance_squared(transform.translation);
+                return Some((-distance,distance,entity,usable,None));
+            }
             if matches!(&usable.source.action, InteractionAction::Door { connection, .. } if access.opened(connection)) { return None; }
             if matches!(&usable.source.action, InteractionAction::Perk { perk } if *perk == definition.solo_revive.perk)
                 && (perks.solo_charges > 0 || perks.solo_purchases >= definition.solo_revive.maximum_purchases) { return None; }
+            if let Some(id) = &usable.source.source_trigger {
+                let (trigger,_,shape,pose,state) = native_triggers.iter().find(|(_,native,_,_,_)|native.0==*id)?;
+                let score = crate::environment::support::use_candidate(trigger,shape,pose,state,&query,
+                    player_entity,client_modes.get(player_entity).ok()?.0,origin,forward,true)?;
+                return Some((-score,score,entity,usable,Some(trigger)));
+            }
             if let InteractionAction::Door { connection, .. } = &usable.source.action {
                 let (trigger, score) = native_triggers.iter().filter_map(|(trigger, native, shape, pose, state)| {
                     let source = definition.environment.triggers.iter().find(|source| source.id == native.0)?;
@@ -329,15 +364,7 @@ pub(crate) fn interact(
                 return Some((-score,score,entity,usable,Some(trigger)));
             }
             if matches!(usable.source.action, InteractionAction::Generator { .. }) && origin.distance(transform.translation+Vec3::Y*usable.source.reach*0.5)>usable.source.reach {return None;}
-            let endpoint = if let InteractionAction::Barrier { barrier } = &usable.source.action {
-                let d = definition.content.barriers.iter().find(|d| d.id == *barrier)?;
-                let exit = definition.content.navigation_nodes.iter().find(|n| n.id == d.exit)?;
-                let inward = (Vec3::from_array(exit.position) - transform.translation).with_y(0.).normalize_or_zero();
-                transform.translation + inward * 0.8 + Vec3::Y * 0.7
-            } else if matches!(usable.source.action, InteractionAction::Generator { .. }) {crate::generators::use_point(transform.translation,origin,usable.source.reach)} else if matches!(usable.source.action, InteractionAction::Perk { .. }) { transform.translation + Vec3::Y + transform.rotation * Vec3::new(0., 0., 0.8) } else { transform.translation };
-            let filter = if let InteractionAction::Barrier { barrier }=&usable.source.action {
-                crate::environment::solids(std::iter::once(player_entity).chain(windows.iter().filter(|(_,b)|b.0==*barrier).map(|(e,_)|e)))
-            } else {filter.clone()};
+            let endpoint = if matches!(usable.source.action, InteractionAction::Generator { .. }) {crate::generators::use_point(transform.translation,origin,usable.source.reach)} else if matches!(usable.source.action, InteractionAction::Perk { .. }) { transform.translation + Vec3::Y + transform.rotation * Vec3::new(0., 0., 0.8) } else { transform.translation };
             let delta = endpoint - origin;
             let distance = delta.length();
             if distance > usable.source.reach || distance < 0.01 {
@@ -423,19 +450,26 @@ pub(crate) fn interact(
         if !input.use_held {
             return;
         }
-        if busy || input.fire_held {
-            focus.progress = 0.;
-            focus.rejection = Some(InteractionRejection::Busy);
-            return;
-        }
         focus.rejection = None;
-        focus.progress += time.delta_secs();
-        if focus.progress >= usable.source.hold_seconds {
-            focus.progress = 0.;
-            if let Some(index) = barriers.repair(barrier, player_entity) {
-                let source = barriers.source(&definition, barrier, index);
-                crate::audio::emit(&mut commands, "zmb_boards_float", source);
-                crate::audio::emit(&mut commands, "zmb_repair_boards", source);
+        focus.progress = barriers.use_progress();
+        if barrier_use_held {
+            let Some(source_barrier) = definition
+                .content
+                .barriers
+                .iter()
+                .find(|definition| definition.id == *barrier)
+            else {
+                return;
+            };
+            if barriers
+                .repair(
+                    barrier,
+                    player_entity,
+                    &mut session,
+                    source_barrier.repair_interval,
+                )
+                .is_some()
+            {
                 focus.accepted += 1;
                 focus.rejection = None;
             }

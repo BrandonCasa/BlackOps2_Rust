@@ -317,6 +317,7 @@ fn drive(
             input.use_held = true;
             if drink.is_none() && perks.solo_charges == 1 {
                 damage.0.push(crate::damage::Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(
@@ -422,6 +423,7 @@ fn drive(
                 let _=std::fs::write(v.output.join("mule-kick.json"),serde_json::json!({"passed":passed,"scope":"real held-F native Mule Kick/Quick Revive and M14/MP40/Remington wall purchases, direct/cyclic selection and third-weapon firing; controlled travel/budgets/empty population and resolved downing damage","rows":c.rows,"perk_events":evidence.events,"solo_events":solo.events,"insufficient":c.insufficient,"expanded":c.expanded,"assigned":c.assigned,"replaced":c.replaced,"selected":c.selected,"cycled":c.cycled,"fired":c.fired,"downed":c.downed,"restored":c.restored,"reacquired":c.reacquired}).to_string());
                 if passed {
                     damage.0.push(crate::damage::Impact {
+                        point: None,
                         attacker: owner,
                         target: owner,
                         source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(

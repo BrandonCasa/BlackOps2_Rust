@@ -166,6 +166,7 @@ fn drive(
                     return;
                 }
                 damage.0.push(crate::damage::Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(
@@ -202,6 +203,7 @@ fn drive(
             let _=std::fs::write(v.output.join("perk-health.json"),serde_json::json!({"passed":passed,"scope":"controlled travel/budgets, real held-F Juggernog and Quick Revive purchases; five resolved 50-point impacts qualify effective-health reconstruction, not native armor arithmetic","events":evidence.events,"hits":health_evidence.hits,"insufficient":coverage.insufficient,"duplicate":coverage.duplicate,"activation":coverage.activation,"healed":coverage.healed,"perk_loss":coverage.lost}).to_string());
             if passed {
                 damage.0.push(crate::damage::Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(

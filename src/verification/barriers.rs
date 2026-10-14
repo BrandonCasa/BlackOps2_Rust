@@ -40,7 +40,7 @@ fn actor(commands: &mut Commands, game: &GameDefinition, position: Vec3) -> Enti
         .unwrap();
     commands
         .spawn((
-            Zombie::new(position, e.id.clone(), crate::rounds::Gait::Walk, e.speed),
+            Zombie::new(position, e.id.clone(), crate::rounds::Gait::Walk),
             crate::player::capsule(0.3, 1.7),
             Vitality::ordinary_actor(150, 150).unwrap(),
             crate::rounds::PopulationKind::Ordinary,

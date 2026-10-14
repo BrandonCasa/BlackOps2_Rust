@@ -181,7 +181,7 @@ fn spawn_player(
             prone: false,
             eye_height: definition.tuning.eye_height,
         },
-        capsule(definition.tuning.radius, height),
+        player_bounds(definition.tuning.radius, height),
         crate::movement::SprintState::new(definition.tuning.sprint_seconds),
         crate::movement::Mobility::new(definition.tuning.eye_height),
         vitality,
@@ -204,6 +204,10 @@ fn spawn_player(
 
 pub fn capsule(radius: f32, height: f32) -> Collider {
     Collider::capsule(radius, height - 2. * radius)
+}
+
+fn player_bounds(radius: f32, height: f32) -> Collider {
+    Collider::cuboid(radius * 2., height, radius * 2.)
 }
 
 pub(crate) fn look(
@@ -395,19 +399,29 @@ pub(crate) fn move_player(
             requested = crate::movement::Stance::Standing;
         }
     }
+    let staged_stance = match requested {
+        crate::movement::Stance::Prone if player.eye_height > tuning.crouch_eye => {
+            crate::movement::Stance::Crouched
+        }
+        crate::movement::Stance::Standing if player.eye_height < tuning.crouch_eye => {
+            crate::movement::Stance::Crouched
+        }
+        stance => stance,
+    };
     let desired_height = if drinking.is_some() {
         player.height
     } else if downed {
         definition.solo_revive.downed_height
     } else {
-        match requested {
+        match staged_stance {
             crate::movement::Stance::Standing => tuning.standing_height,
             crate::movement::Stance::Crouched => tuning.crouch_height,
             crate::movement::Stance::Prone => m.prone_height,
         }
     };
+    let mut stance_blocked = false;
     if desired_height != player.height {
-        let shape = capsule(tuning.radius, desired_height);
+        let shape = player_bounds(tuning.radius, desired_height);
         let center = transform.translation + Vec3::Y * ((desired_height - player.height) * 0.5);
         let mut blocked = false;
         slide.intersections(
@@ -428,17 +442,20 @@ pub(crate) fn move_player(
             player.height = desired_height;
             mobility.stance = requested;
             evidence.record(serde_json::json!({"event":"stance_changed","stance":format!("{requested:?}"),"height":desired_height,"feet":(center.y-desired_height*0.5)}));
-        } else if prone_edge || input.crouch {
-            evidence.record(
-                serde_json::json!({"event":"stance_blocked","requested":format!("{requested:?}")}),
-            );
+        } else {
+            stance_blocked = true;
+            if prone_edge || input.crouch {
+                evidence.record(
+                    serde_json::json!({"event":"stance_blocked","requested":format!("{requested:?}")}),
+                );
+            }
         }
     }
-    if desired_height == player.height && downed {
+    if desired_height == player.height && !stance_blocked {
         mobility.stance = requested;
     }
-    player.crouched = mobility.stance != crate::movement::Stance::Standing || downed;
-    player.prone = mobility.stance == crate::movement::Stance::Prone && !downed;
+    player.crouched = player.height < tuning.standing_height || downed;
+    player.prone = player.height == m.prone_height && !downed;
     let step_height = if player.prone || downed || mobility.dive.is_some() {
         m.prone_step
     } else {
@@ -522,7 +539,6 @@ pub(crate) fn move_player(
         player.velocity *= impact_scale;
         mobility.landing_recovery = recovery;
         mobility.airborne = false;
-        mobility.jump_recovery = m.jump_recovery;
         if diving {
             mobility.dive.as_mut().unwrap().slide_remaining = Some(m.dive_slide);
         }
@@ -552,16 +568,29 @@ pub(crate) fn move_player(
     }
     let target_eye = if downed {
         definition.solo_revive.downed_eye
-    } else if player.prone {
+    } else if stance_blocked {
+        if player.prone {
+            m.prone_eye
+        } else {
+            tuning.crouch_eye
+        }
+    } else if mobility.stance == crate::movement::Stance::Prone {
         m.prone_eye
-    } else if player.crouched {
-        tuning.crouch_height * 0.9
+    } else if mobility.stance == crate::movement::Stance::Crouched {
+        tuning.crouch_eye
     } else {
         tuning.eye_height
     };
-    let target_eye = target_eye - mobility.landing_dip;
-    let step = (tuning.eye_height - m.prone_eye) / m.stance_seconds * dt;
-    player.eye_height += (target_eye - player.eye_height).clamp(-step, step);
+    let landing_dip = mobility.landing_dip;
+    player.eye_height = mobility.stance_eye.update(
+        player.eye_height + landing_dip,
+        target_eye,
+        tuning.eye_height,
+        tuning.crouch_eye,
+        m.prone_eye,
+        dt,
+        &m.stance,
+    ) - landing_dip;
     let (duration_scale, speed_scale) = definition
         .content
         .perks
@@ -606,6 +635,12 @@ pub(crate) fn move_player(
             });
     let speed = if downed {
         definition.solo_revive.downed_speed
+    } else if let Some(scale) = mobility.stance_eye.speed_scale(
+        m.prone_speed / tuning.walk_speed,
+        tuning.crouch_speed / tuning.walk_speed,
+        &m.stance,
+    ) {
+        tuning.walk_speed * scale
     } else if player.prone {
         m.prone_speed
     } else if player.crouched {
@@ -659,6 +694,7 @@ pub(crate) fn move_player(
         apex_clamped = true;
     } else if jump_started {
         player.velocity.y = tuning.jump_speed;
+        mobility.jump_recovery = m.jump_recovery;
     }
     if let Some(dive) = mobility.dive {
         let dive_grounded = motion_grounded;

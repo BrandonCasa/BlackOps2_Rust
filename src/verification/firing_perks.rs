@@ -151,6 +151,7 @@ fn drive(
             5 => {
                 let _ = perks.buy_solo(&game.solo_revive);
                 damage.0.push(crate::damage::Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(
@@ -223,6 +224,7 @@ fn drive(
             let _=std::fs::write(v.output.join("firing-perks.json"),serde_json::json!({"passed":passed,"mouse_raw":c.mouse_ok,"rows":c.rows,"scope":"actual input-driven firing and native bottles; controlled weapon grants/perk awards, empty admission and resolved downing; acquisition/power/audio/icons and native numerical equivalence unqualified"}).to_string());
             if passed {
                 damage.0.push(crate::damage::Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(

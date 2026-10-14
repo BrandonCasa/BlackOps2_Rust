@@ -23,6 +23,7 @@ pub fn install(app: &mut App) {
 }
 fn strike(queue: &mut DamageQueue, owner: Entity, amount: u32) {
     let impact = Impact {
+        point: None,
         attacker: owner,
         target: owner,
         source: ImpactSource::Projectile(WeaponId("weapon.frag_grenade_zm".into())),

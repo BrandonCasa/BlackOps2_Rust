@@ -242,7 +242,7 @@ pub(super) fn valid(triggers: &[TriggerDefinition]) -> bool {
                                 })
                         }
                         TriggerShape::Cylinder { radius, height } => {
-                            class == "trigger_radius"
+                            matches!(class.as_str(), "trigger_radius" | "trigger_radius_use")
                                 && radius.is_finite()
                                 && *radius > 0.
                                 && height.is_finite()

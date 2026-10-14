@@ -259,6 +259,7 @@ fn tick(
                 DamageCategory::Fire if pulse => {
                     let native = 11;
                     damage.0.push(Impact {
+                        point: None,
                         attacker: field.owner,
                         target,
                         source: ImpactSource::Projectile(field.weapon.clone()),
@@ -284,6 +285,7 @@ fn tick(
                         if timer.remaining <= 0. {
                             timer.remaining = 1.;
                             damage.0.push(Impact {
+                                point: None,
                                 attacker: field.owner,
                                 target,
                                 source: ImpactSource::Status(WeaponId(
@@ -327,6 +329,7 @@ fn tick(
                                 2500
                             };
                             damage.0.push(Impact {
+                                point: None,
                                 attacker: field.owner,
                                 target,
                                 source: ImpactSource::Status(field.weapon.clone()),
@@ -354,6 +357,7 @@ fn tick(
                     wounds.field_captured = true;
                     if delta.xz().length_squared() <= 0.762_f32.powi(2) {
                         damage.0.push(Impact {
+                            point: None,
                             attacker: field.owner,
                             target,
                             source: ImpactSource::Status(field.weapon.clone()),

@@ -43,7 +43,6 @@ pub struct RoundProfile {
     pub speed_multiplier: u32,
     pub speed_random_band: u32,
     pub gait_thresholds: [u32; 2],
-    pub gait_speeds: [f32; 3],
 }
 impl RoundProfile {
     pub fn valid(&self) -> bool {
@@ -79,11 +78,9 @@ impl RoundProfile {
                 self.between_round_seconds,
             ]
             .iter()
-            .chain(self.gait_speeds.iter())
             .all(|v| v.is_finite() && *v > 0.)
             && self.spawn_decay <= 1.
             && self.minimum_spawn_seconds <= self.spawn_seconds
-            && self.gait_speeds.windows(2).all(|v| v[0] < v[1])
     }
     pub fn health(&self, round: u32) -> u32 {
         let mut health = self.health_start;
@@ -147,9 +144,6 @@ impl RoundProfile {
             Gait::Sprint
         }
     }
-    pub fn speed(&self, gait: Gait) -> f32 {
-        self.gait_speeds[gait as usize]
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -201,6 +195,12 @@ pub struct RoundEvidence {
     pub admitted: Vec<serde_json::Value>,
 }
 
+#[derive(Default)]
+pub(crate) struct CharacterSelections {
+    session: Option<crate::session::SessionId>,
+    groups: std::collections::BTreeMap<String, [u64; 6]>,
+}
+
 pub(crate) fn advance(
     session_id: Res<crate::session::SessionId>,
     time: Res<Time<Fixed>>,
@@ -226,11 +226,16 @@ pub(crate) fn advance(
         Res<crate::quests::MainQuest>,
         Res<crate::panzer::PanzerWaves>,
         Res<crate::robots::Robots>,
+        Local<CharacterSelections>,
     ),
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
     let (mut started, mut ending) = events;
-    let (quest, panzer_waves, robots) = special;
+    let (quest, panzer_waves, robots, mut characters) = special;
+    if characters.session != Some(*session_id) {
+        characters.session = Some(*session_id);
+        characters.groups.clear();
+    }
     *population = default();
     for (_, vitality, kind, _, _) in &enemies {
         if vitality.state() != LifeState::ActorAlive {
@@ -315,9 +320,8 @@ pub(crate) fn advance(
         .iter()
         .min_by_key(|(_, health)| health.sequence);
     let candidate = (|| {
-        let (player, body) = players.single().ok()?;
-        let forward = Quat::from_rotation_y(player.yaw) * Vec3::NEG_Z;
-        let admission = navigation.choose_spawn(&mut session, body.translation, forward)?;
+        players.single().ok()?;
+        let admission = navigation.choose_spawn(&mut session)?;
         let base = admission.position;
         let floor = query.cast_ray(
             base + Vec3::Y * 0.1,
@@ -356,7 +360,34 @@ pub(crate) fn advance(
             amount,
         )
         .ok()?;
-        let enemy = variants.get(session.spawn_cursor % variants.len().max(1))?;
+        let archetypes: std::collections::BTreeSet<_> = variants
+            .iter()
+            .map(|enemy| enemy.archetype.as_str())
+            .collect();
+        let archetype = archetypes
+            .iter()
+            .nth(session.random() as usize % archetypes.len().max(1))?;
+        let group = variants
+            .iter()
+            .find(|enemy| enemy.archetype == *archetype)?
+            .character_group
+            .clone();
+        let counts = characters.groups.entry(group).or_default();
+        let minimum = *counts.iter().min()?;
+        let choices: Vec<_> = counts
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count == minimum)
+            .map(|(index, _)| index)
+            .collect();
+        let index = *choices.get(session.random() as usize % choices.len())?;
+        let choices: Vec<_> = variants
+            .iter()
+            .filter(|enemy| {
+                enemy.archetype == *archetype && enemy.character_index == Some(index as u8)
+            })
+            .collect();
+        let enemy = choices.get(session.random() as usize % choices.len().max(1))?;
         let gait = session
             .difficulty
             .gait(profile, session.round, session.random());
@@ -381,13 +412,25 @@ pub(crate) fn advance(
     if !session.admitted_spawn() {
         return;
     }
+    if let Some(enemy) = definition
+        .content
+        .enemies
+        .iter()
+        .find(|enemy| enemy.id == identity)
+        && let Some(index) = enemy.character_index
+    {
+        characters
+            .groups
+            .entry(enemy.character_group.clone())
+            .or_default()[index as usize] += 1;
+    }
     if let Some((entity, _)) = replacement {
         commands.entity(entity).despawn();
         evidence.replacement_admissions += 1;
     }
     if evidence.admitted.len() < 256 {
         evidence.admitted.push(serde_json::json!({"round":session.round,"health":health.current(),"maximum_health":health.maximum(),
-            "gait":format!("{gait:?}"),"speed":profile.speed(gait),"time":time.elapsed_secs_f64(),"position":position.to_array(),"spawn_source":spawn_source,"spawn_zone":spawn_zone,"rising_source":rising,
+            "gait":format!("{gait:?}"),"time":time.elapsed_secs_f64(),"position":position.to_array(),"spawn_source":spawn_source,"spawn_zone":spawn_zone,"rising_source":rising,
             "spawn_delay":profile.spawn_delay(session.round),"pending_before":pending,"pending_after":session.pending}));
     }
     let rise = rising
@@ -398,10 +441,10 @@ pub(crate) fn advance(
                 .iter()
                 .find(|e| e.id == identity)
                 .and_then(|e| e.traversals.get("rise"))
+                .and_then(|profiles| profiles.first())
         })
         .flatten();
-    let zombie = Zombie::new(position, identity, gait, profile.speed(gait))
-        .with_locomotion_seed(session.spawn_cursor as u32);
+    let zombie = Zombie::new(position, identity, gait).with_locomotion_seed(session.random());
     let zombie = if let Some(profile) = rise {
         zombie.rising(profile)
     } else {

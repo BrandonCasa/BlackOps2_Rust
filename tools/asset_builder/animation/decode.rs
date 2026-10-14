@@ -8,6 +8,8 @@ use crate::{
 pub struct DecodedClip {
     pub clip: Clip,
     pub has_root_delta: bool,
+    pub root_translation: Option<Track<3>>,
+    pub root_rotation: Option<Track<4>>,
 }
 
 struct Cursor<'a> {
@@ -156,6 +158,115 @@ fn quaternion(source: &mut Cursor<'_>, lanes: usize) -> Result<[f32; 4]> {
     }
     let [x, y, z, w] = value;
     Ok([x, z, -y, w])
+}
+
+fn delta_frames(streams: &Streams, first: Address, count: usize, last: u16) -> Result<Vec<u16>> {
+    let frames = (0..count)
+        .map(|index| -> Result<u16> {
+            Ok(if last >= 256 {
+                streams.u16(first.add(index * 2)?)?
+            } else {
+                u16::from(streams.u8(first.add(index)?)?)
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if frames.first() != Some(&0)
+        || frames.last() != Some(&last)
+        || frames.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err("Native root-delta keys do not span the declared animation frames".into());
+    }
+    Ok(frames)
+}
+
+fn root_delta(
+    streams: &Streams,
+    root: Address,
+    last: u16,
+) -> Result<(Option<Track<3>>, Option<Track<4>>)> {
+    let pointer = streams.u32(root.add(100)?)?;
+    if pointer == 0 {
+        return Ok((None, None));
+    }
+    let delta = Address::decode(pointer)?;
+    let translation = match streams.u32(delta)? {
+        0 => None,
+        pointer => {
+            let track = Address::decode(pointer)?;
+            let maximum = streams.u16(track)? as usize;
+            let scalar = |offset| -> Result<f32> {
+                let value = f32::from_bits(streams.u32(track.add(offset)?)?);
+                if !value.is_finite() {
+                    return Err("Native root translation contains a non-finite scalar".into());
+                }
+                Ok(value)
+            };
+            let base = [scalar(4)?, scalar(8)?, scalar(12)?];
+            let (frames, values) = if maximum == 0 {
+                (vec![0], vec![base])
+            } else {
+                let small = streams.u8(track.add(2)?)? != 0;
+                let scale = [scalar(16)?, scalar(20)?, scalar(24)?];
+                let values = Address::decode(streams.u32(track.add(28)?)?)?;
+                let frames = delta_frames(streams, track.add(32)?, maximum + 1, last)?;
+                let values = (0..=maximum)
+                    .map(|index| {
+                        let mut value = base;
+                        for axis in 0..3 {
+                            let packed = if small {
+                                streams.u8(values.add(index * 3 + axis)?)? as f32
+                            } else {
+                                streams.u16(values.add((index * 3 + axis) * 2)?)? as f32
+                            };
+                            value[axis] += scale[axis] * packed;
+                        }
+                        Ok(value)
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                (frames, values)
+            };
+            Some(Track {
+                frames,
+                values: values
+                    .into_iter()
+                    .map(|[x, y, z]| [x * 0.0254, z * 0.0254, -y * 0.0254])
+                    .collect(),
+            })
+        }
+    };
+    let mut rotation = None;
+    for (channel, lanes) in [(1, 2), (2, 4)] {
+        let pointer = streams.u32(delta.add(channel * 4)?)?;
+        if pointer == 0 {
+            continue;
+        }
+        if rotation.is_some() {
+            return Err("Native root delta declares both planar and full rotation tracks".into());
+        }
+        let track = Address::decode(pointer)?;
+        let maximum = streams.u16(track)? as usize;
+        let frames = if maximum == 0 {
+            vec![0]
+        } else {
+            delta_frames(streams, track.add(8)?, maximum + 1, last)?
+        };
+        let values = if maximum == 0 {
+            track.add(4)?
+        } else {
+            Address::decode(streams.u32(track.add(4)?)?)?
+        };
+        let mut packed = Cursor {
+            bytes: streams.read(values, (maximum + 1) * lanes * 2)?,
+            offset: 0,
+            label: "root-rotation",
+        };
+        let values = (0..=maximum)
+            .map(|_| quaternion(&mut packed, lanes))
+            .collect::<Result<Vec<_>>>()?;
+        packed.finish()?;
+        rotation = Some(Track { frames, values });
+    }
+    Ok((translation, rotation))
 }
 
 fn decode(catalog: &Catalog<'_>, name: &str, zone: usize, root: Address) -> Result<DecodedClip> {
@@ -347,6 +458,7 @@ fn decode(catalog: &Catalog<'_>, name: &str, zone: usize, root: Address) -> Resu
             notifies.push((script_string(streams, streams.u16(entry)?)?, time));
         }
     }
+    let (root_translation, root_rotation) = root_delta(streams, root, frames)?;
     Ok(DecodedClip {
         clip: Clip {
             name: name.into(),
@@ -359,6 +471,8 @@ fn decode(catalog: &Catalog<'_>, name: &str, zone: usize, root: Address) -> Resu
             bones,
         },
         has_root_delta: streams.u32(root.add(100)?)? != 0,
+        root_translation,
+        root_rotation,
     })
 }
 

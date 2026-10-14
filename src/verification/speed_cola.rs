@@ -279,6 +279,7 @@ fn drive(
             input.use_held = true;
             if drink.is_none() && perks.solo_charges == 1 {
                 damage.0.push(crate::damage::Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(
@@ -315,6 +316,7 @@ fn drive(
             let _=std::fs::write(v.output.join("speed-cola.json"),serde_json::json!({"passed":passed,"scope":"real held-F paid Speed Cola/Quick Revive; controlled travel/budgets/second-weapon grant and resolved downing damage; input-driven normal/empty/shell/interrupted reloads before/after acquisition and loss","rows":c.rows,"perk_events":evidence.events,"insufficient":c.insufficient,"charged_once":c.charged,"lost":c.lost,"timing_comparison":comparison,"timing_reset":reset}).to_string());
             if passed {
                 damage.0.push(crate::damage::Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(

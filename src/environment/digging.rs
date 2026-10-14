@@ -1084,13 +1084,12 @@ fn dug_zombie(
     };
     let gait = game.rounds.gait(session.round, session.random());
     let position = position + Vec3::Y * 0.85;
-    let zombie = crate::enemies::Zombie::new(
-        position,
-        definition.id.clone(),
-        gait,
-        game.rounds.speed(gait),
-    );
-    let zombie = if let Some(profile) = definition.traversals.get("rise") {
+    let zombie = crate::enemies::Zombie::new(position, definition.id.clone(), gait);
+    let zombie = if let Some(profile) = definition
+        .traversals
+        .get("rise")
+        .and_then(|profiles| profiles.first())
+    {
         zombie.dug_rising(profile)
     } else {
         zombie

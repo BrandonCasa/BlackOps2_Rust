@@ -234,6 +234,7 @@ fn drive(
             input.use_held = true;
             if perks.solo_charges == 1 && drink.is_none() {
                 damage.0.push(crate::damage::Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(
@@ -282,6 +283,7 @@ fn drive(
             let _=std::fs::write(v.output.join("stamin-up.json"),serde_json::json!({"passed":passed,"scope":"input-driven sprint/recovery on actual map; normal held-F Stamin-Up/Quick Revive purchases with controlled travel/budgets/empty population and resolved downing damage","rows":c.rows,"lock":c.lock,"recovery":c.recovery,"insufficient":c.insufficient,"charged_once":c.charged,"stationary":c.stationary,"ads":c.ads,"lost":c.lost,"speed_ratio":speed,"perk_events":evidence.events}).to_string());
             if passed {
                 damage.0.push(crate::damage::Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: crate::damage::ImpactSource::Projectile(crate::origins::WeaponId(

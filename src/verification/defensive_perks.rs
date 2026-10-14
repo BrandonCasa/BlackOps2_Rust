@@ -136,8 +136,7 @@ fn drive(
                 );
                 let position = base + Vec3::Y * (floor.map_or(0., |h| 1. - h.distance) + 0.87);
                 let amount = if i == 0 { 500 } else { 10000 };
-                let mut zombie =
-                    Zombie::new(position, identity.clone(), crate::rounds::Gait::Walk, 0.);
+                let mut zombie = Zombie::new(position, identity.clone(), crate::rounds::Gait::Walk);
                 zombie.stunned = 300.;
                 commands.spawn((
                     zombie,

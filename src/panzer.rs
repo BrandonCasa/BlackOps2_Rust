@@ -272,6 +272,7 @@ fn claw_hits(
             continue;
         }
         damage.0.push(Impact {
+            point: None,
             attacker: hit.attacker,
             target: claw.0,
             source: ImpactSource::Weapon(hit.weapon.clone()),
@@ -403,7 +404,6 @@ pub fn spawn(
                 position + Vec3::Y * 1.2,
                 ContentId("enemy.panzer".into()),
                 Gait::Run,
-                2.5,
             ),
             SessionEntity,
             Collider::capsule(0.5, 1.4),
@@ -519,6 +519,7 @@ fn strike(
     category: DamageCategory,
 ) {
     damage.0.push(Impact {
+        point: None,
         attacker,
         target,
         source: ImpactSource::Enemy(ContentId("enemy.panzer".into())),
@@ -538,6 +539,7 @@ fn nukes(
         if nuke.remaining <= 0. {
             if health.state() == LifeState::ActorAlive {
                 damage.0.push(Impact {
+                    point: None,
                     attacker: nuke.attacker,
                     target,
                     source: ImpactSource::Powerup,
@@ -1151,6 +1153,7 @@ fn burning(
                     && body.translation.distance_squared(pose.translation) < 0.635_f32.powi(2)
                 {
                     damage.0.push(Impact {
+                        point: None,
                         attacker: entity,
                         target,
                         source: ImpactSource::Enemy(zombie.definition.clone()),

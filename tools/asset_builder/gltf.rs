@@ -68,6 +68,8 @@ mod tests {
             assert!(scene.animation(owner, &joints, &jumpcut).is_err());
             jumpcut.notifies.clear();
             jumpcut.source_flags[0] = 1;
+            assert!(scene.animation(owner, &joints, &jumpcut).is_ok());
+            jumpcut.source_flags[3] = 1;
             assert!(scene.animation(owner, &joints, &jumpcut).is_err());
         }
     }
@@ -480,7 +482,11 @@ impl Scene {
         joints: &[crate::geometry::Joint],
         clip: &crate::animation::Clip,
     ) -> Result<usize> {
-        if clip.source_flags.iter().any(|&flag| flag != 0) {
+        if clip.source_flags[0] > 1
+            || clip.source_flags[3] != 0
+            || clip.source_flags[1] > 1
+            || clip.source_flags[2] > 1
+        {
             return Err(format!("Animation {} requires native bLoop/bDelta/bDelta3D/bLeftHandGripIK interpretation before standalone export: {:?}; animation-tree composition must be selected separately",clip.name,clip.source_flags).into());
         }
         if !clip.loop_entry_time.is_finite() {

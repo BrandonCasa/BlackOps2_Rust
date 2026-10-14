@@ -488,6 +488,7 @@ fn movement(
         }
         if kill_targets.contains(&target) {
             damage.0.push(crate::damage::Impact {
+                point: None,
                 attacker: entity,
                 target,
                 source: emitter.source(),
@@ -685,7 +686,11 @@ fn board(
             continue;
         };
         if let Some(mut motion) = motion {
-            let Some(profile) = enemy.traversals.get(&motion.alias) else {
+            let Some(profile) = enemy
+                .traversals
+                .get(&motion.alias)
+                .and_then(|profiles| profiles.first())
+            else {
                 commands
                     .entity(entity)
                     .remove::<(TankMotion, ColliderDisabled)>();
@@ -811,7 +816,11 @@ fn board(
                     tag,
                     if wounds.crawler { "_crawler" } else { "" }
                 );
-                if let Some(profile) = enemy.traversals.get(&alias) {
+                if let Some(profile) = enemy
+                    .traversals
+                    .get(&alias)
+                    .and_then(|profiles| profiles.first())
+                {
                     zombie.tank_animation =
                         profile.animation.0.rsplit('.').next().map(str::to_owned);
                     zombie.action = crate::origins::EnemyAnimation::Traverse;
@@ -881,6 +890,7 @@ fn flames(
             if burn.remaining <= 0. {
                 if health.state() == LifeState::ActorAlive {
                     damage.0.push(crate::damage::Impact {
+                        point: None,
                         attacker: owner,
                         target,
                         source: crate::damage::ImpactSource::Vehicle("vehicle.tank".into()),
@@ -965,6 +975,7 @@ fn flames(
             if let Ok((_, _, health, mut wounds, _, burn)) = zombies.get_mut(target) {
                 if index == 0 {
                     damage.0.push(crate::damage::Impact {
+                        point: None,
                         attacker: owner,
                         target,
                         source: crate::damage::ImpactSource::Vehicle("vehicle.tank".into()),

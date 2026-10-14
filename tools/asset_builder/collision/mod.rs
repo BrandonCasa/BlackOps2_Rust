@@ -12,6 +12,8 @@ type Vector = [f64; 3];
 type Triangle = [Vector; 3];
 type Batches = BTreeMap<u32, Vec<Triangle>>;
 
+pub(crate) use brush::model as model_triangles;
+
 fn pointer(streams: &Streams, field: Address) -> Result<Address> {
     Ok(Address::decode(streams.u32(field)?)?)
 }
@@ -250,7 +252,10 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
             }
             let (name, owner, model_root) = catalog.pointer(zone, instance.add(4)?, 5)?;
             if !model_cache.contains_key(&name) {
-                model_cache.insert(name.clone(), model(catalog, owner, model_root)?);
+                model_cache.insert(
+                    name.clone(),
+                    model(catalog, owner, model_root, 0x10001, None)?,
+                );
             }
             let origin = vector(streams, instance.add(12)?)?;
             let matrix = [

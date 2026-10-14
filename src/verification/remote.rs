@@ -729,7 +729,6 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
                 position,
                 actor_definition.clone(),
                 crate::rounds::Gait::Walk,
-                1.,
             ),
             Vitality::ordinary_actor(actor.health, actor.health).unwrap(),
             crate::player::capsule(0.3, 1.7),

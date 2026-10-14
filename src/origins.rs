@@ -34,7 +34,9 @@ pub struct GameDefinition {
     pub spawn: [f32; 3],
     pub yaw: f32,
     pub spawn_points: Vec<[f32; 3]>,
+    #[serde(default)]
     pub waypoints: Vec<[f32; 3]>,
+    #[serde(default)]
     pub survey_views: Vec<[f32; 3]>,
     pub source_surfaces: usize,
     pub render_meshes: usize,
@@ -72,12 +74,15 @@ pub struct Tuning {
     pub radius: f32,
     pub standing_height: f32,
     pub crouch_height: f32,
+    pub crouch_eye: f32,
     pub eye_height: f32,
     pub mouse_sensitivity: f32,
     pub ads_mouse_sensitivity: f32,
     pub pistol_damage: u32,
     pub melee_damage: u32,
     pub combat_points: [u32; 5],
+    pub combat_neck_points: u32,
+    pub global_hit_multipliers: [f32; 21],
     pub magazine: u32,
     pub reserve: u32,
     pub fire_interval: f32,
@@ -104,12 +109,17 @@ impl Default for Tuning {
             radius: 0.35,
             standing_height: 1.8,
             crouch_height: 1.15,
+            crouch_eye: 40. * 0.0254,
             eye_height: 1.62,
             mouse_sensitivity: 0.002,
             ads_mouse_sensitivity: 0.0012,
             pistol_damage: 50,
             melee_damage: 150,
             combat_points: [10, 50, 50, 10, 80],
+            combat_neck_points: 20,
+            global_hit_multipliers: [
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 0., 1.,
+            ],
             magazine: 8,
             reserve: 32,
             fire_interval: 0.2,
@@ -259,6 +269,7 @@ impl GameDefinition {
             self.tuning.radius,
             self.tuning.standing_height,
             self.tuning.crouch_height,
+            self.tuning.crouch_eye,
             self.tuning.eye_height,
             self.tuning.mouse_sensitivity,
             self.tuning.ads_mouse_sensitivity,
@@ -279,6 +290,15 @@ impl GameDefinition {
                 .all(|v| v.is_finite())
             || !values.iter().all(|v| v.is_finite() && *v > 0.)
             || !self.environment.valid(self)
+            || self.content.interactions.iter().any(|interaction| {
+                interaction.source_trigger.as_ref().is_some_and(|id| {
+                    !self
+                        .environment
+                        .triggers
+                        .iter()
+                        .any(|trigger| trigger.id == *id)
+                })
+            })
             || !self.access.valid(&self.content, &self.environment)
             || !self.tuning.physics.valid()
             || !self
@@ -291,11 +311,18 @@ impl GameDefinition {
             || self.tuning.standing_height <= 2. * self.tuning.radius
             || self.tuning.crouch_height <= 2. * self.tuning.radius
             || self.tuning.crouch_height > self.tuning.standing_height
+            || self.tuning.crouch_eye >= self.tuning.crouch_height
             || self
                 .tuning
                 .combat_points
                 .iter()
                 .any(|v| *v > i32::MAX as u32)
+            || self.tuning.combat_neck_points > i32::MAX as u32
+            || self
+                .tuning
+                .global_hit_multipliers
+                .iter()
+                .any(|value| !value.is_finite() || *value < 0.)
             || self.tuning.magazine == 0
             || [
                 self.tuning.pistol_damage,

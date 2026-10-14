@@ -11,7 +11,7 @@ This is an explicitly incomplete Origins build. Full-map survival and progressio
 - Require the dependencies of the world, placed props, and enabled gameplay. Loading a shared Zombies file does not make every model, weapon, camo, attachment, image, or sound in it mandatory.
 - Reuse the existing Rust builder, pack format, in-memory conversion/baking, loader, Bevy/Avian systems, and implemented gameplay. Do not remove working features solely because their remaining coverage is deferred.
 - Existing documented PBR/bake approximations may remain for this milestone. Missing payloads, collision, gameplay data, visible enabled objects, or referenced dependencies remain blockers; generic material fallbacks and fake gameplay values are not authorized.
-- Follow AGENTS.md for source locations, pack-only generated outputs, static linking, process/capture ownership, BRP scenarios, and scoped commits. This user-requested two-file split replaces the former single checklist. No subagents are authorized by this plan.
+- Follow AGENTS.md for source locations, pack-only generated outputs, static linking, process/capture ownership, BRP scenarios, and scoped commits. This user-requested two-file split replaces the former single checklist. The current request authorizes three concurrent subagents with separate ownership.
 - The checklist split changes delivery priorities only. Implement the scoped builder/runtime requirements below before claiming that the existing validation gates accept this milestone.
 
 ## 1. Produce the initial Origins runtime pack
@@ -32,9 +32,9 @@ This is an explicitly incomplete Origins build. Full-map survival and progressio
 
 The source-derived profile tasks below apply to the supported solo states and initial equipment.
 
-- [ ] Convert the exact player spawn position and initial yaw.
+- [x] Convert the exact player spawn candidates, initial yaw/pitch and source side exclusion.
 - [ ] Convert source player movement, stance, mud, sprint, dive, and downed tuning required by runtime.
-- [ ] Complete rounds.gait_speeds.
+- [x] Replace scalar gait speeds with selected native animation translation, source loop seams and weighted locomotion selection.
 - [x] Complete solo_revive.downed_height and source downed eye height.
 - [x] Complete solo_revive.downed_speed.
 - [ ] Preserve source solo-revive timing, limits, downed weapon selection, and recovery behavior.
@@ -49,13 +49,15 @@ The source-derived profile tasks below apply to the supported solo states and in
 
 ## 3. Starting-area survival
 
-- [ ] Convert ordinary enemy definitions, model/animation selection, health, damage, and movement data.
+- [x] Convert ordinary enemy archetypes, least-used character/head selection, weighted ASD clips, health, damage and native movement tracks.
 - [ ] Preserve source round population, actor caps, spawn timing, inter-round timing, and health progression.
 - [ ] Convert hit-region definitions and source damage-category behavior.
-- [ ] Convert barriers, board presentations, repair interactions, and attack/traversal bindings.
-- [ ] Bind source zone_start availability, starting-area spawn positions/eligibility, and required initial connection flags.
-- [ ] Convert the starting-area navigation/traversal links and connect ordinary zombie pathing, barrier entry, pursuit, attack, hit, and death.
-- [ ] Keep unavailable zones and deferred progression out of active spawn/access selection rather than letting unsupported content activate.
+- [x] Convert native barrier boards, individual board collision, three attack slots, repair interactions, animation notifies and initial traversal negotiations.
+- [ ] Complete enabled barrier taunt/reach-through actor states and native repair FX consumers.
+- [x] Bind source zone_start availability, starting-area spawn positions/eligibility, and required initial connection flags.
+- [x] Convert the starting-area navigation nodes, directed source costs and traversal links.
+- [ ] Complete ordinary zombie pathing, barrier entry, pursuit, attack, hit and death consumers, including source corpse retirement and physical ragdoll.
+- [x] Keep unavailable zones and deferred progression out of active spawn/access selection rather than letting unsupported content activate.
 - [ ] Preserve point awards, starting barrier repair, weapon ammunition consumption, and round completion through normal gameplay.
 - [ ] Bind source HUD data for health/downed state, points, round, weapon/ammunition, and required interaction prompts; keep essential localization/font/image dependencies packed.
 
@@ -65,10 +67,10 @@ The source-derived profile tasks below apply to the supported solo states and in
 - [x] Update TriggerClientMode from actual player/session lifecycle transitions.
 - [x] Preserve exact source mode exclusions used by zone trigger activation.
 - [x] Connect converted player volumes to zone membership.
-- [ ] Preserve source handling for overlapping player volumes.
+- [x] Preserve source handling for overlapping player volumes, ordered zone scans, choke timing and active neighbors.
 - [ ] Preserve entry, exit, death/downed, revival, and respawn behavior where the source distinguishes them.
-- [ ] Deliver the required source zone events through existing ECS messages.
-- [ ] Preserve source single-use activation flag updates and sensor deletion.
+- [x] Deliver the required source zone events through existing ECS messages.
+- [x] Preserve source single-use activation flag updates and sensor deletion.
 - [x] Clear zone contact/membership state when the player or session is removed.
 - [ ] Complete the existing source activation bindings without replacing the committed zone graph.
 

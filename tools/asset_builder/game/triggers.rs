@@ -745,3 +745,106 @@ pub(super) fn environment(
     }
     Ok(())
 }
+
+pub(super) fn initial_brush_lifecycles(
+    game: &mut Value,
+    entities: &[crate::entities::Entity],
+    missing: &mut Vec<String>,
+) -> Result<()> {
+    if game["delivery_scope"] != "first_playable_solo" {
+        return Ok(());
+    }
+    let mut ownership = game["environment"]["ownership"]
+        .as_array()
+        .cloned()
+        .ok_or("Initial brush ownership is missing")?;
+    let mut resolved = 0;
+    for brush in game["environment"]["brush_entities"]
+        .as_array_mut()
+        .ok_or("Initial brush definitions are missing")?
+    {
+        let source = &brush["source"];
+        let id = brush["id"]
+            .as_str()
+            .ok_or("Initial brush identity is missing")?
+            .to_owned();
+        let class = source["classname"]
+            .as_str()
+            .ok_or("Initial brush classname is missing")?
+            .to_owned();
+        let name = source["targetname"].as_str().unwrap_or("");
+        let noteworthy = source["script_noteworthy"].as_str().unwrap_or("");
+        let target_owner = entities.iter().find(|entity| {
+            entity.get("target").is_some_and(|target| target == name)
+                && entity
+                    .get("targetname")
+                    .is_some_and(|name| matches!(name.as_str(), "zombie_door" | "zombie_debris"))
+        });
+        let smoke_detector = entities.iter().any(|entity| {
+            entity.get("target").is_some_and(|target| target == name)
+                && entity
+                    .get("targetname")
+                    .is_some_and(|target| target == "puzzle_smoke_origin")
+        });
+        let collidable = brush["volumes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|volume| {
+                volume["contents"]
+                    .as_u64()
+                    .is_some_and(|contents| contents & 0x10001 != 0)
+            })
+            || brush["triangle_shapes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|shape| {
+                    shape["contents"]
+                        .as_u64()
+                        .is_some_and(|contents| contents & 0x10001 != 0)
+                });
+        let (owner, visible, solid, removed) = if class == "heli_height_lock" {
+            ("deferred", false, false, true)
+        } else if target_owner.is_some()
+            || matches!(
+                name,
+                "chamber_entrance" | "junk_nml_chamber_clip" | "traversal_blocker"
+            )
+        {
+            ("access", true, collidable, false)
+        } else if name == "zombie_blood_visible" {
+            ("deferred", false, collidable, false)
+        } else if name == "tank_path_blocker" {
+            ("deferred", false, false, true)
+        } else if name.starts_with("clip_foot_left_") || name.starts_with("clip_foot_right_") {
+            ("deferred", false, false, true)
+        } else if matches!(name, "clip_foot_bottom_tank" | "clip_foot_bottom_wind") {
+            ("deferred", true, false, false)
+        } else if smoke_detector
+            || noteworthy == "ice_ceiling_tile"
+            || name == "ice_chamber_digit"
+            || noteworthy == "fire_torch_ternary"
+        {
+            ("deferred", false, false, true)
+        } else if matches!(name, "easter_mechzombie_spawn" | "hole_poster") {
+            ("deferred", true, collidable, false)
+        } else {
+            continue;
+        };
+        brush["initial_state"] = json!({"visible":visible,"solid":solid,"removed":removed});
+        ownership.retain(|entry| entry["id"] != id);
+        ownership.push(json!({"id":id,"owner":owner,"shootable":false}));
+        missing.retain(|gap| {
+            gap != &format!(
+                "presentation source brush lifecycle for {id} ({class}) requires scene integration"
+            )
+        });
+        resolved += 1;
+    }
+    game["environment"]["ownership"] = json!(ownership);
+    println!(
+        "Bound {resolved} source brush initial lifecycles for the scoped session; deferred owners cannot activate"
+    );
+    Ok(())
+}

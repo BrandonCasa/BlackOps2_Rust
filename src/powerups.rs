@@ -608,6 +608,7 @@ fn detonate(
                 && health.state() == LifeState::ActorAlive
             {
                 queue.0.push(Impact {
+                    point: None,
                     attacker: wave.owner,
                     target,
                     source: ImpactSource::Powerup,

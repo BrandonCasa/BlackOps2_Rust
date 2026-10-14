@@ -358,9 +358,6 @@ pub fn convert(
                 .into_iter()
                 .flatten()
             {
-                if decoded.has_root_delta {
-                    return Err(format!("Required animation {} on model {name} has unresolved native root-delta tracks",decoded.clip.name).into());
-                }
                 let index = scene.animation(owner, &joints, &decoded.clip)?;
                 if lod == 0 {
                     animations.insert(decoded.clip.name.clone(), index);

@@ -112,9 +112,9 @@ impl Plugin for RitualPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                soul_box_glow
-                    .after(track)
-                    .run_if(in_state(GameState::PreparingShaders).or_else(in_state(GameState::Playing))),
+                soul_box_glow.after(track).run_if(
+                    in_state(GameState::PreparingShaders).or_else(in_state(GameState::Playing)),
+                ),
             )
             .add_systems(
                 FixedUpdate,
@@ -237,7 +237,7 @@ fn track(
         }
     }
     for death in deaths.read() {
-        if death.0.impact.region == HitRegion::Head
+        if death.0.impact.region.head()
             && death.0.impact.source.player_attributed()
             && matches!(death.0.impact.category, DamageCategory::Bullet)
             && enemies
@@ -523,6 +523,7 @@ pub fn punch(
                 2
             };
         damage.0.push(Impact {
+            point: None,
             attacker: owner,
             target,
             source: ImpactSource::Weapon(weapon.clone()),

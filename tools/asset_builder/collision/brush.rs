@@ -139,7 +139,13 @@ pub(super) fn brush(streams: &Streams, root: Address, batches: &mut Batches) -> 
     Ok(())
 }
 
-pub(super) fn model(catalog: &Catalog<'_>, zone: usize, root: Address) -> Result<Batches> {
+pub(crate) fn model(
+    catalog: &Catalog<'_>,
+    zone: usize,
+    root: Address,
+    contents_mask: u32,
+    bone: Option<usize>,
+) -> Result<Batches> {
     let streams = &catalog.zones[zone].1.streams;
     let count = streams.u32(root.add(156)?)? as usize;
     let mut batches = Batches::new();
@@ -149,7 +155,12 @@ pub(super) fn model(catalog: &Catalog<'_>, zone: usize, root: Address) -> Result
     let surfaces = pointer(streams, root.add(152)?)?;
     for index in 0..count {
         let surface = surfaces.add(index * 44)?;
-        if streams.u32(surface.add(36)?)? & 0x10001 == 0 {
+        if let Some(bone) = bone {
+            if streams.u32(surface.add(32)?)? as usize != bone {
+                continue;
+            }
+        }
+        if streams.u32(surface.add(36)?)? & contents_mask == 0 {
             continue;
         }
         let flags = streams.u32(surface.add(40)?)?;

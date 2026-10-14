@@ -52,7 +52,6 @@ pub struct Navigation {
     edges: Vec<Vec<Edge>>,
     incoming: Vec<Vec<(usize, usize)>>,
     spawns: Vec<Admission>,
-    ingress: HashMap<usize, Vec3>,
     pub admissions: Vec<Admission>,
     cache: HashMap<(usize, usize), (Vec3, bool)>,
     order: VecDeque<(usize, usize)>,
@@ -432,47 +431,9 @@ impl Navigation {
             })
             .unwrap_or(position)
     }
-    pub fn choose_spawn(
-        &self,
-        session: &mut Session,
-        position: Vec3,
-        forward: Vec3,
-    ) -> Option<&Admission> {
-        let nearest_zone = self.player_node.map(|i| &self.nodes[i].zone);
-        let mut candidates: Vec<_> = self
-            .admissions
-            .iter()
-            .filter(|s| s.position.distance_squared(position) > 9.)
-            .collect();
-        if candidates.is_empty() {
-            candidates = self
-                .admissions
-                .iter()
-                .filter(|s| s.position.distance_squared(position) > 4.)
-                .collect();
-        }
-        let weights: Vec<u32> = candidates
-            .iter()
-            .map(|s| {
-                let delta = s.position - position;
-                let offscreen = forward.dot(delta.normalize_or_zero()) < 0.35;
-                let zone = if Some(&s.zone) == nearest_zone { 4 } else { 1 };
-                zone * if offscreen { 3 } else { 1 }
-            })
-            .collect();
-        let total: u32 = weights.iter().sum();
-        if total == 0 {
-            return None;
-        }
-        let mut choice = session.random() % total;
-        session.spawn_cursor = session.spawn_cursor.wrapping_add(1);
-        for (candidate, weight) in candidates.into_iter().zip(weights) {
-            if choice < weight {
-                return Some(candidate);
-            }
-            choice -= weight;
-        }
-        None
+    pub fn choose_spawn(&self, session: &mut Session) -> Option<&Admission> {
+        self.admissions
+            .get(session.spawn_index(self.admissions.len())?)
     }
 }
 pub struct NavigationPlugin;
@@ -620,10 +581,12 @@ fn refresh(
                                     animation: source.source_animation.clone(),
                                     blockers: requirements,
                                     ready,
-                                    cost: source
-                                        .negotiation
-                                        .as_ref()
-                                        .map_or_else(|| delta.length().max(0.01), |n| n.cost),
+                                    cost: source.cost.unwrap_or_else(|| {
+                                        source
+                                            .negotiation
+                                            .as_ref()
+                                            .map_or_else(|| delta.length().max(0.01), |n| n.cost)
+                                    }),
                                     native: source
                                         .negotiation
                                         .clone()
@@ -646,14 +609,6 @@ fn refresh(
             }
         }
         nav.incoming = incoming;
-        for barrier in &definition.content.barriers {
-            let (Some(&entry), Some(&exit)) = (ids.get(&barrier.entry), ids.get(&barrier.exit))
-            else {
-                continue;
-            };
-            let delta = (nav.nodes[exit].point - nav.nodes[entry].point).with_y(0.);
-            nav.ingress.insert(entry, -delta.normalize_or_zero());
-        }
         for spawn in &definition.access.spawns {
             nav.spawns.push(Admission {
                 position: Vec3::from_array(spawn.position),
@@ -689,7 +644,7 @@ fn refresh(
     } else {
         nav.nearest(feet, &access, true)
     };
-    if nav.epoch != access.purchases {
+    if nav.epoch != access.purchases || access.is_changed() {
         nav.cache.clear();
         nav.order.clear();
         nav.epoch = access.purchases;
@@ -715,13 +670,11 @@ fn refresh(
             }
         }
     }
-    let admission_filter = crate::environment::solids(std::iter::once(owner).chain(actors.iter()));
-    let admission_shape = capsule(0.3, 1.7);
     nav.admissions = nav
         .spawns
         .iter()
         .filter_map(|s| {
-            if !access.reachable.contains(&s.activation) {
+            if !access.active.contains(&s.activation) {
                 return None;
             }
             let (node, n) = nav
@@ -739,36 +692,6 @@ fn refresh(
             }
             let mut admission = s.clone();
             admission.node = node;
-            admission.zone = n.zone.clone();
-            admission.position = if let Some(outward) = nav.ingress.get(&node) {
-                [0.6, 0.75, 1.0].into_iter().find_map(|distance| {
-                    let candidate = n.point + *outward * distance;
-                    let floor = query.cast_ray(
-                        candidate + Vec3::Y * 0.5,
-                        Dir3::NEG_Y,
-                        2.,
-                        false,
-                        &admission_filter,
-                    )?;
-                    if floor.normal.y < 0.65 {
-                        return None;
-                    }
-                    let base = candidate + Vec3::Y * (0.5 - floor.distance + 0.03);
-                    (0..=6)
-                        .map(|i| base + Vec3::Y * (i as f32 * 0.05))
-                        .find(|feet| {
-                            feet.distance_squared(s.position) <= 100.
-                                && clear_shape(
-                                    &query,
-                                    &admission_shape,
-                                    *feet + Vec3::Y * 0.85,
-                                    &admission_filter,
-                                )
-                        })
-                })?
-            } else {
-                n.point
-            };
             Some(admission)
         })
         .collect();

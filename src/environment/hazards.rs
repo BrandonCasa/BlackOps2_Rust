@@ -102,6 +102,7 @@ pub(super) fn boundaries(
         }
         if monitor.condemned {
             damage.0.push(Impact {
+                point: None,
                 attacker: owner,
                 target: owner,
                 source: ImpactSource::OutOfBounds,
@@ -178,6 +179,7 @@ pub(super) fn damage(
             let clock = clocks.get(&(owner, entity)).copied().unwrap_or(0.) - time.delta_secs();
             if clock <= 0. {
                 queue.0.push(Impact {
+                    point: None,
                     attacker: owner,
                     target: owner,
                     source: ImpactSource::Environment(

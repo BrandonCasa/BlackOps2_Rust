@@ -2,9 +2,17 @@ use crate::{catalog::Catalog, core::*, fastfile::Address, pack::Pack};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+mod audio;
+mod barriers;
+mod enemies;
+mod equipment;
+mod navigation;
+mod player;
 mod presentations;
 mod triggers;
 mod verification;
+pub use audio::bind as bind_audio;
+pub(crate) use enemies::root_motion;
 use presentations::{initial_presentations, variable};
 use triggers::{brushes, environment, link_owners, native_staff_trigger, owner, zone_graph};
 pub use verification::check_triggers;
@@ -289,6 +297,12 @@ pub fn read(
         game["environment"] = json!({"triggers":native_triggers,"ownership":native_owners,"crafting_benches":crafting_benches});
     }
     initial_presentations(catalog, &mut game, entities)?;
+    equipment::read(catalog, &mut game, &mut native_gaps)?;
+    player::read(catalog, &mut game, entities, &mut native_gaps)?;
+    enemies::read(catalog, &mut game, entities, &mut native_gaps)?;
+    barriers::read(catalog, &mut game, entities, &mut native_gaps)?;
+    navigation::read(catalog, &mut game)?;
+    audio::read(catalog, &mut game, &mut native_gaps)?;
     Ok((game, native_gaps))
 }
 
@@ -320,6 +334,9 @@ pub fn prepare(
     environment(game, brushes, &mut missing)?;
     link_owners(game, entities)?;
     zone_graph(game, entities, &mut missing)?;
+    navigation::prepare(game, entities, &mut missing)?;
+    player::prepare(game, entities, &mut missing)?;
+    barriers::prepare(game, entities, &mut missing)?;
     for key in [
         "mud",
         "triggers",
@@ -356,17 +373,17 @@ pub fn prepare(
         "audio",
         "tuning",
     ] {
+        if initial && matches!(key, "waypoints" | "survey_views") {
+            continue;
+        }
         if game.get(key).is_none() {
             missing.push(key.to_owned());
         }
     }
-    for (profile, fields) in [
-        ("rounds", &["gait_speeds"][..]),
-        (
-            "solo_revive",
-            &["downed_height", "downed_eye", "downed_speed"][..],
-        ),
-    ] {
+    for (profile, fields) in [(
+        "solo_revive",
+        &["downed_height", "downed_eye", "downed_speed"][..],
+    )] {
         for field in fields {
             if game[profile].get(field).is_none() {
                 missing.push(format!("{profile}.{field}"));

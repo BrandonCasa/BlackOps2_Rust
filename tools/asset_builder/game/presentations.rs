@@ -49,6 +49,48 @@ pub(super) fn variable(
     Ok(fallback)
 }
 
+pub(super) const WEAPON_ACTIONS: &[(usize, &str)] = &[
+    (1, "idle"),
+    (2, "idle_empty"),
+    (4, "fire"),
+    (5, "prime"),
+    (6, "last_shot"),
+    (7, "rechamber"),
+    (9, "melee"),
+    (16, "reload"),
+    (18, "reload_empty"),
+    (19, "reload_start"),
+    (20, "reload_end"),
+    (23, "equip"),
+    (25, "unequip"),
+    (32, "sprint_enter"),
+    (33, "sprint_loop"),
+    (34, "sprint_leave"),
+    (44, "prone_enter"),
+    (45, "prone_loop"),
+    (46, "prone_back"),
+    (47, "prone_right"),
+    (48, "prone_left"),
+    (49, "prone_leave"),
+    (50, "prone_enter_empty"),
+    (51, "prone_loop_empty"),
+    (52, "prone_back_empty"),
+    (53, "prone_right_empty"),
+    (54, "prone_left_empty"),
+    (55, "prone_leave_empty"),
+    (61, "ads_fire"),
+    (62, "ads_last_shot"),
+    (63, "ads_rechamber"),
+    (65, "dive_enter"),
+    (66, "dive_loop"),
+    (67, "dive_leave"),
+    (68, "dive_enter_empty"),
+    (69, "dive_loop_empty"),
+    (70, "dive_leave_empty"),
+    (85, "ads_enter"),
+    (86, "ads_leave"),
+];
+
 pub(super) fn initial_presentations(
     catalog: &Catalog<'_>,
     game: &mut Value,
@@ -57,55 +99,15 @@ pub(super) fn initial_presentations(
     use std::collections::{BTreeMap, BTreeSet};
     let mut models = BTreeMap::<String, BTreeSet<String>>::new();
     let mut first_person_clips = BTreeSet::new();
-    let actions = [
-        (1, "idle"),
-        (2, "idle_empty"),
-        (4, "fire"),
-        (5, "prime"),
-        (6, "last_shot"),
-        (7, "rechamber"),
-        (9, "melee"),
-        (16, "reload"),
-        (18, "reload_empty"),
-        (19, "reload_start"),
-        (20, "reload_end"),
-        (23, "equip"),
-        (25, "unequip"),
-        (32, "sprint_enter"),
-        (33, "sprint_loop"),
-        (34, "sprint_leave"),
-        (44, "prone_enter"),
-        (45, "prone_loop"),
-        (46, "prone_back"),
-        (47, "prone_right"),
-        (48, "prone_left"),
-        (49, "prone_leave"),
-        (50, "prone_enter_empty"),
-        (51, "prone_loop_empty"),
-        (52, "prone_back_empty"),
-        (53, "prone_right_empty"),
-        (54, "prone_left_empty"),
-        (55, "prone_leave_empty"),
-        (61, "ads_fire"),
-        (62, "ads_last_shot"),
-        (63, "ads_rechamber"),
-        (65, "dive_enter"),
-        (66, "dive_loop"),
-        (67, "dive_leave"),
-        (68, "dive_enter_empty"),
-        (69, "dive_loop_empty"),
-        (70, "dive_leave_empty"),
-        (85, "ads_enter"),
-        (86, "ads_leave"),
-    ];
-    for name in ["c96_zm", "c96_upgraded_zm", "knife_zm", "frag_grenade_zm"] {
+
+    for name in super::equipment::INITIAL_WEAPONS {
         let (zone, root) = catalog.resolve(25, name)?;
         let streams = &catalog.zones[zone].1.streams;
         let definition = Address::decode(streams.u32(root.add(8)?)?)?;
         let gun_models = Address::decode(streams.u32(definition.add(4)?)?)?;
         let (view, _, _) = catalog.pointer(zone, gun_models, 5)?;
         let animations = Address::decode(streams.u32(root.add(32)?)?)?;
-        for &(index, _) in &actions {
+        for &(index, _) in WEAPON_ACTIONS {
             let pointer = streams.u32(animations.add(index * 4)?)?;
             if pointer == 0 {
                 continue;
@@ -168,10 +170,38 @@ pub(super) fn initial_presentations(
     let mut presentations = Vec::new();
     for (model, clips) in models {
         let skeleton = format!("actor.{model}");
+        let (model_zone, model_root) = catalog.resolve(5, &model)?;
+        let joint_names = crate::geometry::skeleton(catalog, &model, model_zone, model_root)?
+            .into_iter()
+            .filter_map(|joint| joint.name.map(|name| name.to_ascii_lowercase()))
+            .collect::<BTreeSet<_>>();
         let mut ids = Vec::new();
         for clip in clips {
             let (zone, root) = catalog.resolve(4, &clip)?;
             let streams = &catalog.zones[zone].1.streams;
+            let count = streams.u8(root.add(33)?)? as usize;
+            let mapped = if count == 0 {
+                false
+            } else {
+                let names = Address::decode(streams.u32(root.add(64)?)?)?;
+                (0..count)
+                    .map(|index| -> Result<bool> {
+                        let word = streams.u16(names.add(index * 2)?)? as usize;
+                        let address = streams
+                            .script_strings
+                            .get(word)
+                            .copied()
+                            .flatten()
+                            .ok_or("Initial source animation bone name is missing")?;
+                        Ok(joint_names.contains(&streams.text(address)?.to_ascii_lowercase()))
+                    })
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter()
+                    .any(|mapped| mapped)
+            };
+            if !mapped {
+                continue;
+            }
             let frames = streams.u16(root.add(14)?)? as f32;
             let rate = f32::from_bits(streams.u32(root.add(48)?)?);
             if !rate.is_finite() || rate <= 0. {
@@ -209,7 +239,7 @@ pub(super) fn initial_presentations(
             }
             let id = format!("animation.{model}.{clip}");
             ids.push(id.clone());
-            animations.push(json!({"id":id,"source_clip":clip,"path":null,"skeleton":skeleton,"notifications":notifications}));
+            animations.push(json!({"id":id,"source_clip":clip,"path":null,"skeleton":skeleton,"notifications":notifications,"looping":streams.u8(root.add(16)?)? != 0}));
         }
         presentations.push(
             json!({"id":skeleton,"source_model":model,"scene":null,"animations":ids,"sounds":[]}),

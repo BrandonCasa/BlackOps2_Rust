@@ -17,9 +17,14 @@ pub(crate) struct HitRig {
 pub(crate) struct HitBinding {
     pub id: String,
     pub region: HitRegion,
-    pub start: Entity,
-    pub end: Entity,
-    pub radius: f32,
+    pub joint: Entity,
+    pub bounds: [[f32; 3]; 2],
+    pub sphere: [f32; 4],
+}
+struct NativeVolume {
+    bone: bevy::math::Affine3A,
+    bounds: [Vec3; 2],
+    sphere: [f32; 4],
 }
 pub struct HitVolume {
     pub id: String,
@@ -27,6 +32,7 @@ pub struct HitVolume {
     pub start: Vec3,
     pub end: Vec3,
     shape: Collider,
+    native: Option<NativeVolume>,
 }
 #[derive(Component, Default)]
 pub struct Hitboxes {
@@ -68,6 +74,7 @@ impl Hitboxes {
                 start,
                 end,
                 shape: Collider::capsule_endpoints(radius, start, end),
+                native: None,
             }
         })
         .collect();
@@ -88,6 +95,7 @@ impl Hitboxes {
                 start,
                 end,
                 shape: Collider::capsule_endpoints(0.2, start, end),
+                native: None,
             });
         }
         let start = Vec3::new(0., 0.4, 0.4);
@@ -98,6 +106,7 @@ impl Hitboxes {
             start,
             end,
             shape: Collider::capsule_endpoints(0.15, start, end),
+            native: None,
         });
         boxes
     }
@@ -105,13 +114,22 @@ impl Hitboxes {
         let local = transform.compute_affine().inverse().transform_point3(point);
         self.volumes
             .iter()
-            .filter(|v| !self.disabled.contains(&v.region))
+            .filter(|v| !self.disabled_region(v.region))
             .min_by(|a, b| {
                 ((a.start + a.end) * 0.5)
                     .distance_squared(local)
                     .total_cmp(&((b.start + b.end) * 0.5).distance_squared(local))
             })
             .map_or(HitRegion::None, |v| v.region)
+    }
+    fn disabled_region(&self, region: HitRegion) -> bool {
+        self.disabled.iter().any(|disabled| {
+            *disabled == region
+                || (*disabled == HitRegion::Head && region.head())
+                || (*disabled == HitRegion::Leg && region.leg())
+                || (*disabled == HitRegion::LeftArm && region.left_arm())
+                || (*disabled == HitRegion::RightArm && region.right_arm())
+        })
     }
     fn occupied_distance(
         &self,
@@ -123,7 +141,7 @@ impl Hitboxes {
         let mut intervals: Vec<_> = self
             .volumes
             .iter()
-            .filter(|v| !self.disabled.contains(&v.region))
+            .filter(|v| !self.disabled_region(v.region))
             .filter_map(|v| {
                 let (start, _) = v.shape.cast_ray(
                     pose.translation,
@@ -154,6 +172,15 @@ impl Hitboxes {
             })
             .collect();
         intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if self.volumes.iter().any(|volume| volume.native.is_some()) {
+            return intervals.first().map_or(0., |first| {
+                intervals
+                    .iter()
+                    .map(|interval| interval.1)
+                    .fold(first.1, f32::max)
+                    - first.0
+            });
+        }
         let mut total = 0.;
         let mut previous: Option<(f32, f32)> = None;
         for (start, end) in intervals {
@@ -179,23 +206,28 @@ impl Hitboxes {
     ) -> Option<RegionHit> {
         self.volumes
             .iter()
-            .filter(|volume| !self.disabled.contains(&volume.region))
+            .filter(|volume| !self.disabled_region(volume.region))
             .filter_map(|volume| {
-                volume
-                    .shape
-                    .cast_ray(
-                        transform.translation,
-                        transform.rotation,
-                        origin,
-                        direction.as_vec3(),
-                        range,
-                        true,
-                    )
-                    .map(|(distance, _)| RegionHit {
-                        region: volume.region,
-                        distance,
-                        point: origin + direction.as_vec3() * distance,
-                    })
+                let distance = if let Some(native) = &volume.native {
+                    native.cast(transform, origin, direction.as_vec3(), range)
+                } else {
+                    volume
+                        .shape
+                        .cast_ray(
+                            transform.translation,
+                            transform.rotation,
+                            origin,
+                            direction.as_vec3(),
+                            range,
+                            true,
+                        )
+                        .map(|(distance, _)| distance)
+                }?;
+                Some(RegionHit {
+                    region: volume.region,
+                    distance,
+                    point: origin + direction.as_vec3() * distance,
+                })
             })
             .min_by(|a, b| a.distance.total_cmp(&b.distance))
     }
@@ -209,6 +241,54 @@ impl Hitboxes {
             .iter()
             .filter(move |v| v.region == region)
             .map(move |v| affine.transform_point3((v.start + v.end) * 0.5))
+    }
+}
+impl NativeVolume {
+    fn cast(&self, actor: &Transform, origin: Vec3, direction: Vec3, range: f32) -> Option<f32> {
+        let inverse = (actor.compute_affine() * self.bone).inverse();
+        let start = inverse.transform_point3(origin);
+        let delta = inverse.transform_vector3(direction) * range;
+        let center = Vec3::new(self.sphere[0], self.sphere[1], self.sphere[2]);
+        let squared = delta.length_squared();
+        if squared == 0. {
+            return None;
+        }
+        let closest = start + delta * ((center - start).dot(delta) / squared).clamp(0., 1.);
+        if closest.distance_squared(center) >= self.sphere[3] {
+            return None;
+        }
+        let end = start + delta;
+        let inside = |point: Vec3| {
+            (0..3).all(|axis| {
+                point[axis] >= self.bounds[0][axis] && point[axis] <= self.bounds[1][axis]
+            })
+        };
+        if inside(start) {
+            let inverse = actor.compute_affine().inverse();
+            let local_origin = inverse.transform_point3(origin);
+            let local_direction = inverse.transform_vector3(direction);
+            return (inside(end)
+                && local_origin.x * local_direction.x + local_origin.z * local_direction.z < 0.)
+                .then_some(0.);
+        }
+        let mut enter: f32 = 0.;
+        let mut exit: f32 = 1.;
+        for axis in 0..3 {
+            if delta[axis] == 0. {
+                if start[axis] < self.bounds[0][axis] || start[axis] > self.bounds[1][axis] {
+                    return None;
+                }
+            } else {
+                let a = (self.bounds[0][axis] - start[axis]) / delta[axis];
+                let b = (self.bounds[1][axis] - start[axis]) / delta[axis];
+                enter = enter.max(a.min(b));
+                exit = exit.min(a.max(b));
+                if exit <= enter {
+                    return None;
+                }
+            }
+        }
+        (enter < 1.).then_some(enter * range)
     }
 }
 pub type RayTargets<'w, 's> = Query<
@@ -253,13 +333,48 @@ pub fn cast(
         Some(hit)
     }
 }
+pub fn melee(
+    targets: &RayTargets,
+    world: &SpatialQuery,
+    shooter: Entity,
+    eye: Vec3,
+    rotation: Quat,
+    range: f32,
+    [width, height]: [f32; 2],
+) -> Option<ActorHit> {
+    let forward = rotation * Vec3::NEG_Z;
+    let right = rotation * Vec3::X;
+    let up = rotation * Vec3::Y;
+    let origin = eye - forward * (10. * 0.0254);
+    for [x, y] in [
+        [0., 0.],
+        [0.5, 0.],
+        [-0.5, 0.],
+        [0., 0.5],
+        [0., -0.5],
+        [1., 1.],
+        [-1., 1.],
+        [1., -1.],
+        [-1., -1.],
+    ] {
+        let delta = eye + forward * range + right * (x * width) + up * (y * height) - origin;
+        let Ok(direction) = Dir3::new(delta) else {
+            continue;
+        };
+        if let Some(mut hit) = cast(targets, world, shooter, origin, direction, delta.length()) {
+            hit.hit.distance = hit.hit.point.distance(eye);
+            return Some(hit);
+        }
+    }
+    None
+}
 pub type PenetrationSurfaces<'w, 's> = Query<
     'w,
     's,
     (
         &'static Collider,
         &'static GlobalTransform,
-        Option<&'static crate::audio::SurfaceSound>,
+        &'static crate::movement::physics::SurfaceFlags,
     ),
 >;
 pub fn penetrating(
@@ -270,7 +385,7 @@ pub fn penetrating(
     origin: Vec3,
     direction: Dir3,
     range: f32,
-    strength: f32,
+    depths: Option<&[f32; 32]>,
 ) -> Vec<(ActorHit, f32)> {
     let mut actors: Vec<_> = targets
         .iter()
@@ -283,90 +398,78 @@ pub fn penetrating(
         .collect();
     actors.sort_by(|a, b| a.hit.distance.total_cmp(&b.hit.distance));
     let mut result = Vec::new();
-    let mut seen = std::collections::HashSet::new();
     let mut distance = 0.;
     let mut penetrations = 0;
-    let mut energy = strength.max(0.);
-    let initial = energy.max(0.001);
+    let mut energy = 1.;
     for actor in actors {
-        if !seen.insert(actor.target) {
-            continue;
-        }
         while distance < actor.hit.distance {
-            let blocker = world.cast_ray_predicate(
+            let Some(blocker) = world.cast_ray_predicate(
                 origin + *direction * distance,
                 direction,
                 actor.hit.distance - distance,
                 true,
                 &crate::environment::solids([shooter]),
                 &|entity| !targets.contains(entity),
-            );
-            let Some(blocker) = blocker else {
+            ) else {
                 break;
             };
-            if energy <= 0. || penetrations >= 5 {
+            let Some(depths) = depths else {
+                return result;
+            };
+            if penetrations >= 5 {
                 return result;
             }
-            let Ok((shape, pose, surface)) = surfaces.get(blocker.entity) else {
+            let Ok((shape, pose, flags)) = surfaces.get(blocker.entity) else {
                 return result;
             };
-            let resistance = match surface.map(|s| s.0.as_str()).unwrap_or("") {
-                "glass" => 0.25,
-                "wood" => 0.6,
-                "plaster" | "drywall" => 1.,
-                "metal" => 3.,
-                "concrete" | "stone" | "brick" => 4.,
-                _ => return result,
+            let surface = ((flags.0 >> 20) & 0x3f) as usize;
+            let depth = if surface == 20 {
+                100. * 0.0254
+            } else {
+                depths.get(surface).copied().unwrap_or(0.)
             };
-            let entry = distance + blocker.distance + 0.002;
+            if depth <= 0. {
+                return result;
+            }
+            let incidence = -blocker.normal.dot(*direction);
+            if incidence < 0.125 {
+                return result;
+            }
+            let entry = distance + blocker.distance;
+            let step = 0.135 * 0.0254 / incidence;
             let pose = pose.compute_transform();
-            let thickness = if shape.shape_scaled().as_trimesh().is_some() {
-                0.0254
-            } else if shape.contains_point(
+            let Some((exit, _)) = shape.cast_ray(
                 pose.translation,
                 pose.rotation,
-                origin + *direction * entry,
-            ) {
-                let Some((exit, _)) = shape.cast_ray(
-                    pose.translation,
-                    pose.rotation,
-                    origin + *direction * entry,
-                    *direction,
-                    range - entry,
-                    false,
-                ) else {
-                    return result;
-                };
-                exit
-            } else {
-                0.0254
+                origin + *direction * (entry + step),
+                *direction,
+                range - entry - step,
+                false,
+            ) else {
+                return result;
             };
-            energy -= thickness.max(0.0254) * resistance;
+            let thickness = exit + step;
+            energy -= thickness.max(0.0254) / depth;
             if energy <= 0. {
                 return result;
             }
             penetrations += 1;
-            distance = entry + thickness + 0.002;
+            distance = entry + thickness + 0.01 * 0.0254;
         }
-        result.push((
-            actor,
-            if strength <= 0. {
-                1.
-            } else {
-                (energy / initial).clamp(0., 1.)
-            },
-        ));
-        if strength <= 0. {
-            break;
+        if actor.hit.distance < distance {
+            continue;
         }
-        if penetrations >= 5 {
+        result.push((actor, energy));
+        if depths.is_none() || penetrations >= 5 {
             break;
         }
         let Ok((_, _, pose, boxes)) = targets.get(actor.target) else {
             break;
         };
-        let thickness = boxes.occupied_distance(pose, origin, direction, range);
-        energy -= initial * thickness.max(0.0254) / 2.54;
+        energy -= boxes
+            .occupied_distance(pose, origin, direction, range)
+            .max(0.0254)
+            / (100. * 0.0254);
         penetrations += 1;
         if energy <= 0. {
             break;
@@ -402,33 +505,161 @@ fn capture(
         };
         let inverse = owner.affine().inverse();
         for binding in &rig.bindings {
-            let (Ok(start), Ok(end)) = (joints.get(binding.start), joints.get(binding.end)) else {
+            let Ok(joint) = joints.get(binding.joint) else {
                 continue;
             };
-            let start = inverse.transform_point3(start.translation());
-            let end = inverse.transform_point3(end.translation());
-            if !start.is_finite() || !end.is_finite() {
+            let bone = inverse * joint.affine();
+            let bounds = binding.bounds.map(Vec3::from_array);
+            let center = (bounds[0] + bounds[1]) * 0.5;
+            let start = bone.transform_point3(center);
+            if !start.is_finite() {
                 continue;
             }
+            let (scale, rotation, _) = bone.to_scale_rotation_translation();
+            let extent = (bounds[1] - bounds[0]) * scale.abs();
+            let shape = Collider::compound(vec![(
+                start,
+                rotation,
+                Collider::cuboid(extent.x, extent.y, extent.z),
+            )]);
+            let native = Some(NativeVolume {
+                bone,
+                bounds,
+                sphere: binding.sphere,
+            });
             if let Some(volume) = hitboxes.volumes.iter_mut().find(|v| v.id == binding.id) {
-                if volume.start == start && volume.end == end {
-                    continue;
-                }
                 volume.start = start;
-                volume.end = end;
-                volume.shape = Collider::capsule_endpoints(binding.radius, start, end);
+                volume.end = start;
+                volume.shape = shape;
+                volume.native = native;
             } else {
                 hitboxes.volumes.push(HitVolume {
                     id: binding.id.clone(),
                     region: binding.region,
                     start,
-                    end,
-                    shape: Collider::capsule_endpoints(binding.radius, start, end),
+                    end: start,
+                    shape,
+                    native,
                 });
                 evidence.bound_volumes += 1;
             }
             evidence.pose_updates += 1;
             evidence.regions.insert(format!("{:?}", binding.region));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::SystemState;
+
+    #[test]
+    fn native_bone_bounds_follow_rotation_and_reject_sphere_only_hits() {
+        let mut volume = NativeVolume {
+            bone: bevy::math::Affine3A::IDENTITY,
+            bounds: [Vec3::new(-0.2, -0.1, -0.05), Vec3::new(0.2, 0.1, 0.05)],
+            sphere: [0., 0., 0., 0.0525],
+        };
+        let actor = Transform::from_xyz(0., 0., -1.);
+        assert!(
+            (volume
+                .cast(&actor, Vec3::new(0.15, 0., 0.), Vec3::NEG_Z, 2.)
+                .unwrap()
+                - 0.95)
+                .abs()
+                < 0.00001
+        );
+        volume.bone = bevy::math::Affine3A::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        assert!(
+            volume
+                .cast(&actor, Vec3::new(0.15, 0., 0.), Vec3::NEG_Z, 2.)
+                .is_none()
+        );
+        assert!((volume.cast(&actor, Vec3::ZERO, Vec3::NEG_Z, 2.).unwrap() - 0.8).abs() < 0.00001);
+        assert!(
+            volume
+                .cast(&actor, Vec3::new(0., 0.15, 0.), Vec3::NEG_Z, 2.)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn native_actor_penetration_uses_hundred_inch_depth_and_five_passages() {
+        let mut world = World::new();
+        world.init_resource::<avian3d::collider_tree::ColliderTrees>();
+        let shooter = world.spawn_empty().id();
+        for index in 1..=7 {
+            world.spawn((Vitality::ordinary_actor(150,150).unwrap(),
+                Transform::from_xyz(0.,0.,-(index as f32)),Hitboxes {
+                    disabled:Vec::new(),volumes:vec![HitVolume {id:format!("actor.{index}"),
+                        region:HitRegion::UpperTorso,start:Vec3::ZERO,end:Vec3::ZERO,
+                        shape:Collider::cuboid(0.2,0.2,0.0254),native:None}]
+                }));
+        }
+        let mut state = SystemState::<(RayTargets,PenetrationSurfaces,SpatialQuery)>::new(&mut world);
+        let (targets,surfaces,query) = state.get(&world).unwrap();
+        assert_eq!(penetrating(&targets,&surfaces,&query,shooter,Vec3::ZERO,Dir3::NEG_Z,10.,None).len(),1);
+        let depths = [0.;32];
+        let hits = penetrating(&targets,&surfaces,&query,shooter,Vec3::ZERO,Dir3::NEG_Z,10.,Some(&depths));
+        assert_eq!(hits.len(),6);
+        for (index,(_,energy)) in hits.into_iter().enumerate() {
+            assert!((energy-(1.-index as f32*0.01)).abs()<0.00001);
+        }
+    }
+
+    #[test]
+    fn melee_fan_reaches_side_target_and_respects_source_range() {
+        let mut world = World::new();
+        world.init_resource::<avian3d::collider_tree::ColliderTrees>();
+        let shooter = world.spawn_empty().id();
+        let target = world
+            .spawn((
+                Vitality::ordinary_actor(150, 150).unwrap(),
+                Transform::from_xyz(0.1, 0., -1.),
+                Hitboxes {
+                    disabled: Vec::new(),
+                    volumes: vec![HitVolume {
+                        id: "side".into(),
+                        region: HitRegion::Torso,
+                        start: Vec3::ZERO,
+                        end: Vec3::ZERO,
+                        shape: Collider::sphere(0.02),
+                        native: None,
+                    }],
+                },
+            ))
+            .id();
+        let mut state = SystemState::<(RayTargets, SpatialQuery)>::new(&mut world);
+        {
+            let (targets, query) = state.get(&world).unwrap();
+            assert!(cast(&targets, &query, shooter, Vec3::ZERO, Dir3::NEG_Z, 1.397).is_none());
+            let hit = melee(
+                &targets,
+                &query,
+                shooter,
+                Vec3::ZERO,
+                Quat::IDENTITY,
+                55. * 0.0254,
+                [10. * 0.0254; 2],
+            )
+            .unwrap();
+            assert_eq!(hit.target, target);
+            assert!(hit.hit.distance < 55. * 0.0254);
+        }
+        world.get_mut::<Transform>(target).unwrap().translation.z = -1.5;
+        let (targets, query) = state.get(&world).unwrap();
+        assert!(
+            melee(
+                &targets,
+                &query,
+                shooter,
+                Vec3::ZERO,
+                Quat::IDENTITY,
+                55. * 0.0254,
+                [10. * 0.0254; 2],
+            )
+            .is_none()
+        );
     }
 }

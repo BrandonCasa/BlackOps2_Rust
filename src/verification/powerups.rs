@@ -96,7 +96,7 @@ fn actor(world: &mut World, position: Vec3) -> Entity {
     world
         .spawn((
             SessionEntity,
-            Zombie::new(position, id, crate::rounds::Gait::Walk, 1.),
+            Zombie::new(position, id, crate::rounds::Gait::Walk),
             crate::rounds::PopulationKind::Ordinary,
             Vitality::ordinary_actor(100, 100).unwrap(),
             crate::player::capsule(0.3, 1.7),
@@ -110,6 +110,7 @@ fn hit(world: &mut World, owner: Entity, target: Entity) {
         .resource_mut::<crate::damage::DamageQueue>()
         .0
         .push(crate::damage::Impact {
+            point: None,
             attacker: owner,
             target,
             source: crate::damage::ImpactSource::Weapon(crate::origins::WeaponId(

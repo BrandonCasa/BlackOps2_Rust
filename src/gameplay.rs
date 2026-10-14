@@ -342,13 +342,9 @@ pub(crate) fn combat(
                     );
                     continue;
                 }
-                let damage = definition
-                    .content
-                    .weapons
-                    .iter()
-                    .find(|w| w.id == id)
-                    .map_or(definition.tuning.melee_damage, |w| w.damage);
-                (true, damage, id, weapon)
+                let melee_weapon = definition.content.weapons.iter().find(|w| w.id == id);
+                let damage = melee_weapon.map_or(definition.tuning.melee_damage, |w| w.damage);
+                (true, damage, id, melee_weapon)
             }
         };
         let pellets = if melee {
@@ -377,6 +373,9 @@ pub(crate) fn combat(
         } else {
             weapon.map_or(1, |w| inventory.firing.copies(w))
         };
+        let range = weapon.map_or(if melee { 55. * 0.0254 } else { 8192. * 0.0254 }, |w| {
+            w.mechanics.range
+        });
         if !melee && firing_evidence.shots.len() < 128 {
             firing_evidence.shots.push(serde_json::json!({"weapon":weapon_id.0,"seconds":time.elapsed_secs_f64(),"pellets":pellets,"copies":copies,"rays":pellets*copies,"spread":spread,"ads":inventory.ads,"prone":player.prone,"crouched":player.crouched,"speed":player.velocity.xz().length(),"interval_scale":inventory.firing.interval_scale,"hip_spread_scale":inventory.firing.hip_spread_scale}));
         }
@@ -399,10 +398,18 @@ pub(crate) fn combat(
                 continue;
             }
             let actor_hits = if melee {
-                crate::hit_regions::cast(&enemies, &query, entity, origin, direction, 2.2)
-                    .into_iter()
-                    .map(|h| (h, 1.))
-                    .collect::<Vec<_>>()
+                crate::hit_regions::melee(
+                    &enemies,
+                    &query,
+                    entity,
+                    origin,
+                    rotation,
+                    range,
+                    weapon.map_or([10. * 0.0254; 2], |w| w.mechanics.melee_extent),
+                )
+                .into_iter()
+                .map(|h| (h, 1.))
+                .collect::<Vec<_>>()
             } else {
                 crate::hit_regions::penetrating(
                     &enemies,
@@ -411,8 +418,8 @@ pub(crate) fn combat(
                     entity,
                     origin,
                     direction,
-                    100.,
-                    weapon.map_or(0., |w| w.mechanics.penetration),
+                    range,
+                    weapon.and_then(|w| w.mechanics.penetration.as_ref()),
                 )
             };
             let category = if melee {
@@ -434,7 +441,7 @@ pub(crate) fn combat(
                 direction,
                 actor_hits
                     .first()
-                    .map_or(if melee { 2.2 } else { 100. }, |(hit, _)| hit.hit.distance),
+                    .map_or(range, |(hit, _)| hit.hit.distance),
             );
             if let Some((target, distance)) = crate::environment::support::cast(
                 &environmental,
@@ -442,7 +449,7 @@ pub(crate) fn combat(
                 entity,
                 origin,
                 direction,
-                if melee { 2.2 } else { 100. },
+                range,
             ) && actor_hits
                 .first()
                 .is_none_or(|(hit, _)| distance < hit.hit.distance)
@@ -453,9 +460,13 @@ pub(crate) fn combat(
                     weapon: weapon_id.clone(),
                     category,
                     native_mod,
-                    amount: weapon.map_or(damage, |w| {
-                        crate::weapons::damage_at(w, distance, crate::weapons::HitRegion::Torso)
-                    }),
+                    amount: if melee {
+                        damage
+                    } else {
+                        weapon.map_or(damage, |w| {
+                            crate::weapons::damage_at(w, distance, crate::weapons::HitRegion::Torso)
+                        })
+                    },
                     point: origin + direction.as_vec3() * distance,
                     direction: direction.as_vec3(),
                 });
@@ -479,6 +490,7 @@ pub(crate) fn combat(
                     })
                 };
                 impacts.0.push(crate::damage::Impact {
+                    point: Some(hit.hit.point),
                     attacker: entity,
                     target: hit.target,
                     source: crate::damage::ImpactSource::Weapon(weapon_id.clone()),

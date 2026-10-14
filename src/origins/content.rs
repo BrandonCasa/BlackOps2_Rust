@@ -232,9 +232,11 @@ pub struct WeaponMechanics {
     pub starting_reserve: u32,
     pub minimum_damage: u32,
     pub damage_range: [f32; 2],
-    pub hit_multipliers: [f32; 5],
+    pub range: f32,
+    pub melee_extent: [f32; 2],
+    pub hit_multipliers: [f32; 21],
     pub pellets: u32,
-    pub penetration: f32,
+    pub penetration: Option<[f32; 32]>,
     pub recoil_pitch: [f32; 2],
     pub recoil_yaw: [f32; 2],
     pub recoil_recovery: f32,
@@ -285,9 +287,14 @@ impl Default for WeaponMechanics {
             starting_reserve: 32,
             minimum_damage: 20,
             damage_range: [20., 60.],
-            hit_multipliers: [3.5, 1.25, 1., 0.85, 0.6],
+            range: 8192. * 0.0254,
+            melee_extent: [10. * 0.0254; 2],
+            hit_multipliers: [
+                1., 3.5, 3.5, 1., 1.25, 1., 1., 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.6, 0.6, 0.6,
+                0.6, 0.6, 0.6, 1., 1.,
+            ],
             pellets: 1,
-            penetration: 0.2,
+            penetration: None,
             recoil_pitch: [0.2, 0.4],
             recoil_yaw: [-0.1, 0.1],
             recoil_recovery: 8.,
@@ -351,7 +358,6 @@ pub struct AdsSight {
 pub struct EnemyDefinition {
     pub id: ContentId,
     pub health: u32,
-    pub speed: f32,
     pub damage: u32,
     pub presentation: Option<ContentId>,
     #[serde(default)]
@@ -363,19 +369,23 @@ pub struct EnemyDefinition {
     #[serde(default)]
     pub combat_states: BTreeMap<EnemyCombat, Vec<EnemyCombatClip>>,
     #[serde(default)]
-    pub traversals: BTreeMap<String, EnemyTraversalDefinition>,
+    pub traversals: BTreeMap<String, Vec<EnemyTraversalDefinition>>,
     #[serde(default = "default_attack_seconds")]
     pub attack_seconds: f32,
     #[serde(default)]
     pub attack_hits: Vec<f32>,
     #[serde(default = "default_death_seconds")]
     pub death_seconds: f32,
-    #[serde(default = "default_corpse_seconds")]
-    pub corpse_seconds: f32,
     #[serde(default = "default_bounds_margin")]
     pub bounds_margin: f32,
     #[serde(default)]
     pub family: String,
+    #[serde(default)]
+    pub archetype: String,
+    #[serde(default)]
+    pub character_group: String,
+    #[serde(default)]
+    pub character_index: Option<u8>,
     #[serde(default)]
     pub hit_regions: Vec<HitVolumeDefinition>,
 }
@@ -385,18 +395,15 @@ pub struct HitVolumeDefinition {
     pub id: String,
     pub region: crate::weapons::HitRegion,
     pub presentation: ContentId,
-    pub start: String,
-    pub end: String,
-    pub radius: f32,
+    pub joint: String,
+    pub bounds: [[f32; 3]; 2],
+    pub sphere: [f32; 4],
 }
 fn default_attack_seconds() -> f32 {
     1.8
 }
 fn default_death_seconds() -> f32 {
     3.
-}
-fn default_corpse_seconds() -> f32 {
-    8.
 }
 fn default_bounds_margin() -> f32 {
     2.5
@@ -449,8 +456,12 @@ pub enum EnemyAnimation {
 pub enum EnemyCombat {
     WalkMelee,
     RunMelee,
+    WalkMeleeCrawl,
+    RunMeleeCrawl,
+    StumpyMelee,
     GeneratorMelee,
     Death,
+    DeathCrawl,
     FireDeath,
     ShieldMelee,
     ShieldMeleeCrawl,
@@ -461,6 +472,8 @@ pub struct EnemyCombatClip {
     pub animation: ContentId,
     pub seconds: f32,
     pub hits: Vec<f32>,
+    #[serde(default)]
+    pub stops: Vec<f32>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -604,6 +617,8 @@ pub struct InteractionPlacement {
     pub hold_seconds: f32,
     pub hidden_prompt: bool,
     #[serde(default)]
+    pub source_trigger: Option<String>,
+    #[serde(default)]
     pub generator: Option<ContentId>,
 }
 #[derive(Clone, Deserialize)]
@@ -658,6 +673,8 @@ pub struct NavigationLink {
     pub from: ContentId,
     pub to: ContentId,
     pub traversal: Traversal,
+    #[serde(default)]
+    pub cost: Option<f32>,
     pub connection: Option<ContentId>,
     #[serde(default)]
     pub blockers: Vec<ContentId>,
@@ -837,6 +854,99 @@ pub struct AnimationDefinition {
     pub path: String,
     pub skeleton: ContentId,
     pub notifications: Vec<AnimationNotification>,
+    #[serde(default)]
+    pub looping: bool,
+    #[serde(default)]
+    pub root_motion: Option<AnimationRootMotion>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnimationRootMotion {
+    pub seconds: f32,
+    pub translation: Vec<[f32; 4]>,
+    pub rotation: Vec<[f32; 5]>,
+}
+impl AnimationRootMotion {
+    pub fn valid(&self) -> bool {
+        fn track<const N: usize>(values: &[[f32; N]], seconds: f32) -> bool {
+            values.is_empty()
+                || ((2..=65536).contains(&values.len())
+                    && values.iter().all(|sample| {
+                        sample.iter().all(|v| v.is_finite())
+                            && sample[0] >= 0.
+                            && sample[0] <= seconds + 0.001
+                    })
+                    && values.windows(2).all(|pair| pair[0][0] < pair[1][0])
+                    && values.first().is_some_and(|sample| sample[0] == 0.)
+                    && values
+                        .last()
+                        .is_some_and(|sample| (sample[0] - seconds).abs() < 0.001))
+        }
+        self.seconds.is_finite()
+            && self.seconds > 0.
+            && (!self.translation.is_empty() || !self.rotation.is_empty())
+            && track(&self.translation, self.seconds)
+            && track(&self.rotation, self.seconds)
+            && self
+                .rotation
+                .iter()
+                .all(|sample| sample[1..].iter().map(|v| v * v).sum::<f32>() > 0.001)
+    }
+    pub fn translation_at(&self, seconds: f32) -> [f32; 3] {
+        let Some(first) = self.translation.first() else {
+            return [0.; 3];
+        };
+        if seconds <= 0. {
+            return [first[1], first[2], first[3]];
+        }
+        for pair in self.translation.windows(2) {
+            if seconds <= pair[1][0] {
+                let fraction = ((seconds - pair[0][0]) / (pair[1][0] - pair[0][0])).clamp(0., 1.);
+                return std::array::from_fn(|axis| {
+                    pair[0][axis + 1] + (pair[1][axis + 1] - pair[0][axis + 1]) * fraction
+                });
+            }
+        }
+        let last = self.translation.last().unwrap();
+        [last[1], last[2], last[3]]
+    }
+    pub fn loop_displacement(&self, start: f32, end: f32) -> [f32; 3] {
+        let start_cycles = (start / self.seconds).floor();
+        let end_cycles = (end / self.seconds).floor();
+        let first = self.translation_at(0.);
+        let last = self.translation_at(self.seconds);
+        let a = self.translation_at(start.rem_euclid(self.seconds));
+        let b = self.translation_at(end.rem_euclid(self.seconds));
+        std::array::from_fn(|axis| {
+            b[axis] - a[axis] + (end_cycles - start_cycles) * (last[axis] - first[axis])
+        })
+    }
+    pub fn rotation_at(&self, seconds: f32) -> [f32; 4] {
+        let Some(first) = self.rotation.first() else {
+            return [0., 0., 0., 1.];
+        };
+        let mut value = [first[1], first[2], first[3], first[4]];
+        for pair in self.rotation.windows(2) {
+            let fraction = ((seconds - pair[0][0]) / (pair[1][0] - pair[0][0])).clamp(0., 1.);
+            let sign = if (1..5)
+                .map(|axis| pair[0][axis] * pair[1][axis])
+                .sum::<f32>()
+                < 0.
+            {
+                -1.
+            } else {
+                1.
+            };
+            value = std::array::from_fn(|axis| {
+                pair[0][axis + 1] + (pair[1][axis + 1] * sign - pair[0][axis + 1]) * fraction
+            });
+            if seconds <= pair[1][0] {
+                break;
+            }
+        }
+        let length = value.iter().map(|v| v * v).sum::<f32>().sqrt();
+        value.map(|v| v / length)
+    }
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1195,9 +1305,13 @@ impl ContentCatalog {
                     && m.pellets <= 64
                     && m.hit_multipliers.iter().all(|v| nonnegative(*v))
                     && m.spread.iter().all(|v| nonnegative(*v))
-                    && nonnegative(m.penetration)
+                    && m.penetration
+                        .as_ref()
+                        .is_none_or(|depths| depths.iter().all(|v| nonnegative(*v)))
                     && m.damage_range.iter().all(|v| nonnegative(*v))
                     && m.damage_range[0] <= m.damage_range[1]
+                    && positive(m.range)
+                    && m.melee_extent.iter().all(|value| nonnegative(*value))
                     && m.recoil_pitch
                         .iter()
                         .chain(m.recoil_yaw.iter())
@@ -1297,10 +1411,8 @@ impl ContentCatalog {
             valid(
                 v.health > 0
                     && v.damage > 0
-                    && positive(v.speed)
                     && positive(v.attack_seconds)
                     && positive(v.death_seconds)
-                    && positive(v.corpse_seconds)
                     && positive(v.bounds_margin)
                     && v.attack_hits
                         .iter()
@@ -1310,6 +1422,12 @@ impl ContentCatalog {
             )?;
             optional(&v.id.0, &v.presentation, "presentation")?;
             let mut hit_ids = std::collections::BTreeSet::new();
+            valid(
+                v.character_index.is_none_or(|index| {
+                    index < 6 && !v.archetype.is_empty() && !v.character_group.is_empty()
+                }),
+                "Invalid enemy source character selection",
+            )?;
             for hit in &v.hit_regions {
                 valid(
                     !hit.id.is_empty()
@@ -1318,10 +1436,11 @@ impl ContentCatalog {
                             .bytes()
                             .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
                         && hit_ids.insert(&hit.id)
-                        && !hit.start.is_empty()
-                        && !hit.end.is_empty()
-                        && hit.radius.is_finite()
-                        && hit.radius > 0.
+                        && !hit.joint.is_empty()
+                        && hit.bounds.iter().flatten().all(|v| v.is_finite())
+                        && (0..3).all(|axis| hit.bounds[0][axis] < hit.bounds[1][axis])
+                        && hit.sphere.iter().all(|v| v.is_finite())
+                        && hit.sphere[3] >= 4. * 0.0254 * 0.0254
                         && (v.presentation.as_ref() == Some(&hit.presentation)
                             || v.parts.iter().any(|p| p.presentation == hit.presentation)),
                     "Invalid enemy hit region",
@@ -1368,6 +1487,11 @@ impl ContentCatalog {
                                 .iter()
                                 .all(|t| nonnegative(*t) && *t <= clip.seconds)
                             && clip.hits.windows(2).all(|p| p[0] < p[1])
+                            && clip
+                                .stops
+                                .iter()
+                                .all(|time| nonnegative(*time) && *time <= clip.seconds)
+                            && clip.stops.windows(2).all(|pair| pair[0] < pair[1])
                             && self.animations.iter().any(|a| {
                                 a.id == clip.animation
                                     && v.presentation.as_ref() == Some(&a.skeleton)
@@ -1376,12 +1500,18 @@ impl ContentCatalog {
                     )?;
                 }
             }
-            for (alias, traversal) in &v.traversals {
+            for (alias, traversals) in &v.traversals {
                 valid(
-                    !alias.is_empty() && alias.len() < 128 && traversal.valid(),
+                    !alias.is_empty()
+                        && alias.len() < 128
+                        && !traversals.is_empty()
+                        && traversals.len() <= 64,
                     "Invalid enemy traversal profile",
                 )?;
-                r(&v.id.0, &traversal.animation.0, "animation")?;
+                for traversal in traversals {
+                    valid(traversal.valid(), "Invalid enemy traversal motion")?;
+                    r(&v.id.0, &traversal.animation.0, "animation")?;
+                }
             }
         }
         for v in &self.perks {
@@ -1431,7 +1561,7 @@ impl ContentCatalog {
                     positive(drink.seconds)
                         && positive(drink.lower_seconds)
                         && nonnegative(drink.activation_delay)
-                        && drink.activation_delay <= drink.lower_seconds,
+                        && drink.activation_delay <= 0.5,
                     "Invalid perk drinking timing",
                 )?;
             }
@@ -1449,6 +1579,12 @@ impl ContentCatalog {
             )?;
         }
         for v in &self.interactions {
+            valid(
+                v.source_trigger
+                    .as_ref()
+                    .is_none_or(|id| !id.is_empty() && id.len() < 128),
+                "Invalid source interaction trigger",
+            )?;
             if let Some(generator) = &v.generator {
                 r(&v.id.0, &generator.0, "generator")?;
             }
@@ -1488,29 +1624,59 @@ impl ContentCatalog {
             r(&v.id.0, &v.placement.0, "placement")?;
             r(&v.id.0, &v.entry.0, "node")?;
             r(&v.id.0, &v.exit.0, "node")?;
-            r(&v.id.0, &v.repair_sound.0, "sound")?;
-            r(&v.id.0, &v.break_sound.0, "sound")?;
+            valid(
+                v.audio
+                    .repair
+                    .iter()
+                    .flatten()
+                    .all(|alias| !alias.is_empty())
+                    && v.audio.repair_delay.is_none_or(nonnegative),
+                "Invalid native barrier repair audio",
+            )?;
             valid(v.boards.len() == 6, "Invalid barrier board count")?;
+            valid(
+                v.repair_origin.iter().all(|value| value.is_finite())
+                    && v.repair_yaw.is_finite()
+                    && positive(v.repair_radius)
+                    && positive(v.repair_height)
+                    && positive(v.repair_interval)
+                    && v.repair_points > 0,
+                "Invalid source barrier repair trigger",
+            )?;
             for b in &v.boards {
                 r(&v.id.0, &b.presentation.0, "presentation")?;
                 r(&v.id.0, &b.repair.0, "animation")?;
                 r(&v.id.0, &b.pull.0, "animation")?;
                 valid(
-                    [
-                        b.repair_seconds,
-                        b.pull_seconds,
-                        b.grab_seconds,
-                        b.tear_seconds,
-                    ]
-                    .into_iter()
-                    .all(positive)
-                        && nonnegative(b.destroy_seconds)
-                        && b.destroy_seconds < b.tear_seconds
-                        && !b.grab_clip.is_empty()
-                        && !b.tear_clip.is_empty(),
-                    "Invalid barrier animation timing",
+                    positive(b.repair_seconds)
+                        && positive(b.pull_seconds)
+                        && !b.collision.is_empty()
+                        && b.collider().is_some(),
+                    "Invalid source board collision/timing",
                 )?;
-                valid(b.valid_motion(), "Invalid barrier animation timing")?;
+                valid(
+                    b.audio
+                        .opening
+                        .iter()
+                        .chain(&b.audio.hover)
+                        .all(|alias| !alias.is_empty())
+                        && b.audio.repeat_pause.is_none_or(|[min, max]| {
+                            nonnegative(min) && max.is_finite() && max >= min
+                        }),
+                    "Invalid native barrier board audio",
+                )?;
+                for attack in &b.attacks {
+                    valid(
+                        positive(attack.grab_seconds)
+                            && positive(attack.tear_seconds)
+                            && nonnegative(attack.destroy_seconds)
+                            && attack.destroy_seconds < attack.tear_seconds
+                            && !attack.grab_clip.is_empty()
+                            && !attack.tear_clip.is_empty()
+                            && attack.valid_motion(),
+                        "Invalid native barrier attack slot",
+                    )?;
+                }
             }
         }
         for v in &self.navigation_nodes {
@@ -1524,6 +1690,7 @@ impl ContentCatalog {
             r(&v.id.0, &v.from.0, "node")?;
             r(&v.id.0, &v.to.0, "node")?;
             optional(&v.id.0, &v.connection, "connection")?;
+            valid(v.cost.is_none_or(positive), "Invalid navigation link cost")?;
             for id in &v.blockers {
                 r(&v.id.0, &id.0, "connection")?;
             }
@@ -1538,6 +1705,7 @@ impl ContentCatalog {
                     matches!(v.traversal, Traversal::Climb | Traversal::Jump)
                         && v.source_animation.is_some()
                         && positive(native.cost)
+                        && v.cost.is_none_or(|cost| cost == native.cost)
                         && native.start.valid(17, &v.from, &self.navigation_nodes)
                         && native.end.valid(18, &v.to, &self.navigation_nodes),
                     "Invalid native negotiation endpoint or cost",
@@ -1647,6 +1815,12 @@ impl ContentCatalog {
         for v in &self.animations {
             validate_asset_path(&v.path)?;
             r(&v.id.0, &v.skeleton.0, "presentation")?;
+            valid(
+                v.root_motion
+                    .as_ref()
+                    .is_none_or(AnimationRootMotion::valid),
+                "Invalid native animation root motion",
+            )?;
             valid(
                 v.notifications
                     .iter()

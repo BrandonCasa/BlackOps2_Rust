@@ -77,7 +77,7 @@ pub struct MobilityTuning {
     pub prone_eye: f32,
     pub prone_speed: f32,
     pub prone_step: f32,
-    pub stance_seconds: f32,
+    pub stance: StanceTuning,
     pub jump_recovery: f32,
     pub dive_jump_height: f32,
     pub dive_launch_multiplier: f32,
@@ -106,7 +106,7 @@ impl Default for MobilityTuning {
             prone_eye: 0.3048,
             prone_speed: 190. * 0.15 * 0.0254,
             prone_step: 10. * 0.0254,
-            stance_seconds: 0.18,
+            stance: StanceTuning::default(),
             jump_recovery: 0.25,
             dive_jump_height: 39. * 0.0254,
             dive_launch_multiplier: 2.,
@@ -137,7 +137,6 @@ impl MobilityTuning {
             self.prone_eye,
             self.prone_speed,
             self.prone_step,
-            self.stance_seconds,
             self.jump_recovery,
             self.dive_jump_height,
             self.dive_launch_multiplier,
@@ -164,11 +163,221 @@ impl MobilityTuning {
         ]
         .iter()
         .all(|v| v.is_finite() && *v > 0.)
-            && self.prone_height > 2. * radius
+            && self.prone_height >= 2. * radius
             && self.prone_height < crouch
             && self.prone_eye < self.prone_height
             && self.fall_minimum < self.fall_fatal
             && self.dive_fall_minimum < self.dive_fall_fatal
+            && self.stance.valid()
+    }
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StanceTuning {
+    pub seconds: [f32; 4],
+    pub curves: [Vec<[f32; 2]>; 4],
+    pub other_speed: f32,
+}
+impl Default for StanceTuning {
+    fn default() -> Self {
+        Self {
+            seconds: [0.2, 0.2, 0.6, 0.4],
+            curves: [
+                vec![
+                    [0., 1.],
+                    [1., 0.975],
+                    [4., 0.925],
+                    [30., 0.8],
+                    [80., 0.2],
+                    [90., 0.075],
+                    [95., 0.025],
+                    [100., 0.],
+                ],
+                vec![
+                    [0., 0.],
+                    [5., 0.025],
+                    [10., 0.075],
+                    [20., 0.2],
+                    [70., 0.8],
+                    [96., 0.925],
+                    [99., 0.975],
+                    [100., 1.],
+                ],
+                vec![
+                    [0., 1.],
+                    [11., 0.931],
+                    [22., 0.759],
+                    [34., 0.483],
+                    [45., 0.172],
+                    [50., 0.138],
+                    [55., 0.172],
+                    [70., 0.241],
+                    [90., 0.207],
+                    [100., 0.],
+                ],
+                vec![
+                    [0., 0.],
+                    [5., -0.034],
+                    [30., 0.345],
+                    [50., 0.483],
+                    [67., 0.69],
+                    [83., 0.79],
+                    [100., 1.],
+                ],
+            ],
+            other_speed: 180. * 0.0254,
+        }
+    }
+}
+impl StanceTuning {
+    fn valid(&self) -> bool {
+        self.seconds.iter().all(|v| v.is_finite() && *v > 0.)
+            && self.other_speed.is_finite()
+            && self.other_speed > 0.
+            && self.curves.iter().all(|curve| {
+                curve.len() >= 2
+                    && curve.first().unwrap()[0] == 0.
+                    && curve.last().unwrap()[0] == 100.
+                    && curve
+                        .iter()
+                        .all(|point| point.iter().all(|v| v.is_finite()))
+                    && curve.windows(2).all(|pair| pair[0][0] < pair[1][0])
+            })
+    }
+    fn sample(&self, kind: usize, percent: f32) -> f32 {
+        let points = &self.curves[kind];
+        let Some(pair) = points.windows(2).find(|pair| percent <= pair[1][0]) else {
+            return points.last().unwrap()[1];
+        };
+        pair[0][1] + (pair[1][1] - pair[0][1]) * (percent - pair[0][0]) / (pair[1][0] - pair[0][0])
+    }
+}
+
+#[derive(Clone, Copy)]
+struct EyeTransition {
+    kind: usize,
+    elapsed: f32,
+}
+
+#[derive(Default)]
+pub struct StanceEye {
+    transition: Option<EyeTransition>,
+}
+impl StanceEye {
+    pub fn speed_scale(&self, prone: f32, crouch: f32, tuning: &StanceTuning) -> Option<f32> {
+        let phase = self.transition?;
+        if phase.kind < 2 {
+            return None;
+        }
+        let fraction = (phase.elapsed / tuning.seconds[phase.kind]).clamp(0., 1.);
+        Some(if phase.kind == 2 {
+            crouch + (prone - crouch) * fraction
+        } else {
+            prone + (crouch - prone) * fraction
+        })
+    }
+
+    pub fn update(
+        &mut self,
+        eye: f32,
+        target: f32,
+        standing: f32,
+        crouch: f32,
+        prone: f32,
+        dt: f32,
+        tuning: &StanceTuning,
+    ) -> f32 {
+        let canonical = target == standing || target == crouch || target == prone;
+        if !canonical {
+            self.transition = None;
+            return eye + (target - eye).clamp(-tuning.other_speed * dt, tuning.other_speed * dt);
+        }
+        if let Some(mut phase) = self.transition {
+            let downward = phase.kind == 0 || phase.kind == 2;
+            let end = match phase.kind {
+                0 | 3 => crouch,
+                1 => standing,
+                _ => prone,
+            };
+            if (downward && target > end) || (!downward && target < end) {
+                let percent = (phase.elapsed / tuning.seconds[phase.kind] * 100. + 0.0001)
+                    .trunc()
+                    .clamp(0., 100.);
+                phase.kind ^= 1;
+                phase.elapsed = tuning.seconds[phase.kind] * (100. - percent) * 0.01;
+            }
+            phase.elapsed += dt;
+            let percent = (phase.elapsed / tuning.seconds[phase.kind] * 100. + 0.0001)
+                .trunc()
+                .clamp(0., 100.);
+            let factor = tuning.sample(phase.kind, percent);
+            let value = if phase.kind < 2 {
+                crouch + (standing - crouch) * factor
+            } else {
+                prone + (crouch - prone) * factor
+            };
+            self.transition = (percent < 100.).then_some(phase);
+            return value;
+        }
+        if eye == target {
+            return eye;
+        }
+        let kind = if target < eye {
+            if eye > crouch { 0 } else { 2 }
+        } else if eye < crouch {
+            3
+        } else {
+            1
+        };
+        self.transition = Some(EyeTransition { kind, elapsed: 0. });
+        eye
+    }
+}
+
+#[cfg(test)]
+mod stance_tests {
+    use super::*;
+
+    #[test]
+    fn source_stance_eye_stages_through_crouch_and_preserves_prone_rebound() {
+        let tuning = StanceTuning::default();
+        let mut transition = StanceEye::default();
+        let mut eye = 60.;
+        let advance = |transition: &mut StanceEye, eye, dt| {
+            transition.update(eye, 11., 60., 40., 11., dt, &tuning)
+        };
+        eye = advance(&mut transition, eye, 0.);
+        eye = advance(&mut transition, eye, 0.2);
+        assert_eq!(eye, 40.);
+        eye = advance(&mut transition, eye, 0.);
+        eye = advance(&mut transition, eye, 0.3);
+        assert!((eye - (11. + 29. * 0.138)).abs() < 0.00001);
+        let low = eye;
+        eye = advance(&mut transition, eye, 0.12);
+        assert!((eye - (11. + 29. * 0.241)).abs() < 0.00001 && eye > low);
+        eye = advance(&mut transition, eye, 0.18);
+        assert_eq!(eye, 11.);
+    }
+
+    #[test]
+    fn source_prone_rise_keeps_authored_undershoot_and_downed_linear_rate() {
+        let tuning = StanceTuning::default();
+        let mut transition = StanceEye::default();
+        transition.update(11., 60., 60., 40., 11., 0., &tuning);
+        let eye = transition.update(11., 60., 60., 40., 11., 0.02, &tuning);
+        assert!((eye - (11. - 29. * 0.034)).abs() < 0.00001);
+        let units = 0.0254;
+        let eye = transition.update(
+            60. * units,
+            22. * units,
+            60. * units,
+            40. * units,
+            11. * units,
+            0.1,
+            &tuning,
+        );
+        assert!((eye - (60. - 180. * 0.1) * units).abs() < 0.00001);
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -199,6 +408,7 @@ pub struct Mobility {
     pub fall_velocity: f32,
     pub previous_eye: f32,
     pub landing_dip: f32,
+    pub stance_eye: StanceEye,
 }
 impl Mobility {
     pub fn new(eye: f32) -> Self {
