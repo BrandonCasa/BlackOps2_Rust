@@ -100,11 +100,18 @@ pub struct PerkBottle {
 pub struct VendorPlugin;
 impl Plugin for VendorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Wunderfizz>()
-            .add_systems(
-                OnEnter(GameState::PreparingShaders),
-                setup.in_set(crate::session::SessionSetup::World),
-            )
+        app.init_resource::<Wunderfizz>();
+        if app
+            .world()
+            .get_resource::<crate::origins::DeliveryScope>()
+            .is_some_and(|scope| *scope == crate::origins::DeliveryScope::FirstPlayableSolo)
+        {
+            return;
+        }
+        app.add_systems(
+            OnEnter(GameState::PreparingShaders),
+            setup.in_set(crate::session::SessionSetup::World),
+        )
             .add_systems(
                 FixedUpdate,
                 (
