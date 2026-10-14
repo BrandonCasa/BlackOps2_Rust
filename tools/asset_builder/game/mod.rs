@@ -279,7 +279,7 @@ pub fn read(
         "population_base":maximum,"solo_population_increment":extra,"population_round_divisor":5,
         "population_acceleration_round":10,"population_acceleration":0.15,"early_population":[0.25,0.3,0.5,0.7,0.9],
         "ordinary_cap":maximum,"actor_cap":32,"spawn_seconds":variable(catalog,"zombie_spawn_delay",2,json!(2.0))?,"spawn_decay":0.95,
-        "minimum_spawn_seconds":0.08,"first_spawn_seconds":2.5,"between_round_seconds":variable(catalog,"zombie_between_round_time",1,json!(10))?,
+        "minimum_spawn_seconds":0.08,"initial_spawn_seconds":8.25,"first_spawn_seconds":2.5,"between_round_seconds":variable(catalog,"zombie_between_round_time",1,json!(10))?,
         "speed_multiplier":variable(catalog,"zombie_move_speed_multiplier",2,json!(8))?,"speed_random_band":35,"gait_thresholds":[35,70]});
     let solo = json!({"perk":"perk.quick_revive","seconds":10.,"bleedout_seconds":45.,"bleedout_poll_seconds":1.,
         "maximum_purchases":3,"downed_weapon":"weapon.c96_upgraded_zm","reserve_clips":2,"pistol_ranks":ranks,"pistol_replace_below":15,
@@ -288,11 +288,7 @@ pub fn read(
         "Converted {} native localized strings, player health and recovered round/solo-revive parameters",
         localized.len()
     );
-    let mut game = json!({"version":2,"delivery_scope":"first_playable_solo","player_health":{
-        "maximum":100,"regular_delay":2.4,"regular_step_fraction":1.,
-        "critical_delay":5.,"critical_ratio":0.2,"critical_step_seconds":0.05,"critical_step_fraction":0.1,
-        "worthy_damage_ratio":0.1,"immunity_regular":0.35,"immunity_critical_enter":0.5,
-        "immunity_critical_repeat":0.3,"feedback_seconds":0.8},
+    let mut game = json!({"version":2,"delivery_scope":"first_playable_solo",
         "rounds":rounds,"solo_revive":solo,"content":{"localized_strings":localized}});
     if !native_triggers.is_empty() {
         game["environment"] = json!({"triggers":native_triggers,"ownership":native_owners,"crafting_benches":crafting_benches});
