@@ -400,27 +400,22 @@ pub fn initial_roots(catalog: &Catalog<'_>, game: &Value) -> Result<BTreeSet<Str
         "misc/fx_zombie_cola_revive_on",
         "maps/zombie/fx_zmb_cola_revive_flicker",
         "misc/fx_zombie_couch_effect",
+        "maps/zombie_tomb/fx_tomb_capture_progression",
+        "maps/zombie_tomb/fx_tomb_capture_complete",
+        "maps/zombie_tomb/fx_tomb_capture_exhaust_back",
+        "maps/zombie_tomb/fx_tomb_emergence_spawn",
+        "maps/zombie_alcatraz/fx_alcatraz_afterlife_zmb_tport",
+        "maps/zombie_tomb/fx_tomb_screecher_vortex",
+        "maps/zombie_tomb/fx_tomb_crusader_torso_loop",
+        "maps/zombie/fx_zombie_crusader_eyes",
+        "maps/zombie_tomb/fx_tomb_capture_light_red",
+        "maps/zombie_tomb/fx_tomb_challenge_fire",
     ]
     .into_iter()
     .map(str::to_owned)
     .collect::<BTreeSet<_>>();
     if game["delivery_scope"] != "first_playable_solo" {
-        roots.extend(
-            [
-                "maps/zombie_tomb/fx_tomb_capture_progression",
-                "maps/zombie_tomb/fx_tomb_capture_complete",
-                "maps/zombie_tomb/fx_tomb_capture_exhaust_back",
-                "maps/zombie_tomb/fx_tomb_emergence_spawn",
-                "maps/zombie_alcatraz/fx_alcatraz_afterlife_zmb_tport",
-                "maps/zombie_tomb/fx_tomb_screecher_vortex",
-                "maps/zombie_tomb/fx_tomb_crusader_torso_loop",
-                "maps/zombie/fx_zombie_crusader_eyes",
-                "maps/zombie_tomb/fx_tomb_capture_light_red",
-                "maps/zombie_tomb/fx_tomb_capture_light_green",
-            ]
-            .into_iter()
-            .map(str::to_owned),
-        );
+        roots.insert("maps/zombie_tomb/fx_tomb_capture_light_green".into());
     }
     for weapon in game["content"]["weapons"].as_array().into_iter().flatten() {
         let name = weapon["id"]
