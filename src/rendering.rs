@@ -201,7 +201,11 @@ fn cluster_capacity(mut settings: ResMut<bevy::light::cluster::GlobalClusterSett
     }
 }
 
-pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>) {
+pub(crate) fn setup(
+    mut commands: Commands,
+    profile: Res<profile::VisualProfile>,
+    options: Res<crate::assets::LaunchOptions>,
+) {
     commands.insert_resource(bevy::light::PointLightShadowMap {
         size: profile.lantern_shadow_map_size,
     });
@@ -240,6 +244,9 @@ pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>
         bevy::anti_alias::dlss::Dlss::<bevy::anti_alias::dlss::DlssRayReconstructionFeature>::default(),
     ));
     camera.insert(bevy::audio::SpatialListener::new(0.2));
+    if cfg!(all(debug_assertions, feature = "dev-tools")) && options.validation_direct_draw {
+        camera.insert(bevy::render::view::NoIndirectDrawing);
+    }
 }
 
 fn configure(
