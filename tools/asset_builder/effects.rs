@@ -563,8 +563,8 @@ mod tests {
                             })
                             .collect();
                         println!(
-                            "Required superflare {name}/{index}: native color samples {colors:?}; atlas {}",
-                            element["atlas"]
+                            "Required superflare {name}/{index}: flags {}; native color samples {colors:?}; atlas {}",
+                            element["flags"], element["atlas"]
                         );
                     }
                 }
