@@ -215,6 +215,7 @@ pub(crate) struct CharacterSelections {
     groups: std::collections::BTreeMap<String, [u64; 6]>,
     round: u32,
     previous_spawn: Option<String>,
+    first_round_started: bool,
 }
 
 pub(crate) fn advance(
@@ -256,6 +257,7 @@ pub(crate) fn advance(
         characters.session = Some(*session_id);
         characters.groups.clear();
         characters.round = 0;
+        characters.first_round_started = false;
     }
     if characters.round != session.round {
         characters.round = session.round;
@@ -316,6 +318,16 @@ pub(crate) fn advance(
     session.spawn_timer.tick(time.delta());
     if session.pending == 0 || !session.spawn_timer.is_finished() {
         return;
+    }
+    if session.round == 1 && !characters.first_round_started {
+        if players.single().is_err() {
+            return;
+        }
+        characters.first_round_started = true;
+        started.write(RoundStarted {
+            session: *session_id,
+            round: session.round,
+        });
     }
     let reserve = generators.reserve() + usize::from(robots.triple_active) * 2;
     if population.ordinary + population.special
