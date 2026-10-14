@@ -117,6 +117,7 @@ fn setup(
         .content
         .generators
         .iter()
+        .filter(|generator| super::enabled(&game, generator))
         .find_map(|generator| generator.initial_reward.as_ref())
     else {
         return;
@@ -187,6 +188,7 @@ fn tick(
         .content
         .generators
         .iter()
+        .filter(|generator| super::enabled(&game, generator))
         .find_map(|generator| generator.initial_reward.as_ref())
     else {
         return;
@@ -368,6 +370,7 @@ fn collect(
         .content
         .generators
         .iter()
+        .filter(|generator| super::enabled(&game, generator))
         .find_map(|generator| generator.initial_reward.as_ref())
     else {
         return;

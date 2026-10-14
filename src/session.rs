@@ -85,7 +85,6 @@ fn initialize(world: &mut World) {
     world.insert_resource(crate::damage::CombatHistory::default());
     world.insert_resource(crate::powerups::PowerupEffects::default());
     world.insert_resource(crate::powerups::Drops::default());
-    world.insert_resource(crate::generators::Generators::default());
     world.insert_resource(crate::rounds::Population::default());
     world.insert_resource(crate::economy::PointLedger::default());
     crate::environment::weather::reset(world);
@@ -138,6 +137,7 @@ pub(crate) fn teardown(world: &mut World) {
         .for_each(drop);
     crate::solo_revive::reset(world);
     crate::enemies::reset(world);
+    crate::generators::reset(world);
     world.resource_mut::<crate::damage::DamageQueue>().0.clear();
     world
         .resource_mut::<crate::equipment::BlastQueue>()

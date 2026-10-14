@@ -402,16 +402,12 @@ pub(super) fn read(
             } else {
                 alias
             };
-            let motion = super::enemies::root_motion(clips[name.as_str()]);
-            let translation = motion["translation"].as_array().ok_or_else(|| {
-                format!("Initial capture traversal {name} has no native root translation")
-            })?;
             traversals
                 .entry(alias.to_owned())
                 .or_insert_with(|| json!([]))
                 .as_array_mut()
                 .unwrap()
-                .push(json!({"animation":animation_id(name),"seconds":motion["seconds"],"motion":translation}));
+                .push(super::enemies::traversal_clip(body, clips[name.as_str()])?);
         }
     }
     let attack = &clips[states["zm_walk_melee"][0].1.as_str()].clip;

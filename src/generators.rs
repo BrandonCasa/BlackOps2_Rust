@@ -11,11 +11,24 @@ use crate::{
 use bevy::prelude::*;
 use bevy::world_serialization::WorldInstanceReady;
 use std::collections::{BTreeMap, BTreeSet};
+mod effects;
 mod raids;
 mod rewards;
-mod effects;
 pub use raids::GeneratorRaids;
 pub(crate) use rewards::BoxGlowRamp;
+
+fn enabled(
+    game: &GameDefinition,
+    generator: &crate::origins::content::GeneratorDefinition,
+) -> bool {
+    game.delivery_scope == crate::origins::DeliveryScope::FullOrigins || generator.number == 1
+}
+
+pub(crate) fn reset(world: &mut World) {
+    world.insert_resource(Generators::default());
+    world.insert_resource(GeneratorRaids::default());
+    world.insert_resource(rewards::CaptureRewards::default());
+}
 
 pub(crate) fn use_point(origin: Vec3, eye: Vec3, box_size: f32) -> Vec3 {
     let center = origin + Vec3::Y * box_size * 0.5;
@@ -220,39 +233,12 @@ impl GeneratorDefender {
 pub struct GeneratorPlugin;
 impl Plugin for GeneratorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((rewards::CaptureRewardsPlugin,effects::CaptureEffectsPlugin))
+        app.add_plugins((rewards::CaptureRewardsPlugin, effects::CaptureEffectsPlugin))
             .init_resource::<Generators>()
-            .add_systems(
-                FixedUpdate,
-                raids::attack_state
-                    .in_set(GameStep::EnemyIntent)
-                    .after(crate::enemies::lifecycle)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(
-                FixedUpdate,
-                raids::drain
-                    .in_set(GameStep::Zombies)
-                    .before(tick)
-                    .run_if(in_state(GameState::Playing)),
-            )
             .init_resource::<raids::GeneratorRaids>()
             .add_systems(
                 OnEnter(GameState::PreparingShaders),
                 raids::reset.in_set(crate::session::SessionSetup::World),
-            )
-            .add_systems(
-                FixedUpdate,
-                raids::tick
-                    .in_set(GameStep::EnemyIntent)
-                    .before(crate::enemies::lifecycle)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(
-                FixedUpdate,
-                raids::deaths
-                    .in_set(GameStep::Rewards)
-                    .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
                 OnEnter(GameState::PreparingShaders),
@@ -284,6 +270,37 @@ impl Plugin for GeneratorPlugin {
                 Update,
                 (presentation, audio_evidence).run_if(in_state(GameState::Playing)),
             );
+        if app.world().resource::<crate::origins::DeliveryScope>()
+            == &crate::origins::DeliveryScope::FullOrigins
+        {
+            app.add_systems(
+                FixedUpdate,
+                raids::attack_state
+                    .in_set(GameStep::EnemyIntent)
+                    .after(crate::enemies::lifecycle)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                raids::drain
+                    .in_set(GameStep::Zombies)
+                    .before(tick)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                raids::tick
+                    .in_set(GameStep::EnemyIntent)
+                    .before(crate::enemies::lifecycle)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                raids::deaths
+                    .in_set(GameStep::Rewards)
+                    .run_if(in_state(GameState::Playing)),
+            );
+        }
     }
 }
 fn defender_intent(
@@ -593,7 +610,12 @@ fn assemble(
         return;
     }
     *generators = default();
-    for d in &definition.content.generators {
+    for d in definition
+        .content
+        .generators
+        .iter()
+        .filter(|d| enabled(&definition, d))
+    {
         generators.sites.insert(d.id.clone(), default());
         let Some(p) = definition
             .content
@@ -664,7 +686,12 @@ fn tick(
     players: Query<(Entity, &Player, &Transform, &Vitality)>,
 ) {
     let dt = time.delta_secs();
-    for d in &definition.content.generators {
+    for d in definition
+        .content
+        .generators
+        .iter()
+        .filter(|d| enabled(&definition, d))
+    {
         let Some(p) = definition
             .content
             .placements
