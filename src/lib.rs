@@ -144,15 +144,15 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             .set(
                 bevy::gltf::GltfPlugin::default()
                     .add_custom_vertex_attribute(
-                        "_ORIGINS_NORMAL",
+                        "ORIGINS_NORMAL",
                         rendering::opaque::FLAG_SOURCE_NORMAL,
                     )
                     .add_custom_vertex_attribute(
-                        "_ORIGINS_TANGENT",
+                        "ORIGINS_TANGENT",
                         rendering::opaque::FLAG_SOURCE_TANGENT,
                     )
                     .add_custom_vertex_attribute(
-                        "_ORIGINS_PACKED_BASIS",
+                        "ORIGINS_PACKED_BASIS",
                         rendering::opaque::FLAG_PACKED_BASIS,
                     ),
             )
