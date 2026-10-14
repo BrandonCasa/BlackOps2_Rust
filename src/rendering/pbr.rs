@@ -52,7 +52,7 @@ pub(super) fn textures(value: &serde_json::Value) -> Result<Vec<PreparedTexture>
     Ok(textures)
 }
 
-pub(super) fn validate(surface: &serde_json::Value) -> Result<(), String> {
+pub(crate) fn validate(surface: &serde_json::Value) -> Result<(), String> {
     if surface["version"] != 3 || surface["identity"].as_str().is_none_or(str::is_empty) {
         return Err("Unsupported prepared material version or missing identity".into());
     }

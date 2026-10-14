@@ -95,6 +95,8 @@ pub struct WeaponDefinition {
     pub id: WeaponId,
     pub name: String,
     #[serde(default)]
+    pub native_view_model_index: Option<u8>,
+    #[serde(default)]
     pub hud: Option<WeaponHud>,
     pub damage: u32,
     pub category: DamageCategory,
@@ -146,6 +148,7 @@ pub struct WeaponHud {
 #[derive(Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AttachmentDefinition {
+    pub native_selectors: Option<[u8; 3]>,
     pub alternate: Option<WeaponId>,
     pub ads_fov: Vec<f32>,
     pub ads_sight: Option<AdsSight>,
@@ -1019,6 +1022,15 @@ impl ContentCatalog {
                 Ok(())
             };
         for v in &self.weapons {
+            valid(
+                v.native_view_model_index.is_none_or(|index| index < 16)
+                    && v.attachments.values().all(|attachment| {
+                        attachment.native_selectors.is_none_or(|selectors| {
+                            selectors.into_iter().all(|selector| selector < 64)
+                        })
+                    }),
+                "Invalid native weapon material selectors",
+            )?;
             let m = &v.mechanics;
             let uses_ammo = matches!(
                 m.delivery,

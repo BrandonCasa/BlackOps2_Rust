@@ -134,6 +134,10 @@ impl PreparedArt {
         self.data["camo_uri"].as_str()
     }
 
+    pub(crate) fn native_model(&self, scene: &str) -> Option<&str> {
+        self.model(scene)?["name"].as_str()
+    }
+
     pub(crate) fn bind(&self, game: &mut crate::origins::GameDefinition) -> Result<(), String> {
         let world = self.world().ok_or("Prepared Origins world is missing")?;
         let uri = |value: &Value, key: &str| {

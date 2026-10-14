@@ -30,6 +30,7 @@ pub(crate) use opaque::OpaqueSurfaceStatus;
 #[cfg(feature = "dev-tools")]
 pub(crate) use opaque::weapon_material_snapshot;
 pub(crate) use pbr::PbrReady;
+pub(crate) use pbr::validate as validate_surface;
 pub(crate) use preprocessing::PreprocessingStatus;
 
 pub(crate) const BASE_FOV_DEGREES: f32 = 55.;

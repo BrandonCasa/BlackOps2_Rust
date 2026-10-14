@@ -146,6 +146,20 @@ struct OrdinaryRecipe {
 
 fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
     let (expected,normal,specular,coverage) = match family {
+        "mlv_lit_sm_b0c0_50077370" => ("pimp_shader_lprobe_be61ff8.hlsl", false, 0, 1),
+        "mlv_lit_sm_b0c0n0_322zqw73" => ("pimp_shader_lprobe_37d3284d.hlsl", true, 0, 1),
+        "mlv_lit_sm_b0c0s0_41731e52" => ("pimp_shader_lprobe_e044b950.hlsl", false, 1, 1),
+        "mlv_lit_sm_r0c0_475q06w3" => ("pimp_shader_lprobe_7d8789b8.hlsl", false, 0, 0),
+        "mlv_lit_sm_r0c0n0x0_619829wj" => ("pimp_shader_lprobe_ae06fc7b.hlsl", true, 2, 0),
+        "mlv_lit_sm_r0c0_j60qqj0e" => ("pimp_shader_lprobe_cb9c69c8.hlsl", false, 0, 0),
+        "mlv_lit_sm_r0c0n0s0_wqqj839w" => ("pimp_shader_lprobe_1c0bf8d5.hlsl", true, 1, 0),
+        "mlv_lit_sm_r0c0n0_3qf192ew" => ("pimp_shader_lprobe_f7a95e7d.hlsl", true, 0, 0),
+        "mlv_lit_sm_t0c0n0s0_9jfj95q5" => ("pimp_shader_lprobe_e183a077.hlsl", true, 1, 2),
+        "mc_lit_sm_t0c0n0s0_f933q84u" => ("pimp_shader_lprobe_c793a237.hlsl", true, 1, 2),
+        "mc_lit_sm_b0c0n0s0_68f25z0u" => ("pimp_shader_lprobe_fa618ca5.hlsl", true, 1, 1),
+        "mc_lit_sm_b0c0s0_q94f27qw" => ("pimp_shader_lprobe_c654bb10.hlsl", false, 1, 1),
+        "mc_lit_sm_b0c0n0v0_3559e8jj" => ("pimp_shader_lprobe_66c64d74.hlsl", true, 0, 1),
+        "wpc_lit_sm_b0c0n0v0_ew347fe3" => ("pimp_shader_lmap_82e99c4e.hlsl", true, 0, 1),
         "mc_lit_sm_r0c0d0n0_33ffej1u" => ("pimp_shader_lprobe_ecd7a93c.hlsl", true, 0, 0),
         "mc_lit_sm_r0c0d0n0s0_qwq4q449" => ("pimp_shader_lprobe_7750f94.hlsl", true, 1, 0),
         "mc_lit_sm_t0c0d0n0s0_68eww765" => ("pimp_shader_lprobe_fafd5736.hlsl", true, 1, 2),
@@ -185,6 +199,20 @@ fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
         _ => return None,
     };
     let programs = match family {
+        "mlv_lit_sm_b0c0_50077370" => Some(["pimp_shader_lprobe_bcc4a7bc.hlsl","pimp_shader_lprobe_8a9b1683.hlsl","pimp_shader_lprobe_52046ecd.hlsl"]),
+        "mlv_lit_sm_b0c0n0_322zqw73" => Some(["pimp_shader_lprobe_63b41dee.hlsl","pimp_shader_lprobe_55ebacd1.hlsl","pimp_shader_lprobe_6e315978.hlsl"]),
+        "mlv_lit_sm_b0c0s0_41731e52" => Some(["pimp_shader_lprobe_bcc4a7bc.hlsl","pimp_shader_lprobe_8a9b1683.hlsl","pimp_shader_lprobe_b9a6c865.hlsl"]),
+        "mlv_lit_sm_r0c0_475q06w3" => Some(["pimp_shader_lprobe_bcc4a7bc.hlsl","pimp_shader_lprobe_8a9b1683.hlsl","pimp_shader_lprobe_2465f88d.hlsl"]),
+        "mlv_lit_sm_r0c0n0x0_619829wj" => Some(["pimp_shader_lprobe_63b41dee.hlsl","pimp_shader_lprobe_55ebacd1.hlsl","pimp_shader_lprobe_f7e48d4e.hlsl"]),
+        "mlv_lit_sm_r0c0_j60qqj0e" => Some(["pimp_shader_lprobe_bcc4a7bc.hlsl","pimp_shader_lprobe_8a9b1683.hlsl","pimp_shader_lprobe_927e18fd.hlsl"]),
+        "mlv_lit_sm_r0c0n0s0_wqqj839w" => Some(["pimp_shader_lprobe_63b41dee.hlsl","pimp_shader_lprobe_55ebacd1.hlsl","pimp_shader_lprobe_45e989e0.hlsl"]),
+        "mlv_lit_sm_r0c0n0_3qf192ew" => Some(["pimp_shader_lprobe_63b41dee.hlsl","pimp_shader_lprobe_55ebacd1.hlsl","pimp_shader_lprobe_ae4b2f48.hlsl"]),
+        "mlv_lit_sm_t0c0n0s0_9jfj95q5" => Some(["pimp_shader_lprobe_63b41dee.hlsl","pimp_shader_lprobe_55ebacd1.hlsl","pimp_shader_lprobe_b861d142.hlsl"]),
+        "mc_lit_sm_t0c0n0s0_f933q84u" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_9e71d302.hlsl"]),
+        "mc_lit_sm_b0c0n0s0_68f25z0u" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_a383fd90.hlsl"]),
+        "mc_lit_sm_b0c0s0_q94f27qw" => Some(["pimp_shader_lprobe_eb01efa5.hlsl","pimp_shader_lprobe_dd5e5e9a.hlsl","pimp_shader_lprobe_9fb6ca25.hlsl"]),
+        "mc_lit_sm_b0c0n0v0_3559e8jj" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_3f243c41.hlsl"]),
+        "wpc_lit_sm_b0c0n0v0_ew347fe3" => Some(["pimp_shader_lmap_d107eac0.hlsl","pimp_shader_lmap_5ab92038.hlsl","pimp_shader_lmap_f0c69578.hlsl"]),
         "mc_lit_sm_r0c0d0n0_33ffej1u" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_b535d809.hlsl"]),
         "mc_lit_sm_r0c0d0n0s0_qwq4q449" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_5e977ea1.hlsl"]),
         "mc_lit_sm_t0c0d0n0s0_68eww765" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_a31f2603.hlsl"]),
@@ -227,6 +255,7 @@ fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
 fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Result<()> {
     let OrdinaryRecipe {expected,normal,specular,coverage,detail,occlusion,camo,programs} = *recipe;
     let family = material["technique_set"].as_str().ok_or("Missing native material technique")?;
+    let reveal = matches!(family,"mc_lit_sm_b0c0n0v0_3559e8jj" | "wpc_lit_sm_b0c0n0v0_ew347fe3");
     let techniques = material["techniques"].as_array().ok_or("Missing native material techniques")?;
     let lit = techniques.iter().find(|technique| technique["index"] == 4).ok_or("Ordinary lit technique is missing")?;
     let passes = lit["passes"].as_array().ok_or("Native technique pass array is missing")?;
@@ -257,7 +286,7 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
         let mut routes = vec![json!({"source":0,"destination":0}),json!({"source":1,"destination":2}),
             json!({"source":2,"destination":5}),json!({"source":3,"destination":1})];
         if normal { routes.push(json!({"source":4,"destination":7})); }
-        if family.starts_with("wpc_") { routes.push(json!({"source":5,"destination":6})); }
+        if family.starts_with("wpc_") || family.starts_with("mlv_") { routes.push(json!({"source":5,"destination":6})); }
         let mut inputs = BTreeMap::from([(2695565377_u32,0_u64)]);
         if normal { inputs.insert(1507003663,257); }
         if specular == 1 { inputs.insert(887934131,if detail {515} else if normal {514} else {257}); }
@@ -289,6 +318,7 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
                 let hash = argument["value"].as_u64().ok_or("Missing material constant hash")?;
                 let expected = match hash {
                     2418533825 => (672,12),
+                    2932833280 if reveal => (928,16),
                     148072969 if detail => (848,16),
                     411508820 if camo && occlusion != 0 && pass_index == 1 => (1008,16),
                     _ => return Err(format!("Reviewed material {key} has an unreviewed active material constant").into()),
@@ -305,6 +335,16 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
             }
             if detail && arguments.iter().filter(|argument| argument["type"] == 6 && argument["value"] == 148072969_u32).count() != 1 {
                 return Err(format!("Reviewed material {key} lacks its bound detailScale").into());
+            }
+            if reveal {
+                if arguments.iter().filter(|argument| argument["type"] == 6 && argument["value"] == 2932833280_u32).count() != 1 {
+                    return Err(format!("Reviewed reveal material {key} lacks its bound alphaRevealParms").into());
+                }
+                let constant = material["constants"].as_array().unwrap().iter().find(|constant| constant["hash"] == 2932833280_u32).unwrap();
+                let parameters: [f32;4] = serde_json::from_value(constant["literal"].clone())?;
+                if parameters[0] <= 0. || parameters[1] < 0. {
+                    return Err(format!("Reviewed reveal material {key} has invalid reveal parameters").into());
+                }
             }
             if camo && occlusion != 0 && pass_index == 1
                 && arguments.iter().filter(|argument| argument["type"] == 6 && argument["value"] == 411508820_u32).count() != 1 {
@@ -455,6 +495,7 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
         };
         validate_ordinary(key,material,&recipe)?;
         let OrdinaryRecipe {normal,specular,coverage,detail,occlusion,camo,..} = recipe;
+        let reveal = matches!(family,"mc_lit_sm_b0c0n0v0_3559e8jj" | "wpc_lit_sm_b0c0n0v0_ew347fe3");
         let lit = material["techniques"].as_array().unwrap().iter().find(|technique| technique["index"] == 4).unwrap();
         let passes = lit["passes"].as_array().unwrap();
         let mut channels = Vec::new();
@@ -465,9 +506,10 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
         } else { None };
         let mut source_camo = Value::Null;
         let mut source_inputs = BTreeMap::new();
-        if camo || occlusion != 0 || detail {
+        if camo || occlusion != 0 || detail || reveal {
             let mut inputs = Vec::new();
             if camo { inputs.extend([(2695565377_u32,"source_color"),(3183121296,"source_camo")]); }
+            if reveal { inputs.push((2695565377,"source_color")); }
             if occlusion != 0 { inputs.push((1610742065,"source_occlusion")); }
             if detail { inputs.push((3948059469,"source_detail_normal")); }
             for (hash,role) in inputs {
@@ -543,14 +585,14 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
             let names = [color["image"].as_str().unwrap().to_ascii_lowercase(),specular["image"].as_str().unwrap().to_ascii_lowercase()];
             let samplers = [color["sampler"].as_u64().unwrap() as u8,specular["sampler"].as_u64().unwrap() as u8];
             let mut pair = format!("{}:{}:{}:{}",names[0],names[1],samplers[0],samplers[1]);
-            let occlusion_input = if camo && occlusion != 0 && camo_parameters.is_some() {
+            let occlusion_input = if camo && occlusion != 0 && camo_parameters.is_some_and(|parameters| parameters[3] != 0.) {
                 let binding = bindings.iter().find(|value| value["hash"] == 1610742065_u32).ok_or("Missing bound camo occlusion")?;
                 let name = binding["image"].as_str().ok_or("Missing bound camo occlusion image")?.to_ascii_lowercase();
                 let sampler = binding["sampler"].as_u64().ok_or("Missing bound camo occlusion sampler")? as u8;
                 pair.push_str(&format!(":occlusion:{name}:{sampler}"));
                 Some((images.get(&name).ok_or_else(|| format!("Missing bound camo occlusion image {name}"))?,sampler))
             } else { None };
-            let camo_input = if let Some(parameters) = camo_parameters {
+            let camo_input = if let Some(parameters) = camo_parameters.filter(|parameters| parameters[3] != 0.) {
                 let binding = bindings.iter().find(|value| value["hash"] == 3183121296_u32).ok_or("Missing bound camo image")?;
                 let name = binding["image"].as_str().ok_or("Missing bound camo image name")?.to_ascii_lowercase();
                 let sampler = binding["sampler"].as_u64().ok_or("Missing bound camo sampler")? as u8;
@@ -588,6 +630,35 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
             converted.get_mut(key).unwrap()["extras"]["surface"]["pending_runtime"] = json!("Native glass fragment uses sqrt coverage and coverage-independent specular before gamma2 premultiplied composition; the shared linear PBR consumer does not yet reproduce that blend");
         }
         let surface = &mut converted.get_mut(key).unwrap()["extras"]["surface"];
+        if family.starts_with("mlv_") {
+            surface["source_vertex_lighting"] = json!({"source":5,"destination":6,
+                "encoded_rgb_scale":32.,"transfer":"gamma2_before_vertex_interpolation",
+                "diffuse":{"operation":"divide_by_grid_spherical_harmonics","buffer":3,"rows":[5,6,7],"minimum":0.1},
+                "specular":{"operation":"divide_by_reflection_spherical_harmonics","buffer":3,"rows":[8,9,10],"minimum":0.1},
+                "alpha":"sun_shadow_fallback","stage":"separate_indirect_lighting_terms"});
+            surface["pending_runtime"] = json!("Native vertex-lit material requires its secondary vertex RGB divided by separate grid/reflection spherical-harmonic responses before interpolation, separate indirect lighting multipliers and secondary-alpha sun-shadow fallback; geometry delivery and runtime lighting consumers remain unconnected");
+            if specular == 2 {
+                surface["source_ambient_specular"] = json!({"gloss_scale":0.0275,"bias":0.015,"fresnel_cap_scale":0.475});
+            }
+            if coverage == 2 { surface["source_framebuffer_alpha"] = json!("texture_vertex_coverage_after_cutoff"); }
+            if coverage == 1 {
+                surface["source_fragment_alpha"] = json!("sqrt_texture_vertex_coverage");
+                surface["pending_runtime"] = json!("Native translucent vertex-lit material requires separate vertex grid/probe multipliers and secondary-alpha shadow fallback, plus sqrt coverage and coverage-scaled fog in gamma2 premultiplied composition; geometry and runtime consumers remain unconnected");
+            }
+            if family == "mlv_lit_sm_r0c0_475q06w3" {
+                surface["source_vertex_alpha"] = json!("indirect_diffuse");
+                surface["pending_runtime"] = json!("Native vertex-lit cheap sandbag additionally attenuates indirect diffuse with primary vertex alpha while retaining opaque coverage and unattenuated sun lighting; separate vertex grid/probe and shadow-fallback consumers remain unconnected");
+            }
+        }
+        if reveal {
+            let parameters = &material["constants"].as_array().unwrap().iter().find(|value| value["hash"] == 2932833280_u32).unwrap()["literal"];
+            surface["source_coverage"] = json!("gamma2_reveal_premultiplied");
+            surface["source_reveal"] = json!({"input":source_inputs["source_color"],"parameters":parameters,
+                "vertex_channel":"alpha","vertex_scale":f32::from_bits(0x3f7f7cee),"vertex_bias":f32::from_bits(0x3a83126f),
+                "operation":"saturate_texture_alpha_between_vertex_power_thresholds"});
+            surface["source_fragment_alpha"] = json!("sqrt_reveal_coverage");
+            surface["pending_runtime"] = json!("Native alpha reveal uses interpolated vertex alpha and authored power thresholds before coverage, sqrt fragment alpha and gamma2 premultiplied fog composition; geometry-dependent reveal baking and matching runtime composition remain unconnected");
+        }
         if let Some((_,_,parameters)) = detail_input {
             surface["source_detail_normal"] = json!({"input":source_inputs["source_detail_normal"],"parameters":parameters,
                 "operation":"scaled_slope_add_before_normalization","uv":"multiply_xy"});
@@ -605,15 +676,28 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
                 surface["pending_runtime"] = json!("Native catwalk gamma2 premultiplied lighting writes sqrt coverage and applies distinct source occlusion channels to lighting terms; the shared PBR consumer does not yet reproduce that composition");
             }
         }
-        if matches!(family,"mc_lit_sm_r0c0n0s0_ze50j7jz" | "mc_lit_sm_r0c0n0s0o0_909j993q") {
+        if matches!(family,"mc_lit_sm_r0c0n0s0_ze50j7jz" | "mc_lit_sm_r0c0n0s0o0_909j993q" | "mc_lit_sm_t0c0n0s0_f933q84u" | "mc_lit_sm_b0c0n0s0_68f25z0u" | "mc_lit_sm_b0c0s0_q94f27qw") {
             surface["source_color_matrix"] = json!({"buffer":0,"rows":[114,115,116],"stage":"linear_lighting_before_fog"});
         }
         match family {
+            "mc_lit_sm_t0c0n0s0_f933q84u" => {
+                surface["source_framebuffer_alpha"] = json!("texture_vertex_coverage_after_cutoff");
+                surface["pending_runtime"] = json!("Native masked Ray Gun material applies the model color matrix to linear lighting before fog and retains texture times vertex framebuffer alpha after cutoff; both runtime consumers remain unconnected");
+            }
+            "mc_lit_sm_b0c0n0s0_68f25z0u" | "mc_lit_sm_b0c0s0_q94f27qw" => {
+                surface["source_fragment_alpha"] = json!("sqrt_texture_vertex_coverage");
+                surface["source_color_matrix"]["stage"] = json!("coverage_scaled_linear_lighting_before_fog");
+                surface["pending_runtime"] = json!("Native translucent model material applies coverage to diffuse plus specular before its affine color matrix, then coverage-scaled fog and sqrt fragment alpha in gamma2 premultiplied composition; matching runtime composition remains unconnected");
+            }
             "mc_lit_sm_r0c0n0s0_ze50j7jz" => {
                 surface["pending_runtime"] = json!("Native model color matrix must be applied to linear diffuse plus specular before fog; its runtime parameter binding is not connected");
             }
             "mc_lit_sm_r0c0n0s0_7j414q0z" => {
-                surface["pending_runtime"] = json!("Native attachment camo needs per-model image overrides and weaponParam2 updates; packed source inputs and explicit-state conversion do not establish the live owner state");
+                if camo_parameters.is_none() {
+                    surface["pending_runtime"] = json!("Native attachment camo requires a bound per-object submission; unresolved world, dual-hand and alternate-weapon inputs prevent pack closure");
+                } else {
+                    surface["camo_binding"] = json!("prepared_native_input_state");
+                }
             }
             "mc_lit_sm_r0c0n0s0_4w3wqfe5" => {
                 surface["source_uv_animation"] = json!({"code_constant":25,"component":2,"translation":[0.,-1.]});
@@ -881,6 +965,59 @@ pub fn read_used(catalog: &Catalog<'_>, names: &std::collections::BTreeSet<Strin
     }
     println!("Read {} used native materials in {} technique families", materials.len(), families.len());
     Ok(materials)
+}
+
+pub fn camo_variants(library: &mut crate::camo::Library) -> Result<BTreeMap<String,Value>> {
+    let mut inputs = BTreeMap::new();
+    let crate::camo::Library {variants,materials,definitions,options,..} = library;
+    let mut add = |bound: Value| {
+        if variants.iter().any(|variant| variant.inputs == bound) { return; }
+        let key = format!("camo.{}",variants.len());
+        variants.push(crate::camo::PreparedVariant {inputs:bound.clone(),surface:None,
+            pending:Some("Native camo state has not been converted".into())});
+        inputs.insert(key,bound);
+    };
+    let initial = BTreeMap::from([(181,[0.;4])]);
+    for material in materials.values() {
+        let active = material["techniques"].as_array().ok_or("Missing camo material techniques")?.iter()
+            .filter(|technique| technique["index"] == 4 || technique["index"] == 6)
+            .flat_map(|technique| technique["passes"].as_array().into_iter().flatten())
+            .flat_map(|pass| pass["arguments"].as_array().into_iter().flatten())
+            .any(|argument| argument["type"] == 5 && matches!(argument["value"].as_u64(),Some(16777397 | 16777401)));
+        if active { add(crate::camo::camo_inputs(&[],material,1,&initial)?.0); }
+    }
+    for camo in definitions.values() {
+        let mut queue = Vec::new();
+        crate::camo::queue_camo(camo,options,45,0.,2,materials,&mut queue)?;
+        let originals: std::collections::BTreeSet<_> = queue.iter().filter_map(|command| {
+            if let crate::camo::CamoOverride::Material {from,..} = command {Some(from.as_str())} else {None}
+        }).collect();
+        for original in originals {
+            let selected = crate::camo::camo_material(&queue,original,1);
+            let material = materials.get(selected).ok_or_else(|| format!("Missing selected camo material {selected}"))?;
+            add(crate::camo::camo_inputs(&queue,material,1,&initial)?.0);
+        }
+    }
+    Ok(inputs)
+}
+
+pub fn finish_camos(library: &mut crate::camo::Library, converted: &BTreeMap<String,Value>, pack: &mut Pack) -> Result<Vec<String>> {
+    let mut pending = Vec::new();
+    for (index,variant) in library.variants.iter_mut().enumerate() {
+        let key = format!("camo.{index}");
+        let surface = converted.get(&key).map(|material| &material["extras"]["surface"]);
+        let reason = surface.and_then(|surface| surface["pending_runtime"].as_str()).map(str::to_owned)
+            .or_else(|| surface.is_none().then(|| format!("Native camo material {} needs conversion for technique {} with its scoped source inputs",
+                variant.inputs["name"],variant.inputs["technique_set"])));
+        variant.pending = reason.clone();
+        variant.surface = reason.is_none().then(|| surface.unwrap().clone());
+        if let Some(reason) = reason { pending.push(format!("{key}: {reason}")); }
+    }
+    library.validate()?;
+    if pack.entries.insert("prepared/camo.json".into(),Arc::new(serde_json::to_vec(library)?)).is_some() {
+        return Err("Duplicate native camo library".into());
+    }
+    Ok(pending)
 }
 
 #[cfg(test)]

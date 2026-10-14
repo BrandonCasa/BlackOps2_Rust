@@ -64,6 +64,158 @@ pub struct ViewmodelMaterials {
     pub descriptors: Vec<CamoDescriptor>,
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PreparedVariant {
+    pub inputs: Value,
+    pub surface: Option<Value>,
+    pub pending: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Library {
+    pub version: u32,
+    pub definitions: BTreeMap<String, CamoDefinition>,
+    pub options: Vec<Option<CamoOption>>,
+    pub weapons: BTreeMap<String, WeaponMaterials>,
+    pub attachments: BTreeMap<String, AttachmentMaterials>,
+    pub knife_camo: String,
+    pub optic_switch: f32,
+    pub materials: BTreeMap<String, Value>,
+    pub variants: Vec<PreparedVariant>,
+}
+
+impl Library {
+    pub fn validate(&self) -> Result<()> {
+        if self.version != 3
+            || self.options.len() != 128
+            || !self.optic_switch.is_finite()
+            || !(0. ..=1.).contains(&self.optic_switch)
+            || !self.definitions.contains_key(&self.knife_camo)
+        {
+            return Err("Invalid native camo library controls".into());
+        }
+        for weapon in self.weapons.values() {
+            if weapon.main_models.len() != 16 || weapon.attachments.len() != 95 {
+                return Err("Native weapon material selector table has the wrong size".into());
+            }
+            for name in weapon.attachments.iter().flatten() {
+                if !self.attachments.contains_key(name) {
+                    return Err(format!("Missing native attachment selector {name}"));
+                }
+            }
+        }
+        for name in self
+            .weapons
+            .values()
+            .filter_map(|weapon| weapon.camo.as_ref())
+            .chain(
+                self.attachments
+                    .values()
+                    .filter_map(|attachment| attachment.camo.as_ref()),
+            )
+        {
+            if !self.definitions.contains_key(name) {
+                return Err(format!("Missing selected native camo {name}"));
+            }
+        }
+        for variant in &self.variants {
+            let name = variant.inputs["name"]
+                .as_str()
+                .ok_or("Camo variant has no native material")?;
+            if !self.materials.contains_key(name)
+                || variant.surface.is_some() == variant.pending.is_some()
+            {
+                return Err(format!("Invalid prepared camo variant {name}"));
+            }
+            if let Some(surface) = &variant.surface {
+                if surface["version"] != 3
+                    || surface["identity"].as_str().is_none_or(str::is_empty)
+                    || surface["pending_runtime"].as_str().is_some()
+                {
+                    return Err(format!("Unresolved prepared camo variant {name}"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn resolve_knife(&mut self) -> Result<()> {
+        if self.definitions.contains_key(&self.knife_camo) {
+            return Ok(());
+        }
+        if self.knife_camo != "camo_knife" {
+            return Err(format!(
+                "Unreviewed missing knife camo selector {}",
+                self.knife_camo
+            ));
+        }
+        let template = self
+            .definitions
+            .get("defaultcamo")
+            .ok_or("Native knife camo lookup requires the missing installed defaultcamo template")?
+            .clone();
+        self.definitions.insert(self.knife_camo.clone(), template);
+        Ok(())
+    }
+
+    pub fn bound_inputs(
+        &self,
+        queue: &[CamoOverride],
+        original: &str,
+        model_index: u32,
+    ) -> Result<Value> {
+        let selected = camo_material(queue, original, model_index);
+        let material = self
+            .materials
+            .get(selected)
+            .ok_or_else(|| format!("Selected native camo material {selected} is missing"))?;
+        camo_inputs(
+            queue,
+            material,
+            model_index,
+            &BTreeMap::from([(181, [0.; 4])]),
+        )
+        .map(|(bound, _)| bound)
+    }
+
+    pub fn prepared(&self, inputs: &Value) -> Result<&Value> {
+        let name = inputs["name"]
+            .as_str()
+            .ok_or("Bound camo input has no native material")?;
+        let variant = self
+            .variants
+            .iter()
+            .find(|variant| variant.inputs == *inputs)
+            .ok_or_else(|| format!("Native camo input state is not prepared: {name}"))?;
+        variant.surface.as_ref().ok_or_else(|| {
+            variant
+                .pending
+                .clone()
+                .unwrap_or_else(|| format!("Native camo variant is incomplete: {name}"))
+        })
+    }
+
+    pub fn needs_binding(&self, original: &str, inputs: &Value) -> Result<bool> {
+        let material = self
+            .materials
+            .get(original)
+            .ok_or_else(|| format!("Native material {original} is missing"))?;
+        let baseline = camo_inputs(&[], material, 0, &BTreeMap::from([(181, [0.; 4])]))?.0;
+        let parameter = material["techniques"]
+            .as_array()
+            .ok_or("Missing native material techniques")?
+            .iter()
+            .filter(|technique| technique["index"] == 4 || technique["index"] == 6)
+            .flat_map(|technique| technique["passes"].as_array().into_iter().flatten())
+            .flat_map(|pass| pass["arguments"].as_array().into_iter().flatten())
+            .any(|argument| {
+                argument["type"] == 5
+                    && matches!(argument["value"].as_u64(), Some(16777397 | 16777401))
+            });
+        Ok(parameter || baseline != *inputs)
+    }
+}
+
 fn selected_attachments(weapon: &WeaponMaterials, packed: u32) -> Result<[Option<&str>; 3]> {
     let at = |index: u32| {
         weapon
@@ -572,6 +724,96 @@ pub fn camo_inputs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn combined_viewmodel_uses_selected_descriptor_camo_and_actual_append_indices() {
+        let mut weapon = WeaponMaterials {
+            camo: Some("main_camo".into()),
+            main_models: vec![None; 16],
+            variant_models: std::array::from_fn(|_| None),
+            attachments: vec![None; 95],
+            definition28: 0,
+            definition44: 0,
+        };
+        weapon.main_models[0] = Some("main".into());
+        weapon.variant_models[0] = Some("hip".into());
+        weapon.variant_models[7] = Some("ads".into());
+        weapon.attachments[0] = Some("none".into());
+        weapon.attachments[1] = Some("optic".into());
+        weapon.attachments[12] = Some("grip".into());
+        weapon.attachments[63] = Some("combined".into());
+        let empty = AttachmentMaterials {
+            camo: None,
+            attachment_type: 0,
+            chain_next: 0,
+            chain_head: 0,
+            combination_mask: 0,
+            suppress168: 0,
+            suppress169: 0,
+            models: [None, None, None],
+        };
+        let mut attachments = BTreeMap::from([
+            ("none".into(), empty.clone()),
+            (
+                "optic".into(),
+                AttachmentMaterials {
+                    camo: Some("original_optic_camo".into()),
+                    attachment_type: 1,
+                    chain_head: 63,
+                    ..empty.clone()
+                },
+            ),
+            (
+                "grip".into(),
+                AttachmentMaterials {
+                    attachment_type: 12,
+                    models: [Some("grip_model".into()), None, None],
+                    ..empty.clone()
+                },
+            ),
+            (
+                "combined".into(),
+                AttachmentMaterials {
+                    camo: Some("displayed_definition_camo".into()),
+                    attachment_type: 63,
+                    combination_mask: 1 << 12,
+                    models: [
+                        Some("combined_hip".into()),
+                        Some("secondary".into()),
+                        Some("combined_ads".into()),
+                    ],
+                    ..empty
+                },
+            ),
+        ]);
+        let packed = (1 << 8) | (12 << 14);
+        for (mode, variant, optic) in [(0, "hip", "combined_hip"), (1, "ads", "combined_ads")] {
+            let result =
+                viewmodel_materials(&weapon, None, &attachments, "cached", packed, 0, 0, mode)
+                    .unwrap();
+            assert_eq!(
+                result.models,
+                ["cached", "main", variant, optic, "secondary", "grip_model"]
+            );
+            assert_eq!(result.descriptors[0].mask, 6);
+            assert_eq!(result.descriptors[1].mask, 24);
+            assert_eq!(
+                result.descriptors[1].camo.as_deref(),
+                Some("original_optic_camo")
+            );
+            assert_eq!(result.descriptors[2].mask, 32);
+        }
+        attachments.get_mut("optic").unwrap().suppress168 = 1;
+        let result =
+            viewmodel_materials(&weapon, None, &attachments, "cached", packed, 0, 0, 1).unwrap();
+        assert_eq!(
+            result.models,
+            ["cached", "main", "combined_ads", "secondary", "grip_model"]
+        );
+        assert_eq!(result.descriptors[0].mask, 2);
+        assert_eq!(result.descriptors[1].mask, 12);
+    }
+
     #[test]
     fn camo_pattern_requires_both_image_swaps_and_keeps_partial_failure() {
         let mut options = vec![None; 128];
