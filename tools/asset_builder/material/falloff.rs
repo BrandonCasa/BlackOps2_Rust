@@ -10,6 +10,30 @@ pub(super) struct FalloffRecipe {
 
 pub(super) fn falloff_recipe(family: &str) -> Option<FalloffRecipe> {
     Some(match family {
+        "mc_sw4_3d_unlit_3layer_normal_script_q0zez5ju" => FalloffRecipe {
+            index: 4,
+            vertex: "pimp_shader_sw4_3d_unlit_3layer_normal_script_254a3594.hlsl",
+            pixel: "pimp_shader_sw4_3d_unlit_3layer_normal_script_654e07c7.hlsl",
+            mode: "normal_script",
+        },
+        "mlv_sw4_3d_unlit_3layer_normal_script_766fz50u" => FalloffRecipe {
+            index: 4,
+            vertex: "pimp_shader_sw4_3d_unlit_3layer_normal_script_63533fae.hlsl",
+            pixel: "pimp_shader_sw4_3d_unlit_3layer_normal_script_23570dfd.hlsl",
+            mode: "normal_script",
+        },
+        "wpc_sw4_3d_unlit_3layer_normal_script_q1z1f6w1" => FalloffRecipe {
+            index: 4,
+            vertex: "pimp_shader_sw4_3d_unlit_3layer_normal_script_88827d5f.hlsl",
+            pixel: "pimp_shader_sw4_3d_unlit_3layer_normal_script_c8864f0c.hlsl",
+            mode: "normal_script_unlit",
+        },
+        "mc_sw4_3d_unlit_4layer_jw0z1973" => FalloffRecipe {
+            index: 4,
+            vertex: "pimp_shader_sw4_3d_unlit_4layer_163dc1b5.hlsl",
+            pixel: "pimp_shader_sw4_3d_unlit_4layer_2f7d01e1.hlsl",
+            mode: "four_opaque",
+        },
         "mc_sw4_3d_unlit_3layer_nofog_falloff_w840w777" => FalloffRecipe {
             index: 4,
             vertex: "pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_197b665e.hlsl",
@@ -28,7 +52,8 @@ pub(super) fn falloff_recipe(family: &str) -> Option<FalloffRecipe> {
             pixel: "pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_c21aa953.hlsl",
             mode: "blend",
         },
-        "mc_sw4_3d_unlit_3layer_nofog_falloff_zfeather_wq4jwzz6" => FalloffRecipe {
+        "mc_sw4_3d_unlit_3layer_nofog_falloff_zfeather_wq4jwzz6"
+        | "mlv_sw4_3d_unlit_3layer_nofog_falloff_zfeather_z0zw1090" => FalloffRecipe {
             index: 3,
             vertex: "pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_zfeather_a5140590.hlsl",
             pixel: "pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_zfeather_4b540a08.hlsl",
@@ -77,9 +102,11 @@ pub(super) fn validate_falloff(
         mode,
     } = recipe;
     let feather = mode == "zfeather";
-    let four = mode == "four_add";
+    let four = matches!(mode, "four_add" | "four_opaque");
+    let normal = mode.starts_with("normal_script");
+    let reflective_normal = mode == "normal_script";
     let mut routes = vec![json!({"source":0,"destination":0})];
-    if feather {
+    if feather || normal {
         routes.push(json!({"source":1,"destination":2}));
     }
     routes.extend([
@@ -87,7 +114,7 @@ pub(super) fn validate_falloff(
         json!({"source":3,"destination":1}),
         json!({"source":4,"destination":7}),
     ]);
-    if family.starts_with("mlv_") {
+    if family.starts_with("mlv_") && !feather {
         routes.push(json!({"source":5,"destination":6}));
     }
     let mut constants = BTreeMap::from([
@@ -112,7 +139,7 @@ pub(super) fn validate_falloff(
         (3379389788, (220, 4)),
         (3416155453, (224, 4)),
     ]);
-    if mode != "opaque" {
+    if mode != "opaque" && !normal {
         constants.insert(3410903492, (160, 4));
     }
     if feather {
@@ -136,6 +163,21 @@ pub(super) fn validate_falloff(
             (3756660378, (276, 4)),
             (2389732611, (280, 8)),
         ]);
+        if mode == "four_opaque" {
+            constants.insert(14836402, (164, 4));
+            constants.insert(211931156, (232, 4));
+            constants.remove(&3762764771);
+        }
+    } else if normal {
+        constants.insert(14836402, (232, 4));
+        if reflective_normal {
+            constants.extend([
+                (3432544439, (228, 4)),
+                (211931156, (236, 4)),
+                (1732624492, (240, 8)),
+                (2065614284, (248, 4)),
+            ]);
+        }
     } else {
         constants.extend([
             (3432544439, (228, 4)),
@@ -154,7 +196,7 @@ pub(super) fn validate_falloff(
     ];
     if feather {
         arguments.extend([(4, 18, 0, 259, 1), (5, 16777233, 0, 1520, 16)]);
-    } else {
+    } else if mode != "normal_script_unlit" {
         arguments.extend([
             (3, 16777286, 3, 80, 16),
             (3, 16777287, 3, 96, 16),
@@ -165,7 +207,7 @@ pub(super) fn validate_falloff(
     if four {
         hashes.push(3714721355);
     }
-    let locations = if four {
+    let locations = if four || reflective_normal {
         vec![259, 514, 769, 1024]
     } else if feather {
         vec![514, 769, 1024]
@@ -179,6 +221,9 @@ pub(super) fn validate_falloff(
             .zip(locations)
             .map(|(hash, location)| (2, hash, 0, location, 1)),
     );
+    if reflective_normal {
+        arguments.push((2, 1507003663, 0, 1024, 1));
+    }
     arguments.extend(constants.iter().map(|(&hash, &(location, size))| {
         let pixel = matches!(
             hash,
@@ -187,7 +232,7 @@ pub(super) fn validate_falloff(
         (if four && !pixel { 0 } else { 6 }, hash, 2, location, size)
     }));
     let mut state = match mode {
-        "opaque" => [403867666_u32, 13],
+        "opaque" | "four_opaque" | "normal_script" | "normal_script_unlit" => [403867666_u32, 13],
         "blend" | "layer_blend" => [422084965, 12],
         "zfeather" => [421628194, 12],
         _ => [422086946, 12],
@@ -268,6 +313,9 @@ pub(super) fn validate_falloff(
             .into());
         }
     }
+    if reflective_normal {
+        hashes.push(1507003663);
+    }
     for &hash in &hashes {
         let binding = material["textures"]
             .as_array()
@@ -275,7 +323,9 @@ pub(super) fn validate_falloff(
             .iter()
             .find(|binding| binding["hash"] == hash)
             .ok_or("Missing active three-layer falloff image")?;
-        if if four {
+        if if normal {
+            binding["sampler"] != if hash == 3714406764 { 244 } else { 20 }
+        } else if four {
             binding["sampler"] != if vortex { 244 } else { 20 }
         } else {
             !matches!(binding["sampler"].as_u64(), Some(20 | 84))
@@ -363,6 +413,22 @@ pub(super) fn four_layer_pixel(
     ]
 }
 
+pub(super) fn four_opaque_pixel(
+    samples: [[f32; 4]; 4],
+    alpha: [f32; 3],
+    script: [f32; 4],
+) -> [f32; 4] {
+    let mut color = samples[3].map(|value| value * samples[3][3]);
+    for layer in [2, 1, 0] {
+        let weight = samples[layer][3] * alpha[layer] * (1. - script[layer].clamp(0., 1.));
+        for component in 0..3 {
+            color[component] += weight * (samples[layer][component] - color[component]);
+        }
+    }
+    color[3] = 1.;
+    color
+}
+
 pub(super) fn falloff_image<const N: usize>(
     sources: [&texture::Image; N],
     samplers: [u8; N],
@@ -401,7 +467,15 @@ pub(super) fn falloff_image<const N: usize>(
                 .collect::<Result<Vec<_>>>()
         })
         .collect::<Result<Vec<_>>>()?;
-    let rotation = layers.map(|layer| (layer.rotation[0] * f32::from_bits(0x40c90fda)).sin_cos());
+    let rotation = layers.map(|layer| {
+        (layer.rotation[0]
+            * if mode == "four_opaque" {
+                1.
+            } else {
+                f32::from_bits(0x40c90fda)
+            })
+        .sin_cos()
+    });
     for level in 0..sources
         .iter()
         .map(|source| source.levels.len())
@@ -436,7 +510,17 @@ pub(super) fn falloff_image<const N: usize>(
                         samplers[index],
                     )
                 });
-                let mut pixel = if mode == "four_add" {
+                let mut pixel = if mode == "four_opaque" {
+                    four_opaque_pixel(
+                        [samples[0], samples[1], samples[2], samples[3]],
+                        [
+                            layers[0].alpha.unwrap(),
+                            layers[1].alpha.unwrap(),
+                            layers[2].alpha.unwrap(),
+                        ],
+                        script,
+                    )
+                } else if mode == "four_add" {
                     four_layer_pixel(
                         [samples[0], samples[1], samples[2], samples[3]],
                         [
@@ -453,11 +537,24 @@ pub(super) fn falloff_image<const N: usize>(
                         [layers[0].alpha.unwrap(), layers[1].alpha.unwrap()],
                         layers[2].alpha,
                         script,
-                        if mode == "layer_blend" { "blend" } else { mode },
+                        if mode == "layer_blend" {
+                            "blend"
+                        } else if mode.starts_with("normal_script") {
+                            "opaque"
+                        } else {
+                            mode
+                        },
                     )
                 };
                 for component in &mut pixel[..3] {
-                    *component = (*component * amount).powi(2);
+                    *component = (*component
+                        * amount
+                        * if mode.starts_with("normal_script") {
+                            1. - script[0]
+                        } else {
+                            1.
+                        })
+                    .powi(2);
                 }
                 if pixel
                     .iter()
@@ -488,8 +585,9 @@ pub(super) fn convert_falloff(
     pack: &mut Pack,
 ) -> Result<Value> {
     let (index, mode) = validate_falloff(key, native, recipe)?;
-    let four = mode == "four_add";
-    let plain = four || mode == "layer_blend";
+    let four = matches!(mode, "four_add" | "four_opaque");
+    let normal = mode.starts_with("normal_script");
+    let plain = four || normal || mode == "layer_blend";
     let constant = |hash: u32| -> Result<[f32; 4]> {
         let row = native["constants"]
             .as_array()
@@ -530,7 +628,9 @@ pub(super) fn convert_falloff(
                 rotation: vec2(hashes[3])?,
                 scroll: vec2(hashes[4])?,
                 depth: constant(hashes[5])?[0],
-                alpha: if index == 2 && mode == "opaque" {
+                alpha: if index == 2 && (mode == "opaque" || normal)
+                    || index == 3 && mode == "four_opaque"
+                {
                     None
                 } else {
                     Some(constant(hashes[6])?[0])
@@ -586,7 +686,11 @@ pub(super) fn convert_falloff(
         names.push(name);
     }
     let script = if native["code_constants"]["169"].is_null() {
-        if plain { Some([0.; 4]) } else { None }
+        if plain && !normal {
+            Some([0.; 4])
+        } else {
+            None
+        }
     } else {
         let state: [f32; 4] = serde_json::from_value(native["code_constants"]["169"].clone())?;
         if state.iter().any(|value| !value.is_finite()) {
@@ -649,18 +753,19 @@ pub(super) fn convert_falloff(
     };
     let mut surface = json!({"version":3,"identity":key,"native":native,"channels":channels,"source_layers":source_layers,
         "standard":{"unlit":true,"roughness":1.,"metallic":0.,"reflectance":0.,"base_color":[1.,1.,1.,1.]},
-        "presentation":{"alpha":if mode == "zfeather" || four {"add"} else if mode == "layer_blend" {"blend"} else {mode},"cull":cull,"fog":false,"visible":state & (1<<27) == 0},
+        "presentation":{"alpha":if mode == "zfeather" || mode == "four_add" {"add"} else if mode == "layer_blend" {"blend"} else if normal || mode == "four_opaque" {"opaque"} else {mode},"cull":cull,"fog":normal || mode == "four_opaque","visible":state & (1<<27) != 0},
         "source_script_layers":{"code_constant":169,"state":script,"layer_order":if four {vec![3,2,1,0]} else {vec![2,1,0]},
             "weights":"texture_alpha_times_layer_alpha_times_one_minus_saturated_script_component",
             "rgb":if four {"layer4_rgb_times_layer4_texture_alpha_then_mix_layer3_then_layer2_then_layer1_without_saturating_mix_weights"} else {"layer3_rgb_times_layer3_texture_alpha_then_mix_layer2_then_layer1_without_saturating_mix_weights"},
-            "coverage":if mode == "opaque" {"unused"} else {"add_each_preceding_layer_weight_and_saturate_after_each_step"},
-            "layer3_alpha_affects_rgb":four,"layer3_alpha_bound":mode != "opaque","last_layer_alpha_affects_rgb":false,
+            "coverage":if mode == "opaque" || normal || mode == "four_opaque" {"unused"} else {"add_each_preceding_layer_weight_and_saturate_after_each_step"},
+            "script_weight_components":if mode == "four_add" {vec![0,1,2,3]} else if four {vec![0,1,2]} else if mode == "opaque" || normal {vec![0,1]} else {vec![0,1,2]},
+            "layer3_alpha_affects_rgb":four,"layer3_alpha_bound":mode != "opaque" && !normal,"last_layer_alpha_affects_rgb":false,
             "rgb_times_coverage":matches!(mode,"add" | "zfeather" | "four_add"),
             "fragment_alpha":if matches!(mode,"blend" | "layer_blend") {"sqrt_coverage"} else {"one"}},
         "source_layer_uv":{"game_time_code":25,"game_time_component":3,"view_parallax":"negative_view_tangent_xy_divided_by_positive_view_normal_z_else_zero",
             "depth_epsilon":if four {f32::from_bits(0x3727c5ac)} else {0.},"evaluation":if four {"vertex_then_interpolate"} else {"fragment"},
             "operation":"scale_centered_uv_plus_scaled_offset_and_scaled_view_parallax_then_rotate_then_add_scaled_time_scroll_and_origin",
-            "rotation_operation":"rotation_x_times_one_plus_rotation_y_times_game_time_w","rotation_tau":f32::from_bits(0x40c90fda)},
+            "rotation_operation":"rotation_x_times_one_plus_rotation_y_times_game_time_w","rotation_tau":if mode == "four_opaque" {1.} else {f32::from_bits(0x40c90fda)}},
         "source_emissive":{"amount":amount,"rgb":if plain {"square_layer_color_times_hdr_amount"} else {"square_layer_color_times_view_falloff_times_hdr_amount"},"output_transfer":"sqrt_after_reflection_and_scene_hdr_control0"},
         "source_blend":{"rgb":[state&15,state>>4&15,state>>8&7],"alpha":[state>>16&15,state>>20&15,state>>24&7]},
         "approximations":["Explicit scriptVector0 states evaluate the three-layer color and coverage with static authored UV terms at source mip resolution",
@@ -669,7 +774,7 @@ pub(super) fn convert_falloff(
         surface["source_falloff"] = json!({"power":constant(3185247991)?[0],"boost":constant(3173127725)?[0],
         "operation":"pow_saturate_dot_negative_normalized_view_position_and_normalized_normal_times_boost"});
     }
-    if plain {
+    if plain && !normal {
         surface["source_script_layers"]["base_state"] = json!([0., 0., 0., 0.]);
         surface["source_script_layers"]["base_state_origin"] =
             json!("normal_view_zero_template_preserved_by_type2_constant_copy");
@@ -679,14 +784,14 @@ pub(super) fn convert_falloff(
     if mode == "zfeather" {
         surface["source_vertex_color_transfer"] =
             json!("linear_primary_vertex_rgb_and_squared_primary_vertex_alpha");
-        surface["source_depth_fade"] = json!({"code_image":18,"near_plane_code":17,"fade_factor":constant(3371644427)?[0],
+        surface["source_depth_fade"] = json!({"code_image":18,"render_target_size_code":17,"near_plane_scene_byte":928,"fade_factor":constant(3371644427)?[0],
             "depth_epsilon":f32::from_bits(0x322bcc77),"fade_epsilon":f32::from_bits(0x38d1b717),
             "operation":"saturate_near_plane_divided_by_max_abs_scene_depth_minus_clip_w_divided_by_max_fade_factor",
             "rgb":"layer_color_times_coverage_times_vertex_rgb_times_vertex_alpha_squared_times_depth_fade"});
         surface["pending_runtime"] = json!(
             "Native three-layer feather requires the live per-object scriptVector0 producer, native clock/offset UV controls, view parallax and falloff, primary vertex RGB/alpha, scene depth/near-plane/clip-w fade, global HDR control0 and native additive/destination-alpha gamma2 framebuffer composition"
         );
-    } else {
+    } else if mode != "normal_script_unlit" {
         surface["source_vertex_color_transfer"] = json!("unused_primary_color");
         surface["source_reflection"] = json!({"amount":constant(211931156)?[0],"gloss":constant(3432544439)?[0],"lod":"four_times_one_minus_gloss",
             "weight":"saturate_three_quarters_plus_quarter_gloss_times_reflection_amount","probe_decode":"rgb_divided_by_alpha_plus_epsilon",
@@ -701,6 +806,59 @@ pub(super) fn convert_falloff(
             "Native three-layer falloff requires the live per-object scriptVector0 producer, native clock/offset UV controls, view parallax and falloff, view-dependent reflection/SH response, global HDR control0 and native blend/destination-alpha gamma2 framebuffer composition"
         });
     }
+    if normal {
+        surface["source_script_layers"]["layer3_alpha_bound"] = json!(false);
+        surface["source_script_layers"]["coverage"] = json!("unused");
+        surface["source_script_layers"]["fragment_alpha"] = json!("one");
+        surface["source_emissive"]["rgb"] = json!(
+            "square_layer_color_times_vertex_rgb_times_hdr_amount_times_one_minus_raw_script_x"
+        );
+        surface["source_vertex_color_transfer"] = json!("linear_primary_vertex_rgb_alpha_unused");
+        surface["source_layer_uv"]["evaluation"] = json!("fragment");
+        surface["pending_runtime"] = json!(if mode == "normal_script" {
+            "Native normal-script layers require the live per-object scriptVector0 producer, native clock, view parallax, vertex RGB, bumped-normal probe reflection with separate SH response, fog and scene HDR; no missing script state is invented"
+        } else {
+            "Native normal-script layers require the live per-object scriptVector0 producer, native clock, view parallax, vertex RGB, fog and scene HDR; no missing script state is invented"
+        });
+        if mode == "normal_script" {
+            let binding = contract::texture_binding(native, 1507003663)?;
+            let name = binding["image"]
+                .as_str()
+                .ok_or("Missing normal-script normal image")?
+                .to_ascii_lowercase();
+            let source = images
+                .get(&name)
+                .ok_or("Missing active normal-script normal image")?;
+            let source_key = (name, "normal-script-source".into());
+            let uri = if let Some(uri) = shared.get(&source_key) {
+                uri.clone()
+            } else {
+                let uri = store_image(
+                    source,
+                    format!(
+                        "prepared/material-channels/{}/normal-script-source.ktx2",
+                        shared.len()
+                    ),
+                    false,
+                    "source_normal",
+                    pack,
+                )?;
+                shared.insert(source_key, uri.clone());
+                uri
+            };
+            surface["source_normal"] = json!({"uri":uri,"sampler":binding["sampler"],"scale":vec2(1732624492)?,"height":constant(2065614284)?[0],"decode":[f32::from_bits(0x40808102),f32::from_bits(0xc0010204)],"use":"reflection_only"});
+        }
+    }
+    if mode == "four_opaque" {
+        surface["source_layer_uv"]["rotation_tau"] = json!(1.);
+        surface["source_script_layers"]["rgb_times_coverage"] = json!(false);
+        surface["source_script_layers"]["coverage"] = json!("unused");
+        surface["source_script_layers"]["layer4_alpha_bound"] = json!(false);
+        surface["source_script_layers"]["script_weight_components"] = json!([0, 1, 2]);
+        surface["pending_runtime"] = json!(
+            "Native opaque four-layer emission requires per-object scriptVector0 overrides, vertex parallax with depth epsilon, radian rotation/scroll, separate reflection SH, fog and scene HDR"
+        );
+    }
     surface["source_script_layers"]["composed_color_available"] = json!(script.is_some());
     if four && native["state_bits"][selected][1] == 28 {
         let pending = surface["pending_runtime"].as_str().unwrap().to_owned();
@@ -711,4 +869,119 @@ pub(super) fn convert_falloff(
     Ok(
         json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},"extras":{"surface":surface}}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rgba(values: [f32; 4]) -> texture::Image {
+        texture::Image {
+            width: 1,
+            height: 1,
+            depth: 1,
+            faces: 1,
+            format: 19,
+            flags: 0,
+            levels: vec![
+                values
+                    .into_iter()
+                    .flat_map(|value| half::f16::from_f32(value).to_le_bytes())
+                    .collect(),
+            ],
+        }
+    }
+
+    fn layer(alpha: Option<f32>) -> UnlitLayer {
+        UnlitLayer {
+            scale: [1.; 2],
+            offset: [0.; 2],
+            origin: [0.; 2],
+            rotation: [0.; 2],
+            scroll: [0.; 2],
+            depth: 0.,
+            alpha,
+        }
+    }
+
+    #[test]
+    fn opaque_four_layer_ignores_script_w_and_keeps_unsaturated_mix_weights() {
+        let samples = [
+            [1., 0., 0., 0.75],
+            [0., 1., 0., 1.],
+            [0., 0., 1., 1.],
+            [0.5, 0.5, 0.5, 0.5],
+        ];
+        let value = four_opaque_pixel(samples, [2., 0., 0.], [0.; 4]);
+        assert_eq!(value, [1.375, -0.125, -0.125, 1.]);
+        assert_eq!(
+            value,
+            four_opaque_pixel(samples, [2., 0., 0.], [0., 0., 0., 1.])
+        );
+    }
+
+    #[test]
+    fn normal_script_emission_keeps_raw_x_multiplier_and_unused_third_alpha() {
+        let source = rgba([1.; 4]);
+        let layers = [layer(Some(1.)), layer(Some(1.)), layer(None)];
+        let negative = falloff_image(
+            [&source; 3],
+            [20; 3],
+            layers,
+            [-1., 0., 7., 9.],
+            1.,
+            "normal_script",
+        )
+        .unwrap();
+        let above_one = falloff_image(
+            [&source; 3],
+            [20; 3],
+            layers,
+            [2., 0., -7., -9.],
+            1.,
+            "normal_script_unlit",
+        )
+        .unwrap();
+        assert_eq!(
+            texture::pixels(&negative, 0).unwrap(),
+            vec![[4., 4., 4., 1.]]
+        );
+        assert_eq!(texture::pixels(&above_one, 0).unwrap(), vec![[1.; 4]]);
+    }
+
+    #[test]
+    fn opaque_four_layer_rotation_is_radians() {
+        let mut source = rgba([0.; 4]);
+        source.width = 2;
+        source.height = 2;
+        source.levels[0] = [
+            [1., 0., 0., 1.],
+            [0., 1., 0., 1.],
+            [0., 0., 1., 1.],
+            [1., 1., 1., 1.],
+        ]
+        .into_iter()
+        .flatten()
+        .flat_map(|value| half::f16::from_f32(value).to_le_bytes())
+        .collect();
+        let mut layers = [
+            layer(Some(0.)),
+            layer(Some(0.)),
+            layer(Some(0.)),
+            layer(None),
+        ];
+        layers[3].rotation[0] = std::f32::consts::FRAC_PI_2;
+        layers[3].origin = [0.5; 2];
+        let output =
+            falloff_image([&source; 4], [20; 4], layers, [0.; 4], 1., "four_opaque").unwrap();
+        assert_eq!(
+            texture::pixels(&output, 0).unwrap(),
+            vec![
+                [0., 0., 1., 1.],
+                [1., 0., 0., 1.],
+                [1., 1., 1., 1.],
+                [0., 1., 0., 1.]
+            ]
+        );
+    }
 }

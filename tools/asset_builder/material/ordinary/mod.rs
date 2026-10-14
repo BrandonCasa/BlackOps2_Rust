@@ -7,7 +7,7 @@ pub(super) use families::{OrdinaryRecipe, ordinary_recipe};
 pub(super) use pixels::bake;
 #[cfg(test)]
 pub(super) use pixels::camo_pixel;
-use pixels::metallic_workflow;
+pub(super) use pixels::metallic_workflow;
 #[cfg(test)]
 pub use pixels::pbr_pixel;
 
@@ -645,7 +645,7 @@ pub(super) fn convert(
     let mut converted = json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},
     "extras":{"surface":{"version":3,"identity":key,"channels":channels,"native":material,
         "standard":{"roughness":1.,"metallic":if specular == 0 { 0. } else { 1. },"reflectance":if specular == 0 { 0. } else { 0.5 },"specular_tint":[1.,1.,1.],"base_color":[1.,1.,1.,1.]},
-        "presentation":{"alpha":alpha,"cutoff":128./255.,"cull":cull,"fog":true,"visible":state & (1 << 27) == 0},
+        "presentation":{"alpha":alpha,"cutoff":128./255.,"cull":cull,"fog":true,"visible":state & (1 << 27) != 0},
         "source_vertex_color_transfer":"gamma2","source_coverage":match coverage { 1 => "gamma2_premultiplied", 2 => "mask", _ => "opaque" },
         "native_specular":native_specular,"source_camo":source_camo,
         "approximations":["Khronos specular-glossiness to metallic-roughness fit for shared upstream PBR and Solari inputs", "Native Blinn-Phong gloss fitted to GGX perceptual roughness; original specular and gloss retained", "Slope reconstruction baked before filtering", "Native lighting-term multipliers retained for runtime integration", "Vertex gamma2 transfer evaluated before interpolation"]}}});

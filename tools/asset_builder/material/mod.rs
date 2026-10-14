@@ -6,15 +6,18 @@ use std::{
 };
 
 mod camo;
+mod character;
 pub(crate) mod contract;
 mod coverage;
 mod falloff;
 mod ordinary;
 mod read;
 mod single_unlit;
+mod smoke;
 #[cfg(test)]
 mod tests;
 mod unlit;
+mod world;
 
 #[cfg(test)]
 pub use camo::{camo_variants, read_camo_options, read_camos, read_material_selection};
@@ -51,6 +54,9 @@ enum Recipe {
     Unlit(UnlitRecipe),
     SingleUnlit(SingleUnlitRecipe),
     Falloff(FalloffRecipe),
+    Character(character::CharacterRecipe),
+    Smoke(smoke::SmokeRecipe),
+    World(world::WorldRecipe),
     Baked,
 }
 
@@ -61,6 +67,9 @@ impl Recipe {
             .or_else(|| unlit_recipe(family).map(Self::Unlit))
             .or_else(|| single_unlit_recipe(family).map(Self::SingleUnlit))
             .or_else(|| falloff_recipe(family).map(Self::Falloff))
+            .or_else(|| character::lookup(family).map(Self::Character))
+            .or_else(|| smoke::lookup(family).map(Self::Smoke))
+            .or_else(|| world::lookup(family).map(Self::World))
             .or_else(|| crate::bake::supported(family).then_some(Self::Baked))
     }
 
@@ -70,6 +79,9 @@ impl Recipe {
             Self::Unlit(_) => 2,
             Self::SingleUnlit(recipe) => recipe.index,
             Self::Falloff(recipe) => recipe.index,
+            Self::Character(recipe) => recipe.index(),
+            Self::Smoke(recipe) => recipe.index(),
+            Self::World(recipe) => recipe.index(),
         }
     }
 
@@ -79,6 +91,9 @@ impl Recipe {
             Self::Unlit(recipe) => validate_unlit(key, material, *recipe).map(|_| ()),
             Self::SingleUnlit(recipe) => validate_single_unlit(key, material, *recipe).map(|_| ()),
             Self::Falloff(recipe) => validate_falloff(key, material, *recipe).map(|_| ()),
+            Self::Character(recipe) => recipe.validate(key, material),
+            Self::Smoke(recipe) => recipe.validate(key, material),
+            Self::World(recipe) => recipe.validate(key, material),
             Self::Baked => crate::bake::validate_native(material),
         }
     }
@@ -100,6 +115,9 @@ impl Recipe {
                 convert_single_unlit(key, material, *recipe, images, shared, pack)?
             }
             Self::Falloff(recipe) => convert_falloff(key, material, *recipe, images, shared, pack)?,
+            Self::Character(recipe) => recipe.convert(key, material, images, shared, pack)?,
+            Self::Smoke(recipe) => recipe.convert(key, material, images, shared, pack)?,
+            Self::World(recipe) => recipe.convert(key, material, images, shared, pack)?,
             Self::Baked => return Ok(None),
         }))
     }

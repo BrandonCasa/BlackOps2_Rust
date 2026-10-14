@@ -14,6 +14,11 @@ fn installed_initial_material_dependencies() {
     assert!(materials.is_subset(&all) && materials.len() < all.len());
     let native = crate::material::read_used(&catalog, &materials).unwrap();
     let gaps = crate::material::unimplemented(&native);
+    assert!(
+        gaps.is_empty(),
+        "Initial material families remain:\n{}",
+        gaps.join("\n")
+    );
     println!(
         "Initial world/static props plus current source-selected presentation roots: {} of {} models, {} of {} materials; {} missing families before remaining actor/content closure:\n{}",
         models.len(),
@@ -26,6 +31,182 @@ fn installed_initial_material_dependencies() {
     for image in crate::atmosphere::inputs(&catalog).unwrap() {
         catalog.resolve(8, &image).unwrap();
     }
+}
+
+#[test]
+#[ignore = "requires the authorized Steam installation"]
+fn installed_last_material_families() {
+    use serde_json::{Value, json};
+    use std::collections::{BTreeMap, BTreeSet};
+    let families = [
+        "mc_sw4_3d_char_cloth_4z8fq5wu",
+        "mc_sw4_3d_char_eye_cornea_2eww29wu",
+        "mc_sw4_3d_char_skin_j92387z3",
+        "mc_sw4_3d_optic_lens_4w47028j",
+        "mc_sw4_3d_unlit_3layer_normal_script_q0zez5ju",
+        "mc_sw4_3d_unlit_4layer_jw0z1973",
+        "mc_sw4_3d_viewmodel_transparent_z9z0z75f",
+        "mc_sw4_3d_zmb_smoke_pillar_cheap_w6w7e738",
+        "mc_treecanopy_3z378q8f",
+        "mc_treecanopy_sm_68zw237j",
+        "mc_treecanopy_sm_j9ff996z",
+        "mlv_sw4_3d_unlit_3layer_nofog_falloff_zfeather_z0zw1090",
+        "mlv_sw4_3d_unlit_3layer_normal_script_766fz50u",
+        "wpc_cod7water_we876z2f",
+        "wpc_default",
+        "wpc_shadowcaster_wj6w5j60",
+        "wpc_sw4_3d_burning_embers_nuketown_74j6971w",
+        "wpc_sw4_3d_unlit_3layer_normal_script_q1z1f6w1",
+    ];
+    let install = super::installation().unwrap();
+    let zones = super::read_zones(&install).unwrap();
+    let catalog = crate::catalog::Catalog::new(&zones);
+    let names = crate::geometry::material_names(&catalog, None).unwrap();
+    let mut native = crate::material::read_used(&catalog, &names).unwrap();
+    native.retain(|_, material| families.contains(&material["technique_set"].as_str().unwrap()));
+    assert_eq!(native.len(), 82);
+    assert!(crate::material::unimplemented(&native).is_empty());
+    let required = crate::material::inputs(&native, &catalog).unwrap();
+    let lava = BTreeMap::from([(
+        "wpc/zm_tm_rock_lava_molten".into(),
+        native["wpc/zm_tm_rock_lava_molten"].clone(),
+    )]);
+    let inactive = native["wpc/zm_tm_rock_lava_molten"]["textures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|binding| binding["hash"] == 1507003663_u32)
+        .unwrap()["image"]
+        .as_str()
+        .unwrap();
+    assert!(
+        !crate::material::inputs(&lava, &catalog)
+            .unwrap()
+            .contains(&inactive.to_ascii_lowercase())
+    );
+    let mut seen = BTreeSet::new();
+    for (name, material) in &native {
+        let family = material["technique_set"].as_str().unwrap();
+        if !seen.insert(family) {
+            continue;
+        }
+        let index = crate::material::selected_technique(family).unwrap();
+        let mut changed = material.clone();
+        let pass = changed["techniques"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|technique| technique["index"] == index)
+            .unwrap()["passes"][0]
+            .as_object_mut()
+            .unwrap();
+        let active = pass["arguments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|argument| argument["type"] == 2)
+            .unwrap();
+        pass["arguments"][active]["value"] = json!(0_u32);
+        assert!(
+            crate::material::inputs(&BTreeMap::from([(name.clone(), changed)]), &catalog).is_err(),
+            "{name}: changed active binding accepted"
+        );
+    }
+    assert_eq!(seen.len(), 18);
+    let mut pack = crate::pack::Pack::default();
+    let (_, images) =
+        crate::images::convert(&install, &catalog, &mut pack, Some(&required)).unwrap();
+    let converted = crate::material::convert_known(&native, &images, &mut pack).unwrap();
+    assert_eq!(converted.len(), native.len());
+    fn links(value: &Value, pack: &crate::pack::Pack) {
+        match value {
+            Value::Object(fields) => {
+                for (key, value) in fields {
+                    if key == "uri" || key.ends_with("_uri") {
+                        if let Some(uri) = value.as_str() {
+                            pack.get(uri)
+                                .unwrap_or_else(|error| panic!("{uri}: {error}"));
+                        }
+                    }
+                    links(value, pack);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    links(value, pack);
+                }
+            }
+            _ => (),
+        }
+    }
+    for (name, material) in &converted {
+        let surface = &material["extras"]["surface"];
+        assert_eq!(surface["version"], 3, "{name}");
+        assert_eq!(surface["identity"], name.as_str());
+        assert_eq!(surface["native"], native[name]);
+        assert_eq!(
+            surface["presentation"]["visible"],
+            native[name]["technique_set"] != "wpc_shadowcaster_wj6w5j60",
+            "{name}"
+        );
+        links(surface, &pack);
+    }
+    for (uri, bytes) in &pack.entries {
+        if uri.ends_with(".ktx2") {
+            crate::texture::validate(bytes).unwrap();
+        }
+    }
+    let pending = crate::material::missing(&native, &converted);
+    assert!(pending.iter().all(|gap| {
+        native
+            .keys()
+            .any(|name| gap.starts_with(&format!("{name}: ")))
+    }));
+    assert!(
+        !pending.is_empty(),
+        "Missing live scene/object consumers must remain explicit"
+    );
+    let mut controlled = BTreeMap::new();
+    let mut seen = BTreeSet::new();
+    for (name, material) in &native {
+        let family = material["technique_set"].as_str().unwrap();
+        if !family.contains("normal_script") || !seen.insert(family) {
+            continue;
+        }
+        assert_eq!(
+            converted[name]["extras"]["surface"]["source_script_layers"]["composed_color_available"],
+            false
+        );
+        let mut material = material.clone();
+        material["code_constants"]["169"] = json!([0.5, 0.25, 0., 0.]);
+        controlled.insert(name.clone(), material);
+    }
+    assert_eq!(controlled.len(), 3);
+    let mut controlled_pack = crate::pack::Pack::default();
+    let controlled =
+        crate::material::convert_known(&controlled, &images, &mut controlled_pack).unwrap();
+    for (name, material) in &controlled {
+        let surface = &material["extras"]["surface"];
+        assert_eq!(
+            surface["source_script_layers"]["composed_color_available"], true,
+            "{name}"
+        );
+        assert!(surface["pending_runtime"].is_string());
+        assert!(!surface["channels"].as_array().unwrap().is_empty());
+        links(surface, &controlled_pack);
+    }
+    for (uri, bytes) in &controlled_pack.entries {
+        if uri.ends_with(".ktx2") {
+            crate::texture::validate(bytes).unwrap();
+        }
+    }
+    println!(
+        "Converted all {} installed materials in eighteen families and three explicit normal-script states; {} active images and {} packed entries resolve; {} live runtime bindings remain explicit",
+        native.len(),
+        required.len(),
+        pack.entries.len(),
+        pending.len()
+    );
 }
 
 #[test]

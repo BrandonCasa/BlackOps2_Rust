@@ -148,7 +148,7 @@ pub(in crate::material) fn camo_pixel(
     [color, specular]
 }
 
-pub(super) fn metallic_workflow(
+pub(in crate::material) fn metallic_workflow(
     color: &texture::Image,
     specular: &texture::Image,
     samplers: [u8; 2],

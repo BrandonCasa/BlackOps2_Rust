@@ -200,7 +200,7 @@ pub(super) fn convert_single_unlit(
         "channels":[{"uri":uri,"role":"color","layer":0,"color_space":if linear {"linear"} else {"srgb"},"sampler":20}],
         "source_input":{"uri":source_uri,"sampler":20,"color_space":"native_encoded"},
         "standard":{"unlit":true,"roughness":1.,"metallic":0.,"reflectance":0.,"base_color":[1.,1.,1.,1.]},
-        "presentation":{"alpha":alpha,"cull":cull,"fog":mode != "layer_reflection","fog_mode":"color","visible":state & (1<<27) == 0},
+        "presentation":{"alpha":alpha,"cull":cull,"fog":mode != "layer_reflection","fog_mode":"color","visible":state & (1<<27) != 0},
         "source_vertex_color_transfer":"unused","source_coverage":if layered {"script_scaled_sqrt_coverage"} else {"source_viewmodel_emissive"},
         "source_emissive":{"amount":amount,"rgb":if layered || mode == "add" {"square(texture_rgb*texture_alpha*amount)"} else {"square(texture_rgb*amount)"},"texture_alpha_in_rgb":layered || mode == "add",
             "output_transfer":if layered {"sqrt_after_scene_hdr_scale"} else {"linear_without_gamma2_sqrt"}},

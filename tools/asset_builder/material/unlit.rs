@@ -296,7 +296,7 @@ pub(super) fn convert_unlit(
         "extras":{"surface":{"version":3,"identity":key,"native":native,
             "channels":[{"uri":uri,"role":"color","layer":0,"color_space":if linear {"linear"} else {"srgb"},"sampler":binding["sampler"]}],
             "standard":{"unlit":true,"roughness":1.,"metallic":0.,"reflectance":0.,"base_color":[1.,1.,1.,1.]},
-            "presentation":{"alpha":blend,"cull":cull,"fog":alpha != "decal_add","fog_mode":if alpha == "add" || composed {"attenuation"} else {"color"},"visible":state & (1<<27) == 0},
+            "presentation":{"alpha":blend,"cull":cull,"fog":alpha != "decal_add","fog_mode":if alpha == "add" || composed {"attenuation"} else {"color"},"visible":state & (1<<27) != 0},
             "source_vertex_color_transfer":if composed {"native_fragment_composition"} else if alpha == "blend" {"gamma2_alpha"} else {"gamma2"},
             "source_coverage":if composed {alpha} else if alpha == "add" {"unlit_add"} else if alpha == "blend" {"unlit_blend"} else {"opaque"},
             "pending_runtime":if alpha == "add" {json!("Native ONE/ONE addition requires fog attenuation without adding fog color")} else {Value::Null},

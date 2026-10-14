@@ -155,7 +155,7 @@ fn implemented_dispatch_does_not_satisfy_converted_material_closure() {
 }
 
 fn initial_additive_fixture() -> (Value, Value) {
-    let state = (0x121_u32 << 16) | 0x8000 | 0x122;
+    let state = (1 << 27) | (0x121_u32 << 16) | 0x8000 | 0x122;
     let native = json!({"name":"add","technique_set":"mc_unlit_add_ww82zw88",
         "techniques":[{"index":2,"passes":[{"pixel_shader":"pimp_shader_unlit_4b1d2e0b.hlsl",
             "vertex_shader":"pimp_shader_unlit_4876d431.hlsl",
@@ -184,6 +184,39 @@ fn initial_additive_fixture() -> (Value, Value) {
     )
     .unwrap();
     (native, converted)
+}
+
+#[test]
+fn native_rgb_write_bit_preserves_visible_materials() {
+    let (mut native, converted) = initial_additive_fixture();
+    assert_eq!(
+        converted["extras"]["surface"]["presentation"]["visible"],
+        true
+    );
+    let state = native["state_bits"][0][0].as_u64().unwrap();
+    native["state_bits"][0][0] = json!(state & !(1 << 27));
+    let image = texture::Image {
+        width: 1,
+        height: 1,
+        depth: 1,
+        faces: 1,
+        format: 1,
+        flags: 0,
+        levels: vec![vec![128, 64, 32, 255]],
+    };
+    let converted = convert_unlit(
+        "add",
+        &native,
+        unlit_recipe("mc_unlit_add_ww82zw88").unwrap(),
+        &BTreeMap::from([("add".into(), image)]),
+        &mut BTreeMap::new(),
+        &mut Pack::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        converted["extras"]["surface"]["presentation"]["visible"],
+        false
+    );
 }
 
 #[test]
