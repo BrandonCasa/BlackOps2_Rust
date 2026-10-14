@@ -303,7 +303,12 @@ fn initial_visual_acceptance_validates_each_generated_material_binding() {
 fn initial_visual_acceptance_never_fills_missing_payloads_or_source_state() {
     let (native, converted) = initial_additive_fixture();
     let native = BTreeMap::from([("add".into(), native)]);
-    for field in ["channels", "source_effective_inputs", "source_color_matrix"] {
+    for field in [
+        "channels",
+        "source_effective_inputs",
+        "source_color_matrix",
+        "source_flag_motion",
+    ] {
         let mut converted = BTreeMap::from([("add".into(), converted.clone())]);
         let surface = &mut converted.get_mut("add").unwrap()["extras"]["surface"];
         surface[field] = if field == "channels" {

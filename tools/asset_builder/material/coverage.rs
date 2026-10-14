@@ -64,10 +64,16 @@ pub fn accept_initial_visual_approximations(
         let Some(reason) = surface["pending_runtime"].as_str().map(str::to_owned) else {
             continue;
         };
+        let family = material["technique_set"]
+            .as_str()
+            .ok_or("Initial material has no native family")?;
+        let flag = ordinary_recipe(family).is_some_and(|recipe| recipe.flag);
+        if !surface["source_flag_motion"].is_null() && !flag {
+            continue;
+        }
         if [
             "source_camo",
             "source_reveal",
-            "source_flag_motion",
             "source_layer_uv",
             "source_script_layers",
             "source_script_coverage",
@@ -84,15 +90,13 @@ pub fn accept_initial_visual_approximations(
         {
             continue;
         }
-        let family = material["technique_set"]
-            .as_str()
-            .ok_or("Initial material has no native family")?;
         let mut roles = vec!["color"];
         let feature = if let Some(recipe) = ordinary_recipe(family) {
             let vertex_lighting = family.starts_with("mlv_")
                 && surface["source_vertex_lighting"]["source"] == 5
                 && surface["source_vertex_lighting"]["stage"] == "separate_indirect_lighting_terms";
             if !vertex_lighting
+                && !flag
                 && !matches!(
                     family,
                     "mc_lit_sm_b0c0n0s0_21fz2e61"
@@ -105,13 +109,32 @@ pub fn accept_initial_visual_approximations(
                 continue;
             }
             validate_ordinary(name, material, &recipe)?;
+            if flag {
+                let motion = &surface["source_flag_motion"];
+                if !motion.is_object()
+                    || motion["parameters"] != json!(contract::literal(material, 2651392336)?)
+                    || motion["time"]["code_constant"] != 25
+                    || motion["time"]["component"] != 3
+                    || motion["fragment_vertex_alpha"] != 1.
+                    || surface["source_coverage"]
+                        != if recipe.coverage == 2 {
+                            "texture_mask_without_vertex_alpha"
+                        } else {
+                            "gamma2_texture_premultiplied_without_vertex_alpha"
+                        }
+                {
+                    continue;
+                }
+            }
             if recipe.normal {
                 roles.push("normal");
             }
             if recipe.specular != 0 {
                 roles.push("response");
             }
-            if vertex_lighting {
+            if flag {
+                "native_flag_motion_with_shared_pbr_lighting"
+            } else if vertex_lighting {
                 "native_vertex_lighting_to_shared_pbr"
             } else {
                 "native_lighting_and_framebuffer_to_shared_pbr"
