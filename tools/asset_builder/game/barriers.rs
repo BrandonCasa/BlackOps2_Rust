@@ -255,15 +255,32 @@ pub(super) fn read(
     }
     game["_native_barrier_actions"] = json!(actor_actions);
     let mut entry = serde_json::Map::new();
-    for (kind, state) in [("standing", "zm_barricade_enter"), ("crawler", "zm_barricade_enter_crawl")] {
+    for (kind, state) in [
+        ("standing", "zm_barricade_enter"),
+        ("crawler", "zm_barricade_enter_crawl"),
+    ] {
         let selected = super::enemies::state_clips(catalog, state)?;
-        let required = selected.iter().map(|(_, clip)| clip.clone()).collect::<BTreeSet<_>>();
+        let required = selected
+            .iter()
+            .map(|(_, clip)| clip.clone())
+            .collect::<BTreeSet<_>>();
         let decoded = crate::animation::read(catalog, Some(&required))?;
         let mut clips = serde_json::Map::new();
         for (alias, name) in selected {
-            let decoded = decoded.iter().find(|decoded| decoded.clip.name == name).ok_or("Native barricade entry clip did not decode")?;
+            let decoded = decoded
+                .iter()
+                .find(|decoded| decoded.clip.name == name)
+                .ok_or("Native barricade entry clip did not decode")?;
             let duration = decoded.clip.frames as f32 / decoded.clip.frame_rate;
-            let seconds = decoded.clip.notifies.iter().find(|(name, _)| name.as_deref() == Some("end")).map(|(_, time)| time * duration).ok_or_else(|| format!("Native barricade entry {name} has no source end notetrack"))?;
+            let seconds = decoded
+                .clip
+                .notifies
+                .iter()
+                .find(|(name, _)| name.as_deref() == Some("end"))
+                .map(|(_, time)| time * duration)
+                .ok_or_else(|| {
+                    format!("Native barricade entry {name} has no source end notetrack")
+                })?;
             clips.entry(alias).or_insert_with(||json!([])).as_array_mut().unwrap().push(json!({"name":name,"seconds":seconds,"duration":duration,"hits":[],"motion":motion(decoded)?}));
         }
         bind_actor_clips(game, &decoded, &required)?;
@@ -627,11 +644,44 @@ pub(super) fn prepare(
     missing: &mut Vec<String>,
 ) -> Result<()> {
     super::triggers::initial_brush_lifecycles(game, entities, missing)?;
+    let source =
+        super::player::source("source/server-tomb/maps/mp/zm_tomb.gsc")?.replace("\r\n", "\n");
+    let drop_barriers = source
+        .split_once("\ndrop_all_barriers()\n")
+        .and_then(|(_, body)| {
+            body.split_once("\nget_all_zone_zbarriers(")
+                .map(|(body, _)| body)
+        })
+        .ok_or("Recovered Origins initial barrier state function is absent")?;
+    for expression in ["level thread drop_all_barriers();"] {
+        if !source.contains(expression) {
+            return Err(format!(
+                "Recovered Origins initial barrier state requires conversion: {expression}"
+            )
+            .into());
+        }
+    }
+    for expression in [
+        "zbarriers = get_all_zone_zbarriers( zkeys[z] );",
+        "zbarrier hidezbarrierpiece( i );",
+        "zbarrier setzbarrierpiecestate( i, \"open\" );",
+    ] {
+        if !drop_barriers.contains(expression) {
+            return Err(format!(
+                "Recovered Origins initial barrier state requires conversion: {expression}"
+            )
+            .into());
+        }
+    }
     let boards = game
         .as_object_mut()
         .ok_or("Initial game source is not an object")?
         .remove("_native_barrier_boards")
         .ok_or("Native ordinary barrier source was not read")?;
+    let attack_spacing = boards["attack_spacing"]
+        .as_f64()
+        .filter(|spacing| spacing.is_finite() && *spacing > 0.)
+        .ok_or("Native ordinary barrier attack spacing is invalid")?;
     let audio = game
         .as_object_mut()
         .unwrap()
@@ -670,6 +720,22 @@ pub(super) fn prepare(
             );
         }
         let (index, entity) = matching[0];
+        let initially_open = entity.get("script_string").is_some_and(|source_zone| {
+            let zone = format!(
+                "zone.{}",
+                source_zone.strip_prefix("zone_").unwrap_or(source_zone)
+            );
+            game["content"]["zones"]
+                .as_array()
+                .is_some_and(|zones| zones.iter().any(|row| row["id"] == zone))
+                && entities.iter().any(|volume| {
+                    volume
+                        .get("classname")
+                        .is_some_and(|class| class == "info_volume")
+                        && volume.get("targetname") == Some(source_zone)
+                        && volume.contains_key("target")
+                })
+        });
         let id = format!("barrier.native.{index}");
         if barriers.iter().any(|barrier: &Value| barrier["id"] == id) {
             continue;
@@ -682,6 +748,13 @@ pub(super) fn prepare(
                     && goal.get("target").is_some_and(|name| name == target)
             })
             .ok_or_else(|| format!("Initial barrier {target} lacks its source exterior_goal"))?;
+        let [attack_pitch, attack_yaw, attack_roll] =
+            crate::entities::vector(goal, "angles")?.unwrap_or([0.; 3]);
+        if attack_pitch != 0. || attack_roll != 0. || !attack_yaw.is_finite() {
+            return Err(
+                format!("Initial barrier {target} requires tilted attack slot placement").into(),
+            );
+        }
         if goal.contains_key("script_delay") {
             return Err(format!(
                 "Initial barrier {target} requires authored repair trigger overrides"
@@ -750,7 +823,7 @@ pub(super) fn prepare(
             "interactions",
             json!({"id":format!("interaction.barrier.native.{index}"),"placement":placement,"action":{"kind":"barrier","barrier":id},"reach":repair_radius,"hold_seconds":0.25,"hidden_prompt":false}),
         )?;
-        barriers.push(json!({"id":id,"placement":placement,"entry":link["from"],"exit":exit,"boards":boards["boards"],"audio":audio,"repair_quake":repair_quake,
+        barriers.push(json!({"id":id,"placement":placement,"entry":link["from"],"exit":exit,"initially_open":initially_open,"attack_spacing":attack_spacing,"attack_yaw":attack_yaw.to_radians(),"boards":boards["boards"],"audio":audio,"repair_quake":repair_quake,
             "repair_origin":[rx*0.0254,rz*0.0254,-ry*0.0254],"repair_yaw":(repair_yaw-90.).to_radians(),"repair_radius":repair_radius,"repair_height":64_f32*0.0254,"repair_interval":1.,"repair_points":repair_points}));
     }
     if barriers.is_empty() {
@@ -761,7 +834,11 @@ pub(super) fn prepare(
         .ok_or("Native barrier game is invalid")?
         .remove("_native_barrier_actions")
         .ok_or("Native barrier action source is missing")?;
-    let enter = game.as_object_mut().ok_or("Native barrier game is invalid")?.remove("_native_barrier_entry").ok_or("Native barricade entry source is missing")?;
+    let enter = game
+        .as_object_mut()
+        .ok_or("Native barrier game is invalid")?
+        .remove("_native_barrier_entry")
+        .ok_or("Native barricade entry source is missing")?;
     for barrier in &mut barriers {
         barrier["taunt"] = actions["taunt"].clone();
         barrier["reach_through"] = actions["reach_through"].clone();

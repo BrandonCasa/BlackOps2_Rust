@@ -18,6 +18,9 @@ pub struct BarrierDefinition {
     pub placement: PlacementId,
     pub entry: ContentId,
     pub exit: ContentId,
+    pub initially_open: bool,
+    pub attack_spacing: f32,
+    pub attack_yaw: f32,
     pub boards: Vec<BoardDefinition>,
     pub audio: BarrierAudioDefinition,
     pub repair_quake: Option<RepairQuakeDefinition>,
@@ -72,7 +75,13 @@ pub struct BarrierActorClip {
     pub motion: Option<crate::origins::content::AnimationRootMotion>,
 }
 impl BarrierDefinition {
-    pub(crate) fn entry_clip(&self, gait: crate::rounds::Gait, slot: usize, crawler: bool, random: u32) -> Option<&BarrierActorClip> {
+    pub(crate) fn entry_clip(
+        &self,
+        gait: crate::rounds::Gait,
+        slot: usize,
+        crawler: bool,
+        random: u32,
+    ) -> Option<&BarrierActorClip> {
         let entry = self.enter.as_ref()?;
         let gait = match gait {
             crate::rounds::Gait::Walk => "walk",
@@ -80,7 +89,11 @@ impl BarrierDefinition {
             crate::rounds::Gait::Sprint => "sprint",
         };
         let slot = ["m", "r", "l"].get(slot)?;
-        let clips = if crawler { &entry.crawler } else { &entry.standing };
+        let clips = if crawler {
+            &entry.crawler
+        } else {
+            &entry.standing
+        };
         let clips = clips.get(&format!("barrier_{gait}_{slot}"))?;
         clips.get(random as usize % clips.len().max(1))
     }
@@ -93,14 +106,26 @@ impl BarrierDefinition {
                 && clip.seconds > 0.
                 && clip.duration.is_finite()
                 && clip.duration >= clip.seconds
-                && clip.hits.iter().all(|time| time.is_finite() && *time >= 0. && *time <= clip.seconds)
-                && clip.motion.as_ref().is_none_or(|motion| motion.valid() && (motion.seconds - clip.duration).abs() < 0.001)
+                && clip
+                    .hits
+                    .iter()
+                    .all(|time| time.is_finite() && *time >= 0. && *time <= clip.seconds)
+                && clip.motion.as_ref().is_none_or(|motion| {
+                    motion.valid() && (motion.seconds - clip.duration).abs() < 0.001
+                })
         };
         self.enter.as_ref().is_none_or(|entry| {
             [&entry.standing, &entry.crawler].into_iter().all(|clips| {
                 ["walk", "run", "sprint"].into_iter().all(|gait| {
                     ["m", "r", "l"].into_iter().all(|slot| {
-                        clips.get(&format!("barrier_{gait}_{slot}")).is_some_and(|clips| !clips.is_empty() && clips.iter().all(|clip| valid_clip(clip) && clip.motion.is_some()))
+                        clips
+                            .get(&format!("barrier_{gait}_{slot}"))
+                            .is_some_and(|clips| {
+                                !clips.is_empty()
+                                    && clips
+                                        .iter()
+                                        .all(|clip| valid_clip(clip) && clip.motion.is_some())
+                            })
                     })
                 })
             })
@@ -243,6 +268,7 @@ pub struct Barriers {
     pub awarded: u32,
     pub reward_counter: u32,
     owners: BTreeMap<ContentId, [Option<Entity>; 3]>,
+    attack_spots: BTreeMap<ContentId, [Vec3; 3]>,
     repairers: BTreeMap<(ContentId, usize), (Entity, f32)>,
     repair_cooldowns: BTreeMap<ContentId, f32>,
     audio: BTreeMap<(ContentId, usize), BoardAudioPlayback>,
@@ -255,6 +281,9 @@ pub struct Barriers {
     use_active: bool,
 }
 impl Barriers {
+    pub(crate) fn attack_spot(&self, id: &ContentId, slot: usize) -> Option<Vec3> {
+        self.attack_spots.get(id)?.get(slot).copied()
+    }
     pub fn update_use(&mut self, held: bool, delta: f32) -> bool {
         self.use_poll += delta;
         while self.use_poll >= 0.05 {
@@ -716,11 +745,44 @@ fn assemble(
         else {
             continue;
         };
-        barriers
-            .windows
-            .insert(d.id.clone(), vec![BoardState::Closed; d.boards.len()]);
+        barriers.windows.insert(
+            d.id.clone(),
+            vec![
+                if d.initially_open {
+                    BoardState::Missing
+                } else {
+                    BoardState::Closed
+                };
+                d.boards.len()
+            ],
+        );
         let origin = Vec3::from_array(p.position);
         let rotation = Quat::from_rotation_y(p.yaw);
+        let right = Quat::from_rotation_y(d.attack_yaw) * Vec3::Z;
+        let mut spots = [Vec3::ZERO; 3];
+        for slot in 0..3 {
+            let source = if slot == 0 {
+                origin
+            } else {
+                spots[0] + right * d.attack_spacing * if slot == 1 { 1. } else { -1. }
+            } + Vec3::Y * (60. * 0.0254);
+            let Some(floor) = query.cast_ray(
+                source,
+                Dir3::NEG_Y,
+                100000. * 0.0254,
+                false,
+                &crate::environment::solids([]),
+            ) else {
+                failure.0 = format!(
+                    "Source barrier {} attack slot {slot} has no loaded ground collision",
+                    d.id.0
+                );
+                next.set(GameState::LoadError);
+                return;
+            };
+            spots[slot] = source - Vec3::Y * floor.distance;
+        }
+        barriers.attack_spots.insert(d.id.clone(), spots);
         let repair_origin = Vec3::from_array(d.repair_origin);
         let Some(floor) = query.cast_ray(
             repair_origin,
@@ -759,15 +821,19 @@ fn assemble(
                     next.set(GameState::LoadError);
                     return;
                 };
-                commands.spawn((
+                let mut blocker = commands.spawn((
                     SessionEntity,
                     BarrierBlocker(d.id.clone(), index),
                     RigidBody::Static,
                     crate::assets::WorldCollider,
+                    crate::assets::WorldContents(collision.contents),
                     crate::movement::physics::SurfaceFlags(collision.surface_flags),
                     shape,
                     Transform::from_translation(origin).with_rotation(rotation),
                 ));
+                if d.initially_open {
+                    blocker.insert(ColliderDisabled);
+                }
             }
             let Some(scene) = definition
                 .content
@@ -789,7 +855,11 @@ fn assemble(
                 },
                 WorldAssetRoot(server.load(scene.clone())),
                 Transform::from_translation(origin).with_rotation(rotation),
-                Visibility::Inherited,
+                if d.initially_open {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                },
             ));
         }
     }
