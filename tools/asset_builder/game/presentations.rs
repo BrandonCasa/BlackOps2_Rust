@@ -299,16 +299,16 @@ pub(super) fn initial_ui(catalog: &Catalog<'_>, game: &mut Value) -> Result<()> 
     for name in [
         "overlay_low_health",
         "scorebar_zom_1",
-        "hud_tomb_dpad_bar",
-        "hud_tomb_dpad",
+        "hud_zm_tomb_dpad_bar",
+        "hud_zm_tomb_dpad",
         "hud_us_grenade",
         "damage_feedback",
         "menu_zm_map_tomb",
-        "hud_tomb_zom_num_slash",
+        "hud_zm_num_tomb_slash",
     ]
     .into_iter()
     .map(str::to_owned)
-    .chain((0..=9).map(|number| format!("hud_tomb_zom_num_{number}")))
+    .chain((0..=9).map(|number| format!("hud_zm_num_tomb_{number}")))
     .chain((1..=5).map(|number| format!("chalkmarks_hellcatraz_{number}")))
     {
         let (image, _, _) = ui_image(catalog, &name)?;

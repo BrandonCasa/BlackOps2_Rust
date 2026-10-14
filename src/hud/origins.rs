@@ -104,7 +104,11 @@ impl Plugin for OriginsHudPlugin {
                 .chain(),
         );
         super::scoreboard::install(app);
-        super::widgets::install(app);
+        if app.world().resource::<crate::origins::DeliveryScope>()
+            == &crate::origins::DeliveryScope::FullOrigins
+        {
+            super::widgets::install(app);
+        }
     }
 }
 
@@ -148,7 +152,7 @@ fn setup(
                 RoundTitle,
                 NativeText {
                     style: "extraBig",
-                    ..NativeText::new("Round", 80.).centered()
+                    ..NativeText::new(localized(&game, "ZOMBIE_ROUND", "Round"), 80.).centered()
                 },
                 rect(400., 216., 480., 80.),
             ));
@@ -190,12 +194,12 @@ fn setup(
                 rect(1152., 577., 128., 128.),
             ));
             parent.spawn((
-                native::image(&game, &server, "hud_tomb_dpad_bar"),
+                native::image(&game, &server, "hud_zm_tomb_dpad_bar"),
                 SafeAnchor::right(960.),
                 rect(960., 673., 256., 16.),
             ));
             parent.spawn((
-                native::image(&game, &server, "hud_tomb_dpad"),
+                native::image(&game, &server, "hud_zm_tomb_dpad"),
                 SafeAnchor::right(1152.),
                 rect(1152., 577., 128., 128.),
             ));
@@ -220,6 +224,9 @@ fn setup(
             .into_iter()
             .enumerate()
             {
+                if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo {
+                    break;
+                }
                 parent.spawn((
                     Powerup(index),
                     native::image(&game, &server, name),
@@ -251,6 +258,11 @@ fn setup(
                 ("helmet", "zom_hud_helmet_gold", 1250., 555., 30., 30.),
                 ("tablet", "zm_hud_icon_oneinch_dirty", 0., 574., 50., 50.),
             ] {
+                if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
+                    && key != "lethal"
+                {
+                    continue;
+                }
                 let count = match key {
                     "lethal" => 4,
                     "tactical" => 3,
@@ -433,13 +445,19 @@ fn update(
                     String::new()
                 }
             }
-            Field::Revive => episode.map_or(String::new(), |_| "Reviving".into()),
+            Field::Revive => episode.map_or(String::new(), |_| {
+                localized(&game, "ZOMBIE_REVIVING", "Reviving").into()
+            }),
             Field::Reload => {
                 if held.is_some_and(|w| w.magazine <= 2)
                     && inventory.action == crate::weapons::WeaponAction::Ready
                     && weapon.is_some_and(|w| inventory.reserve(w) > 0)
                 {
-                    format!("{} Reload", settings.label(crate::input::Action::Reload))
+                    format!(
+                        "{} {}",
+                        settings.label(crate::input::Action::Reload),
+                        localized(&game, "PLATFORM_RELOAD_LABEL", "Reload")
+                    )
                 } else {
                     String::new()
                 }
@@ -559,6 +577,14 @@ fn update(
     }
 }
 
+fn localized<'a>(game: &'a GameDefinition, key: &str, fallback: &'a str) -> &'a str {
+    game.content
+        .localized_strings
+        .iter()
+        .find(|text| text.key == key)
+        .map_or(fallback, |text| text.text.as_str())
+}
+
 fn icons(
     mut commands: Commands,
     game: Option<Res<GameDefinition>>,
@@ -658,10 +684,10 @@ fn icons(
                         small = false;
                     }
                     let (name, width) = match c {
-                        '/' => ("hud_tomb_zom_num_slash".into(), 24.),
-                        '|' => ("hud_tomb_zom_num_line".into(), 32.),
+                        '/' => ("hud_zm_num_tomb_slash".into(), 24.),
+                        '|' => ("hud_zm_num_tomb_line".into(), 32.),
                         _ => (
-                            format!("hud_tomb_zom_num_{c}"),
+                            format!("hud_zm_num_tomb_{c}"),
                             if stock { 24. } else { 32. },
                         ),
                     };
