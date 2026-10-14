@@ -49,20 +49,32 @@ impl BrushDefinition {
             .with_rotation(Quat::from_array(self.rotation))
     }
 
-    fn solid_collider(&self) -> Option<Collider> {
-        let volumes = self
+    fn solid_colliders(&self) -> Vec<(u32, Collider)> {
+        let contents: BTreeSet<_> = self
             .volumes
             .iter()
-            .filter(|volume| volume.contents & 0x10001 != 0)
-            .cloned()
-            .collect::<Vec<_>>();
-        let triangles = self
-            .triangle_shapes
-            .iter()
-            .filter(|shape| shape.contents & 0x10001 != 0)
-            .cloned()
-            .collect::<Vec<_>>();
-        compound(&volumes, &triangles)
+            .map(|volume| volume.contents)
+            .chain(self.triangle_shapes.iter().map(|shape| shape.contents))
+            .filter(|contents| contents & 0x10001 != 0)
+            .collect();
+        contents
+            .into_iter()
+            .filter_map(|contents| {
+                let volumes = self
+                    .volumes
+                    .iter()
+                    .filter(|volume| volume.contents == contents)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let triangles = self
+                    .triangle_shapes
+                    .iter()
+                    .filter(|shape| shape.contents == contents)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                compound(&volumes, &triangles).map(|collider| (contents, collider))
+            })
+            .collect()
     }
 }
 
@@ -227,15 +239,17 @@ pub(crate) fn bind(
         .initial_state
         .as_ref()
         .is_some_and(|state| state.solid)
-        && let Some(shape) = source.solid_collider()
     {
-        commands.spawn((
-            ChildOf(entity),
-            Transform::IDENTITY,
-            RigidBody::Static,
-            shape,
-            CollisionLayers::new(1, LayerMask::ALL),
-        ));
+        for (contents, shape) in source.solid_colliders() {
+            commands.spawn((
+                ChildOf(entity),
+                Transform::IDENTITY,
+                RigidBody::Static,
+                shape,
+                crate::assets::WorldContents(contents),
+                CollisionLayers::new(1, LayerMask::ALL),
+            ));
+        }
     }
     if source
         .initial_state
