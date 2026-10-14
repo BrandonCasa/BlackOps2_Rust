@@ -296,6 +296,7 @@ pub(super) fn initial_presentations(
 
 pub(super) fn initial_ui(catalog: &Catalog<'_>, game: &mut Value) -> Result<()> {
     let mut assets = Vec::new();
+    let mut missing = Vec::new();
     for name in [
         "overlay_low_health",
         "scorebar_zom_1",
@@ -303,7 +304,7 @@ pub(super) fn initial_ui(catalog: &Catalog<'_>, game: &mut Value) -> Result<()> 
         "hud_zm_tomb_dpad",
         "hud_us_grenade",
         "damage_feedback",
-        "specialty_2x_zombies",
+        "specialty_doublepoints_zombies",
         "hud_zm_num_tomb_slash",
         "zm_capture_meter_back",
         "zm_capture_meter_dial",
@@ -320,7 +321,13 @@ pub(super) fn initial_ui(catalog: &Catalog<'_>, game: &mut Value) -> Result<()> 
     .chain((0..=9).map(|number| format!("hud_zm_num_tomb_{number}")))
     .chain((1..=5).map(|number| format!("chalkmarks_hellcatraz_{number}")))
     {
-        let (image, _, _) = ui_image(catalog, &name)?;
+        let (image, _, _) = match ui_image(catalog, &name) {
+            Ok(image) => image,
+            Err(error) => {
+                missing.push(error.to_string());
+                continue;
+            }
+        };
         assets.push(json!({"id":format!("ui.{name}"),"source_image":image,"path":null}));
     }
     for (style, name) in [
@@ -328,14 +335,26 @@ pub(super) fn initial_ui(catalog: &Catalog<'_>, game: &mut Value) -> Result<()> 
         ("extraSmall", "fonts/720/extraSmallFont"),
         ("extraBig", "fonts/720/extraBigFont"),
     ] {
-        let (zone, root) = catalog.resolve(20, name)?;
+        let (zone, root) = match catalog.resolve(20, name) {
+            Ok(font) => font,
+            Err(error) => {
+                missing.push(error.to_string());
+                continue;
+            }
+        };
         let streams = &catalog.zones[zone].1.streams;
         let height = streams.u32(root.add(4)?)? as i32;
         if height <= 0 {
             return Err(format!("Initial font {name} has invalid native height {height}").into());
         }
         let (material, _, _) = catalog.pointer(zone, root.add(20)?, 6)?;
-        let (image, image_zone, image_root) = ui_image(catalog, &material)?;
+        let (image, image_zone, image_root) = match ui_image(catalog, &material) {
+            Ok(image) => image,
+            Err(error) => {
+                missing.push(format!("Initial font {name}: {error}"));
+                continue;
+            }
+        };
         let image_streams = &catalog.zones[image_zone].1.streams;
         let width = image_streams.u16(image_root.add(20)?)? as f32;
         let atlas_height = image_streams.u16(image_root.add(22)?)? as f32;
@@ -383,6 +402,13 @@ pub(super) fn initial_ui(catalog: &Catalog<'_>, game: &mut Value) -> Result<()> 
             json!({"id":format!("ui.font.{style}"),"source_image":image,"path":null,
             "font":{"height":height,"atlas":[width,atlas_height],"glyphs":glyphs}}),
         );
+    }
+    if !missing.is_empty() {
+        return Err(format!(
+            "Required initial UI conversion is incomplete: {}",
+            missing.join("; ")
+        )
+        .into());
     }
     let ui = game["content"]["ui_assets"]
         .as_array_mut()

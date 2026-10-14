@@ -212,7 +212,7 @@ fn setup(
                 },
             ));
             for (index, name) in [
-                "specialty_2x_zombies",
+                "specialty_doublepoints_zombies",
                 "specialty_instakill_zombies",
                 "specialty_zomblood_zombies",
                 "specialty_firesale_zombies",
