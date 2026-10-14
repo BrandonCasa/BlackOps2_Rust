@@ -135,6 +135,8 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let ads_capture = options.verify_ads;
     let fixed_resolution = ads_capture || benchmark || options.validation_remote.is_some();
     let flythrough = options.flythrough;
+    let cpu_meshes = cfg!(all(debug_assertions, feature = "dev-tools"))
+        && options.validation_cpu_meshes;
     app.insert_resource(options);
     app.insert_resource(bevy::render::render_asset::RenderAssetBytesPerFrame::new(
         64 * 1024 * 1024,
@@ -144,6 +146,10 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let default_plugins = default_plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(
         default_plugins
+            .set(bevy::pbr::PbrPlugin {
+                use_gpu_instance_buffer_builder: !cpu_meshes,
+                ..default()
+            })
             .set(
                 bevy::gltf::GltfPlugin::default()
                     .add_custom_vertex_attribute(

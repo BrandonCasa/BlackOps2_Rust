@@ -15,7 +15,7 @@ pub(crate) mod prepared;
 pub struct LaunchOptions {
     pub flythrough: bool,
     pub validation_remote: Option<u16>,
-    pub validation_direct_draw: bool,
+    pub validation_cpu_meshes: bool,
     pub material_debug: u32,
     pub verify: Option<PathBuf>,
     pub verify_controls: bool,
@@ -68,7 +68,7 @@ impl LaunchOptions {
     pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
         let mut result = Self::default();
         if let Some(argument) = args.next() {
-            if argument == "--validation-remote" || argument == "--validation-remote-direct-draw" {
+            if argument == "--validation-remote" || argument == "--validation-remote-cpu-meshes" {
                 let port = args
                     .next()
                     .map_or(Some(15702), |v| v.to_str()?.parse::<u16>().ok());
@@ -77,10 +77,10 @@ impl LaunchOptions {
                     && args.next().is_none()
                 {
                     result.validation_remote = port;
-                    result.validation_direct_draw = argument == "--validation-remote-direct-draw";
+                    result.validation_cpu_meshes = argument == "--validation-remote-cpu-meshes";
                 } else {
                     result.error =
-                        Some("Usage: development origins --validation-remote or --validation-remote-direct-draw [port]; port 15703 is reserved for render BRP".into());
+                        Some("Usage: development origins --validation-remote or --validation-remote-cpu-meshes [port]; port 15703 is reserved for render BRP".into());
                 }
                 return result;
             }

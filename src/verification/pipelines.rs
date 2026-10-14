@@ -157,10 +157,12 @@ fn inspect_meshes(
         &bevy::core_pipeline::prepass::ViewPrepassTextures,
     )>,
 ) {
-    let Some(buffers) = buffers else { return };
     let mut checked = 0;
     let mut mismatches = Vec::new();
     for &entity in skins.all_skins() {
+        let Some(buffers) = buffers.as_ref() else {
+            break;
+        };
         let Some(queue) = instances.render_mesh_queue_data(entity) else {
             continue;
         };
@@ -206,7 +208,7 @@ fn inspect_meshes(
                     serde_json::json!(mismatches)
                 }
             });
-        let phases: Vec<_> = buffers.phase_instance_buffers.iter().map(|(id, phase)| {
+        let phases: Vec<_> = buffers.as_ref().into_iter().flat_map(|buffers| buffers.phase_instance_buffers.iter()).map(|(id, phase)| {
             let name = if *id == std::any::TypeId::of::<bevy::core_pipeline::deferred::Opaque3dDeferred>() {
                 "opaque_deferred"
             } else if *id == std::any::TypeId::of::<bevy::core_pipeline::deferred::AlphaMask3dDeferred>() {
@@ -237,6 +239,7 @@ fn inspect_meshes(
             .collect();
         *report = serde_json::json!({"frames":frames,"checked":checked,"mismatch_frames":mismatch_frames,
             "mismatches":mismatches,"first_mismatches":first,
+            "gpu_instance_builder":buffers.is_some(),
             "gpu_assets":{"meshes":gpu_assets.0.iter().count(),"images":gpu_assets.1.iter().count(),
                 "materials":gpu_assets.2.iter().count(),
                 "upload_bytes_this_frame":uploads.bytes_written.load(Ordering::Relaxed),
