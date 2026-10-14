@@ -566,17 +566,14 @@ fn replenish(
     session: Res<crate::session::SessionId>,
     mut started: MessageReader<crate::rounds::RoundStarted>,
     definition: Res<GameDefinition>,
-    mut players: Query<(&mut GrenadeInventory, &Vitality), With<Player>>,
+    mut players: Query<&mut GrenadeInventory, With<Player>>,
     mut evidence: ResMut<EquipmentEvidence>,
 ) {
     for event in started.read() {
         if event.session != *session {
             continue;
         }
-        for (mut inventory, vitality) in &mut players {
-            if vitality.state() != LifeState::Standing {
-                continue;
-            }
+        for mut inventory in &mut players {
             let Some(profile) = definition
                 .content
                 .weapons
