@@ -6,9 +6,13 @@
 from test_support import asset_bytes
 
 import argparse
+import csv
+from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
+import subprocess
+import threading
 import time
 
 from test_support import Client, initial_zones, write_report
@@ -29,6 +33,40 @@ from test_throwable_down import binding, check, edge, schedule
 
 INITIAL_SECTIONS = ('initial_start', 'initial_controls', 'initial_combat', 'initial_grenade_motion', 'initial_melee',
                     'initial_life', 'initial_revive', 'initial_barriers', 'initial_rounds')
+
+
+def sample_gpu_memory(pid, trace, stop):
+    def process_state():
+        result = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
+                                capture_output=True, text=True, check=True, timeout=2,
+                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        row = next((row for row in csv.reader(result.stdout.splitlines())
+                    if len(row) > 1 and row[1] == str(pid)), None)
+        return {'running': row is not None, 'image': row[0] if row else None}
+
+    while not stop.is_set():
+        sample = {'started_utc': datetime.now(timezone.utc).isoformat()}
+        try:
+            sample['owned_process_before'] = process_state()
+            result = subprocess.run(['nvidia-smi', '--query-gpu=timestamp,index,name,memory.total,memory.used',
+                                     '--format=csv,noheader,nounits'],
+                                    capture_output=True, text=True, check=True, timeout=3,
+                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            sample['gpus'] = [{'driver_timestamp_local': row[0], 'index': int(row[1]), 'name': row[2],
+                               'total_mib': float(row[3]), 'used_mib': float(row[4])}
+                              for row in csv.reader(result.stdout.splitlines(), skipinitialspace=True)
+                              if len(row) == 5]
+            if not sample['gpus']:
+                raise RuntimeError('nvidia-smi returned no GPU memory samples')
+            sample['owned_process_after'] = process_state()
+        except Exception as error:
+            sample['error'] = f'{type(error).__name__}: {error}'
+        sample['finished_utc'] = datetime.now(timezone.utc).isoformat()
+        trace['samples'].append(sample)
+        if 'error' in sample:
+            trace['error'] = sample['error']
+            return
+        stop.wait(trace['interval_seconds'])
 
 
 def normal_action(client, action, ticks=2):
@@ -561,6 +599,7 @@ def main():
     parser.add_argument('--fail-fast', action='store_true')
     parser.add_argument('--milestone', choices=('full', 'initial'), default='full')
     parser.add_argument('--round-timeout', type=float, default=1200)
+    parser.add_argument('--gpu-memory-pid', type=int)
     parser.add_argument('--section', action='append', choices=(
         'ui', 'session', 'projectiles', 'physics', 'mobility', 'dive', 'pistols',
         'instakill', 'environment', 'stations', 'landing', 'quests', 'animation', *INITIAL_SECTIONS))
@@ -575,7 +614,19 @@ def main():
                                ['ui', 'session', 'projectiles', 'physics', 'mobility',
                                 'dive', 'pistols', 'instakill', 'environment', 'stations', 'landing', 'quests', 'animation'])
     site = None
+    memory_stop = threading.Event()
+    memory_thread = None
     try:
+        if args.gpu_memory_pid is not None:
+            if args.gpu_memory_pid <= 0:
+                raise ValueError('GPU memory trace requires the positive owned game PID')
+            trace = {'owned_pid': args.gpu_memory_pid, 'interval_seconds': 1,
+                     'scope': 'Whole-device memory including other processes; sampled maxima are not exact peaks or performance results.',
+                     'samples': []}
+            report['gpu_memory'] = trace
+            memory_thread = threading.Thread(target=sample_gpu_memory,
+                                             args=(args.gpu_memory_pid, trace, memory_stop), daemon=True)
+            memory_thread.start()
         if args.milestone == 'initial' and any(name not in (*INITIAL_SECTIONS, 'session') for name in selected):
             raise ValueError('Initial milestone sections must stay within initial content')
         if not math.isfinite(args.round_timeout) or args.round_timeout <= 0:
@@ -725,6 +776,18 @@ def main():
         report['error'] = f'{type(error).__name__}: {str(error)[:1200]}'
     finally:
         client.shutdown(report)
+        if memory_thread is not None:
+            memory_stop.set()
+            memory_thread.join(timeout=8)
+            trace['sampler_stopped'] = not memory_thread.is_alive()
+            maxima = {}
+            for sample in trace['samples']:
+                if (sample.get('owned_process_before', {}).get('running')
+                        and sample.get('owned_process_after', {}).get('running')):
+                    for gpu in sample.get('gpus', []):
+                        index = str(gpu['index'])
+                        maxima[index] = max(maxima.get(index, 0), gpu['used_mib'])
+            trace['sampled_running_max_mib_by_gpu'] = maxima
         target = write_report(output, 'final-gameplay.json', report)
     print(json.dumps({'passed': report['passed'], 'checks': len(report['cases']), 'report': str(target)}))
     return 0 if report['passed'] else 1
