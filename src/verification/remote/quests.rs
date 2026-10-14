@@ -20,8 +20,12 @@ pub(super) fn schema(_: In<Option<Value>>) -> BrpResult {
 }
 
 pub(super) fn snapshot(world: &mut World) -> Value {
-    let upgrades = world.resource::<StaffUpgrades>();
-    let show = world.resource::<LightShow>();
+    let (Some(upgrades), Some(show)) = (
+        world.get_resource::<StaffUpgrades>(),
+        world.get_resource::<LightShow>(),
+    ) else {
+        return Value::Null;
+    };
     let mut result = json!({"rings":upgrades.rings,"unlocked":upgrades.unlocked,
         "inserted":upgrades.inserted,"charged":upgrades.charged,"souls":upgrades.souls,
         "lights":{"active":show.active,"mode":show.mode,"on":show.on,"elapsed":show.elapsed,
@@ -36,6 +40,9 @@ pub(super) fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResul
     if *world.resource::<State<GameState>>().get() != GameState::Playing {
         return Err(super::error("Quest setup requires Playing"));
     }
+    if !world.contains_resource::<StaffUpgrades>() || !world.contains_resource::<LightShow>() {
+        return Err(super::error("Staff upgrade scenarios are unavailable"));
+    }
     if request.upgraded_staffs.is_some_and(|count| count > 4) {
         return Err(super::error("Upgraded staff fixture count exceeds four"));
     }
@@ -47,4 +54,19 @@ pub(super) fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResul
         world.resource_mut::<StaffUpgrades>().unlocked = unlocked;
     }
     Ok(json!({"applied":true,"scenario_setup_only":true}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deferred_staff_diagnostics_remain_unavailable_without_the_light_resource() {
+        let mut world = World::new();
+        assert!(snapshot(&mut world).is_null());
+        world.init_resource::<StaffUpgrades>();
+        assert!(snapshot(&mut world).is_null());
+        world.insert_resource(State::new(GameState::Playing));
+        assert!(setup(In(Some(json!({"unlocked":[true,true,true,true]}))), &mut world).is_err());
+    }
 }
