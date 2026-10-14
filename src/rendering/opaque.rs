@@ -348,6 +348,10 @@ pub(super) struct FlagMotion {
 }
 
 impl FlagMotion {
+    pub(super) fn deformation_time(&self) -> Option<f32> {
+        self.last_time
+    }
+
     fn new(
         original: Handle<Mesh>,
         owner: Entity,
@@ -1331,6 +1335,16 @@ mod tests {
             };
             assert!(source.iter().all(|position| position[1] == 0.));
         }
+        let mut events = app
+            .world()
+            .resource::<Messages<AssetEvent<Mesh>>>()
+            .get_cursor_current();
+        app.update();
+        assert!(
+            !events
+                .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+                .any(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
+        );
         app.world_mut()
             .get_mut::<NativeArtInputs>(objects[0].0)
             .unwrap()
@@ -1349,6 +1363,59 @@ mod tests {
             panic!()
         };
         assert!(positions[1][1] < -0.09);
+        assert_eq!(
+            events
+                .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+                .filter(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
+                .count(),
+            1
+        );
+        app.update();
+        assert!(
+            !events
+                .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+                .any(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
+        );
+        app.world_mut()
+            .entity_mut(objects[0].1)
+            .insert(InheritedVisibility::HIDDEN);
+        app.world_mut()
+            .get_mut::<NativeArtInputs>(objects[0].0)
+            .unwrap()
+            .shader_time = Some((2250, 0.));
+        app.update();
+        assert!(app.world().get::<RaytracingMesh3d>(objects[0].1).is_none());
+        assert!(
+            !events
+                .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+                .any(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
+        );
+        app.world_mut()
+            .entity_mut(objects[0].1)
+            .insert(InheritedVisibility::VISIBLE);
+        app.update();
+        assert_eq!(
+            app.world().get::<RaytracingMesh3d>(objects[0].1).unwrap().0,
+            proxy
+        );
+        assert_eq!(
+            events
+                .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+                .filter(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
+                .count(),
+            1
+        );
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        assert_eq!(
+            meshes
+                .get(&objects[0].2)
+                .unwrap()
+                .attribute(Mesh::ATTRIBUTE_POSITION),
+            meshes
+                .get(&proxy)
+                .unwrap()
+                .attribute(Mesh::ATTRIBUTE_POSITION)
+        );
         app.add_systems(Update, initialize.before(refresh_owners));
         app.update();
         for (_, entity, _) in objects {
