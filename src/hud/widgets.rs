@@ -106,6 +106,9 @@ fn setup(
         ))
         .with_children(|parent| {
             for (index, name) in ["kill", "level", "economy", "team"].into_iter().enumerate() {
+                if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo {
+                    break;
+                }
                 let width = if index == 3 { 72.5 } else { 50. };
                 for glow in [false, true] {
                     let name = if glow {
@@ -155,6 +158,14 @@ fn setup(
                     }
                 });
             for number in 1..=6 {
+                if !game
+                    .content
+                    .generators
+                    .iter()
+                    .any(|generator| generator.number == number)
+                {
+                    continue;
+                }
                 let image = images.add(Image::new_fill(
                     Extent3d {
                         width: 128,
@@ -178,8 +189,8 @@ fn setup(
                     ))
                     .with_children(|p| {
                         for (layer, name) in [
-                            (0, "tomb_capture_spin".into()),
-                            (1, "tomb_capture_spin_glow".into()),
+                            (0, "hud_zm_tomb_capture_spin".into()),
+                            (1, "hud_zm_tomb_capture_spin_glow".into()),
                             (2, format!("tomb_spinner_{number}_shadow")),
                             (3, format!("tomb_spinner_{number}_glow")),
                             (4, "waypoint_arrow_tomb".into()),
@@ -205,6 +216,9 @@ fn setup(
                     });
             }
             for slot in 0..4 {
+                if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo {
+                    break;
+                }
                 parent.spawn((
                     RaiderMarker(slot),
                     native::image(&game, &server, "zm_hud_icon_evil_crusade"),

@@ -104,11 +104,7 @@ impl Plugin for OriginsHudPlugin {
                 .chain(),
         );
         super::scoreboard::install(app);
-        if app.world().resource::<crate::origins::DeliveryScope>()
-            == &crate::origins::DeliveryScope::FullOrigins
-        {
-            super::widgets::install(app);
-        }
+        super::widgets::install(app);
     }
 }
 

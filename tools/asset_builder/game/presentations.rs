@@ -305,6 +305,15 @@ pub(super) fn initial_ui(catalog: &Catalog<'_>, game: &mut Value) -> Result<()> 
         "damage_feedback",
         "menu_zm_map_tomb",
         "hud_zm_num_tomb_slash",
+        "zm_capture_meter_back",
+        "zm_capture_meter_dial",
+        "zm_capture_meter_wedge",
+        "zm_capture_meter_eyes",
+        "hud_zm_tomb_capture_spin",
+        "hud_zm_tomb_capture_spin_glow",
+        "tomb_spinner_1_shadow",
+        "tomb_spinner_1_glow",
+        "waypoint_arrow_tomb",
     ]
     .into_iter()
     .map(str::to_owned)
