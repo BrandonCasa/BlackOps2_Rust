@@ -1346,7 +1346,7 @@ mod weapon_tuning_tests {
     use super::*;
 
     #[test]
-    fn native_unused_zero_tuning_does_not_allow_zero_active_fire_or_projectile_lifetime() {
+    fn native_zero_and_descending_recoil_tuning_keep_active_value_checks() {
         let mut content: ContentCatalog = serde_json::from_value(serde_json::json!({
             "weapons":[{"id":"weapon.fixture","name":"fixture","damage":1,"category":"melee",
                 "magazine":1,"reserve":0,"fire_interval":0.,"reload_seconds":0.,"upgraded":null,"presentation":null,
@@ -1358,6 +1358,17 @@ mod weapon_tuning_tests {
             "sounds":[],"animations":[],"ui_assets":[]
         })).unwrap();
         content.validate().unwrap();
+        content.weapons[0].mechanics.recoil_yaw = [35., -35.];
+        content.weapons[0].mechanics.recoil_pitch = [0.4, 0.2];
+        content.validate().unwrap();
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            content.weapons[0].mechanics.recoil_yaw[0] = invalid;
+            assert!(content.validate().is_err());
+            content.weapons[0].mechanics.recoil_yaw[0] = 35.;
+            content.weapons[0].mechanics.recoil_pitch[1] = invalid;
+            assert!(content.validate().is_err());
+            content.weapons[0].mechanics.recoil_pitch[1] = 0.2;
+        }
         content.weapons[0].mechanics.delivery = WeaponDelivery::Hitscan;
         assert!(content.validate().is_err());
         content.weapons[0].fire_interval = 0.2;
@@ -1583,8 +1594,6 @@ impl ContentCatalog {
                         .iter()
                         .chain(m.recoil_yaw.iter())
                         .all(|v| v.is_finite())
-                    && m.recoil_pitch[0] <= m.recoil_pitch[1]
-                    && m.recoil_yaw[0] <= m.recoil_yaw[1]
                     && nonnegative(m.recoil_recovery)
                     && m.ads_recoil_recovery.is_none_or(nonnegative)
                     && m.ads_fov.is_finite()
