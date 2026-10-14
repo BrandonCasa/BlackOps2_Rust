@@ -10,7 +10,10 @@ use bevy::{
     render::render_resource::AsBindGroup,
 };
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 pub(crate) const FLAG_SOURCE_NORMAL: MeshVertexAttribute = MeshVertexAttribute::new(
     "_ORIGINS_NORMAL",
@@ -54,7 +57,7 @@ pub(super) struct SurfaceDefinition {
     pub presentation: Value,
     channels: HashMap<(String, u64), Handle<Image>>,
     metadata: Value,
-    frames: Vec<Frame>,
+    frames: Arc<Vec<Frame>>,
 }
 #[derive(Resource, Default)]
 pub(crate) struct SurfaceLibrary {
@@ -66,12 +69,7 @@ impl SurfaceLibrary {
     pub(crate) fn textures_ready(&self, server: &AssetServer) -> Result<bool, String> {
         let mut ready = true;
         for definition in self.definitions.values() {
-            for image in definition.channels.values().chain(
-                definition
-                    .frames
-                    .iter()
-                    .flat_map(|frame| frame.channels.values()),
-            ) {
+            for image in definition.channels.values() {
                 if let Some(bevy::asset::LoadState::Failed(error)) =
                     server.get_load_state(image.id())
                 {
@@ -332,7 +330,7 @@ pub(super) fn register_prepared(
                 .map(|(texture, image)| ((texture.role.clone(), texture.layer), image.clone()))
                 .collect(),
             metadata: surface.clone(),
-            frames: Vec::new(),
+            frames: Arc::default(),
         },
     );
     Ok(())
@@ -442,7 +440,7 @@ pub(super) fn refresh_owners(
 
 #[derive(Clone)]
 struct Frame {
-    channels: HashMap<String, Handle<Image>>,
+    channels: Vec<PreparedTexture>,
     factors: Value,
 }
 #[derive(Component)]
@@ -452,7 +450,8 @@ pub(super) struct AnimatedMaterial {
     time_frames: usize,
     state_threshold: f32,
     owner: Option<Entity>,
-    frames: Vec<Frame>,
+    frames: Arc<Vec<Frame>>,
+    loaded: HashMap<usize, HashMap<String, Handle<Image>>>,
     selected: usize,
 }
 
@@ -986,7 +985,6 @@ pub(super) fn convert(
     mut library: ResMut<SurfaceLibrary>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    server: Res<AssetServer>,
     mut status: ResMut<OpaqueSurfaceStatus>,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
@@ -1033,40 +1031,13 @@ pub(super) fn convert(
         {
             for frame in source_frames {
                 let textures = super::pbr::textures(&frame["channels"]).unwrap();
-                definition.frames.push(Frame {
-                    channels: textures
-                        .into_iter()
-                        .map(|texture| (texture.role.clone(), super::pbr::load(&server, &texture)))
-                        .collect(),
+                Arc::make_mut(&mut definition.frames).push(Frame {
+                    channels: textures,
                     factors: frame["standard"].clone(),
                 });
             }
         }
         let frames = &definition.frames;
-        if let Some((image, error)) = frames
-            .iter()
-            .flat_map(|frame| frame.channels.values())
-            .find_map(|image| match server.get_load_state(image.id()) {
-                Some(bevy::asset::LoadState::Failed(error)) => Some((image, error)),
-                _ => None,
-            })
-        {
-            failure.0 = format!(
-                "Material animation {} texture {:?}: {error}",
-                name.0,
-                image.path()
-            );
-            next.set(crate::GameState::LoadError);
-            return;
-        }
-        if frames
-            .iter()
-            .flat_map(|f| f.channels.values())
-            .any(|image| !server.is_loaded_with_dependencies(image.id()))
-        {
-            status.pending += 1;
-            continue;
-        }
         let mut flag_original = None;
         if !definition.metadata["source_flag_motion"].is_null() {
             let result = (|| -> Result<(FlagMotion, Mesh), String> {
@@ -1152,6 +1123,7 @@ pub(super) fn convert(
                 state_threshold: animation["state_threshold"].as_f64().unwrap_or(1.) as f32,
                 owner,
                 frames: frames.clone(),
+                loaded: HashMap::new(),
                 selected: usize::MAX,
             });
         }
@@ -1183,6 +1155,8 @@ pub(super) fn animate(
     stones: Query<&crate::staff_puzzles::FrozenStone>,
     mut entities: Query<(&mut AnimatedMaterial, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut failure: Option<ResMut<crate::assets::LoadFailure>>,
+    mut next: Option<ResMut<NextState<crate::GameState>>>,
 ) {
     for (mut animation, handle) in &mut entities {
         let count = animation.frames.len();
@@ -1217,11 +1191,46 @@ pub(super) fn animate(
                 .min(count - 1),
             _ => phase(count),
         };
+        let following = match animation.driver.as_str() {
+            "staff_charge" => {
+                selected / animation.time_frames * animation.time_frames
+                    + (selected + 1) % animation.time_frames
+            }
+            "frozen_stone" => (selected + 1).min(count - 1),
+            _ => (selected + 1) % count,
+        };
+        let previous = animation.selected;
+        animation
+            .loaded
+            .retain(|index, _| *index == selected || *index == following || *index == previous);
+        for index in [selected, following] {
+            if !animation.loaded.contains_key(&index) {
+                let channels = animation.frames[index]
+                    .channels
+                    .iter()
+                    .map(|texture| (texture.role.clone(), super::pbr::load(&server, texture)))
+                    .collect();
+                animation.loaded.insert(index, channels);
+            }
+        }
+        if let Some((image, error)) = animation.loaded[&selected].values().find_map(|image| {
+            match server.get_load_state(image.id()) {
+                Some(bevy::asset::LoadState::Failed(error)) => Some((image, error)),
+                _ => None,
+            }
+        }) {
+            if let Some(failure) = failure.as_deref_mut() {
+                failure.0 = format!("Material animation texture {:?}: {error}", image.path());
+            }
+            if let Some(next) = next.as_deref_mut() {
+                next.set(crate::GameState::LoadError);
+            }
+            return;
+        }
         if animation.selected == selected {
             continue;
         }
-        if animation.frames[selected]
-            .channels
+        if animation.loaded[&selected]
             .values()
             .any(|image| !server.is_loaded_with_dependencies(image.id()))
         {
@@ -1229,19 +1238,18 @@ pub(super) fn animate(
         }
         if let Some(mut material) = materials.get_mut(&handle.0) {
             let frame = &animation.frames[selected];
-            material.base_color_texture = frame.channels.get("color").cloned();
-            material.normal_map_texture = frame.channels.get("normal").cloned();
-            material.metallic_roughness_texture = frame.channels.get("response").cloned();
-            material.occlusion_texture = frame
-                .channels
+            let channels = &animation.loaded[&selected];
+            material.base_color_texture = channels.get("color").cloned();
+            material.normal_map_texture = channels.get("normal").cloned();
+            material.metallic_roughness_texture = channels.get("response").cloned();
+            material.occlusion_texture = channels
                 .get("occlusion")
-                .or_else(|| frame.channels.get("response"))
+                .or_else(|| channels.get("response"))
                 .cloned();
-            material.emissive_texture = frame.channels.get("emissive").cloned();
-            material.specular_tint_texture = frame
-                .channels
+            material.emissive_texture = channels.get("emissive").cloned();
+            material.specular_tint_texture = channels
                 .get("reflectance")
-                .or_else(|| frame.channels.get("specular_gloss"))
+                .or_else(|| channels.get("specular_gloss"))
                 .cloned();
             apply_factors(&mut material, &frame.factors);
             animation.selected = selected;
@@ -2496,15 +2504,10 @@ mod tests {
         let mut library = SurfaceLibrary::default();
         let surface = json!({"identity":"test", "presentation":{}, "channels":[]});
         register_prepared(&mut library, &surface, &[]).unwrap();
-        library
-            .definitions
-            .get_mut("test")
-            .unwrap()
-            .frames
-            .push(Frame {
-                channels: HashMap::new(),
-                factors: json!({}),
-            });
+        Arc::make_mut(&mut library.definitions.get_mut("test").unwrap().frames).push(Frame {
+            channels: Vec::new(),
+            factors: json!({}),
+        });
         register_prepared(&mut library, &surface, &[]).unwrap();
         assert_eq!(library.definitions["test"].frames.len(), 1);
         let mut conflict = surface;
@@ -2805,16 +2808,17 @@ mod tests {
                         time_frames: 2,
                         state_threshold: 1.,
                         owner: Some(owner),
-                        frames: vec![
+                        frames: Arc::new(vec![
                             Frame {
-                                channels: HashMap::new(),
+                                channels: Vec::new(),
                                 factors: json!({"emissive":[1.,0.,0.]}),
                             },
                             Frame {
-                                channels: HashMap::new(),
+                                channels: Vec::new(),
                                 factors: json!({"emissive":[9.,0.,0.]}),
                             },
-                        ],
+                        ]),
+                        loaded: HashMap::new(),
                         selected: usize::MAX,
                     },
                 ))
@@ -2834,5 +2838,22 @@ mod tests {
         app.update();
         let materials = app.world().resource::<Assets<StandardMaterial>>();
         assert_eq!(materials.get(&objects[0].1).unwrap().emissive.red, 1.);
+        app.world_mut()
+            .get_mut::<AnimatedMaterial>(objects[0].0)
+            .unwrap()
+            .frames = Arc::new(vec![
+            Frame {
+                channels: Vec::new(),
+                factors: json!({})
+            };
+            10_000
+        ]);
+        for seconds in [50., 500., 9_999., 10_001.] {
+            app.world_mut().resource_mut::<MaterialTime>().0 = seconds;
+            app.update();
+            let animation = app.world().get::<AnimatedMaterial>(objects[0].0).unwrap();
+            assert!(animation.loaded.len() <= 3);
+            assert!(animation.loaded.contains_key(&animation.selected));
+        }
     }
 }
