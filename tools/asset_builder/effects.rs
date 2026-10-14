@@ -85,6 +85,7 @@ fn material_inputs<'a>(name: &str, native: &'a Value) -> Result<(&'a Value, &'st
     let alpha = match state & 0x7ff {
         0x12 => "opaque",
         0x122 | 0x125 | 0x12a => "add",
+        0x162 => "premultiplied",
         0x165 => "blend",
         0x131 => "multiply",
         blend => {
@@ -103,12 +104,24 @@ fn material_inputs<'a>(name: &str, native: &'a Value) -> Result<(&'a Value, &'st
     Ok((binding, alpha, state))
 }
 
+fn atlas_dimensions(catalog: &Catalog<'_>, name: &str) -> Result<[u8; 2]> {
+    let (zone, root) = catalog.resolve(6, name)?;
+    let streams = &catalog.zones[zone].1.streams;
+    let columns = streams.u8(root.add(11)?)?;
+    let rows = streams.u8(root.add(10)?)?;
+    if columns == 0 || rows == 0 {
+        return Err(format!("Required FX material {name} has zero native atlas dimensions").into());
+    }
+    Ok([columns, rows])
+}
+
 impl Effects {
     pub fn inputs(&self, catalog: &Catalog<'_>) -> Result<BTreeSet<String>> {
         let mut images = BTreeSet::new();
         for name in &self.materials {
             let material = crate::material::read(catalog, name)?;
             material_inputs(name, &material)?;
+            atlas_dimensions(catalog, name)?;
             for binding in material["textures"]
                 .as_array()
                 .ok_or("Native FX material texture list is absent")?
@@ -135,6 +148,7 @@ impl Effects {
         for name in &self.materials {
             let native = crate::material::read(catalog, name)?;
             let (binding, alpha, _) = material_inputs(name, &native)?;
+            let [columns, rows] = atlas_dimensions(catalog, name)?;
             let image = images
                 .iter()
                 .find(|image| {
@@ -150,16 +164,6 @@ impl Effects {
                         binding["image"]
                     )
                 })?;
-            let (zone, root) = catalog.resolve(6, name)?;
-            let streams = &catalog.zones[zone].1.streams;
-            let columns = streams.u8(root.add(11)?)?;
-            let rows = streams.u8(root.add(10)?)?;
-            if columns == 0 || rows == 0 {
-                return Err(format!(
-                    "Required FX material {name} has zero native atlas dimensions"
-                )
-                .into());
-            }
             let uri = image["uris"]["srgb"]
                 .as_str()
                 .ok_or("Required FX color-map URI is absent")?;
@@ -541,13 +545,19 @@ mod tests {
         }
         let mut material_gaps = Vec::new();
         let mut blend_states = BTreeMap::<u64, (String, usize)>::new();
+        let mut atlas_sizes = BTreeMap::<[u8; 2], usize>::new();
         assert!(
             effects
                 .materials
                 .contains("gfx_fxt_env_dust_mote_pcloud_add")
         );
+        assert!(effects.materials.contains("wc/gfx_impact_blood_spatter03"));
         for name in &effects.materials {
             let mut native = crate::material::read(&catalog, name).unwrap();
+            match atlas_dimensions(&catalog, name) {
+                Ok(dimensions) => *atlas_sizes.entry(dimensions).or_default() += 1,
+                Err(error) => material_gaps.push(error.to_string()),
+            }
             match material_inputs(name, &native) {
                 Ok((_, alpha, state)) => {
                     blend_states
@@ -566,11 +576,16 @@ mod tests {
                                 .contains("unsupported native blend state 0x225")
                         );
                     }
+                    if name == "wc/gfx_impact_blood_spatter03" {
+                        assert_eq!(state & 0x7ff, 0x162);
+                        assert_eq!(alpha, "premultiplied");
+                    }
                 }
                 Err(error) => material_gaps.push(error.to_string()),
             }
         }
         println!("Required FX native RGB blend states: {blend_states:?}");
+        println!("Required FX native atlas dimensions: {atlas_sizes:?}");
         assert!(
             material_gaps.is_empty(),
             "Required FX material compatibility gaps:\n{}",
