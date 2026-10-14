@@ -1033,6 +1033,7 @@ fn world(
     {
         let native = perk_music(&perk.id.0);
         if let Some(native) = native {
+            emit(&mut commands, "evt_belch", SoundSource::attached(player));
             emit(
                 &mut commands,
                 format!("mus_perks_{native}_sting"),

@@ -15,6 +15,7 @@ use std::{
 mod decoded;
 mod gameplay;
 mod narrative;
+mod obstruction;
 mod reverb;
 pub(crate) use decoded::AudioDecodeStats;
 pub(crate) use gameplay::voice;
@@ -74,6 +75,7 @@ pub struct NativeSound {
     pub motion_seconds: f32,
     pub bus: u8,
     pub distance_low_pass: bool,
+    pub obstruction: f32,
     pub large: bool,
     pub panning: bool,
     pub pan: [[f32; 2]; 2],
@@ -148,10 +150,7 @@ impl NativeSound {
         if !self.spatial || !self.distance_low_pass {
             return 1.;
         }
-        let mut gain = ((distance / 0.0254 - 800.) / 2200.).clamp(0., 1.) * -30.;
-        if self.large {
-            gain *= (distance / (1000. * 0.0254)).clamp(0., 1.);
-        }
+        let gain = ((distance / 0.0254 - 800.) / 2200.).clamp(0., 1.) * -30.;
         1. + gain / 35.
     }
     fn alias(&self) -> Alias {
@@ -204,6 +203,8 @@ impl NativeSound {
     fn valid(&self, game: &GameDefinition) -> bool {
         self.id != 0
             && self.bus < 9
+            && self.obstruction.is_finite()
+            && (0. ..=1.).contains(&self.obstruction)
             && self
                 .pan
                 .iter()
@@ -957,6 +958,8 @@ struct SemanticPlayback {
     wet_min: f32,
     wet_max: f32,
     wet_curves: Option<[SoundCurve; 2]>,
+    obstruction: f32,
+    obstruction_target: f32,
 }
 impl Drop for SemanticPlayback {
     fn drop(&mut self) {
@@ -1724,6 +1727,7 @@ fn play(
             || native.is_some_and(|native| {
                 !native.panning
                     || native.distance_low_pass
+                    || native.obstruction > 0.
                     || game
                         .audio
                         .ducks
@@ -1847,7 +1851,11 @@ fn maintain(
     mut events: MessageWriter<PlaybackEvent>,
     mut lifetimes: ResMut<Lifetimes>,
     mut ducks: ResMut<NativeDucks>,
+    query: avian3d::prelude::SpatialQuery,
+    contents: Query<&crate::assets::WorldContents>,
+    mut obstruction_frame: Local<u32>,
 ) {
+    *obstruction_frame = obstruction_frame.wrapping_add(1);
     let sources: Vec<_> = queries
         .p1()
         .iter()
@@ -2002,10 +2010,51 @@ fn maintain(
         }
         if let Some(native) = native {
             sound.gain *= ducks.gain(native.duck_group);
+            if native.spatial && native.obstruction > 0. && !playback.paused {
+                if !semantic.accepted || (entity.to_bits() as u32 + *obstruction_frame) & 3 == 0 {
+                    semantic.obstruction_target =
+                        obstruction::amount(listener, pose.translation, |start, end| {
+                            let delta = end - start;
+                            let Ok(direction) = Dir3::new(delta) else {
+                                return None;
+                            };
+                            query
+                                .cast_ray_predicate(
+                                    start,
+                                    direction,
+                                    delta.length(),
+                                    true,
+                                    &avian3d::prelude::SpatialQueryFilter::default(),
+                                    &|entity| {
+                                        contents
+                                            .get(entity)
+                                            .is_ok_and(|contents| contents.0 & 0x31 != 0)
+                                    },
+                                )
+                                .map(|hit| hit.distance / delta.length())
+                        });
+                    if !semantic.accepted {
+                        semantic.obstruction = semantic.obstruction_target;
+                    }
+                }
+                semantic.obstruction += (semantic.obstruction_target - semantic.obstruction)
+                    .clamp(-time.delta_secs() * 6., time.delta_secs() * 6.);
+            }
             if let Some(filter) = &semantic.filter {
+                let mut spatial_filter =
+                    native.distance_filter(listener.distance(pose.translation));
+                if native.spatial {
+                    let mut gain = (spatial_filter - 1.) * 35.;
+                    gain = gain.min(-35. * native.obstruction * semantic.obstruction);
+                    if native.large && semantic.obstruction < 1. {
+                        gain *=
+                            (listener.distance(pose.translation) / (1000. * 0.0254)).clamp(0., 1.);
+                    }
+                    spatial_filter = 1. + gain / 35.;
+                }
                 filter.store(
                     ducks.filter[native.duck_group as usize]
-                        .min(native.distance_filter(listener.distance(pose.translation)))
+                        .min(spatial_filter)
                         .to_bits(),
                     Ordering::Relaxed,
                 );
@@ -2084,7 +2133,14 @@ fn maintain(
                 0.
             };
             wet.store(
-                (source_gain * semantic.send * gain).to_bits(),
+                (source_gain
+                    * semantic.send
+                    * gain
+                    * native.map_or(1., |native| {
+                        1. - semantic.obstruction
+                            * (1. - (0.75 + native.obstruction * 0.5).clamp(0., 1.))
+                    }))
+                .to_bits(),
                 Ordering::Relaxed,
             );
         }
@@ -2118,6 +2174,9 @@ fn maintain(
         let volume = Volume::Linear(if native.is_some() {
             source_volume.clamp(0., 1.)
                 * falloff
+                * ((1. - semantic.obstruction)
+                    * (1.25 - native.unwrap().obstruction * 0.5).clamp(0., 1.)
+                    + semantic.obstruction)
                 * game
                     .as_ref()
                     .and_then(|game| game.audio.master.as_ref())

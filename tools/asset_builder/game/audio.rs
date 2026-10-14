@@ -259,6 +259,12 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
         "mus_perks_revive_jingle",
         "zmb_perks_bump_bottle",
         "zmb_perks_power_on",
+        "zmb_perks_machine_loop",
+        "evt_bottle_dispense",
+        "evt_belch",
+        "zmb_box_move",
+        "zmb_whoosh",
+        "zmb_box_poof",
         "vox_maxi_generator_initiate_0",
         "vox_maxi_generator_process_complete_0",
         "vox_maxi_generator_1_activated_0",
@@ -529,12 +535,6 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
         if flags & (1 << 3) != 0 {
             unsupported.push("Doppler pitch".into());
         }
-        if flags & 2 != 0 && parameters[89 - 28] != 0 {
-            unsupported.push(format!(
-                "native obstruction blend {} in consumers00829650/00838790",
-                parameters[89 - 28]
-            ));
-        }
         for reason in unsupported {
             unsupported_consumers
                 .entry(reason)
@@ -567,6 +567,7 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
             "voice_limit":flags&(1<<9)!=0,"announcer":streams.text(groups.add(group_index*80)?)?=="grp_announcer","pauseable":flags&(1<<5)!=0,
             "motion":flags>>22&7,"motion_seconds":raw(52) as f32*0.001,
             "bus":flags>>11&15,"distance_low_pass":flags&(1<<2)!=0,"large":flags&(1<<4)!=0,
+            "obstruction":parameters[89-28] as f32*0.003921569,
             "panning":flags&2!=0 && pan_index==default_pan,"pan":pan_coefficients,
             "duck":ducks.contains_key(&u32_at(&parameters,4)).then_some(u32_at(&parameters,4)),"duck_group":parameters[95-28],
             "priority":[parameters[90-28],parameters[91-28]],"priority_threshold":[parameters[86-28] as f32*0.003921569,parameters[87-28] as f32*0.003921569],
