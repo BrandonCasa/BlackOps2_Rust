@@ -350,64 +350,24 @@ pub(super) fn prepare_meshes(
                     scratch.tangents[i] = [tangent.x, tangent.y, tangent.z, scratch.tangents[i][3]];
                 }
             }
-            let reusable = prepared
-                .as_deref()
-                .filter(|p| {
-                    p.source == source_id
-                        && !p.invalidated
-                        && p.ownership == ProxyOwnership::Private
-                        && meshes.contains(p.proxy.id())
-                })
-                .map(|p| p.proxy.clone());
-            if let Some(handle) = reusable {
-                let mut proxy = meshes.get_mut(&handle).unwrap();
-                let Some(VertexAttributeValues::Float32x3(positions)) =
-                    proxy.attribute_mut(Mesh::ATTRIBUTE_POSITION)
-                else {
-                    continue;
-                };
-                std::mem::swap(positions, &mut scratch.positions);
-                let Some(VertexAttributeValues::Float32x3(normals)) =
-                    proxy.attribute_mut(Mesh::ATTRIBUTE_NORMAL)
-                else {
-                    continue;
-                };
-                std::mem::swap(normals, &mut scratch.normals);
-                let Some(VertexAttributeValues::Float32x4(tangents)) =
-                    proxy.attribute_mut(Mesh::ATTRIBUTE_TANGENT)
-                else {
-                    continue;
-                };
-                std::mem::swap(tangents, &mut scratch.tangents);
-                let Some(VertexAttributeValues::Float32x2(uv)) =
-                    proxy.attribute_mut(Mesh::ATTRIBUTE_UV_0)
-                else {
-                    continue;
-                };
-                std::mem::swap(uv, &mut scratch.uv);
-                handle
-            } else {
-                let mut proxy =
-                    Mesh::new(source.primitive_topology(), RenderAssetUsages::default());
-                let indices: Vec<u32> = source
-                    .indices()
-                    .map(|indices| indices.iter().map(|i| i as u32).collect())
-                    .unwrap_or_else(|| (0..count as u32).collect());
-                proxy.insert_attribute(
-                    Mesh::ATTRIBUTE_POSITION,
-                    std::mem::take(&mut scratch.positions),
-                );
-                proxy
-                    .insert_attribute(Mesh::ATTRIBUTE_NORMAL, std::mem::take(&mut scratch.normals));
-                proxy.insert_attribute(Mesh::ATTRIBUTE_UV_0, std::mem::take(&mut scratch.uv));
-                proxy.insert_attribute(
-                    Mesh::ATTRIBUTE_TANGENT,
-                    std::mem::take(&mut scratch.tangents),
-                );
-                proxy.insert_indices(Indices::U32(indices));
-                proxy.enable_raytracing = true;
-                meshes.add(proxy)
-            }
+            let mut proxy = Mesh::new(source.primitive_topology(), RenderAssetUsages::default());
+            let indices: Vec<u32> = source
+                .indices()
+                .map(|indices| indices.iter().map(|i| i as u32).collect())
+                .unwrap_or_else(|| (0..count as u32).collect());
+            proxy.insert_attribute(
+                Mesh::ATTRIBUTE_POSITION,
+                std::mem::take(&mut scratch.positions),
+            );
+            proxy.insert_attribute(Mesh::ATTRIBUTE_NORMAL, std::mem::take(&mut scratch.normals));
+            proxy.insert_attribute(Mesh::ATTRIBUTE_UV_0, std::mem::take(&mut scratch.uv));
+            proxy.insert_attribute(
+                Mesh::ATTRIBUTE_TANGENT,
+                std::mem::take(&mut scratch.tangents),
+            );
+            proxy.insert_indices(Indices::U32(indices));
+            proxy.enable_raytracing = true;
+            meshes.add(proxy)
         };
         let ownership = if shared {
             ProxyOwnership::Shared
@@ -757,7 +717,7 @@ mod tests {
     }
 
     #[test]
-    fn live_uv_states_detach_from_shared_proxies_and_reuse_one_private_mesh() {
+    fn live_uv_states_detach_from_shared_proxies_and_publish_changed_generations() {
         let mut app = app();
         let source = app
             .world_mut()
@@ -784,7 +744,7 @@ mod tests {
             .unwrap()
             .uv_transform = bevy::math::Affine2::from_translation(Vec2::X);
         app.update();
-        let private = proxy(&app, first);
+        let mut private = proxy(&app, first);
         assert_ne!(private, shared);
         assert_eq!(proxy(&app, second), shared);
         assert!(matches!(
@@ -802,16 +762,33 @@ mod tests {
                 .unwrap()
                 .uv_transform = bevy::math::Affine2::from_translation(Vec2::new(offset as f32, 0.));
             app.update();
-            assert_eq!(proxy(&app, first), private);
+            let updated = proxy(&app, first);
+            assert_ne!(updated, private);
             assert_eq!(proxy(&app, second), shared);
-            assert_eq!(modifications(&app, &mut cursor, private.id()), 1);
-            assert!(app.world().resource::<ChangedProxies>().0.is_empty());
-            assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 3);
+            let events: Vec<_> = cursor
+                .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+                .collect();
+            assert!(
+                events
+                    .iter()
+                    .any(|event| matches!(event, AssetEvent::Added { id } if *id == updated.id()))
+            );
+            assert!(
+                !events.iter().any(
+                    |event| matches!(event, AssetEvent::Modified { id } if *id == private.id())
+                )
+            );
+            assert_eq!(app.world().resource::<ChangedProxies>().0, vec![first]);
+            private = updated;
         }
-        app.update();
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(proxy(&app, first), private);
         assert_eq!(modifications(&app, &mut cursor, private.id()), 0);
         assert!(app.world().resource::<ChangedProxies>().0.is_empty());
         assert!(app.world().resource::<ChangedRaySources>().0.is_empty());
+        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 3);
         let meshes = app.world().resource::<Assets<Mesh>>();
         assert_eq!(
             meshes.get(&shared).unwrap().attribute(Mesh::ATTRIBUTE_UV_0),
@@ -894,13 +871,26 @@ mod tests {
             .entity_mut(first)
             .insert(InheritedVisibility::VISIBLE);
         app.update();
-        assert_eq!(proxy(&app, first), private);
-        assert_eq!(modifications(&app, &mut cursor, private.id()), 1);
+        let resumed = proxy(&app, first);
+        assert_ne!(resumed, private);
+        let events: Vec<_> = cursor
+            .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+            .collect();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, AssetEvent::Added { id } if *id == resumed.id()))
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, AssetEvent::Modified { id } if *id == private.id()))
+        );
         assert_eq!(proxy(&app, second), shared);
         let meshes = app.world().resource::<Assets<Mesh>>();
         assert_eq!(
             meshes
-                .get(&private)
+                .get(&resumed)
                 .unwrap()
                 .attribute(Mesh::ATTRIBUTE_POSITION),
             Some(&VertexAttributeValues::Float32x3(vec![
