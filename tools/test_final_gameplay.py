@@ -66,7 +66,6 @@ def sample_gpu_memory(pid, trace, stop):
         trace['samples'].append(sample)
         if 'error' in sample:
             trace['error'] = sample['error']
-            return
         stop.wait(trace['interval_seconds'])
 
 
