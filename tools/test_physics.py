@@ -68,13 +68,16 @@ def surfaces(pack, game):
             sorted(stair_candidates, key=lambda item: item['distance']))
 
 
-def prepare(client, game, site=None, yaw=None, weapon='weapon.mp40_zm', elevated=False):
+def prepare(client, game, site=None, yaw=None, weapon=None, elevated=False):
     client.reset()
+    initial = game.get('delivery_scope') == 'first_playable_solo'
+    if weapon is None:
+        weapon = 'weapon.c96_zm' if initial else 'weapon.mp40_zm'
     fixture = {'clear_enemies': True, 'pending': 6, 'pause_spawning_seconds': 300,
                'weapons': [weapon], 'owned_perks': [], 'pitch': 0,
-               'open_connections': [door['connection'] for door in game['access']['doors']]}
+               'open_connections': [] if initial else [door['connection'] for door in game['access']['doors']]}
     if site:
-        fixture['position'] = [site['center'][0], site['center'][1] + 1.8 / 2 + .02,
+        fixture['position'] = [site['center'][0], site['center'][1] + game['tuning']['standing_height'] / 2 + .02,
                                site['center'][2]]
         if elevated:
             fixture['position'][1] += 20
@@ -120,6 +123,9 @@ def select_flat(client, report, game, candidates, native):
     for site in eligible[:24]:
         try:
             before, fixture = prepare(client, game, site)
+            if game.get('delivery_scope') == 'first_playable_solo' and before['zones']['current'] != 'zone_start':
+                attempts.append({'site': site, 'rejected_zone': before['zones']['current']})
+                continue
             if abs(before['player']['position'][1] - before['player']['height'] / 2 - site['center'][1]) > .08:
                 continue
             jump = binding(before, 'jump')

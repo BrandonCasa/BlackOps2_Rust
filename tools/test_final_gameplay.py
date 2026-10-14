@@ -27,7 +27,7 @@ import test_weapon_locomotion as animation
 from test_throwable_down import binding, check, edge, schedule
 
 
-INITIAL_SECTIONS = ('initial_start', 'initial_controls', 'initial_combat', 'initial_melee',
+INITIAL_SECTIONS = ('initial_start', 'initial_controls', 'initial_combat', 'initial_grenade_motion', 'initial_melee',
                     'initial_life', 'initial_revive', 'initial_barriers', 'initial_rounds')
 
 
@@ -218,6 +218,45 @@ def initial_melee(client, report, game):
           all(r['base_amount'] > 0 and r['points'] > 0 for r in hits)
           and after['session']['points'] > ready['session']['points'],
           fixture=fixture, hits=hits, before=ready['session'], after=after['session'])
+
+
+def initial_grenade_motion(client, report, game, pack, research):
+    candidates, _ = physics.surfaces(pack, game)
+    site = physics.select_flat(client, report, game, candidates, native_tuning(research)[0])
+    before, fixture = physics.prepare(client, game, site, yaw=0)
+    check(report, 'initial_grenade_fixture_retains_starting_zone',
+          before['zones']['current'] == 'zone_start' and not fixture['open_connections'],
+          fixture=fixture, zones=before['zones'])
+    point = site['center'].copy()
+    point[2] -= .2
+    normal_look(client, game, point)
+    before = client.state()
+    normal_action(client, 'lethal')
+    after = client.until(lambda s: s['equipment']['detonations'] > before['equipment']['detonations'], timeout=30)
+    events = after['equipment']['events'][len(before['equipment']['events']):]
+    contacts = [event for event in events if event.get('event') == 'bounce' and event['normal'][1] > .999]
+    check(report, 'initial_grenade_hits_authored_flat_floor', bool(contacts),
+          fixture=fixture, contacts=contacts, events=events)
+    first = next((event for event in contacts if not event['resting']), None)
+    check(report, 'initial_grenade_retains_motion_at_first_floor_contact', first is not None,
+          contacts=contacts)
+    following = contacts[contacts.index(first) + 1:]
+    travel = max((math.dist(first['position'][::2], row['position'][::2]) for row in following), default=0)
+    check(report, 'initial_grenade_rolls_beyond_first_floor_contact', travel > .001
+          and any(row['motion'] == 'rolling' for row in contacts),
+          horizontal_travel=travel, first_contact=first, following_contacts=following)
+    floor = [row for row in contacts if row.get('ground_point') is not None]
+    check(report, 'initial_grenade_preserves_native_floor_clearance', bool(floor)
+          and all(abs(row['position_after'][1] - row['ground_point'][1] - 1.5 * .0254) < .004 for row in floor),
+          contacts=floor)
+    rest = next((row for row in contacts if row['resting']), None)
+    check(report, 'initial_grenade_reaches_native_rest_before_fuse', rest is not None,
+          contacts=contacts)
+    x, y, z, w = rest['rotation']
+    axis = [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)]
+    alignment = abs(sum(a * b for a, b in zip(axis, rest['normal'])))
+    check(report, 'initial_grenade_rest_orientation_matches_floor', alignment > .999,
+          normal_alignment=alignment, rest=rest)
 
 
 def initial_rounds(client, report, game, output, timeout):
@@ -549,6 +588,8 @@ def main():
                     initial_barriers(client, report, game)
                 elif name == 'initial_melee':
                     initial_melee(client, report, game)
+                elif name == 'initial_grenade_motion':
+                    initial_grenade_motion(client, report, game, args.assets.resolve(), args.research)
                 elif name == 'ui':
                     ui.run(client, report, None if args.no_captures else output, game)
                 elif name == 'session':
