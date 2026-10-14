@@ -26,7 +26,7 @@ def check(report, name, passed, **evidence):
 def surfaces(pack, game):
     path, scene = game['collision_scene'].split('#Scene')
     document = json.loads(asset_bytes(pack / path))
-    binary = asset_bytes(pack / document['buffers'][0]['uri'])
+    binary = asset_bytes((pack / path).parent / document['buffers'][0]['uri'])
     candidates = []
     stair_candidates = []
     for index in document['scenes'][int(scene)]['nodes']:
@@ -38,8 +38,15 @@ def surfaces(pack, game):
             if any(name in material.lower() for name in ('mud', 'water', 'clip', 'caulk')):
                 continue
             points = accessor(document, binary, primitive['attributes']['POSITION'])
-            indices = accessor(document, binary, primitive['indices']).reshape(-1, 3)
-            triangles = points[indices]
+            if primitive.get('mode', 4) != 4:
+                raise ValueError('Physics scenarios require source triangle-list collision meshes')
+            if 'indices' in primitive:
+                indices = accessor(document, binary, primitive['indices']).reshape(-1, 3)
+                triangles = points[indices]
+            else:
+                if len(points) % 3:
+                    raise ValueError('Non-indexed collision triangle list has incomplete vertices')
+                triangles = points.reshape(-1, 3, 3)
             cross = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
             length = np.linalg.norm(cross, axis=1)
             normals = cross / np.maximum(length[:, None], 1e-12)
