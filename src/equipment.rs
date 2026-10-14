@@ -820,6 +820,8 @@ pub(crate) fn resolve_blasts(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut evidence: ResMut<EquipmentEvidence>,
+    environmental: crate::environment::support::DamageTriggerTargets,
+    mut environment_hits: MessageWriter<crate::environment::support::EnvironmentalHit>,
 ) {
     for blast in queue.0.drain(..) {
         if blast.session != *session {
@@ -827,6 +829,90 @@ pub(crate) fn resolve_blasts(
             continue;
         }
         let center = blast.center;
+        for (target, shape, pose, state, trigger) in &environmental {
+            if !state.enabled || state.spawnflags & 0x40 != 0 {
+                continue;
+            }
+            let bounds = shape.aabb(pose.translation, pose.rotation, 0.);
+            let point = if trigger.brush {
+                center.clamp(bounds.min, bounds.max)
+            } else {
+                pose.translation
+            };
+            let delta = point - center;
+            let distance = delta.length();
+            if distance >= blast.radius {
+                continue;
+            }
+            if let Some((forward, cosine)) = blast.direction
+                && distance > 0.001
+                && forward.dot(delta / distance) < cosine
+            {
+                continue;
+            }
+            let midpoint = (bounds.min + bounds.max) * 0.5;
+            let half = (bounds.max - bounds.min) * 0.5;
+            let mut toward = (center - midpoint).normalize_or_zero();
+            if toward.xz().length_squared() < 0.001 {
+                toward = Vec3::X;
+            }
+            let right = Vec3::Y.cross(toward).normalize_or_zero();
+            let up = toward.cross(right);
+            let right = right * right.abs().dot(half);
+            let up = up * up.abs().dot(half);
+            if ![
+                midpoint,
+                midpoint + right + up,
+                midpoint + right - up,
+                midpoint - right + up,
+                midpoint - right - up,
+            ]
+            .into_iter()
+            .any(|sample| {
+                let delta = sample - center;
+                if let Some((forward, cosine)) = blast.direction
+                    && delta.length_squared() > 0.
+                    && forward.dot(delta.normalize()) < cosine
+                {
+                    return false;
+                }
+                Dir3::new(delta).map_or(true, |direction| {
+                    query
+                        .cast_ray(
+                            center,
+                            direction,
+                            delta.length(),
+                            true,
+                            &crate::environment::solids([blast.owner, target]),
+                        )
+                        .is_none()
+                })
+            }) {
+                continue;
+            }
+            let ratio = ((distance - blast.inner_radius) / (blast.radius - blast.inner_radius))
+                .clamp(0., 1.);
+            let amount = (blast.inner_damage as f32
+                + (blast.outer_damage as f32 - blast.inner_damage as f32) * ratio)
+                .max(1.) as u32;
+            let native_mod = game
+                .content
+                .weapons
+                .iter()
+                .find(|weapon| weapon.id == blast.definition)
+                .map(|weapon| if weapon.throwable.is_some() { 4 } else { 6 })
+                .or(Some(15));
+            environment_hits.write(crate::environment::support::EnvironmentalHit {
+                target,
+                attacker: blast.owner,
+                weapon: blast.definition.clone(),
+                category: blast.category.unwrap_or(DamageCategory::Explosive),
+                native_mod,
+                amount,
+                point: center,
+                direction: pose.translation - center + Vec3::Y * (24. * 0.0254),
+            });
+        }
         crate::audio::binding(
             &mut commands,
             &game,

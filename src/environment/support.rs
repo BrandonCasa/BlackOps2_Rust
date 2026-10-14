@@ -17,9 +17,11 @@ pub enum EnvironmentOwner {
     Access,
     Ambience,
     Robot,
+    Enemy,
     Vehicle,
     Quest,
     Crafting,
+    Native,
     Deferred,
 }
 
@@ -53,8 +55,26 @@ pub type ShootableTargets<'w, 's> = Query<
         &'static Collider,
         &'static GlobalTransform,
         &'static EnvironmentOwner,
+        Option<&'static super::triggers::TriggerState>,
     ),
-    With<ShootableEnvironment>,
+    (
+        With<ShootableEnvironment>,
+        Without<super::triggers::MapTrigger>,
+        Without<ColliderDisabled>,
+    ),
+>;
+
+pub type DamageTriggerTargets<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static Collider,
+        &'static Transform,
+        &'static super::triggers::TriggerState,
+        &'static DamageTriggerState,
+    ),
+    (With<DamageTriggerState>, Without<ColliderDisabled>),
 >;
 
 pub fn cast(
@@ -67,7 +87,10 @@ pub fn cast(
 ) -> Option<(Entity, f32)> {
     let candidate = targets
         .iter()
-        .filter_map(|(e, shape, pose, _)| {
+        .filter_map(|(e, shape, pose, _, state)| {
+            if state.is_some_and(|state| !state.enabled) {
+                return None;
+            }
             let transform = pose.compute_transform();
             shape
                 .cast_ray(
@@ -94,9 +117,174 @@ pub struct EnvironmentalHit {
     pub target: Entity,
     pub attacker: Entity,
     pub weapon: crate::origins::WeaponId,
+    pub category: crate::origins::DamageCategory,
+    pub native_mod: Option<u8>,
     pub amount: u32,
     pub point: Vec3,
     pub direction: Vec3,
+}
+
+pub fn weapon_damage_mod(
+    weapon: Option<&crate::origins::WeaponDefinition>,
+    melee: bool,
+) -> Option<u8> {
+    if melee {
+        return Some(7);
+    }
+    let weapon = weapon?;
+    if weapon.mechanics.delivery == crate::origins::content::WeaponDelivery::Projectile {
+        return Some(5);
+    }
+    match weapon.mechanics.weapon_class.as_deref()? {
+        "pistol" => Some(1),
+        "rifle" | "sniper" | "mg" | "smg" | "spread" => Some(2),
+        _ => None,
+    }
+}
+
+#[derive(Component, Default)]
+pub struct DamageTriggerState {
+    pub brush: bool,
+    threshold: u32,
+    accumulate: u32,
+    damage: u32,
+}
+impl DamageTriggerState {
+    pub fn from_source(source: &std::collections::BTreeMap<String, String>) -> Self {
+        Self {
+            brush: source
+                .get("model")
+                .is_some_and(|model| model.starts_with('*')),
+            threshold: source
+                .get("threshold")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0),
+            accumulate: source
+                .get("accumulate")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0),
+            damage: 0,
+        }
+    }
+    fn hit(&mut self, amount: u32) -> bool {
+        if amount < self.threshold {
+            return false;
+        }
+        self.damage = self.damage.saturating_add(amount);
+        if self.accumulate > self.damage {
+            return false;
+        }
+        self.damage = 0;
+        true
+    }
+}
+impl super::triggers::TriggerState {
+    pub fn accepts_damage_mod(&self, native_mod: Option<u8>) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        let flags = self.spawnflags;
+        let Some(kind) = native_mod else {
+            return flags & 0x13f == 0;
+        };
+        !(flags & 1 != 0 && kind == 1
+            || flags & 2 != 0 && kind == 2
+            || flags & 4 != 0 && (3..=6).contains(&kind)
+            || flags & 8 != 0 && ((3..=6).contains(&kind) || kind == 15)
+            || flags & 0x10 != 0 && matches!(kind, 4 | 6)
+            || flags & 0x20 != 0 && kind == 7
+            || flags & 0x100 != 0 && (kind == 0 || (10..=14).contains(&kind)))
+    }
+}
+
+pub fn trace_damage(
+    targets: &DamageTriggerTargets,
+    spatial: &SpatialQuery,
+    hits: &mut MessageWriter<EnvironmentalHit>,
+    attacker: Entity,
+    weapon: &crate::origins::WeaponId,
+    category: crate::origins::DamageCategory,
+    native_mod: Option<u8>,
+    amount: u32,
+    origin: Vec3,
+    direction: Dir3,
+    range: f32,
+) {
+    let range = spatial
+        .cast_ray(origin, direction, range, true, &super::solids([attacker]))
+        .map_or(range, |hit| hit.distance.min(range));
+    for (target, shape, pose, state, _) in targets {
+        if !state.enabled || state.contents & 0x400000 == 0 {
+            continue;
+        }
+        let transform = pose;
+        if let Some((distance, _)) = shape.cast_ray(
+            transform.translation,
+            transform.rotation,
+            origin,
+            *direction,
+            range,
+            true,
+        ) {
+            hits.write(EnvironmentalHit {
+                target,
+                attacker,
+                weapon: weapon.clone(),
+                category,
+                native_mod,
+                amount,
+                point: origin + *direction * distance,
+                direction: *direction,
+            });
+        }
+    }
+}
+
+pub fn use_candidate(
+    target: Entity,
+    shape: &Collider,
+    pose: &Transform,
+    state: &super::triggers::TriggerState,
+    spatial: &SpatialQuery,
+    player: Entity,
+    client_mode: i32,
+    eye: Vec3,
+    forward: Vec3,
+    require_look_at: bool,
+) -> Option<f32> {
+    let actor = super::triggers::TriggerActor {
+        contact_mask: 0x200000,
+        ..default()
+    };
+    if client_mode == 7 || !state.accepts_actor(&actor, Some(client_mode)) {
+        return None;
+    }
+    let bounds = shape.aabb(pose.translation, pose.rotation, 0.);
+    let point = (bounds.min + bounds.max) * 0.5;
+    let delta = point - eye;
+    let distance = delta.length();
+    if distance > 72. * 0.0254 {
+        return None;
+    }
+    let direction = Dir3::new(delta).ok();
+    let alignment = direction.map_or(1., |direction| forward.dot(*direction));
+    if require_look_at && alignment < 0.76 {
+        return None;
+    }
+    if let Some(direction) = direction
+        && spatial
+            .cast_ray(
+                eye,
+                direction,
+                distance,
+                true,
+                &super::solids([player, target]),
+            )
+            .is_some()
+    {
+        return None;
+    }
+    Some(distance / 0.0254 + (1. - (alignment + 1.) * 0.5) * 512. - 512.)
 }
 
 #[derive(Clone, Component, Debug)]
@@ -135,7 +323,13 @@ impl Plugin for SupportPlugin {
             .init_resource::<EnvironmentEvidence>()
             .add_systems(
                 FixedUpdate,
-                (contacts, observe_hits)
+                (
+                    contacts,
+                    observe_hits
+                        .after(crate::gameplay::combat)
+                        .after(crate::projectiles::flight)
+                        .after(crate::equipment::resolve_blasts),
+                )
                     .in_set(GameStep::Combat)
                     .run_if(in_state(GameState::Playing)),
             );
@@ -182,15 +376,222 @@ fn contacts(
     }
 }
 
-fn observe_hits(
+pub(super) fn observe_hits(
     mut hits: MessageReader<EnvironmentalHit>,
     owners: Query<&EnvironmentOwner>,
+    mut triggers: Query<(&super::triggers::TriggerState, &mut DamageTriggerState)>,
+    mut queue: ResMut<super::triggers::TriggerQueue>,
     mut evidence: ResMut<EnvironmentEvidence>,
 ) {
     for hit in hits.read() {
+        if let Ok((trigger, mut damage)) = triggers.get_mut(hit.target)
+            && trigger.accepts_damage_mod(hit.native_mod)
+            && damage.hit(hit.amount)
+        {
+            if trigger.spawnflags & 0x200 != 0 {
+                queue.push_once(hit.target, hit.attacker);
+            } else {
+                queue.push(hit.target, hit.attacker);
+            }
+        }
         if evidence.hits.len() >= 128 {
             evidence.hits.remove(0);
         }
         evidence.hits.push(serde_json::json!({"target":hit.target.to_bits(),"attacker":hit.attacker.to_bits(),"weapon":hit.weapon.0,"amount":hit.amount,"point":hit.point.to_array(),"owner":owners.get(hit.target).ok()}));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::SystemState;
+
+    fn trigger(class: &str, flags: u32) -> super::super::triggers::TriggerState {
+        super::super::triggers::TriggerState::from_definition(
+            &serde_json::from_value(serde_json::json!({
+                "id":"trigger.test", "position":[0.,0.,0.],
+                "source":{"classname":class,"spawnflags":flags.to_string()},
+                "shape":{"kind":"cylinder","radius":1.,"height":2.}
+            }))
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn native_damage_exclusion_flags_preserve_other_means_of_death() {
+        for (flag, rejected) in [
+            (1, vec![1]),
+            (2, vec![2]),
+            (4, vec![3, 4, 5, 6]),
+            (8, vec![3, 4, 5, 6, 15]),
+            (0x10, vec![4, 6]),
+            (0x20, vec![7]),
+            (0x100, vec![0, 10, 11, 12, 13, 14]),
+        ] {
+            let state = trigger("trigger_damage", flag);
+            for kind in 0..=21 {
+                assert_eq!(
+                    state.accepts_damage_mod(Some(kind)),
+                    !rejected.contains(&kind),
+                    "flag={flag:#x}, means={kind}"
+                );
+            }
+            assert!(!state.accepts_damage_mod(None));
+        }
+        let mut state = trigger("trigger_damage", 0);
+        assert!(state.accepts_damage_mod(None));
+        state.enabled = false;
+        assert!(!state.accepts_damage_mod(Some(2)));
+    }
+
+    #[test]
+    fn native_damage_minimum_precedes_accumulation_and_resets_on_activation() {
+        let mut damage = DamageTriggerState::from_source(
+            &[
+                ("threshold".into(), "10".into()),
+                ("accumulate".into(), "25".into()),
+            ]
+            .into(),
+        );
+        assert!(!damage.hit(9));
+        assert!(!damage.hit(10));
+        assert!(!damage.hit(10));
+        assert!(!damage.hit(9));
+        assert!(damage.hit(10));
+        assert!(!damage.hit(24));
+        assert!(damage.hit(10));
+        let mut no_accumulation =
+            DamageTriggerState::from_source(&[("threshold".into(), "10".into())].into());
+        assert!(!no_accumulation.hit(9));
+        assert!(no_accumulation.hit(10));
+        assert!(no_accumulation.hit(10));
+    }
+
+    #[test]
+    fn source_damage_sensors_do_not_absorb_the_actor_shot_query() {
+        let mut world = World::new();
+        let sensor = world
+            .spawn((
+                super::super::triggers::MapTrigger("trigger.test".into()),
+                trigger("trigger_damage", 0),
+                DamageTriggerState::default(),
+                Collider::cuboid(1., 1., 1.),
+                GlobalTransform::IDENTITY,
+                Transform::IDENTITY,
+                EnvironmentOwner::Quest,
+                ShootableEnvironment,
+            ))
+            .id();
+        let mut query = SystemState::<(ShootableTargets, DamageTriggerTargets)>::new(&mut world);
+        let (blocking, damage) = query.get(&world).unwrap();
+        assert!(!blocking.contains(sensor));
+        assert!(damage.contains(sensor));
+    }
+
+    #[test]
+    fn native_use_selector_checks_radius_look_requirement_and_client_eligibility() {
+        let mut world = World::new();
+        world.init_resource::<avian3d::collider_tree::ColliderTrees>();
+        let player = world.spawn_empty().id();
+        let target = world.spawn_empty().id();
+        let mut query = SystemState::<SpatialQuery>::new(&mut world);
+        let spatial = query.get(&world).unwrap();
+        let shape = Collider::cuboid(1., 1., 1.);
+        let mut state = trigger("trigger_use", 0);
+        let pose = Transform::from_translation(Vec3::X * (72. * 0.0254));
+        assert!(
+            use_candidate(
+                target,
+                &shape,
+                &pose,
+                &state,
+                &spatial,
+                player,
+                0,
+                Vec3::ZERO,
+                Vec3::X,
+                false
+            )
+            .is_some()
+        );
+        let outside = Transform::from_translation(Vec3::X * (72. * 0.0254 + 0.001));
+        assert!(
+            use_candidate(
+                target,
+                &shape,
+                &outside,
+                &state,
+                &spatial,
+                player,
+                0,
+                Vec3::ZERO,
+                Vec3::X,
+                false
+            )
+            .is_none()
+        );
+        assert!(
+            use_candidate(
+                target,
+                &shape,
+                &pose,
+                &state,
+                &spatial,
+                player,
+                0,
+                Vec3::ZERO,
+                Vec3::NEG_X,
+                false
+            )
+            .is_some()
+        );
+        assert!(
+            use_candidate(
+                target,
+                &shape,
+                &pose,
+                &state,
+                &spatial,
+                player,
+                0,
+                Vec3::ZERO,
+                Vec3::NEG_X,
+                true
+            )
+            .is_none()
+        );
+        for mode in [2, 7] {
+            assert!(
+                use_candidate(
+                    target,
+                    &shape,
+                    &pose,
+                    &state,
+                    &spatial,
+                    player,
+                    mode,
+                    Vec3::ZERO,
+                    Vec3::X,
+                    false
+                )
+                .is_none()
+            );
+        }
+        state.excluded_clients.insert(0);
+        assert!(
+            use_candidate(
+                target,
+                &shape,
+                &pose,
+                &state,
+                &spatial,
+                player,
+                0,
+                Vec3::ZERO,
+                Vec3::X,
+                false
+            )
+            .is_none()
+        );
     }
 }

@@ -186,7 +186,7 @@ fn additional(
         }
     }
 }
-fn flight(
+pub(crate) fn flight(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
     game: Res<GameDefinition>,
@@ -195,14 +195,20 @@ fn flight(
     session: Res<crate::session::SessionId>,
     mut projectiles: Query<
         (Entity, &mut WeaponProjectile, &mut Transform),
-        Without<crate::life::Vitality>,
+        (
+            Without<crate::life::Vitality>,
+            Without<crate::environment::support::DamageTriggerState>,
+        ),
     >,
     targets: crate::hit_regions::RayTargets,
     zombies: Query<(), With<crate::enemies::Zombie>>,
     query: SpatialQuery,
     mut damage: ResMut<crate::damage::DamageQueue>,
     mut blasts: ResMut<crate::equipment::BlastQueue>,
-    environmental: crate::environment::support::ShootableTargets,
+    (environmental, trigger_targets): (
+        crate::environment::support::ShootableTargets,
+        crate::environment::support::DamageTriggerTargets,
+    ),
     mut environment_hits: MessageWriter<crate::environment::support::EnvironmentalHit>,
     mut impacts: MessageWriter<ProjectileImpact>,
 ) {
@@ -353,6 +359,19 @@ fn flight(
         let actor_distance = actor.map_or(f32::INFINITY, |hit| hit.hit.distance);
         let environment_distance = environment.map_or(f32::INFINITY, |(_, distance)| distance);
         let impact_distance = solid_distance.min(actor_distance).min(environment_distance);
+        crate::environment::support::trace_damage(
+            &trigger_targets,
+            &query,
+            &mut environment_hits,
+            projectile.owner,
+            &projectile.weapon,
+            weapon.category,
+            crate::environment::support::weapon_damage_mod(Some(weapon), false),
+            weapon.damage,
+            pose.translation,
+            direction,
+            distance.min(impact_distance),
+        );
         if !projectile.detonate && !impact_distance.is_finite() && projectile.remaining > 0. {
             if cfg!(debug_assertions)
                 && options.validation_remote.is_some()
@@ -412,6 +431,8 @@ fn flight(
                     target,
                     attacker: projectile.owner,
                     weapon: projectile.weapon.clone(),
+                    category: weapon.category,
+                    native_mod: crate::environment::support::weapon_damage_mod(Some(weapon), false),
                     amount: weapon.damage,
                     point: center,
                     direction: *direction,

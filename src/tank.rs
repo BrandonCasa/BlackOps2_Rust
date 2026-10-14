@@ -7,7 +7,7 @@ use crate::{
     input::GameInput,
     interactions::{InteractionFocus, InteractionRejection},
     life::{LifeState, Vitality},
-    movement::platforms::{MovingPlatform, PlatformSupport},
+    movement::platforms::MovingPlatform,
     player::Player,
 };
 use avian3d::prelude::*;
@@ -17,7 +17,13 @@ mod source;
 #[derive(Component)]
 pub(crate) struct TankBody;
 #[derive(Component)]
-pub(crate) struct CallBox(usize);
+struct TankTriggerLink {
+    local: Transform,
+    kill: bool,
+    roof: bool,
+}
+#[derive(Component)]
+pub(crate) struct TankRoof;
 #[derive(Component)]
 pub(crate) struct TankRescue {
     pub fade: f32,
@@ -94,7 +100,9 @@ impl Plugin for TankPlugin {
             .add_systems(
                 FixedUpdate,
                 (
+                    bind_triggers.before(movement),
                     movement.before(crate::movement::platforms::carry),
+                    follow_triggers.after(movement),
                     rescue.after(movement),
                 )
                     .in_set(GameStep::Movement)
@@ -119,6 +127,191 @@ impl Plugin for TankPlugin {
                     .after(crate::buildables::collect_shield)
                     .run_if(in_state(GameState::Playing)),
             );
+    }
+}
+fn source_owner_pose(source: &std::collections::BTreeMap<String, String>) -> Option<Transform> {
+    let vector = |key: &str| -> Option<Vec3> {
+        let values: Vec<f32> = source
+            .get(key)?
+            .split_whitespace()
+            .map(str::parse)
+            .collect::<Result<_, _>>()
+            .ok()?;
+        (values.len() == 3 && values.iter().all(|value| value.is_finite()))
+            .then(|| Vec3::new(values[0], values[1], values[2]))
+    };
+    let origin = vector("link_owner_origin")?;
+    let angles = vector("link_owner_angles")?;
+    Some(
+        Transform::from_xyz(origin.x * 0.0254, origin.z * 0.0254, -origin.y * 0.0254)
+            .with_rotation(
+                Quat::from_rotation_y(angles.y.to_radians())
+                    * Quat::from_rotation_z(-angles.x.to_radians())
+                    * Quat::from_rotation_x(angles.z.to_radians()),
+            ),
+    )
+}
+fn bind_triggers(
+    mut commands: Commands,
+    game: Res<GameDefinition>,
+    bodies: Query<
+        (Entity, &Transform),
+        (
+            With<TankBody>,
+            Without<crate::environment::triggers::MapTrigger>,
+        ),
+    >,
+    sources: Query<(Entity, &crate::environment::triggers::MapTrigger), Without<TankTriggerLink>>,
+    linked: Query<&TankTriggerLink>,
+) {
+    let Ok((owner, current)) = bodies.single() else {
+        return;
+    };
+    let current = current.mul_transform(model_offset());
+    let mut original_owner = None;
+    for (entity, trigger) in &sources {
+        let Some(source) = game.environment.triggers.iter().find(|source| {
+            source.id == trigger.0
+                && source.source.get("targetname").is_some_and(|name| {
+                    matches!(name.as_str(), "trig_use_tank" | "vol_on_tank_watch")
+                })
+        }) else {
+            continue;
+        };
+        let Some(original) = source_owner_pose(&source.source) else {
+            continue;
+        };
+        let local =
+            Transform::from_matrix(original.to_matrix().inverse() * source.transform().to_matrix());
+        commands.entity(entity).insert((
+            TankTriggerLink {
+                local,
+                kill: false,
+                roof: source
+                    .source
+                    .get("targetname")
+                    .is_some_and(|name| name == "vol_on_tank_watch"),
+            },
+            crate::environment::triggers::OwnedTrigger(owner),
+            current.mul_transform(local),
+        ));
+        if source
+            .source
+            .get("targetname")
+            .is_some_and(|name| name == "vol_on_tank_watch")
+        {
+            commands.entity(entity).insert(TankRoof);
+        }
+        original_owner = Some(original);
+    }
+    if linked.iter().any(|link| link.kill) {
+        return;
+    }
+    let Some(original) = original_owner else {
+        return;
+    };
+    let definition = kill_trigger_definition();
+    let local =
+        Transform::from_matrix(original.to_matrix().inverse() * definition.transform().to_matrix());
+    if let Some(entity) = crate::environment::triggers::spawn_owned(
+        &mut commands,
+        &definition,
+        owner,
+        crate::environment::support::EnvironmentOwner::Vehicle,
+    ) {
+        commands.entity(entity).insert((
+            TankTriggerLink {
+                local,
+                kill: true,
+                roof: false,
+            },
+            current.mul_transform(local),
+        ));
+    }
+}
+fn kill_trigger_definition() -> crate::environment::triggers::TriggerDefinition {
+    let half = Vec3::new(100., 64., 75.) * 0.0254;
+    let vertices = [-1., 1.]
+        .into_iter()
+        .flat_map(|x| {
+            [-1., 1.].into_iter().flat_map(move |y| {
+                [-1., 1.]
+                    .into_iter()
+                    .map(move |z| (half * Vec3::new(x, y, z)).to_array())
+            })
+        })
+        .collect();
+    crate::environment::triggers::TriggerDefinition {
+        id: "script.tank.kill".into(),
+        position: [-8192. * 0.0254, 0., 4300. * 0.0254],
+        target_position: None,
+        source: [
+            ("classname".into(), "trigger_box".into()),
+            ("spawnflags".into(), "0".into()),
+        ]
+        .into(),
+        shape: crate::environment::triggers::TriggerShape::Convex {
+            volumes: vec![crate::environment::VolumeDefinition {
+                id: "script.tank.kill.box".into(),
+                position: [0., 0., 0.],
+                vertices,
+                contents: crate::environment::triggers::contact_contents(0) | 0x200000,
+                surface_flags: Vec::new(),
+            }],
+        },
+    }
+}
+fn follow_triggers(
+    body: Query<&Transform, With<TankBody>>,
+    mut triggers: Query<(&TankTriggerLink, &mut Transform), Without<TankBody>>,
+) {
+    let Ok(body) = body.single() else {
+        return;
+    };
+    let body = body.mul_transform(model_offset());
+    for (link, mut pose) in &mut triggers {
+        *pose = body.mul_transform(link.local);
+    }
+}
+fn model_offset() -> Transform {
+    Transform::from_xyz(0., -1., 0.)
+        .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2))
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+
+    #[test]
+    fn environment_trigger_tank_box_preserves_native_center_and_dimensions() {
+        let definition = kill_trigger_definition();
+        let shape = definition.collider().unwrap();
+        let pose = definition.transform();
+        let bounds = shape.aabb(pose.translation, pose.rotation, 0.);
+        let center = (bounds.min + bounds.max) * 0.5;
+        assert!(
+            (center - Vec3::new(-8192., 0., 4300.) * 0.0254)
+                .abs()
+                .max_element()
+                < 0.0001
+        );
+        assert!(
+            ((bounds.max - bounds.min) - Vec3::new(200., 128., 150.) * 0.0254)
+                .abs()
+                .max_element()
+                < 0.0001
+        );
+    }
+
+    #[test]
+    fn environment_trigger_query_access() {
+        let mut world = World::new();
+        IntoSystem::into_system(bind_triggers).initialize(&mut world);
+        IntoSystem::into_system(follow_triggers).initialize(&mut world);
+        IntoSystem::into_system(movement).initialize(&mut world);
+        IntoSystem::into_system(board).initialize(&mut world);
+        IntoSystem::into_system(drops).initialize(&mut world);
+        IntoSystem::into_system(interact).initialize(&mut world);
     }
 }
 fn setup(
@@ -158,22 +351,8 @@ fn setup(
     }
     if let Some(scene) = crate::assets::native_scene(&game, "veh_t6_dlc_mkiv_tank") {
         commands.entity(entity).with_children(|parent| {
-            parent.spawn((
-                WorldAssetRoot(server.load(scene.clone())),
-                Transform::from_xyz(0., -1., 0.)
-                    .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
-            ));
+            parent.spawn((WorldAssetRoot(server.load(scene.clone())), model_offset()));
         });
-    }
-    for (site, position) in [[9.5758, 2.413, 75.819], [-6.9342, -6.4516, -115.2398]]
-        .into_iter()
-        .enumerate()
-    {
-        commands.spawn((
-            CallBox(site),
-            SessionEntity,
-            Transform::from_translation(Vec3::from_array(position)),
-        ));
     }
     for (piece, position) in [
         ("upper_staff", [58.019188, -2.85623, -76.949554]),
@@ -221,7 +400,6 @@ fn movement(
             Entity,
             &Transform,
             &Vitality,
-            Option<&PlatformSupport>,
             &Collider,
             Has<ColliderDisabled>,
         ),
@@ -229,6 +407,7 @@ fn movement(
     >,
     rescues: Query<&TankRescue>,
     mut damage: ResMut<crate::damage::DamageQueue>,
+    triggers: Query<(&TankTriggerLink, &Collider)>,
 ) {
     let Ok((entity, mut pose, emitter)) = bodies.single_mut() else {
         return;
@@ -258,19 +437,31 @@ fn movement(
             engine(&mut commands, &mut tank, "zmb_tank_loop", entity);
         }
     }
+    let roof_targets = triggers
+        .iter()
+        .find(|(link, _)| link.roof)
+        .map(|(link, shape)| {
+            let placement = pose.mul_transform(model_offset()).mul_transform(link.local);
+            spatial.shape_intersections(
+                shape,
+                placement.translation,
+                placement.rotation,
+                &SpatialQueryFilter::default(),
+            )
+        })
+        .unwrap_or_default();
     tank.rider_seconds += dt
         * actors
             .iter()
-            .filter(|(_, _, health, support, _, _)| {
+            .filter(|(owner, _, health, _, _)| {
                 matches!(health.state(), LifeState::Standing | LifeState::Downed)
-                    && support.is_some_and(|s| s.entity == Some(entity))
+                    && roof_targets.contains(owner)
             })
             .count() as f32;
     let (point, speed, stop) = source::ROUTE[tank.node];
     let destination = Vec3::from_array(point) + Vec3::Y;
     let delta = destination - pose.translation;
     let step = delta.clamp_length_max(tank.speed * dt);
-    let before = pose.translation;
     pose.translation += step;
     let forward = delta.with_y(0.).normalize_or_zero();
     if forward.length_squared() > 0. {
@@ -278,19 +469,24 @@ fn movement(
     }
     let mut reserved: std::collections::BTreeSet<_> =
         rescues.iter().map(|r| r.node.clone()).collect();
-    for (target, position, health, support, collider, disabled) in &actors {
-        if health.state() != LifeState::Standing
-            || support.is_some_and(|s| s.entity == Some(entity))
-        {
+    let kill_targets = triggers
+        .iter()
+        .find(|(link, _)| link.kill)
+        .map(|(link, shape)| {
+            let placement = pose.mul_transform(model_offset()).mul_transform(link.local);
+            spatial.shape_intersections(
+                shape,
+                placement.translation,
+                placement.rotation,
+                &SpatialQueryFilter::default(),
+            )
+        })
+        .unwrap_or_default();
+    for (target, position, health, collider, disabled) in &actors {
+        if health.state() != LifeState::Standing || roof_targets.contains(&target) {
             continue;
         }
-        let local = pose.rotation.inverse() * (position.translation - pose.translation);
-        if local.x.abs() < 2.8
-            && local.z > -6.86
-            && local.z < 4.14
-            && local.y.abs() < 1.5
-            && (position.translation - before).dot(forward) > 0.
-        {
+        if kill_targets.contains(&target) {
             damage.0.push(crate::damage::Impact {
                 attacker: entity,
                 target,
@@ -419,7 +615,9 @@ fn board(
     tank: Res<Tank>,
     game: Res<GameDefinition>,
     body: Query<&Transform, With<TankBody>>,
-    riders: Query<(&Vitality, &PlatformSupport), With<Player>>,
+    riders: Query<(Entity, &Vitality), With<Player>>,
+    roof: Query<(&Collider, &GlobalTransform), With<TankRoof>>,
+    spatial: SpatialQuery,
     mut zombies: Query<
         (
             Entity,
@@ -441,8 +639,20 @@ fn board(
         return;
     };
     let dt = time.delta_secs();
-    let riders = riders.iter().any(|(h, s)| {
-        matches!(h.state(), LifeState::Standing | LifeState::Downed) && s.entity == tank.entity
+    let roof_targets = roof
+        .iter()
+        .flat_map(|(shape, pose)| {
+            spatial.shape_intersections(
+                shape,
+                pose.translation(),
+                pose.rotation(),
+                &SpatialQueryFilter::default(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let riders = riders.iter().any(|(owner, h)| {
+        matches!(h.state(), LifeState::Standing | LifeState::Downed)
+            && roof_targets.contains(&owner)
     });
     let occupied: std::collections::BTreeSet<_> = zombies
         .iter()
@@ -784,7 +994,9 @@ fn drops(
     game: Res<GameDefinition>,
     server: Res<AssetServer>,
     body: Query<&Transform, With<TankBody>>,
-    riders: Query<(&Vitality, &PlatformSupport), With<Player>>,
+    riders: Query<(Entity, &Vitality), With<Player>>,
+    roof: Query<(&Collider, &GlobalTransform), With<TankRoof>>,
+    spatial: SpatialQuery,
     parts: Res<crate::environment::parts::Parts>,
 ) {
     tank.drop_check -= time.delta_secs();
@@ -795,8 +1007,20 @@ fn drops(
     let Ok(pose) = body.single() else {
         return;
     };
-    if !riders.iter().any(|(h, s)| {
-        matches!(h.state(), LifeState::Standing | LifeState::Downed) && s.entity == tank.entity
+    let roof_targets = roof
+        .iter()
+        .flat_map(|(shape, pose)| {
+            spatial.shape_intersections(
+                shape,
+                pose.translation(),
+                pose.rotation(),
+                &SpatialQueryFilter::default(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    if !riders.iter().any(|(owner, h)| {
+        matches!(h.state(), LifeState::Standing | LifeState::Downed)
+            && roof_targets.contains(&owner)
     }) {
         return;
     }
@@ -856,9 +1080,18 @@ pub(crate) fn interact(
     input: Res<GameInput>,
     settings: Res<crate::input::ControlSettings>,
     spatial: SpatialQuery,
+    game: Res<GameDefinition>,
     mut tank: ResMut<Tank>,
-    bodies: Query<(Entity, &Transform), With<TankBody>>,
-    calls: Query<(Entity, &CallBox, &Transform)>,
+    bodies: Query<Entity, With<TankBody>>,
+    source_triggers: Query<(
+        Entity,
+        &crate::environment::triggers::MapTrigger,
+        &Collider,
+        &Transform,
+        &crate::environment::triggers::TriggerState,
+    )>,
+    client_modes: Query<&crate::access::TriggerClientMode>,
+    mut trigger_queue: ResMut<crate::environment::triggers::TriggerQueue>,
     players: Query<(
         Entity,
         &Player,
@@ -891,34 +1124,48 @@ pub(crate) fn interact(
     let eye = pose.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
     let forward =
         Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch) * Vec3::NEG_Z;
-    let Ok((body, body_pose)) = bodies.single() else {
+    let Ok(body) = bodies.single() else {
         return;
     };
-    let options = std::iter::once((body, body_pose.translation + Vec3::Y, false)).chain(
-        calls
-            .iter()
-            .filter(|(_, call, _)| tank.activated_once && call.0 != tank.station)
-            .map(|(entity, _, pose)| (entity, pose.translation, true)),
-    );
-    for (entity, point, called) in options {
-        let delta = point - eye;
-        let Ok(direction) = Dir3::new(delta) else {
-            continue;
-        };
-        if delta.length() > 3.
-            || forward.dot(*direction) < 0.8
-            || spatial
-                .cast_ray(
-                    eye,
-                    direction,
-                    (delta.length() - 0.15).max(0.),
-                    true,
-                    &crate::environment::solids([owner, body]),
-                )
-                .is_some()
-        {
-            continue;
-        }
+    let selected = source_triggers
+        .iter()
+        .filter_map(|(entity, trigger, shape, pose, state)| {
+            let source = game
+                .environment
+                .triggers
+                .iter()
+                .find(|source| source.id == trigger.0)?;
+            let called = match source.source.get("targetname")?.as_str() {
+                "trig_use_tank" => false,
+                "trig_tank_station_call" => {
+                    let station = match source.source.get("script_noteworthy")?.as_str() {
+                        "call_box_village" => 0,
+                        "call_box_bunkers" => 1,
+                        _ => return None,
+                    };
+                    if !tank.activated_once || station == tank.station {
+                        return None;
+                    }
+                    true
+                }
+                _ => return None,
+            };
+            let score = crate::environment::support::use_candidate(
+                entity,
+                shape,
+                pose,
+                state,
+                &spatial,
+                owner,
+                client_modes.get(owner).ok()?.0,
+                eye,
+                forward,
+                false,
+            )?;
+            Some((entity, called, score))
+        })
+        .min_by(|a, b| a.2.total_cmp(&b.2));
+    if let Some((entity, called, _)) = selected {
         focus.target = Some(entity);
         let price = if tank.free_next && !called { 0 } else { 500 };
         focus.prompt = match tank.phase {
@@ -957,6 +1204,7 @@ pub(crate) fn interact(
         tank.activated_once = true;
         tank.called = called;
         tank.free_next = false;
+        trigger_queue.push(entity, owner);
         focus.accepted += 1;
         crate::audio::emit(
             &mut commands,

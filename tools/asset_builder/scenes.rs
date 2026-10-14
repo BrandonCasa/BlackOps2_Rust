@@ -69,6 +69,17 @@ pub fn validate_placements(catalog: &Catalog<'_>, entities: &[Entity]) -> Result
     Ok(())
 }
 
+pub fn brush_entities(entities: &[Entity]) -> Result<Vec<Value>> {
+    entities.iter().enumerate().filter_map(|(entity_index, entity)| {
+        entity.get("model").and_then(|model| model.strip_prefix('*')).map(|index| (entity_index,entity,index))
+    }).map(|(entity_index,entity,index)| {
+        let index = index.parse::<usize>()?;
+        if index == 0 { return Err("Native brush entity references the world model".into()); }
+        Ok(json!({"id":format!("brush.native.{entity_index}"),"native_entity_index":entity_index,
+            "native_brush_model":index,"matrix":entity_matrix(entity)?,"source":entity,"visual_meshes":0}))
+    }).collect()
+}
+
 pub fn convert(catalog: &Catalog<'_>, entities: &[Entity], materials: &BTreeMap<String, Value>, baked: &BTreeMap<String, Vec<geometry::Surface>>, pack: &mut Pack) -> Result<(Vec<Value>, Vec<Value>)> {
     let mut models = Vec::new();
     for (name, zone, root) in catalog.definitions(5) {
@@ -108,26 +119,24 @@ pub fn convert(catalog: &Catalog<'_>, entities: &[Entity], materials: &BTreeMap<
         }
         if let Some(&mesh) = brush_meshes.get(&0) { scene.node(json!({"name":name,"mesh":mesh})); }
         let mut placed = BTreeSet::new();
-        let mut brush_entities = Vec::new();
-        for (entity_index, entity) in entities.iter().enumerate() {
-            if let Some(index) = entity.get("model").and_then(|name| name.strip_prefix('*')) {
-                let index = index.parse::<usize>()?;
-                if index == 0 { return Err("Native brush entity references the world model".into()); }
-                let id = format!("brush.native.{entity_index}");
-                let transform = entity_matrix(entity)?;
-                let mut node = json!({"name":entity.get("targetname").or_else(|| entity.get("model")),
-                    "matrix":transform,"extras":{"brush_entity":id,"native_brush_model":index,
-                        "native_entity_index":entity_index,"native_entity":entity}});
-                let mut visual_meshes = 0;
-                if let Some(&mesh) = brush_meshes.get(&index) {
-                    node["mesh"] = json!(mesh);
-                    visual_meshes = scene.data["meshes"][mesh]["primitives"].as_array().ok_or("Native brush mesh has no primitives")?.len();
-                    placed.insert(index);
-                }
-                scene.node(node);
-                brush_entities.push(json!({"id":id,"native_entity_index":entity_index,"native_brush_model":index,
-                    "matrix":transform,"source":entity,"visual_meshes":visual_meshes}));
+        let mut brush_entities = brush_entities(entities)?;
+        for metadata in &mut brush_entities {
+            let entity_index = metadata["native_entity_index"].as_u64().ok_or("Native entity index is missing")?;
+            let entity = &metadata["source"];
+            let index = metadata["native_brush_model"].as_u64().ok_or("Native brush model index is missing")? as usize;
+            let id = metadata["id"].as_str().ok_or("Native brush entity ID is missing")?;
+            let transform = &metadata["matrix"];
+            let mut node = json!({"name":entity.get("targetname").or_else(|| entity.get("model")),
+                "matrix":transform,"extras":{"brush_entity":id,"native_brush_model":index,
+                    "native_entity_index":entity_index,"native_entity":entity}});
+            let mut visual_meshes = 0;
+            if let Some(&mesh) = brush_meshes.get(&index) {
+                node["mesh"] = json!(mesh);
+                visual_meshes = scene.data["meshes"][mesh]["primitives"].as_array().ok_or("Native brush mesh has no primitives")?.len();
+                placed.insert(index);
             }
+            scene.node(node);
+            metadata["visual_meshes"] = json!(visual_meshes);
         }
         if brush_meshes.keys().any(|index| *index != 0 && !placed.contains(index)) { return Err("Unplaced rendered native brush model".into()); }
         let count = streams.u32(root.add(784)?)? as usize;

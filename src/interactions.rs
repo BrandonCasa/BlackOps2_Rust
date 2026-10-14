@@ -255,10 +255,21 @@ pub(crate) fn interact(
     mut ledger: ResMut<PointLedger>,
     mut session: ResMut<Session>,
     mut access: ResMut<crate::access::ZoneAccess>,
-    blockers: Query<(Entity, &crate::access::DoorBlocker)>,
     mut barriers: ResMut<crate::barriers::Barriers>,
     windows: Query<(Entity, &crate::barriers::BarrierBlocker)>,
     mut generators: ResMut<crate::generators::Generators>,
+    (native_triggers, client_modes, mut trigger_queue, mut native_flags): (
+        Query<(
+            Entity,
+            &crate::environment::triggers::MapTrigger,
+            &Collider,
+            &Transform,
+            &crate::environment::triggers::TriggerState,
+        )>,
+        Query<&crate::access::TriggerClientMode>,
+        ResMut<crate::environment::triggers::TriggerQueue>,
+        MessageWriter<crate::access::ZoneFlagSet>,
+    ),
 ) {
     let use_key = settings.label(crate::input::Action::Interact);
     let Ok((
@@ -301,6 +312,16 @@ pub(crate) fn interact(
             if matches!(&usable.source.action, InteractionAction::Door { connection, .. } if access.opened(connection)) { return None; }
             if matches!(&usable.source.action, InteractionAction::Perk { perk } if *perk == definition.solo_revive.perk)
                 && (perks.solo_charges > 0 || perks.solo_purchases >= definition.solo_revive.maximum_purchases) { return None; }
+            if let InteractionAction::Door { connection, .. } = &usable.source.action {
+                let (trigger, score) = native_triggers.iter().filter_map(|(trigger, native, shape, pose, state)| {
+                    let source = definition.environment.triggers.iter().find(|source| source.id == native.0)?;
+                    if !native_door_connection(&source.source, &definition.access.flag_links, connection) { return None; }
+                    let score = crate::environment::support::use_candidate(trigger,shape,pose,state,&query,
+                        player_entity,client_modes.get(player_entity).ok()?.0,origin,forward,false)?;
+                    Some((trigger,score))
+                }).min_by(|a,b|a.1.total_cmp(&b.1))?;
+                return Some((-score,score,entity,usable,Some(trigger)));
+            }
             if matches!(usable.source.action, InteractionAction::Generator { .. }) && origin.distance(transform.translation+Vec3::Y*usable.source.reach*0.5)>usable.source.reach {return None;}
             let endpoint = if let InteractionAction::Barrier { barrier } = &usable.source.action {
                 let d = definition.content.barriers.iter().find(|d| d.id == *barrier)?;
@@ -308,9 +329,7 @@ pub(crate) fn interact(
                 let inward = (Vec3::from_array(exit.position) - transform.translation).with_y(0.).normalize_or_zero();
                 transform.translation + inward * 0.8 + Vec3::Y * 0.7
             } else if matches!(usable.source.action, InteractionAction::Generator { .. }) {crate::generators::use_point(transform.translation,origin,usable.source.reach)} else if matches!(usable.source.action, InteractionAction::Perk { .. }) { transform.translation + Vec3::Y + transform.rotation * Vec3::new(0., 0., 0.8) } else { transform.translation };
-            let filter = if let InteractionAction::Door { connection, .. } = &usable.source.action {
-                crate::environment::solids(std::iter::once(player_entity).chain(blockers.iter().filter(|(_,b)|b.0==*connection).map(|(e,_)|e)))
-            } else if let InteractionAction::Barrier { barrier }=&usable.source.action {
+            let filter = if let InteractionAction::Barrier { barrier }=&usable.source.action {
                 crate::environment::solids(std::iter::once(player_entity).chain(windows.iter().filter(|(_,b)|b.0==*barrier).map(|(e,_)|e)))
             } else {filter.clone()};
             let delta = endpoint - origin;
@@ -327,10 +346,10 @@ pub(crate) fn interact(
             {
                 return None;
             }
-            Some((dot, distance, entity, usable))
+            Some((dot, distance, entity, usable, None))
         })
         .max_by(|a, b| a.0.total_cmp(&b.0).then_with(|| b.1.total_cmp(&a.1)));
-    let Some((_, _, entity, usable)) = candidate else {
+    let Some((_, _, entity, usable, native_trigger)) = candidate else {
         focus.cancel();
         return;
     };
@@ -417,13 +436,31 @@ pub(crate) fn interact(
         }
         return;
     }
-    if let InteractionAction::Door { connection, price } = &usable.source.action {
-        let debris = definition
-            .access
-            .doors
+    if let InteractionAction::Door { connection, .. } = &usable.source.action {
+        let Some(native_trigger) = native_trigger else {
+            return;
+        };
+        let Ok((_, native, _, _, _)) = native_triggers.get(native_trigger) else {
+            return;
+        };
+        let Some(source) = definition
+            .environment
+            .triggers
             .iter()
-            .find(|d| d.connection == *connection)
-            .is_some_and(|d| d.debris);
+            .find(|source| source.id == native.0)
+        else {
+            return;
+        };
+        let debris = source
+            .source
+            .get("targetname")
+            .is_some_and(|name| name == "zombie_debris");
+        let price = source
+            .source
+            .get("zombie_cost")
+            .and_then(|cost| cost.parse::<u32>().ok())
+            .unwrap_or(1000);
+        focus.hold_seconds = 0.;
         focus.prompt = if usable.source.hidden_prompt {
             String::new()
         } else {
@@ -436,19 +473,55 @@ pub(crate) fn interact(
         if !input.use_held || focus.latched {
             return;
         }
-        focus.progress += time.delta_secs();
-        if focus.progress < usable.source.hold_seconds {
-            return;
-        }
         focus.latched = true;
         focus.progress = 0.;
-        let purchase = ledger.command(*price);
+        let purchase = ledger.command(price);
         match ledger.accept(&mut session.points, purchase, || {
             access
                 .unlock(&definition, connection)
                 .map_err(|()| InteractionRejection::Unavailable)
         }) {
             Ok(()) => {
+                for flag in source
+                    .source
+                    .get("script_flag")
+                    .into_iter()
+                    .flat_map(|flags| flags.split(','))
+                    .map(str::trim)
+                    .filter(|flag| !flag.is_empty())
+                {
+                    access.flags.insert(flag.into());
+                    for link in definition
+                        .access
+                        .flag_links
+                        .iter()
+                        .filter(|link| link.flag == flag)
+                    {
+                        access.open.extend(link.connections.iter().cloned());
+                    }
+                    native_flags.write(crate::access::ZoneFlagSet(flag.into()));
+                }
+                access.refresh(&definition.content);
+                if debris {
+                    trigger_queue.push_and_delete(native_trigger, player_entity);
+                } else {
+                    trigger_queue.push(native_trigger, player_entity);
+                }
+                if let Some(target) = source.source.get("target") {
+                    for (trigger, native, _, _, state) in &native_triggers {
+                        if definition.environment.triggers.iter().any(|source| {
+                            source.id == native.0 && source.source.get("target") == Some(target)
+                        }) {
+                            if debris && trigger != native_trigger {
+                                commands.entity(trigger).despawn();
+                            } else {
+                                let mut state = state.clone();
+                                state.enabled = false;
+                                commands.entity(trigger).insert(state);
+                            }
+                        }
+                    }
+                }
                 let position = if debris {
                     targets
                         .get(entity)
@@ -660,4 +733,50 @@ pub(crate) fn interact(
         }
         Err(error) => Some(error.into()),
     };
+}
+
+fn native_door_connection(
+    source: &std::collections::BTreeMap<String, String>,
+    links: &[crate::access::ZoneFlagLinkDefinition],
+    connection: &crate::origins::ContentId,
+) -> bool {
+    source
+        .get("targetname")
+        .is_some_and(|name| matches!(name.as_str(), "zombie_door" | "zombie_debris"))
+        && source.get("script_flag").is_some_and(|flags| {
+            flags.split(',').map(str::trim).any(|flag| {
+                links
+                    .iter()
+                    .any(|link| link.flag == flag && link.connections.contains(connection))
+            })
+        })
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+
+    #[test]
+    fn environment_trigger_query_access() {
+        IntoSystem::into_system(interact).initialize(&mut World::new());
+    }
+
+    #[test]
+    fn environment_trigger_door_uses_source_flags_instead_of_nearest_placement() {
+        let connection = crate::origins::ContentId("connection.activate_zone_farm.0".into());
+        let other = crate::origins::ContentId("connection.activate_zone_ruins.0".into());
+        let links = vec![crate::access::ZoneFlagLinkDefinition {
+            flag: "activate_zone_farm".into(),
+            connections: vec![connection.clone()],
+        }];
+        let source = [
+            ("targetname".into(), "zombie_debris".into()),
+            ("script_flag".into(), "activate_zone_farm".into()),
+        ]
+        .into();
+        assert!(native_door_connection(&source, &links, &connection));
+        assert!(!native_door_connection(&source, &links, &other));
+        let missing_flag = [("targetname".into(), "zombie_debris".into())].into();
+        assert!(!native_door_connection(&missing_flag, &links, &connection));
+    }
 }

@@ -35,6 +35,10 @@ pub struct VolumeDefinition {
     pub id: String,
     pub position: [f32; 3],
     pub vertices: Vec<[f32; 3]>,
+    #[serde(default)]
+    pub contents: u32,
+    #[serde(default)]
+    pub surface_flags: Vec<u32>,
 }
 impl EnvironmentDefinition {
     pub fn valid(&self, game: &GameDefinition) -> bool {
@@ -156,6 +160,7 @@ impl Default for TerrainMotion {
 pub struct EnvironmentPlugin;
 impl Plugin for EnvironmentPlugin {
     fn build(&self, app: &mut App) {
+        triggers::register(app);
         app.add_message::<Footstep>()
             .add_plugins((
                 support::SupportPlugin,
@@ -206,6 +211,7 @@ fn spawn(mut commands: Commands, game: Res<GameDefinition>, existing: Query<(), 
             ) {
                 commands.spawn((
                     MudVolume(volume.id.clone()),
+                    crate::gameplay::SessionEntity,
                     shape,
                     Sensor,
                     CollisionLayers::new(2u32, LayerMask::NONE),

@@ -65,6 +65,7 @@ pub(super) fn spawn(mut commands: Commands, existing: Query<(), With<NativeKillB
     ] {
         commands.spawn((
             NativeKillBrush,
+            crate::gameplay::SessionEntity,
             BoundaryVolume::Lethal,
             Collider::cuboid(size[0] * 0.0254, size[2] * 0.0254, size[1] * 0.0254),
             Sensor,
@@ -78,7 +79,7 @@ pub(super) fn boundaries(
     time: Res<Time<Fixed>>,
     spatial: SpatialQuery,
     access: Res<ZoneAccess>,
-    volumes: Query<&BoundaryVolume>,
+    volumes: Query<(&BoundaryVolume, Option<&super::triggers::TriggerState>)>,
     mut players: Query<
         (
             Entity,
@@ -122,9 +123,12 @@ pub(super) fn boundaries(
             &SpatialQueryFilter::from_mask(TRIGGER_LAYER),
         ) {
             match volumes.get(entity) {
-                Ok(BoundaryVolume::Safe) => safe = true,
-                Ok(BoundaryVolume::Lethal) => lethal = true,
-                Ok(BoundaryVolume::Playable(zone)) => playable |= access.reachable.contains(zone),
+                Ok((_, Some(state))) if !state.enabled => (),
+                Ok((BoundaryVolume::Safe, _)) => safe = true,
+                Ok((BoundaryVolume::Lethal, _)) => lethal = true,
+                Ok((BoundaryVolume::Playable(zone), _)) => {
+                    playable |= access.reachable.contains(zone)
+                }
                 Err(_) => (),
             }
         }
@@ -136,7 +140,11 @@ pub(super) fn boundaries(
 pub(super) fn damage(
     time: Res<Time<Fixed>>,
     spatial: SpatialQuery,
-    volumes: Query<(&DamageVolume, Option<&MapTrigger>)>,
+    volumes: Query<(
+        &DamageVolume,
+        Option<&MapTrigger>,
+        Option<&super::triggers::TriggerState>,
+    )>,
     players: Query<(Entity, &Transform, &Collider, &Vitality), With<Player>>,
     mut clocks: Local<HashMap<(Entity, Entity), f32>>,
     mut queue: ResMut<DamageQueue>,
@@ -156,10 +164,11 @@ pub(super) fn damage(
             pose.rotation,
             &SpatialQueryFilter::from_mask(TRIGGER_LAYER),
         ) {
-            let Ok((volume, id)) = volumes.get(entity) else {
+            let Ok((volume, id, state)) = volumes.get(entity) else {
                 continue;
             };
-            if volume.amount == 0
+            if state.is_some_and(|state| !state.enabled)
+                || volume.amount == 0
                 || volume.amount > i32::MAX as u32
                 || !volume.interval.is_finite()
                 || volume.interval <= 0.

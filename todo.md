@@ -508,55 +508,57 @@ Each family remains incomplete until its selected-program behavior is implemente
 
 Primary files: tools/asset_builder/collision.rs, entities.rs, game.rs, scenes.rs, src/environment/brushes.rs, src/environment/triggers.rs, src/environment/support.rs, and existing interaction consumers.
 
+Implementation complete. The installed-source and runtime-schema/Avian collider check passed for all 212 native triggers, 449 convex pieces, 136 mud pieces, and 197 registered player-zone pieces, with zero Phase 2 trigger source gaps. Brush *164 is native entity 3995 (`trig_zone_bunker_4`), preserves both source convex pieces, and activates `activate_zone_bunker_4_tank`. Native repeat/contact filters, damage/use/look consumers, script-created ownership, wait-0 deletion, and session cleanup are implemented. All 25 focused trigger/consumer tests passed, and git diff --check passed. Research findings are saved in the authorized master. Full pack and actual-game acceptance remain in Phase 6. The final static game build was skipped as requested.
+
 ## 2.1 Brush trigger *164
 
-- [ ] Resolve the exact installed entity and collision submodel associated with brush trigger *164.
-- [ ] Recover its source classname, script fields, contents, spawn flags, and activation consumer.
-- [ ] Preserve its source origin, orientation, local geometry, and world transform.
-- [ ] Preserve its native convex volumes and triangle shapes where present.
-- [ ] Represent its actual contact/use/damage behavior using existing Avian geometry and ECS trigger components.
-- [ ] Bind its source owner and source lifetime instead of leaving an unresolved brush classification.
-- [ ] Connect the trigger to the exact gameplay consumer that produces its intended outcome.
-- [ ] Include its required geometry and runtime definition inside the pack.
-- [ ] Verify its conversion no longer produces an unresolved geometry, classification, ownership, or dependency failure.
+- [x] Resolve the exact installed entity and collision submodel associated with brush trigger *164.
+- [x] Recover its source classname, script fields, contents, spawn flags, and activation consumer.
+- [x] Preserve its source origin, orientation, local geometry, and world transform.
+- [x] Preserve its native convex volumes and triangle shapes where present.
+- [x] Represent its actual contact/use/damage behavior using existing Avian geometry and ECS trigger components.
+- [x] Bind its source owner and source lifetime instead of leaving an unresolved brush classification.
+- [x] Connect the trigger to the exact gameplay consumer that produces its intended outcome.
+- [x] Include its required geometry and runtime definition in the existing runtime pack assembly.
+- [x] Verify its conversion no longer produces an unresolved geometry, classification, ownership, or dependency failure.
 
 ## 2.2 Remaining native trigger geometry
 
-- [ ] Complete required brush-backed trigger_multiple conversion.
-- [ ] Complete required brush-backed trigger_use conversion.
-- [ ] Complete required brush-backed trigger_damage conversion.
-- [ ] Complete required trigger_lookat conversion.
-- [ ] Complete remaining brush-backed trigger_box and info_volume conversion.
-- [ ] Complete required non-brush trigger kinds currently reported by game::read.
-- [ ] Preserve native radius/cylinder geometry without replacing it with a box approximation.
-- [ ] Preserve rotated box geometry and the committed convex representation.
-- [ ] Carry required terrain/triangle trigger geometry through the existing collision output. The merged runtime work accepts rotated brush trigger shapes with convex and triangle pieces through the existing Avian compound path. Source trigger conversion, exact ownership and actual behavior validation remain pending.
-- [ ] Preserve source contents and surface flags on triangle and convex geometry.
-- [ ] Preserve body/brush ownership so dynamic brushes are not duplicated in static collision.
-- [ ] Resolve source-selected mud volumes and their movement consumer.
-- [ ] Resolve source player boundary volumes and their zone/boundary consumer.
-- [ ] Preserve overlap results for multi-volume triggers without double-applying a single source activation.
-- [ ] Preserve exact scene references for rendered brush geometry.
-- [ ] Reject genuinely missing or ambiguous source geometry with the specific entity/submodel named in the error.
+- [x] Complete required brush-backed trigger_multiple conversion.
+- [x] Complete required brush-backed trigger_use conversion.
+- [x] Complete required brush-backed trigger_damage conversion.
+- [x] Complete required trigger_lookat conversion.
+- [x] Complete remaining brush-backed trigger_box and info_volume conversion.
+- [x] Complete required non-brush trigger kinds currently reported by game::read.
+- [x] Preserve native radius/cylinder geometry without replacing it with a box approximation.
+- [x] Preserve rotated box geometry and the committed convex representation.
+- [x] Carry required terrain/triangle trigger geometry through the existing collision output and Avian compound path. The installed native triggers contain no triangle pieces; convex and triangle metadata remain supported.
+- [x] Preserve source contents and surface flags on triangle and convex geometry.
+- [x] Preserve body/brush ownership so dynamic brushes are not duplicated in static collision.
+- [x] Resolve source-selected mud volumes and their movement consumer.
+- [x] Resolve source player boundary volumes and their zone/boundary consumer.
+- [x] Preserve overlap results for multi-volume triggers without double-applying a single source activation.
+- [x] Preserve exact scene references for rendered brush geometry.
+- [x] Reject genuinely missing or ambiguous source geometry with the specific entity/submodel named in the error.
 
 ## 2.3 Contact, ownership, and script-created lifetime
 
-- [ ] Implement source contact category and contents-mask gates for each required trigger consumer.
-- [ ] Preserve native numeric client-mode predicates where they participate in eligibility.
-- [ ] Preserve the trigger as recipient and the contacting entity as activator.
-- [ ] Preserve native repeat behavior without adding an unsupported enter-only or alive-only filter.
-- [ ] Preserve source wait, single-use, and deletion behavior only where the source actually applies it.
-- [ ] Preserve queued-contact validity across entity deletion and recreation.
-- [ ] Implement required deferred event ordering through existing ECS scheduling and messages.
-- [ ] Ensure a deleted single-use trigger cannot activate again through stale queued contacts.
-- [ ] Complete script-created trigger spawn, enable, disable, replacement, and destruction as Rust ECS behavior.
-- [ ] Complete trigger owner cleanup when the parent gameplay object is removed.
-- [ ] Bind shootable trigger consumers to the correct damage category and source predicate.
-- [ ] Bind use/look consumers to the correct player ownership and input predicate.
-- [ ] Reset trigger state and queued activation state between sessions.
-- [ ] Remove resolved trigger gap entries only after their runtime consumers are implemented.
-- [ ] Run focused source/geometry checks for changed trigger conversion.
-- [ ] Defer game behavior assertions to the final runtime phase.
+- [x] Implement source contact category and contents-mask gates for each required trigger consumer.
+- [x] Preserve native numeric client-mode predicates where they participate in eligibility.
+- [x] Preserve the trigger as recipient and the contacting entity as activator.
+- [x] Preserve native repeat behavior without adding an unsupported enter-only or alive-only filter.
+- [x] Preserve source wait, single-use, and deletion behavior only where the source actually applies it.
+- [x] Preserve queued-contact validity across entity deletion and recreation.
+- [x] Implement required deferred event ordering through existing ECS scheduling and messages.
+- [x] Ensure a deleted single-use trigger cannot activate again through stale queued contacts.
+- [x] Complete script-created trigger spawn, enable, disable, replacement, and destruction as Rust ECS behavior.
+- [x] Complete trigger owner cleanup when the parent gameplay object is removed.
+- [x] Bind shootable trigger consumers to the correct damage category and source predicate.
+- [x] Bind use/look consumers to the correct player ownership and input predicate.
+- [x] Reset trigger state and queued activation state between sessions.
+- [x] Remove resolved trigger gap entries only after their runtime consumers are implemented.
+- [x] Run focused source/geometry checks for changed trigger conversion.
+- [x] Keep actual-game behavior assertions in Phase 6; they have not been run for this implementation.
 
 # Phase 3 - Complete native mode, zone, access, and crafting lifecycle
 
@@ -950,7 +952,7 @@ Compilation, pack integrity, actual gameplay, visual inspection, and measured pe
 
 - [ ] All 165 remaining material families have actual converters, packed outputs, and intended runtime/Solari bindings.
 - [ ] All material-dependent selectors, live inputs, animations, and source states are integrated.
-- [ ] Brush trigger *164 and required trigger geometry/ownership/lifetime gaps are complete.
+- [x] Brush trigger *164 and required trigger geometry/ownership/lifetime implementation gaps are complete; actual-game acceptance remains in Phase 6.
 - [ ] Native mode, zone, access, spawn, barrier, crafting, and gramophone lifecycle gaps are complete.
 - [ ] Required native animation data, flags, pose composition, export bindings, and gameplay playback are complete.
 - [ ] Required gameplay catalogs, source values, world/model data, FX, camo, audio, UI/fonts, and cinematics are complete.

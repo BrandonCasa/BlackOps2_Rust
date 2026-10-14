@@ -40,6 +40,15 @@ struct AudioState {
     raid_clock: f32,
 }
 pub(super) fn install(app: &mut App) {
+    app.init_resource::<TriggerAudio>()
+        .add_observer(trigger_sound)
+        .add_systems(OnEnter(GameState::PreparingShaders), reset_trigger_audio)
+        .add_systems(
+            FixedUpdate,
+            trigger_audio
+                .after(GameStep::Rounds)
+                .run_if(in_state(GameState::Playing)),
+        );
     app.init_resource::<AudioState>().add_systems(
         FixedUpdate,
         (actions, actors, world, feedback)
@@ -47,6 +56,328 @@ pub(super) fn install(app: &mut App) {
             .after(GameStep::Rounds)
             .run_if(in_state(GameState::Playing)),
     );
+}
+
+#[derive(Resource, Default)]
+struct TriggerAudio {
+    clock: f32,
+    capture_poll: f32,
+    capture_enter_poll: BTreeMap<Entity, f32>,
+    capture: Option<(Entity, Entity)>,
+    capture_sound: Option<Entity>,
+    background: String,
+    background_until: f32,
+    background_poll: BTreeMap<Entity, f32>,
+    background_sample: f32,
+    background_selected: String,
+    background_pending: Option<(String, f32)>,
+    background_sound: Option<Entity>,
+    maelstrom_until: f32,
+    maelstrom_poll: f32,
+    maelstrom_sound: Option<Entity>,
+    doors: BTreeSet<String>,
+    door_poll: BTreeMap<String, f32>,
+    stinger: Option<(Entity, f32)>,
+}
+
+fn reset_trigger_audio(mut state: ResMut<TriggerAudio>) {
+    *state = TriggerAudio::default();
+    state.background = "mus_underscore_default".into();
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+
+    #[test]
+    fn environment_trigger_audio_query_access() {
+        let mut world = World::new();
+        IntoSystem::into_system(trigger_audio).initialize(&mut world);
+        world.add_observer(trigger_sound);
+        world.flush();
+    }
+}
+
+fn trigger_sound(
+    event: On<crate::environment::triggers::TriggerActivated>,
+    mut commands: Commands,
+    game: Res<GameDefinition>,
+    mut state: ResMut<TriggerAudio>,
+    mut music: ResMut<MusicOverride>,
+    players: Query<(), With<Player>>,
+    triggers: Query<&crate::environment::triggers::MapTrigger>,
+) {
+    let Ok(trigger) = triggers.get(event.trigger) else {
+        return;
+    };
+    let Some(source) = game
+        .environment
+        .triggers
+        .iter()
+        .find(|source| source.id == trigger.0)
+    else {
+        return;
+    };
+    if source
+        .source
+        .get("targetname")
+        .is_some_and(|name| name == "sndMaelstrom")
+        && players.contains(event.activator)
+        && state.clock >= state.maelstrom_poll
+    {
+        state.maelstrom_poll = state.clock + 0.1;
+        state.maelstrom_until = state.clock + 2.;
+        if state.maelstrom_sound.is_none() {
+            let entity = emit_loop(
+                &mut commands,
+                "amb_maelstrom",
+                SoundSource::World(Vec3::ZERO),
+            );
+            commands.entity(entity).insert(SoundFade {
+                remaining: 3.,
+                duration: 3.,
+                out: false,
+            });
+            state.maelstrom_sound = Some(entity);
+        }
+    }
+    if source
+        .source
+        .get("script_noteworthy")
+        .is_none_or(|name| name != "sndMusicDoor")
+        || state.doors.contains(&source.id)
+        || state
+            .door_poll
+            .get(&source.id)
+            .is_some_and(|next| state.clock < *next)
+    {
+        return;
+    }
+    if music.0.is_some() {
+        let next = state.clock + 0.1;
+        state.door_poll.insert(source.id.clone(), next);
+        return;
+    }
+    let Some(alias) = source.source.get("script_sound") else {
+        return;
+    };
+    let Some(length) = source
+        .source
+        .get("script_int")
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|length| length.is_finite() && *length >= 0.)
+    else {
+        return;
+    };
+    state.doors.insert(source.id.clone());
+    if let Some(target) = source.source.get("target") {
+        for paired in game
+            .environment
+            .triggers
+            .iter()
+            .filter(|paired| paired.source.get("targetname") == Some(target))
+        {
+            state.doors.insert(paired.id.clone());
+        }
+    }
+    let sound = emit(&mut commands, alias.clone(), SoundSource::World(Vec3::ZERO));
+    music.0 = Some(sound);
+    state.stinger = Some((sound, state.clock + length));
+}
+
+fn trigger_audio(
+    mut commands: Commands,
+    time: Res<Time<Fixed>>,
+    game: Res<GameDefinition>,
+    mut state: ResMut<TriggerAudio>,
+    mut music: ResMut<MusicOverride>,
+    quest: Res<crate::quests::MainQuest>,
+    spatial: SpatialQuery,
+    players: Query<(Entity, &Transform, &Collider), With<Player>>,
+    triggers: Query<(
+        &crate::environment::triggers::MapTrigger,
+        &Transform,
+        &crate::environment::triggers::TriggerState,
+    )>,
+) {
+    state.clock += time.delta_secs();
+    let now = state.clock;
+    if let Some((entity, until)) = state.stinger {
+        if now >= until {
+            if music.0 == Some(entity) {
+                music.0 = None;
+            }
+            if now >= until + 0.05 {
+                commands.entity(entity).try_despawn();
+                state.stinger = None;
+            }
+        }
+    }
+    if now >= state.maelstrom_until
+        && let Some(entity) = state.maelstrom_sound.take()
+    {
+        commands.entity(entity).try_insert(SoundFade {
+            remaining: 3.,
+            duration: 3.,
+            out: true,
+        });
+    }
+    let Ok((player, pose, collider)) = players.single() else {
+        return;
+    };
+    let touching = spatial.shape_intersections(
+        collider,
+        pose.translation,
+        pose.rotation,
+        &SpatialQueryFilter::from_mask(crate::environment::triggers::TRIGGER_LAYER),
+    );
+    if now >= state.capture_poll {
+        state.capture_poll = now + 0.1;
+        if state
+            .capture
+            .is_some_and(|(trigger, owner)| owner != player || !touching.contains(&trigger))
+        {
+            if let Some((trigger, _)) = state.capture.take() {
+                if let Ok((_, location, _)) = triggers.get(trigger) {
+                    emit(
+                        &mut commands,
+                        "zmb_zone_plate_up",
+                        SoundSource::World(location.translation),
+                    );
+                }
+            }
+            if let Some(entity) = state.capture_sound.take() {
+                commands.entity(entity).try_insert(SoundFade {
+                    remaining: 1.,
+                    duration: 1.,
+                    out: true,
+                });
+            }
+        }
+    }
+    for entity in &touching {
+        let capture = (|| {
+            let (trigger, location, trigger_state) = triggers.get(*entity).ok()?;
+            let source = game
+                .environment
+                .triggers
+                .iter()
+                .find(|source| source.id == trigger.0)?;
+            (trigger_state.enabled
+                && source
+                    .source
+                    .get("targetname")
+                    .is_some_and(|name| name == "sndCaptureZone"))
+            .then_some(location.translation)
+        })();
+        if let Some(location) = capture {
+            if state
+                .capture_enter_poll
+                .get(entity)
+                .is_some_and(|next| now < *next)
+            {
+                continue;
+            }
+            state.capture_enter_poll.insert(*entity, now + 0.05);
+            if state.capture.is_none() {
+                emit(
+                    &mut commands,
+                    "zmb_zone_plate_down",
+                    SoundSource::World(location),
+                );
+                let sound = emit_loop(
+                    &mut commands,
+                    "zmb_zone_plate_loop",
+                    SoundSource::World(location),
+                );
+                commands.entity(sound).insert(SoundFade {
+                    remaining: 2.,
+                    duration: 2.,
+                    out: false,
+                });
+                state.capture = Some((*entity, player));
+                state.capture_poll = now + 0.1;
+                state.capture_sound = Some(sound);
+            }
+        }
+    }
+    for entity in &touching {
+        let Ok((trigger, _, trigger_state)) = triggers.get(*entity) else {
+            continue;
+        };
+        let Some(source) = game
+            .environment
+            .triggers
+            .iter()
+            .find(|source| source.id == trigger.0)
+        else {
+            continue;
+        };
+        if !trigger_state.enabled
+            || source
+                .source
+                .get("targetname")
+                .is_none_or(|name| name != "sndBG")
+        {
+            continue;
+        }
+        if state
+            .background_poll
+            .get(entity)
+            .is_some_and(|next| now < *next)
+        {
+            continue;
+        }
+        state.background_poll.insert(*entity, now + 0.5);
+        if let Some(alias) = source.source.get("script_sound") {
+            state.background = if alias == "mus_underscore_chamber" && quest.enabled {
+                match quest.stage {
+                    crate::quests::QuestStage::UpgradeFists => {
+                        "mus_underscore_chamber_fight_1".into()
+                    }
+                    crate::quests::QuestStage::Finale => "mus_underscore_chamber_fight_2".into(),
+                    crate::quests::QuestStage::Complete => "null".into(),
+                    _ => alias.clone(),
+                }
+            } else {
+                alias.clone()
+            };
+            state.background_until = now + 4.;
+        }
+    }
+    if now >= state.background_until {
+        state.background = "mus_underscore_default".into();
+    }
+    if now >= state.background_sample {
+        state.background_sample = now + 2.;
+        if state.background_selected != state.background {
+            state.background_selected = state.background.clone();
+            if let Some(entity) = state.background_sound.take() {
+                commands.entity(entity).try_insert(SoundFade {
+                    remaining: 2.,
+                    duration: 2.,
+                    out: true,
+                });
+            }
+            state.background_pending = Some((state.background.clone(), now + 2.));
+        }
+    }
+    if state
+        .background_pending
+        .as_ref()
+        .is_some_and(|(_, until)| now >= *until)
+    {
+        let (alias, _) = state.background_pending.take().unwrap();
+        if alias != "null" {
+            let sound = emit_loop(&mut commands, alias, SoundSource::World(Vec3::ZERO));
+            commands.entity(sound).insert(SoundFade {
+                remaining: 2.,
+                duration: 2.,
+                out: false,
+            });
+            state.background_sound = Some(sound);
+        }
+    }
 }
 pub(crate) fn voice(
     commands: &mut Commands,

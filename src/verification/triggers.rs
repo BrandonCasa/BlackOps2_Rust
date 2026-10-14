@@ -53,10 +53,23 @@ pub(super) fn observe(
             errors.push(format!("Trigger admits outside point {}", site.0));
         }
     }
-    if ids.len() != game.environment.triggers.len() {
+    let expected = game
+        .environment
+        .triggers
+        .iter()
+        .filter(|trigger| {
+            !trigger.removed_at_spawn()
+                && !game
+                    .environment
+                    .crafting_benches
+                    .iter()
+                    .any(|bench| bench.source_trigger == trigger.id && bench.delete_source)
+        })
+        .count();
+    if ids.len() != expected {
         errors.push("Incomplete runtime trigger closure".into());
     }
     serde_json::json!({"passed":errors.is_empty(),"authored_triggers":game.environment.triggers.len(),
-        "runtime_triggers":ids.len(),"classes":classes,"interior_probes":interior_probes,
+        "expected_initial_triggers":expected,"runtime_triggers":ids.len(),"classes":classes,"interior_probes":interior_probes,
         "outside_probes":outside_probes,"errors":errors})
 }
