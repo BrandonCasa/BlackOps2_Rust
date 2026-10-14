@@ -424,7 +424,10 @@ impl Effects {
                 elements.push(element);
             }
             result.definitions.insert(name,json!({"elements":elements,"loop_life":streams.u32(root.add(20)?)? as i32,
-                "oneshot_life":streams.u32(root.add(24)?)? as i32,"flags":streams.u16(root.add(4)?)?,"priority":streams.u8(root.add(6)?)?}));
+                "oneshot_life":streams.u32(root.add(24)?)? as i32,"flags":streams.u16(root.add(4)?)?,"priority":streams.u8(root.add(6)?)?,
+                "occlusion_query":{"depth_bias":float(streams,root.add(0x38)?)?,
+                    "fade_in_ms":streams.u32(root.add(0x3c)?)? as i32,"fade_out_ms":streams.u32(root.add(0x40)?)? as i32,
+                    "scale_range":floats(streams,root.add(0x44)?,2)?}}));
         }
         Ok(result)
     }
@@ -565,6 +568,14 @@ mod tests {
                         println!(
                             "Required superflare {name}/{index}: flags {}; native color samples {colors:?}; atlas {}",
                             element["flags"], element["atlas"]
+                        );
+                        println!(
+                            "Required superflare visibility {name}/{index}: fade_in {}, fade_out {}, lighting_fraction {}, effect flags {}, occlusion_query {}",
+                            element["fade_in"],
+                            element["fade_out"],
+                            element["lighting_fraction"],
+                            effect["flags"],
+                            effect["occlusion_query"]
                         );
                         let bucket: Vec<_> = effect["elements"].as_array().unwrap().iter().enumerate()
                             .filter(|(source_index, _)| (*source_index).min(7) == index.min(7))
