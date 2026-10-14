@@ -436,7 +436,7 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
             "traversals_started":evidence.traversals_started,"traversals_finished":evidence.traversals_finished,"rising_finished":evidence.rising_finished});
     }
     result["equipment"]["active_grenades"] = json!(world.query::<(Entity, &crate::equipment::Grenade, &Transform)>().iter(world)
-        .map(|(entity, grenade, pose)| json!({"entity":entity.to_bits(),"id":grenade.definition.0,"remaining":grenade.remaining,"position":pose.translation.to_array()})).collect::<Vec<_>>());
+        .map(|(entity, grenade, pose)| json!({"entity":entity.to_bits(),"id":grenade.definition.0,"remaining":grenade.remaining,"position":pose.translation.to_array(),"rotation":pose.rotation.to_array(),"settled":grenade.settled()})).collect::<Vec<_>>());
     result["equipment"]["mine_placed"] =
         json!(world.resource::<crate::mines::MineEvidence>().placed);
     let entities: Vec<_> = world
