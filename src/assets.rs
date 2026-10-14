@@ -404,9 +404,59 @@ impl WorldBrushes {
         (start_solid, fraction)
     }
 }
+fn world_mesh_collider(mesh: &Mesh) -> Option<Collider> {
+    use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+    if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
+        return None;
+    }
+    if let Some(indices) = mesh.indices() {
+        return (indices.len() % 3 == 0)
+            .then(|| Collider::trimesh_from_mesh(mesh))
+            .flatten();
+    }
+    let VertexAttributeValues::Float32x3(vertices) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)? else {
+        return None;
+    };
+    let count = u32::try_from(vertices.len()).ok()?;
+    if count == 0 || count % 3 != 0 {
+        return None;
+    }
+    Collider::trimesh_from_mesh(
+        &mesh.clone().with_inserted_indices(Indices::U32((0..count).collect())),
+    )
+}
+
 #[cfg(test)]
 mod collision_tests {
     use super::*;
+
+    #[test]
+    fn nonindexed_collision_keeps_every_ordered_triangle_and_rejects_incomplete_lists() {
+        use bevy::asset::RenderAssetUsages;
+        use bevy::mesh::{Indices, PrimitiveTopology};
+        let vertices = vec![
+            [0., 0., 0.], [1., 0., 0.], [0., 0., 1.],
+            [2., 0., 0.], [3., 0., 0.], [2., 0., 1.],
+        ];
+        let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices.clone());
+        let collider = world_mesh_collider(&mesh).unwrap();
+        let triangles = collider.shape().as_trimesh().unwrap();
+        assert_eq!(triangles.indices().len(), 2);
+        for (index, triangle) in triangles.triangles().enumerate() {
+            for (vertex, source) in [triangle.a, triangle.b, triangle.c]
+                .iter().zip(&vertices[index * 3..index * 3 + 3]) {
+                assert_eq!([vertex.x, vertex.y, vertex.z], *source);
+            }
+        }
+        assert!(mesh.indices().is_none());
+        assert!(world_mesh_collider(&mesh.clone().with_inserted_indices(Indices::U32((0..6).collect()))).is_some());
+        assert!(world_mesh_collider(&mesh.clone().with_inserted_indices(Indices::U32(vec![0, 1, 2, 3]))).is_none());
+        assert!(world_mesh_collider(&mesh.clone().with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices[..5].to_vec())).is_none());
+        assert!(world_mesh_collider(&Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::MAIN_WORLD)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)).is_none());
+    }
+
     #[test]
     fn native_world_brush_trace_preserves_contents_and_enter_plane_bias() {
         let mut brushes = WorldBrushes(vec![(
@@ -660,7 +710,7 @@ fn scene_ready(
         for entity in children.iter_descendants(event.entity) {
             if let Ok((mesh, material, metadata)) = mesh_entities.get(entity) {
                 let collider = cache.get(&mesh.0.id()).cloned().or_else(|| {
-                    let collider = meshes.get(&mesh.0).and_then(Collider::trimesh_from_mesh)?;
+                    let collider = meshes.get(&mesh.0).and_then(world_mesh_collider)?;
                     cache.insert(mesh.0.id(), collider.clone());
                     Some(collider)
                 });
