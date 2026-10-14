@@ -11,14 +11,19 @@ fn store_image(source: &texture::Image, uri: String, srgb: bool, role: &str, pac
     Ok(uri)
 }
 
-fn bake(source: &texture::Image, role: &str) -> Result<texture::Image> {
+fn bake(source: &texture::Image, role: &str, detail: Option<(&texture::Image,u8,[f32;4])>) -> Result<texture::Image> {
     if source.depth != 1 || source.faces != 1 { return Err(format!("Ordinary lit {role} channel is not a 2D image").into()); }
+    let detail_pixels = if let Some((image,_,parameters)) = detail {
+        if role != "normal" || image.depth != 1 || image.faces != 1 || image.levels.is_empty()
+            || !parameters.iter().all(|value| value.is_finite()) { return Err("Invalid source detail normal input".into()); }
+        (0..image.levels.len()).map(|level| texture::pixels(image,level)).collect::<Result<Vec<_>>>()?
+    } else { Vec::new() };
     let mut result = source.clone();
     result.format = 1;
     result.levels.clear();
     for level in 0..source.levels.len() {
         let mut bytes = Vec::new();
-        for pixel in texture::pixels(source, level)? {
+        for (index,pixel) in texture::pixels(source, level)?.into_iter().enumerate() {
             let mut value = pixel;
             match role {
                 "color" => {
@@ -28,8 +33,18 @@ fn bake(source: &texture::Image, role: &str) -> Result<texture::Image> {
                     }
                 }
                 "normal" => {
-                    let x = pixel[0] * f32::from_bits(0x40808102) + f32::from_bits(0xc0010204);
-                    let y = pixel[1] * f32::from_bits(0x40808102) + f32::from_bits(0xc0010204);
+                    let mut slope = [pixel[0],pixel[1]].map(|value| value*f32::from_bits(0x40808102)+f32::from_bits(0xc0010204));
+                    if let Some((image,sampler,parameters)) = detail {
+                        let (width,height) = ((source.width>>level).max(1),(source.height>>level).max(1));
+                        let uv = [(index%width) as f32+0.5,(index/width) as f32+0.5];
+                        let uv = [uv[0]/width as f32*parameters[0],uv[1]/height as f32*parameters[1]];
+                        let frequency = (image.width as f32*parameters[0].abs()).max(image.height as f32*parameters[1].abs()).max(1.);
+                        let lod = (level as f32+frequency.log2()-(source.width.max(source.height) as f32).log2())
+                            .floor().clamp(0.,(image.levels.len()-1) as f32) as usize;
+                        let sample = texture::sample(&detail_pixels[lod],(image.width>>lod).max(1),(image.height>>lod).max(1),uv,sampler);
+                        for axis in 0..2 { slope[axis]+=parameters[2]*(sample[axis]*f32::from_bits(0x40808102)+f32::from_bits(0xc0010204)); }
+                    }
+                    let [x,y] = slope;
                     let length = (x*x + y*y + 1.).sqrt();
                     value = [x / length * 0.5 + 0.5, y / length * 0.5 + 0.5, 1. / length * 0.5 + 0.5, 1.];
                 }
@@ -64,9 +79,9 @@ pub fn pbr_pixel(diffuse: [f32; 3], specular: [f32; 3], gloss: f32) -> ([f32; 3]
     (base,metallic,(2./(2_f32.powf(13.*gloss)+2.)).powf(0.25))
 }
 
-fn camo_pixel(mut color: [f32;4], mut specular: [f32;4], detail: [f32;4], weight: f32) -> [[f32;4];2] {
+fn camo_pixel(mut color: [f32;4], mut specular: [f32;4], detail: [f32;4], color_bias: f32, weight: f32) -> [[f32;4];2] {
     for component in 0..3 {
-        let replacement_color = (detail[component]+0.5).clamp(0.,1.);
+        let replacement_color = (detail[component]+color_bias-0.5).clamp(0.,1.);
         let replacement_specular = (specular[component]+detail[3]-0.5).clamp(0.,1.);
         let replacement_color = replacement_color+color[3]*(color[component]-replacement_color);
         let replacement_specular = replacement_specular+color[3]*(specular[component]-replacement_specular);
@@ -76,12 +91,13 @@ fn camo_pixel(mut color: [f32;4], mut specular: [f32;4], detail: [f32;4], weight
     [color,specular]
 }
 
-fn metallic_workflow(color: &texture::Image, specular: &texture::Image, samplers: [u8; 2], camo: Option<(&texture::Image,u8,[f32;4])>) -> Result<(texture::Image,texture::Image)> {
+fn metallic_workflow(color: &texture::Image, specular: &texture::Image, samplers: [u8; 2], camo: Option<(&texture::Image,u8,[f32;4])>, occlusion: Option<(&texture::Image,u8)>) -> Result<(texture::Image,texture::Image)> {
     let mut sources = vec![color,specular];
     if let Some((image,_,parameters)) = camo {
         if !parameters.iter().all(|value| value.is_finite()) { return Err("Non-finite source camo parameters".into()); }
         sources.push(image);
     }
+    if let Some((image,_)) = occlusion { sources.push(image); }
     if sources.iter().any(|image| image.faces != 1 || image.depth != 1 || image.levels.is_empty()) { return Err("Specular-workflow input is not a 2D image".into()); }
     let (width,height) = (sources.iter().map(|image| image.width).max().unwrap(),sources.iter().map(|image| image.height).max().unwrap());
     let mut base = texture::Image { width,height,depth:1,faces:1,format:1,flags:0,levels:Vec::new() };
@@ -103,7 +119,8 @@ fn metallic_workflow(color: &texture::Image, specular: &texture::Image, samplers
             if let Some((_,sampler,parameters)) = camo {
                 let detail_uv = std::array::from_fn(|axis| (uv[axis]-0.5)*parameters[2]+parameters[axis]+0.5);
                 let detail = sample(2,detail_uv,sampler);
-                samples = camo_pixel(samples[0],samples[1],detail,parameters[3]);
+                let color_bias = if let Some((_,sampler)) = occlusion { sample(3,uv,sampler)[2] } else {1.};
+                samples = camo_pixel(samples[0],samples[1],detail,color_bias,parameters[3]);
             }
             let (rgb,metallic,roughness) = pbr_pixel(std::array::from_fn(|c| samples[0][c]*samples[0][c]),std::array::from_fn(|c| samples[1][c]*samples[1][c]),samples[1][3]);
             for value in rgb { let srgb = if value <= 0.0031308 {value*12.92} else {1.055*value.powf(1./2.4)-0.055}; base_bytes.push((srgb*255.).round() as u8); }
@@ -121,11 +138,20 @@ struct OrdinaryRecipe {
     normal: bool,
     specular: u8,
     coverage: u8,
+    detail: bool,
+    occlusion: u8,
+    camo: bool,
     programs: Option<[&'static str;3]>,
 }
 
 fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
     let (expected,normal,specular,coverage) = match family {
+        "mc_lit_sm_r0c0d0n0_33ffej1u" => ("pimp_shader_lprobe_ecd7a93c.hlsl", true, 0, 0),
+        "mc_lit_sm_r0c0d0n0s0_qwq4q449" => ("pimp_shader_lprobe_7750f94.hlsl", true, 1, 0),
+        "mc_lit_sm_t0c0d0n0s0_68eww765" => ("pimp_shader_lprobe_fafd5736.hlsl", true, 1, 2),
+        "mc_lit_sm_r0c0n0s0o0_3z86zq2z" => ("pimp_shader_lprobe_3c17e0d4.hlsl", true, 1, 0),
+        "mc_lit_sm_r0c0n0s0o0_909j993q" => ("pimp_shader_lprobe_4dc2aa8d.hlsl", true, 1, 0),
+        "mc_lit_sm_b0c0n0s0o0_jf00fe4q" => ("pimp_shader_lprobe_29115a54.hlsl", true, 1, 1),
         "mc_lit_sm_r0c0n0s0_ze50j7jz" => ("pimp_shader_lprobe_3a1bfa95.hlsl", true, 1, 0),
         "mc_lit_sm_r0c0n0s0_7j414q0z" => ("pimp_shader_lprobe_9eb27c7c.hlsl", true, 1, 0),
         "mc_lit_sm_r0c0n0s0_4w3wqfe5" => ("pimp_shader_lprobe_4bceb0cc.hlsl", true, 1, 0),
@@ -159,6 +185,12 @@ fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
         _ => return None,
     };
     let programs = match family {
+        "mc_lit_sm_r0c0d0n0_33ffej1u" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_b535d809.hlsl"]),
+        "mc_lit_sm_r0c0d0n0s0_qwq4q449" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_5e977ea1.hlsl"]),
+        "mc_lit_sm_t0c0d0n0s0_68eww765" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_a31f2603.hlsl"]),
+        "mc_lit_sm_r0c0n0s0o0_3z86zq2z" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_65f591e1.hlsl"]),
+        "mc_lit_sm_r0c0n0s0o0_909j993q" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_1420dbb8.hlsl"]),
+        "mc_lit_sm_b0c0n0s0o0_jf00fe4q" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_70f32b61.hlsl"]),
         "mc_lit_sm_r0c0n0s0_ze50j7jz" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_63f98ba0.hlsl"]),
         "mc_lit_sm_r0c0n0s0_7j414q0z" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_c7500d49.hlsl"]),
         "mc_lit_sm_r0c0n0s0_4w3wqfe5" => Some(["pimp_shader_lprobe_7bb0619c.hlsl","pimp_shader_lprobe_4defd0a3.hlsl","pimp_shader_lprobe_122cc1f9.hlsl"]),
@@ -182,11 +214,18 @@ fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
         "wpc_lit_sm_b0c0s0_3f3q946z" => Some(["pimp_shader_lmap_d63b1bf7.hlsl","pimp_shader_lmap_5d85d10f.hlsl","pimp_shader_lmap_a087adc7.hlsl"]),
         _ => None,
     };
-    Some(OrdinaryRecipe {expected,normal,specular,coverage,programs})
+    let detail = matches!(family,"mc_lit_sm_r0c0d0n0_33ffej1u" | "mc_lit_sm_r0c0d0n0s0_qwq4q449" | "mc_lit_sm_t0c0d0n0s0_68eww765");
+    let occlusion = match family {
+        "mc_lit_sm_r0c0n0s0o0_3z86zq2z" | "mc_lit_sm_r0c0n0s0o0_909j993q" => 1,
+        "mc_lit_sm_b0c0n0s0o0_jf00fe4q" => 2,
+        _ => 0,
+    };
+    let camo = occlusion == 1 || family == "mc_lit_sm_r0c0n0s0_7j414q0z";
+    Some(OrdinaryRecipe {expected,normal,specular,coverage,detail,occlusion,camo,programs})
 }
 
 fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Result<()> {
-    let OrdinaryRecipe {expected,normal,specular,coverage,programs} = *recipe;
+    let OrdinaryRecipe {expected,normal,specular,coverage,detail,occlusion,camo,programs} = *recipe;
     let family = material["technique_set"].as_str().ok_or("Missing native material technique")?;
     let techniques = material["techniques"].as_array().ok_or("Missing native material techniques")?;
     let lit = techniques.iter().find(|technique| technique["index"] == 4).ok_or("Ordinary lit technique is missing")?;
@@ -221,11 +260,12 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
         if family.starts_with("wpc_") { routes.push(json!({"source":5,"destination":6})); }
         let mut inputs = BTreeMap::from([(2695565377_u32,0_u64)]);
         if normal { inputs.insert(1507003663,257); }
-        if specular == 1 { inputs.insert(887934131,if normal {514} else {257}); }
-        let camo = family == "mc_lit_sm_r0c0n0s0_7j414q0z";
+        if specular == 1 { inputs.insert(887934131,if detail {515} else if normal {514} else {257}); }
+        if detail { inputs.insert(3948059469,if specular == 1 {770} else {514}); }
+        if occlusion != 0 { inputs.insert(1610742065,if camo {1027} else {771}); }
         let scrolling = family == "mc_lit_sm_r0c0n0s0_4w3wqfe5";
-        if camo { inputs.insert(3183121296,771); }
-        for pass in [&passes[0],&sun_passes[0]] {
+        if camo { inputs.insert(3183121296,if occlusion != 0 {772} else {771}); }
+        for (pass_index,pass) in [&passes[0],&sun_passes[0]].into_iter().enumerate() {
             if pass["vertex_routes"] != json!(routes) { return Err(format!("Reviewed material {key} has unreviewed vertex routes").into()); }
             let arguments = pass["arguments"].as_array().ok_or("Reviewed pass arguments are missing")?;
             let active: BTreeMap<_,_> = arguments.iter().filter(|argument| argument["type"] == 2)
@@ -246,15 +286,29 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
                 return Err(format!("Reviewed scrolling material {key} lacks its native gameTime binding").into());
             }
             for argument in arguments.iter().filter(|argument| matches!(argument["type"].as_u64(),Some(0 | 1 | 6 | 7 | 8))) {
-                if argument["type"] != 6 || argument["value"] != 2418533825_u32 || argument["buffer"] != 1
-                    || argument["location"] != 672 || argument["size"] != 12 {
+                let hash = argument["value"].as_u64().ok_or("Missing material constant hash")?;
+                let expected = match hash {
+                    2418533825 => (672,12),
+                    148072969 if detail => (848,16),
+                    411508820 if camo && occlusion != 0 && pass_index == 1 => (1008,16),
+                    _ => return Err(format!("Reviewed material {key} has an unreviewed active material constant").into()),
+                };
+                if argument["type"] != 6 || argument["buffer"] != 1
+                    || argument["location"] != expected.0 || argument["size"] != expected.1 {
                     return Err(format!("Reviewed material {key} has an unreviewed active material constant").into());
                 }
                 let constant = material["constants"].as_array().ok_or("Missing native constant table")?.iter()
-                    .find(|constant| constant["hash"] == 2418533825_u32).ok_or("Missing bound occlusionAmount")?;
-                if (0..3).any(|component| constant["literal"][component].as_f64().is_none_or(|value| !value.is_finite())) {
-                    return Err(format!("Reviewed material {key} has invalid direct/probe/diffuse lighting multipliers").into());
+                    .find(|constant| constant["hash"] == hash).ok_or("Missing bound material constant")?;
+                if (0..expected.1 as usize/4).any(|component| constant["literal"][component].as_f64().is_none_or(|value| !value.is_finite())) {
+                    return Err(format!("Reviewed material {key} has invalid material constants").into());
                 }
+            }
+            if detail && arguments.iter().filter(|argument| argument["type"] == 6 && argument["value"] == 148072969_u32).count() != 1 {
+                return Err(format!("Reviewed material {key} lacks its bound detailScale").into());
+            }
+            if camo && occlusion != 0 && pass_index == 1
+                && arguments.iter().filter(|argument| argument["type"] == 6 && argument["value"] == 411508820_u32).count() != 1 {
+                return Err(format!("Reviewed material {key} lacks its sun specular scale binding").into());
             }
         }
         for hash in inputs.keys() {
@@ -400,20 +454,23 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
             missing.entry(family.into()).or_default().push(key.clone()); continue;
         };
         validate_ordinary(key,material,&recipe)?;
-        let OrdinaryRecipe {normal,specular,coverage,..} = recipe;
+        let OrdinaryRecipe {normal,specular,coverage,detail,occlusion,camo,..} = recipe;
         let lit = material["techniques"].as_array().unwrap().iter().find(|technique| technique["index"] == 4).unwrap();
         let passes = lit["passes"].as_array().unwrap();
         let mut channels = Vec::new();
-        let camo = family == "mc_lit_sm_r0c0n0s0_7j414q0z";
         let camo_parameters = if camo && !material["code_constants"]["181"].is_null() {
             let value: [f32;4] = serde_json::from_value(material["code_constants"]["181"].clone())?;
             if !value.iter().all(|component| component.is_finite()) { return Err(format!("Invalid camo parameters for {key}").into()); }
             Some(value)
         } else { None };
         let mut source_camo = Value::Null;
-        if camo {
-            let mut source_inputs = BTreeMap::new();
-            for (hash,role) in [(2695565377_u32,"source_color"),(3183121296,"source_camo")] {
+        let mut source_inputs = BTreeMap::new();
+        if camo || occlusion != 0 || detail {
+            let mut inputs = Vec::new();
+            if camo { inputs.extend([(2695565377_u32,"source_color"),(3183121296,"source_camo")]); }
+            if occlusion != 0 { inputs.push((1610742065,"source_occlusion")); }
+            if detail { inputs.push((3948059469,"source_detail_normal")); }
+            for (hash,role) in inputs {
                 let binding = material["textures"].as_array().unwrap().iter().find(|binding| binding["hash"] == hash)
                     .ok_or_else(|| format!("Missing source camo input {hash} for {key}"))?;
                 let name = binding["image"].as_str().ok_or("Missing source camo image")?.to_ascii_lowercase();
@@ -423,11 +480,23 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
                     let uri = store_image(image,format!("prepared/material-channels/{}/{role}.ktx2",shared.len()),false,role,pack)?;
                     shared.insert(channel_key,uri.clone()); uri
                 };
-                source_inputs.insert(role,json!({"uri":uri,"sampler":binding["sampler"],"transfer":"encoded_gamma2"}));
+                source_inputs.insert(role,json!({"uri":uri,"sampler":binding["sampler"],"transfer":if matches!(role,"source_color" | "source_camo") {"encoded_gamma2"} else {"linear"}}));
             }
-            source_camo = json!({"inputs":source_inputs,"code_constant":181,"parameters":camo_parameters,
-                "operation":"alpha_masked_gamma_color_and_specular","uv":"center_scale_offset"});
+            if camo {
+                source_camo = json!({"inputs":{"source_color":source_inputs["source_color"],"source_camo":source_inputs["source_camo"]},
+                    "code_constant":181,"parameters":camo_parameters,"color_bias":if occlusion == 1 {"occlusion_blue"} else {"one"},
+                    "operation":"alpha_masked_gamma_color_and_specular","uv":"center_scale_offset"});
+            }
         }
+        let bindings = material["textures"].as_array().unwrap();
+        let detail_input = if detail {
+            let binding = bindings.iter().find(|value| value["hash"] == 3948059469_u32).ok_or("Missing bound detail normal")?;
+            let constant = material["constants"].as_array().unwrap().iter().find(|value| value["hash"] == 148072969_u32)
+                .ok_or("Missing bound detailScale")?;
+            let parameters: [f32;4] = serde_json::from_value(constant["literal"].clone())?;
+            let name = binding["image"].as_str().unwrap().to_ascii_lowercase();
+            Some((images.get(&name).ok_or_else(|| format!("Missing detail normal image {name}"))?,binding["sampler"].as_u64().unwrap() as u8,parameters))
+        } else { None };
         let mut bindings = vec![(2695565377_u32, if specular == 1 { Vec::new() } else { vec!["color"] })];
         if normal { bindings.push((1507003663, vec!["normal"])); }
         if specular == 1 { bindings.push((887934131, Vec::new())); }
@@ -442,10 +511,15 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
             let image_name = binding["image"].as_str().ok_or("Native image binding name is missing")?;
             let source = images.get(&image_name.to_ascii_lowercase()).ok_or_else(|| format!("Material {key} image {image_name} is missing"))?;
             for role in roles {
-                let channel_key = (image_name.to_ascii_lowercase(), role.to_owned());
+                let mut identity = image_name.to_ascii_lowercase();
+                if role == "normal" && let Some((_,sampler,parameters)) = detail_input {
+                    let binding = material["textures"].as_array().unwrap().iter().find(|value| value["hash"] == 3948059469_u32).unwrap();
+                    identity.push_str(&format!(":{}:{sampler}:{:?}",binding["image"].as_str().unwrap().to_ascii_lowercase(),parameters.map(f32::to_bits)));
+                }
+                let channel_key = (identity, role.to_owned());
                 let srgb = role == "color";
                 let uri = if let Some(uri) = shared.get(&channel_key) { uri.clone() } else {
-                    let image = bake(source, role)?;
+                    let image = bake(source, role,if role == "normal" {detail_input} else {None})?;
                     let uri = store_image(&image, format!("prepared/material-channels/{}/{role}.ktx2", shared.len()), srgb, role, pack)?;
                     shared.insert(channel_key, uri.clone());
                     uri
@@ -469,6 +543,13 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
             let names = [color["image"].as_str().unwrap().to_ascii_lowercase(),specular["image"].as_str().unwrap().to_ascii_lowercase()];
             let samplers = [color["sampler"].as_u64().unwrap() as u8,specular["sampler"].as_u64().unwrap() as u8];
             let mut pair = format!("{}:{}:{}:{}",names[0],names[1],samplers[0],samplers[1]);
+            let occlusion_input = if camo && occlusion != 0 && camo_parameters.is_some() {
+                let binding = bindings.iter().find(|value| value["hash"] == 1610742065_u32).ok_or("Missing bound camo occlusion")?;
+                let name = binding["image"].as_str().ok_or("Missing bound camo occlusion image")?.to_ascii_lowercase();
+                let sampler = binding["sampler"].as_u64().ok_or("Missing bound camo occlusion sampler")? as u8;
+                pair.push_str(&format!(":occlusion:{name}:{sampler}"));
+                Some((images.get(&name).ok_or_else(|| format!("Missing bound camo occlusion image {name}"))?,sampler))
+            } else { None };
             let camo_input = if let Some(parameters) = camo_parameters {
                 let binding = bindings.iter().find(|value| value["hash"] == 3183121296_u32).ok_or("Missing bound camo image")?;
                 let name = binding["image"].as_str().ok_or("Missing bound camo image name")?.to_ascii_lowercase();
@@ -477,7 +558,7 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
                 Some((images.get(&name).ok_or_else(|| format!("Missing bound camo image {name}"))?,sampler,parameters))
             } else { None };
             if !shared.contains_key(&(pair.clone(),"color".into())) {
-                let (base,response) = metallic_workflow(&images[&names[0]],&images[&names[1]],samplers,camo_input)?;
+                let (base,response) = metallic_workflow(&images[&names[0]],&images[&names[1]],samplers,camo_input,occlusion_input)?;
                 for (role,image) in [("color",base),("response",response)] {
                     let path = format!("prepared/material-channels/{}/{role}.ktx2",shared.len());
                     let path = store_image(&image,path,role=="color",role,pack)?;
@@ -507,9 +588,28 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
             converted.get_mut(key).unwrap()["extras"]["surface"]["pending_runtime"] = json!("Native glass fragment uses sqrt coverage and coverage-independent specular before gamma2 premultiplied composition; the shared linear PBR consumer does not yet reproduce that blend");
         }
         let surface = &mut converted.get_mut(key).unwrap()["extras"]["surface"];
+        if let Some((_,_,parameters)) = detail_input {
+            surface["source_detail_normal"] = json!({"input":source_inputs["source_detail_normal"],"parameters":parameters,
+                "operation":"scaled_slope_add_before_normalization","uv":"multiply_xy"});
+            surface["approximations"].as_array_mut().unwrap().push(json!("Detail normal slopes baked at base-normal resolution using a major-axis mip estimate before output filtering"));
+        }
+        if occlusion != 0 {
+            surface["source_occlusion"] = json!({"input":source_inputs["source_occlusion"],
+                "indirect_diffuse":if occlusion == 1 {"red"} else {"blue"},"indirect_specular":"green",
+                "direct_diffuse":if occlusion == 1 {"none"} else {"green"},"direct_specular":"red"});
+            if camo {
+                surface["source_occlusion"]["sun_specular_scale"] = json!({"hash":411508820,"component":2});
+                surface["pending_runtime"] = json!("Native weapon camo needs live scoped weaponParam2/image overrides and separate red indirect-diffuse/direct-specular, green reflection and blue camo-bias occlusion consumers; packed source inputs and explicit-state conversion do not establish those runtime bindings");
+            } else {
+                surface["source_fragment_alpha"] = json!("sqrt_texture_vertex_coverage");
+                surface["pending_runtime"] = json!("Native catwalk gamma2 premultiplied lighting writes sqrt coverage and applies distinct source occlusion channels to lighting terms; the shared PBR consumer does not yet reproduce that composition");
+            }
+        }
+        if matches!(family,"mc_lit_sm_r0c0n0s0_ze50j7jz" | "mc_lit_sm_r0c0n0s0o0_909j993q") {
+            surface["source_color_matrix"] = json!({"buffer":0,"rows":[114,115,116],"stage":"linear_lighting_before_fog"});
+        }
         match family {
             "mc_lit_sm_r0c0n0s0_ze50j7jz" => {
-                surface["source_color_matrix"] = json!({"buffer":0,"rows":[114,115,116],"stage":"linear_lighting_before_fog"});
                 surface["pending_runtime"] = json!("Native model color matrix must be applied to linear diffuse plus specular before fog; its runtime parameter binding is not connected");
             }
             "mc_lit_sm_r0c0n0s0_7j414q0z" => {
@@ -527,6 +627,10 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
             "mc_lit_sm_r0c0_5137qq99" => {
                 surface["source_vertex_alpha"] = json!("indirect_diffuse");
                 surface["pending_runtime"] = json!("Native cheap sandbag vertex alpha attenuates indirect diffuse without changing coverage or sun lighting; the runtime lighting consumer is not connected");
+            }
+            "mc_lit_sm_t0c0d0n0s0_68eww765" => {
+                surface["source_framebuffer_alpha"] = json!("texture_vertex_coverage_after_cutoff");
+                surface["pending_runtime"] = json!("Native masked detail material writes texture times vertex coverage after the 128/255 cutoff; the shared masked consumer forces framebuffer alpha to one");
             }
             _ => (),
         }
@@ -880,15 +984,29 @@ mod tests {
         let color = [0.2,0.4,0.6,0.25];
         let specular = [0.1,0.3,0.8,0.7];
         let detail = [0.,0.25,1.,0.75];
-        let result = camo_pixel(color,specular,detail,0.5);
+        let result = camo_pixel(color,specular,detail,1.,0.5);
         for (actual,expected) in result.into_iter().flatten().zip([0.3125,0.53125,0.75,0.25,0.19375,0.39375,0.875,0.7]) {
             assert!((actual-expected).abs()<1e-6);
         }
-        assert_eq!(camo_pixel(color,specular,detail,0.),[color,specular]);
+        assert_eq!(camo_pixel(color,specular,detail,1.,0.),[color,specular]);
         let protected = [0.2,0.4,0.6,1.];
-        for (actual,expected) in camo_pixel(protected,specular,detail,1.).into_iter().flatten().zip([protected,specular].into_iter().flatten()) {
+        for (actual,expected) in camo_pixel(protected,specular,detail,1.,1.).into_iter().flatten().zip([protected,specular].into_iter().flatten()) {
             assert!((actual-expected).abs()<1e-6);
         }
+        let unmasked = [0.2,0.4,0.6,0.];
+        for (actual,expected) in camo_pixel(unmasked,specular,detail,0.25,1.).into_iter().flatten().zip([0.,0.,0.75,0.,0.35,0.55,1.,0.7]) {
+            assert!((actual-expected).abs()<1e-6);
+        }
+    }
+
+    #[test]
+    fn detail_normal_adds_weighted_slopes_before_normalization() {
+        let base = texture::Image {width:1,height:1,depth:1,faces:1,format:1,flags:0,levels:vec![vec![255,128,0,255]]};
+        let detail = texture::Image {levels:vec![vec![128,255,255,0]],..base.clone()};
+        let result = bake(&base,"normal",Some((&detail,20,[8.,2.,0.5,0.]))).unwrap();
+        assert_eq!(result.levels[0],[232,180,180,255]);
+        assert_eq!(bake(&base,"normal",Some((&detail,20,[8.,2.,0.,0.]))).unwrap().levels,bake(&base,"normal",None).unwrap().levels);
+        assert!(bake(&base,"normal",Some((&detail,20,[8.,f32::NAN,1.,0.]))).is_err());
     }
 
     #[test]
