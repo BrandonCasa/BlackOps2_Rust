@@ -158,6 +158,10 @@ impl AssetLoader for NativeFxLoader {
                     || source.fade_in != [1000., 1000.]
                     || source.fade_out != [0., 0.]
                     || source.lighting_fraction != 0
+                    || source.states.len() != 2
+                    || source.states.iter().any(|sample| {
+                        sample.base.color != [255.; 4] || sample.amplitude.color != [255.; 4]
+                    })
                     || effect.loop_life != 0
                     || effect.oneshot_life != 0
                     || effect.flags != 33820
