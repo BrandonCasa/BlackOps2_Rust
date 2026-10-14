@@ -2,7 +2,7 @@
 
 Deliver a real zm_tomb / Origins build that opens with a fresh runtime pack and supports solo survival in the original starting area. Initial acceptance covers rounds 1 through 5 with the source starting pistol, knife, grenades, ordinary zombies, barriers, points, health, solo revive/death, restart, essential HUD, and essential sound/animation.
 
-This is an explicitly incomplete Origins build. Full-map survival and progression, the remaining arsenal, perks/powerups, generators and special enemies, digging/buildables, staffs, robots/tank, quests/finale, final rendering fidelity, cinematics, and release polish belong in [todo_final.md](todo_final.md). Do not claim those systems or later rounds are supported based on this milestone.
+This is an explicitly incomplete Origins build. Generator 1, its capture defenders, and its scripted reward are included only as the source-required initial-area prerequisite for Quick Revive. Full-map survival and progression, the remaining arsenal, other perks/powerups, later generators and special enemies, digging/buildables, staffs, robots/tank, quests/finale, final rendering fidelity, cinematics, and release polish belong in [todo_final.md](todo_final.md). Do not claim those systems or later rounds are supported based on this milestone.
 
 ## Delivery boundaries
 
@@ -16,8 +16,8 @@ This is an explicitly incomplete Origins build. Full-map survival and progressio
 
 ## 1. Produce the initial Origins runtime pack
 
-- [ ] Trace the dependencies of zm_tomb world geometry/collision, its placed static props, the source solo player, starting equipment, ordinary zombies, starting barriers/spawns, and essential HUD/audio.
-- [ ] Restrict mandatory model/material/image/animation/sound selection to those dependencies through the existing builder; retain shared and patched definitions they actually reference.
+- [x] Trace the dependencies of zm_tomb world geometry/collision, its placed static props, the source solo player, starting equipment, ordinary zombies, starting barriers/spawns, and essential HUD/audio.
+- [x] Restrict mandatory model/material/image/animation/sound selection to those dependencies through the existing builder; retain shared and patched definitions they actually reference.
 - [ ] Resolve each retained dependency through the existing native zone/patch rules; prove non-use before removing a shared/test asset from the required set.
 - [ ] Recover and pack the source-derived initial content and tuning needed by the actual runtime schema; do not borrow loose legacy/generated data.
 - [ ] Complete conversion and pack bindings for every dependency of enabled initial content using the existing conversion paths.
@@ -33,12 +33,12 @@ This is an explicitly incomplete Origins build. Full-map survival and progressio
 The source-derived profile tasks below apply to the supported solo states and initial equipment.
 
 - [x] Convert the exact player spawn candidates, initial yaw/pitch and source side exclusion.
-- [ ] Convert source player movement, stance, mud, sprint, dive, and downed tuning required by runtime.
+- [x] Convert source player movement, stance, mud, sprint, dive, and downed tuning required by runtime.
 - [x] Replace scalar gait speeds with selected native animation translation, source loop seams and weighted locomotion selection.
 - [x] Complete solo_revive.downed_height and source downed eye height.
 - [x] Complete solo_revive.downed_speed.
-- [ ] Preserve source solo-revive timing, limits, downed weapon selection, and recovery behavior.
-- [ ] Bind source solo-revive eligibility and any prerequisite purchase/interaction needed in the initial area; do not grant revival unconditionally because general perk coverage is deferred.
+- [x] Preserve source solo-revive timing, limits, downed weapon selection, and recovery behavior.
+- [x] Bind source solo-revive eligibility and any prerequisite purchase/interaction needed in the initial area; do not grant revival unconditionally because general perk coverage is deferred.
 - [ ] Bind the solo player's required model, skeleton, hit volumes, and essential presentation through the packed content.
 - [ ] Convert and bind the source starting pistol, knife, and grenade definitions, inventory ownership, starting ammunition, damage/range, fire timing, reload, melee, throw/fuse, and refill behavior relevant to initial play.
 - [ ] Connect required weapon/player/zombie clips and source-timed gameplay notifies; resolve decoder/root-motion/flag cases only as needed by those selected clips.
@@ -50,8 +50,8 @@ The source-derived profile tasks below apply to the supported solo states and in
 ## 3. Starting-area survival
 
 - [x] Convert ordinary enemy archetypes, least-used character/head selection, weighted ASD clips, health, damage and native movement tracks.
-- [ ] Preserve source round population, actor caps, spawn timing, inter-round timing, and health progression.
-- [ ] Convert hit-region definitions and source damage-category behavior.
+- [x] Preserve source round population, actor caps, spawn timing, inter-round timing, and health progression.
+- [x] Convert hit-region definitions and source damage-category behavior.
 - [x] Convert native barrier boards, individual board collision, three attack slots, repair interactions, animation notifies and initial traversal negotiations.
 - [ ] Complete enabled barrier taunt/reach-through actor states and native repair FX consumers.
 - [x] Bind source zone_start availability, starting-area spawn positions/eligibility, and required initial connection flags.
@@ -63,12 +63,12 @@ The source-derived profile tasks below apply to the supported solo states and in
 
 ### Native client mode and zone contact
 
-- [ ] Recover the source transitions relevant to TriggerClientMode for the supported player states.
+- [x] Recover the source transitions relevant to TriggerClientMode for the supported player states.
 - [x] Update TriggerClientMode from actual player/session lifecycle transitions.
 - [x] Preserve exact source mode exclusions used by zone trigger activation.
 - [x] Connect converted player volumes to zone membership.
 - [x] Preserve source handling for overlapping player volumes, ordered zone scans, choke timing and active neighbors.
-- [ ] Preserve entry, exit, death/downed, revival, and respawn behavior where the source distinguishes them.
+- [x] Preserve entry, exit, death/downed, revival, and respawn behavior where the source distinguishes them.
 - [x] Deliver the required source zone events through existing ECS messages.
 - [x] Preserve source single-use activation flag updates and sensor deletion.
 - [x] Clear zone contact/membership state when the player or session is removed.
