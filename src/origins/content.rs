@@ -263,6 +263,7 @@ pub struct WeaponMechanics {
     pub burst_delay: f32,
     pub movement: [f32; 2],
     pub empty_reload: f32,
+    pub reload_transfer_seconds: Option<[f32; 2]>,
     pub shell_reload: bool,
     pub shell_seconds: f32,
     pub reload_start_seconds: f32,
@@ -322,6 +323,7 @@ impl Default for WeaponMechanics {
             burst_delay: 0.,
             movement: [1., 0.5],
             empty_reload: 1.8,
+            reload_transfer_seconds: None,
             shell_reload: false,
             shell_seconds: 0.5,
             reload_start_seconds: 0.,
@@ -1483,6 +1485,10 @@ impl ContentCatalog {
                 "Invalid native weapon material selectors",
             )?;
             let m = &v.mechanics;
+            valid(
+                m.reload_transfer_seconds.is_none_or(|times| times.into_iter().all(nonnegative)),
+                "Invalid native reload transfer timing",
+            )?;
             let uses_ammo = matches!(
                 m.delivery,
                 WeaponDelivery::Hitscan | WeaponDelivery::Projectile
