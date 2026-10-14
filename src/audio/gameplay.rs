@@ -852,6 +852,8 @@ fn world(
         Res<crate::generators::Generators>,
         Res<MusicOverride>,
     ),
+    session_id: Res<crate::session::SessionId>,
+    mut started: MessageReader<crate::rounds::RoundStarted>,
 ) {
     let Ok((player, pose, health, perks, body)) = players.single() else {
         return;
@@ -1009,7 +1011,14 @@ fn world(
             ),
         );
     }
-    if state.round != session.round {
+    let mut round_started = state.round == 0;
+    for event in started.read() {
+        round_started |= event.session == *session_id
+            && event.round == session.round
+            && event.round > 1
+            && state.round != event.round;
+    }
+    if round_started {
         if !state.raid {
             emit(
                 &mut commands,
