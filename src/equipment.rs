@@ -1529,7 +1529,7 @@ mod native_grenade_tests {
         );
         world.insert_resource(trees);
         let mut state = SystemState::<SpatialQuery>::new(&mut world);
-        let query = state.get(&world);
+        let query = state.get(&world).unwrap();
         let tuning = profile();
         let native = tuning.native_launch.as_ref().unwrap();
         let mut body = grenade();
