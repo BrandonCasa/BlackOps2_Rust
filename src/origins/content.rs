@@ -1144,7 +1144,6 @@ impl AnimationRootMotion {
         }
         self.seconds.is_finite()
             && self.seconds > 0.
-            && (!self.translation.is_empty() || !self.rotation.is_empty())
             && track(&self.translation, self.seconds)
             && track(&self.rotation, self.seconds)
             && self
@@ -1344,6 +1343,39 @@ fn nonnegative(v: f32) -> bool {
 #[cfg(test)]
 mod weapon_tuning_tests {
     use super::*;
+
+    #[test]
+    fn native_empty_root_delta_is_identity_and_nonempty_tracks_remain_checked() {
+        let mut motion = AnimationRootMotion {
+            seconds: 1.,
+            translation: Vec::new(),
+            rotation: Vec::new(),
+        };
+        assert!(motion.valid());
+        for seconds in [-1., 0., 0.5, 1., 2.] {
+            assert_eq!(motion.translation_at(seconds), [0.; 3]);
+            assert_eq!(motion.rotation_at(seconds), [0., 0., 0., 1.]);
+        }
+        assert_eq!(motion.loop_displacement(0., 3.), [0.; 3]);
+        for seconds in [0., -1., f32::NAN, f32::INFINITY] {
+            motion.seconds = seconds;
+            assert!(!motion.valid());
+        }
+        motion.seconds = 1.;
+        motion.translation = vec![[0., 0., 0., 0.], [0.5, 1., 0., 0.], [1., 2., 0., 0.]];
+        assert!(motion.valid());
+        motion.translation.swap(0, 1);
+        assert!(!motion.valid());
+        motion.translation.swap(0, 1);
+        motion.translation[1][1] = f32::NAN;
+        assert!(!motion.valid());
+        motion.translation[1][1] = 1.;
+        motion.translation[2][0] = 0.75;
+        assert!(!motion.valid());
+        motion.translation.clear();
+        motion.rotation = vec![[0.; 5], [1., 0., 0., 0., 0.]];
+        assert!(!motion.valid());
+    }
 
     #[test]
     fn native_zero_and_descending_recoil_tuning_keep_active_value_checks() {
