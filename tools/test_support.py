@@ -89,14 +89,18 @@ class Client:
     def until(self, predicate, timeout=30):
         deadline = time.monotonic() + timeout
         last = None
+        responded = False
         while time.monotonic() < deadline:
             try:
                 last = self.state()
+                responded = True
                 if predicate(last):
                     return last
             except http.client.RemoteDisconnected:
                 raise
             except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+                if responded and isinstance(getattr(error, 'reason', error), ConnectionRefusedError):
+                    raise ConnectionError('Game BRP endpoint closed during state wait') from error
                 last = str(error)
             time.sleep(0.025)
         raise TimeoutError(f"Gameplay condition timed out after {timeout}s: {last}")
