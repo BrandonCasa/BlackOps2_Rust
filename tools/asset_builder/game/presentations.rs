@@ -293,3 +293,120 @@ pub(super) fn initial_presentations(
     );
     Ok(())
 }
+
+pub(super) fn initial_ui(catalog: &Catalog<'_>, game: &mut Value) -> Result<()> {
+    let mut assets = Vec::new();
+    for name in [
+        "overlay_low_health",
+        "scorebar_zom_1",
+        "hud_tomb_dpad_bar",
+        "hud_tomb_dpad",
+        "hud_us_grenade",
+        "damage_feedback",
+        "menu_zm_map_tomb",
+        "hud_tomb_zom_num_slash",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .chain((0..=9).map(|number| format!("hud_tomb_zom_num_{number}")))
+    .chain((1..=5).map(|number| format!("chalkmarks_hellcatraz_{number}")))
+    {
+        let (image, _, _) = ui_image(catalog, &name)?;
+        assets.push(json!({"id":format!("ui.{name}"),"source_image":image,"path":null}));
+    }
+    for (style, name) in [
+        ("small", "fonts/720/smallFont"),
+        ("extraSmall", "fonts/720/extraSmallFont"),
+        ("extraBig", "fonts/720/extraBigFont"),
+    ] {
+        let (zone, root) = catalog.resolve(20, name)?;
+        let streams = &catalog.zones[zone].1.streams;
+        let height = streams.u32(root.add(4)?)? as i32;
+        if height <= 0 {
+            return Err(format!("Initial font {name} has invalid native height {height}").into());
+        }
+        let (material, _, _) = catalog.pointer(zone, root.add(20)?, 6)?;
+        let (image, image_zone, image_root) = ui_image(catalog, &material)?;
+        let image_streams = &catalog.zones[image_zone].1.streams;
+        let width = image_streams.u16(image_root.add(20)?)? as f32;
+        let atlas_height = image_streams.u16(image_root.add(22)?)? as f32;
+        if width <= 0. || atlas_height <= 0. {
+            return Err(format!("Initial font {name} has an empty native atlas").into());
+        }
+        let count = streams.u32(root.add(12)?)? as usize;
+        if count == 0 {
+            return Err(format!("Initial font {name} has no native glyphs").into());
+        }
+        let array = Address::decode(streams.u32(root.add(28)?)?)?;
+        let mut glyphs = Vec::with_capacity(count);
+        for index in 0..count {
+            let glyph = array.add(index * 24)?;
+            let scalar = |offset| -> Result<f32> {
+                let value = f32::from_bits(streams.u32(glyph.add(offset)?)?);
+                if !value.is_finite() || !(0. ..=1.).contains(&value) {
+                    return Err(format!(
+                        "Initial font {name} glyph {index} has invalid native atlas coordinates"
+                    )
+                    .into());
+                }
+                Ok(value)
+            };
+            let rect = [
+                scalar(8)? * width,
+                scalar(12)? * atlas_height,
+                scalar(16)? * width,
+                scalar(20)? * atlas_height,
+            ];
+            if rect[0] > rect[2] || rect[1] > rect[3] {
+                return Err(
+                    format!("Initial font {name} glyph {index} has reversed native UVs").into(),
+                );
+            }
+            glyphs.push(json!({
+                "codepoint":streams.u16(glyph)?,
+                "offset":[streams.u8(glyph.add(2)?)? as i8,streams.u8(glyph.add(3)?)? as i8],
+                "advance":streams.u8(glyph.add(4)?)?,
+                "size":[streams.u8(glyph.add(5)?)?,streams.u8(glyph.add(6)?)?],
+                "rect":rect
+            }));
+        }
+        assets.push(
+            json!({"id":format!("ui.font.{style}"),"source_image":image,"path":null,
+            "font":{"height":height,"atlas":[width,atlas_height],"glyphs":glyphs}}),
+        );
+    }
+    let ui = game["content"]["ui_assets"]
+        .as_array_mut()
+        .ok_or("Initial equipment UI bindings are missing")?;
+    for asset in assets {
+        if ui.iter().any(|existing| existing["id"] == asset["id"]) {
+            return Err(format!("Initial UI binding is duplicated: {}", asset["id"]).into());
+        }
+        ui.push(asset);
+    }
+    println!(
+        "Converted {} initial native UI images and bitmap fonts",
+        ui.len()
+    );
+    Ok(())
+}
+
+pub(super) fn ui_image(catalog: &Catalog<'_>, name: &str) -> Result<(String, usize, Address)> {
+    if !catalog
+        .definitions(6)
+        .any(|(material, _, _)| material.eq_ignore_ascii_case(name))
+    {
+        return Err(format!("Required initial UI material definition is missing: {name}").into());
+    }
+    let (zone, root) = catalog.resolve(6, name)?;
+    let streams = &catalog.zones[zone].1.streams;
+    let count = streams.u8(root.add(84)?)?;
+    if count != 1 {
+        return Err(format!(
+            "Required initial UI material {name} needs its native {count}-texture binding"
+        )
+        .into());
+    }
+    let table = Address::decode(streams.u32(root.add(96)?)?)?;
+    catalog.pointer(zone, table.add(12)?, 8)
+}
