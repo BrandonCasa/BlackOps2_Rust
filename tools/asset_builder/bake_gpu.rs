@@ -76,10 +76,11 @@ impl Baker {
             | (recipe.base_specular as u32) << 7 | (recipe.geometric_normal as u32) << 8
             | (recipe.second_additive as u32) << 9 | (u32::from(recipe.second_normal == 1)) << 10 | (u32::from(recipe.second_normal == 2)) << 11
             | (recipe.second_reveal as u32) << 12 | (recipe.second_specular as u32) << 13
-            | (recipe.third_multiply as u32) << 14 | (recipe.layer_cutout as u32) << 15;
+            | (recipe.third_multiply as u32) << 14 | (recipe.layer_cutout as u32) << 15
+            | u32::from(recipe.special) << 16;
         let mut parameters = Vec::new();
         for value in [flags, 0, recipe.inputs.len() as u32, recipe.inputs.len() as u32-1] { push32(&mut parameters, value); }
-        for value in recipe.parms.into_iter().chain(recipe.second_parms) { push32(&mut parameters, value.to_bits()); }
+        for value in recipe.parms.into_iter().chain(recipe.second_parms).chain(recipe.special_parms.into_iter().flatten()) { push32(&mut parameters, value.to_bits()); }
         for index in [recipe.layer_specular_index(),recipe.second_specular_index(),recipe.second_normal_index(),recipe.second_color_index()] { push32(&mut parameters,index as u32); }
         let mut image_data = Vec::new();
         for index in 0..9 {

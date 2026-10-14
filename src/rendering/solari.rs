@@ -20,6 +20,7 @@ impl Plugin for OriginsSolariPlugin {
                 PostUpdate,
                 prepare_meshes
                     .after(super::MaterialAnimation)
+                    .after(super::opaque::animate_flags)
                     .after(bevy::transform::TransformSystems::Propagate)
                     .after(super::SurfacePreparation)
                     .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
@@ -38,14 +39,14 @@ fn require_dlss(
 }
 
 #[derive(Component)]
-struct RayMeshSource {
+pub(super) struct RayMeshSource {
     source: AssetId<Mesh>,
     skinned: bool,
     pose: Vec<Mat4>,
     uv_transform: bevy::math::Affine2,
 }
 
-fn prepare_meshes(
+pub(super) fn prepare_meshes(
     mut commands: Commands,
     surfaces: Query<
         (
@@ -57,6 +58,7 @@ fn prepare_meshes(
             Option<&RaytracingMesh3d>,
             Option<&RayMeshSource>,
             &MeshMaterial3d<StandardMaterial>,
+            Has<super::opaque::FlagMotion>,
         ),
         (
             With<MeshMaterial3d<StandardMaterial>>,
@@ -82,7 +84,9 @@ fn prepare_meshes(
         })
         .collect();
     cache.retain(|id, _| !changed.contains(id) && meshes.contains(*id));
-    for (entity, raster, transform, visibility, skin, current, prepared, material) in &surfaces {
+    for (entity, raster, transform, visibility, skin, current, prepared, material, deformed) in
+        &surfaces
+    {
         let Some(material) = materials.get(&material.0) else {
             continue;
         };
@@ -99,6 +103,7 @@ fn prepare_meshes(
         if let Some(prepared) = prepared
             && prepared.source == raster.0.id()
             && !prepared.skinned
+            && !deformed
             && skin.is_none()
             && prepared.uv_transform == material.uv_transform
             && !changed.contains(&raster.0.id())
@@ -107,6 +112,7 @@ fn prepare_meshes(
             continue;
         }
         if skin.is_none()
+            && !deformed
             && material.uv_transform == bevy::math::Affine2::IDENTITY
             && let Some(handle) = cache.get(&raster.0.id())
         {
@@ -224,7 +230,7 @@ fn prepare_meshes(
         let handle = if let Some(current) = current.filter(|_| {
             prepared.is_some_and(|p| {
                 p.source == raster.0.id()
-                    && (p.skinned || p.uv_transform != bevy::math::Affine2::IDENTITY)
+                    && (p.skinned || deformed || p.uv_transform != bevy::math::Affine2::IDENTITY)
             })
         }) {
             let Some(mut proxy) = meshes.get_mut(&current.0) else {
@@ -245,7 +251,7 @@ fn prepare_meshes(
             proxy.enable_raytracing = true;
             meshes.add(proxy)
         };
-        if skin.is_none() && material.uv_transform == bevy::math::Affine2::IDENTITY {
+        if skin.is_none() && !deformed && material.uv_transform == bevy::math::Affine2::IDENTITY {
             cache.insert(raster.0.id(), handle.clone());
         }
         commands.entity(entity).insert((

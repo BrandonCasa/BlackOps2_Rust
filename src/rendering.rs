@@ -128,6 +128,14 @@ impl Plugin for GameRenderingPlugin {
             )
             .add_systems(
                 PostUpdate,
+                opaque::animate_flags
+                    .after(MaterialAnimation)
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                PostUpdate,
                 (
                     opaque::advance_time,
                     opaque::refresh_owners,

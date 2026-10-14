@@ -60,6 +60,7 @@ pub(crate) fn validate(surface: &serde_json::Value) -> Result<(), String> {
         return Err(format!("Unresolved material runtime binding: {reason}"));
     }
     textures(&surface["channels"])?;
+    uv_transform(&surface["standard"])?;
     let state = &surface["presentation"];
     if !matches!(
         state["alpha"].as_str(),
@@ -80,6 +81,23 @@ pub(crate) fn validate(surface: &serde_json::Value) -> Result<(), String> {
         return Err("Invalid material alpha cutoff".into());
     }
     Ok(())
+}
+
+pub(super) fn uv_transform(factors: &serde_json::Value) -> Result<bevy::math::Affine2, String> {
+    let Some(value) = factors.get("uv_transform") else {
+        return Ok(bevy::math::Affine2::IDENTITY);
+    };
+    let values: [f32; 6] = serde_json::from_value(value.clone())
+        .map_err(|error| format!("Invalid prepared UV transform: {error}"))?;
+    let transform = bevy::math::Affine2::from_cols_array(&values);
+    let determinant = transform.matrix2.determinant();
+    if values.iter().any(|value| !value.is_finite())
+        || !determinant.is_finite()
+        || determinant == 0.
+    {
+        return Err("Prepared UV transform is non-finite or singular".into());
+    }
+    Ok(transform)
 }
 
 pub(super) fn refresh(
@@ -322,5 +340,25 @@ mod tests {
                 .unwrap_err()
                 .contains("missing source consumer")
         );
+    }
+
+    #[test]
+    fn prepared_uv_transform_maps_source_domain_and_rejects_invalid_inputs() {
+        let factors = json!({"uv_transform":[0.5,0.,0.,0.25,-1.,2.]});
+        let transform = uv_transform(&factors).unwrap();
+        assert_eq!(transform.transform_point2(Vec2::new(2., -8.)), Vec2::ZERO);
+        assert_eq!(transform.transform_point2(Vec2::new(4., -4.)), Vec2::ONE);
+        let mut material = StandardMaterial::default();
+        super::super::opaque::apply_factors(&mut material, &factors);
+        assert_eq!(material.uv_transform, transform);
+        super::super::opaque::apply_factors(&mut material, &json!({}));
+        assert_eq!(material.uv_transform, bevy::math::Affine2::IDENTITY);
+        for values in [
+            json!([0., 0., 0., 1., 0., 0.]),
+            json!([1., 0., 0., 1., 0.]),
+            json!([1e100, 0., 0., 1., 0., 0.]),
+        ] {
+            assert!(uv_transform(&json!({"uv_transform":values})).is_err());
+        }
     }
 }

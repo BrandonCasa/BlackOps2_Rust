@@ -4,6 +4,7 @@ struct Parameters {
     padding: vec2<u32>,
     parms: vec4<f32>,
     second_parms: vec4<f32>,
+    special_parms: array<vec4<f32>,3>,
     slots: vec4<u32>,
     images: array<vec4<u32>, 9>,
 }
@@ -85,12 +86,96 @@ fn fit_response(value: Pixel, rgb: vec3<f32>, gloss: f32) -> Pixel {
     return pixel;
 }
 
+fn special_surface(uv: vec2<f32>) -> Pixel {
+    var result: Pixel;
+    result.response = vec4<f32>(1.0, 1.0, 0.0, 1.0);
+    result.specular = vec4<f32>(0.0);
+    if flag(262144u) || flag(524288u) {
+        let base = sample_image(0u, uv);
+        result.color = vec4<f32>(base.rgb * base.rgb, 1.0);
+        result.normal = normal(decode(sample_image(1u, uv).xy));
+        if flag(524288u) {
+            result = fit_response(result,vec3<f32>(0.04),base.a);
+            let lookup = sample_image(3u,vec2<f32>(recipe.second_parms.x,recipe.special_parms[2].w * recipe.parms.y)).r;
+            let flicker = (recipe.parms.z + lookup * (recipe.parms.w - recipe.parms.z))
+                * clamp(1.0 - recipe.special_parms[1].x,0.0,1.0) * recipe.parms.x;
+            result.response.a = flicker * flicker;
+        } else {
+            let response = sample_image(2u, uv);
+            let specular = response.rgb * recipe.parms.x;
+            result = fit_response(result,specular * specular,response.a * recipe.parms.y);
+            let emission = recipe.parms.z * recipe.parms.z * recipe.parms.w;
+            result.response.a = emission * emission;
+            if recipe.special_parms[0].x != 0.0 {result.color.a = base.a;}
+        }
+        return result;
+    }
+    if flag(65536u) {
+        let first_uv = uv * recipe.parms.xy;
+        let second_uv = uv * recipe.parms.zw;
+        let macro_sample = sample_image(0u, uv);
+        let weight = macro_sample.g * macro_sample.g;
+        let slope = decode(sample_image(1u, uv).xy) * recipe.second_parms.y
+            + decode(sample_image(2u, first_uv).xy) * ((1.0 - weight) * recipe.second_parms.x)
+            + decode(sample_image(3u, second_uv).xy) * (weight * recipe.second_parms.w);
+        let first = sample_image(4u, first_uv).rgb;
+        let encoded = first + weight * (sample_image(5u, second_uv).rgb - first);
+        result.color = vec4<f32>(encoded * encoded, 1.0);
+        result.normal = normal(slope);
+        if flag(128u) {
+            let first_response = sample_image(6u, first_uv);
+            let response = first_response + weight * (sample_image(7u, second_uv) - first_response);
+            result = fit_response(result, response.gba * response.gba, response.r);
+        }
+        return result;
+    }
+    let time = recipe.special_parms[2].w;
+    let motion = vec2<f32>(0.0, fract(time * bitcast<f32>(0xbe116d3fu)));
+    let warp_uv = (uv * bitcast<f32>(0x4035c88eu) + motion)
+        * vec2<f32>(bitcast<f32>(0x3f7f41f2u), bitcast<f32>(0xbdb851ecu));
+    let power = sample_image(2u, warp_uv).r * 0.1 + 1.0;
+    let water_uv = (pow(uv, vec2<f32>(power)) - vec2<f32>(0.5)) / recipe.parms.zw + vec2<f32>(0.5);
+    let scroll = time * recipe.parms.x;
+    let first_uv = water_uv - scroll * vec2<f32>(bitcast<f32>(0xbc11fcabu), bitcast<f32>(0x3f4cc98cu));
+    let second_uv = water_uv - (scroll * vec2<f32>(bitcast<f32>(0xbc6d3a96u), bitcast<f32>(0x3fa663c2u)) + vec2<f32>(0.5));
+    let slope_sum = decode(sample_image(3u, first_uv).xy) + decode(sample_image(3u, second_uv).xy);
+    var water = normalize(vec3<f32>(slope_sum, 2.0));
+    water /= water.z;
+    let positive = dot(water.xy, vec2<f32>(0.5)) > 0.0;
+    let response = sample_image(5u, uv);
+    let bias = select(bitcast<f32>(0x3e92491bu), bitcast<f32>(0x3e5b6dcau), positive);
+    let wet_specular = response.rgb + vec3<f32>(bias);
+    let temporal = sample_image(0u, uv).r;
+    let state = recipe.special_parms[1].z;
+    var reveal = clamp((vec2<f32>(temporal) - (vec2<f32>(state) + vec2<f32>(bitcast<f32>(0x3d75c28fu),bitcast<f32>(0xbcf5c28fu))))
+        * vec2<f32>(bitcast<f32>(0xc1055555u),bitcast<f32>(0x41855555u)), vec2<f32>(0.0),vec2<f32>(1.0));
+    reveal = reveal * reveal * (vec2<f32>(3.0) - 2.0 * reveal);
+    let encoded_specular = wet_specular + reveal.x * (response.rgb - wet_specular);
+    let wet_gloss = select(1.0, response.a, positive);
+    let gloss = wet_gloss + reveal.x * (response.a - wet_gloss);
+    let base_slope = decode(sample_image(1u, uv).xy);
+    let wet_slope = base_slope * water.z + water.xy * recipe.parms.y;
+    result.normal = normal(wet_slope + reveal.x * (base_slope - wet_slope));
+    let warped_color_uv = clamp(uv - water.xy * water.z,vec2<f32>(0.0),vec2<f32>(1.0));
+    let wet_color = sample_image(4u, warped_color_uv).rgb * vec3<f32>(bitcast<f32>(0x3f3bc148u),bitcast<f32>(0x3f49c91du),bitcast<f32>(0x3f649247u));
+    let altered = recipe.special_parms[0].rgb * sample_image(4u, uv).r;
+    let encoded = wet_color + reveal.x * (altered - wet_color);
+    result.color = vec4<f32>(encoded * encoded, 1.0);
+    result = fit_response(result, encoded_specular * encoded_specular, gloss);
+    result.response.a = reveal.x * reveal.y * reveal.x * reveal.y;
+    return result;
+}
+
 @compute @workgroup_size(64)
 fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let index = invocation.x;
     if index >= recipe.count { return; }
     let sample = samples[index];
     let uv0 = sample.uv01.xy;
+    if flag(65536u) || flag(131072u) || flag(262144u) || flag(524288u) {
+        output[index] = special_surface(uv0);
+        return;
+    }
     let uv1 = sample.uv01.zw;
     let uv2 = sample.uv2_color.xy;
     let green = sample.uv2_color.z;

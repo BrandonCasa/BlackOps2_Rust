@@ -130,6 +130,17 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let default_plugins = default_plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(
         default_plugins
+            .set(
+                bevy::gltf::GltfPlugin::default()
+                    .add_custom_vertex_attribute(
+                        "_ORIGINS_NORMAL",
+                        rendering::opaque::FLAG_SOURCE_NORMAL,
+                    )
+                    .add_custom_vertex_attribute(
+                        "_ORIGINS_TANGENT",
+                        rendering::opaque::FLAG_SOURCE_TANGENT,
+                    ),
+            )
             .disable::<bevy::anti_alias::AntiAliasPlugin>()
             .set(bevy::render::RenderPlugin {
                 render_creation: bevy::render::settings::RenderCreation::Automatic(Box::new(

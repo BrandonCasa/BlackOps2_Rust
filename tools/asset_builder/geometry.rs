@@ -36,6 +36,8 @@ pub struct Surface {
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub tangents: Vec<[f32; 4]>,
+    pub raw_normals: Vec<[f32; 3]>,
+    pub raw_tangents: Vec<[f32; 3]>,
     pub colors: Vec<[u8; 4]>,
     pub uv: Vec<[f32; 2]>,
     pub lightmap_uv: Vec<[f32; 2]>,
@@ -62,11 +64,19 @@ fn half(value: u16) -> f32 {
     half::f16::from_bits(value).to_f32()
 }
 
-fn normal(packed: u32) -> Result<[f32; 3]> {
-    let components = [0, 10, 20].map(|shift| {
+fn decoded_normal(packed: u32) -> [f32; 3] {
+    [0, 10, 20].map(|shift| {
         let part = (packed >> shift & 1023) as f32 / 1023.;
         if part >= 0.5 { 2. * part - 2. } else { 2. * part }
-    });
+    })
+}
+
+fn raw_normal(packed: u32) -> [f32; 3] {
+    direction(decoded_normal(packed))
+}
+
+fn normal(packed: u32) -> Result<[f32; 3]> {
+    let components = decoded_normal(packed);
     let length = components.iter().map(|v| v * v).sum::<f32>().sqrt();
     if length < 0.001 { return Err(format!("Zero native packed direction {packed:08x}").into()); }
     Ok(direction(components.map(|v| v / length)))
@@ -87,6 +97,8 @@ impl Surface {
         result.positions = indices.iter().map(|&i| self.positions[i]).collect();
         result.normals = indices.iter().map(|&i| self.normals[i]).collect();
         result.tangents = indices.iter().map(|&i| self.tangents[i]).collect();
+        result.raw_normals = indices.iter().map(|&i| self.raw_normals[i]).collect();
+        result.raw_tangents = indices.iter().map(|&i| self.raw_tangents[i]).collect();
         result.colors = indices.iter().map(|&i| self.colors[i]).collect();
         result.uv = indices.iter().map(|&i| self.uv[i]).collect();
         result.lightmap_uv = indices.iter().filter_map(|&i| self.lightmap_uv.get(i).copied()).collect();
@@ -103,7 +115,7 @@ impl Surface {
 
     fn read(name: String, source_index: usize, vertices: &[u8], stride: usize, indices: &[u8], material: String) -> Result<Self> {
         let mut surface = Self { name, source_index, positions:Vec::new(), normals:Vec::new(), tangents:Vec::new(),
-            colors:Vec::new(), uv:Vec::new(), lightmap_uv:Vec::new(), auxiliary:Vec::new(), bindings:None, source_vertices:Vec::new(), indices:Vec::new(), material };
+            raw_normals:Vec::new(), raw_tangents:Vec::new(), colors:Vec::new(), uv:Vec::new(), lightmap_uv:Vec::new(), auxiliary:Vec::new(), bindings:None, source_vertices:Vec::new(), indices:Vec::new(), material };
         if vertices.len() % stride != 0 || indices.len() % 6 != 0 { return Err("Misaligned native geometry arrays".into()); }
         let mut remap = std::collections::BTreeMap::new();
         for triangle in indices.chunks_exact(6) {
@@ -121,6 +133,8 @@ impl Surface {
             let vertex = &vertices[index as usize * stride..(index as usize + 1) * stride];
             surface.positions.push(direction(vector(vertex, 0)?).map(|v| v * 0.0254));
             surface.normals.push(normal(u32_at(vertex, 24))?);
+            surface.raw_normals.push(raw_normal(u32_at(vertex, 24)));
+            surface.raw_tangents.push(raw_normal(u32_at(vertex, 28)));
             let [x, y, z] = normal(u32_at(vertex, 28))?;
             let sign = float(vertex, 12)?;
             surface.tangents.push([x, y, z, (sign > 0.) as u8 as f32 - (sign < 0.) as u8 as f32]);

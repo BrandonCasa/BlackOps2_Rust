@@ -37,6 +37,10 @@ pub struct WeaponMaterials {
     pub attachments: Vec<Option<String>>,
     pub definition28: u32,
     pub definition44: u32,
+    pub shared_ammo_related: u8,
+    pub alternate_weapon_index: u32,
+    pub alternate_weapon_name: Option<String>,
+    pub base_attachment_flags: Vec<Option<u8>>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -48,6 +52,8 @@ pub struct AttachmentMaterials {
     pub combination_mask: u32,
     pub suppress168: u8,
     pub suppress169: u8,
+    pub alternate_weapon_index: u32,
+    pub alternate_weapon_name: Option<String>,
     pub models: [Option<String>; 3],
 }
 
@@ -95,13 +101,30 @@ impl Library {
             return Err("Invalid native camo library controls".into());
         }
         for weapon in self.weapons.values() {
-            if weapon.main_models.len() != 16 || weapon.attachments.len() != 95 {
+            if weapon.main_models.len() != 16
+                || weapon.attachments.len() != 95
+                || weapon.base_attachment_flags.len() != 63
+            {
                 return Err("Native weapon material selector table has the wrong size".into());
             }
             for name in weapon.attachments.iter().flatten() {
                 if !self.attachments.contains_key(name) {
                     return Err(format!("Missing native attachment selector {name}"));
                 }
+            }
+        }
+        for name in self
+            .weapons
+            .values()
+            .filter_map(|weapon| weapon.alternate_weapon_name.as_ref())
+            .chain(
+                self.attachments
+                    .values()
+                    .filter_map(|attachment| attachment.alternate_weapon_name.as_ref()),
+            )
+        {
+            if !self.weapons.contains_key(name) {
+                return Err(format!("Missing authored native alternate weapon {name}"));
             }
         }
         for name in self
@@ -214,6 +237,63 @@ impl Library {
             });
         Ok(parameter || baseline != *inputs)
     }
+
+    pub fn secondary_weapon(
+        &self,
+        weapon: &WeaponMaterials,
+        packed: u32,
+    ) -> Result<Option<&WeaponMaterials>> {
+        let mut enabled = weapon.shared_ammo_related != 0;
+        if !enabled {
+            for selector in [8, 14, 20].map(|shift| packed >> shift & 63) {
+                let Some(flag) = (selector != 0)
+                    .then(|| weapon.base_attachment_flags.get(selector as usize))
+                    .flatten()
+                    .copied()
+                    .flatten()
+                else {
+                    if selector >= weapon.base_attachment_flags.len() as u32 {
+                        return Err(format!(
+                            "Native base attachment selector {selector} exceeds its table"
+                        ));
+                    }
+                    break;
+                };
+                if flag != 0 {
+                    enabled = true;
+                    break;
+                }
+            }
+        }
+        if !enabled {
+            return Ok(None);
+        }
+        if weapon.definition44 != 3 && weapon.attachments.first().is_some_and(Option::is_some) {
+            for name in selected_attachments(weapon, packed)?
+                .into_iter()
+                .take_while(Option::is_some)
+                .flatten()
+            {
+                let attachment = self
+                    .attachments
+                    .get(name)
+                    .ok_or_else(|| format!("Missing native alternate attachment {name}"))?;
+                if attachment.alternate_weapon_name.is_some()
+                    || attachment.alternate_weapon_index != 0
+                {
+                    return Err("Native attachment-selected secondary requires registered child table inheritance and backlink resolution".into());
+                }
+            }
+        }
+        let name = weapon
+            .alternate_weapon_name
+            .as_ref()
+            .ok_or("Native secondary weapon index has no recovered authored-name mapping")?;
+        self.weapons
+            .get(name)
+            .map(Some)
+            .ok_or_else(|| format!("Selected authored native secondary weapon {name} is missing"))
+    }
 }
 
 fn selected_attachments(weapon: &WeaponMaterials, packed: u32) -> Result<[Option<&str>; 3]> {
@@ -276,8 +356,9 @@ fn combined_attachment<'a>(
         if !visited.insert(next) {
             return Err("Native attachment combination chain is cyclic".into());
         }
-        let name =
-            at(next)?.ok_or_else(|| format!("Native combined attachment {next} is missing"))?;
+        let Some(name) = at(next)? else {
+            return Ok(Some(original));
+        };
         let candidate = definition(name)?;
         if candidate.combination_mask & bits != 0 {
             return Ok(Some(name));
@@ -296,6 +377,8 @@ pub fn viewmodel_materials(
     alternate_packed_weapon: u32,
     main_model_index: usize,
     mode: u8,
+    secondary: Option<(&WeaponMaterials, u32)>,
+    cached_models: [Option<&str>; 2],
 ) -> Result<ViewmodelMaterials> {
     if mode > 1 {
         return Err("Native viewmodel mode is outside its source domain".into());
@@ -313,6 +396,55 @@ pub fn viewmodel_materials(
             mask: 2,
         }],
     };
+    append_viewmodel_parts(
+        &mut output,
+        weapon,
+        variant_weapon,
+        attachments,
+        packed_weapon,
+        alternate_packed_weapon,
+        mode,
+    )?;
+    if let Some((secondary, packed)) = secondary {
+        let model = secondary
+            .main_models
+            .first()
+            .and_then(Option::as_ref)
+            .ok_or("Selected native secondary viewmodel zero is missing")?;
+        let mask = 1_u32.wrapping_shl(output.models.len() as u32);
+        output.models.push(model.clone());
+        if output.descriptors.len() < 8 {
+            output.descriptors.push(CamoDescriptor {
+                group: 0,
+                camo: secondary.camo.clone(),
+                mask,
+            });
+        }
+        append_viewmodel_parts(
+            &mut output,
+            secondary,
+            variant_weapon,
+            attachments,
+            packed,
+            alternate_packed_weapon,
+            mode,
+        )?;
+    }
+    output
+        .models
+        .extend(cached_models.into_iter().flatten().map(str::to_owned));
+    Ok(output)
+}
+
+fn append_viewmodel_parts(
+    output: &mut ViewmodelMaterials,
+    weapon: &WeaponMaterials,
+    variant_weapon: Option<&WeaponMaterials>,
+    attachments: &BTreeMap<String, AttachmentMaterials>,
+    packed_weapon: u32,
+    alternate_packed_weapon: u32,
+    mode: u8,
+) -> Result<()> {
     let original_selected = selected_attachments(weapon, packed_weapon)?;
     let suppress = |field: fn(&AttachmentMaterials) -> u8| -> Result<bool> {
         for name in original_selected
@@ -362,7 +494,7 @@ pub fn viewmodel_materials(
         let original = attachments
             .get(name)
             .ok_or_else(|| format!("Native attachment {name} is missing"))?;
-        let Some(displayed) = combined_attachment(weapon, attachments, original, packed_weapon)?
+        let Some(displayed) = combined_attachment(variants, attachments, original, packed_weapon)?
         else {
             continue;
         };
@@ -393,7 +525,7 @@ pub fn viewmodel_materials(
             });
         }
     }
-    Ok(output)
+    Ok(())
 }
 
 pub fn queue_descriptors(
@@ -734,6 +866,10 @@ mod tests {
             attachments: vec![None; 95],
             definition28: 0,
             definition44: 0,
+            shared_ammo_related: 0,
+            alternate_weapon_index: 0,
+            alternate_weapon_name: None,
+            base_attachment_flags: vec![None; 63],
         };
         weapon.main_models[0] = Some("main".into());
         weapon.variant_models[0] = Some("hip".into());
@@ -750,6 +886,8 @@ mod tests {
             combination_mask: 0,
             suppress168: 0,
             suppress169: 0,
+            alternate_weapon_index: 0,
+            alternate_weapon_name: None,
             models: [None, None, None],
         };
         let mut attachments = BTreeMap::from([
@@ -788,9 +926,19 @@ mod tests {
         ]);
         let packed = (1 << 8) | (12 << 14);
         for (mode, variant, optic) in [(0, "hip", "combined_hip"), (1, "ads", "combined_ads")] {
-            let result =
-                viewmodel_materials(&weapon, None, &attachments, "cached", packed, 0, 0, mode)
-                    .unwrap();
+            let result = viewmodel_materials(
+                &weapon,
+                None,
+                &attachments,
+                "cached",
+                packed,
+                0,
+                0,
+                mode,
+                None,
+                [None; 2],
+            )
+            .unwrap();
             assert_eq!(
                 result.models,
                 ["cached", "main", variant, optic, "secondary", "grip_model"]
@@ -804,14 +952,137 @@ mod tests {
             assert_eq!(result.descriptors[2].mask, 32);
         }
         attachments.get_mut("optic").unwrap().suppress168 = 1;
-        let result =
-            viewmodel_materials(&weapon, None, &attachments, "cached", packed, 0, 0, 1).unwrap();
+        let result = viewmodel_materials(
+            &weapon,
+            None,
+            &attachments,
+            "cached",
+            packed,
+            0,
+            0,
+            1,
+            None,
+            [None; 2],
+        )
+        .unwrap();
         assert_eq!(
             result.models,
             ["cached", "main", "combined_ads", "secondary", "grip_model"]
         );
         assert_eq!(result.descriptors[0].mask, 2);
         assert_eq!(result.descriptors[1].mask, 12);
+
+        attachments.get_mut("optic").unwrap().suppress168 = 0;
+        let mut alternate = weapon.clone();
+        alternate.variant_models[0] = Some("alternate_hip".into());
+        alternate.variant_models[7] = None;
+        alternate.attachments[63] = Some("alternate_combined".into());
+        let mut combined = attachments["combined"].clone();
+        combined.models = [Some("alternate_combined_model".into()), None, None];
+        attachments.insert("alternate_combined".into(), combined);
+        weapon.definition44 = 3;
+        let result = viewmodel_materials(
+            &weapon,
+            Some(&alternate),
+            &attachments,
+            "cached",
+            packed,
+            packed,
+            0,
+            0,
+            None,
+            [None; 2],
+        )
+        .unwrap();
+        assert_eq!(
+            result.models,
+            [
+                "cached",
+                "main",
+                "alternate_hip",
+                "alternate_combined_model",
+                "grip_model"
+            ]
+        );
+        assert_eq!(
+            result.descriptors[1].camo.as_deref(),
+            Some("original_optic_camo")
+        );
+
+        weapon.definition44 = 0;
+        weapon.definition28 = 7;
+        let mut secondary = weapon.clone();
+        secondary.main_models[0] = Some("secondary_main".into());
+        secondary.variant_models[0] = Some("secondary_hip".into());
+        secondary.camo = Some("secondary_camo".into());
+        let result = viewmodel_materials(
+            &weapon,
+            None,
+            &attachments,
+            "cached",
+            0,
+            0,
+            0,
+            0,
+            Some((&secondary, packed)),
+            [Some("gasmask"), Some("clip")],
+        )
+        .unwrap();
+        assert_eq!(
+            result.models,
+            [
+                "cached",
+                "main",
+                "hip",
+                "secondary_main",
+                "secondary_hip",
+                "combined_hip",
+                "secondary",
+                "grip_model",
+                "gasmask",
+                "clip"
+            ]
+        );
+        assert_eq!(
+            result
+                .descriptors
+                .iter()
+                .map(|descriptor| (descriptor.group, descriptor.mask))
+                .collect::<Vec<_>>(),
+            [(2, 6), (0, 24), (0, 96), (0, 128)]
+        );
+        assert_eq!(
+            result.descriptors[1].camo.as_deref(),
+            Some("secondary_camo")
+        );
+        assert!(
+            result
+                .descriptors
+                .iter()
+                .all(|descriptor| descriptor.mask & ((1 << 8) | (1 << 9)) == 0)
+        );
+
+        weapon.attachments[63] = None;
+        attachments.get_mut("optic").unwrap().models[0] = Some("uncombined_optic".into());
+        let result = viewmodel_materials(
+            &weapon,
+            None,
+            &attachments,
+            "cached",
+            packed,
+            0,
+            0,
+            0,
+            None,
+            [None; 2],
+        )
+        .unwrap();
+        assert!(
+            result
+                .models
+                .iter()
+                .any(|model| model == "uncombined_optic")
+        );
     }
 
     #[test]

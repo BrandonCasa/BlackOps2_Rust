@@ -77,10 +77,19 @@ fn validate_pack(pack: &pack::Pack) -> Result<()> {
     if art["schema_version"] != 1 {
         return Err("Unsupported runtime art schema".into());
     }
+    let camo_uri = art["camo_uri"].as_str().ok_or("Required native camo library URI is missing")?;
+    let camos: camo::Library = serde_json::from_slice(pack.get(camo_uri)?)?;
+    camos.validate()?;
+    if let Some(variant) = camos.variants.iter().find(|variant| variant.pending.is_some()) {
+        return Err(format!("Native camo state {} is incomplete: {}",variant.inputs["name"],variant.pending.as_deref().unwrap()).into());
+    }
     fn links(pack: &pack::Pack, directory: &Path, data: &Value) -> Result<()> {
         match data {
             Value::Object(fields) => {
                 for (key, value) in fields {
+                    if key == "surface" && let Some(reason) = value["pending_runtime"].as_str() {
+                        return Err(format!("Unresolved prepared material: {reason}").into());
+                    }
                     if (key.ends_with("_uri") || matches!(key.as_str(), "uri" | "scene" | "texture" | "path"))
                         && let Some(uri) = value.as_str().filter(|uri| !uri.is_empty())
                     { dependency(pack, directory, uri)?; }

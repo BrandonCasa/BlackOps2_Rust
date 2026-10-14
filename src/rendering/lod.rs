@@ -108,8 +108,7 @@ fn select(
     else {
         return;
     };
-    let factor =
-        (projection.fov * 0.5).tan() * projection.aspect_ratio * f32::from_bits(0x40079857);
+    let factor = (projection.fov * 0.5).tan() * f32::from_bits(0x40079857);
     if !factor.is_finite() || factor <= 0. {
         return;
     }
@@ -152,5 +151,77 @@ fn select(
             0.
         };
         range.set_if_neq(VisibilityRange::abrupt(0., end));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rigid_lod_uses_vertical_tangent_across_aspects_and_retains_zoom_hysteresis() {
+        let mut app = App::new();
+        app.add_systems(Update, select);
+        let camera = app
+            .world_mut()
+            .spawn((
+                super::super::GameCamera,
+                Projection::Perspective(PerspectiveProjection {
+                    fov: std::f32::consts::FRAC_PI_2,
+                    aspect_ratio: 1.,
+                    ..default()
+                }),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let levels: Vec<_> = (0..2)
+            .map(|level| {
+                app.world_mut()
+                    .spawn((
+                        NativeLod {
+                            level,
+                            source: NativeDistances {
+                                distances: vec![20., 40.],
+                                scale: 1.,
+                                cull_distance: 100.,
+                            },
+                        },
+                        GlobalTransform::from_translation(Vec3::new(10., 0., 0.)),
+                        VisibilityRange::abrupt(0., 0.),
+                    ))
+                    .id()
+            })
+            .collect();
+        let visible = |app: &App| {
+            levels
+                .iter()
+                .map(|entity| {
+                    app.world()
+                        .get::<VisibilityRange>(*entity)
+                        .unwrap()
+                        .is_visible_at_all(10.)
+                })
+                .collect::<Vec<_>>()
+        };
+        app.update();
+        assert_eq!(visible(&app), [false, true]);
+        for aspect in [0.5, 16. / 9., 3.] {
+            let mut projection = app.world_mut().get_mut::<Projection>(camera).unwrap();
+            let Projection::Perspective(projection) = &mut *projection else {
+                unreachable!()
+            };
+            projection.aspect_ratio = aspect;
+            app.update();
+            assert_eq!(visible(&app), [false, true]);
+        }
+        for (tangent, expected) in [(0.9, [false, true]), (0.79, [true, false])] {
+            let mut projection = app.world_mut().get_mut::<Projection>(camera).unwrap();
+            let Projection::Perspective(projection) = &mut *projection else {
+                unreachable!()
+            };
+            projection.fov = 2. * f32::atan(tangent);
+            app.update();
+            assert_eq!(visible(&app), expected);
+        }
     }
 }

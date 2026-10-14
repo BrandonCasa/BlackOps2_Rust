@@ -146,6 +146,11 @@ struct OrdinaryRecipe {
 
 fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
     let (expected,normal,specular,coverage) = match family {
+        "wpc_lit_sm_b0c0n0s0v0_efz5w56f" => ("pimp_shader_lmap_716f0714.hlsl", true, 1, 1),
+        "mc_lit_sm_flag_t0c0d0n0s0_w75eqzzj" => ("pimp_shader_lprobe_f1c6978a.hlsl", true, 1, 2),
+        "mc_lit_sm_flag_b0c0s0_6406ez95" => ("pimp_shader_lprobe_b781f149.hlsl", false, 1, 1),
+        "mlv_lit_sm_r0c0d0n0_w65788j0" => ("pimp_shader_lprobe_bb12e125.hlsl", true, 0, 0),
+        "mlv_lit_sm_r0c0n0x0_8f47740f" => ("pimp_shader_lprobe_181d1c0b.hlsl", true, 2, 0),
         "mlv_lit_sm_b0c0_50077370" => ("pimp_shader_lprobe_be61ff8.hlsl", false, 0, 1),
         "mlv_lit_sm_b0c0n0_322zqw73" => ("pimp_shader_lprobe_37d3284d.hlsl", true, 0, 1),
         "mlv_lit_sm_b0c0s0_41731e52" => ("pimp_shader_lprobe_e044b950.hlsl", false, 1, 1),
@@ -199,6 +204,11 @@ fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
         _ => return None,
     };
     let programs = match family {
+        "wpc_lit_sm_b0c0n0s0v0_efz5w56f" => Some(["pimp_shader_lmap_b89a2252.hlsl","pimp_shader_lmap_3324e8aa.hlsl","pimp_shader_lmap_3400e22.hlsl"]),
+        "mc_lit_sm_flag_t0c0d0n0s0_w75eqzzj" => Some(["pimp_shader_lprobe_3f4a954b.hlsl","pimp_shader_lprobe_66a8e47e.hlsl","pimp_shader_lprobe_a824e6bf.hlsl"]),
+        "mc_lit_sm_flag_b0c0s0_6406ez95" => Some(["pimp_shader_lprobe_37fa2fe.hlsl","pimp_shader_lprobe_5a9dd3cb.hlsl","pimp_shader_lprobe_e55840c0.hlsl"]),
+        "mlv_lit_sm_r0c0d0n0_w65788j0" => Some(["pimp_shader_lprobe_63b41dee.hlsl","pimp_shader_lprobe_55ebacd1.hlsl","pimp_shader_lprobe_e2f09010.hlsl"]),
+        "mlv_lit_sm_r0c0n0x0_8f47740f" => Some(["pimp_shader_lprobe_63b41dee.hlsl","pimp_shader_lprobe_55ebacd1.hlsl","pimp_shader_lprobe_41ff6d3e.hlsl"]),
         "mlv_lit_sm_b0c0_50077370" => Some(["pimp_shader_lprobe_bcc4a7bc.hlsl","pimp_shader_lprobe_8a9b1683.hlsl","pimp_shader_lprobe_52046ecd.hlsl"]),
         "mlv_lit_sm_b0c0n0_322zqw73" => Some(["pimp_shader_lprobe_63b41dee.hlsl","pimp_shader_lprobe_55ebacd1.hlsl","pimp_shader_lprobe_6e315978.hlsl"]),
         "mlv_lit_sm_b0c0s0_41731e52" => Some(["pimp_shader_lprobe_bcc4a7bc.hlsl","pimp_shader_lprobe_8a9b1683.hlsl","pimp_shader_lprobe_b9a6c865.hlsl"]),
@@ -242,7 +252,7 @@ fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
         "wpc_lit_sm_b0c0s0_3f3q946z" => Some(["pimp_shader_lmap_d63b1bf7.hlsl","pimp_shader_lmap_5d85d10f.hlsl","pimp_shader_lmap_a087adc7.hlsl"]),
         _ => None,
     };
-    let detail = matches!(family,"mc_lit_sm_r0c0d0n0_33ffej1u" | "mc_lit_sm_r0c0d0n0s0_qwq4q449" | "mc_lit_sm_t0c0d0n0s0_68eww765");
+    let detail = matches!(family,"mc_lit_sm_r0c0d0n0_33ffej1u" | "mc_lit_sm_r0c0d0n0s0_qwq4q449" | "mc_lit_sm_t0c0d0n0s0_68eww765" | "mc_lit_sm_flag_t0c0d0n0s0_w75eqzzj" | "mlv_lit_sm_r0c0d0n0_w65788j0");
     let occlusion = match family {
         "mc_lit_sm_r0c0n0s0o0_3z86zq2z" | "mc_lit_sm_r0c0n0s0o0_909j993q" => 1,
         "mc_lit_sm_b0c0n0s0o0_jf00fe4q" => 2,
@@ -255,7 +265,8 @@ fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
 fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Result<()> {
     let OrdinaryRecipe {expected,normal,specular,coverage,detail,occlusion,camo,programs} = *recipe;
     let family = material["technique_set"].as_str().ok_or("Missing native material technique")?;
-    let reveal = matches!(family,"mc_lit_sm_b0c0n0v0_3559e8jj" | "wpc_lit_sm_b0c0n0v0_ew347fe3");
+    let reveal = matches!(family,"mc_lit_sm_b0c0n0v0_3559e8jj" | "wpc_lit_sm_b0c0n0v0_ew347fe3" | "wpc_lit_sm_b0c0n0s0v0_efz5w56f");
+    let flag = matches!(family,"mc_lit_sm_flag_t0c0d0n0s0_w75eqzzj" | "mc_lit_sm_flag_b0c0s0_6406ez95");
     let techniques = material["techniques"].as_array().ok_or("Missing native material techniques")?;
     let lit = techniques.iter().find(|technique| technique["index"] == 4).ok_or("Ordinary lit technique is missing")?;
     let passes = lit["passes"].as_array().ok_or("Native technique pass array is missing")?;
@@ -285,7 +296,7 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
         }
         let mut routes = vec![json!({"source":0,"destination":0}),json!({"source":1,"destination":2}),
             json!({"source":2,"destination":5}),json!({"source":3,"destination":1})];
-        if normal { routes.push(json!({"source":4,"destination":7})); }
+        if normal || flag { routes.push(json!({"source":4,"destination":7})); }
         if family.starts_with("wpc_") || family.starts_with("mlv_") { routes.push(json!({"source":5,"destination":6})); }
         let mut inputs = BTreeMap::from([(2695565377_u32,0_u64)]);
         if normal { inputs.insert(1507003663,257); }
@@ -310,9 +321,9 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
                 && argument["buffer"] == 1 && argument["location"] == 528 && argument["size"] == 16).count() != 1 {
                 return Err(format!("Reviewed camo material {key} lacks its native weaponParam2 binding").into());
             }
-            if scrolling && arguments.iter().filter(|argument| argument["type"] == 3 && argument["value"] == 16777241_u32
+            if (scrolling || flag) && arguments.iter().filter(|argument| argument["type"] == 3 && argument["value"] == 16777241_u32
                 && argument["buffer"] == 2 && argument["location"] == 0 && argument["size"] == 16).count() != 1 {
-                return Err(format!("Reviewed scrolling material {key} lacks its native gameTime binding").into());
+                return Err(format!("Reviewed animated material {key} lacks its native gameTime binding").into());
             }
             for argument in arguments.iter().filter(|argument| matches!(argument["type"].as_u64(),Some(0 | 1 | 6 | 7 | 8))) {
                 let hash = argument["value"].as_u64().ok_or("Missing material constant hash")?;
@@ -320,10 +331,12 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
                     2418533825 => (672,12),
                     2932833280 if reveal => (928,16),
                     148072969 if detail => (848,16),
+                    2651392336 if flag => (656,16),
                     411508820 if camo && occlusion != 0 && pass_index == 1 => (1008,16),
                     _ => return Err(format!("Reviewed material {key} has an unreviewed active material constant").into()),
                 };
-                if argument["type"] != 6 || argument["buffer"] != 1
+                let kind = if flag && hash == 2651392336 { 0 } else { 6 };
+                if argument["type"] != kind || argument["buffer"] != 1
                     || argument["location"] != expected.0 || argument["size"] != expected.1 {
                     return Err(format!("Reviewed material {key} has an unreviewed active material constant").into());
                 }
@@ -335,6 +348,9 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
             }
             if detail && arguments.iter().filter(|argument| argument["type"] == 6 && argument["value"] == 148072969_u32).count() != 1 {
                 return Err(format!("Reviewed material {key} lacks its bound detailScale").into());
+            }
+            if flag && arguments.iter().filter(|argument| argument["type"] == 0 && argument["value"] == 2651392336_u32).count() != 1 {
+                return Err(format!("Reviewed flag material {key} lacks its bound flagParams").into());
             }
             if reveal {
                 if arguments.iter().filter(|argument| argument["type"] == 6 && argument["value"] == 2932833280_u32).count() != 1 {
@@ -365,6 +381,9 @@ fn unlit_recipe(family: &str) -> Option<(&'static str,&'static str)> {
         "mc_unlit_replace_3j970129" | "wpc_unlit_replace_4688792e" => Some(("pimp_shader_unlit_49c3292c.hlsl","opaque")),
         "mc_unlit_add_ww82zw88" | "wpc_unlit_add_8ez3wzw3" => Some(("pimp_shader_unlit_4b1d2e0b.hlsl","add")),
         "mc_unlit_blend_588ewzff" => Some(("pimp_shader_unlit_4ea12045.hlsl","blend")),
+        "mc_unlit_multiply_97923qz1" => Some(("pimp_shader_unlit_4f14dd58.hlsl","multiply")),
+        "mc_unlitdecalblend_add_fzw1z66f" | "wpc_unlitdecalblend_add_j26wq580" => Some(("pimp_shader_unlitdecalblend_62b62074.hlsl","decal_add")),
+        "mc_unlitdecalblend_multiply_34w7q3jw" | "wpc_unlitdecalblend_multiply_35079164" => Some(("pimp_shader_unlitdecalblend_5c3f6d9c.hlsl","decal_multiply")),
         _ => None,
     }
 }
@@ -373,29 +392,38 @@ fn validate_unlit(key: &str, material: &Value, pixel: &str, alpha: &str) -> Resu
     let techniques = material["techniques"].as_array().ok_or("Missing native unlit techniques")?;
     let technique = techniques.iter().find(|technique| technique["index"] == 2).ok_or("Missing native unlit technique")?;
     let passes = technique["passes"].as_array().ok_or("Missing native unlit passes")?;
-    if passes.len() != 1 || passes[0]["pixel_shader"] != pixel || passes[0]["vertex_shader"] != "pimp_shader_unlit_4876d431.hlsl"
+    let decal = matches!(alpha,"decal_add" | "decal_multiply");
+    let scaled = !decal && alpha != "multiply";
+    let vertex = if decal {pixel} else {"pimp_shader_unlit_4876d431.hlsl"};
+    if passes.len() != 1 || passes[0]["pixel_shader"] != pixel || passes[0]["vertex_shader"] != vertex
         || passes[0]["vertex_routes"] != json!([{"source":0,"destination":0},{"source":1,"destination":2},{"source":2,"destination":5}]) {
         return Err(format!("Unlit material {key} has unreviewed programs or vertex routes").into());
     }
     let arguments = passes[0]["arguments"].as_array().ok_or("Missing unlit arguments")?;
     let active: Vec<_> = arguments.iter().filter(|argument| matches!(argument["type"].as_u64(),Some(0 | 1 | 2 | 6 | 7 | 8))).collect();
-    if active.len() != 2 || !active.iter().any(|argument| argument["type"] == 2 && argument["value"] == 2695565377_u32
+    if active.len() != (if scaled {2} else {1}) || !active.iter().any(|argument| argument["type"] == 2 && argument["value"] == 2695565377_u32
         && argument["location"] == 0 && argument["size"] == 1 && argument["buffer"] == 0)
-        || !active.iter().any(|argument| argument["type"] == 6 && argument["value"] == 3799286735_u32
+        || scaled && !active.iter().any(|argument| argument["type"] == 6 && argument["value"] == 3799286735_u32
             && argument["location"] == 16 && argument["size"] == 4 && argument["buffer"] == 2) {
         return Err(format!("Unlit material {key} has unreviewed active bindings").into());
     }
     let texture = material["textures"].as_array().ok_or("Missing unlit textures")?.iter()
         .find(|texture| texture["hash"] == 2695565377_u32).ok_or("Missing unlit color texture")?;
-    if !matches!(texture["sampler"].as_u64(),Some(20 | 244)) { return Err(format!("Unlit material {key} has an unreviewed sampler").into()); }
-    let constant = material["constants"].as_array().ok_or("Missing unlit constants")?.iter()
-        .find(|constant| constant["hash"] == 3799286735_u32).ok_or("Missing bound scaleRGB")?;
-    let scale = constant["literal"][0].as_f64().ok_or("Missing scaleRGB value")? as f32;
+    let sampler = texture["sampler"].as_u64();
+    if !(if decal { matches!(sampler,Some(10 | 74)) } else { matches!(sampler,Some(20 | 244)) }) {
+        return Err(format!("Unlit material {key} has an unreviewed sampler").into());
+    }
+    let scale = if scaled {
+        let constant = material["constants"].as_array().ok_or("Missing unlit constants")?.iter()
+            .find(|constant| constant["hash"] == 3799286735_u32).ok_or("Missing bound scaleRGB")?;
+        constant["literal"][0].as_f64().ok_or("Missing scaleRGB value")? as f32
+    } else {1.};
     if !scale.is_finite() || scale < 0. { return Err(format!("Unlit material {key} has invalid scaleRGB").into()); }
     let index = material["state_entries"][2].as_u64().ok_or("Missing native unlit state index")? as usize;
     let state = material["state_bits"][index][0].as_u64().ok_or("Missing native unlit state")?;
     let depth = material["state_bits"][index][1].as_u64().ok_or("Missing native unlit depth state")?;
-    let (rgb,coverage) = match alpha { "opaque" => (0x12,0x12),"add" => (0x122,0x121),"blend" => (0x165,0x128),_ => unreachable!() };
+    let (rgb,coverage) = match alpha { "opaque" => (0x12,0x12),"add" | "decal_add" => (0x122,0x121),
+        "blend" => (0x165,0x128),"multiply" | "decal_multiply" => (0x131,0x128),_ => unreachable!() };
     if state & 0x7ff != rgb || state >> 16 & 0x7ff != coverage || depth & !0x30 != if alpha == "opaque" {13} else {12} {
         return Err(format!("Unlit material {key} has unreviewed blend or depth state").into());
     }
@@ -409,7 +437,18 @@ fn unlit_color(source: &texture::Image, scale: f32, alpha: &str) -> Result<textu
     let levels = (0..source.levels.len()).map(|level| -> Result<Vec<[f32;4]>> {
         texture::pixels(source,level)?.into_iter().map(|pixel| {
             let coverage = if alpha == "blend" {pixel[3]} else {1.};
-            let value: [f32;4] = std::array::from_fn(|c| if c < 3 { pixel[c]*pixel[c]*scale*coverage } else if alpha == "add" {1.} else {pixel[3]});
+            let decal_weight = pixel[3]*(pixel[0]*0.25+pixel[1]*0.5+pixel[2]*0.25);
+            let value: [f32;4] = std::array::from_fn(|c| if c == 3 {
+                if matches!(alpha,"add" | "source_vm" | "source_vm_add") {1.}
+                else if alpha == "source_vm_blend" {pixel[3].sqrt()}
+                else if alpha == "decal_add" {decal_weight} else {pixel[3]}
+            } else { match alpha {
+                "decal_add" => (pixel[c]*decal_weight).powi(2),
+                "decal_multiply" => (1.+pixel[3]*(pixel[c]-1.)).powi(2),
+                "multiply" => pixel[c].powi(4),
+                "source_layer" | "source_vm_add" => (pixel[c]*pixel[3]).powi(2)*scale,
+                _ => pixel[c]*pixel[c]*scale*coverage,
+            }});
             if value.iter().any(|value| !value.is_finite() || !(0. ..=65504.).contains(value)) || value[3] > 1. {
                 return Err("Unlit converted color exceeds the finite half-float/coverage domain".into());
             }
@@ -429,6 +468,101 @@ fn unlit_color(source: &texture::Image, scale: f32, alpha: &str) -> Result<textu
     Ok(image)
 }
 
+fn authored_unlit_uv(source: &texture::Image, scale: [f32;2], offset: [f32;2], origin: [f32;2], rotation: f32, sampler: u8) -> Result<texture::Image> {
+    if scale == [1.;2] && offset == [0.;2] && rotation == 0. {return Ok(source.clone());}
+    if source.depth != 1 || source.faces != 1 || source.levels.is_empty()
+        || !scale.into_iter().chain(offset).chain(origin).chain([rotation]).all(f32::is_finite) {
+        return Err("Invalid authored single-layer UV input".into());
+    }
+    let mut image = source.clone();image.format = 19;image.levels.clear();
+    let (sine,cosine) = (rotation*f32::from_bits(0x40c90fda)).sin_cos();
+    for level in 0..source.levels.len() {
+        let (width,height) = ((source.width>>level).max(1),(source.height>>level).max(1));
+        let pixels = texture::pixels(source,level)?;
+        let mut bytes = Vec::with_capacity(width*height*8);
+        for y in 0..height {for x in 0..width {
+            let uv = [(x as f32+0.5)/width as f32,(y as f32+0.5)/height as f32];
+            let centered: [f32;2] = std::array::from_fn(|axis| (uv[axis]-origin[axis]+offset[axis])*scale[axis]);
+            let uv = [cosine*centered[0]+sine*centered[1]+origin[0],-sine*centered[0]+cosine*centered[1]+origin[1]];
+            let pixel = texture::sample(&pixels,width,height,uv,sampler);
+            for value in pixel {bytes.extend(half::f16::from_f32(value).to_le_bytes());}
+        }}
+        image.levels.push(bytes);
+    }
+    Ok(image)
+}
+
+fn convert_single_unlit(key: &str, native: &Value, images: &BTreeMap<String,texture::Image>, shared: &mut BTreeMap<(String,String),String>, pack: &mut Pack) -> Result<Value> {
+    let (index,hash,mode) = validate_single_unlit(key,native)?;
+    let layered = index == 4;
+    let binding = native["textures"].as_array().unwrap().iter().find(|binding| binding["hash"] == hash).unwrap();
+    let name = binding["image"].as_str().ok_or("Missing single-layer unlit source image name")?.to_ascii_lowercase();
+    let source = images.get(&name).ok_or_else(|| format!("Missing single-layer unlit image {name}"))?;
+    let constants = native["constants"].as_array().unwrap();
+    let constant = |hash: u32| -> Result<[f32;4]> {
+        let row = constants.iter().find(|constant| constant["hash"] == hash).ok_or("Missing bound single-layer image parameter")?;
+        Ok(serde_json::from_value(row["literal"].clone())?)
+    };
+    let amount = constant(if layered {14836402} else {2875883048})?[0];
+    let uv = if layered {Some([constant(3320325482)?,constant(3286424575)?,constant(3272022534)?,constant(1886964550)?])} else {None};
+    let image = if let Some([scale,offset,origin,rotation]) = uv {
+        authored_unlit_uv(source,[scale[0],scale[1]],[offset[0],offset[1]],[origin[0],origin[1]],rotation[0],20)?
+    } else {source.clone()};
+    let operation = if layered {"source_layer"} else {match mode {"add" => "source_vm_add","blend" => "source_vm_blend",_ => "source_vm"}};
+    let image = unlit_color(&image,amount*amount,operation)?;
+    let linear = image.format == 19;
+    let channel_key = (name.clone(),format!("single-unlit:{operation}:{}:{uv:?}",amount.to_bits()));
+    let uri = if let Some(uri) = shared.get(&channel_key) {uri.clone()} else {
+        let uri = store_image(&image,format!("prepared/material-channels/{}/color.ktx2",shared.len()),!linear,"color",pack)?;
+        shared.insert(channel_key,uri.clone());uri
+    };
+    let source_key = (name,"source_color".into());
+    let source_uri = if let Some(uri) = shared.get(&source_key) {uri.clone()} else {
+        let uri = store_image(source,format!("prepared/material-channels/{}/source-color.ktx2",shared.len()),false,"source_color",pack)?;
+        shared.insert(source_key,uri.clone());uri
+    };
+    let selected = native["state_entries"][index].as_u64().unwrap() as usize;
+    let state = native["state_bits"][selected][0].as_u64().unwrap();
+    let cull = match state>>14 & 3 {1 => "none",2 => "back",3 => "front",_ => return Err("Unknown single-layer unlit cull state".into())};
+    let alpha = if layered {"blend"} else {mode};
+    let mut surface = json!({"version":3,"identity":key,"native":native,
+        "channels":[{"uri":uri,"role":"color","layer":0,"color_space":if linear {"linear"} else {"srgb"},"sampler":20}],
+        "source_input":{"uri":source_uri,"sampler":20,"color_space":"native_encoded"},
+        "standard":{"unlit":true,"roughness":1.,"metallic":0.,"reflectance":0.,"base_color":[1.,1.,1.,1.]},
+        "presentation":{"alpha":alpha,"cull":cull,"fog":mode != "layer_reflection","fog_mode":"color","visible":state & (1<<27) == 0},
+        "source_vertex_color_transfer":"unused","source_coverage":if layered {"script_scaled_sqrt_coverage"} else {"source_viewmodel_emissive"},
+        "source_emissive":{"amount":amount,"rgb":if layered || mode == "add" {"square(texture_rgb*texture_alpha*amount)"} else {"square(texture_rgb*amount)"},"texture_alpha_in_rgb":layered || mode == "add",
+            "output_transfer":if layered {"sqrt_after_scene_hdr_scale"} else {"linear_without_gamma2_sqrt"}},
+        "source_blend":{"rgb":[state&15,state>>4&15,state>>8&7],"alpha":[state>>16&15,state>>20&15,state>>24&7]},
+        "approximations":["Static authored UV terms resampled at original mip resolution; dynamic parallax/time terms retained for runtime integration",
+            "Native source color equations retained separately from unresolved framebuffer transfer and destination-alpha composition"]});
+    if layered {
+        surface["source_layer_uv"] = json!({"scale":constant(3320325482)?,"offset":constant(3286424575)?,
+            "origin":constant(3272022534)?,"rotation":constant(1886964550)?,"scroll":constant(2196952607)?,
+            "depth":constant(3342767871)?[0],"depth_epsilon":f32::from_bits(0x3727c5ac),"game_time_code":25,"game_time_component":3,
+            "operation":"scale_centered_uv_plus_scaled_offset_and_positive_facing_view_parallax_then_rotate_then_add_scaled_time_scroll_and_origin",
+            "rotation_operation":"rotation_x_times_one_plus_rotation_y_times_game_time_w","rotation_tau":f32::from_bits(0x40c90fda)});
+        surface["source_script_coverage"] = json!({"code_constant":169,"component":0,"layer_alpha":constant(3337236870)?[0],
+            "operation":"sqrt(texture_alpha*layer_alpha*(1-saturate(scriptVector0.x)))"});
+        if mode == "layer_reflection" {
+            surface["source_reflection"] = json!({"amount":constant(211931156)?[0],"gloss":constant(3432544439)?[0],
+                "lod":"four_times_one_minus_gloss","weight":"saturate_three_quarters_plus_quarter_gloss_times_reflection_amount",
+                "probe_decode":"rgb_divided_by_alpha_plus_epsilon","response":"separate_vertex_spherical_harmonics"});
+            surface["pending_runtime"] = json!("Native no-fog rune layer requires view parallax including the depth epsilon, gameTime UV controls, live scriptVector0 alpha, separate view-dependent reflection/SH response and sqrt coverage in gamma2 composition; source consumers remain unconnected");
+        } else {
+            surface["pending_runtime"] = json!("Native wallbuy layer requires view parallax including the depth epsilon, gameTime UV controls and live scriptVector0 alpha, followed by source fog and sqrt coverage in gamma2 framebuffer composition; matching runtime consumers remain unconnected");
+        }
+    } else {
+        surface["source_fragment_alpha"] = json!(if mode == "blend" {"sqrt_texture_coverage"} else {"one"});
+        surface["pending_runtime"] = json!(match mode {
+            "screen" => "Native tritium emission writes squared linear source RGB without the gamma2 sqrt, then blends with inverse destination color plus destination; source fog, screen blending and destination-alpha composition remain unconnected",
+            "blend" => "Native translucent viewmodel emission writes squared source RGB without gamma2 sqrt and sqrt texture alpha with source-alpha blending; matching source fog and framebuffer composition remain unconnected",
+            _ => "Native additive viewmodel emission squares texture-alpha-premultiplied source RGB, writes alpha one, and adds source fog color before ONE/ONE blending; matching source fog and framebuffer composition remain unconnected",
+        });
+    }
+    Ok(json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},"extras":{"surface":surface}}))
+}
+
 fn convert_unlit(key: &str, native: &Value, pixel: &str, alpha: &str, images: &BTreeMap<String,texture::Image>, shared: &mut BTreeMap<(String,String),String>, pack: &mut Pack) -> Result<Value> {
     let scale = validate_unlit(key,native,pixel,alpha)?;
     let binding = native["textures"].as_array().unwrap().iter().find(|binding| binding["hash"] == 2695565377_u32).unwrap();
@@ -444,22 +578,135 @@ fn convert_unlit(key: &str, native: &Value, pixel: &str, alpha: &str, images: &B
     let index = native["state_entries"][2].as_u64().unwrap() as usize;
     let state = native["state_bits"][index][0].as_u64().unwrap();
     let cull = match state >> 14 & 3 {1 => "none",2 => "back",3 => "front",_ => return Err("Unknown unlit cull state".into())};
-    Ok(json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},
+    let composed = matches!(alpha,"multiply" | "decal_add" | "decal_multiply");
+    let blend = match alpha {"decal_add" => "add","decal_multiply" => "multiply",_ => alpha};
+    let mut converted = json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},
         "extras":{"surface":{"version":3,"identity":key,"native":native,
             "channels":[{"uri":uri,"role":"color","layer":0,"color_space":if linear {"linear"} else {"srgb"},"sampler":binding["sampler"]}],
             "standard":{"unlit":true,"roughness":1.,"metallic":0.,"reflectance":0.,"base_color":[1.,1.,1.,1.]},
-            "presentation":{"alpha":alpha,"cull":cull,"fog":true,"fog_mode":if alpha == "add" {"attenuation"} else {"color"},"visible":state & (1<<27) == 0},
-            "source_vertex_color_transfer":if alpha == "blend" {"gamma2_alpha"} else {"gamma2"},
-            "source_coverage":if alpha == "add" {"unlit_add"} else if alpha == "blend" {"unlit_blend"} else {"opaque"},
+            "presentation":{"alpha":blend,"cull":cull,"fog":alpha != "decal_add","fog_mode":if alpha == "add" || composed {"attenuation"} else {"color"},"visible":state & (1<<27) == 0},
+            "source_vertex_color_transfer":if composed {"native_fragment_composition"} else if alpha == "blend" {"gamma2_alpha"} else {"gamma2"},
+            "source_coverage":if composed {alpha} else if alpha == "add" {"unlit_add"} else if alpha == "blend" {"unlit_blend"} else {"opaque"},
             "pending_runtime":if alpha == "add" {json!("Native ONE/ONE addition requires fog attenuation without adding fog color")} else {Value::Null},
-            "approximations":["Vertex gamma2 transfer evaluated before interpolation", "Source gamma2 framebuffer composition represented in the shared linear HDR pipeline", "Source polygon-offset modes retained for runtime integration"]}}}))
+            "approximations":["Vertex gamma2 transfer evaluated before interpolation", "Source gamma2 framebuffer composition represented in the shared linear HDR pipeline", "Source polygon-offset modes retained for runtime integration"]}}});
+    if composed {
+        let source_key = (binding["image"].as_str().unwrap().to_ascii_lowercase(),"source_color".into());
+        let source_uri = if let Some(uri) = shared.get(&source_key) {uri.clone()} else {
+            let uri = store_image(source,format!("prepared/material-channels/{}/source-color.ktx2",shared.len()),false,"source_color",pack)?;
+            shared.insert(source_key,uri.clone());uri
+        };
+        let surface = &mut converted["extras"]["surface"];
+        surface["source_input"] = json!({"uri":source_uri,"sampler":binding["sampler"],"color_space":"native_encoded"});
+        surface["source_composition"] = match alpha {
+            "decal_add" => json!({"color":"texture_rgb_times_interpolated_vertex_rgb",
+                "coverage":"texture_alpha_times_interpolated_vertex_alpha_times_color_luminance",
+                "luminance_weights":[0.25,0.5,0.25],"rgb":"color_times_coverage","alpha":"coverage","fog":false}),
+            "decal_multiply" => json!({"color":"texture_rgb_times_interpolated_vertex_rgb",
+                "coverage":"texture_alpha_times_interpolated_vertex_alpha_times_fog_transmittance",
+                "rgb":"one_plus_coverage_times_color_minus_one","alpha":"coverage","fog_neutral_rgb":[1.,1.,1.]}),
+            _ => json!({"color":"square_texture_rgb_times_interpolated_vertex_rgb",
+                "coverage":"texture_alpha_times_interpolated_vertex_alpha",
+                "rgb":"one_plus_fog_transmittance_times_color_minus_one","alpha":"coverage","fog_neutral_rgb":[1.,1.,1.]}),
+        };
+        surface["approximations"] = json!(["Static texture terms evaluated for unit vertex tint and no fog; raw inputs retained for source fragment composition",
+            "Native encoded framebuffer factors squared for shared linear HDR storage; exact destination-alpha and vertex/fog composition remain pending",
+            "Source polygon-offset modes retained for runtime integration"]);
+        surface["pending_runtime"] = json!(match alpha {
+            "decal_add" => "Native additive decal computes coverage from interpolated vertex-tinted RGB luminance and texture/vertex alpha, then adds encoded color times that coverage without fog; source fragment tint, destination-alpha and gamma2 framebuffer composition remain unconnected",
+            "decal_multiply" => "Native multiplicative decal interpolates its encoded texture/vertex color toward white using texture alpha times vertex alpha and fog transmittance, then multiplies the destination; source fragment tint, neutral-white fog and destination-alpha composition remain unconnected",
+            _ => "Native unlit multiplication squares interpolated texture/vertex RGB before fog interpolates the encoded multiplier toward white; source fragment tint, neutral-white fog and destination-alpha composition remain unconnected",
+        });
+    }
+    Ok(converted)
+}
+
+fn single_unlit_recipe(family: &str) -> Option<(usize,&'static str,&'static str,u32,&'static str)> {
+    Some(match family {
+        "wpc_sw4_3d_unlit_1layer_8691j77q" => (4,"pimp_shader_sw4_3d_unlit_1layer_20d9eb7d.hlsl","pimp_shader_sw4_3d_unlit_1layer_c5daea2d.hlsl",3714339118,"layer"),
+        "mc_sw4_3d_unlit_1layer_nofog_91f00f80" => (4,"pimp_shader_sw4_3d_unlit_1layer_nofog_39bf2c98.hlsl","pimp_shader_sw4_3d_unlit_1layer_nofog_b5cdb07a.hlsl",3714339118,"layer_reflection"),
+        "mc_sw4_3d_viewmodel_unlit_j299w86e" => (3,"pimp_shader_sw4_3d_viewmodel_unlit_89d1b67c.hlsl","pimp_shader_sw4_3d_viewmodel_unlit_89d1b67c.hlsl",3053961470,"screen"),
+        "mc_sw4_3d_viewmodel_unlit_8216051u" => (3,"pimp_shader_sw4_3d_viewmodel_unlit_89d1b67c.hlsl","pimp_shader_sw4_3d_viewmodel_unlit_657ff8d2.hlsl",3053961470,"blend"),
+        "mc_sw4_3d_viewmodel_unlit_60466j88" => (3,"pimp_shader_sw4_3d_viewmodel_unlit_89d1b67c.hlsl","pimp_shader_sw4_3d_viewmodel_unlit_ff86912b.hlsl",3053961470,"add"),
+        _ => return None,
+    })
+}
+
+pub fn selected_technique(family: &str) -> Option<usize> {
+    if let Some((index,..)) = single_unlit_recipe(family) {Some(index)}
+    else if unlit_recipe(family).is_some() {Some(2)}
+    else if ordinary_recipe(family).is_some() {Some(4)} else {None}
+}
+
+fn validate_single_unlit(key: &str, material: &Value) -> Result<(usize,u32,&'static str)> {
+    let family = material["technique_set"].as_str().ok_or("Missing single-layer unlit family")?;
+    let (index,vertex,pixel,image,mode) = single_unlit_recipe(family).ok_or("Unreviewed single-layer unlit family")?;
+    let layered = index == 4;
+    let mut routes = vec![json!({"source":0,"destination":0}),json!({"source":2,"destination":5})];
+    if layered {routes.extend([json!({"source":3,"destination":1}),json!({"source":4,"destination":7})]);}
+    let mut constants = BTreeMap::new();
+    if layered {
+        constants.extend([(1886964550_u32,(0,112,8)),(2196952607,(0,96,8)),(3272022534,(0,120,8)),
+            (3286424575,(0,88,8)),(3320325482,(0,80,8)),(3342767871,(0,128,4)),
+            (14836402,(6,108,4)),(3337236870,(6,104,4))]);
+        if mode == "layer_reflection" {constants.extend([(211931156,(6,136,4)),(3432544439,(6,132,4))]);}
+    } else {constants.insert(2875883048,(6,80,4));}
+    let indices = if layered {vec![4,6]} else {vec![3]};
+    let techniques = material["techniques"].as_array().ok_or("Missing single-layer unlit techniques")?;
+    let state_index = material["state_entries"][index].as_u64().ok_or("Missing single-layer unlit state index")? as usize;
+    let state = &material["state_bits"][state_index];
+    let rgb = state[0].as_u64().ok_or("Missing single-layer unlit RGB state")?;
+    let depth = state[1].as_u64().ok_or("Missing single-layer unlit depth state")?;
+    let (blend,alpha) = match mode {"screen" => (0x12a,0x121),"add" => (0x122,0x121),_ => (0x165,0x128)};
+    if rgb & 0x7ff != blend || rgb >> 16 & 0x7ff != alpha || depth & !0x30 != 12 {
+        return Err(format!("Single-layer unlit material {key} has unreviewed blend or depth state").into());
+    }
+    for index in indices {
+        let technique = techniques.iter().find(|technique| technique["index"] == index).ok_or("Missing selected single-layer unlit technique")?;
+        let passes = technique["passes"].as_array().ok_or("Missing single-layer unlit passes")?;
+        if passes.len() != 1 || passes[0]["vertex_shader"] != vertex || passes[0]["pixel_shader"] != pixel
+            || passes[0]["vertex_routes"] != json!(routes) {
+            return Err(format!("Single-layer unlit material {key} has unreviewed programs or vertex routes").into());
+        }
+        let selected = material["state_entries"][index].as_u64().ok_or("Missing selected single-layer unlit state index")? as usize;
+        if material["state_bits"][selected] != *state {return Err(format!("Single-layer unlit material {key} has differing selected render states").into());}
+        let arguments = passes[0]["arguments"].as_array().ok_or("Missing selected single-layer unlit arguments")?;
+        let images: Vec<_> = arguments.iter().filter(|argument| argument["type"] == 2).collect();
+        if images.len() != 1 || images[0]["value"] != image || images[0]["buffer"] != 0
+            || images[0]["location"] != 256 || images[0]["size"] != 1 {
+            return Err(format!("Single-layer unlit material {key} has unreviewed image bindings").into());
+        }
+        let active: Vec<_> = arguments.iter().filter(|argument| matches!(argument["type"].as_u64(),Some(0 | 1 | 6 | 7 | 8))).collect();
+        if active.len() != constants.len() {return Err(format!("Single-layer unlit material {key} has unreviewed material argument count").into());}
+        for (&hash,&(kind,location,size)) in &constants {
+            if active.iter().filter(|argument| argument["type"] == kind && argument["value"] == hash
+                && argument["buffer"] == 2 && argument["location"] == location && argument["size"] == size).count() != 1 {
+                return Err(format!("Single-layer unlit material {key} has unreviewed constant {hash}").into());
+            }
+            let constant = material["constants"].as_array().ok_or("Missing single-layer unlit constants")?.iter()
+                .find(|constant| constant["hash"] == hash).ok_or("Missing bound single-layer unlit constant")?;
+            if (0..size as usize/4).any(|component| constant["literal"][component].as_f64().is_none_or(|value| !value.is_finite())) {
+                return Err(format!("Single-layer unlit material {key} has non-finite constant {hash}").into());
+            }
+        }
+        if layered && (!arguments.iter().any(|argument| argument["type"] == 3 && argument["value"] == 16777241_u32
+                && argument["buffer"] == 2 && argument["location"] == 64 && argument["size"] == 16)
+            || !arguments.iter().any(|argument| argument["type"] == 5 && argument["value"] == 16777385_u32
+                && argument["buffer"] == 1 && argument["location"] == 368 && argument["size"] == 16)) {
+            return Err(format!("Single-layer unlit material {key} lacks reviewed gameTime or scriptVector0 binding").into());
+        }
+    }
+    let texture = material["textures"].as_array().ok_or("Missing single-layer unlit images")?.iter()
+        .find(|binding| binding["hash"] == image).ok_or("Missing single-layer unlit source image")?;
+    if texture["sampler"] != 20 {return Err(format!("Single-layer unlit material {key} has unreviewed sampler").into());}
+    Ok((index,image,mode))
 }
 
 pub fn inputs(native: &BTreeMap<String, Value>, catalog: &Catalog<'_>) -> Result<std::collections::BTreeSet<String>> {
     let mut required = std::collections::BTreeSet::new();
     for (key,material) in native {
         let family = material["technique_set"].as_str().ok_or("Missing native material technique")?;
-        let index = if let Some((pixel,alpha)) = unlit_recipe(family) { validate_unlit(key,material,pixel,alpha)?; 2 } else {
+        let index = if single_unlit_recipe(family).is_some() {validate_single_unlit(key,material)?.0}
+        else if let Some((pixel,alpha)) = unlit_recipe(family) { validate_unlit(key,material,pixel,alpha)?; 2 } else {
             let recipe = ordinary_recipe(family).ok_or_else(|| format!("No reviewed recipe for {key}: {family}"))?;
             validate_ordinary(key,material,&recipe)?; 4
         };
@@ -486,6 +733,10 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
     let mut shared = BTreeMap::<(String, String), String>::new();
     for (key, material) in native {
         let family = material["technique_set"].as_str().ok_or("Missing native material technique")?;
+        if single_unlit_recipe(family).is_some() {
+            converted.insert(key.clone(),convert_single_unlit(key,material,images,&mut shared,pack)?);
+            continue;
+        }
         if let Some((pixel,alpha)) = unlit_recipe(family) {
             converted.insert(key.clone(),convert_unlit(key,material,pixel,alpha,images,&mut shared,pack)?);
             continue;
@@ -495,7 +746,8 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
         };
         validate_ordinary(key,material,&recipe)?;
         let OrdinaryRecipe {normal,specular,coverage,detail,occlusion,camo,..} = recipe;
-        let reveal = matches!(family,"mc_lit_sm_b0c0n0v0_3559e8jj" | "wpc_lit_sm_b0c0n0v0_ew347fe3");
+        let reveal = matches!(family,"mc_lit_sm_b0c0n0v0_3559e8jj" | "wpc_lit_sm_b0c0n0v0_ew347fe3" | "wpc_lit_sm_b0c0n0s0v0_efz5w56f");
+        let flag = matches!(family,"mc_lit_sm_flag_t0c0d0n0s0_w75eqzzj" | "mc_lit_sm_flag_b0c0s0_6406ez95");
         let lit = material["techniques"].as_array().unwrap().iter().find(|technique| technique["index"] == 4).unwrap();
         let passes = lit["passes"].as_array().unwrap();
         let mut channels = Vec::new();
@@ -649,6 +901,10 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
                 surface["source_vertex_alpha"] = json!("indirect_diffuse");
                 surface["pending_runtime"] = json!("Native vertex-lit cheap sandbag additionally attenuates indirect diffuse with primary vertex alpha while retaining opaque coverage and unattenuated sun lighting; separate vertex grid/probe and shadow-fallback consumers remain unconnected");
             }
+            if family == "mlv_lit_sm_r0c0n0x0_8f47740f" {
+                surface["source_vertex_alpha"] = json!("indirect_diffuse_and_specular");
+                surface["pending_runtime"] = json!("Native vertex-lit sandbag multiplies separate grid and reflection lighting by primary vertex alpha while retaining opaque coverage and unattenuated sun lighting; secondary vertex lighting, shadow fallback and gloss-dependent ambient specular consumers remain unconnected");
+            }
         }
         if reveal {
             let parameters = &material["constants"].as_array().unwrap().iter().find(|value| value["hash"] == 2932833280_u32).unwrap()["literal"];
@@ -663,6 +919,30 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
             surface["source_detail_normal"] = json!({"input":source_inputs["source_detail_normal"],"parameters":parameters,
                 "operation":"scaled_slope_add_before_normalization","uv":"multiply_xy"});
             surface["approximations"].as_array_mut().unwrap().push(json!("Detail normal slopes baked at base-normal resolution using a major-axis mip estimate before output filtering"));
+        }
+        if flag {
+            let parameters = &material["constants"].as_array().unwrap().iter().find(|value| value["hash"] == 2651392336_u32).unwrap()["literal"];
+            let phase_uv = [[0x4067e015_u32,0x3e81b6e4].map(f32::from_bits),
+                [0x41040141_u32,0xbfba354d].map(f32::from_bits),[0x419c9f28_u32,0x40a7dddc].map(f32::from_bits)];
+            let phase_time = [0x40b4f4ab_u32,0x4116cbe4,0x40f1463a].map(f32::from_bits);
+            let normal_cosine_u = [0x41d96214_u32,0x41c601e2,0x420520e2].map(f32::from_bits);
+            let normal_cosine_v = [0x3ff336eb_u32,0xc08ba7f9,0x410eafc8].map(f32::from_bits);
+            surface["source_flag_motion"] = json!({"parameters":parameters,"parameter_hash":2651392336_u32,
+                "time":{"code_constant":25,"component":3,"operation":"add_parameter_y_then_multiply_parameter_x"},
+                "uv":"one_minus_uv0","vertex_alpha":"motion_amplitude_only","fragment_vertex_alpha":1.,
+                "phase_uv":phase_uv,"phase_time":phase_time,
+                "displacement_amplitude":[7.5,3.,f32::from_bits(0x3fd9999a)],"displacement_axis":"decoded_model_normal",
+                "normal_cosine_u":normal_cosine_u,"normal_cosine_v":normal_cosine_v,
+                "normal_derivative_scale":f32::from_bits(0x3ccccccd),
+                "normal_operation":"add_vertex_alpha_scaled_cosine_derivatives_in_source_tangent_basis_then_normalize"});
+            surface["source_coverage"] = json!(if coverage == 2 {"texture_mask_without_vertex_alpha"} else {"gamma2_texture_premultiplied_without_vertex_alpha"});
+            if coverage == 2 {
+                surface["source_framebuffer_alpha"] = json!("texture_coverage_after_cutoff");
+                surface["pending_runtime"] = json!("Native masked flag material requires gameTime.w-driven three-wave displacement and derivative-adjusted normals using vertex alpha, with fragment vertex alpha forced to one and texture alpha retained after cutoff; live geometry and framebuffer-alpha consumers remain unconnected");
+            } else {
+                surface["source_fragment_alpha"] = json!("sqrt_texture_coverage_without_vertex_alpha");
+                surface["pending_runtime"] = json!("Native translucent flag material requires gameTime.w-driven three-wave displacement and derivative-adjusted normals using vertex alpha, with fragment vertex alpha forced to one, separate grid/reflection responses and sqrt texture coverage in gamma2 premultiplied composition; live geometry and matching lighting/composition remain unconnected");
+            }
         }
         if occlusion != 0 {
             surface["source_occlusion"] = json!({"input":source_inputs["source_occlusion"],
@@ -701,7 +981,8 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
             }
             "mc_lit_sm_r0c0n0s0_4w3wqfe5" => {
                 surface["source_uv_animation"] = json!({"code_constant":25,"component":2,"translation":[0.,-1.]});
-                surface["pending_runtime"] = json!("Native tank-tread UVs subtract gameTime.z from V on every channel; native time component generation and live UV animation remain unconnected");
+                surface["uv_animation"] = json!({"translation":[0.,-1.],"time_mode":"native_fractional_second"});
+                surface["pending_runtime"] = json!("Native tank-tread UV binding subtracts gameTime.z from V on every channel, but the source render-game milliseconds and per-object shader-start inputs still require a gameplay producer; explicit setup inputs do not establish native runtime clock delivery");
             }
             "mc_lit_sm_r0c0n0x0_53144qq1" => {
                 surface["source_vertex_alpha"] = json!("indirect_diffuse_and_specular");
@@ -743,7 +1024,7 @@ pub fn missing(native: &BTreeMap<String, Value>, converted: &BTreeMap<String, Va
 pub fn unimplemented(native: &BTreeMap<String, Value>) -> Vec<String> {
     gaps(native,|_,material| {
         let family = material["technique_set"].as_str().unwrap();
-        ordinary_recipe(family).is_some() || unlit_recipe(family).is_some() || crate::bake::supported(family)
+        selected_technique(family).is_some() || crate::bake::supported(family)
     })
 }
 
@@ -754,7 +1035,7 @@ pub fn read(catalog: &Catalog<'_>, name: &str) -> Result<Value> {
     let technique_streams = &catalog.zones[technique_zone].1.streams;
     let family = technique_streams.text(Address::decode(technique_streams.u32(technique)?)?)?;
     let mut techniques = Vec::new();
-    for index in [2, 4, 6] {
+    for index in [2, 3, 4, 6] {
         let value = technique_streams.u32(technique.add(8 + index * 4)?)?;
         if value == 0 { continue; }
         let native = Address::decode(value)?;
@@ -924,12 +1205,22 @@ pub fn read_camo_options(catalog: &Catalog<'_>) -> Result<Vec<Option<CamoOption>
 }
 
 pub fn read_material_selection(catalog: &Catalog<'_>) -> Result<(BTreeMap<String,crate::camo::WeaponMaterials>, BTreeMap<String,crate::camo::AttachmentMaterials>)> {
+    let weapon_name = |zone: usize,field: Address| -> Result<Option<String>> {
+        let streams = &catalog.zones[zone].1.streams;
+        let pointer = streams.u32(field)?;
+        if pointer == 0 { return Ok(None); }
+        let name = streams.text(Address::decode(pointer)?)?;
+        let name = name.trim_start_matches(',');
+        Ok((!name.is_empty()).then(|| format!("weapon.{}",name.to_ascii_lowercase())))
+    };
     let mut attachments = BTreeMap::new();
     for (name,zone,root) in catalog.definitions(30) {
         let streams = &catalog.zones[zone].1.streams;
         attachments.insert(name.to_ascii_lowercase(),crate::camo::AttachmentMaterials {
             camo:camo_asset(catalog,zone,root.add(164)?,31)?, attachment_type:streams.u32(root.add(4)?)?,
             chain_next:streams.u32(root.add(8)?)?,chain_head:streams.u32(root.add(12)?)?, combination_mask:streams.u32(root.add(16)?)?,
+            alternate_weapon_index:streams.u32(root.add(0x20)?)?,
+            alternate_weapon_name:weapon_name(zone,root.add(0x1c)?)?,
             suppress168:streams.u8(root.add(168)?)?,suppress169:streams.u8(root.add(169)?)?,
             models:[camo_asset(catalog,zone,root.add(40)?,5)?,camo_asset(catalog,zone,root.add(44)?,5)?,camo_asset(catalog,zone,root.add(48)?,5)?],
         });
@@ -944,12 +1235,19 @@ pub fn read_material_selection(catalog: &Catalog<'_>) -> Result<(BTreeMap<String
             let table = Address::decode(pointer)?;
             (0..count).map(|index| camo_asset(catalog,zone,table.add(index*4)?,kind)).collect()
         };
+        let base_attachment_flags = array(root.add(0x18)?,63,29)?.into_iter().map(|name| -> Result<Option<u8>> {
+            let Some(name) = name else { return Ok(None); };
+            let (owner,root) = catalog.resolve(29,&name)?;
+            Ok(Some(catalog.zones[owner].1.streams.u8(root.add(0x31)?)?))
+        }).collect::<Result<Vec<_>>>()?;
         weapons.insert(format!("weapon.{}",name.to_ascii_lowercase()),crate::camo::WeaponMaterials {
             camo:camo_asset(catalog,zone,definition.add(2420)?,31)?,
             main_models:array(definition.add(4)?,16,5)?,
             variant_models:array(root.add(40)?,8,5)?.try_into().map_err(|_| "Native viewmodel variant count is not eight")?,
             attachments:array(root.add(28)?,95,30)?,
             definition28:streams.u32(definition.add(28)?)?,definition44:streams.u32(definition.add(44)?)?,
+            shared_ammo_related:streams.u8(definition.add(0x64f)?)?,alternate_weapon_index:streams.u32(definition.add(0x67c)?)?,
+            alternate_weapon_name:weapon_name(zone,definition.add(0x678)?)?,base_attachment_flags,
         });
     }
     Ok((weapons,attachments))
@@ -1089,5 +1387,49 @@ mod tests {
         let black = texture::Image {width:1,height:1,depth:1,faces:1,format:1,flags:0,levels:vec![vec![0,0,0,255]]};
         assert_eq!(unlit_color(&black,8.,"opaque").unwrap().format,1);
         assert!(unlit_color(&image,f32::NAN,"add").is_err());
+    }
+
+    #[test]
+    fn unlit_decal_multiply_keeps_transparent_neutral_and_opaque_black() {
+        let image = texture::Image {width:2,height:1,depth:1,faces:1,format:1,flags:0,
+            levels:vec![vec![32,64,128,0,0,0,0,255]]};
+        let result = unlit_color(&image,1.,"decal_multiply").unwrap();
+        let pixels = texture::pixels(&result,0).unwrap();
+        assert_eq!(pixels[0],[1.,1.,1.,0.]);
+        assert_eq!(pixels[1],[0.,0.,0.,1.]);
+    }
+
+    #[test]
+    fn unlit_additive_decal_weights_green_twice_red_coverage() {
+        let image = texture::Image {width:2,height:1,depth:1,faces:1,format:1,flags:0,
+            levels:vec![vec![255,0,0,255,0,255,0,255]]};
+        let result = unlit_color(&image,1.,"decal_add").unwrap();
+        let pixels = texture::pixels(&result,0).unwrap();
+        assert!(pixels[0][3] > 0.);
+        assert!((pixels[1][3]-2.*pixels[0][3]).abs() <= 1./255.);
+        assert_eq!(pixels[0][1],0.);
+        assert_eq!(pixels[1][0],0.);
+    }
+
+    #[test]
+    fn unlit_multiply_ignores_unbound_scale_and_retains_native_value() {
+        let native = json!({"technique_set":"mc_unlit_multiply_97923qz1",
+            "techniques":[{"index":2,"passes":[{"pixel_shader":"pimp_shader_unlit_4f14dd58.hlsl",
+                "vertex_shader":"pimp_shader_unlit_4876d431.hlsl",
+                "vertex_routes":[{"source":0,"destination":0},{"source":1,"destination":2},{"source":2,"destination":5}],
+                "arguments":[{"type":2,"value":2695565377_u32,"location":0,"size":1,"buffer":0}]}]}],
+            "textures":[{"hash":2695565377_u32,"image":"multiply","sampler":20}],
+            "constants":[{"hash":3799286735_u32,"literal":[0.,0.,0.,1.]}],
+            "state_entries":[255,255,0],"state_bits":[[422086961_u32,28]]});
+        let image = texture::Image {width:1,height:1,depth:1,faces:1,format:1,flags:0,levels:vec![vec![128,128,128,255]]};
+        assert_eq!(validate_unlit("multiply",&native,"pimp_shader_unlit_4f14dd58.hlsl","multiply").unwrap(),1.);
+        let output = unlit_color(&image,0.,"multiply").unwrap();
+        assert_eq!(output.levels,unlit_color(&image,50.,"multiply").unwrap().levels);
+        assert!(texture::pixels(&output,0).unwrap()[0][0] > 0.);
+        let mut pack = Pack::default();
+        let converted = convert_unlit("multiply",&native,"pimp_shader_unlit_4f14dd58.hlsl","multiply",
+            &BTreeMap::from([("multiply".into(),image)]),&mut BTreeMap::new(),&mut pack).unwrap();
+        assert_eq!(converted["extras"]["surface"]["native"]["constants"],native["constants"]);
+        assert!(converted["extras"]["surface"]["pending_runtime"].as_str().is_some());
     }
 }

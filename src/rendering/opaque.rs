@@ -4,11 +4,23 @@ use super::{
 };
 use bevy::{
     gltf::{GltfExtras, GltfMaterialName},
+    mesh::{MeshVertexAttribute, VertexAttributeValues},
     prelude::*,
     render::render_resource::AsBindGroup,
 };
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+
+pub(crate) const FLAG_SOURCE_NORMAL: MeshVertexAttribute = MeshVertexAttribute::new(
+    "_ORIGINS_NORMAL",
+    1_501_001,
+    bevy::render::render_resource::VertexFormat::Float32x3,
+);
+pub(crate) const FLAG_SOURCE_TANGENT: MeshVertexAttribute = MeshVertexAttribute::new(
+    "_ORIGINS_TANGENT",
+    1_501_002,
+    bevy::render::render_resource::VertexFormat::Float32x3,
+);
 
 pub(crate) fn bindless_supported(device: &bevy::render::renderer::RenderDevice) -> bool {
     StandardMaterial::bindless_supported(device)
@@ -69,7 +81,14 @@ impl SurfaceLibrary {
     }
 }
 
-pub(super) fn initialize(mut commands: Commands) {
+pub(super) fn initialize(mut commands: Commands, flags: Query<(Entity, &FlagMotion, &Mesh3d)>) {
+    for (entity, flag, current) in &flags {
+        let mut entity = commands.entity(entity);
+        if flag.target == current.0 {
+            entity.insert((Mesh3d(flag.original.clone()), flag.source_bounds()));
+        }
+        entity.remove::<FlagMotion>();
+    }
     commands.insert_resource(SurfaceLibrary::default());
     commands.insert_resource(MaterialTime::default());
     commands.insert_resource(OpaqueSurfaceStatus::default());
@@ -116,6 +135,8 @@ pub(super) fn register_prepared(
 }
 
 pub(super) fn apply_factors(material: &mut StandardMaterial, factors: &Value) {
+    material.uv_transform =
+        super::pbr::uv_transform(factors).expect("Validated prepared UV transform");
     let scalar = |key: &str, default: f32| factors[key].as_f64().map_or(default, |v| v as f32);
     material.perceptual_roughness = scalar("roughness", material.perceptual_roughness);
     material.metallic = scalar("metallic", material.metallic);
@@ -172,11 +193,13 @@ pub(super) fn refresh_owners(
             Option<&mut AnimatedMaterial>,
             Option<&mut ScalarAnimation>,
             Option<&mut UvAnimation>,
+            Option<&mut FlagMotion>,
         ),
         Or<(
             With<AnimatedMaterial>,
             With<ScalarAnimation>,
             With<UvAnimation>,
+            With<FlagMotion>,
         )>,
     >,
     parents: Query<&ChildOf>,
@@ -184,7 +207,7 @@ pub(super) fn refresh_owners(
     stones: Query<(), With<crate::staff_puzzles::IceStone>>,
     inputs: Query<(), With<NativeArtInputs>>,
 ) {
-    for (entity, animated, scalar, uv) in &mut surfaces {
+    for (entity, animated, scalar, uv, flag) in &mut surfaces {
         let mut ancestor = Some(entity);
         let mut owner = None;
         while let Some(current) = ancestor {
@@ -205,6 +228,9 @@ pub(super) fn refresh_owners(
             animation.owner = owner;
         }
         if let Some(mut animation) = uv {
+            animation.owner = owner;
+        }
+        if let Some(mut animation) = flag {
             animation.owner = owner;
         }
     }
@@ -230,6 +256,17 @@ pub(super) struct AnimatedMaterial {
 pub(crate) struct NativeArtInputs {
     pub script_vectors: [[f32; 4]; 4],
     pub time_offset: f32,
+    pub shader_time: Option<(i32, f32)>,
+}
+
+fn game_time(milliseconds: i32, start_seconds: f32) -> Result<[f32; 4], String> {
+    let seconds = milliseconds as f32 * f32::from_bits(0x3a83126f) - start_seconds;
+    if !seconds.is_finite() {
+        return Err("Native render-game time input is non-finite".into());
+    }
+    let fraction = seconds - seconds.floor();
+    let (sine, cosine) = (fraction * f32::from_bits(0x40c90fdb)).sin_cos();
+    Ok([sine, cosine, fraction, seconds])
 }
 
 #[derive(Component, serde::Deserialize)]
@@ -251,9 +288,230 @@ pub(super) struct UvAnimation {
     time_mode: String,
     #[serde(skip)]
     owner: Option<Entity>,
+    #[serde(skip)]
+    base: bevy::math::Affine2,
+}
+
+#[derive(Clone, serde::Deserialize)]
+struct FlagParameters {
+    parameters: [f32; 4],
+    phase_uv: [[f32; 2]; 3],
+    phase_time: [f32; 3],
+    displacement_amplitude: [f32; 3],
+    normal_cosine_u: [f32; 3],
+    normal_cosine_v: [f32; 3],
+    normal_derivative_scale: f32,
+}
+
+impl FlagParameters {
+    fn read(value: &Value) -> Result<Self, String> {
+        let parameters: Self = serde_json::from_value(value.clone())
+            .map_err(|error| format!("Invalid source flag parameters: {error}"))?;
+        if value["time"]["code_constant"] != 25
+            || value["time"]["component"] != 3
+            || value["time"]["operation"] != "add_parameter_y_then_multiply_parameter_x"
+            || value["uv"] != "one_minus_uv0"
+            || value["fragment_vertex_alpha"] != 1.
+            || value["displacement_axis"] != "decoded_model_normal"
+            || value["normal_operation"]
+                != "add_vertex_alpha_scaled_cosine_derivatives_in_source_tangent_basis_then_normalize"
+            || parameters
+                .parameters
+                .iter()
+                .chain(parameters.phase_uv.iter().flatten())
+                .chain(&parameters.phase_time)
+                .chain(&parameters.displacement_amplitude)
+                .chain(&parameters.normal_cosine_u)
+                .chain(&parameters.normal_cosine_v)
+                .chain([&parameters.normal_derivative_scale])
+                .any(|value| !value.is_finite())
+        {
+            return Err("Unsupported or non-finite source flag motion".into());
+        }
+        Ok(parameters)
+    }
+}
+
+#[derive(Component)]
+pub(super) struct FlagMotion {
+    original: Handle<Mesh>,
+    target: Handle<Mesh>,
+    owner: Option<Entity>,
+    parameters: FlagParameters,
+    positions: Vec<[f32; 3]>,
+    normals: Vec<[f32; 3]>,
+    tangents: Vec<[f32; 3]>,
+    uv: Vec<[f32; 2]>,
+    alpha: Vec<f32>,
+    sign: Vec<f32>,
+    last_time: Option<f32>,
+}
+
+impl FlagMotion {
+    fn new(
+        original: Handle<Mesh>,
+        owner: Entity,
+        parameters: FlagParameters,
+        source: &Mesh,
+    ) -> Result<(Self, Mesh), String> {
+        let _ = source
+            .try_attributes()
+            .map_err(|error| format!("Native flag CPU geometry is unavailable: {error}"))?;
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            source.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            return Err("Native flag positions are missing".into());
+        };
+        let Some(VertexAttributeValues::Float32x3(normals)) = source.attribute(FLAG_SOURCE_NORMAL)
+        else {
+            return Err("Native flag raw decoded normals are missing".into());
+        };
+        let Some(VertexAttributeValues::Float32x3(tangents)) =
+            source.attribute(FLAG_SOURCE_TANGENT)
+        else {
+            return Err("Native flag raw decoded tangents are missing".into());
+        };
+        let Some(VertexAttributeValues::Float32x4(tangent_signs)) =
+            source.attribute(Mesh::ATTRIBUTE_TANGENT)
+        else {
+            return Err("Native flag tangent signs are missing".into());
+        };
+        let Some(VertexAttributeValues::Float32x2(uv)) = source.attribute(Mesh::ATTRIBUTE_UV_0)
+        else {
+            return Err("Native flag UV0 is missing".into());
+        };
+        let Some(VertexAttributeValues::Float32x4(colors)) =
+            source.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            return Err("Native flag motion alpha is missing".into());
+        };
+        if positions.is_empty()
+            || [
+                normals.len(),
+                tangents.len(),
+                tangent_signs.len(),
+                uv.len(),
+                colors.len(),
+            ]
+            .into_iter()
+            .any(|count| count != positions.len())
+            || positions
+                .iter()
+                .flatten()
+                .chain(normals.iter().flatten())
+                .chain(tangents.iter().flatten())
+                .chain(tangent_signs.iter().flatten())
+                .chain(uv.iter().flatten())
+                .chain(colors.iter().flatten())
+                .any(|value| !value.is_finite())
+        {
+            return Err("Native flag geometry arrays are invalid".into());
+        }
+        let mut target = source.clone();
+        target.asset_usage = bevy::asset::RenderAssetUsages::default();
+        target.insert_attribute(
+            Mesh::ATTRIBUTE_COLOR,
+            colors
+                .iter()
+                .map(|color| [color[0], color[1], color[2], 1.])
+                .collect::<Vec<_>>(),
+        );
+        Ok((
+            Self {
+                original,
+                target: Handle::default(),
+                owner: Some(owner),
+                parameters,
+                positions: positions.clone(),
+                normals: normals.clone(),
+                tangents: tangents.clone(),
+                uv: uv.clone(),
+                alpha: colors.iter().map(|color| color[3]).collect(),
+                sign: tangent_signs.iter().map(|tangent| tangent[3]).collect(),
+                last_time: None,
+            },
+            target,
+        ))
+    }
+
+    fn deform(&self, seconds: f32) -> Result<(Vec<[f32; 3]>, Vec<[f32; 3]>), String> {
+        let parameters = &self.parameters;
+        let time = (seconds + parameters.parameters[1]) * parameters.parameters[0];
+        let mut positions = Vec::with_capacity(self.positions.len());
+        let mut normals = Vec::with_capacity(self.positions.len());
+        for index in 0..self.positions.len() {
+            let uv = Vec2::ONE - Vec2::from_array(self.uv[index]);
+            let phases: [f32; 3] = std::array::from_fn(|wave| {
+                uv.dot(Vec2::from_array(parameters.phase_uv[wave]))
+                    + time * parameters.phase_time[wave]
+            });
+            let mut height = 0.;
+            let mut u = 0.;
+            let mut v = 0.;
+            for wave in 0..3 {
+                let (sine, cosine) = phases[wave].sin_cos();
+                height += parameters.displacement_amplitude[wave] * sine;
+                u += parameters.normal_cosine_u[wave] * cosine;
+                v += parameters.normal_cosine_v[wave] * cosine;
+            }
+            let normal = Vec3::from_array(self.normals[index]);
+            let tangent = Vec3::from_array(self.tangents[index]);
+            let bitangent = normal.cross(tangent) * self.sign[index];
+            let position = Vec3::from_array(self.positions[index])
+                + normal * (height * self.alpha[index] * 0.0254);
+            let normal = (normal
+                + (u * tangent + v * bitangent)
+                    * (self.alpha[index] * parameters.normal_derivative_scale))
+                .normalize();
+            if !position.is_finite() || !normal.is_finite() {
+                return Err("Native flag deformation produced a non-finite vertex".into());
+            }
+            positions.push(position.to_array());
+            normals.push(normal.to_array());
+        }
+        Ok((positions, normals))
+    }
+
+    fn bounds(&self) -> bevy::camera::primitives::Aabb {
+        let amplitude: f32 = self
+            .parameters
+            .displacement_amplitude
+            .iter()
+            .map(|value| value.abs())
+            .sum();
+        let mut minimum = Vec3::splat(f32::INFINITY);
+        let mut maximum = Vec3::splat(f32::NEG_INFINITY);
+        for (index, position) in self.positions.iter().enumerate() {
+            let position = Vec3::from_array(*position);
+            let extent = Vec3::from_array(self.normals[index]).abs()
+                * (amplitude * self.alpha[index].abs() * 0.0254);
+            minimum = minimum.min(position - extent);
+            maximum = maximum.max(position + extent);
+        }
+        bevy::camera::primitives::Aabb::from_min_max(minimum, maximum)
+    }
+
+    fn source_bounds(&self) -> bevy::camera::primitives::Aabb {
+        let minimum = self
+            .positions
+            .iter()
+            .fold(Vec3::splat(f32::INFINITY), |bounds, position| {
+                bounds.min(Vec3::from_array(*position))
+            });
+        let maximum = self
+            .positions
+            .iter()
+            .fold(Vec3::splat(f32::NEG_INFINITY), |bounds, position| {
+                bounds.max(Vec3::from_array(*position))
+            });
+        bevy::camera::primitives::Aabb::from_min_max(minimum, maximum)
+    }
 }
 
 fn validate_animation(surface: &Value) -> Result<(), String> {
+    if !surface["source_flag_motion"].is_null() {
+        FlagParameters::read(&surface["source_flag_motion"])?;
+    }
     if !surface["animation"].is_null() {
         let animation = &surface["animation"];
         let frames = animation["frames"]
@@ -285,6 +543,7 @@ fn validate_animation(surface: &Value) -> Result<(), String> {
         }
         for frame in frames {
             super::pbr::textures(&frame["channels"])?;
+            super::pbr::uv_transform(&frame["standard"])?;
         }
     }
     if !surface["scalar_animation"].is_null() {
@@ -308,7 +567,7 @@ fn validate_animation(surface: &Value) -> Result<(), String> {
             .map_err(|error| format!("Invalid UV material animation: {error}"))?;
         if !matches!(
             animation.time_mode.as_str(),
-            "elapsed" | "fractional_second"
+            "elapsed" | "fractional_second" | "native_fractional_second"
         ) || !animation.translation.iter().all(|value| value.is_finite())
         {
             return Err("Unsupported UV material animation controls".into());
@@ -326,6 +585,8 @@ pub(super) fn convert(
             &GltfMaterialName,
             &Mesh3d,
             Has<super::DynamicSurface>,
+            Has<bevy::mesh::skinning::SkinnedMesh>,
+            Option<&FlagMotion>,
         ),
         (With<PbrReady>, With<SurfaceReady>, Without<StandardReady>),
     >,
@@ -336,13 +597,15 @@ pub(super) fn convert(
     art_inputs: Query<(), With<NativeArtInputs>>,
     mut library: ResMut<SurfaceLibrary>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    native_inputs: Query<&NativeArtInputs>,
     server: Res<AssetServer>,
     mut status: ResMut<OpaqueSurfaceStatus>,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
     status.pending = 0;
-    for (entity, original, name, mesh, dynamic) in &query {
+    for (entity, original, name, mesh, dynamic, skinned, flag) in &query {
         let Some(base) = materials.get(&original.0).cloned() else {
             status.pending += 1;
             continue;
@@ -375,7 +638,9 @@ pub(super) fn convert(
             current = parents.get(ancestor).ok().map(ChildOf::parent);
         }
         let animation = &definition.metadata["animation"];
-        let live_mesh = dynamic || !definition.metadata["uv_animation"].is_null();
+        let live_mesh = dynamic
+            || !definition.metadata["uv_animation"].is_null()
+            || !definition.metadata["source_flag_motion"].is_null();
         if definition.frames.is_empty()
             && let Some(source_frames) = animation["frames"].as_array()
         {
@@ -415,6 +680,51 @@ pub(super) fn convert(
             status.pending += 1;
             continue;
         }
+        let mut flag_original = None;
+        if !definition.metadata["source_flag_motion"].is_null() {
+            let result = (|| -> Result<(FlagMotion, Mesh), String> {
+                if skinned {
+                    return Err(
+                        "Native flag deformation after source skinning is not yet connected".into(),
+                    );
+                }
+                let owner = owner.ok_or("Native flag render-game time owner is not connected")?;
+                let (milliseconds,start) = native_inputs.get(owner).ok().and_then(|input|input.shader_time)
+                    .ok_or("Native flag render-game milliseconds and shader-start input are not connected")?;
+                game_time(milliseconds, start)?;
+                let parameters = FlagParameters::read(&definition.metadata["source_flag_motion"])?;
+                let source_handle = flag
+                    .filter(|flag| flag.target == mesh.0)
+                    .map_or(&mesh.0, |flag| &flag.original);
+                let source = meshes
+                    .get(source_handle)
+                    .ok_or("Native flag source mesh is unavailable")?;
+                FlagMotion::new(source_handle.clone(), owner, parameters, source)
+            })();
+            match result {
+                Ok((mut flag, target)) => {
+                    flag_original = Some(flag.original.id());
+                    let handle = meshes.add(target);
+                    flag.target = handle.clone();
+                    let bounds = flag.bounds();
+                    commands
+                        .entity(entity)
+                        .insert((Mesh3d(handle), bounds, flag));
+                }
+                Err(error) => {
+                    failure.0 = format!("Material {}: {error}", name.0);
+                    next.set(crate::GameState::LoadError);
+                    return;
+                }
+            }
+        } else if let Some(flag) = flag {
+            if flag.target == mesh.0 {
+                commands
+                    .entity(entity)
+                    .insert((Mesh3d(flag.original.clone()), flag.source_bounds()));
+            }
+            commands.entity(entity).remove::<FlagMotion>();
+        }
         if !frames.is_empty()
             || !definition.metadata["scalar_animation"].is_null()
             || !definition.metadata["uv_animation"].is_null()
@@ -435,6 +745,8 @@ pub(super) fn convert(
                 serde_json::from_value(definition.metadata["uv_animation"].clone())
                     .expect("Source-built UV material animation");
             animation.owner = owner;
+            animation.base = super::pbr::uv_transform(&definition.metadata["standard"])
+                .expect("Validated prepared UV transform");
             commands.entity(entity).insert(animation);
         }
         if !frames.is_empty() {
@@ -457,6 +769,9 @@ pub(super) fn convert(
             (!matches!(base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_))) as usize;
         status.water += (definition.metadata["family"] == "water") as usize;
         commands.entity(entity).insert(StandardReady);
+        if let Some(original) = flag_original {
+            library.live_meshes.insert(original);
+        }
         library.prepared_meshes.insert(mesh.0.id());
         if live_mesh {
             library.live_meshes.insert(mesh.0.id());
@@ -544,23 +859,116 @@ pub(super) fn animate_uvs(
     inputs: Query<&NativeArtInputs>,
     entities: Query<(&UvAnimation, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<crate::GameState>>,
 ) {
     for (animation, handle) in &entities {
         let input = animation.owner.and_then(|owner| inputs.get(owner).ok());
         let seconds = time.0 - input.map_or(0., |input| input.time_offset as f64);
-        let phase = if animation.time_mode == "fractional_second" {
+        let phase = if animation.time_mode == "native_fractional_second" {
+            let phase = input
+                .and_then(|input| input.shader_time)
+                .ok_or_else(|| {
+                    "Native UV render-game milliseconds and shader-start input are not connected"
+                        .to_owned()
+                })
+                .and_then(|(milliseconds, start)| game_time(milliseconds, start));
+            match phase {
+                Ok(time) => time[2] as f64,
+                Err(error) => {
+                    failure.0 = error;
+                    next.set(crate::GameState::LoadError);
+                    return;
+                }
+            }
+        } else if animation.time_mode == "fractional_second" {
             seconds - seconds.floor()
         } else {
             seconds
         };
-        let uv_transform = bevy::math::Affine2::from_translation(
-            Vec2::from_array(animation.translation) * phase as f32,
-        );
+        let uv_transform = animation.base
+            * bevy::math::Affine2::from_translation(
+                Vec2::from_array(animation.translation) * phase as f32,
+            );
         if let Some(material) = materials.get(&handle.0)
             && material.uv_transform != uv_transform
             && let Some(mut material) = materials.get_mut(&handle.0)
         {
             material.uv_transform = uv_transform;
+        }
+    }
+}
+
+pub(super) fn animate_flags(
+    mut commands: Commands,
+    inputs: Query<&NativeArtInputs>,
+    mut entities: Query<(
+        Entity,
+        &Mesh3d,
+        &GlobalTransform,
+        Has<bevy::mesh::skinning::SkinnedMesh>,
+        &mut FlagMotion,
+    )>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<crate::GameState>>,
+) {
+    for (entity, handle, transform, skinned, mut flag) in &mut entities {
+        if flag.target != handle.0 {
+            commands
+                .entity(entity)
+                .remove::<(FlagMotion, StandardReady)>();
+            continue;
+        }
+        let result = (|| -> Result<Option<(Vec<[f32; 3]>, Vec<[f32; 3]>, f32)>, String> {
+            if skinned {
+                return Err(
+                    "Native flag deformation after source skinning is not yet connected".into(),
+                );
+            }
+            let basis = transform.affine().matrix3;
+            let axes = [basis.x_axis, basis.y_axis, basis.z_axis];
+            let scale = axes[0].length_squared();
+            if !scale.is_finite()
+                || scale <= 0.
+                || basis.determinant() <= 0.
+                || axes.iter().any(|axis| {
+                    !axis.is_finite() || (axis.length_squared() - scale).abs() > scale * 0.0001
+                })
+                || [(0, 1), (0, 2), (1, 2)]
+                    .into_iter()
+                    .any(|(a, b)| axes[a].dot(axes[b]).abs() > scale * 0.0001)
+            {
+                return Err("Native flag source normal transform requires a proven rigid uniform-scale placement".into());
+            }
+            let (milliseconds, start) = flag
+                .owner
+                .and_then(|owner| inputs.get(owner).ok())
+                .and_then(|input| input.shader_time)
+                .ok_or(
+                    "Native flag render-game milliseconds and shader-start input are not connected",
+                )?;
+            let seconds = game_time(milliseconds, start)?[3];
+            if flag.last_time == Some(seconds) {
+                return Ok(None);
+            }
+            let (positions, normals) = flag.deform(seconds)?;
+            Ok(Some((positions, normals, seconds)))
+        })();
+        match result {
+            Ok(Some((positions, normals, seconds))) => {
+                if let Some(mut mesh) = meshes.get_mut(&handle.0) {
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+                    flag.last_time = Some(seconds);
+                }
+            }
+            Ok(None) => (),
+            Err(error) => {
+                failure.0 = error;
+                next.set(crate::GameState::LoadError);
+                return;
+            }
         }
     }
 }
@@ -741,6 +1149,214 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn flag_parameters() -> FlagParameters {
+        FlagParameters {
+            parameters: [1., 0., 0., 0.],
+            phase_uv: [[0., 0.]; 3],
+            phase_time: [std::f32::consts::TAU, 0., 0.],
+            displacement_amplitude: [7.5, 0., 0.],
+            normal_cosine_u: [1., 0., 0.],
+            normal_cosine_v: [2., 0., 0.],
+            normal_derivative_scale: 0.025,
+        }
+    }
+
+    fn flag_mesh() -> Mesh {
+        let mut mesh = Mesh::new(
+            bevy::mesh::PrimitiveTopology::TriangleList,
+            bevy::asset::RenderAssetUsages::default(),
+        );
+        mesh.insert_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            vec![[0., 0., 0.], [1., 0., 0.], [0., 0., 1.]],
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 1., 0.]; 3]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, vec![[1., 0., 0., -1.]; 3]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0., 0.]; 3]);
+        mesh.insert_attribute(
+            Mesh::ATTRIBUTE_COLOR,
+            vec![
+                [0.25, 0.5, 0.75, 0.],
+                [0.25, 0.5, 0.75, 1.],
+                [0.25, 0.5, 0.75, 1.],
+            ],
+        );
+        mesh.insert_attribute(FLAG_SOURCE_NORMAL, vec![[0., 0.5, 0.]; 3]);
+        mesh.insert_attribute(FLAG_SOURCE_TANGENT, vec![[2., 0., 0.]; 3]);
+        mesh
+    }
+
+    #[test]
+    fn native_shader_time_keeps_fractional_and_elapsed_components_distinct() {
+        let time = game_time(1250, 0.5).unwrap();
+        assert!((time[0] + 1.).abs() < 0.000001 && time[1].abs() < 0.000001);
+        assert_eq!([time[2], time[3]], [0.75, 0.75]);
+        let time = game_time(1250, 2.).unwrap();
+        assert!((time[0] - 1.).abs() < 0.000001 && time[1].abs() < 0.000001);
+        assert_eq!([time[2], time[3]], [0.25, -0.75]);
+        assert!(game_time(1250, f32::NAN).is_err());
+    }
+
+    #[test]
+    fn rigid_flag_motion_preserves_raw_basis_pins_and_updates_ray_geometry_before_reset() {
+        use bevy::{asset::AssetApp, solari::prelude::RaytracingMesh3d};
+        let source = flag_mesh();
+        let (flag, _) = FlagMotion::new(
+            Handle::default(),
+            Entity::PLACEHOLDER,
+            flag_parameters(),
+            &source,
+        )
+        .unwrap();
+        let (_, normals) = flag.deform(0.).unwrap();
+        assert_eq!(normals[0], [0., 1., 0.]);
+        let expected = Vec3::new(0.05, 0.5, 0.05).normalize();
+        assert!((Vec3::from_array(normals[1]) - expected).length() < 0.000001);
+        let (positions, _) = flag.deform(0.25).unwrap();
+        assert_eq!(positions[0], [0., 0., 0.]);
+        assert!((positions[1][1] - 7.5 * 0.5 * 0.0254).abs() < 0.000001);
+        let mut missing = flag_mesh();
+        missing.remove_attribute(FLAG_SOURCE_NORMAL);
+        assert!(
+            FlagMotion::new(
+                Handle::default(),
+                Entity::PLACEHOLDER,
+                flag_parameters(),
+                &missing
+            )
+            .is_err()
+        );
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>()
+            .init_resource::<crate::assets::LoadFailure>()
+            .insert_resource(NextState::<crate::GameState>::Unchanged)
+            .add_systems(
+                Update,
+                (
+                    refresh_owners,
+                    animate_flags,
+                    super::super::solari::prepare_meshes,
+                )
+                    .chain(),
+            );
+        let original = app.world_mut().resource_mut::<Assets<Mesh>>().add(source);
+        let material = app
+            .world_mut()
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial::default());
+        let mut objects = Vec::new();
+        for start in [0., 0.5] {
+            let owner = app
+                .world_mut()
+                .spawn(NativeArtInputs {
+                    shader_time: Some((1250, start)),
+                    ..default()
+                })
+                .id();
+            let source = app
+                .world()
+                .resource::<Assets<Mesh>>()
+                .get(&original)
+                .unwrap();
+            let (mut flag, target) =
+                FlagMotion::new(original.clone(), owner, flag_parameters(), source).unwrap();
+            let target = app.world_mut().resource_mut::<Assets<Mesh>>().add(target);
+            flag.target = target.clone();
+            let bounds = flag.bounds();
+            let entity = app
+                .world_mut()
+                .spawn((
+                    ChildOf(owner),
+                    Mesh3d(target.clone()),
+                    MeshMaterial3d(material.clone()),
+                    GlobalTransform::IDENTITY,
+                    InheritedVisibility::VISIBLE,
+                    bounds,
+                    flag,
+                ))
+                .id();
+            objects.push((owner, entity, target));
+        }
+        app.update();
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .is_empty()
+        );
+        let proxy = app
+            .world()
+            .get::<RaytracingMesh3d>(objects[0].1)
+            .unwrap()
+            .0
+            .clone();
+        {
+            let meshes = app.world().resource::<Assets<Mesh>>();
+            let raster = meshes.get(&objects[0].2).unwrap();
+            assert_eq!(
+                raster.attribute(Mesh::ATTRIBUTE_POSITION),
+                meshes
+                    .get(&proxy)
+                    .unwrap()
+                    .attribute(Mesh::ATTRIBUTE_POSITION)
+            );
+            let Some(VertexAttributeValues::Float32x3(a)) =
+                raster.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!()
+            };
+            let Some(VertexAttributeValues::Float32x3(b)) = meshes
+                .get(&objects[1].2)
+                .unwrap()
+                .attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!()
+            };
+            assert!(a[1][1] > 0.09 && b[1][1] < -0.09);
+            let Some(VertexAttributeValues::Float32x4(colors)) =
+                raster.attribute(Mesh::ATTRIBUTE_COLOR)
+            else {
+                panic!()
+            };
+            assert!(colors.iter().all(|color| *color == [0.25, 0.5, 0.75, 1.]));
+            let Some(VertexAttributeValues::Float32x3(source)) = meshes
+                .get(&original)
+                .unwrap()
+                .attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!()
+            };
+            assert!(source.iter().all(|position| position[1] == 0.));
+        }
+        app.world_mut()
+            .get_mut::<NativeArtInputs>(objects[0].0)
+            .unwrap()
+            .shader_time = Some((1750, 0.));
+        app.update();
+        assert_eq!(
+            app.world().get::<RaytracingMesh3d>(objects[0].1).unwrap().0,
+            proxy
+        );
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        let Some(VertexAttributeValues::Float32x3(positions)) = meshes
+            .get(&proxy)
+            .unwrap()
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!()
+        };
+        assert!(positions[1][1] < -0.09);
+        app.add_systems(Update, initialize.before(refresh_owners));
+        app.update();
+        for (_, entity, _) in objects {
+            assert!(app.world().get::<FlagMotion>(entity).is_none());
+            assert_eq!(app.world().get::<Mesh3d>(entity).unwrap().0, original);
+        }
+    }
+
     #[test]
     fn repeated_surface_registration_retains_loaded_frames_and_rejects_conflicts() {
         let mut library = SurfaceLibrary::default();
@@ -776,6 +1392,100 @@ mod tests {
             validate_animation(&json!({"scalar_animation":{"lookup":[],"sampler":0,
             "speed":1.,"minimum":0.,"maximum":1.,"script_vector":0,"script_component":0}}))
             .is_err()
+        );
+    }
+
+    #[test]
+    fn source_uv_scrolling_is_composed_before_the_prepared_bake_transform() {
+        use bevy::asset::AssetApp;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<StandardMaterial>()
+            .init_resource::<crate::assets::LoadFailure>()
+            .insert_resource(NextState::<crate::GameState>::Unchanged)
+            .insert_resource(MaterialTime(2.))
+            .add_systems(Update, animate_uvs);
+        let base =
+            super::super::pbr::uv_transform(&json!({"uv_transform":[0.5,0.,0.,0.25,-1.,2.]}))
+                .unwrap();
+        let handle = app
+            .world_mut()
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial::default());
+        app.world_mut().spawn((
+            MeshMaterial3d(handle.clone()),
+            UvAnimation {
+                translation: [1., -2.],
+                time_mode: "elapsed".into(),
+                owner: None,
+                base,
+            },
+        ));
+        app.update();
+        let material = app
+            .world()
+            .resource::<Assets<StandardMaterial>>()
+            .get(&handle)
+            .unwrap();
+        assert_eq!(
+            material.uv_transform.transform_point2(Vec2::new(2., -8.)),
+            Vec2::new(1., -1.)
+        );
+        assert_eq!(
+            material.uv_transform.transform_point2(Vec2::new(4., -4.)),
+            Vec2::new(2., 0.)
+        );
+        let owner = app
+            .world_mut()
+            .spawn(NativeArtInputs {
+                shader_time: Some((1250, 0.5)),
+                ..default()
+            })
+            .id();
+        let native = app
+            .world_mut()
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial::default());
+        app.world_mut().spawn((
+            MeshMaterial3d(native.clone()),
+            UvAnimation {
+                translation: [0., -1.],
+                time_mode: "native_fractional_second".into(),
+                owner: Some(owner),
+                base: bevy::math::Affine2::IDENTITY,
+            },
+        ));
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<Assets<StandardMaterial>>()
+                .get(&native)
+                .unwrap()
+                .uv_transform
+                .translation,
+            Vec2::new(0., -0.75)
+        );
+        app.world_mut().resource_mut::<MaterialTime>().0 = 999.;
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<Assets<StandardMaterial>>()
+                .get(&native)
+                .unwrap()
+                .uv_transform
+                .translation,
+            Vec2::new(0., -0.75)
+        );
+        app.world_mut()
+            .get_mut::<NativeArtInputs>(owner)
+            .unwrap()
+            .shader_time = None;
+        app.update();
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .contains("shader-start input")
         );
     }
 

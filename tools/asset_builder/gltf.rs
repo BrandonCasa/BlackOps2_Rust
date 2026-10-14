@@ -148,6 +148,7 @@ impl Scene {
             let material = *materials.get(&surface.material.to_ascii_lowercase())
                 .ok_or_else(|| format!("Converted surface material is missing: {}", surface.material))?;
             let surface_material = &self.data["materials"][material]["extras"]["surface"];
+            let flag_motion = !surface_material["source_flag_motion"].is_null();
             let transfer = surface_material["source_vertex_color_transfer"].as_str();
             let colors = if matches!(transfer,Some("gamma2" | "gamma2_alpha")) {
                 let values: Vec<[f32; 4]> = surface.colors.iter().map(|color| std::array::from_fn(|c| {
@@ -163,6 +164,13 @@ impl Scene {
                 index
             };
             let mut attributes = json!({"POSITION":positions,"NORMAL":normal,"TANGENT":tangent,"TEXCOORD_0":uv,"COLOR_0":colors});
+            if flag_motion {
+                if surface.raw_normals.len() != surface.positions.len() || surface.raw_tangents.len() != surface.positions.len() {
+                    return Err("Source flag raw basis does not match its vertices".into());
+                }
+                attributes["_ORIGINS_NORMAL"] = json!(self.floats(&surface.raw_normals,"VEC3"));
+                attributes["_ORIGINS_TANGENT"] = json!(self.floats(&surface.raw_tangents,"VEC3"));
+            }
             if !surface.lightmap_uv.is_empty() {
                 attributes["TEXCOORD_1"] = json!(self.floats(&surface.lightmap_uv, "VEC2"));
             }

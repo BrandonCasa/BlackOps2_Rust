@@ -308,6 +308,8 @@ fn footprint(coordinates: &[[[f32;2];3]]) -> Result<[f64;3]> {
 }
 
 struct Recipe {
+    special: u8,
+    special_parms: [[f32;4];3],
     inputs: Vec<Input>,
     base_specular: bool,
     geometric_normal: bool,
@@ -362,6 +364,76 @@ impl Recipe {
     }
     fn has_specular(&self) -> bool { self.base_specular || self.layer_specular || self.second_specular }
 
+    #[cfg(test)]
+    fn sample_special(&self, uv: [f32;2]) -> Result<[[f32;4];4]> {
+        let sample = |index:usize,uv| self.inputs[index].sample(uv);
+        let decode = |value:f32| value*f32::from_bits(0x40808102)+f32::from_bits(0xc0010204);
+        let normal = |slope:[f32;2]| {
+            let length=(slope[0]*slope[0]+slope[1]*slope[1]+1.).sqrt();
+            [slope[0]/length,slope[1]/length,1./length,1.]
+        };
+        let fit = |color:[f32;3],normal,rgb:[f32;3],gloss,emission| {
+            let (color,metallic,roughness)=crate::material::pbr_pixel(color,rgb,gloss);
+            [[color[0],color[1],color[2],1.],normal,[1.,roughness,metallic,emission],[rgb[0],rgb[1],rgb[2],gloss]]
+        };
+        if matches!(self.special,4 | 8) {
+            let base=sample(0,uv);let n=sample(1,uv);
+            let color=std::array::from_fn(|axis| base[axis]*base[axis]);let normal=normal([decode(n[0]),decode(n[1])]);
+            if self.special == 8 {
+                let lookup=sample(3,[self.second_parms[0],self.special_parms[2][3]*self.parms[1]])[0];
+                let flicker=(self.parms[2]+lookup*(self.parms[3]-self.parms[2]))*(1.-self.special_parms[1][0]).clamp(0.,1.)*self.parms[0];
+                return Ok(fit(color,normal,[0.04;3],base[3],flicker*flicker));
+            }
+            let response=sample(2,uv);let rgb=std::array::from_fn(|axis| (response[axis]*self.parms[0]).powi(2));
+            let emission=self.parms[2]*self.parms[2]*self.parms[3];
+            let mut pixel=fit(color,normal,rgb,response[3]*self.parms[1],emission*emission);
+            if self.special_parms[0][0] != 0. {pixel[0][3]=base[3];}
+            return Ok(pixel);
+        }
+        if self.special == 1 {
+            let first_uv=std::array::from_fn(|axis| uv[axis]*self.parms[axis]);
+            let second_uv=std::array::from_fn(|axis| uv[axis]*self.parms[axis+2]);
+            let mask=sample(0,uv);let weight=mask[1]*mask[1];
+            let base=sample(1,uv);let first=sample(2,first_uv);let second=sample(3,second_uv);
+            let slope=std::array::from_fn(|axis| decode(base[axis])*self.second_parms[1]
+                +decode(first[axis])*((1.-weight)*self.second_parms[0])+decode(second[axis])*(weight*self.second_parms[3]));
+            let first=sample(4,first_uv);let second=sample(5,second_uv);
+            let color=std::array::from_fn(|axis| (first[axis]+weight*(second[axis]-first[axis])).powi(2));
+            let normal=normal(slope);
+            if self.base_specular {
+                let first=sample(6,first_uv);let second=sample(7,second_uv);
+                let response:[f32;4]=std::array::from_fn(|axis| first[axis]+weight*(second[axis]-first[axis]));
+                return Ok(fit(color,normal,std::array::from_fn(|axis| response[axis+1].powi(2)),response[0],1.));
+            }
+            return Ok([[color[0],color[1],color[2],1.],normal,[1.,1.,0.,1.],[0.;4]]);
+        }
+        if uv.iter().any(|value| *value<0.) {return Err("Water reveal source logarithm has a negative coordinate".into());}
+        let time=self.special_parms[2][3];
+        let motion=(time*f32::from_bits(0xbe116d3f)).rem_euclid(1.);
+        let warp=sample(2,[uv[0]*f32::from_bits(0x4035c88e)*f32::from_bits(0x3f7f41f2),(uv[1]*f32::from_bits(0x4035c88e)+motion)*f32::from_bits(0xbdb851ec)]);
+        let power=warp[0]*0.1+1.;
+        let water_uv:[f32;2]=std::array::from_fn(|axis| (uv[axis].powf(power)-0.5)/self.parms[axis+2]+0.5);
+        let scroll=time*self.parms[0];
+        let first=sample(3,[water_uv[0]-scroll*f32::from_bits(0xbc11fcab),water_uv[1]-scroll*f32::from_bits(0x3f4cc98c)]);
+        let second=sample(3,[water_uv[0]-(scroll*f32::from_bits(0xbc6d3a96)+0.5),water_uv[1]-(scroll*f32::from_bits(0x3fa663c2)+0.5)]);
+        let sum:[f32;2]=std::array::from_fn(|axis| decode(first[axis])+decode(second[axis]));
+        let length=(sum[0]*sum[0]+sum[1]*sum[1]+4.).sqrt();
+        let z=2./length;let water=[sum[0]/length/z,sum[1]/length/z,1.];
+        let positive=(water[0]+water[1])*0.5>0.;
+        let response=sample(5,uv);let temporal=sample(0,uv)[0];let state=self.special_parms[1][2];
+        let mut reveal=[((temporal-(state+f32::from_bits(0x3d75c28f)))*f32::from_bits(0xc1055555)).clamp(0.,1.),
+            ((temporal-(state+f32::from_bits(0xbcf5c28f)))*f32::from_bits(0x41855555)).clamp(0.,1.)];
+        reveal=reveal.map(|value| value*value*(3.-2.*value));
+        let bias=f32::from_bits(if positive {0x3e5b6dca} else {0x3e92491b});
+        let rgb=std::array::from_fn(|axis| {let wet=response[axis]+bias;(wet+reveal[0]*(response[axis]-wet)).powi(2)});
+        let wet_gloss=if positive {response[3]} else {1.};let gloss=wet_gloss+reveal[0]*(response[3]-wet_gloss);
+        let base=sample(1,uv);let slope=std::array::from_fn(|axis| {let base=decode(base[axis]);let wet=base*water[2]+water[axis]*self.parms[1];wet+reveal[0]*(base-wet)});
+        let warped=sample(4,std::array::from_fn(|axis| (uv[axis]-water[axis]*water[2]).clamp(0.,1.)));
+        let base=sample(4,uv)[0];let tint=[0x3f3bc148,0x3f49c91d,0x3f649247].map(f32::from_bits);
+        let color=std::array::from_fn(|axis| {let wet=warped[axis]*tint[axis];(wet+reveal[0]*(self.special_parms[0][axis]*base-wet)).powi(2)});
+        Ok(fit(color,normal(slope),rgb,gloss,(reveal[0]*reveal[1]).powi(2)))
+    }
+
     fn input_uv(&self, index: usize) -> usize {
         if self.third_multiply && index + 1 == self.inputs.len() {3}
         else if index == 0 || !self.geometric_normal && index == 1 || self.base_specular && index + 1 == self.inputs.len() { 0 }
@@ -388,6 +460,7 @@ impl Recipe {
 
     #[cfg(test)]
     fn sample_frames(&self, uv0: [f32;2], uv1: [f32;2], uv2: [f32;2], green: f32, blue: f32, transform: [f32;4], second_transform: [f32;4], third: [f32;4]) -> Result<[[f32;4];4]> {
+        if self.special != 0 { return self.sample_special(uv0); }
         let inputs = &self.inputs;
         if self.color_operations() {
             let base = inputs[0].sample(uv0);
@@ -612,7 +685,7 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
     if pixels.iter().flatten().any(|value| !value.is_finite() || role != "normal" && *value < 0.) {
         return Err("Baked material has a non-finite or negative channel".into());
     }
-    let hdr = role == "color" && pixels.iter().any(|pixel| pixel[..3].iter().any(|&value| value > 1.));
+    let hdr = matches!(role,"color" | "native-specular") && pixels.iter().any(|pixel| pixel.iter().any(|&value| value > 1.));
     let mut image = texture::Image { width, height, depth:1, faces:1, format:if hdr {19} else {1}, flags:0, levels:Vec::new() };
     let (mut w, mut h, mut pixels) = (width, height, pixels);
     loop {
@@ -632,7 +705,7 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
                 }
             }
             if hdr {
-                if value.iter().any(|v| !v.is_finite() || !(0. ..=65504.).contains(v)) || value[3] > 1. {
+                if value.iter().any(|v| !v.is_finite() || !(0. ..=65504.).contains(v)) || role == "color" && value[3] > 1. {
                     return Err("Baked material pixel exceeds half-float color range".into());
                 }
                 for (bytes,component) in bytes.chunks_exact_mut(2).zip(value) { bytes.copy_from_slice(&half::f16::from_f32(component).to_le_bytes()); }
@@ -663,8 +736,315 @@ fn mip_chain(width: usize, height: usize, pixels: Vec<[f32; 4]>, role: &str) -> 
 
 pub fn validate_native(native: &Value) -> Result<()> { recipe(native,None).map(|_| ()) }
 
+fn special_family(family: &str) -> bool {
+    emissive_family(family) || matches!(family,"mc_sw4_3d_cod7_tile_blend_spec_8w40z341" | "mlv_sw4_3d_cod7_tile_blend_spec_w8wezqe6"
+        | "mc_sw4_3d_cod7_tile_blend_q2q2zej6" | "mlv_sw4_3d_cod7_tile_blend_26zq1w22"
+        | "mc_sw4_3d_water_on_surface_reveal_77320z68")
+}
+
+fn emissive_family(family: &str) -> bool {
+    matches!(family,"mc_sw4_3d_phong_emissive_q0751958" | "mc_sw4_3d_phong_emissive_alcatraz_90892wq5"
+        | "mc_sw4_3d_phong_emissive_alcatraz_8q551153" | "mlv_sw4_3d_phong_emissive_alcatraz_w1q1w09e"
+        | "mc_sw4_3d_phong_simple_emissive_flicker_9j5f25q3")
+}
+
+fn special_recipe(native: &Value, images: Option<&BTreeMap<String, texture::Image>>) -> Result<Recipe> {
+    let family = native["technique_set"].as_str().ok_or("Surface family is missing")?;
+    if emissive_family(family) {return emissive_recipe(native,images);}
+    let water = family == "mc_sw4_3d_water_on_surface_reveal_77320z68";
+    let specular = water || family.contains("tile_blend_spec");
+    let programs = match family {
+        "mc_sw4_3d_cod7_tile_blend_q2q2zej6" => ["sw4_3d_cod7_tile_blend_3e199cfe","sw4_3d_cod7_tile_blend_e88a8c75","sw4_3d_cod7_tile_blend_ff4d7872","sw4_3d_cod7_tile_blend_2d911f96"],
+        "mlv_sw4_3d_cod7_tile_blend_26zq1w22" => ["sw4_3d_cod7_tile_blend_e11f113c","sw4_3d_cod7_tile_blend_378c01b7","sw4_3d_cod7_tile_blend_204bf5b0","sw4_3d_cod7_tile_blend_f2979254"],
+        "mc_sw4_3d_cod7_tile_blend_spec_8w40z341" => ["sw4_3d_cod7_tile_blend_spec_6bd58c9b","sw4_3d_cod7_tile_blend_spec_d5cd3eb7","sw4_3d_cod7_tile_blend_spec_ff8a6704","sw4_3d_cod7_tile_blend_spec_b3b2a268"],
+        "mlv_sw4_3d_cod7_tile_blend_spec_w8wezqe6" => ["sw4_3d_cod7_tile_blend_spec_e51efca4","sw4_3d_cod7_tile_blend_spec_5b064e88","sw4_3d_cod7_tile_blend_spec_7141173b","sw4_3d_cod7_tile_blend_spec_3d79d257"],
+        "mc_sw4_3d_water_on_surface_reveal_77320z68" => ["sw4_3d_phong_emissive_alcatraz_b7d697d7","sw4_3d_water_on_surface_reveal_f3ca08bb","sw4_3d_phong_emissive_alcatraz_7c70ecc","sw4_3d_water_on_surface_reveal_6851d36b"],
+        _ => return Err("Unreviewed special surface family".into()),
+    };
+    let bindings = if water {vec![(2782436735_u32,256),(1507003663,513),(3827006327,770),(1837877086,1027),(2695565377,1284),(2351529600,1541)]}
+        else if specular {vec![(3976875907,256),(329745474,1025),(3400726183,515),(3069501348,770),(2643103145,1542),(3580385162,2052),(2415611304,1287),(830013099,1797)]}
+        else {vec![(3976875907,256),(329745474,1025),(3400726183,515),(3069501348,770),(2643103145,1285),(3580385162,1540)]};
+    let constants = if water {vec![(111253676_u32,124,4),(348546551,96,12),(1116993630,128,4),(1288488438,112,12),(3070667917,132,8),(3071481490,80,4),(3228582790,84,4)]}
+        else {let mut values=vec![(523422290,92,4),(2569221807,96,4),(4005921460,88,4),(4266698135,100,4)];if specular {values.push((211931156,112,4));}values};
+    let expected_routes = [(0,0),(1,2),(2,5),(3,1),(4,7),(5,6)];
+    let route_count = if family.starts_with("mlv_") {6} else {5};
+    for (offset,index) in [4_usize,6].into_iter().enumerate() {
+        let technique = native["techniques"].as_array().ok_or("Special surface techniques are missing")?.iter().find(|value| value["index"] == index).ok_or("Special surface selected technique is missing")?;
+        let passes = technique["passes"].as_array().ok_or("Special surface passes are missing")?;
+        let state = native["state_entries"][index].as_u64().ok_or("Special surface state is missing")? as usize;
+        if passes.len() != 1 || passes[0]["vertex_shader"] != format!("pimp_shader_{}.hlsl",programs[offset*2])
+            || passes[0]["pixel_shader"] != format!("pimp_shader_{}.hlsl",programs[offset*2+1])
+            || native["state_bits"][state] != json!([403867666_u32,13]) { return Err("Special surface selected programs or states differ from recovered source".into()); }
+        let routes = passes[0]["vertex_routes"].as_array().ok_or("Special surface routes are missing")?;
+        let args = passes[0]["arguments"].as_array().ok_or("Special surface arguments are missing")?;
+        if routes.len() != route_count || routes.iter().zip(expected_routes).any(|(route,(source,destination))| route["source"] != source || route["destination"] != destination)
+            || args.iter().filter(|arg| arg["type"] == 2).count() != bindings.len()
+            || bindings.iter().any(|&(hash,slot)| !args.iter().any(|arg| arg["type"] == 2 && arg["value"] == hash && arg["location"] == slot && arg["buffer"] == 0 && arg["size"] == 1))
+            || args.iter().filter(|arg| arg["type"] == 6).count() != constants.len()
+            || constants.iter().any(|&(hash,location,size)| !args.iter().any(|arg| arg["type"] == 6 && arg["value"] == hash && arg["buffer"] == 2 && arg["location"] == location && arg["size"] == size)) {
+            return Err("Special surface active bindings or vertex routes differ from recovered source".into());
+        }
+        if water {
+            for (code,buffer,location) in [(172,1,416),(25,2,64)] {
+                if !args.iter().any(|arg| arg["type"] == 5 && arg["value"] == 16777216_u32+code && arg["buffer"] == buffer && arg["location"] == location && arg["size"] == 16) {
+                    return Err("Water reveal script/time binding differs from recovered source".into());
+                }
+            }
+        } else if args.iter().filter(|arg| arg["type"] == 0).count() != 2 || [(404288371_u32,80),(2106384112,104)].into_iter().any(|(hash,location)| !args.iter().any(|arg| arg["type"] == 0 && arg["value"] == hash && arg["buffer"] == 2 && arg["location"] == location && arg["size"] == 8)) {
+            return Err("Tile surface micro-coordinate scale binding differs from recovered source".into());
+        }
+    }
+    let constant = |hash| -> Result<[f32;4]> {
+        let value = native["constants"].as_array().ok_or("Special surface constants are missing")?.iter().find(|value| value["hash"] == hash).ok_or("Special surface authored constant is missing")?;
+        let literal: [f32;4] = serde_json::from_value(value["literal"].clone())?;
+        if literal.iter().any(|value| !value.is_finite()) {return Err("Special surface constant is not finite".into());}
+        Ok(literal)
+    };
+    for &(hash,_,_) in &constants {constant(hash)?;}
+    let (parms,second_parms,mut special_parms) = if water {
+        let scale = constant(3070667917)?;
+        if scale[0] == 0. || scale[1] == 0. {return Err("Water reveal scale has a zero divisor".into());}
+        let edge=constant(348546551)?;let alteration=constant(1288488438)?;
+        ([constant(3071481490)?[0],constant(1116993630)?[0],scale[0],scale[1]],
+            [edge[0],edge[1],edge[2],constant(3228582790)?[0]],[[alteration[0],alteration[1],alteration[2],constant(111253676)?[0]],[0.;4],[0.;4]])
+    } else {
+        let first=constant(404288371)?;let second=constant(2106384112)?;
+        ([first[0],first[1],second[0],second[1]],[constant(4005921460)?[0],constant(523422290)?[0],constant(2569221807)?[0],constant(4266698135)?[0]],[[if specular {constant(211931156)?[0]} else {0.},0.,0.,0.],[0.;4],[0.;4]])
+    };
+    if water && images.is_some() {
+        for (slot,code) in [(1,172),(2,25)] {
+            let value = native["code_constants"][code.to_string()].clone();
+            if value.is_null() {return Err(format!("Water reveal requires bound native code constant {code}; no initial state is invented").into());}
+            special_parms[slot]=serde_json::from_value(value)?;
+            if special_parms[slot].iter().any(|value| !value.is_finite()) {return Err("Water reveal effective input is not finite".into());}
+        }
+    }
+    let mut inputs=Vec::new();
+    for &(hash,_) in &bindings {
+        let binding=native["textures"].as_array().ok_or("Special surface textures are missing")?.iter().find(|binding| binding["hash"] == hash).ok_or("Special surface texture is missing")?;
+        let sampler=if water && hash == 3827006327 {10} else {20};
+        if binding["sampler"] != sampler {return Err("Special surface source sampler differs from recovered source".into());}
+        if let Some(images)=images {
+            let name=binding["image"].as_str().ok_or("Special surface image name is missing")?.to_ascii_lowercase();
+            inputs.push(Input::read(images.get(&name).ok_or_else(|| format!("Special surface image {name} is missing"))?,sampler)?);
+        }
+    }
+    Ok(Recipe {special:if water {2} else {1},special_parms,inputs,base_specular:specular,geometric_normal:false,second_additive:false,second_normal:0,
+        second_reveal:false,second_specular:false,second_parms,third_multiply:false,layer_cutout:false,decal:false,multiply:false,additive:false,
+        blend_color:false,reveal:false,layer_specular:false,base_alpha_response:false,parms})
+}
+
+fn emissive_recipe(native: &Value, images: Option<&BTreeMap<String,texture::Image>>) -> Result<Recipe> {
+    let family=native["technique_set"].as_str().ok_or("Emissive surface family is missing")?;
+    let flicker=family == "mc_sw4_3d_phong_simple_emissive_flicker_9j5f25q3";
+    let translucent=family == "mc_sw4_3d_phong_emissive_alcatraz_8q551153";
+    let mlv=family == "mlv_sw4_3d_phong_emissive_alcatraz_w1q1w09e";
+    let programs=if flicker {["sw4_3d_phong_emissive_alcatraz_b7d697d7","sw4_3d_phong_simple_emissive_flicker_bb5863e8","sw4_3d_phong_emissive_alcatraz_7c70ecc","sw4_3d_phong_simple_emissive_flicker_cc44003b"]}
+        else if translucent {["sw4_3d_phong_emissive_alcatraz_b7d697d7","sw4_3d_phong_emissive_alcatraz_d217360d","sw4_3d_phong_emissive_alcatraz_7c70ecc","sw4_3d_phong_emissive_alcatraz_498ceddd"]}
+        else if mlv {["sw4_3d_phong_emissive_alcatraz_bb68573a","sw4_3d_phong_emissive_alcatraz_4fa0bc6c","sw4_3d_phong_emissive_alcatraz_b79ce21","sw4_3d_phong_emissive_alcatraz_d43b67bc"]}
+        else {["sw4_3d_phong_emissive_alcatraz_b7d697d7","sw4_3d_phong_emissive_alcatraz_431e7c81","sw4_3d_phong_emissive_alcatraz_7c70ecc","sw4_3d_phong_emissive_alcatraz_d885a751"]};
+    let bindings=if flicker {[(3574481249_u32,1026),(2485960688,769),(878789447,515),(23340576,256)]}
+        else {[(2695565377,1025),(2485960688,512),(2351529600,770),(1825069840,259)]};
+    let constants=if flicker {vec![(14836402_u32,80),(23340584,92),(23340854,88),(1271696416,96),(3936631419,84)]}
+        else {vec![(14836402,88),(604090542,92),(1020264075,80),(2832011523,84),(3493630810,96),(3662839941,100)]};
+    let routes=[(0,0),(1,2),(2,5),(3,1),(4,7),(5,6)];
+    for (offset,index) in [4_usize,6].into_iter().enumerate() {
+        let technique=native["techniques"].as_array().ok_or("Emissive techniques are missing")?.iter().find(|value| value["index"] == index).ok_or("Emissive selected technique is missing")?;
+        let passes=technique["passes"].as_array().ok_or("Emissive passes are missing")?;
+        let state=native["state_entries"][index].as_u64().ok_or("Emissive selected state is missing")? as usize;
+        if passes.len() != 1 || passes[0]["vertex_shader"] != format!("pimp_shader_{}.hlsl",programs[offset*2])
+            || passes[0]["pixel_shader"] != format!("pimp_shader_{}.hlsl",programs[offset*2+1])
+            || native["state_bits"][state] != if translucent {json!([422084965_u32,12])} else {json!([403867666_u32,13])} {
+            return Err("Emissive selected programs or states differ from recovered source".into());
+        }
+        let actual=passes[0]["vertex_routes"].as_array().ok_or("Emissive vertex routes are missing")?;
+        let args=passes[0]["arguments"].as_array().ok_or("Emissive arguments are missing")?;
+        if actual.len() != if mlv {6} else {5} || actual.iter().zip(routes).any(|(route,(source,destination))| route["source"] != source || route["destination"] != destination)
+            || args.iter().filter(|arg| arg["type"] == 2).count() != bindings.len()
+            || bindings.iter().any(|&(hash,location)| !args.iter().any(|arg| arg["type"] == 2 && arg["value"] == hash && arg["location"] == location && arg["buffer"] == 0 && arg["size"] == 1))
+            || args.iter().filter(|arg| arg["type"] == 6).count() != constants.len()
+            || constants.iter().any(|&(hash,location)| !args.iter().any(|arg| arg["type"] == 6 && arg["value"] == hash && arg["location"] == location && arg["buffer"] == 2 && arg["size"] == 4)) {
+            return Err("Emissive active source bindings or routes differ from recovered source".into());
+        }
+        if flicker {
+            for (code,buffer,location) in [(170,1,384),(25,2,64)] {
+                if !args.iter().any(|arg| arg["type"] == 5 && arg["value"] == 16777216_u32+code && arg["buffer"] == buffer && arg["location"] == location && arg["size"] == 16) {
+                    return Err("Flicker script/time bindings differ from recovered source".into());
+                }
+            }
+        }
+    }
+    let constant=|hash| -> Result<f32> {
+        let value=native["constants"].as_array().ok_or("Emissive authored constants are missing")?.iter().find(|value| value["hash"] == hash).ok_or("Emissive authored constant is missing")?;
+        let literal:[f32;4]=serde_json::from_value(value["literal"].clone())?;
+        if literal.iter().any(|value| !value.is_finite()) {return Err("Emissive authored constant is not finite".into());}
+        Ok(literal[0])
+    };
+    for &(hash,_) in &constants {constant(hash)?;}
+    let (parms,second_parms)=if flicker {([constant(14836402)?,constant(3936631419)?,constant(23340854)?,constant(23340584)?],[constant(1271696416)?,0.,0.,0.])}
+        else {([constant(604090542)?,constant(3662839941)?,constant(3493630810)?,constant(14836402)?],[constant(1020264075)?,constant(2832011523)?,0.,0.])};
+    let mut special_parms:[[f32;4];3]=[[0.;4];3];special_parms[0][0]=if translucent {1.} else {0.};
+    if flicker && images.is_some() {
+        for (slot,key) in [(1,"170"),(2,"25")] {
+            let value=native["code_constants"][key].clone();
+            if value.is_null() {return Err(format!("Flicker requires bound native code constant {key}; no initial state is invented").into());}
+            special_parms[slot]=serde_json::from_value(value)?;
+            if special_parms[slot].iter().any(|value| !value.is_finite()) {return Err("Flicker effective input is not finite".into());}
+        }
+    }
+    let mut inputs=Vec::new();
+    for &(hash,_) in &bindings {
+        let binding=native["textures"].as_array().ok_or("Emissive textures are missing")?.iter().find(|binding| binding["hash"] == hash).ok_or("Emissive texture is missing")?;
+        if binding["sampler"] != 20 {return Err("Emissive source sampler differs from recovered source".into());}
+        if let Some(images)=images {
+            let name=binding["image"].as_str().ok_or("Emissive image name is missing")?.to_ascii_lowercase();
+            inputs.push(Input::read(images.get(&name).ok_or_else(|| format!("Emissive image {name} is missing"))?,20)?);
+        }
+    }
+    Ok(Recipe {special:if flicker {8} else {4},special_parms,inputs,base_specular:true,geometric_normal:false,second_additive:false,second_normal:0,
+        second_reveal:false,second_specular:false,second_parms,third_multiply:false,layer_cutout:false,decal:false,multiply:false,additive:false,
+        blend_color:false,reveal:false,layer_specular:false,base_alpha_response:false,parms})
+}
+
+fn tile_period(recipe: &Recipe) -> Result<[usize;2]> {
+    let mut period=[1;2];
+    for axis in 0..2 {
+        period[axis]=(1..=16).find(|&period| [recipe.parms[axis],recipe.parms[axis+2]].into_iter().all(|scale| {
+            let scaled=scale as f64*period as f64;scaled.is_finite() && scaled.fract() == 0.
+        })).ok_or("Tile surface has no bounded exact repeat period for its authored micro scales")?;
+    }
+    Ok(period)
+}
+
+pub fn prepare_special(native: &Value, images: &BTreeMap<String,texture::Image>, uri: &str, bounds: Option<[[f32;2];2]>, pack: &mut Pack, shared: &mut BTreeMap<String,String>) -> Result<Value> {
+    let reviewed=special_recipe(native,None)?;
+    let mut sources=BTreeMap::new();
+    let active=&native["techniques"].as_array().unwrap().iter().find(|technique| technique["index"] == 4).unwrap()["passes"][0]["arguments"];
+    for binding in native["textures"].as_array().unwrap().iter().filter(|binding| active.as_array().unwrap().iter().any(|arg| arg["type"] == 2 && arg["value"] == binding["hash"])) {
+        let name=binding["image"].as_str().ok_or("Special surface image name is missing")?.to_ascii_lowercase();
+        let path=if let Some(path)=shared.get(&name) {path.clone()} else {
+            let image=images.get(&name).ok_or_else(|| format!("Special surface image {name} is missing"))?;
+            let path=format!("prepared/material-inputs/{}/rgba.ktx2",shared.len());
+            let encoded=texture::encode(image,false,"reflectance")?;texture::validate(&encoded)?;
+            if pack.entries.insert(path.clone(),Arc::new(encoded)).is_some() {return Err("Special surface input URI already exists".into());}
+            shared.insert(name.clone(),path.clone());path
+        };
+        sources.insert(binding["hash"].as_u64().unwrap().to_string(),json!({"uri":path,"sampler":binding["sampler"],"transfer":"source_encoded_rgba"}));
+    }
+    if matches!(reviewed.special,2 | 8) && (native["code_constants"][if reviewed.special == 2 {"172"} else {"170"}].is_null() || native["code_constants"]["25"].is_null()) {
+        let water=reviewed.special == 2;
+        return Ok(json!({"name":native["name"],"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},
+            "extras":{"surface":{"version":3,"identity":native["name"],"native":native,"channels":[],"source_inputs":sources,
+                "source_effective_inputs":if water {json!([172,25])} else {json!([170,25])},"pending_runtime":if water {
+                    "Water reveal requires native per-object scriptVector3 and gameTime inputs, wet-normal/refraction sampling, leading-edge emission, separate reflection amount and the linear model color transform; no initial state is invented"
+                } else {"Native emissive flicker requires per-object scriptVector1.x and gameTime.w for authored flicker-map sampling and amplitude; no initial state is invented"}}}}));
+    }
+    let recipe=special_recipe(native,Some(images))?;
+    let (minimum,extent,sampler) = if recipe.special == 1 {
+        let period=tile_period(&recipe)?;([0.;2],period.map(|value| value as f32),20)
+    } else if recipe.special == 2 {
+        let bounds=bounds.ok_or("Bound water reveal requires source-derived UV bounds")?;
+        if bounds.iter().flatten().any(|value| !value.is_finite() || *value<0.) || (0..2).any(|axis| bounds[1][axis]<=bounds[0][axis]) {
+            return Err("Bound water reveal UV domain is outside the recovered logarithm domain".into());
+        }
+        (bounds[0],std::array::from_fn(|axis| bounds[1][axis]-bounds[0][axis]),116)
+    } else {([0.;2],[1.;2],20)};
+    let dimensions:[usize;2]=std::array::from_fn(|axis| {
+        recipe.inputs.iter().enumerate().map(|(index,input)| {
+            let scale=if recipe.special == 1 {match index {2 | 4 | 6 => recipe.parms[axis].abs(),3 | 5 | 7 => recipe.parms[axis+2].abs(),_ => 1.}} else {1.};
+            ((if axis == 0 {input.width} else {input.height}) as f64*scale as f64*extent[axis] as f64).ceil() as usize
+        }).max().unwrap_or(0).max(1)
+    });
+    if dimensions.into_iter().any(|size| size>16_384) {return Err("Special surface bake exceeds supported texture dimensions at source density".into());}
+    let [width,height]=dimensions;let count=width.checked_mul(height).ok_or("Special surface dimensions overflow")?;
+    let baker=gpu::Baker::new(&recipe)?;
+    let mut outputs:[Vec<[f32;4]>;4]=std::array::from_fn(|_| Vec::with_capacity(count));
+    for start in (0..count).step_by(262_144) {
+        let samples:Vec<gpu::Sample>=(start..(start+262_144).min(count)).map(|index| {
+            let uv=[minimum[0]+((index%width) as f32+0.5)/width as f32*extent[0],minimum[1]+((index/width) as f32+0.5)/height as f32*extent[1]];
+            let mut sample=[0.;20];sample[..2].copy_from_slice(&uv);sample
+        }).collect();
+        for pixel in baker.sample(&samples)? {for (output,pixel) in outputs.iter_mut().zip(pixel) {output.push(pixel);}}
+    }
+    let emission=if recipe.special == 2 {
+        Some(outputs[2].iter().map(|response| std::array::from_fn(|channel| if channel == 3 {1.} else {(recipe.second_parms[channel]*recipe.second_parms[3]).powi(2)*response[3]})).collect())
+    } else if matches!(recipe.special,4 | 8) {
+        let image=&recipe.inputs[if recipe.special == 4 {3} else {2}];
+        let mut emission=vec![[0.;4];count];
+        parallel_chunks_mut(&mut emission,4096,|start,pixels| {
+            for (offset,pixel) in pixels.iter_mut().enumerate() {
+                let index=start+offset;let uv=[((index%width) as f32+0.5)/width as f32,((index/width) as f32+0.5)/height as f32];
+                let source=texture::sample(&image.pixels,image.width,image.height,uv,image.sampler);
+                *pixel=std::array::from_fn(|channel| if channel == 3 {1.} else {(source[channel]*source[3]).powi(2)*outputs[2][index][3]});
+            }
+            Ok(())
+        })?;
+        Some(emission)
+    } else {None};
+    if matches!(recipe.special,2 | 4 | 8) {for response in &mut outputs[2] {response[3]=1.;}}
+    let mut value=store(native,uri,width,height,outputs,sampler,0,pack)?;
+    let surface=&mut value["extras"]["surface"];
+    surface["standard"]["metallic"]=json!(if recipe.base_specular {1.} else {0.});
+    surface["standard"]["reflectance"]=json!(if recipe.base_specular {0.5} else {0.});
+    surface["standard"]["uv_transform"]=json!([1./extent[0],0.,0.,1./extent[1],-minimum[0]/extent[0],-minimum[1]/extent[1]]);
+    surface["source_vertex_color_transfer"]=json!("gamma2");
+    surface["source_inputs"]=json!(sources);
+    surface["bake"]["source_uv_min"]=json!(minimum);
+    surface["bake"]["source_uv_extent"]=json!(extent);
+    surface["approximations"].as_array_mut().unwrap().push(json!("Vertex gamma-2 transfer is evaluated before interpolation; the native shader squares interpolated primary RGB. These agree for constant per-triangle RGB; varying tint requires geometry-dependent evaluation"));
+    if recipe.special == 1 {
+        surface["bake"]["layout"]=json!("exact_uv_repeat_period");
+        surface["source_macro_occlusion"]=json!({"source_hash":3976875907_u32,"operation":"saturate(red*red+adjust)","adjust":recipe.second_parms[2],
+            "consumers":if recipe.base_specular {json!(["indirect_diffuse","direct_specular","reflection_specular"])} else {json!(["indirect_diffuse"])}});
+        surface["source_reflection_amount"]=json!(recipe.special_parms[0][0]);
+        if recipe.second_parms[2]<1. || recipe.base_specular && recipe.special_parms[0][0] != 1. {
+            surface["pending_runtime"]=json!("Native tile macro occlusion affects indirect diffuse and, in specular variants, direct and reflection specular separately; reflection_amount scales only reflection specular. Distinct runtime lighting consumers remain unconnected");
+        }
+        surface["approximations"].as_array_mut().unwrap().push(json!("All active source maps repeat on the derived integer UV period, including fractional authored micro scales. Source bilinear texels are evaluated before finite baked mip filtering; vertex tint is retained separately with gamma-2 transfer"));
+    } else {
+        let path=format!("{uri}/emissive.ktx2");
+        let image=mip_chain(width,height,emission.unwrap(),"color")?;
+        let srgb=image.format != 19;
+        let encoded=texture::encode(&image,srgb,"emissive")?;texture::validate(&encoded)?;pack.entries.insert(path.clone(),Arc::new(encoded));
+        surface["channels"].as_array_mut().unwrap().push(json!({"uri":path,"role":"emissive","layer":0,"color_space":if srgb {"srgb"} else {"linear"},"sampler":sampler}));
+        if recipe.special == 2 {
+            surface["source_effective_inputs"]=native["code_constants"].clone();
+            surface["source_reflection_amount"]=json!(recipe.special_parms[0][3]);
+            surface["source_model_color_transform"]=json!({"buffer":0,"rows":[114,115,116],"operation":"linear_diffuse_plus_specular_plus_emission_before_fog"});
+            surface["pending_runtime"]=json!("Water reveal prepared for explicitly bound script/time inputs; live per-object updates, wet UV sampling, separate reflection amount and the native linear model color transform remain unconnected");
+        } else if recipe.special == 8 {
+            surface["source_effective_inputs"]=native["code_constants"].clone();
+            surface["source_flicker"]=json!({"script_constant":170,"component":0,"time_constant":25,"time_component":3,
+                "lookup_hash":23340576,"lookup_uv":[recipe.second_parms[0],recipe.special_parms[2][3]*recipe.parms[1]],
+                "range":[recipe.parms[2],recipe.parms[3]],"hdr_amount":recipe.parms[0],"operation":"lookup_range_times_saturate_one_minus_script_times_hdr_before_emission_square"});
+            surface["pending_runtime"]=json!("Native emissive flicker prepared for explicit scriptVector1.x/gameTime.w inputs; source per-object script/time generation and live flicker-map amplitude updates remain unconnected");
+        } else {
+            surface["source_emissive"]=json!({"map_hash":1825069840,"push":recipe.parms[2],"hdr_amount":recipe.parms[3],"operation":"square_rgb_times_alpha_times_push_squared_times_hdr"});
+            surface["source_specular_parameters"]=json!({"specular_push":recipe.parms[0],"gloss_push":recipe.parms[1],"reflection_amount":recipe.second_parms[0],"direct_specular_amount":recipe.second_parms[1]});
+            if recipe.second_parms[..2].iter().any(|value| *value != 1.) {
+                surface["pending_runtime"]=json!("Native phong emission is baked, but ReflectionAmount and SpecularAmount scale reflection and direct specular separately; distinct runtime lighting consumers remain unconnected");
+            }
+            if recipe.special_parms[0][0] != 0. {
+                surface["presentation"]["alpha"]=json!("premultiplied");
+                surface["source_fragment_alpha"]=json!("sqrt_texture_vertex_coverage");
+                surface["pending_runtime"]=json!("Native translucent phong emission uses sqrt texture/vertex framebuffer alpha with coverage-independent specular/emission in gamma2 premultiplied composition; matching runtime composition remains unconnected");
+            }
+        }
+    }
+    if native["technique_set"].as_str().is_some_and(|family| family.starts_with("mlv_")) {
+        surface["source_vertex_lighting"]=json!({"source":5,"destination":6,"encoded_rgb_scale":32.,"transfer":"gamma2_before_vertex_interpolation",
+            "diffuse":{"operation":"divide_by_grid_spherical_harmonics","buffer":3,"rows":[5,6,7],"minimum":0.1},
+            "alpha":"sun_shadow_fallback","stage":"separate_indirect_lighting_terms"});
+        if recipe.base_specular {surface["source_vertex_lighting"]["specular"]=json!({"operation":"divide_by_reflection_spherical_harmonics","buffer":3,"rows":[8,9,10],"minimum":0.1});}
+        surface["pending_runtime"]=json!("Native vertex-lit surface requires secondary RGB squared times32 divided by separate grid/reflection spherical-harmonic responses before interpolation, separate indirect lighting multipliers and secondary-alpha sun-shadow fallback; geometry and runtime consumers remain unconnected independently of material lighting amounts");
+    }
+    println!("Baked native special surface {}: {width}x{height}, source UV extent {extent:?}",native["name"]);
+    Ok(value)
+}
+
 fn recipe(native: &Value, images: Option<&BTreeMap<String, texture::Image>>) -> Result<Recipe> {
     let family = native["technique_set"].as_str().ok_or("Layered family is missing")?;
+    if special_family(family) { return special_recipe(native,images); }
     let new_programs = match family {
         "lit_sm_r0c0n0s0_b1c1n1" => Some(["c9b52d6f","6278286e","420be797","10572158"]),
         "lit_sm_r0c0n0s0_b1c1n1s1v1" => Some(["c9b52d6f","d03b9b11","420be797","a2149227"]),
@@ -826,7 +1206,7 @@ fn recipe(native: &Value, images: Option<&BTreeMap<String, texture::Image>>) -> 
             inputs.push(Input::read(image,sampler)?);
         }
     }
-    Ok(Recipe {third_multiply,layer_cutout,second_reveal,second_specular,second_parms,second_additive,second_normal,base_specular,geometric_normal,inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:reveal_parms})
+    Ok(Recipe {special:0,special_parms:[[0.;4];3],third_multiply,layer_cutout,second_reveal,second_specular,second_parms,second_additive,second_normal,base_specular,geometric_normal,inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:reveal_parms})
 }
 
 fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, baker: &gpu::Baker, uri: &str, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<Vec<Surface>> {
@@ -1065,7 +1445,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, baker: &gpu::B
 fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[f32;4]>;4], sampler: u8, charts: usize, pack: &mut Pack) -> Result<Value> {
     let base_alpha_response = matches!(native["technique_set"].as_str(),Some("lit_sm_r0c0n0x0_t1c1n1" | "lit_sm_r0c0n0x0_a1c1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1_a2c2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2" | "lit_sm_r0c0n0x0_b1c1n1_b2c2n2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_m1c1" | "lit_sm_r0c0n0x0_a1c1" | "lit_sm_r0c0n0x0_b1c1" | "lit_sm_r0c0n0x0_b1c1_b2c2" | "lit_sm_r0c0n0x0_b1c1n1v1"));
     let base_alpha_reveal = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1s1v1";
-    let layer_specular = matches!(native["technique_set"].as_str(),Some("lit_sm_r0c0n0x0_b1c1n1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2s2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2_m3c3" | "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2s2v2" | "lit_sm_r0c0n0s0_b1c1n1_b2c2n2s2v2" | "lit_sm_r0c0n0s0_b1c1n1s1v1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2v2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2" | "lit_sm_r0c0n0s0_b1c1n1" | "lit_sm_r0c0n0s0_b1c1n1s1v1" | "lit_sm_r0c0n0x0_b1c1n1s1" | "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2" | "lit_sm_r0c0s0_b1c1" | "lit_sm_r0c0n0_b1c1n1s1v1")) || base_alpha_reveal;
+    let layer_specular = native["technique_set"].as_str().is_some_and(|family| emissive_family(family) || special_family(family) && (family.contains("tile_blend_spec") || family.contains("water_on_surface"))) || matches!(native["technique_set"].as_str(),Some("lit_sm_r0c0n0x0_b1c1n1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2s2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2_m3c3" | "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2s2v2" | "lit_sm_r0c0n0s0_b1c1n1_b2c2n2s2v2" | "lit_sm_r0c0n0s0_b1c1n1s1v1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2v2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2" | "lit_sm_r0c0n0s0_b1c1n1" | "lit_sm_r0c0n0s0_b1c1n1s1v1" | "lit_sm_r0c0n0x0_b1c1n1s1" | "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2" | "lit_sm_r0c0s0_b1c1" | "lit_sm_r0c0n0_b1c1n1s1v1")) || base_alpha_reveal;
     let [albedo,normals,response,specular] = outputs;
     let mut channels = Vec::new();
     let mut outputs = vec![("color",albedo),("normal",normals)];
@@ -1115,11 +1495,18 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
 }
 
 pub fn supported(family: &str) -> bool {
-    matches!(family,"lit_sm_r0c0n0x0_b1c1n1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2s2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2_m3c3" | "lit_sm_r0c0n0x0_t1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2s2v2" | "lit_sm_r0c0n0s0_b1c1n1_b2c2n2s2v2" | "lit_sm_r0c0n0s0_b1c1n1s1v1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2v2" | "lit_sm_r0c0n0x0_a1c1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1_a2c2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2" | "lit_sm_r0c0n0x0_b1c1n1_b2c2n2" | "lit_sm_r0c0n0s0_b1c1n1" | "lit_sm_r0c0n0s0_b1c1n1s1v1" | "lit_sm_r0c0n0x0_b1c1n1s1" | "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2" | "lit_sm_r0c0s0_b1c1" | "lit_sm_r0c0n0x0_b1c1n1v1" | "lit_sm_r0c0n0x0_b1c1_b2c2" | "lit_sm_r0c0n0x0_b1c1" | "lit_sm_r0c0n0x0_a1c1" | "lit_sm_r0c0n0x0_m1c1" | "lit_sm_r0c0n0_m1c1_m2c2" | "lit_sm_r0c0n0_m1c1" | "lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1")
+    special_family(family) || matches!(family,"lit_sm_r0c0n0x0_b1c1n1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2s2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2_m3c3" | "lit_sm_r0c0n0x0_t1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2s2v2" | "lit_sm_r0c0n0s0_b1c1n1_b2c2n2s2v2" | "lit_sm_r0c0n0s0_b1c1n1s1v1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2v2" | "lit_sm_r0c0n0x0_a1c1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1_a2c2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2" | "lit_sm_r0c0n0x0_b1c1n1_b2c2n2" | "lit_sm_r0c0n0s0_b1c1n1" | "lit_sm_r0c0n0s0_b1c1n1s1v1" | "lit_sm_r0c0n0x0_b1c1n1s1" | "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2" | "lit_sm_r0c0s0_b1c1" | "lit_sm_r0c0n0x0_b1c1n1v1" | "lit_sm_r0c0n0x0_b1c1_b2c2" | "lit_sm_r0c0n0x0_b1c1" | "lit_sm_r0c0n0x0_a1c1" | "lit_sm_r0c0n0x0_m1c1" | "lit_sm_r0c0n0_m1c1_m2c2" | "lit_sm_r0c0n0_m1c1" | "lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1")
 }
 
 pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &BTreeMap<String, texture::Image>, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<BTreeMap<String, Vec<Surface>>> {
-    let required: BTreeMap<_, _> = native.iter().filter(|(_, material)| material["technique_set"].as_str().is_some_and(supported)).collect();
+    let mut required: BTreeMap<_, _> = native.iter().filter(|(_, material)| material["technique_set"].as_str().is_some_and(supported)).collect();
+    let special: Vec<_> = required.iter().filter(|(_,material)| material["technique_set"].as_str().is_some_and(special_family)).map(|(name,_)| name.clone()).collect();
+    let mut shared_sources=BTreeMap::new();
+    for key in special {
+        let material = required.remove(&key).unwrap();
+        let uri = format!("prepared/materials/{}/surface",converted.len());
+        converted.insert(key.clone(),prepare_special(material,images,&uri,None,pack,&mut shared_sources)?);
+    }
     if required.is_empty() { return Ok(BTreeMap::new()); }
     for material in required.values() { validate_native(material)?; }
     let mut groups = BTreeMap::<String,Vec<Surface>>::new();
@@ -1187,6 +1574,113 @@ pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &B
 }
 
 #[cfg(test)]
+pub fn check_special_response(catalog: &Catalog<'_>, selected: &BTreeMap<String,Value>, images: &BTreeMap<String,texture::Image>, pack: &mut Pack) -> Result<Vec<String>> {
+    let images:BTreeMap<_,_>=images.iter().map(|(name,image)| {
+        let level=(0..image.levels.len()).find(|&level| (image.width>>level).max(1)<=64 && (image.height>>level).max(1)<=64).unwrap_or(image.levels.len()-1);
+        (name.clone(),texture::Image {width:(image.width>>level).max(1),height:(image.height>>level).max(1),depth:(image.depth>>level).max(1),faces:image.faces,format:image.format,flags:image.flags,levels:image.levels[level..].to_vec()})
+    }).collect();
+    let mut shared=BTreeMap::new();let mut converted=BTreeMap::new();let mut maximum=0_f32;let mut fractional=0;
+    for (name,native) in selected {
+        validate_native(native)?;
+        let uri=format!("prepared/special-check/{}/material",converted.len());
+        let value=prepare_special(native,&images,&uri,None,pack,&mut shared)?;
+        for input in value["extras"]["surface"]["source_inputs"].as_object().ok_or("Special source inputs were not retained")?.values() {
+            texture::validate(pack.get(input["uri"].as_str().ok_or("Special source input URI is missing")?)?)?;
+        }
+        if native["technique_set"] == "mc_sw4_3d_water_on_surface_reveal_77320z68" {
+            if value["extras"]["surface"]["pending_runtime"].is_null() {return Err("Unbound water was silently assigned an initial state".into());}
+            let mut bounds=[[f32::INFINITY;2],[f32::NEG_INFINITY;2]];let mut source_triangles=0;
+            for (model,zone,root) in catalog.definitions(5) {
+                let streams=&catalog.zones[zone].1.streams;
+                let materials=crate::fastfile::Address::decode(streams.u32(root.add(36)?)?)?;
+                let mut uses=false;
+                for index in 0..streams.u8(root.add(6)?)? as usize {
+                    if catalog.pointer(zone,materials.add(index*4)?,6)?.0.eq_ignore_ascii_case(name) {uses=true;break;}
+                }
+                if !uses {continue;}
+                for lod in geometry::model(catalog,model,zone,root)? {
+                    for surface in lod.iter().filter(|surface| surface.material.eq_ignore_ascii_case(name)) {
+                        source_triangles+=surface.indices.len()/3;
+                        for uv in &surface.uv {for axis in 0..2 {bounds[0][axis]=bounds[0][axis].min(uv[axis]);bounds[1][axis]=bounds[1][axis].max(uv[axis]);}}
+                    }
+                }
+            }
+            if source_triangles == 0 {return Err("Water reveal representative model geometry is missing".into());}
+            for (index,(state,time)) in [(0.2,0.),(0.5,1.25),(0.8,3.)].into_iter().enumerate() {
+                let mut bound=native.clone();bound["code_constants"]=json!({"172":[0.,0.,state,0.],"25":[0.,0.,0.,time]});
+                let value=prepare_special(&bound,&images,&format!("{uri}/state{index}"),Some(bounds),pack,&mut shared)?;
+                if value["extras"]["surface"]["channels"].as_array().unwrap().iter().filter(|channel| channel["role"] == "emissive").count() != 1 {return Err("Bound water leading-edge emission is missing".into());}
+                let recipe=special_recipe(&bound,Some(&images))?;let baker=gpu::Baker::new(&recipe)?;
+                let samples:Vec<gpu::Sample>=(0..33).map(|i| {let mut sample=[0.;20];sample[0]=0.125+(i%7) as f32/8.;sample[1]=0.125+(i%5) as f32/6.;sample}).collect();
+                for (sample,pixel) in samples.iter().zip(baker.sample(&samples)?) {
+                    let expected=recipe.sample_special([sample[0],sample[1]])?;
+                    for (actual,expected) in pixel.into_iter().flatten().zip(expected.into_iter().flatten()) {let error=(actual-expected).abs();maximum=maximum.max(error);if error>0.0001 {return Err(format!("Bound water CPU/GPU mismatch: {error}").into());}}
+                }
+                for channel in value["extras"]["surface"]["channels"].as_array().unwrap() {texture::validate(pack.get(channel["uri"].as_str().unwrap())?)?;}
+            }
+            println!("Checked water effective-input states against {source_triangles} source model triangles/all LODs, UV bounds {bounds:?}; geometry and skinning unchanged");
+        } else if emissive_family(native["technique_set"].as_str().unwrap()) {
+            let flicker=native["technique_set"] == "mc_sw4_3d_phong_simple_emissive_flicker_9j5f25q3";
+            let variants=if flicker {[-0.5,0.,0.5,1.,1.5].into_iter().enumerate().map(|(index,state)| {
+                let mut bound=native.clone();bound["code_constants"]=json!({"170":[state,0.,0.,0.],"25":[0.,0.,0.,index as f32*1.25]});bound
+            }).collect::<Vec<_>>()} else {vec![native.clone()]};
+            if flicker && value["extras"]["surface"]["pending_runtime"].is_null() {return Err("Flicker received an invented initial script/time state".into());}
+            for (index,bound) in variants.into_iter().enumerate() {
+                let state=if flicker {prepare_special(&bound,&images,&format!("{uri}/flicker{index}"),None,pack,&mut shared)?} else {value.clone()};
+                let surface=&state["extras"]["surface"];
+                if surface["channels"].as_array().unwrap().iter().filter(|channel| channel["role"] == "emissive").count() != 1 {return Err("Native phong/flicker emission channel is missing".into());}
+                let recipe=special_recipe(&bound,Some(&images))?;let baker=gpu::Baker::new(&recipe)?;
+                let samples:Vec<gpu::Sample>=(0..33).map(|i| {let mut sample=[0.;20];sample[0]=(i%7) as f32/4.-0.25;sample[1]=(i%5) as f32/3.-0.25;sample}).collect();
+                for (sample,pixel) in samples.iter().zip(baker.sample(&samples)?) {
+                    let expected=recipe.sample_special([sample[0],sample[1]])?;
+                    for (actual,expected) in pixel.into_iter().flatten().zip(expected.into_iter().flatten()) {let error=(actual-expected).abs();maximum=maximum.max(error);if error>0.0001 {return Err(format!("Phong/flicker CPU/GPU mismatch: {error}").into());}}
+                }
+                for channel in surface["channels"].as_array().unwrap() {texture::validate(pack.get(channel["uri"].as_str().unwrap())?)?;}
+                texture::validate(pack.get(surface["native_specular"]["uri"].as_str().ok_or("Phong effective specular/gloss is missing")?)?)?;
+                if native["technique_set"].as_str().unwrap().starts_with("mlv_") && (surface["source_vertex_lighting"]["source"] != 5 || surface["pending_runtime"].is_null()) {
+                    return Err("Neutral phong lighting amounts bypassed required secondary vertex lighting".into());
+                }
+                if recipe.special == 8 && recipe.special_parms[1][0] >= 1. {
+                    for sample in &samples {if recipe.sample_special([sample[0],sample[1]])?[2][3] != 0. {return Err("Scripted flicker off state retains emission".into());}}
+                }
+            }
+        } else {
+            let recipe=special_recipe(native,Some(&images))?;let period=tile_period(&recipe)?;
+            if period != [1,1] {fractional+=1;}
+            if value["extras"]["surface"]["standard"]["uv_transform"] != json!([1./period[0] as f32,0.,0.,1./period[1] as f32,0.,0.]) {return Err("Tile repeat period is not bound to the prepared UV transform".into());}
+            let baker=gpu::Baker::new(&recipe)?;
+            let coordinates=[[0.125,0.375],[period[0] as f32+0.125,period[1] as f32+0.375],
+                [period[0] as f32-1./1024.,period[1] as f32-1./1024.],[period[0] as f32+1./1024.,period[1] as f32+1./1024.]];
+            let samples:Vec<gpu::Sample>=coordinates.into_iter().map(|uv| {let mut sample=[0.;20];sample[..2].copy_from_slice(&uv);sample}).collect();
+            let pixels=baker.sample(&samples)?;
+            for (sample,pixel) in samples.iter().zip(&pixels) {
+                let expected=recipe.sample_special([sample[0],sample[1]])?;
+                for (&actual,expected) in pixel.iter().flatten().zip(expected.into_iter().flatten()) {let error=(actual-expected).abs();maximum=maximum.max(error);if error>0.00003 {return Err(format!("Tile CPU/GPU mismatch: {error}").into());}}
+            }
+            if pixels[0].iter().flatten().zip(pixels[1].iter().flatten()).any(|(a,b)| (a-b).abs()>0.00003) {return Err("Authored tile sampling fails its derived repeat-period seam".into());}
+            for channel in value["extras"]["surface"]["channels"].as_array().unwrap() {texture::validate(pack.get(channel["uri"].as_str().unwrap())?)?;}
+            if recipe.base_specular {texture::validate(pack.get(value["extras"]["surface"]["native_specular"]["uri"].as_str().ok_or("Tile native response is missing")?)?)?;}
+            if native["technique_set"].as_str().unwrap().starts_with("mlv_") {
+                let mut neutral=native.clone();
+                for constant in neutral["constants"].as_array_mut().unwrap() {
+                    if constant["hash"] == 2569221807_u32 || constant["hash"] == 211931156_u32 {constant["literal"][0]=json!(1.);}
+                }
+                let neutral=prepare_special(&neutral,&images,&format!("{uri}/neutral-lighting"),None,pack,&mut shared)?;
+                let surface=&neutral["extras"]["surface"];
+                if surface["source_vertex_lighting"]["source"] != 5 || surface["source_vertex_lighting"]["alpha"] != "sun_shadow_fallback"
+                    || surface["pending_runtime"].as_str().is_none_or(|reason| !reason.contains("secondary RGB")) {
+                    return Err("Neutral tile occlusion/reflection incorrectly bypassed required secondary vertex lighting".into());
+                }
+            }
+        }
+        converted.insert(name.clone(),value);
+    }
+    if fractional == 0 {return Err("Special representative batch omitted the fractional tile-period edge".into());}
+    println!("Checked {} special representatives at existing source mips <=64px, {fractional} fractional-repeat edges and three explicitly bound water states; maximum CPU/GPU error {maximum}; {} raw input encodings shared",selected.len(),shared.len());
+    Ok(crate::material::missing(selected,&converted))
+}
+
+#[cfg(test)]
 pub fn check_response_geometry(catalog: &Catalog<'_>, materials: &BTreeMap<String,Value>, images: &BTreeMap<String,texture::Image>, pack: &mut Pack) -> Result<Vec<String>> {
     let recipes = materials.iter().map(|(name,native)| Ok((name.clone(),recipe(native,Some(images))?))).collect::<Result<BTreeMap<_,_>>>()?;
     let mut selected = BTreeMap::<String,(usize,Surface)>::new();
@@ -1236,6 +1730,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn phong_emission_push_and_flicker_controls_preserve_source_amplitude_and_hdr_response() {
+        let input=|pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe=Recipe {special:4,special_parms:[[0.;4];3],inputs:vec![input([0.2,0.4,0.6,0.25]),input([0.5,0.5,1.,1.]),input([0.4,0.5,0.6,0.8]),input([0.8,0.6,0.4,0.25])],
+            base_specular:true,geometric_normal:false,second_additive:false,second_normal:0,second_reveal:false,second_specular:false,second_parms:[1.,1.,0.,0.],
+            third_multiply:false,layer_cutout:false,decal:false,multiply:false,additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.5,1.25,2.,3.]};
+        let sample=[0.375,0.625,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.];
+        let actual=gpu::Baker::new(&recipe).unwrap().sample(&[sample]).unwrap()[0];
+        assert!((actual[2][3]-144.).abs()<0.00001);
+        for (actual,expected) in actual[3].into_iter().zip([0.04,0.0625,0.09,1.]) {assert!((actual-expected).abs()<0.00001);}
+        assert_eq!(actual[0][3],1.);
+        recipe.special_parms[0][0]=1.;
+        assert_eq!(gpu::Baker::new(&recipe).unwrap().sample(&[sample]).unwrap()[0][0][3],0.25);
+        let image=mip_chain(1,1,vec![[1.5,0.2,0.3,1.24]],"native-specular").unwrap();
+        assert_eq!(image.format,19);
+        let pixel=texture::pixels(&image,0).unwrap()[0];
+        assert_eq!(pixel[0],1.5);assert!((pixel[3]-1.24).abs()<0.001);
+        texture::validate(&texture::encode(&image,false,"reflectance").unwrap()).unwrap();
+        recipe.special=8;recipe.parms=[3.,0.1,0.2,0.8];recipe.second_parms=[0.3,0.,0.,0.];
+        recipe.special_parms=[[0.;4],[0.;4],[0.,0.,0.,10.]];
+        recipe.inputs[3]=input([0.25;4]);
+        for (state,amplitude) in [(-0.5,1.1025),(0.,1.1025),(0.5,0.275625),(1.,0.),(1.5,0.)] {
+            recipe.special_parms[1][0]=state;
+            let actual=gpu::Baker::new(&recipe).unwrap().sample(&[sample]).unwrap()[0];
+            assert!((actual[2][3]-amplitude).abs()<0.00001);
+            assert_eq!(actual[3],[0.04,0.04,0.04,0.25]);
+            let expected=recipe.sample_special([sample[0],sample[1]]).unwrap();
+            for (a,b) in actual.into_iter().flatten().zip(expected.into_iter().flatten()) {assert!((a-b).abs()<0.00003);}
+        }
+    }
+
+    #[test]
+    fn special_surface_gpu_preserves_macro_mask_response_channels_and_bound_water_states() {
+        let input=|pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe=Recipe {special:1,special_parms:[[0.;4];3],inputs:vec![input([0.1,0.5,0.9,0.]),input([0.6,0.2,1.,1.]),
+            input([0.8,0.3,1.,1.]),input([0.2,0.9,1.,1.]),input([0.2,0.4,0.6,0.]),input([0.8,0.2,0.4,1.]),
+            input([0.2,0.4,0.5,0.6]),input([0.8,0.8,0.3,0.2])],base_specular:true,geometric_normal:false,second_additive:false,second_normal:0,
+            second_reveal:false,second_specular:false,second_parms:[2.,3.,-0.25,4.],third_multiply:false,layer_cutout:false,decal:false,multiply:false,
+            additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:false,parms:[3.,3.,2.5,2.5]};
+        assert_eq!(tile_period(&recipe).unwrap(),[2,2]);
+        let sample=[0.375,0.625,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.];
+        let actual=gpu::Baker::new(&recipe).unwrap().sample(&[sample]).unwrap()[0];
+        for (a,b) in actual.into_iter().flatten().zip(recipe.sample_special([sample[0],sample[1]]).unwrap().into_iter().flatten()) {assert!((a-b).abs()<0.00003);}
+        for (actual,expected) in actual[3].into_iter().zip([0.25,0.2025,0.25,0.35]) {assert!((actual-expected).abs()<0.00001);}
+        recipe.parms[0]=f32::from_bits(0x3f800001);
+        assert!(tile_period(&recipe).is_err());
+        recipe.special=2;recipe.parms=[0.125,0.5,0.6,1.2];recipe.second_parms=[6.,8.,8.,2.];
+        recipe.special_parms=[[4.,4.,4.,2.5],[0.,0.,0.5,0.],[0.,0.,0.,1.25]];
+        recipe.inputs=vec![input([0.5,0.,0.,0.]),input([0.6,0.4,1.,1.]),input([1.;4]),input([0.8,0.8,1.,1.]),input([0.4,0.5,0.6,1.]),input([0.2,0.3,0.4,0.25])];
+        for positive in [false,true] {
+            recipe.inputs[3].pixels[0]=if positive {[0.8,0.8,1.,1.]} else {[0.2,0.2,1.,1.]};
+            for state in [0.2,0.5,0.8] {
+                recipe.special_parms[1][2]=state;
+                let actual=gpu::Baker::new(&recipe).unwrap().sample(&[sample]).unwrap()[0];
+                let expected=recipe.sample_special([sample[0],sample[1]]).unwrap();
+                for (a,b) in actual.into_iter().flatten().zip(expected.into_iter().flatten()) {assert!((a-b).abs()<0.0001);}
+                if state == 0.5 {
+                    assert!((actual[2][3]-0.0625).abs()<0.00001);
+                    assert!((actual[3][3]-if positive {0.25} else {0.625}).abs()<0.00001);
+                } else {assert_eq!(actual[2][3],0.);}
+            }
+        }
+    }
+
+    #[test]
     fn gpu_matches_existing_material_equations_and_sampler_modes() {
         let modes = [(false,false,false,false,false,false,false,false,false,false,0,false,false,false,false),(true,false,false,false,false,false,false,false,false,false,0,false,false,false,false),
             (false,false,false,false,true,false,false,false,false,false,0,false,false,false,false),(true,false,false,false,true,false,false,false,false,false,0,false,false,false,false),
@@ -1268,7 +1826,7 @@ mod tests {
             for sampler in [1,20,33,65,97,42,74,106] {
                 let inputs = (0..9).map(|input| Input {width:3,height:5,sampler,
                     pixels:(0..15).map(|index| std::array::from_fn(|channel| ((index*7+input*11+channel*3)%31) as f32/31.)).collect()}).collect();
-                let recipe = Recipe {third_multiply,layer_cutout,second_reveal,second_specular,second_parms:[0.3,if mode%2 == 0 {0.} else {0.625},0.,0.],second_additive,second_normal,base_specular,geometric_normal,inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:[0.5,1.3,0.,0.]};
+                let recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply,layer_cutout,second_reveal,second_specular,second_parms:[0.3,if mode%2 == 0 {0.} else {0.625},0.,0.],second_additive,second_normal,base_specular,geometric_normal,inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:[0.5,1.3,0.,0.]};
                 let samples: Vec<gpu::Sample> = (0..513).map(|index| {
                     let u = (index%23) as f32/7.-1.5;
                     let v = (index%17) as f32/6.-0.5;
@@ -1288,7 +1846,7 @@ mod tests {
         }
         println!("GPU parity: {} recipes, 8 samplers, 513 samples each; maximum absolute channel error {maximum}",modes.len());
         let input = |value| Input {width:1,height:1,sampler:20,pixels:vec![value]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.4,0.7,0.2,0.3]),input([0.5;4]),input([0.8,0.2,0.4,0.7]),input([0.6;4]),input([0.7;4])],
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.4,0.7,0.2,0.3]),input([0.5;4]),input([0.8,0.2,0.4,0.7]),input([0.6;4]),input([0.7;4])],
             decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:true,base_alpha_response:true,parms:[0.5,1.3,0.,0.]};
         let baker = gpu::Baker::new(&recipe).unwrap();
         let sample = [0.25,0.5,0.25,0.5,0.25,0.5,0.6,0.,1.,0.,0.,1.,1.,0.,0.,1.,0.,0.,0.,0.];
@@ -1311,7 +1869,7 @@ mod tests {
     #[test]
     fn authored_specular_preserves_uv0_and_decal_gloss_order() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:true,geometric_normal:false,
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:true,geometric_normal:false,
             inputs:vec![input([0.6,0.5,0.4,0.1]),input([0.5,0.5,1.,1.]),input([0.2,0.3,0.4,1.]),input([0.5,0.5,1.,1.]),
                 input([0.4,0.6,0.8,0.9]),input([0.8,0.6,0.4,0.3])],
             decal:false,multiply:false,additive:false,blend_color:false,reveal:false,layer_specular:true,base_alpha_response:false,parms:[0.;4]};
@@ -1344,7 +1902,7 @@ mod tests {
     #[test]
     fn add_multiply_and_second_normal_follow_source_order() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,
             inputs:vec![input([0.4,0.5,0.6,0.8]),input([0.5,0.5,1.,1.]),input([0.8,0.6,0.4,0.5]),input([0.2,0.4,0.6,0.3])],
             decal:true,multiply:false,additive:true,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         let first = recipe.sample([0.;2],[0.;2],[0.;2],0.5,1.,[1.,0.,0.,1.]).unwrap();
@@ -1386,7 +1944,7 @@ mod tests {
     #[test]
     fn second_reveal_preserves_ordered_encoded_specular_and_independent_gloss() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:true,second_specular:true,second_parms:[0.25,0.,0.,0.],
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:true,second_specular:true,second_parms:[0.25,0.,0.,0.],
             second_additive:false,second_normal:2,base_specular:false,geometric_normal:false,
             inputs:vec![input([0.2,0.4,0.6,0.3]),input([0.5,0.5,1.,1.]),input([0.6,0.8,0.4,0.4]),input([0.5,0.5,1.,1.]),
                 input([0.8,0.2,0.4,0.5]),input([0.5,0.5,1.,1.]),input([0.8,0.4,0.6,0.7]),input([0.2,0.6,0.4,0.9])],
@@ -1415,7 +1973,7 @@ mod tests {
     #[test]
     fn third_multiply_uses_vertex_alpha_and_layer_selection_uses_inclusive_half() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:true,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:true,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],
             second_additive:true,second_normal:0,base_specular:false,geometric_normal:false,
             inputs:vec![input([0.2,0.4,0.6,0.3]),input([0.5,0.5,1.,1.]),input([0.6,0.8,0.4,0.4]),input([0.75,0.25,1.,1.]),
                 input([0.8,0.2,0.4,0.5]),input([0.8,0.4,0.6,0.7]),input([0.2,0.6,0.4,0.9])],
@@ -1491,7 +2049,7 @@ mod tests {
     #[test]
     fn multiply_layer_preserves_opaque_coverage_base_normal_and_transfer_order() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
             decal:false,multiply:true,additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.;4]};
         let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[0.,-1.,1.,0.]).unwrap();
         let normal = sample(&recipe,0.)[1];
@@ -1510,7 +2068,7 @@ mod tests {
     #[test]
     fn second_multiply_layer_uses_blue_and_its_own_uv_before_transfer() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.]),
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.]),
             Input {width:2,height:1,sampler:10,pixels:vec![[0.25,1.,0.5,0.],[1.;4]]}],
             decal:true,multiply:true,additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.;4]};
         let sample = |recipe: &Recipe,green,blue,uv2| recipe.sample([0.;2],[0.;2],uv2,green,blue,[1.,0.,0.,1.]).unwrap();
@@ -1532,7 +2090,7 @@ mod tests {
     #[test]
     fn multiply_gloss_uses_encoded_tint_luminance_and_base_alpha() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.8]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.8]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
             decal:false,multiply:true,additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
         let mut previous_roughness = 0.;
@@ -1579,7 +2137,7 @@ mod tests {
     #[test]
     fn additive_layer_uses_alpha_green_and_preserves_base_gloss() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.8,0.4,0.2,0.5])],
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.8,0.4,0.2,0.5])],
             decal:false,multiply:false,additive:true,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
         let original = sample(&recipe,0.);
@@ -1621,7 +2179,7 @@ mod tests {
     #[test]
     fn color_blend_uses_layer_alpha_green_and_preserves_base_normal_gloss() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.2,0.4,0.8,0.5])],
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.2,0.4,0.8,0.5])],
             decal:false,multiply:false,additive:false,blend_color:true,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[0.,-1.,1.,0.]).unwrap();
         let original = sample(&recipe,0.);
@@ -1644,7 +2202,7 @@ mod tests {
     #[test]
     fn second_color_blend_uses_blue_alpha_uv2_and_ordered_encoded_composition() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.2,0.4,0.8,0.5]),
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.2,0.4,0.8,0.5]),
             Input {width:2,height:1,sampler:20,pixels:vec![[0.6,0.2,0.4,0.5],[1.,1.,1.,0.]]}],
             decal:true,multiply:false,additive:false,blend_color:true,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         let sample = |recipe: &Recipe,green,blue,uv2| recipe.sample([0.;2],[0.;2],uv2,green,blue,[1.,0.,0.,1.]).unwrap();
@@ -1665,7 +2223,7 @@ mod tests {
     #[test]
     fn diffuse_reveal_zero_exponent_blends_normals_without_replacing_base_gloss() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
+        let recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.75,0.25,1.,1.])],
             decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:false,base_alpha_response:true,parms:[0.25,0.,0.,0.]};
         let sample = |green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
@@ -1685,7 +2243,7 @@ mod tests {
     #[test]
     fn base_alpha_reveal_preserves_mixed_native_gloss_and_zero_exponent() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.5,0.5,1.,1.]),input([0.6,0.4,0.2,0.25])],
             decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:true,base_alpha_response:true,parms:[0.5,0.5,0.,0.]};
         for (green,expected) in [(0.,[0.04,0.04,0.04,0.75]),(0.5,[0.16,0.09,0.04,0.5]),(1.,[0.36,0.16,0.04,0.25])] {
@@ -1704,7 +2262,7 @@ mod tests {
     #[test]
     fn layered_base_alpha_response_survives_complete_layer_coverage() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
             input([0.8,0.2,0.4,1.]),input([0.5,0.5,1.,1.])],decal:false,multiply:false,additive:false,blend_color:false,reveal:false,
             layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         for (alpha,roughness) in [(0.,0.903602),(1.,0.12499237)] {
@@ -1727,7 +2285,7 @@ mod tests {
     #[test]
     fn reveal_decal_preserves_uv2_axis_addressing_and_encoded_composition() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
+        let mut recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
             input([0.8,0.2,0.4,0.5]),input([0.75,0.25,1.,1.]),
             Input {width:2,height:2,sampler:74,pixels:vec![[0.9,0.8,0.7,1.],[0.1,0.2,0.3,1.],
                 [0.5,0.25,0.75,0.],[1.,0.5,0.25,0.]]}],
@@ -1749,7 +2307,7 @@ mod tests {
     #[test]
     fn diffuse_reveal_uses_four_inputs_and_green_only() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let recipe = Recipe {third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
+        let recipe = Recipe {special:0,special_parms:[[0.;4];3],third_multiply:false,layer_cutout:false,second_reveal:false,second_specular:false,second_parms:[0.;4],second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.5,0.5,1.,1.])],
             decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
         for (green,expected) in [(0.,[0.04,0.16,0.36]),(0.5,[0.25,0.25,0.16]),(1.,[0.64,0.36,0.04])] {
