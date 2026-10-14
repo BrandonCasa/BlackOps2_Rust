@@ -473,7 +473,7 @@ impl CharacterRecipe {
             };
             if !allowed.contains(&(rgb, depth)) {
                 return Err(format!(
-                    "Character/canopy material {key} has an unreviewed blend, cull or depth state"
+                    "Character/canopy material {key} has an unreviewed blend, cull or depth state in technique {index}: RGB {rgb:#010x} ({rgb}), depth {depth:#x} ({depth})"
                 )
                 .into());
             }

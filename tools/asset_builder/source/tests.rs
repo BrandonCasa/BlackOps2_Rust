@@ -1687,9 +1687,14 @@ fn installed_initial_required_material_profiles() {
         "mc/mtl_c_zom_tomb_crusader_skirt_3",
         "mc/mtl_c_gen_gore_alpha",
         "mc/mtl_c_gen_limb_gore",
+        "mc/mtl_c_gen_limb_gore_alpha",
         "mc/mtl_fxuse_disc_electric",
     ] {
         let material = crate::material::read(&catalog, name).unwrap();
+        println!(
+            "Required material {name} family {}, states {}, entries {}",
+            material["technique_set"], material["state_bits"], material["state_entries"]
+        );
         assert!(
             crate::material::selected_technique(material["technique_set"].as_str().unwrap())
                 .is_some()
