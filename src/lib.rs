@@ -139,6 +139,10 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                     .add_custom_vertex_attribute(
                         "_ORIGINS_TANGENT",
                         rendering::opaque::FLAG_SOURCE_TANGENT,
+                    )
+                    .add_custom_vertex_attribute(
+                        "_ORIGINS_PACKED_BASIS",
+                        rendering::opaque::FLAG_PACKED_BASIS,
                     ),
             )
             .disable::<bevy::anti_alias::AntiAliasPlugin>()

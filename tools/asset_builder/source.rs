@@ -616,6 +616,16 @@ mod tests {
                     assert_eq!(doc["accessors"][index]["type"],"VEC3");
                     assert_eq!(doc["accessors"][index]["count"],3);
                 }
+                let index = doc["meshes"][0]["primitives"][0]["attributes"]["_ORIGINS_PACKED_BASIS"].as_u64().unwrap() as usize;
+                let accessor = &doc["accessors"][index];
+                assert_eq!(accessor["type"],"VEC2");
+                assert_eq!(accessor["componentType"],5125);
+                assert_eq!(accessor["count"],3);
+                let view = accessor["bufferView"].as_u64().unwrap() as usize;
+                let start = doc["bufferViews"][view]["byteOffset"].as_u64().unwrap() as usize;
+                let bytes = pack.get(&uri.replace(".gltf",".bin")).unwrap();
+                let actual: Vec<[u32;2]> = (0..3).map(|vertex| [crate::core::u32_at(bytes,start+vertex*8),crate::core::u32_at(bytes,start+vertex*8+4)]).collect();
+                assert_eq!(actual,source.packed_basis);
                 flag_primitives+=1;
             }
         }
@@ -684,9 +694,12 @@ mod tests {
         assert!(falloff["pending_runtime"].as_str().unwrap().contains("reflection/SH"));
         assert_eq!(converted["mlv/mtl_p6_zm_tm_crate_ammo_cheap"]["extras"]["surface"]["standard"]["reflectance"],0.);
         assert_eq!(converted["mlv/ch_woodwall01"]["extras"]["surface"]["native_specular"]["gloss_channel"],"alpha");
-        for key in ["mc/mtl_c_zom_mech_head_unlit","explicit_eye_luminance_0","explicit_eye_luminance_1","explicit_eye_luminance_2"] {
+        let eye_uri = &converted["mc/mtl_c_zom_mech_head_unlit"]["extras"]["surface"]["channels"][0]["uri"];
+        for (key,luminance) in [("mc/mtl_c_zom_mech_head_unlit",0_f32),("explicit_eye_luminance_0",0.),("explicit_eye_luminance_1",0.25),("explicit_eye_luminance_2",1.)] {
             let surface = &converted[key]["extras"]["surface"];
             assert_eq!(surface["source_eye_luminance"]["lod"],serde_json::json!(0.));
+            assert_eq!(&surface["channels"][0]["uri"],eye_uri);
+            assert_eq!(surface["standard"]["base_color"],serde_json::json!([luminance*luminance,luminance*luminance,luminance*luminance,1.]));
             let uri = surface["channels"][0]["uri"].as_str().unwrap();
             assert_eq!(crate::core::u32_at(pack.get(uri).unwrap(),40),1);
         }

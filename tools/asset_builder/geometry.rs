@@ -38,6 +38,7 @@ pub struct Surface {
     pub tangents: Vec<[f32; 4]>,
     pub raw_normals: Vec<[f32; 3]>,
     pub raw_tangents: Vec<[f32; 3]>,
+    pub packed_basis: Vec<[u32; 2]>,
     pub colors: Vec<[u8; 4]>,
     pub uv: Vec<[f32; 2]>,
     pub lightmap_uv: Vec<[f32; 2]>,
@@ -99,6 +100,7 @@ impl Surface {
         result.tangents = indices.iter().map(|&i| self.tangents[i]).collect();
         result.raw_normals = indices.iter().map(|&i| self.raw_normals[i]).collect();
         result.raw_tangents = indices.iter().map(|&i| self.raw_tangents[i]).collect();
+        result.packed_basis = indices.iter().map(|&i| self.packed_basis[i]).collect();
         result.colors = indices.iter().map(|&i| self.colors[i]).collect();
         result.uv = indices.iter().map(|&i| self.uv[i]).collect();
         result.lightmap_uv = indices.iter().filter_map(|&i| self.lightmap_uv.get(i).copied()).collect();
@@ -115,7 +117,7 @@ impl Surface {
 
     fn read(name: String, source_index: usize, vertices: &[u8], stride: usize, indices: &[u8], material: String) -> Result<Self> {
         let mut surface = Self { name, source_index, positions:Vec::new(), normals:Vec::new(), tangents:Vec::new(),
-            raw_normals:Vec::new(), raw_tangents:Vec::new(), colors:Vec::new(), uv:Vec::new(), lightmap_uv:Vec::new(), auxiliary:Vec::new(), bindings:None, source_vertices:Vec::new(), indices:Vec::new(), material };
+            raw_normals:Vec::new(), raw_tangents:Vec::new(), packed_basis:Vec::new(), colors:Vec::new(), uv:Vec::new(), lightmap_uv:Vec::new(), auxiliary:Vec::new(), bindings:None, source_vertices:Vec::new(), indices:Vec::new(), material };
         if vertices.len() % stride != 0 || indices.len() % 6 != 0 { return Err("Misaligned native geometry arrays".into()); }
         let mut remap = std::collections::BTreeMap::new();
         for triangle in indices.chunks_exact(6) {
@@ -135,6 +137,7 @@ impl Surface {
             surface.normals.push(normal(u32_at(vertex, 24))?);
             surface.raw_normals.push(raw_normal(u32_at(vertex, 24)));
             surface.raw_tangents.push(raw_normal(u32_at(vertex, 28)));
+            surface.packed_basis.push([u32_at(vertex,24),u32_at(vertex,28)]);
             let [x, y, z] = normal(u32_at(vertex, 28))?;
             let sign = float(vertex, 12)?;
             surface.tangents.push([x, y, z, (sign > 0.) as u8 as f32 - (sign < 0.) as u8 as f32]);
@@ -483,6 +486,36 @@ pub fn validate(catalog: &Catalog<'_>) -> Result<std::collections::BTreeSet<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flag_packed_basis_survives_triangle_remapping_and_gltf_packing() {
+        let words = [[0x11223344_u32,0x00755122],[0x211001ff,0x05566778],[0x00155477,0x01aa3322]];
+        let mut vertices = vec![0;3*32];
+        for (index,vertex) in vertices.chunks_exact_mut(32).enumerate() {
+            vertex[..4].copy_from_slice(&(index as f32).to_le_bytes());
+            vertex[12..16].copy_from_slice(&1_f32.to_le_bytes());
+            vertex[24..28].copy_from_slice(&words[index][0].to_le_bytes());
+            vertex[28..32].copy_from_slice(&words[index][1].to_le_bytes());
+        }
+        let indices: Vec<_> = [0_u16,1,2].into_iter().flat_map(u16::to_le_bytes).collect();
+        let surface = Surface::read("flag".into(),0,&vertices,32,&indices,"flag".into()).unwrap();
+        assert_eq!(surface.packed_basis,[words[2],words[1],words[0]]);
+        let selected = surface.select_triangles(&[0,0]).unwrap();
+        assert_eq!(selected.packed_basis,[words[2],words[1],words[0],words[2],words[1],words[0]]);
+        let mut scene = crate::gltf::Scene::new("flag");
+        let converted = std::collections::BTreeMap::from([("flag".into(),serde_json::json!({"name":"flag","extras":{"surface":{"source_flag_motion":{}}}}))]);
+        let materials = scene.materials([&selected],&converted).unwrap();
+        scene.mesh("flag",[&selected],&materials,false).unwrap();
+        let index = scene.data["meshes"][0]["primitives"][0]["attributes"]["_ORIGINS_PACKED_BASIS"].as_u64().unwrap() as usize;
+        let accessor = &scene.data["accessors"][index];
+        assert_eq!((accessor["componentType"].as_u64(),accessor["type"].as_str(),accessor["count"].as_u64()),(Some(5125),Some("VEC2"),Some(6)));
+        let start = scene.data["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize]["byteOffset"].as_u64().unwrap() as usize;
+        let mut pack = crate::pack::Pack::default();
+        scene.write("prepared/flag.gltf",&mut pack).unwrap();
+        let bytes = pack.get("prepared/flag.bin").unwrap();
+        let actual: Vec<[u32;2]> = (0..6).map(|i| [u32_at(bytes,start+i*8),u32_at(bytes,start+i*8+4)]).collect();
+        assert_eq!(actual,selected.packed_basis);
+    }
 
     #[test]
     fn unlit_vertex_alpha_matches_constant_rgb_source_interpolation() {

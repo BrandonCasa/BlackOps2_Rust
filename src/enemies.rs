@@ -21,6 +21,7 @@ use bevy::{
     world_serialization::WorldInstanceReady,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+mod eyes;
 
 #[derive(Component)]
 pub struct EnemyGoal {
@@ -34,7 +35,8 @@ pub struct EnemyGoal {
     RigidBody::Kinematic,
     CustomPositionIntegration,
     crate::hit_regions::Hitboxes,
-    crate::combat_effects::Wounds
+    crate::combat_effects::Wounds,
+    eyes::ActorEyes
 )]
 pub struct Zombie {
     pub definition: ContentId,
@@ -63,6 +65,7 @@ pub struct Zombie {
     traversal_clip: Option<String>,
     landing: f32,
     tear: Option<BoardTear>,
+    eye_spawn: eyes::EyeSpawn,
 }
 impl Zombie {
     pub fn new(
@@ -101,6 +104,7 @@ impl Zombie {
             traversal_clip: None,
             landing: 0.,
             tear: None,
+            eye_spawn: eyes::EyeSpawn::Ordinary,
         }
     }
     pub fn completed_emerging(&self) -> bool {
@@ -154,6 +158,7 @@ impl Zombie {
         })
     }
     pub fn rising(mut self, profile: &crate::origins::content::EnemyTraversalDefinition) -> Self {
+        self.eye_spawn = eyes::EyeSpawn::Ground;
         self.traversal = Some(TraversalMotion {
             start: self.destination,
             end: self.destination,
@@ -162,6 +167,14 @@ impl Zombie {
         });
         self.traversal_clip = profile.animation.0.rsplit('.').next().map(str::to_owned);
         self.transition(EnemyAnimation::Traverse);
+        self
+    }
+    pub(crate) fn dug_rising(
+        mut self,
+        profile: &crate::origins::content::EnemyTraversalDefinition,
+    ) -> Self {
+        self = self.rising(profile);
+        self.eye_spawn = eyes::EyeSpawn::Dug;
         self
     }
     fn transition(&mut self, action: EnemyAnimation) {
@@ -288,6 +301,13 @@ pub struct EnemyPlugin;
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EnemyEvidence>()
+            .add_systems(
+                Update,
+                eyes::update
+                    .after(crate::rendering::opaque::advance_native_time)
+                    .before(crate::rendering::SurfacePreparation)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(
                 FixedUpdate,
                 clone_animation

@@ -1091,7 +1091,7 @@ fn dug_zombie(
         game.rounds.speed(gait),
     );
     let zombie = if let Some(profile) = definition.traversals.get("rise") {
-        zombie.rising(profile)
+        zombie.dug_rising(profile)
     } else {
         zombie
     };

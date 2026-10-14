@@ -4,6 +4,7 @@ use super::{
 };
 use bevy::{
     gltf::{GltfExtras, GltfMaterialName},
+    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
     mesh::{MeshVertexAttribute, VertexAttributeValues},
     prelude::*,
     render::render_resource::AsBindGroup,
@@ -20,6 +21,11 @@ pub(crate) const FLAG_SOURCE_TANGENT: MeshVertexAttribute = MeshVertexAttribute:
     "_ORIGINS_TANGENT",
     1_501_002,
     bevy::render::render_resource::VertexFormat::Float32x3,
+);
+pub(crate) const FLAG_PACKED_BASIS: MeshVertexAttribute = MeshVertexAttribute::new(
+    "_ORIGINS_PACKED_BASIS",
+    1_501_003,
+    bevy::render::render_resource::VertexFormat::Uint32x2,
 );
 
 pub(crate) fn bindless_supported(device: &bevy::render::renderer::RenderDevice) -> bool {
@@ -83,13 +89,18 @@ impl SurfaceLibrary {
 
 pub(super) fn initialize(
     mut commands: Commands,
-    flags: Query<(Entity, &FlagMotion, &Mesh3d)>,
+    flags: Query<(Entity, &FlagMotion, &Mesh3d, Option<&SkinnedMesh>)>,
     mut inputs: Query<&mut NativeArtInputs>,
 ) {
-    for (entity, flag, current) in &flags {
+    for (entity, flag, current, skin) in &flags {
         let mut entity = commands.entity(entity);
         if flag.target == current.0 {
             entity.insert((Mesh3d(flag.original.clone()), flag.source_bounds()));
+        }
+        if skin.is_none()
+            && let Some(source) = &flag.skin
+        {
+            entity.insert(source.original.clone());
         }
         entity.remove::<FlagMotion>();
     }
@@ -107,7 +118,7 @@ pub(super) fn initialize(
 pub(super) struct MaterialTime(f64);
 
 #[derive(Resource, Default)]
-pub(super) struct NativeClock {
+pub(crate) struct NativeClock {
     running: bool,
     realtime: std::time::Duration,
     remainder: std::time::Duration,
@@ -121,6 +132,10 @@ pub(super) struct NativeClock {
 }
 
 impl NativeClock {
+    pub(crate) fn server_milliseconds(&self) -> Option<i32> {
+        self.running.then_some(self.server)
+    }
+
     fn advance(
         &mut self,
         duration: std::time::Duration,
@@ -244,7 +259,7 @@ pub(super) fn prepare_native_time_owners(
     }
 }
 
-pub(super) fn advance_native_time(
+pub(crate) fn advance_native_time(
     time: Res<Time>,
     virtual_time: Res<Time<Virtual>>,
     state: Res<State<crate::GameState>>,
@@ -534,11 +549,117 @@ pub(super) struct FlagMotion {
     alpha: Vec<f32>,
     sign: Vec<f32>,
     last_time: Option<f32>,
+    skin: Option<FlagSkin>,
+    last_pose: Vec<Mat4>,
+}
+
+struct FlagSkin {
+    original: SkinnedMesh,
+    joints: Vec<[u16; 4]>,
+    weights: Vec<[f32; 4]>,
+    packed_basis: Vec<[u32; 2]>,
+}
+
+fn flag_placement(matrix: Mat4, unit: bool) -> Result<(), String> {
+    let basis = Mat3::from_mat4(matrix);
+    let axes = [basis.x_axis, basis.y_axis, basis.z_axis];
+    let scale = axes[0].length_squared();
+    if !matrix.is_finite()
+        || !matrix.row(3).abs_diff_eq(Vec4::W, 0.0001)
+        || scale <= 0.
+        || basis.determinant() <= 0.
+        || axes
+            .iter()
+            .any(|axis| (axis.length_squared() - scale).abs() > scale * 0.0001)
+        || [(0, 1), (0, 2), (1, 2)]
+            .into_iter()
+            .any(|(a, b)| axes[a].dot(axes[b]).abs() > scale * 0.0001)
+        || (unit && (scale - 1.).abs() > 0.0001)
+    {
+        return Err(if unit {
+            "Native skinned flag requires a proven unit rigid placement"
+        } else {
+            "Native flag source normal transform requires a proven rigid uniform-scale placement"
+        }
+        .into());
+    }
+    Ok(())
+}
+
+fn flag_skin_basis(word: u32) -> Vec3 {
+    let [x, y, z] =
+        [0, 10, 20].map(|shift| (((word >> shift & 1023) ^ 512) as i32 - 512) as f32 * (1. / 511.));
+    Vec3::new(x, z, -y)
+}
+
+fn flag_repack_basis(value: Vec3) -> Vec3 {
+    let native = [value.x, -value.z, value.y];
+    let word = native
+        .into_iter()
+        .zip([511., 523264., 535822336.])
+        .zip([0x3ff, 0xffc00, 0x3ff00000])
+        .fold(0, |word, ((value, scale), mask)| {
+            word | ((value.clamp(-1., 1.) * scale) as i32 as u32 & mask)
+        });
+    let [x, y, z] = [0, 10, 20].map(|shift| {
+        let value = (word >> shift & 1023) as f32 / 1023.;
+        if value >= 0.5 {
+            2. * value - 2.
+        } else {
+            2. * value
+        }
+    });
+    Vec3::new(x, z, -y)
 }
 
 impl FlagMotion {
     pub(super) fn deformation_time(&self) -> Option<f32> {
         self.last_time
+    }
+
+    pub(super) fn deformation_pose(&self) -> &[Mat4] {
+        &self.last_pose
+    }
+
+    fn set_skin(&mut self, source: &Mesh, skin: SkinnedMesh) -> Result<(), String> {
+        let Some(VertexAttributeValues::Uint16x4(joints)) =
+            source.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
+        else {
+            return Err("Native flag source joint indices are missing".into());
+        };
+        let Some(VertexAttributeValues::Float32x4(weights)) =
+            source.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)
+        else {
+            return Err("Native flag source joint weights are missing".into());
+        };
+        let Some(VertexAttributeValues::Uint32x2(packed_basis)) =
+            source.attribute(FLAG_PACKED_BASIS)
+        else {
+            return Err("Native flag original packed basis is missing".into());
+        };
+        if skin.joints.is_empty()
+            || [joints.len(), weights.len(), packed_basis.len()]
+                .into_iter()
+                .any(|count| count != self.positions.len())
+            || joints.iter().zip(weights).any(|(indices, weights)| {
+                weights
+                    .iter()
+                    .any(|weight| !weight.is_finite() || !(0. ..=1.).contains(weight))
+                    || (weights.iter().sum::<f32>() - 1.).abs() > 0.000001
+                    || indices.iter().zip(weights).any(|(&joint, &weight)| {
+                        weight != 0. && joint as usize >= skin.joints.len()
+                    })
+            })
+        {
+            return Err("Native flag source skin bindings are invalid".into());
+        }
+        self.skin = Some(FlagSkin {
+            original: skin,
+            joints: joints.clone(),
+            weights: weights.clone(),
+            packed_basis: packed_basis.clone(),
+        });
+        Ok(())
     }
 
     fn new(
@@ -601,6 +722,8 @@ impl FlagMotion {
             return Err("Native flag geometry arrays are invalid".into());
         }
         let mut target = source.clone();
+        target.remove_attribute(Mesh::ATTRIBUTE_JOINT_INDEX);
+        target.remove_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT);
         target.asset_usage = bevy::asset::RenderAssetUsages::default();
         target.insert_attribute(
             Mesh::ATTRIBUTE_COLOR,
@@ -622,47 +745,110 @@ impl FlagMotion {
                 alpha: colors.iter().map(|color| color[3]).collect(),
                 sign: tangent_signs.iter().map(|tangent| tangent[3]).collect(),
                 last_time: None,
+                skin: None,
+                last_pose: Vec::new(),
             },
             target,
         ))
     }
 
-    fn deform(&self, seconds: f32) -> Result<(Vec<[f32; 3]>, Vec<[f32; 3]>), String> {
+    fn deform_vertex(
+        &self,
+        index: usize,
+        time: f32,
+        position: Vec3,
+        normal: Vec3,
+        tangent: Vec3,
+    ) -> Result<(Vec3, Vec3), String> {
         let parameters = &self.parameters;
-        let time = (seconds + parameters.parameters[1]) * parameters.parameters[0];
+        let uv = Vec2::ONE - Vec2::from_array(self.uv[index]);
+        let phases: [f32; 3] = std::array::from_fn(|wave| {
+            uv.dot(Vec2::from_array(parameters.phase_uv[wave])) + time * parameters.phase_time[wave]
+        });
+        let mut height = 0.;
+        let mut u = 0.;
+        let mut v = 0.;
+        for wave in 0..3 {
+            let (sine, cosine) = phases[wave].sin_cos();
+            height += parameters.displacement_amplitude[wave] * sine;
+            u += parameters.normal_cosine_u[wave] * cosine;
+            v += parameters.normal_cosine_v[wave] * cosine;
+        }
+        let bitangent = normal.cross(tangent) * self.sign[index];
+        let position = position + normal * (height * self.alpha[index] * 0.0254);
+        let normal = (normal
+            + (u * tangent + v * bitangent)
+                * (self.alpha[index] * parameters.normal_derivative_scale))
+            .normalize();
+        if !position.is_finite() || !normal.is_finite() {
+            return Err("Native flag deformation produced a non-finite vertex".into());
+        }
+        Ok((position, normal))
+    }
+
+    fn deform(&self, seconds: f32) -> Result<(Vec<[f32; 3]>, Vec<[f32; 3]>), String> {
+        let time = (seconds + self.parameters.parameters[1]) * self.parameters.parameters[0];
         let mut positions = Vec::with_capacity(self.positions.len());
         let mut normals = Vec::with_capacity(self.positions.len());
         for index in 0..self.positions.len() {
-            let uv = Vec2::ONE - Vec2::from_array(self.uv[index]);
-            let phases: [f32; 3] = std::array::from_fn(|wave| {
-                uv.dot(Vec2::from_array(parameters.phase_uv[wave]))
-                    + time * parameters.phase_time[wave]
-            });
-            let mut height = 0.;
-            let mut u = 0.;
-            let mut v = 0.;
-            for wave in 0..3 {
-                let (sine, cosine) = phases[wave].sin_cos();
-                height += parameters.displacement_amplitude[wave] * sine;
-                u += parameters.normal_cosine_u[wave] * cosine;
-                v += parameters.normal_cosine_v[wave] * cosine;
-            }
-            let normal = Vec3::from_array(self.normals[index]);
-            let tangent = Vec3::from_array(self.tangents[index]);
-            let bitangent = normal.cross(tangent) * self.sign[index];
-            let position = Vec3::from_array(self.positions[index])
-                + normal * (height * self.alpha[index] * 0.0254);
-            let normal = (normal
-                + (u * tangent + v * bitangent)
-                    * (self.alpha[index] * parameters.normal_derivative_scale))
-                .normalize();
-            if !position.is_finite() || !normal.is_finite() {
-                return Err("Native flag deformation produced a non-finite vertex".into());
-            }
+            let (position, normal) = self.deform_vertex(
+                index,
+                time,
+                Vec3::from_array(self.positions[index]),
+                Vec3::from_array(self.normals[index]),
+                Vec3::from_array(self.tangents[index]),
+            )?;
             positions.push(position.to_array());
             normals.push(normal.to_array());
         }
         Ok((positions, normals))
+    }
+
+    fn deform_skinned(
+        &self,
+        seconds: f32,
+        placement: Mat4,
+        pose: &[Mat4],
+    ) -> Result<(Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>), String> {
+        let skin = self
+            .skin
+            .as_ref()
+            .ok_or("Native flag source skin is unavailable")?;
+        let inverse = placement.inverse();
+        let time = (seconds + self.parameters.parameters[1]) * self.parameters.parameters[0];
+        let mut positions = Vec::with_capacity(self.positions.len());
+        let mut normals = Vec::with_capacity(self.positions.len());
+        let mut tangents = Vec::with_capacity(self.positions.len());
+        for index in 0..self.positions.len() {
+            let mut matrix = Mat4::ZERO;
+            for influence in 0..4 {
+                let weight = skin.weights[index][influence];
+                if weight != 0. {
+                    matrix += *pose
+                        .get(skin.joints[index][influence] as usize)
+                        .ok_or("Native flag current joint pose is unavailable")?
+                        * weight;
+                }
+            }
+            let position = matrix.transform_point3(Vec3::from_array(self.positions[index]));
+            let normal = flag_repack_basis(
+                matrix.transform_vector3(flag_skin_basis(skin.packed_basis[index][0])),
+            );
+            let tangent = flag_repack_basis(
+                matrix.transform_vector3(flag_skin_basis(skin.packed_basis[index][1])),
+            );
+            let (position, normal) = self.deform_vertex(index, time, position, normal, tangent)?;
+            let position = inverse.transform_point3(position);
+            let normal = inverse.transform_vector3(normal).normalize();
+            let tangent = inverse.transform_vector3(tangent).normalize();
+            if !position.is_finite() || !normal.is_finite() || !tangent.is_finite() {
+                return Err("Native flag skinned geometry is non-finite".into());
+            }
+            positions.push(position.to_array());
+            normals.push(normal.to_array());
+            tangents.push([tangent.x, tangent.y, tangent.z, self.sign[index]]);
+        }
+        Ok((positions, normals, tangents))
     }
 
     fn bounds(&self) -> bevy::camera::primitives::Aabb {
@@ -779,7 +965,7 @@ pub(super) fn convert(
             &GltfMaterialName,
             &Mesh3d,
             Has<super::DynamicSurface>,
-            Has<bevy::mesh::skinning::SkinnedMesh>,
+            Option<&SkinnedMesh>,
             Option<&FlagMotion>,
         ),
         (With<PbrReady>, With<SurfaceReady>, Without<StandardReady>),
@@ -798,7 +984,7 @@ pub(super) fn convert(
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
     status.pending = 0;
-    for (entity, original, name, mesh, dynamic, skinned, flag) in &query {
+    for (entity, original, name, mesh, dynamic, skin, flag) in &query {
         let Some(base) = materials.get(&original.0).cloned() else {
             status.pending += 1;
             continue;
@@ -876,11 +1062,6 @@ pub(super) fn convert(
         let mut flag_original = None;
         if !definition.metadata["source_flag_motion"].is_null() {
             let result = (|| -> Result<(FlagMotion, Mesh), String> {
-                if skinned {
-                    return Err(
-                        "Native flag deformation after source skinning is not yet connected".into(),
-                    );
-                }
                 let owner = owner.ok_or("Native flag render-game time owner is not connected")?;
                 let parameters = FlagParameters::read(&definition.metadata["source_flag_motion"])?;
                 let source_handle = flag
@@ -889,7 +1070,16 @@ pub(super) fn convert(
                 let source = meshes
                     .get(source_handle)
                     .ok_or("Native flag source mesh is unavailable")?;
-                FlagMotion::new(source_handle.clone(), owner, parameters, source)
+                let (mut motion, target) =
+                    FlagMotion::new(source_handle.clone(), owner, parameters, source)?;
+                if let Some(skin) = skin.cloned().or_else(|| {
+                    flag.filter(|flag| flag.target == mesh.0)
+                        .and_then(|flag| flag.skin.as_ref())
+                        .map(|skin| skin.original.clone())
+                }) {
+                    motion.set_skin(source, skin)?;
+                }
+                Ok((motion, target))
             })();
             match result {
                 Ok((mut flag, target)) => {
@@ -897,9 +1087,11 @@ pub(super) fn convert(
                     let handle = meshes.add(target);
                     flag.target = handle.clone();
                     let bounds = flag.bounds();
-                    commands
-                        .entity(entity)
-                        .insert((Mesh3d(handle), bounds, flag));
+                    commands.entity(entity).remove::<SkinnedMesh>().insert((
+                        Mesh3d(handle),
+                        bounds,
+                        flag,
+                    ));
                 }
                 Err(error) => {
                     failure.0 = format!("Material {}: {error}", name.0);
@@ -912,6 +1104,11 @@ pub(super) fn convert(
                 commands
                     .entity(entity)
                     .insert((Mesh3d(flag.original.clone()), flag.source_bounds()));
+            }
+            if skin.is_none()
+                && let Some(source) = &flag.skin
+            {
+                commands.entity(entity).insert(source.original.clone());
             }
             commands.entity(entity).remove::<FlagMotion>();
         }
@@ -1114,16 +1311,28 @@ pub(super) fn animate_flags(
         Entity,
         &Mesh3d,
         &GlobalTransform,
-        Has<bevy::mesh::skinning::SkinnedMesh>,
+        Option<&SkinnedMesh>,
         &mut FlagMotion,
     )>,
+    transforms: Query<&GlobalTransform>,
+    bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut status: ResMut<OpaqueSurfaceStatus>,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
-    for (entity, handle, transform, skinned, mut flag) in &mut entities {
-        if flag.target != handle.0 {
+    for (entity, handle, transform, skin, mut flag) in &mut entities {
+        if flag.target != handle.0 || skin.is_some() {
+            if flag.target == handle.0 {
+                commands
+                    .entity(entity)
+                    .insert((Mesh3d(flag.original.clone()), flag.source_bounds()));
+            }
+            if skin.is_none()
+                && let Some(source) = &flag.skin
+            {
+                commands.entity(entity).insert(source.original.clone());
+            }
             commands
                 .entity(entity)
                 .remove::<(FlagMotion, StandardReady)>();
@@ -1147,26 +1356,26 @@ pub(super) fn animate_flags(
             next.set(crate::GameState::LoadError);
             return;
         }
-        let result = (|| -> Result<Option<(Vec<[f32; 3]>, Vec<[f32; 3]>, f32)>, String> {
-            if skinned {
-                return Err(
-                    "Native flag deformation after source skinning is not yet connected".into(),
-                );
-            }
-            let basis = transform.affine().matrix3;
-            let axes = [basis.x_axis, basis.y_axis, basis.z_axis];
-            let scale = axes[0].length_squared();
-            if !scale.is_finite()
-                || scale <= 0.
-                || basis.determinant() <= 0.
-                || axes.iter().any(|axis| {
-                    !axis.is_finite() || (axis.length_squared() - scale).abs() > scale * 0.0001
-                })
-                || [(0, 1), (0, 2), (1, 2)]
-                    .into_iter()
-                    .any(|(a, b)| axes[a].dot(axes[b]).abs() > scale * 0.0001)
-            {
-                return Err("Native flag source normal transform requires a proven rigid uniform-scale placement".into());
+        let result: Result<_, String> = (|| {
+            let placement = Mat4::from(transform.affine());
+            flag_placement(placement, flag.skin.is_some())?;
+            let mut pose = Vec::new();
+            if let Some(skin) = &flag.skin {
+                pose.push(placement);
+                let bindposes = bindposes
+                    .get(&skin.original.inverse_bindposes)
+                    .ok_or("Native flag inverse bind poses are unavailable")?;
+                if bindposes.len() != skin.original.joints.len() {
+                    return Err("Native flag joint and inverse bind counts differ".into());
+                }
+                for (joint, bind) in skin.original.joints.iter().zip(bindposes.iter()) {
+                    let world = transforms
+                        .get(*joint)
+                        .map_err(|_| "Native flag current joint transform is unavailable")?;
+                    let matrix = Mat4::from(world.affine()) * *bind;
+                    flag_placement(matrix, true)?;
+                    pose.push(matrix);
+                }
             }
             let (milliseconds, start) = flag
                 .owner
@@ -1176,22 +1385,47 @@ pub(super) fn animate_flags(
                     "Native flag render-game milliseconds and shader-start input are not connected",
                 )?;
             let seconds = game_time(milliseconds, start)?[3];
-            if flag.last_time == Some(seconds) {
+            if flag.last_time == Some(seconds) && flag.last_pose == pose {
                 return Ok(None);
             }
-            let (positions, normals) = flag.deform(seconds)?;
-            Ok(Some((positions, normals, seconds)))
+            let (positions, normals, tangents) = if flag.skin.is_some() {
+                let (positions, normals, tangents) =
+                    flag.deform_skinned(seconds, placement, &pose[1..])?;
+                (positions, normals, Some(tangents))
+            } else {
+                let (positions, normals) = flag.deform(seconds)?;
+                (positions, normals, None)
+            };
+            Ok(Some((positions, normals, tangents, seconds, pose)))
         })();
         match result {
-            Ok(Some((positions, normals, seconds))) => {
+            Ok(Some((positions, normals, tangents, seconds, pose))) => {
                 let Some(mut mesh) = meshes.get_mut(&handle.0) else {
                     failure.0 = "Native flag per-object CPU mesh is unavailable".into();
                     next.set(crate::GameState::LoadError);
                     return;
                 };
+                if flag.skin.is_some() {
+                    let mut minimum = Vec3::splat(f32::INFINITY);
+                    let mut maximum = Vec3::splat(f32::NEG_INFINITY);
+                    for position in &positions {
+                        let position = Vec3::from_array(*position);
+                        minimum = minimum.min(position);
+                        maximum = maximum.max(position);
+                    }
+                    commands
+                        .entity(entity)
+                        .insert(bevy::camera::primitives::Aabb::from_min_max(
+                            minimum, maximum,
+                        ));
+                }
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+                if let Some(tangents) = tangents {
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, tangents);
+                }
                 flag.last_time = Some(seconds);
+                flag.last_pose = pose;
             }
             Ok(None) => (),
             Err(error) => {
@@ -1684,6 +1918,222 @@ mod tests {
                 .resource::<crate::assets::LoadFailure>()
                 .0
                 .contains("script vector is unavailable")
+        );
+    }
+
+    #[test]
+    fn native_flag_basis_keeps_signed_cpu_input_and_axis_specific_repacking() {
+        assert_eq!(flag_skin_basis(0), Vec3::ZERO);
+        assert_eq!(flag_skin_basis(1023), Vec3::new(-1. / 511., 0., 0.));
+        let expected = Vec3::new(
+            2. * (897_f32 / 1023.) - 2.,
+            2. * (357_f32 / 1023.),
+            -(2. * (972_f32 / 1023.) - 2.),
+        );
+        assert_eq!(flag_repack_basis(Vec3::new(-0.25, 0.7, 0.1)), expected);
+        assert_eq!(
+            flag_repack_basis(Vec3::new(2., 0., 0.)),
+            Vec3::new(1022. / 1023., 0., -0.)
+        );
+        assert!(flag_placement(Mat4::from_scale(Vec3::splat(2.)), true).is_err());
+        assert!(flag_placement(Mat4::from_rotation_z(0.37), true).is_ok());
+    }
+
+    #[test]
+    fn skinned_flag_updates_paused_pose_and_private_ray_proxy_then_restores_source_skin() {
+        use bevy::{asset::AssetApp, solari::prelude::RaytracingMesh3d};
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_asset::<SkinnedMeshInverseBindposes>()
+            .init_resource::<crate::assets::LoadFailure>()
+            .init_resource::<OpaqueSurfaceStatus>()
+            .insert_resource(NextState::<crate::GameState>::Unchanged)
+            .insert_resource(State::new(crate::GameState::Paused))
+            .add_systems(
+                Update,
+                (animate_flags, super::super::solari::prepare_meshes).chain(),
+            );
+        let owner = app
+            .world_mut()
+            .spawn(NativeArtInputs {
+                shader_time: Some((1250, 0.)),
+                ..default()
+            })
+            .id();
+        let placement =
+            Mat4::from_rotation_translation(Quat::from_rotation_z(0.37), Vec3::new(3., 2., -4.));
+        let first = app.world_mut().spawn(GlobalTransform::from(placement)).id();
+        let second = app
+            .world_mut()
+            .spawn(GlobalTransform::from(
+                placement * Mat4::from_translation(Vec3::Y * 0.2),
+            ))
+            .id();
+        let bind = app
+            .world_mut()
+            .resource_mut::<Assets<SkinnedMeshInverseBindposes>>()
+            .add(SkinnedMeshInverseBindposes::from(vec![Mat4::IDENTITY; 2]));
+        let skin = SkinnedMesh {
+            inverse_bindposes: bind,
+            joints: vec![first, second],
+        };
+        let mut source = flag_mesh();
+        source.insert_attribute(FLAG_SOURCE_NORMAL, vec![[0., 512. / 1023., 0.]; 3]);
+        source.insert_attribute(FLAG_SOURCE_TANGENT, vec![[1022. / 1023., 0., 0.]; 3]);
+        source.insert_attribute(FLAG_PACKED_BASIS, vec![[256_u32 << 20, 511]; 3]);
+        source.insert_attribute(
+            Mesh::ATTRIBUTE_JOINT_INDEX,
+            VertexAttributeValues::Uint16x4(vec![[0_u16, 1, 0, 0]; 3]),
+        );
+        source.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[0.25, 0.75, 0., 0.]; 3]);
+        let original = app
+            .world_mut()
+            .resource_mut::<Assets<Mesh>>()
+            .add(source.clone());
+        let (mut flag, target) =
+            FlagMotion::new(original.clone(), owner, flag_parameters(), &source).unwrap();
+        let mut missing = source.clone();
+        missing.remove_attribute(FLAG_PACKED_BASIS);
+        assert!(
+            flag.set_skin(&missing, skin.clone())
+                .unwrap_err()
+                .contains("original packed basis")
+        );
+        flag.set_skin(&source, skin.clone()).unwrap();
+        let target = app.world_mut().resource_mut::<Assets<Mesh>>().add(target);
+        flag.target = target.clone();
+        let material = app
+            .world_mut()
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial::default());
+        let entity = app
+            .world_mut()
+            .spawn((
+                Mesh3d(target.clone()),
+                MeshMaterial3d(material),
+                GlobalTransform::from(placement),
+                InheritedVisibility::VISIBLE,
+                flag.bounds(),
+                flag,
+            ))
+            .id();
+        app.update();
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .is_empty()
+        );
+        assert!(app.world().get::<SkinnedMesh>(entity).is_none());
+        let proxy = app
+            .world()
+            .get::<RaytracingMesh3d>(entity)
+            .unwrap()
+            .0
+            .clone();
+        let Some(VertexAttributeValues::Float32x3(before)) = app
+            .world()
+            .resource::<Assets<Mesh>>()
+            .get(&target)
+            .unwrap()
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!()
+        };
+        assert!((before[0][1] - 0.15).abs() < 0.00001);
+        let before = before.clone();
+        app.world_mut()
+            .entity_mut(second)
+            .insert(GlobalTransform::from(
+                placement
+                    * Mat4::from_rotation_translation(Quat::from_rotation_x(0.8), Vec3::Y * 0.6),
+            ));
+        app.update();
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .is_empty()
+        );
+        assert_eq!(
+            app.world()
+                .get::<NativeArtInputs>(owner)
+                .unwrap()
+                .shader_time,
+            Some((1250, 0.))
+        );
+        assert_eq!(
+            app.world().get::<RaytracingMesh3d>(entity).unwrap().0,
+            proxy
+        );
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        let raster = meshes.get(&target).unwrap();
+        for attribute in [Mesh::ATTRIBUTE_JOINT_INDEX, Mesh::ATTRIBUTE_JOINT_WEIGHT] {
+            assert!(raster.attribute(attribute).is_none());
+            assert!(
+                meshes
+                    .get(&original)
+                    .unwrap()
+                    .attribute(attribute)
+                    .is_some()
+            );
+        }
+        let Some(VertexAttributeValues::Float32x3(after)) =
+            raster.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!()
+        };
+        assert!((after[0][1] - 0.45).abs() < 0.00001);
+        assert_ne!(*after, before);
+        for attribute in [
+            Mesh::ATTRIBUTE_POSITION,
+            Mesh::ATTRIBUTE_NORMAL,
+            Mesh::ATTRIBUTE_TANGENT,
+        ] {
+            assert_eq!(
+                raster.attribute(attribute),
+                meshes.get(&proxy).unwrap().attribute(attribute)
+            );
+        }
+        assert_eq!(
+            meshes
+                .get(&original)
+                .unwrap()
+                .attribute(Mesh::ATTRIBUTE_POSITION),
+            source.attribute(Mesh::ATTRIBUTE_POSITION)
+        );
+        app.world_mut().run_system_cached(initialize).unwrap();
+        assert!(app.world().get::<FlagMotion>(entity).is_none());
+        assert_eq!(app.world().get::<Mesh3d>(entity).unwrap().0, original);
+        let restored = app.world().get::<SkinnedMesh>(entity).unwrap();
+        assert_eq!(restored.joints, skin.joints);
+        assert_eq!(restored.inverse_bindposes, skin.inverse_bindposes);
+        assert!(
+            app.world()
+                .get::<NativeArtInputs>(owner)
+                .unwrap()
+                .shader_time
+                .is_none()
+        );
+        let (mut motion, _) =
+            FlagMotion::new(original.clone(), owner, flag_parameters(), &source).unwrap();
+        motion.set_skin(&source, skin.clone()).unwrap();
+        motion.target = target.clone();
+        let replacement = SkinnedMesh {
+            inverse_bindposes: skin.inverse_bindposes.clone(),
+            joints: vec![second, first],
+        };
+        app.world_mut()
+            .entity_mut(entity)
+            .insert((Mesh3d(target), motion, replacement.clone()));
+        app.world_mut().run_system_cached(animate_flags).unwrap();
+        assert!(app.world().get::<FlagMotion>(entity).is_none());
+        assert_eq!(app.world().get::<Mesh3d>(entity).unwrap().0, original);
+        assert_eq!(
+            app.world().get::<SkinnedMesh>(entity).unwrap().joints,
+            replacement.joints
         );
     }
 

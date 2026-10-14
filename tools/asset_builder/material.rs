@@ -516,9 +516,10 @@ fn convert_single_unlit(key: &str, native: &Value, images: &BTreeMap<String,text
     let mut image = image;
     if eyes {image.levels.truncate(1);}
     let operation = if layered {"source_layer"} else {match mode {"add" => "source_vm_add","blend" => "source_vm_blend","alpha" => "source_vm_alpha",_ => "source_vm"}};
-    let image = unlit_color(&image,amount*amount,operation)?;
+    let prepared_amount = if eyes {1.} else {amount};
+    let image = unlit_color(&image,prepared_amount*prepared_amount,operation)?;
     let linear = image.format == 19;
-    let channel_key = (name.clone(),format!("single-unlit:{operation}:{}:{uv:?}",amount.to_bits()));
+    let channel_key = (name.clone(),format!("single-unlit:{operation}:{}:{uv:?}:lod0-unit={eyes}",prepared_amount.to_bits()));
     let uri = if let Some(uri) = shared.get(&channel_key) {uri.clone()} else {
         let uri = store_image(&image,format!("prepared/material-channels/{}/color.ktx2",shared.len()),!linear,"color",pack)?;
         shared.insert(channel_key,uri.clone());uri
@@ -565,12 +566,16 @@ fn convert_single_unlit(key: &str, native: &Value, images: &BTreeMap<String,text
             "screen" => "Native tritium emission writes squared linear source RGB without the gamma2 sqrt, then blends with inverse destination color plus destination; source fog, screen blending and destination-alpha composition remain unconnected",
             "blend" => "Native translucent viewmodel emission writes squared source RGB without gamma2 sqrt and sqrt texture alpha with source-alpha blending; matching source fog and framebuffer composition remain unconnected",
             "alpha" => "Native viewmodel alpha emission writes squared source RGB and unchanged texture alpha with source-alpha blending; matching source fog and linear-output framebuffer composition remain unconnected",
-            "eyes" => "Native cheap eyes use scriptVector2.y luminance with explicit LOD-zero sampling before source fog, scene HDR control0 and gamma2 output; mapped actor eye-color/luminance overrides and matching runtime composition remain unconnected",
+            "eyes" => "Native cheap eyes retain unit-luminance squared LOD-zero texture and live scriptVector2.y squared material factor; source fog, scene HDR control0 and gamma2 framebuffer composition remain unconnected",
             _ => "Native additive viewmodel emission squares texture-alpha-premultiplied source RGB, writes alpha one, and adds source fog color before ONE/ONE blending; matching source fog and framebuffer composition remain unconnected",
         });
         if eyes {
+            let factor = amount*amount;
+            if !factor.is_finite() {return Err("Native eye luminance square is non-finite".into());}
+            surface["standard"]["base_color"] = json!([factor,factor,factor,1.]);
             surface["source_eye_luminance"] = json!({"code_constant":171,"component":1,"state":eye_state,"base_state":[0.,0.,0.,0.],
                 "base_state_origin":"normal_view_zero_template_preserved_by_type2_constant_copy","lod":0.,"operation":"square_texture_rgb_times_luminance",
+                "prepared_unit_luminance":true,"runtime_operation":"square_scriptVector2_y",
                 "active_override_scope":"actor_scriptVector2_mapping_replaces_base_state"});
             surface["source_emissive"]["output_transfer"] = json!("sqrt_after_source_fog_and_scene_hdr_control0");
         }

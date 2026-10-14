@@ -834,6 +834,59 @@ pub(crate) struct IceStone {
 #[derive(Component)]
 pub(crate) struct FrozenStone {
     pub amount: f32,
+    next: f32,
+    wait: f64,
+}
+impl FrozenStone {
+    fn new(inputs: &mut crate::rendering::NativeArtInputs) -> Self {
+        inputs.script_vectors[3] = [0.; 4];
+        inputs.script_available |= 1 << 3;
+        Self {
+            amount: 0.,
+            next: 0.01,
+            wait: 0.0166_f32 as f64,
+        }
+    }
+
+    fn advance(&mut self, seconds: f64, inputs: &mut crate::rendering::NativeArtInputs) {
+        self.wait -= seconds;
+        while self.wait <= 0. && self.next <= 1. {
+            self.amount = self.next;
+            inputs.script_vectors[3] = [self.amount; 4];
+            self.next += 0.01;
+            self.wait += 0.0166_f32 as f64;
+        }
+    }
+}
+#[cfg(test)]
+mod frozen_stone_tests {
+    use super::*;
+
+    #[test]
+    fn freezing_maps_all_components_and_preserves_source_wait_steps_and_terminal_float() {
+        let mut inputs = crate::rendering::NativeArtInputs {
+            script_available: 2,
+            script_vectors: [[0.5; 4]; 4],
+            ..default()
+        };
+        let mut stone = FrozenStone::new(&mut inputs);
+        assert_eq!(inputs.script_available, 10);
+        assert_eq!(inputs.script_vectors[3], [0.; 4]);
+        assert_eq!(inputs.script_vectors[1], [0.5; 4]);
+        let interval = 0.0166_f32 as f64;
+        stone.advance(interval * 0.5, &mut inputs);
+        assert_eq!(stone.amount, 0.);
+        stone.advance(interval * 0.5, &mut inputs);
+        assert_eq!(stone.amount, 0.01);
+        stone.advance(interval * 9., &mut inputs);
+        assert!((stone.amount - 0.1).abs() < 0.000001);
+        stone.advance(100., &mut inputs);
+        assert_eq!(stone.amount.to_bits(), 0x3f7ffff5);
+        assert_eq!(inputs.script_vectors[3], [stone.amount; 4]);
+        let end = stone.amount;
+        stone.advance(10., &mut inputs);
+        assert_eq!(stone.amount, end);
+    }
 }
 fn setup_ice(
     mut commands: Commands,
@@ -959,6 +1012,8 @@ fn setup_ice(
                 base: Vec3::from_array(point),
                 rise: 0.,
             },
+            crate::rendering::opaque::NativeShaderStart(0.),
+            crate::rendering::NativeArtInputs::default(),
             Transform::from_translation(Vec3::from_array(point)).with_rotation(native_rotation(
                 [354.459, 347.137, 349.084][index],
                 [26.6952, 88.9387, 211.357][index],
@@ -1009,6 +1064,7 @@ fn ice(
             &mut Transform,
             &mut Visibility,
             Option<&mut FrozenStone>,
+            &mut crate::rendering::NativeArtInputs,
         ),
         Without<IceTile>,
     >,
@@ -1053,7 +1109,7 @@ fn ice(
             pose.rotation = motion.base * Quat::from_rotation_x(angle);
         }
     }
-    for (entity, mut stone, mut pose, mut visibility, frozen) in &mut stones {
+    for (entity, mut stone, mut pose, mut visibility, frozen, mut inputs) in &mut stones {
         if puzzles.first[1] && !puzzles.broken_stones[stone.index] {
             if stone.rise == 0. {
                 *visibility = Visibility::Inherited;
@@ -1071,7 +1127,7 @@ fn ice(
             pose.translation = stone.base - pose.rotation * Vec3::Y * (1.6256 * (1. - stone.rise));
         }
         if let Some(mut frozen) = frozen {
-            frozen.amount = (frozen.amount + dt / 1.66).min(1.);
+            frozen.advance(time.delta_secs_f64(), &mut inputs);
         }
     }
     if puzzles.snow > 0. {
@@ -1127,7 +1183,7 @@ fn ice(
         }
         if puzzles.first[1]
             && !puzzles.second[1]
-            && let Ok((_, stone, _, _, _)) = stones.get(hit.target)
+            && let Ok((_, stone, _, _, _, mut inputs)) = stones.get_mut(hit.target)
         {
             let index = stone.index;
             if !puzzles.frozen_stones[index] && water {
@@ -1135,7 +1191,7 @@ fn ice(
                 puzzles.frozen_stones[index] = true;
                 commands
                     .entity(hit.target)
-                    .insert(FrozenStone { amount: 0. });
+                    .insert(FrozenStone::new(&mut inputs));
                 crate::audio::emit(
                     &mut commands,
                     "zmb_squest_ice_stone_freeze",

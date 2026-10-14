@@ -10,6 +10,7 @@ use bevy::{
     prelude::*,
 };
 pub(crate) mod atmosphere;
+mod eyes;
 pub(crate) mod grading;
 mod lighting_inspection;
 mod lod;
@@ -101,14 +102,27 @@ impl Plugin for GameRenderingPlugin {
                 OnEnter(GameState::Loading),
                 opaque::initialize.after(crate::assets::begin_load),
             )
-            .add_systems(OnEnter(GameState::MainMenu), opaque::shutdown_native_time)
+            .add_systems(
+                OnEnter(GameState::Loading),
+                eyes::reset.after(opaque::initialize),
+            )
+            .add_systems(
+                OnEnter(GameState::MainMenu),
+                (opaque::shutdown_native_time, eyes::reset),
+            )
             .add_systems(
                 OnEnter(GameState::PreparingShaders),
                 opaque::begin_native_time.after(crate::session::SessionSetup::Initialize),
             )
-            .add_systems(Update,
-                (opaque::prepare_native_time_owners, opaque::advance_native_time)
-                    .chain().before(SurfacePreparation))
+            .add_systems(
+                Update,
+                (
+                    opaque::prepare_native_time_owners,
+                    opaque::advance_native_time,
+                )
+                    .chain()
+                    .before(SurfacePreparation),
+            )
             .add_systems(
                 PostUpdate,
                 pbr::prepare_image_dimensions.after(bevy::asset::AssetEventSystems),
@@ -130,7 +144,14 @@ impl Plugin for GameRenderingPlugin {
                 Update,
                 (
                     camera_follow.run_if(crate::flythrough::normal_play),
-                    (pbr::refresh, pbr::prepare, surfaces, fixture_lights, opaque::convert)
+                    (
+                        pbr::refresh,
+                        pbr::prepare,
+                        surfaces,
+                        fixture_lights,
+                        opaque::convert,
+                        eyes::prepare.run_if(opaque::material_scene_active),
+                    )
                         .chain()
                         .in_set(SurfacePreparation),
                 ),
@@ -151,6 +172,7 @@ impl Plugin for GameRenderingPlugin {
                     opaque::animate.run_if(in_state(GameState::Playing)),
                     opaque::animate_scalars,
                     opaque::animate_uvs,
+                    eyes::animate,
                 )
                     .chain()
                     .in_set(MaterialAnimation)
@@ -172,10 +194,7 @@ fn cluster_capacity(mut settings: ResMut<bevy::light::cluster::GlobalClusterSett
     }
 }
 
-pub(crate) fn setup(
-    mut commands: Commands,
-    profile: Res<profile::VisualProfile>,
-) {
+pub(crate) fn setup(mut commands: Commands, profile: Res<profile::VisualProfile>) {
     commands.insert_resource(bevy::light::PointLightShadowMap {
         size: profile.lantern_shadow_map_size,
     });
@@ -228,38 +247,40 @@ fn configure(
         commands.entity(sun).despawn();
     }
     for camera in &cameras {
-        commands.entity(camera).insert(source.camera_exposure(&profile));
+        commands
+            .entity(camera)
+            .insert(source.camera_exposure(&profile));
     }
     commands.spawn((
-            DirectionalLight {
-                illuminance: profile.sun_illuminance,
-                color: Color::linear_rgb(
-                    source.sun_color[0],
-                    source.sun_color[1],
-                    source.sun_color[2],
-                ),
-                affects_lightmapped_mesh_diffuse: true,
-                contact_shadows_enabled: false,
-                shadow_maps_enabled: false,
-                shadow_depth_bias: 0.002,
-                shadow_normal_bias: 0.25,
-                ..default()
-            },
-            bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
-            bevy::light::CascadeShadowConfigBuilder {
-                num_cascades: profile.sun_shadow_cascades,
-                maximum_distance: profile.sun_shadow_distance,
-                first_cascade_far_bound: profile.sun_shadow_first_cascade,
-                ..default()
-            }
-            .build(),
-            Transform::IDENTITY.looking_to(
-                -atmosphere::source_direction(source.sun_angles[0], source.sun_angles[1]),
-                Vec3::Y,
+        DirectionalLight {
+            illuminance: profile.sun_illuminance,
+            color: Color::linear_rgb(
+                source.sun_color[0],
+                source.sun_color[1],
+                source.sun_color[2],
             ),
-            Name::new("Origins sunlight"),
-            atmosphere::Sun,
-        ));
+            affects_lightmapped_mesh_diffuse: true,
+            contact_shadows_enabled: false,
+            shadow_maps_enabled: false,
+            shadow_depth_bias: 0.002,
+            shadow_normal_bias: 0.25,
+            ..default()
+        },
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, 1]),
+        bevy::light::CascadeShadowConfigBuilder {
+            num_cascades: profile.sun_shadow_cascades,
+            maximum_distance: profile.sun_shadow_distance,
+            first_cascade_far_bound: profile.sun_shadow_first_cascade,
+            ..default()
+        }
+        .build(),
+        Transform::IDENTITY.looking_to(
+            -atmosphere::source_direction(source.sun_angles[0], source.sun_angles[1]),
+            Vec3::Y,
+        ),
+        Name::new("Origins sunlight"),
+        atmosphere::Sun,
+    ));
 }
 
 fn camera_follow(
@@ -316,8 +337,7 @@ fn camera_follow(
             previous.0.lerp(body.translation, time.overstep_fraction())
         } else {
             body.translation
-        })
-            + Vec3::Y * (eye - player.height * 0.5)
+        }) + Vec3::Y * (eye - player.height * 0.5)
             + Quat::from_rotation_y(player.yaw) * Vec3::new(bob.x, bob.y, 0.),
         rotation: Quat::from_rotation_y(player.yaw + inventory.recoil.x + feedback.rumble.x)
             * Quat::from_rotation_x(

@@ -243,6 +243,8 @@ pub(super) fn prepare_meshes(
             if !ready {
                 continue;
             }
+        } else if let Some(flag) = flag {
+            scratch.pose.extend_from_slice(flag.deformation_pose());
         }
         if let Some(prepared) = prepared.as_deref()
             && !prepared.invalidated

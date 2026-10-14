@@ -165,11 +165,13 @@ impl Scene {
             };
             let mut attributes = json!({"POSITION":positions,"NORMAL":normal,"TANGENT":tangent,"TEXCOORD_0":uv,"COLOR_0":colors});
             if flag_motion {
-                if surface.raw_normals.len() != surface.positions.len() || surface.raw_tangents.len() != surface.positions.len() {
+                if surface.raw_normals.len() != surface.positions.len() || surface.raw_tangents.len() != surface.positions.len() || surface.packed_basis.len() != surface.positions.len() {
                     return Err("Source flag raw basis does not match its vertices".into());
                 }
                 attributes["_ORIGINS_NORMAL"] = json!(self.floats(&surface.raw_normals,"VEC3"));
                 attributes["_ORIGINS_TANGENT"] = json!(self.floats(&surface.raw_tangents,"VEC3"));
+                let packed: Vec<_> = surface.packed_basis.iter().flatten().flat_map(|word| word.to_le_bytes()).collect();
+                attributes["_ORIGINS_PACKED_BASIS"] = json!(self.accessor(&packed,surface.packed_basis.len(),5125,"VEC2",34962));
             }
             if !surface.lightmap_uv.is_empty() {
                 attributes["TEXCOORD_1"] = json!(self.floats(&surface.lightmap_uv, "VEC2"));
