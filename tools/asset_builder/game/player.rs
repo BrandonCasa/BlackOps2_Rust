@@ -344,6 +344,17 @@ pub(super) fn read(
             .into());
         }
     }
+    for expression in [
+        "level.custom_perk_validation = ::check_perk_machine_valid;",
+        "level.zone_capture.perk_machines_always_on = array( \"specialty_additionalprimaryweapon\" );",
+    ] {
+        if !capture.contains(expression) {
+            return Err(format!(
+                "Original initial Quick Revive purchase validation is unsupported: {expression}"
+            )
+            .into());
+        }
+    }
     if !capture.contains("register_perk_machine_for_zone( \"generator_start_bunker\", \"revive\", \"vending_revive\", ::revive_perk_fx_think );")
         || !capture.contains("b_machine_valid = level.zone_capture.zones[self.str_zone_name] ent_flag( \"player_controlled\" );") {
         return Err("Original initial Quick Revive generator prerequisite is unsupported".into());
