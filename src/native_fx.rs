@@ -12,6 +12,8 @@ use std::{
     io,
 };
 
+mod superflare;
+
 #[derive(Clone, Deserialize)]
 struct VisualState {
     color: [f32; 4],
@@ -40,6 +42,7 @@ struct Element {
     kind: u8,
     flags: i32,
     looping: bool,
+    emission: bool,
     spawn: [i32; 2],
     delay: [f32; 2],
     life: [f32; 2],
@@ -60,17 +63,30 @@ struct Element {
     impact: String,
     sound: String,
     pivot: [f32; 2],
+    fade_in: [f32; 2],
+    fade_out: [f32; 2],
+    lighting_fraction: u8,
+}
+#[derive(Clone, Deserialize)]
+struct OcclusionQuery {
+    depth_bias: f32,
+    fade_in_ms: i32,
+    fade_out_ms: i32,
+    scale_range: [f32; 2],
 }
 #[derive(Clone, Deserialize)]
 struct Effect {
     elements: Vec<Element>,
     loop_life: i32,
     oneshot_life: i32,
+    flags: u16,
+    occlusion_query: OcclusionQuery,
 }
 #[derive(Deserialize)]
 struct NativeMaterial {
-    texture: String,
-    sampler: u32,
+    texture: Option<String>,
+    sampler: Option<u32>,
+    source_superflare: Option<superflare::Definition>,
     presentation: serde_json::Value,
     columns: u32,
     rows: u32,
@@ -82,7 +98,8 @@ struct Manifest {
     models: BTreeMap<String, String>,
 }
 struct FxMaterial {
-    texture: Handle<Image>,
+    texture: Option<Handle<Image>>,
+    superflare: Option<superflare::Prepared>,
     blend: AlphaMode,
     columns: u32,
     rows: u32,
@@ -114,7 +131,73 @@ impl AssetLoader for NativeFxLoader {
         let mut textures = Vec::new();
         let mut materials = BTreeMap::new();
         for (name, material) in manifest.materials {
-            let native = material.sampler;
+            if let Some(flare) = material.source_superflare {
+                if name != "gfx_fxt_superflare_zmb_tomb_elec_bolt_lg"
+                    || material.texture.is_some()
+                    || material.sampler.is_some()
+                    || material.columns != 1
+                    || material.rows != 1
+                    || material.presentation["alpha"] != "add"
+                {
+                    return Err(io::Error::other("Invalid native superflare material class"));
+                }
+                let effect = manifest
+                    .effects
+                    .get("maps/zombie_tomb/fx_tomb_capture_progression_c")
+                    .ok_or_else(|| io::Error::other("Native superflare source effect is absent"))?;
+                let source = effect.elements.get(1).ok_or_else(|| {
+                    io::Error::other("Native superflare source element is absent")
+                })?;
+                if source.kind != 0
+                    || source.flags != 0x18086
+                    || !source.looping
+                    || source.emission
+                    || source.spawn != [100, 1]
+                    || source.delay != [0., 0.]
+                    || source.life != [100., 0.]
+                    || source.fade_in != [1000., 1000.]
+                    || source.fade_out != [0., 0.]
+                    || source.lighting_fraction != 0
+                    || effect.loop_life != 0
+                    || effect.oneshot_life != 0
+                    || effect.flags != 33820
+                    || effect.occlusion_query.depth_bias != 0.
+                    || effect.occlusion_query.fade_in_ms != 0
+                    || effect.occlusion_query.fade_out_ms != 0
+                    || effect.occlusion_query.scale_range != [1., 0.]
+                    || source.atlas != [0, 0, 0, 1, 0, 0, 513]
+                    || source.visuals.len() != 1
+                    || source.visuals[0] != name
+                {
+                    return Err(io::Error::other(
+                        "Native superflare source element is invalid",
+                    ));
+                }
+                let flare = flare.load(context)?;
+                textures.extend([flare.sprite.clone(), flare.grime.clone()]);
+                materials.insert(
+                    name,
+                    FxMaterial {
+                        texture: None,
+                        superflare: Some(flare),
+                        blend: AlphaMode::Add,
+                        columns: 1,
+                        rows: 1,
+                    },
+                );
+                continue;
+            }
+            if name == "gfx_fxt_superflare_zmb_tomb_elec_bolt_lg" {
+                return Err(io::Error::other(
+                    "Native superflare cannot use a generic FX texture",
+                ));
+            }
+            let native = material
+                .sampler
+                .ok_or_else(|| io::Error::other("Prepared FX sampler is missing"))?;
+            let uri = material
+                .texture
+                .ok_or_else(|| io::Error::other("Prepared FX texture is missing"))?;
             let texture = context
                 .load_builder()
                 .with_settings(move |settings: &mut bevy::image::ImageLoaderSettings| {
@@ -153,7 +236,7 @@ impl AssetLoader for NativeFxLoader {
                         ..ImageSamplerDescriptor::linear()
                     });
                 })
-                .load(material.texture);
+                .load(uri);
             textures.push(texture.clone());
             let blend = match material.presentation["alpha"].as_str() {
                 Some("opaque") => AlphaMode::Opaque,
@@ -175,7 +258,8 @@ impl AssetLoader for NativeFxLoader {
             materials.insert(
                 name,
                 FxMaterial {
-                    texture,
+                    texture: Some(texture),
+                    superflare: None,
                     blend,
                     columns: material.columns,
                     rows: material.rows,
@@ -225,6 +309,7 @@ struct Particle {
     random: f32,
     rotation: f32,
     material: Option<Handle<StandardMaterial>>,
+    superflare: Option<Handle<superflare::SuperflareMaterial>>,
     columns: u32,
     rows: u32,
     atlas_start: u32,
@@ -233,6 +318,7 @@ struct Particle {
 pub(crate) struct NativeFxPlugin;
 impl Plugin for NativeFxPlugin {
     fn build(&self, app: &mut App) {
+        superflare::install(app);
         app.init_asset::<NativeFxPack>()
             .init_asset_loader::<NativeFxLoader>()
             .init_resource::<Diagnostics>()
@@ -245,6 +331,14 @@ impl Plugin for NativeFxPlugin {
                 (spawn, animate)
                     .chain()
                     .before(crate::audio::AudioPlayback)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                PostUpdate,
+                select_flares
+                    .after(bevy::camera::visibility::VisibilitySystems::UpdateFrusta)
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility)
                     .run_if(in_state(GameState::Playing)),
             );
     }
@@ -379,6 +473,7 @@ fn spawn(
     game: Res<crate::assets::GameDefinition>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut flares: ResMut<Assets<superflare::SuperflareMaterial>>,
     mut diagnostics: ResMut<Diagnostics>,
     mut emitters: Query<(Entity, &mut Emitter, &mut Transform, Option<&FxParent>)>,
     parents: Query<&FxParent>,
@@ -442,19 +537,22 @@ fn spawn(
         let mut active = false;
         for (index, element) in effect.elements.iter().enumerate() {
             let looping_life = effect.loop_life.max(0) as f32 * 0.001;
-            let permitted = !element.looping || emitter.elapsed <= looping_life;
+            let permitted = !element.looping
+                || emitter.counts[index] == 0
+                || emitter.next[index] <= looping_life;
             let limit = emitter.limits[index];
             if !permitted || emitter.counts[index] >= limit {
                 continue;
             }
             active = true;
-            let mut frame_count = 0;
             while emitter.next[index] <= emitter.elapsed
                 && emitter.counts[index] < limit
-                && frame_count < 64
+                && (!element.looping
+                    || emitter.counts[index] == 0
+                    || emitter.next[index] <= looping_life)
             {
+                let born = emitter.next[index];
                 emitter.counts[index] += 1;
-                frame_count += 1;
                 emitter.next[index] += if element.looping {
                     element.spawn[0].max(1) as f32 * 0.001
                 } else {
@@ -551,12 +649,13 @@ fn spawn(
                 let mut particle = Particle {
                     element: element.clone(),
                     pose: particle_pose,
-                    age: 0.,
+                    age: (emitter.elapsed - born).max(0.),
                     fresh: true,
                     life,
                     random: r,
                     rotation: range(element.rotation, r),
                     material: None,
+                    superflare: None,
                     columns: 1,
                     rows: 1,
                     atlas_start: element.atlas[1],
@@ -598,8 +697,44 @@ fn spawn(
                     if element.atlas[0] & 1 != 0 {
                         particle.atlas_start = (r * (source.columns * source.rows) as f32) as u32;
                     }
+                    if let Some(source) = &source.superflare {
+                        if element.kind != 0
+                            || element.flags != 0x18086
+                            || index != 1
+                            || !emitter.name.trim_start_matches(',').eq_ignore_ascii_case(
+                                "maps/zombie_tomb/fx_tomb_capture_progression_c",
+                            )
+                        {
+                            diagnose(
+                                &mut diagnostics,
+                                format!("{}:superflare", emitter.name),
+                                "native superflare source element contract is invalid",
+                            );
+                            continue;
+                        }
+                        let material = flares.add(source.material());
+                        particle.superflare = Some(material.clone());
+                        let mut mesh = Mesh::from(Rectangle::new(1., 1.));
+                        if let Some(VertexAttributeValues::Float32x3(vertices)) =
+                            mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+                        {
+                            vertices.fill([0.; 3]);
+                        }
+                        commands.spawn((
+                            SessionEntity,
+                            FxParent(entity),
+                            particle,
+                            particle_pose,
+                            Mesh3d(meshes.add(mesh)),
+                            MeshMaterial3d(material),
+                            bevy::camera::visibility::NoFrustumCulling,
+                            bevy::light::NotShadowCaster,
+                            bevy::light::NotShadowReceiver,
+                        ));
+                        continue;
+                    }
                     let material = materials.add(StandardMaterial {
-                        base_color_texture: Some(source.texture.clone()),
+                        base_color_texture: source.texture.clone(),
                         alpha_mode: source.blend,
                         unlit: true,
                         cull_mode: None,
@@ -685,6 +820,7 @@ fn animate(
     mut commands: Commands,
     time: Res<Time>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut flares: ResMut<Assets<superflare::SuperflareMaterial>>,
     mut spawner: ResMut<WorldInstanceSpawner>,
     cameras: Query<&GlobalTransform, With<crate::rendering::GameCamera>>,
     emitters: Query<(), With<Emitter>>,
@@ -705,6 +841,9 @@ fn animate(
         if !emitters.contains(parent.0) {
             if let Some(material) = &particle.material {
                 materials.remove(material.id());
+            }
+            if let Some(material) = &particle.superflare {
+                flares.remove(material.id());
             }
             retire_particle(&mut commands, &mut spawner, entity, instance);
             continue;
@@ -731,6 +870,9 @@ fn animate(
             }
             if let Some(material) = &particle.material {
                 materials.remove(material.id());
+            }
+            if let Some(material) = &particle.superflare {
+                flares.remove(material.id());
             }
             retire_particle(&mut commands, &mut spawner, entity, instance);
             continue;
@@ -801,6 +943,27 @@ fn animate(
             light.range = size.x.abs() * 0.0254;
             light.radius = scale.abs() * 0.0254;
         }
+        if particle.material.is_none() && particle.superflare.is_none() {
+            continue;
+        }
+        let count = particle.columns * particle.rows;
+        let frame = if element.atlas[2] > 0 {
+            (particle.age * element.atlas[2] as f32) as u32
+        } else {
+            (normalized * count as f32) as u32
+        };
+        let frame = if element.atlas[3] == 0 {
+            frame.min(count - 1)
+        } else {
+            frame % count
+        };
+        let frame = (particle.atlas_start + frame) % count;
+        let atlas = Vec4::new(
+            1. / particle.columns as f32,
+            1. / particle.rows as f32,
+            (frame % particle.columns) as f32 / particle.columns as f32,
+            (frame / particle.columns) as f32 / particle.rows as f32,
+        );
         if let Some(mut material) = particle
             .material
             .as_ref()
@@ -812,26 +975,55 @@ fn animate(
                 color[2] / 255.,
                 color[3] / 255.,
             );
-            let count = particle.columns * particle.rows;
-            let frame = if element.atlas[2] > 0 {
-                (particle.age * element.atlas[2] as f32) as u32
-            } else {
-                (normalized * count as f32) as u32
-            };
-            let frame = if element.atlas[3] == 0 {
-                frame.min(count - 1)
-            } else {
-                frame % count
-            };
-            let frame = (particle.atlas_start + frame) % count;
             material.uv_transform = Affine2::from_scale_angle_translation(
-                Vec2::new(1. / particle.columns as f32, 1. / particle.rows as f32),
+                Vec2::new(atlas.x, atlas.y),
                 0.,
-                Vec2::new(
-                    (frame % particle.columns) as f32 / particle.columns as f32,
-                    (frame / particle.columns) as f32 / particle.rows as f32,
-                ),
+                Vec2::new(atlas.z, atlas.w),
             );
         }
+        if let Some(mut material) = particle.superflare.as_ref().and_then(|h| flares.get_mut(h)) {
+            material.sample(color[3] / 255., atlas);
+        }
+    }
+}
+
+fn select_flares(
+    cameras: Query<
+        (&GlobalTransform, &bevy::camera::primitives::Frustum),
+        With<crate::rendering::GameCamera>,
+    >,
+    particles: Query<(&FxParent, &Particle, &GlobalTransform)>,
+    mut materials: ResMut<Assets<superflare::SuperflareMaterial>>,
+) {
+    let Some((camera, frustum)) = cameras.iter().next() else {
+        return;
+    };
+    let camera = camera.translation();
+    for (_, particle, transform) in &particles {
+        let Some(handle) = &particle.superflare else {
+            continue;
+        };
+        let Some(mut material) = materials.get_mut(handle) else {
+            continue;
+        };
+        let center = transform.translation();
+        let fade = superflare::distance_fade(
+            center.distance(camera) / 0.0254,
+            particle.element.fade_in,
+            particle.element.fade_out,
+        );
+        let alpha = (material.curve_alpha() * fade * 255.).clamp(0., 255.) as u8;
+        let scale = transform.compute_transform().scale;
+        let radius = 0.5 * scale.x.abs().max(scale.y.abs());
+        let admitted = fade > 4. / 255.
+            && alpha > 6
+            && frustum.intersects_sphere(
+                &bevy::camera::primitives::Sphere {
+                    center: center.into(),
+                    radius,
+                },
+                true,
+            );
+        material.admit(alpha, admitted.then_some(0));
     }
 }
