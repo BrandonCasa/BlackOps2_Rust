@@ -242,7 +242,7 @@ impl NativeSound {
             && self
                 .secondary
                 .as_ref()
-                .is_none_or(|alias| game.audio.aliases.contains_key(alias))
+                .is_none_or(|alias| game.audio.named_alias(alias).is_some())
             && match &self.sound {
                 Some(id) => {
                     self.seconds
@@ -366,6 +366,26 @@ pub struct AudioDefinition {
     pub master: Option<MasterDefinition>,
 }
 impl AudioDefinition {
+    fn named_alias(&self, name: &str) -> Option<(&str, &Alias)> {
+        self.aliases
+            .get_key_value(name)
+            .or_else(|| {
+                self.aliases
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            })
+            .map(|(key, alias)| (key.as_str(), alias))
+    }
+    fn absent_alias(&self, name: &str) -> Option<&str> {
+        self.absent
+            .get(name)
+            .or_else(|| {
+                self.absent
+                    .iter()
+                    .find(|key| key.eq_ignore_ascii_case(name))
+            })
+            .map(String::as_str)
+    }
     pub fn valid(&self, game: &GameDefinition) -> bool {
         self.character < 4
             && self.master.as_ref().is_none_or(MasterDefinition::valid)
@@ -388,9 +408,16 @@ impl AudioDefinition {
             && (self.footsteps.is_empty()
                 || (self.footsteps.len() == 32
                     && self.footsteps.iter().flatten().flatten().all(|alias| {
-                        self.aliases.contains_key(alias) || self.absent.contains(alias)
+                        self.named_alias(alias).is_some() || self.absent_alias(alias).is_some()
                     })))
             && self.aliases.len() <= 8192
+            && self
+                .aliases
+                .keys()
+                .map(|name| name.to_ascii_lowercase())
+                .collect::<BTreeSet<_>>()
+                .len()
+                == self.aliases.len()
             && self.emitters.len() <= 4096
             && self.aliases.iter().all(|(name, a)| {
                 if !a.native.is_empty() {
@@ -412,7 +439,7 @@ impl AudioDefinition {
                     && a.wet_distance_max >= a.wet_distance_min
                     && a.secondary
                         .as_ref()
-                        .is_none_or(|n| self.aliases.contains_key(n))
+                        .is_none_or(|n| self.named_alias(n).is_some())
                     && a.sounds.iter().all(|id| {
                         game.content
                             .sounds
@@ -423,32 +450,33 @@ impl AudioDefinition {
             && self.aliases.keys().all(|name| {
                 let mut pending = vec![(name.as_str(), BTreeSet::new())];
                 while let Some((name, mut path)) = pending.pop() {
+                    let Some((name, alias)) = self.named_alias(name) else {
+                        return false;
+                    };
                     if !path.insert(name) {
                         return false;
                     }
-                    if let Some(alias) = self.aliases.get(name) {
-                        let secondary = if alias.native.is_empty() {
-                            alias
-                                .secondary
-                                .iter()
-                                .map(String::as_str)
-                                .collect::<Vec<_>>()
-                        } else {
-                            alias
-                                .native
-                                .iter()
-                                .filter_map(|sound| sound.secondary.as_deref())
-                                .collect()
-                        };
-                        pending.extend(secondary.into_iter().map(|name| (name, path.clone())));
-                    }
+                    let secondary = if alias.native.is_empty() {
+                        alias
+                            .secondary
+                            .iter()
+                            .map(String::as_str)
+                            .collect::<Vec<_>>()
+                    } else {
+                        alias
+                            .native
+                            .iter()
+                            .filter_map(|sound| sound.secondary.as_deref())
+                            .collect()
+                    };
+                    pending.extend(secondary.into_iter().map(|name| (name, path.clone())));
                 }
                 true
             })
             && self
                 .bindings
                 .values()
-                .all(|name| self.aliases.contains_key(name))
+                .all(|name| self.named_alias(name).is_some())
             && game.content.barriers.iter().all(|barrier| {
                 barrier
                     .audio
@@ -460,19 +488,19 @@ impl AudioDefinition {
                             .into_iter()
                             .flatten()
                     }))
-                    .all(|name| self.aliases.contains_key(name))
+                    .all(|name| self.named_alias(name).is_some())
             })
             && self.timelines.iter().all(|(id, notes)| {
                 game.content.animations.iter().any(|a| a.id.0 == *id)
                     && notes.iter().all(|n| {
                         n.seconds.is_finite()
                             && n.seconds >= 0.
-                            && (self.aliases.contains_key(&n.alias)
-                                || self.absent.contains(&n.alias))
+                            && (self.named_alias(&n.alias).is_some()
+                                || self.absent_alias(&n.alias).is_some())
                     })
             })
             && self.emitters.iter().all(|e| {
-                e.position.iter().all(|x| x.is_finite()) && self.aliases.contains_key(&e.alias)
+                e.position.iter().all(|x| x.is_finite()) && self.named_alias(&e.alias).is_some()
             })
             && self.surfaces.values().all(|s| {
                 matches!(
@@ -1045,10 +1073,13 @@ pub(crate) fn resolve_alias<'a>(game: &'a GameDefinition, name: &str) -> Option<
         "music_chest" => "zmb_music_box",
         other => other,
     };
-    if let Some((key, _)) = game.audio.aliases.get_key_value(name) {
+    if let Some((key, _)) = game.audio.named_alias(name) {
         return Some(key);
     }
     if let Some(alias) = game.audio.bindings.get(name) {
+        return game.audio.named_alias(alias).map(|(key, _)| key);
+    }
+    if let Some(alias) = game.audio.absent_alias(name) {
         return Some(alias);
     }
     game.audio

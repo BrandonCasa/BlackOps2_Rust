@@ -554,7 +554,8 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
         }
         let secondary = row["secondary"]
             .as_str()
-            .filter(|name| !name.is_empty() && !absent.contains(&name.to_ascii_lowercase()));
+            .filter(|name| !name.is_empty() && !absent.contains(&name.to_ascii_lowercase()))
+            .map(str::to_ascii_lowercase);
         let alias=aliases.entry(name.to_owned()).or_insert_with(||json!({"sounds":[],"spatial":flags&2!=0,"channel":channel,
             "subtitle":row["subtitle"],"limit":parameters[93-28],"priority":parameters[90-28],"seconds":null,
             "secondary":secondary,"reverb_send":raw(56) as f32*1.5259022e-05*100.,"wet_distance_min":raw(68) as f32*2.*0.0254,
