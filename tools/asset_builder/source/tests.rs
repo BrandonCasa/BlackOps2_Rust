@@ -200,6 +200,57 @@ fn installed_initial_material_dependencies() {
     assert!(materials.is_subset(&all) && materials.len() < all.len());
     let native = crate::material::read_used(&catalog, &materials).unwrap();
     let gaps = crate::material::unimplemented(&native);
+    let mut live_samplers = std::collections::BTreeMap::<
+        String,
+        std::collections::BTreeMap<u64, std::collections::BTreeSet<String>>,
+    >::new();
+    for (name, material) in &native {
+        let family = material["technique_set"].as_str().unwrap();
+        if !family.contains("_3d_unlit_") && !family.contains("_zmb_smoke_") {
+            continue;
+        }
+        let index = crate::material::selected_technique(family).unwrap();
+        let pass = crate::material::contract::pass(material, index).unwrap();
+        let active = pass["arguments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|argument| argument["type"] == 2)
+            .filter_map(|argument| argument["value"].as_u64())
+            .filter(|hash| *hash != 1507003663)
+            .collect::<std::collections::BTreeSet<_>>();
+        for texture in material["textures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|texture| {
+                texture["hash"]
+                    .as_u64()
+                    .is_some_and(|hash| active.contains(&hash))
+            })
+        {
+            live_samplers
+                .entry(texture["image"].as_str().unwrap().to_ascii_lowercase())
+                .or_default()
+                .entry(texture["sampler"].as_u64().unwrap())
+                .or_default()
+                .insert(name.clone());
+        }
+    }
+    for (image, samplers) in live_samplers
+        .iter()
+        .filter(|(_, samplers)| samplers.len() > 1)
+    {
+        println!("Initial live source sampler conflict {image}: {samplers:?}");
+    }
+    println!(
+        "Initial live source sampler inventory: {} images, {} with multiple sampler bytes",
+        live_samplers.len(),
+        live_samplers
+            .values()
+            .filter(|samplers| samplers.len() > 1)
+            .count()
+    );
     let watched = |name: &str| {
         [
             "generator_115",
