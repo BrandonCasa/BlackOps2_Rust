@@ -129,7 +129,7 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
             ("equip", 388),
             ("unequip", 412),
             ("projectile_loop", 164),
-            ("explosion", 1820),
+            ("explode", 1820),
         ] {
             if let Some(alias) = text(catalog, zone, definition.add(offset)?)? {
                 println!("Initial native weapon {name} sound field {offset} ({event}): {alias}");
