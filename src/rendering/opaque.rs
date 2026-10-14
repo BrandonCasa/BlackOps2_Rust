@@ -2035,7 +2035,7 @@ mod tests {
                 .is_empty()
         );
         assert!(app.world().get::<SkinnedMesh>(entity).is_none());
-        let proxy = app
+        let previous_proxy = app
             .world()
             .get::<RaytracingMesh3d>(entity)
             .unwrap()
@@ -2052,6 +2052,11 @@ mod tests {
         };
         assert!((before[0][1] - 0.15).abs() < 0.00001);
         let before = before.clone();
+        app.update();
+        assert_eq!(
+            app.world().get::<RaytracingMesh3d>(entity).unwrap().0,
+            previous_proxy
+        );
         app.world_mut()
             .entity_mut(second)
             .insert(GlobalTransform::from(
@@ -2072,10 +2077,13 @@ mod tests {
                 .shader_time,
             Some((1250, 0.))
         );
-        assert_eq!(
-            app.world().get::<RaytracingMesh3d>(entity).unwrap().0,
-            proxy
-        );
+        let proxy = app
+            .world()
+            .get::<RaytracingMesh3d>(entity)
+            .unwrap()
+            .0
+            .clone();
+        assert_ne!(proxy, previous_proxy);
         let meshes = app.world().resource::<Assets<Mesh>>();
         let raster = meshes.get(&target).unwrap();
         for attribute in [Mesh::ATTRIBUTE_JOINT_INDEX, Mesh::ATTRIBUTE_JOINT_WEIGHT] {
