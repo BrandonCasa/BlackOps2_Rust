@@ -133,6 +133,29 @@ pub fn selected_technique(family: &str) -> Option<usize> {
     Recipe::lookup(family).map(|recipe| recipe.technique())
 }
 
+pub(crate) fn validate_static_alpha_reveal(native: &Value) -> Result<bool> {
+    let family = native["technique_set"]
+        .as_str()
+        .ok_or("Missing static alpha-reveal family")?;
+    if !matches!(
+        family,
+        "mc_lit_sm_b0c0n0v0_3559e8jj"
+            | "wpc_lit_sm_b0c0n0v0_ew347fe3"
+            | "wpc_lit_sm_b0c0n0s0v0_efz5w56f"
+    ) {
+        return Err(format!("Unreviewed static alpha-reveal family {family}").into());
+    }
+    let recipe = ordinary_recipe(family).ok_or("Static alpha-reveal ordinary recipe is absent")?;
+    validate_ordinary(
+        native["name"]
+            .as_str()
+            .ok_or("Static alpha-reveal native name is absent")?,
+        native,
+        &recipe,
+    )?;
+    Ok(recipe.specular == 1)
+}
+
 pub fn inputs(
     native: &BTreeMap<String, Value>,
     catalog: &Catalog<'_>,
