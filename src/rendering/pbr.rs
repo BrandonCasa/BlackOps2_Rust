@@ -615,13 +615,42 @@ pub(super) fn prepare_image_dimensions(
         }) {
             continue;
         }
-        if let Some(image) = images.get_mut_untracked(*id)
-            && image.texture_descriptor.dimension == TextureDimension::D1
-            && image.height() == 1
-        {
-            image.texture_descriptor.dimension = TextureDimension::D2;
+        if let Some(image) = images.get_mut_untracked(*id) {
+            if image.texture_descriptor.dimension == TextureDimension::D1 && image.height() == 1 {
+                image.texture_descriptor.dimension = TextureDimension::D2;
+            }
+            retain_texture_mips(image, 4096);
         }
     }
+}
+
+fn retain_texture_mips(image: &mut Image, maximum_dimension: u32) {
+    use bevy::render::render_resource::{TextureDataOrder, TextureDimension};
+    let descriptor = &mut image.texture_descriptor;
+    if descriptor.dimension != TextureDimension::D2
+        || descriptor.size.depth_or_array_layers != 1
+        || descriptor.mip_level_count < 2
+        || image.data_order != TextureDataOrder::MipMajor
+        || image.texture_view_descriptor.is_some()
+    { return; }
+    let Some(data) = image.data.as_mut() else { return; };
+    let Some(block_bytes) = descriptor.format.block_copy_size(None) else { return; };
+    let (block_width, block_height) = descriptor.format.block_dimensions();
+    let mut width = descriptor.size.width;
+    let mut height = descriptor.size.height;
+    let mut skipped = 0;
+    let mut offset = 0;
+    while width.max(height) > maximum_dimension && skipped + 1 < descriptor.mip_level_count {
+        offset += (width.div_ceil(block_width) * height.div_ceil(block_height) * block_bytes) as usize;
+        width = (width / 2).max(1);
+        height = (height / 2).max(1);
+        skipped += 1;
+    }
+    if skipped == 0 || offset >= data.len() { return; }
+    *data = data[offset..].to_vec();
+    descriptor.size.width = width;
+    descriptor.size.height = height;
+    descriptor.mip_level_count -= skipped;
 }
 
 pub(super) fn load(server: &AssetServer, texture: &PreparedTexture) -> Handle<Image> {
@@ -907,6 +936,29 @@ pub(super) fn prepare(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn texture_residency_keeps_existing_compressed_mips_and_their_dimensions() {
+        use bevy::render::render_resource::{Extent3d, TextureDataOrder, TextureDimension, TextureFormat};
+        let mut image = Image::new_uninit(Extent3d { width: 64, height: 32, depth_or_array_layers: 1 },
+            TextureDimension::D2, TextureFormat::Bc7RgbaUnorm, bevy::asset::RenderAssetUsages::default());
+        image.texture_descriptor.mip_level_count = 7;
+        image.data_order = TextureDataOrder::MipMajor;
+        let mut data = Vec::new();
+        for mip in 0..7 {
+            let size = (64u32 >> mip).max(1).div_ceil(4) * (32u32 >> mip).max(1).div_ceil(4) * 16;
+            data.extend(std::iter::repeat_n(mip as u8, size as usize));
+        }
+        let expected = data[16 * 8 * 16 + 8 * 4 * 16..].to_vec();
+        image.data = Some(data);
+        retain_texture_mips(&mut image, 16);
+        assert_eq!(image.texture_descriptor.size.width, 16);
+        assert_eq!(image.texture_descriptor.size.height, 8);
+        assert_eq!(image.texture_descriptor.mip_level_count, 5);
+        assert_eq!(image.data.as_ref().unwrap(), &expected);
+        retain_texture_mips(&mut image, 16);
+        assert_eq!(image.data.unwrap(), expected);
+    }
 
     #[test]
     fn live_layers_keep_object_vectors_and_unwrapped_owner_time_separate() {
