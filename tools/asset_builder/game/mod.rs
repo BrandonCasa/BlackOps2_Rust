@@ -296,6 +296,7 @@ pub fn read(
     initial_presentations(catalog, &mut game, entities)?;
     equipment::read(catalog, &mut game, &mut native_gaps)?;
     player::read(catalog, &mut game, entities, &mut native_gaps)?;
+    presentations::initial_ui(catalog, &mut game)?;
     enemies::read(catalog, &mut game, entities, &mut native_gaps)?;
     generator::read(catalog, &mut game, entities, &mut native_gaps)?;
     barriers::read(catalog, &mut game, entities, &mut native_gaps)?;
