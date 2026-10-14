@@ -569,7 +569,7 @@ impl Plugin for EnemyPlugin {
                 Update,
                 (
                     spawn_actors,
-                    wounds_visibility,
+                    wounds_visibility.run_if(resource_exists::<GameDefinition>),
                     attach_parts,
                     admit_ready,
                     animate.in_set(EnemyAnimationPlayback),
@@ -578,7 +578,11 @@ impl Plugin for EnemyPlugin {
             )
             .add_systems(
                 PostUpdate,
-                (partial_roots, wounded_joints, follow_sockets)
+                (
+                    partial_roots,
+                    wounded_joints.run_if(resource_exists::<GameDefinition>),
+                    follow_sockets,
+                )
                     .chain()
                     .in_set(crate::animation::AnimationPoseModifiers)
                     .after(bevy::app::AnimationSystems)
