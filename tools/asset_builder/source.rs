@@ -321,7 +321,7 @@ mod tests {
         let all = crate::material::read_used(&catalog,&used).unwrap();
         assert_eq!(all.len(),1034);
         let gaps = crate::material::unimplemented(&all);
-        assert_eq!(gaps.len(),128);
+        assert_eq!(gaps.len(),118);
         let camos = crate::material::read_camos(&catalog).unwrap();
         let options = crate::material::read_camo_options(&catalog).unwrap();
         assert_eq!(camos.len(),35);
@@ -405,10 +405,13 @@ mod tests {
         let used = crate::geometry::material_names(&catalog).unwrap();
         let all = crate::material::read_used(&catalog,&used).unwrap();
         assert_eq!(all.len(),1034);
-        assert_eq!(crate::material::unimplemented(&all).len(),128);
+        assert_eq!(crate::material::unimplemented(&all).len(),118);
         let families = ["lit_sm_r0c0n0s0_b1c1n1","lit_sm_r0c0n0s0_b1c1n1s1v1","lit_sm_r0c0n0x0_b1c1n1s1",
             "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2","lit_sm_r0c0s0_b1c1","lit_sm_r0c0n0x0_a1c1_m2c2",
-            "lit_sm_r0c0n0x0_b1c1n1_a2c2","lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2","lit_sm_r0c0n0x0_b1c1_b2c2n2","lit_sm_r0c0n0x0_b1c1n1_b2c2n2"];
+            "lit_sm_r0c0n0x0_b1c1n1_a2c2","lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2","lit_sm_r0c0n0x0_b1c1_b2c2n2","lit_sm_r0c0n0x0_b1c1n1_b2c2n2",
+            "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2s2v2","lit_sm_r0c0n0s0_b1c1n1_b2c2n2s2v2",
+            "lit_sm_r0c0n0s0_b1c1n1s1v1_b2c2n2s2v2","lit_sm_r0c0n0x0_b1c1_b2c2n2s2v2","lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2v2",
+            "lit_sm_r0c0n0x0_b1c1n1_b2c2n2s2v2","lit_sm_r0c0n0x0_b1c1_b2c2n2s2","lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2_m3c3","lit_sm_r0c0n0x0_t1c1n1"];
         let mut selected = std::collections::BTreeMap::new();
         let mut seen = std::collections::BTreeSet::new();
         let mut checked = 0;
@@ -421,14 +424,23 @@ mod tests {
             let clamped = material["textures"].as_array().unwrap().iter().any(|binding| binding["hash"] == 3054311507_u32 && binding["sampler"] == 74);
             if seen.insert(family) || clamped { selected.insert(name.clone(),material.clone()); }
         }
-        assert_eq!(checked,20);
-        assert_eq!(selected.len(),11);
-        let required = selected.values().flat_map(|material| material["textures"].as_array().unwrap())
-            .map(|binding| binding["image"].as_str().unwrap().to_ascii_lowercase()).collect();
+        assert_eq!(checked,58);
+        assert_eq!(selected.len(),20);
+        let ordinary = std::collections::BTreeMap::from([("mc/dec_glass02".into(),all["mc/dec_glass02"].clone())]);
+        let mut required = crate::material::inputs(&ordinary,&catalog).unwrap();
+        required.extend(selected.values().flat_map(|material| material["textures"].as_array().unwrap())
+            .map(|binding| binding["image"].as_str().unwrap().to_ascii_lowercase()));
         let mut pack = crate::pack::Pack::default();
         let (_,images) = crate::convert::images(&install,&catalog,&mut pack,Some(&required)).unwrap();
-        crate::bake::check_response_geometry(&catalog,&selected,&images,&mut pack).unwrap();
-        println!("Checked all {checked} materials in ten layered response families; representative bakes for {} materials including wrap and clamp-V decal edges; 128 baseline dispatch gaps remain",selected.len());
+        let converted = crate::material::convert_known(&ordinary,&images,&mut pack).unwrap();
+        assert_eq!(converted.len(),1);
+        let ordinary_pending = crate::material::missing(&ordinary,&converted);
+        assert_eq!(ordinary_pending.len(),1);
+        assert!(ordinary_pending[0].contains("sqrt coverage"));
+        let pending = crate::bake::check_response_geometry(&catalog,&selected,&images,&mut pack).unwrap();
+        assert_eq!(pending.len(),1);
+        assert!(pending[0].contains("opaque layer selection"));
+        println!("Checked all {checked} layered materials in nineteen families and one ordinary glass material; representative bakes for {} layered materials including wrap, clamp-V, nine-image, UV3 and layer-selection edges; 118 baseline dispatch gaps and two sampled framebuffer-composition runtime gaps remain",selected.len());
     }
 
     fn installed_material_families(families: &[&str], expected: usize) {

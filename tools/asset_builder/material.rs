@@ -104,6 +104,7 @@ struct OrdinaryRecipe {
 
 fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
     let (expected,normal,specular,coverage) = match family {
+        "mc_lit_sm_b0c0n0s0_21fz2e61" => ("pimp_shader_lprobe_6741885c.hlsl", true, 1, 1),
         "mc_lit_sm_b0c0n0s0_91j5z9q9" => ("pimp_shader_lprobe_8bb4c6fc.hlsl", true, 1, 1),
         "wpc_lit_sm_r0c0n0s0_1zzj1138" => ("pimp_shader_lmap_353f0d80.hlsl", true, 1, 0),
         "mc_lit_sm_r0c0n0s0_zqq1fze7" => ("pimp_shader_lprobe_4bceb0cc.hlsl", true, 1, 0),
@@ -131,6 +132,7 @@ fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
         _ => return None,
     };
     let programs = match family {
+        "mc_lit_sm_b0c0n0s0_21fz2e61" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_3ea3f969.hlsl"]),
         "mc_lit_sm_r0c0s0_986ezzjq" => Some(["pimp_shader_lprobe_eb01efa5.hlsl","pimp_shader_lprobe_dd5e5e9a.hlsl","pimp_shader_lprobe_2e19f64c.hlsl"]),
         "wpc_lit_sm_r0c0n0_80fe30wz" => Some(["pimp_shader_lmap_d107eac0.hlsl","pimp_shader_lmap_5ab92038.hlsl","pimp_shader_lmap_b4969fec.hlsl"]),
         "mc_lit_sm_t0c0_90wz6fe2" => Some(["pimp_shader_lprobe_eb01efa5.hlsl","pimp_shader_lprobe_dd5e5e9a.hlsl","pimp_shader_lprobe_38330846.hlsl"]),
@@ -422,6 +424,10 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
                 "source_vertex_color_transfer":"gamma2","source_coverage":match coverage { 1 => "gamma2_premultiplied", 2 => "mask", _ => "opaque" },
                 "native_specular":native_specular,
                 "approximations":["Khronos specular-glossiness to metallic-roughness fit for shared upstream PBR and Solari inputs", "Native Blinn-Phong gloss fitted to GGX perceptual roughness; original specular and gloss retained", "Slope reconstruction baked before filtering", "Native lighting-term multipliers retained for runtime integration", "Vertex gamma2 transfer evaluated before interpolation"]}}}));
+        if family == "mc_lit_sm_b0c0n0s0_21fz2e61" {
+            converted.get_mut(key).unwrap()["extras"]["surface"]["source_fragment_alpha"] = json!("sqrt_texture_vertex_coverage");
+            converted.get_mut(key).unwrap()["extras"]["surface"]["pending_runtime"] = json!("Native glass fragment uses sqrt coverage and coverage-independent specular before gamma2 premultiplied composition; the shared linear PBR consumer does not yet reproduce that blend");
+        }
         if converted.len() % 25 == 0 { println!("Converted {} reviewed materials with {} shared texture channels",converted.len(),shared.len()); }
     }
     println!("Converted {} source-reviewed materials; {} other technique families remain", converted.len(), missing.len());

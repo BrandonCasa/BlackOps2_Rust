@@ -3,7 +3,7 @@ use crate::core::*;
 use std::{future::Future, sync::{Arc, OnceLock}, task::{Context, Poll, Wake, Waker}, time::Duration};
 use wgpu::util::DeviceExt;
 
-pub(super) type Sample = [f32; 16];
+pub(super) type Sample = [f32; 20];
 pub(super) type Pixel = [[f32; 4]; 4];
 
 fn wait<T>(future: impl Future<Output = T>) -> T {
@@ -66,6 +66,7 @@ pub(super) struct Baker {
 
 impl Baker {
     pub(super) fn new(recipe: &Recipe) -> Result<Self> {
+        if recipe.inputs.is_empty() || recipe.inputs.len() > 9 { return Err("Layered GPU recipe must have one to nine source images".into()); }
         static COMPUTE: OnceLock<std::result::Result<Compute, String>> = OnceLock::new();
         let compute = COMPUTE.get_or_init(|| Compute::new().map_err(|error| error.to_string()))
             .as_ref().map_err(|error| format!("GPU material baking initialization failed: {error}"))?;
@@ -73,12 +74,15 @@ impl Baker {
             | (recipe.blend_color as u32) << 3 | (recipe.reveal as u32) << 4
             | (recipe.layer_specular as u32) << 5 | (recipe.base_alpha_response as u32) << 6
             | (recipe.base_specular as u32) << 7 | (recipe.geometric_normal as u32) << 8
-            | (recipe.second_additive as u32) << 9 | (u32::from(recipe.second_normal == 1)) << 10 | (u32::from(recipe.second_normal == 2)) << 11;
+            | (recipe.second_additive as u32) << 9 | (u32::from(recipe.second_normal == 1)) << 10 | (u32::from(recipe.second_normal == 2)) << 11
+            | (recipe.second_reveal as u32) << 12 | (recipe.second_specular as u32) << 13
+            | (recipe.third_multiply as u32) << 14 | (recipe.layer_cutout as u32) << 15;
         let mut parameters = Vec::new();
-        for value in [flags, 0, recipe.inputs.len() as u32, 0] { push32(&mut parameters, value); }
-        for value in recipe.parms { push32(&mut parameters, value.to_bits()); }
+        for value in [flags, 0, recipe.inputs.len() as u32, recipe.inputs.len() as u32-1] { push32(&mut parameters, value); }
+        for value in recipe.parms.into_iter().chain(recipe.second_parms) { push32(&mut parameters, value.to_bits()); }
+        for index in [recipe.layer_specular_index(),recipe.second_specular_index(),recipe.second_normal_index(),recipe.second_color_index()] { push32(&mut parameters,index as u32); }
         let mut image_data = Vec::new();
-        for index in 0..7 {
+        for index in 0..9 {
             let metadata = if let Some(input) = recipe.inputs.get(index) {
                 let offset = u32::try_from(image_data.len() / 16)?;
                 for pixel in &input.pixels { for value in pixel { push32(&mut image_data, value.to_bits()); } }
@@ -96,11 +100,11 @@ impl Baker {
         let parameters = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Native material recipe"), contents: &parameters, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let capacity = 262_144_usize.min(device.limits().max_storage_buffer_binding_size as usize / 64)
+        let capacity = 262_144_usize.min(device.limits().max_storage_buffer_binding_size as usize / 80)
             .min(device.limits().max_compute_workgroups_per_dimension as usize * 64);
         if capacity == 0 { return Err("GPU cannot dispatch material bake samples".into()); }
         let buffer = |label, size, usage| device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage, mapped_at_creation: false });
-        let samples = buffer("Bake sample coordinates", (capacity * 64) as u64, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
+        let samples = buffer("Bake sample coordinates", (capacity * 80) as u64, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
         let output = buffer("Baked PBR samples", (capacity * 64) as u64, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
         let readback = buffer("Bake readback", (capacity * 64) as u64, wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST);
         let entries: Vec<_> = [&parameters, &images, &samples, &output].into_iter().enumerate()
@@ -114,7 +118,7 @@ impl Baker {
     pub(super) fn sample(&self, samples: &[Sample]) -> Result<Vec<Pixel>> {
         let mut pixels = Vec::with_capacity(samples.len());
         for batch in samples.chunks(self.capacity) {
-            let mut bytes = Vec::with_capacity(batch.len() * 64);
+            let mut bytes = Vec::with_capacity(batch.len() * 80);
             for sample in batch { for value in sample { push32(&mut bytes, value.to_bits()); } }
             self.compute.queue.write_buffer(&self.samples, 0, &bytes);
             self.compute.queue.write_buffer(&self.parameters, 4, &(batch.len() as u32).to_le_bytes());
