@@ -659,7 +659,7 @@ pub(crate) fn interact(
                 crate::audio::emit(
                     &mut commands,
                     "evt_bottle_dispense",
-                    crate::audio::SoundSource::World(transform.translation),
+                    crate::audio::SoundSource::attached(entity),
                 );
                 None
             }
