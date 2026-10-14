@@ -94,6 +94,8 @@ class Client:
                 last = self.state()
                 if predicate(last):
                     return last
+            except http.client.RemoteDisconnected:
+                raise
             except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
                 last = str(error)
             time.sleep(0.025)
