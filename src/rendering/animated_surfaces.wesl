@@ -87,7 +87,7 @@ fn fragment(in:VertexOutput,@builtin(front_facing) is_front:bool)->FragmentOutpu
     let slope=textureSample(texture0,sampler0,uv).xy*4.015748-vec2(2.015748);
     let geometric=normalize(in.world_normal);
     let tangent=normalize(in.world_tangent.xyz);
-    let bitangent=-cross(geometric,tangent)*in.world_tangent.w;
+    let bitangent=cross(geometric,tangent)*in.world_tangent.w;
     let normal=normalize(geometric+slope.x*tangent+slope.y*bitangent);
     pbr.material.base_color=vec4(mixed.rgb*mixed.rgb,sqrt(clamp(mixed.a,0.0,1.0)));
     pbr.N=normal;
