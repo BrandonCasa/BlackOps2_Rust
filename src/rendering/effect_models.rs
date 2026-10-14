@@ -388,5 +388,16 @@ mod tests {
             ),
         );
         cache.get(2, layers, &definitions).unwrap();
+        let animated = AssetId::Uuid {
+            uuid: bevy::asset::uuid::Uuid::from_u128(index + 4),
+        };
+        cache.set_shader(
+            animated,
+            Shader::from_wesl(
+                include_str!("animated_surfaces.wesl"),
+                "embedded://origins/rendering/animated_surfaces.wesl",
+            ),
+        );
+        cache.get(3, animated, &definitions).unwrap();
     }
 }

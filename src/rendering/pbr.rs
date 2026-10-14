@@ -534,6 +534,7 @@ pub(crate) fn validate(surface: &serde_json::Value) -> Result<(), String> {
     textures(&surface["channels"])?;
     water_controls(surface)?;
     layer_controls(surface)?;
+    super::animated_surfaces::validate(surface)?;
     if !surface["source_shadow_only"].is_null() {
         let shadow = &surface["source_shadow_only"];
         if surface["native"]["technique_set"] != "wpc_shadowcaster_wj6w5j60"
@@ -720,6 +721,11 @@ pub(super) fn prepare(
             failure.0 = format!("Material {}: {error}", surface["identity"]);
             next.set(crate::GameState::LoadError);
             return;
+        }
+        if surface["source_smoke"]["consumer"] == "native_layers_vertex_time_depth_forward"
+            || surface["source_embers"]["consumer"] == "native_layers_vertex_time_shared_pbr"
+        {
+            continue;
         }
         let water = water_controls(surface).expect("Validated native water controls");
         let layers = layer_controls(surface).expect("Validated native layer controls");

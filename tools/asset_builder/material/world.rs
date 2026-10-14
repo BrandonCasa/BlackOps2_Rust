@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(test)]
 use half::f16;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -574,18 +575,7 @@ impl EmberControls {
         })
     }
 
-    fn bits(self) -> [u32; 6] {
-        [
-            self.scale,
-            self.direction[0],
-            self.direction[1],
-            self.minimum,
-            self.maximum,
-            self.seed,
-        ]
-        .map(f32::to_bits)
-    }
-
+    #[cfg(test)]
     fn flicker(self, time: f32) -> f32 {
         let ten = time * 10.;
         let q = (ten - (ten - ten.floor())) * 0.1 + self.seed;
@@ -601,6 +591,7 @@ impl EmberControls {
         self.minimum + (self.maximum - self.minimum) * state[0]
     }
 
+    #[cfg(test)]
     fn uv(self, uv: [f32; 2], time: f32) -> [f32; 2] {
         std::array::from_fn(|axis| {
             let scroll = time * self.direction[axis] * self.scale;
@@ -610,6 +601,7 @@ impl EmberControls {
     }
 }
 
+#[cfg(test)]
 fn ember_pixel(diffuse: [f32; 4], mask: [f32; 4], ember: [f32; 4], flicker: f32) -> [f32; 4] {
     std::array::from_fn(|axis| {
         let candidate = ember[axis] * flicker * mask[0] * if axis < 3 { 6. } else { 1. };
@@ -618,6 +610,7 @@ fn ember_pixel(diffuse: [f32; 4], mask: [f32; 4], ember: [f32; 4], flicker: f32)
     })
 }
 
+#[cfg(test)]
 fn bake_embers(
     native: &Value,
     images: &BTreeMap<String, texture::Image>,
