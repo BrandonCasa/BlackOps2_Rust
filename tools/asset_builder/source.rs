@@ -321,7 +321,7 @@ mod tests {
         let all = crate::material::read_used(&catalog,&used).unwrap();
         assert_eq!(all.len(),1034);
         let gaps = crate::material::unimplemented(&all);
-        assert_eq!(gaps.len(),118);
+        assert_eq!(gaps.len(),113);
         let camos = crate::material::read_camos(&catalog).unwrap();
         let options = crate::material::read_camo_options(&catalog).unwrap();
         assert_eq!(camos.len(),35);
@@ -355,19 +355,26 @@ mod tests {
         let families = ["mc_lit_sm_t0c0n0_9qf6e4qj","wpc_lit_sm_t0c0n0s0_weef63f3","mc_lit_sm_b0c0_fw0jf955",
             "mc_lit_sm_b0c0s0_805w75j2","wpc_lit_sm_b0c0n0_19f3588f","wpc_lit_sm_b0c0_6j30z67q",
             "mc_lit_sm_b0c0n0_67fqj7jf","wpc_lit_sm_r0c0s0_qfqz7850","wpc_lit_sm_r0c0x0_5j63fj97","wpc_lit_sm_b0c0s0_3f3q946z",
-            "mc_unlit_replace_3j970129","mc_unlit_add_ww82zw88","mc_unlit_blend_588ewzff","wpc_unlit_add_8ez3wzw3","wpc_unlit_replace_4688792e"];
+            "mc_unlit_replace_3j970129","mc_unlit_add_ww82zw88","mc_unlit_blend_588ewzff","wpc_unlit_add_8ez3wzw3","wpc_unlit_replace_4688792e",
+            "mc_lit_sm_r0c0n0s0_ze50j7jz","mc_lit_sm_r0c0n0s0_7j414q0z","mc_lit_sm_r0c0n0s0_4w3wqfe5",
+            "mc_lit_sm_r0c0n0x0_53144qq1","mc_lit_sm_r0c0_5137qq99"];
         let selected: std::collections::BTreeMap<_,_> = all.iter().filter(|(_,material)| {
             let family = material["technique_set"].as_str().unwrap(); families.contains(&family) || prior.contains(&family)
         }).map(|(key,material)| (key.clone(),material.clone())).collect();
-        assert_eq!(selected.len(),83);
+        assert_eq!(selected.len(),93);
         let required = crate::material::inputs(&selected,&catalog).unwrap();
         assert!(!required.is_empty());
         let names = ["mc/mtl_p6_zm_tm_foliage_trunk_splinter","mc/mtl_p6_zm_wood_fence","wpc/decal_trim_metal_grate01",
             "mc/mtl_p6_zm_tm_science_glass","mc/me_glassdirt","mc/mtl_t6_veh_drone_quad_rotor_blades","wpc/zm_tm_decal_damage_crack_06",
             "wpc/zm_tm_stencil_numbers","mc/zm_tm_wall_concrete_blend","wpc/mtl_p6_zm_tm_science_metal","wpc/com_black2","wpc/me_glassdirt",
             "mc/mtl_p6_zm_tm_robot_map","mc/mtl_t6_attach_trinium_sight_green","mc/mat_veh_t6_dlc_zm_drone_water",
-            "wpc/pb_decal_wall_fillet_2","wpc/global_color_black_unlit"];
-        let samples = names.iter().map(|&name| (name.into(),selected[name].clone())).collect();
+            "wpc/pb_decal_wall_fillet_2","wpc/global_color_black_unlit","mc/mtl_t6_wpn_zmb_monkey","mc/mtl_t6_attach_fastmag",
+            "mc/mtl_veh_t6_dlc_mkiv_tank_treads","mc/mtl_p6_zm_tm_sandbags","mc/mtl_p6_zm_tm_sandbags_cheap"];
+        let mut samples: std::collections::BTreeMap<String,_> = names.iter().map(|&name| (name.into(),selected[name].clone())).collect();
+        let (bound,constants) = crate::material::camo_inputs(&[],&selected["mc/mtl_t6_attach_fastmag"],1,
+            &std::collections::BTreeMap::from([(181,[0.25,-0.5,3.,1.])])).unwrap();
+        assert_eq!(constants[&181],[0.25,-0.5,3.,1.]);
+        samples.insert("explicit_camo_state".into(),bound);
         let sample_images = crate::material::inputs(&samples,&catalog).unwrap();
         let mut pack = crate::pack::Pack::default();
         let (rows,images) = crate::convert::images(&install,&catalog,&mut pack,Some(&sample_images)).unwrap();
@@ -381,7 +388,7 @@ mod tests {
         }
         assert!(shared>0);
         let converted = crate::material::convert_known(&samples,&images,&mut pack).unwrap();
-        assert_eq!(converted.len(),names.len());
+        assert_eq!(converted.len(),names.len()+1);
         for material in converted.values() {
             for channel in material["extras"]["surface"]["channels"].as_array().unwrap() {
                 crate::texture::validate(pack.get(channel["uri"].as_str().unwrap()).unwrap()).unwrap();
@@ -391,9 +398,18 @@ mod tests {
         assert_eq!(converted.values().filter(|material| material["extras"]["surface"]["presentation"]["alpha"] == "premultiplied").count(),7);
         assert_eq!(converted.values().filter(|material| material["extras"]["surface"]["standard"]["unlit"] == true).count(),5);
         let pending = crate::material::missing(&samples,&converted);
-        assert_eq!(pending.len(),2);
-        assert!(pending.iter().all(|reason| reason.contains("Native ONE/ONE addition")));
-        println!("Checked exact programs, routes, active inputs and states for {} materials in twenty families; {} image definitions resolve; converted {} representative materials; reused {shared} identical image encodings; {} dispatch gaps and two sampled additive-fog runtime gaps remain",selected.len(),required.len(),converted.len(),gaps.len());
+        assert_eq!(pending.len(),8);
+        assert_eq!(pending.iter().filter(|reason| reason.contains("Native ONE/ONE addition")).count(),2);
+        let camo = &converted["explicit_camo_state"]["extras"]["surface"];
+        assert_eq!(camo["source_camo"]["parameters"],serde_json::json!([0.25,-0.5,3.,1.]));
+        for role in ["source_color","source_camo"] {
+            crate::texture::validate(pack.get(camo["source_camo"]["inputs"][role]["uri"].as_str().unwrap()).unwrap()).unwrap();
+        }
+        assert_ne!(camo["channels"],converted["mc/mtl_t6_attach_fastmag"]["extras"]["surface"]["channels"]);
+        assert!(converted["mc/mtl_t6_attach_fastmag"]["extras"]["surface"]["source_camo"]["parameters"].is_null());
+        assert_eq!(converted["mc/mtl_p6_zm_tm_sandbags"]["extras"]["surface"]["presentation"]["alpha"],"opaque");
+        assert_eq!(converted["mc/mtl_p6_zm_tm_sandbags_cheap"]["extras"]["surface"]["standard"]["reflectance"],0.);
+        println!("Checked exact programs, routes, active inputs and states for {} materials in twenty-five families; {} image definitions resolve; converted {} representative materials/states; reused {shared} identical image encodings; {} dispatch gaps and eight sampled runtime gaps remain",selected.len(),required.len(),converted.len(),gaps.len());
     }
 
     #[test]
@@ -405,7 +421,7 @@ mod tests {
         let used = crate::geometry::material_names(&catalog).unwrap();
         let all = crate::material::read_used(&catalog,&used).unwrap();
         assert_eq!(all.len(),1034);
-        assert_eq!(crate::material::unimplemented(&all).len(),118);
+        assert_eq!(crate::material::unimplemented(&all).len(),113);
         let families = ["lit_sm_r0c0n0s0_b1c1n1","lit_sm_r0c0n0s0_b1c1n1s1v1","lit_sm_r0c0n0x0_b1c1n1s1",
             "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2","lit_sm_r0c0s0_b1c1","lit_sm_r0c0n0x0_a1c1_m2c2",
             "lit_sm_r0c0n0x0_b1c1n1_a2c2","lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2","lit_sm_r0c0n0x0_b1c1_b2c2n2","lit_sm_r0c0n0x0_b1c1n1_b2c2n2",
@@ -440,7 +456,7 @@ mod tests {
         let pending = crate::bake::check_response_geometry(&catalog,&selected,&images,&mut pack).unwrap();
         assert_eq!(pending.len(),1);
         assert!(pending[0].contains("opaque layer selection"));
-        println!("Checked all {checked} layered materials in nineteen families and one ordinary glass material; representative bakes for {} layered materials including wrap, clamp-V, nine-image, UV3 and layer-selection edges; 118 baseline dispatch gaps and two sampled framebuffer-composition runtime gaps remain",selected.len());
+        println!("Checked all {checked} layered materials in nineteen families and one ordinary glass material; representative bakes for {} layered materials including wrap, clamp-V, nine-image, UV3 and layer-selection edges; 113 baseline dispatch gaps and two sampled framebuffer-composition runtime gaps remain",selected.len());
     }
 
     fn installed_material_families(families: &[&str], expected: usize) {

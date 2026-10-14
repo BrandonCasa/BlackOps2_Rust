@@ -64,25 +64,47 @@ pub fn pbr_pixel(diffuse: [f32; 3], specular: [f32; 3], gloss: f32) -> ([f32; 3]
     (base,metallic,(2./(2_f32.powf(13.*gloss)+2.)).powf(0.25))
 }
 
-fn metallic_workflow(color: &texture::Image, specular: &texture::Image, samplers: [u8; 2]) -> Result<(texture::Image,texture::Image)> {
-    if [color,specular].iter().any(|image| image.faces != 1 || image.depth != 1) { return Err("Specular-workflow input is not a 2D image".into()); }
-    let (width,height) = (color.width.max(specular.width),color.height.max(specular.height));
+fn camo_pixel(mut color: [f32;4], mut specular: [f32;4], detail: [f32;4], weight: f32) -> [[f32;4];2] {
+    for component in 0..3 {
+        let replacement_color = (detail[component]+0.5).clamp(0.,1.);
+        let replacement_specular = (specular[component]+detail[3]-0.5).clamp(0.,1.);
+        let replacement_color = replacement_color+color[3]*(color[component]-replacement_color);
+        let replacement_specular = replacement_specular+color[3]*(specular[component]-replacement_specular);
+        color[component]+=weight*(replacement_color-color[component]);
+        specular[component]+=weight*(replacement_specular-specular[component]);
+    }
+    [color,specular]
+}
+
+fn metallic_workflow(color: &texture::Image, specular: &texture::Image, samplers: [u8; 2], camo: Option<(&texture::Image,u8,[f32;4])>) -> Result<(texture::Image,texture::Image)> {
+    let mut sources = vec![color,specular];
+    if let Some((image,_,parameters)) = camo {
+        if !parameters.iter().all(|value| value.is_finite()) { return Err("Non-finite source camo parameters".into()); }
+        sources.push(image);
+    }
+    if sources.iter().any(|image| image.faces != 1 || image.depth != 1 || image.levels.is_empty()) { return Err("Specular-workflow input is not a 2D image".into()); }
+    let (width,height) = (sources.iter().map(|image| image.width).max().unwrap(),sources.iter().map(|image| image.height).max().unwrap());
     let mut base = texture::Image { width,height,depth:1,faces:1,format:1,flags:0,levels:Vec::new() };
     let mut response = base.clone();
-    let sources = [color,specular];
     let decoded = sources.iter().map(|image| (0..image.levels.len()).map(|level| texture::pixels(image,level)).collect::<Result<Vec<_>>>()).collect::<Result<Vec<_>>>()?;
-    for level in 0..color.levels.len().max(specular.levels.len()) {
+    for level in 0..sources.iter().map(|image| image.levels.len()).max().unwrap() {
         let (w,h) = ((width>>level).max(1),(height>>level).max(1));
         let mut base_bytes = Vec::with_capacity(w*h*4);
         let mut response_bytes = Vec::with_capacity(w*h*4);
         for y in 0..h { for x in 0..w {
             let uv = [(x as f32+0.5)/w as f32,(y as f32+0.5)/h as f32];
-            let samples: [[f32; 4]; 2] = std::array::from_fn(|index| {
+            let sample = |index: usize,uv,sampler| {
                 let image = sources[index];
                 let bias = width.max(height).ilog2()-image.width.max(image.height).ilog2();
                 let source_level = level.saturating_sub(bias as usize).min(image.levels.len()-1);
-                texture::sample(&decoded[index][source_level],(image.width>>source_level).max(1),(image.height>>source_level).max(1),uv,samplers[index])
-            });
+                texture::sample(&decoded[index][source_level],(image.width>>source_level).max(1),(image.height>>source_level).max(1),uv,sampler)
+            };
+            let mut samples = [sample(0,uv,samplers[0]),sample(1,uv,samplers[1])];
+            if let Some((_,sampler,parameters)) = camo {
+                let detail_uv = std::array::from_fn(|axis| (uv[axis]-0.5)*parameters[2]+parameters[axis]+0.5);
+                let detail = sample(2,detail_uv,sampler);
+                samples = camo_pixel(samples[0],samples[1],detail,parameters[3]);
+            }
             let (rgb,metallic,roughness) = pbr_pixel(std::array::from_fn(|c| samples[0][c]*samples[0][c]),std::array::from_fn(|c| samples[1][c]*samples[1][c]),samples[1][3]);
             for value in rgb { let srgb = if value <= 0.0031308 {value*12.92} else {1.055*value.powf(1./2.4)-0.055}; base_bytes.push((srgb*255.).round() as u8); }
             base_bytes.push((samples[0][3]*255.).round() as u8);
@@ -104,6 +126,11 @@ struct OrdinaryRecipe {
 
 fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
     let (expected,normal,specular,coverage) = match family {
+        "mc_lit_sm_r0c0n0s0_ze50j7jz" => ("pimp_shader_lprobe_3a1bfa95.hlsl", true, 1, 0),
+        "mc_lit_sm_r0c0n0s0_7j414q0z" => ("pimp_shader_lprobe_9eb27c7c.hlsl", true, 1, 0),
+        "mc_lit_sm_r0c0n0s0_4w3wqfe5" => ("pimp_shader_lprobe_4bceb0cc.hlsl", true, 1, 0),
+        "mc_lit_sm_r0c0n0x0_53144qq1" => ("pimp_shader_lprobe_4fd85412.hlsl", true, 2, 0),
+        "mc_lit_sm_r0c0_5137qq99" => ("pimp_shader_lprobe_2a42c1a1.hlsl", false, 0, 0),
         "mc_lit_sm_b0c0n0s0_21fz2e61" => ("pimp_shader_lprobe_6741885c.hlsl", true, 1, 1),
         "mc_lit_sm_b0c0n0s0_91j5z9q9" => ("pimp_shader_lprobe_8bb4c6fc.hlsl", true, 1, 1),
         "wpc_lit_sm_r0c0n0s0_1zzj1138" => ("pimp_shader_lmap_353f0d80.hlsl", true, 1, 0),
@@ -132,6 +159,11 @@ fn ordinary_recipe(family: &str) -> Option<OrdinaryRecipe> {
         _ => return None,
     };
     let programs = match family {
+        "mc_lit_sm_r0c0n0s0_ze50j7jz" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_63f98ba0.hlsl"]),
+        "mc_lit_sm_r0c0n0s0_7j414q0z" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_c7500d49.hlsl"]),
+        "mc_lit_sm_r0c0n0s0_4w3wqfe5" => Some(["pimp_shader_lprobe_7bb0619c.hlsl","pimp_shader_lprobe_4defd0a3.hlsl","pimp_shader_lprobe_122cc1f9.hlsl"]),
+        "mc_lit_sm_r0c0n0x0_53144qq1" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_163a2527.hlsl"]),
+        "mc_lit_sm_r0c0_5137qq99" => Some(["pimp_shader_lprobe_eb01efa5.hlsl","pimp_shader_lprobe_dd5e5e9a.hlsl","pimp_shader_lprobe_73a0b094.hlsl"]),
         "mc_lit_sm_b0c0n0s0_21fz2e61" => Some(["pimp_shader_lprobe_347155f7.hlsl","pimp_shader_lprobe_22ee4c8.hlsl","pimp_shader_lprobe_3ea3f969.hlsl"]),
         "mc_lit_sm_r0c0s0_986ezzjq" => Some(["pimp_shader_lprobe_eb01efa5.hlsl","pimp_shader_lprobe_dd5e5e9a.hlsl","pimp_shader_lprobe_2e19f64c.hlsl"]),
         "wpc_lit_sm_r0c0n0_80fe30wz" => Some(["pimp_shader_lmap_d107eac0.hlsl","pimp_shader_lmap_5ab92038.hlsl","pimp_shader_lmap_b4969fec.hlsl"]),
@@ -190,6 +222,9 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
         let mut inputs = BTreeMap::from([(2695565377_u32,0_u64)]);
         if normal { inputs.insert(1507003663,257); }
         if specular == 1 { inputs.insert(887934131,if normal {514} else {257}); }
+        let camo = family == "mc_lit_sm_r0c0n0s0_7j414q0z";
+        let scrolling = family == "mc_lit_sm_r0c0n0s0_4w3wqfe5";
+        if camo { inputs.insert(3183121296,771); }
         for pass in [&passes[0],&sun_passes[0]] {
             if pass["vertex_routes"] != json!(routes) { return Err(format!("Reviewed material {key} has unreviewed vertex routes").into()); }
             let arguments = pass["arguments"].as_array().ok_or("Reviewed pass arguments are missing")?;
@@ -197,7 +232,19 @@ fn validate_ordinary(key: &str, material: &Value, recipe: &OrdinaryRecipe) -> Re
                 .map(|argument| Ok((argument["value"].as_u64().ok_or("Missing shader image hash")? as u32,
                     argument["location"].as_u64().ok_or("Missing shader image location")?)))
                 .collect::<Result<_>>()?;
-            if active != inputs { return Err(format!("Reviewed material {key} has unreviewed active texture bindings").into()); }
+            let texture_arguments: Vec<_> = arguments.iter().filter(|argument| argument["type"] == 2).collect();
+            if active != inputs || texture_arguments.len() != inputs.len()
+                || texture_arguments.iter().any(|argument| argument["size"] != 1 || argument["buffer"] != 0) {
+                return Err(format!("Reviewed material {key} has unreviewed active texture bindings").into());
+            }
+            if camo && arguments.iter().filter(|argument| argument["type"] == 5 && argument["value"] == 16777397_u32
+                && argument["buffer"] == 1 && argument["location"] == 528 && argument["size"] == 16).count() != 1 {
+                return Err(format!("Reviewed camo material {key} lacks its native weaponParam2 binding").into());
+            }
+            if scrolling && arguments.iter().filter(|argument| argument["type"] == 3 && argument["value"] == 16777241_u32
+                && argument["buffer"] == 2 && argument["location"] == 0 && argument["size"] == 16).count() != 1 {
+                return Err(format!("Reviewed scrolling material {key} lacks its native gameTime binding").into());
+            }
             for argument in arguments.iter().filter(|argument| matches!(argument["type"].as_u64(),Some(0 | 1 | 6 | 7 | 8))) {
                 if argument["type"] != 6 || argument["value"] != 2418533825_u32 || argument["buffer"] != 1
                     || argument["location"] != 672 || argument["size"] != 12 {
@@ -357,6 +404,30 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
         let lit = material["techniques"].as_array().unwrap().iter().find(|technique| technique["index"] == 4).unwrap();
         let passes = lit["passes"].as_array().unwrap();
         let mut channels = Vec::new();
+        let camo = family == "mc_lit_sm_r0c0n0s0_7j414q0z";
+        let camo_parameters = if camo && !material["code_constants"]["181"].is_null() {
+            let value: [f32;4] = serde_json::from_value(material["code_constants"]["181"].clone())?;
+            if !value.iter().all(|component| component.is_finite()) { return Err(format!("Invalid camo parameters for {key}").into()); }
+            Some(value)
+        } else { None };
+        let mut source_camo = Value::Null;
+        if camo {
+            let mut source_inputs = BTreeMap::new();
+            for (hash,role) in [(2695565377_u32,"source_color"),(3183121296,"source_camo")] {
+                let binding = material["textures"].as_array().unwrap().iter().find(|binding| binding["hash"] == hash)
+                    .ok_or_else(|| format!("Missing source camo input {hash} for {key}"))?;
+                let name = binding["image"].as_str().ok_or("Missing source camo image")?.to_ascii_lowercase();
+                let image = images.get(&name).ok_or_else(|| format!("Missing source camo image {name}"))?;
+                let channel_key = (name,role.into());
+                let uri = if let Some(uri) = shared.get(&channel_key) { uri.clone() } else {
+                    let uri = store_image(image,format!("prepared/material-channels/{}/{role}.ktx2",shared.len()),false,role,pack)?;
+                    shared.insert(channel_key,uri.clone()); uri
+                };
+                source_inputs.insert(role,json!({"uri":uri,"sampler":binding["sampler"],"transfer":"encoded_gamma2"}));
+            }
+            source_camo = json!({"inputs":source_inputs,"code_constant":181,"parameters":camo_parameters,
+                "operation":"alpha_masked_gamma_color_and_specular","uv":"center_scale_offset"});
+        }
         let mut bindings = vec![(2695565377_u32, if specular == 1 { Vec::new() } else { vec!["color"] })];
         if normal { bindings.push((1507003663, vec!["normal"])); }
         if specular == 1 { bindings.push((887934131, Vec::new())); }
@@ -397,9 +468,16 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
             let specular = bindings.iter().find(|value| value["hash"] == 887934131_u32).unwrap();
             let names = [color["image"].as_str().unwrap().to_ascii_lowercase(),specular["image"].as_str().unwrap().to_ascii_lowercase()];
             let samplers = [color["sampler"].as_u64().unwrap() as u8,specular["sampler"].as_u64().unwrap() as u8];
-            let pair = format!("{}:{}:{}:{}",names[0],names[1],samplers[0],samplers[1]);
+            let mut pair = format!("{}:{}:{}:{}",names[0],names[1],samplers[0],samplers[1]);
+            let camo_input = if let Some(parameters) = camo_parameters {
+                let binding = bindings.iter().find(|value| value["hash"] == 3183121296_u32).ok_or("Missing bound camo image")?;
+                let name = binding["image"].as_str().ok_or("Missing bound camo image name")?.to_ascii_lowercase();
+                let sampler = binding["sampler"].as_u64().ok_or("Missing bound camo sampler")? as u8;
+                pair.push_str(&format!(":{name}:{sampler}:{:?}",parameters.map(f32::to_bits)));
+                Some((images.get(&name).ok_or_else(|| format!("Missing bound camo image {name}"))?,sampler,parameters))
+            } else { None };
             if !shared.contains_key(&(pair.clone(),"color".into())) {
-                let (base,response) = metallic_workflow(&images[&names[0]],&images[&names[1]],samplers)?;
+                let (base,response) = metallic_workflow(&images[&names[0]],&images[&names[1]],samplers,camo_input)?;
                 for (role,image) in [("color",base),("response",response)] {
                     let path = format!("prepared/material-channels/{}/{role}.ktx2",shared.len());
                     let path = store_image(&image,path,role=="color",role,pack)?;
@@ -422,11 +500,35 @@ pub fn convert_known(native: &BTreeMap<String, Value>, images: &BTreeMap<String,
                 "standard":{"roughness":1.,"metallic":if specular == 0 { 0. } else { 1. },"reflectance":if specular == 0 { 0. } else { 0.5 },"specular_tint":[1.,1.,1.],"base_color":[1.,1.,1.,1.]},
                 "presentation":{"alpha":alpha,"cutoff":128./255.,"cull":cull,"fog":true,"visible":state & (1 << 27) == 0},
                 "source_vertex_color_transfer":"gamma2","source_coverage":match coverage { 1 => "gamma2_premultiplied", 2 => "mask", _ => "opaque" },
-                "native_specular":native_specular,
+                "native_specular":native_specular,"source_camo":source_camo,
                 "approximations":["Khronos specular-glossiness to metallic-roughness fit for shared upstream PBR and Solari inputs", "Native Blinn-Phong gloss fitted to GGX perceptual roughness; original specular and gloss retained", "Slope reconstruction baked before filtering", "Native lighting-term multipliers retained for runtime integration", "Vertex gamma2 transfer evaluated before interpolation"]}}}));
         if family == "mc_lit_sm_b0c0n0s0_21fz2e61" {
             converted.get_mut(key).unwrap()["extras"]["surface"]["source_fragment_alpha"] = json!("sqrt_texture_vertex_coverage");
             converted.get_mut(key).unwrap()["extras"]["surface"]["pending_runtime"] = json!("Native glass fragment uses sqrt coverage and coverage-independent specular before gamma2 premultiplied composition; the shared linear PBR consumer does not yet reproduce that blend");
+        }
+        let surface = &mut converted.get_mut(key).unwrap()["extras"]["surface"];
+        match family {
+            "mc_lit_sm_r0c0n0s0_ze50j7jz" => {
+                surface["source_color_matrix"] = json!({"buffer":0,"rows":[114,115,116],"stage":"linear_lighting_before_fog"});
+                surface["pending_runtime"] = json!("Native model color matrix must be applied to linear diffuse plus specular before fog; its runtime parameter binding is not connected");
+            }
+            "mc_lit_sm_r0c0n0s0_7j414q0z" => {
+                surface["pending_runtime"] = json!("Native attachment camo needs per-model image overrides and weaponParam2 updates; packed source inputs and explicit-state conversion do not establish the live owner state");
+            }
+            "mc_lit_sm_r0c0n0s0_4w3wqfe5" => {
+                surface["source_uv_animation"] = json!({"code_constant":25,"component":2,"translation":[0.,-1.]});
+                surface["pending_runtime"] = json!("Native tank-tread UVs subtract gameTime.z from V on every channel; native time component generation and live UV animation remain unconnected");
+            }
+            "mc_lit_sm_r0c0n0x0_53144qq1" => {
+                surface["source_vertex_alpha"] = json!("indirect_diffuse_and_specular");
+                surface["source_ambient_specular"] = json!({"gloss_scale":0.0275,"bias":0.015,"fresnel_cap_scale":0.475});
+                surface["pending_runtime"] = json!("Native sandbag vertex alpha attenuates indirect diffuse and specular without attenuating sun lighting; the source gloss-dependent ambient response also remains distinct from the shared direct-light PBR fit");
+            }
+            "mc_lit_sm_r0c0_5137qq99" => {
+                surface["source_vertex_alpha"] = json!("indirect_diffuse");
+                surface["pending_runtime"] = json!("Native cheap sandbag vertex alpha attenuates indirect diffuse without changing coverage or sun lighting; the runtime lighting consumer is not connected");
+            }
+            _ => (),
         }
         if converted.len() % 25 == 0 { println!("Converted {} reviewed materials with {} shared texture channels",converted.len(),shared.len()); }
     }
@@ -753,6 +855,7 @@ pub fn camo_inputs(queue: &[CamoOverride], material: &Value, model_index: u32, i
             _ => (),
         }
     }
+    result["code_constants"] = json!(constants);
     Ok((result,constants))
 }
 
@@ -771,6 +874,22 @@ pub fn read_used(catalog: &Catalog<'_>, names: &std::collections::BTreeSet<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attachment_camo_uses_base_alpha_as_mask_and_keeps_gloss_independent() {
+        let color = [0.2,0.4,0.6,0.25];
+        let specular = [0.1,0.3,0.8,0.7];
+        let detail = [0.,0.25,1.,0.75];
+        let result = camo_pixel(color,specular,detail,0.5);
+        for (actual,expected) in result.into_iter().flatten().zip([0.3125,0.53125,0.75,0.25,0.19375,0.39375,0.875,0.7]) {
+            assert!((actual-expected).abs()<1e-6);
+        }
+        assert_eq!(camo_pixel(color,specular,detail,0.),[color,specular]);
+        let protected = [0.2,0.4,0.6,1.];
+        for (actual,expected) in camo_pixel(protected,specular,detail,1.).into_iter().flatten().zip([protected,specular].into_iter().flatten()) {
+            assert!((actual-expected).abs()<1e-6);
+        }
+    }
 
     #[test]
     fn camo_pattern_requires_both_image_swaps_and_keeps_partial_failure() {
