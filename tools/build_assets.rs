@@ -3,45 +3,45 @@
 #[path = "../src/origins/camo.rs"]
 pub mod camo;
 
-#[path = "asset_builder/core.rs"]
-pub mod core;
-#[path = "asset_builder/convert.rs"]
-mod convert;
+#[path = "asset_builder/animation/mod.rs"]
+mod animation;
 #[path = "asset_builder/atmosphere.rs"]
 mod atmosphere;
-#[path = "asset_builder/animation.rs"]
-mod animation;
-#[path = "asset_builder/animation_decode.rs"]
-mod animation_decode;
-#[path = "asset_builder/bake.rs"]
+#[path = "asset_builder/bake/mod.rs"]
 mod bake;
-#[path = "asset_builder/collision.rs"]
+#[path = "asset_builder/catalog.rs"]
+mod catalog;
+#[path = "asset_builder/collision/mod.rs"]
 mod collision;
+#[path = "asset_builder/core.rs"]
+pub mod core;
 #[path = "asset_builder/entities.rs"]
 mod entities;
-#[path = "asset_builder/game.rs"]
+#[path = "asset_builder/fastfile/mod.rs"]
+pub mod fastfile;
+#[path = "asset_builder/game/mod.rs"]
 mod game;
-#[path = "asset_builder/geometry.rs"]
+#[path = "asset_builder/geometry/mod.rs"]
 mod geometry;
 #[path = "asset_builder/gltf.rs"]
 mod gltf;
-#[path = "asset_builder/material.rs"]
-mod material;
-#[path = "asset_builder/fastfile.rs"]
-pub mod fastfile;
+#[path = "asset_builder/images.rs"]
+mod images;
 #[path = "asset_builder/ipak.rs"]
 pub mod ipak;
-#[path = "asset_builder/native.rs"]
+#[path = "asset_builder/material/mod.rs"]
+mod material;
+#[path = "asset_builder/native/mod.rs"]
 pub mod native;
 #[path = "../src/pack.rs"]
 pub mod pack;
-#[path = "asset_builder/source.rs"]
-mod source;
 #[path = "asset_builder/scenes.rs"]
 mod scenes;
 #[path = "asset_builder/sound.rs"]
 mod sound;
-#[path = "asset_builder/texture.rs"]
+#[path = "asset_builder/source/mod.rs"]
+mod source;
+#[path = "asset_builder/texture/mod.rs"]
 pub mod texture;
 
 use core::*;
@@ -78,11 +78,22 @@ fn validate_pack(pack: &pack::Pack) -> Result<()> {
         return Err("Unsupported runtime art schema".into());
     }
     if game["delivery_scope"] != "first_playable_solo" || art["camo_uri"].is_string() {
-        let camo_uri = art["camo_uri"].as_str().ok_or("Required native camo library URI is missing")?;
+        let camo_uri = art["camo_uri"]
+            .as_str()
+            .ok_or("Required native camo library URI is missing")?;
         let camos: camo::Library = serde_json::from_slice(pack.get(camo_uri)?)?;
         camos.validate()?;
-        if let Some(variant) = camos.variants.iter().find(|variant| variant.pending.is_some()) {
-            return Err(format!("Native camo state {} is incomplete: {}",variant.inputs["name"],variant.pending.as_deref().unwrap()).into());
+        if let Some(variant) = camos
+            .variants
+            .iter()
+            .find(|variant| variant.pending.is_some())
+        {
+            return Err(format!(
+                "Native camo state {} is incomplete: {}",
+                variant.inputs["name"],
+                variant.pending.as_deref().unwrap()
+            )
+            .into());
         }
     }
     validate_entries(pack)
@@ -93,31 +104,54 @@ fn validate_entries(pack: &pack::Pack) -> Result<()> {
         match data {
             Value::Object(fields) => {
                 for (key, value) in fields {
-                    if key == "surface" && let Some(reason) = value["pending_runtime"].as_str() {
+                    if key == "surface"
+                        && let Some(reason) = value["pending_runtime"].as_str()
+                    {
                         return Err(format!("Unresolved prepared material: {reason}").into());
                     }
-                    if (key.ends_with("_uri") || matches!(key.as_str(), "uri" | "scene" | "texture" | "path"))
+                    if (key.ends_with("_uri")
+                        || matches!(key.as_str(), "uri" | "scene" | "texture" | "path"))
                         && let Some(uri) = value.as_str().filter(|uri| !uri.is_empty())
-                    { dependency(pack, directory, uri)?; }
+                    {
+                        dependency(pack, directory, uri)?;
+                    }
                     if key == "uris" {
                         for uri in value.as_object().into_iter().flat_map(|uris| uris.values()) {
-                            dependency(pack, directory, uri.as_str().ok_or("Runtime image URI is not a string")?)?;
+                            dependency(
+                                pack,
+                                directory,
+                                uri.as_str().ok_or("Runtime image URI is not a string")?,
+                            )?;
                         }
                     }
                     if key == "frames" {
-                        for uri in value.as_array().into_iter().flatten().filter_map(Value::as_str) {
+                        for uri in value
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                        {
                             dependency(pack, directory, uri)?;
                         }
                     }
                     if key == "models" {
-                        for uri in value.as_object().into_iter().flat_map(|models| models.values()).filter_map(Value::as_str) {
+                        for uri in value
+                            .as_object()
+                            .into_iter()
+                            .flat_map(|models| models.values())
+                            .filter_map(Value::as_str)
+                        {
                             dependency(pack, directory, uri)?;
                         }
                     }
                     links(pack, directory, value)?;
                 }
             }
-            Value::Array(values) => for value in values { links(pack, directory, value)?; },
+            Value::Array(values) => {
+                for value in values {
+                    links(pack, directory, value)?;
+                }
+            }
             _ => (),
         }
         Ok(())
@@ -125,7 +159,9 @@ fn validate_entries(pack: &pack::Pack) -> Result<()> {
     for (name, bytes) in &pack.entries {
         let path = Path::new(name);
         match path.extension().and_then(|value| value.to_str()) {
-            Some("ktx2") => { texture::validate(bytes)?; }
+            Some("ktx2") => {
+                texture::validate(bytes)?;
+            }
             Some("gltf") => {
                 let doc: Value = serde_json::from_slice(bytes)?;
                 for section in ["buffers", "images"] {
@@ -142,7 +178,10 @@ fn validate_entries(pack: &pack::Pack) -> Result<()> {
             _ => (),
         }
     }
-    println!("Pack contents and dependencies resolved: {} entries", pack.entries.len());
+    println!(
+        "Pack contents and dependencies resolved: {} entries",
+        pack.entries.len()
+    );
     Ok(())
 }
 
@@ -164,7 +203,7 @@ fn execute() -> Result<()> {
         Some("check") if args.len() == 2 => check(Path::new(&args[1])),
         Some("triggers") if args.len() == 1 => {
             let zones = source::read_zones(&source::installation()?)?;
-            let catalog = convert::Catalog::new(&zones);
+            let catalog = catalog::Catalog::new(&zones);
             let entities = entities::read(&catalog)?;
             game::check_triggers(&catalog,&entities)
         }

@@ -1,7 +1,33 @@
+const DECAL: u32 = 1u;
+const MULTIPLY: u32 = 2u;
+const ADDITIVE: u32 = 4u;
+const BLEND_COLOR: u32 = 8u;
+const REVEAL: u32 = 16u;
+const LAYER_SPECULAR: u32 = 32u;
+const BASE_ALPHA_RESPONSE: u32 = 64u;
+const BASE_SPECULAR: u32 = 128u;
+const GEOMETRIC_NORMAL: u32 = 256u;
+const SECOND_ADDITIVE: u32 = 512u;
+const SECOND_NORMAL_COLOR: u32 = 1024u;
+const SECOND_NORMAL_LAYER: u32 = 2048u;
+const SECOND_REVEAL: u32 = 4096u;
+const SECOND_SPECULAR: u32 = 8192u;
+const THIRD_MULTIPLY: u32 = 16384u;
+const LAYER_CUTOUT: u32 = 32768u;
+const TILE_BLEND: u32 = 65536u;
+const WATER_REVEAL: u32 = 131072u;
+const PHONG_EMISSIVE: u32 = 262144u;
+const EMISSIVE_FLICKER: u32 = 524288u;
+const EMISSIVE_FRITZ: u32 = 1048576u;
+const EMISSIVE_SCRIPT_MULTI: u32 = 2097152u;
+const EMISSIVE_TOMB: u32 = 4194304u;
+const SPECIAL_SURFACE: u32 = 0x7f0000u;
+
 struct Parameters {
     flags: u32,
     count: u32,
-    padding: vec2<u32>,
+    image_count: u32,
+    last_image: u32,
     parms: vec4<f32>,
     second_parms: vec4<f32>,
     special_parms: array<vec4<f32>,3>,
@@ -90,7 +116,7 @@ fn special_surface(uv: vec2<f32>) -> Pixel {
     var result: Pixel;
     result.response = vec4<f32>(1.0, 1.0, 0.0, 1.0);
     result.specular = vec4<f32>(0.0);
-    if flag(1048576u) {
+    if flag(EMISSIVE_FRITZ) {
         let base = sample_image(0u,uv);
         var color = base;
         var response = sample_image(2u,uv);
@@ -113,14 +139,14 @@ fn special_surface(uv: vec2<f32>) -> Pixel {
         if recipe.special_parms[0].y != 0.0 {result.color.a = color.a;}
         return result;
     }
-    if flag(262144u) || flag(524288u) || flag(2097152u) || flag(4194304u) {
+    if flag(PHONG_EMISSIVE) || flag(EMISSIVE_FLICKER) || flag(EMISSIVE_SCRIPT_MULTI) || flag(EMISSIVE_TOMB) {
         let base = sample_image(0u, uv);
         result.color = vec4<f32>(base.rgb * base.rgb, 1.0);
         result.normal = normal(decode(sample_image(1u, uv).xy));
-        if flag(524288u) {
+        if flag(EMISSIVE_FLICKER) {
             result = fit_response(result,vec3<f32>(0.04),base.a);
             result.response.a = recipe.parms.x * recipe.parms.x;
-        } else if flag(2097152u) {
+        } else if flag(EMISSIVE_SCRIPT_MULTI) {
             let response = sample_image(2u,uv);
             result = fit_response(result,response.rgb * response.rgb,response.a);
             let emission = select(0.0,recipe.parms.w,recipe.special_parms[1].z >= recipe.second_parms.z);
@@ -130,13 +156,13 @@ fn special_surface(uv: vec2<f32>) -> Pixel {
             let response = sample_image(2u, uv);
             let specular = response.rgb * recipe.parms.x;
             result = fit_response(result,specular * specular,response.a * recipe.parms.y);
-            let emission = select(recipe.parms.z * recipe.parms.z * recipe.parms.w,recipe.parms.w,flag(4194304u));
+            let emission = select(recipe.parms.z * recipe.parms.z * recipe.parms.w,recipe.parms.w,flag(EMISSIVE_TOMB));
             result.response.a = emission * emission;
-            if flag(262144u) && recipe.special_parms[0].x != 0.0 {result.color.a = base.a;}
+            if flag(PHONG_EMISSIVE) && recipe.special_parms[0].x != 0.0 {result.color.a = base.a;}
         }
         return result;
     }
-    if flag(65536u) {
+    if flag(TILE_BLEND) {
         let first_uv = uv * recipe.parms.xy;
         let second_uv = uv * recipe.parms.zw;
         let macro_sample = sample_image(0u, uv);
@@ -148,7 +174,7 @@ fn special_surface(uv: vec2<f32>) -> Pixel {
         let encoded = first + weight * (sample_image(5u, second_uv).rgb - first);
         result.color = vec4<f32>(encoded * encoded, 1.0);
         result.normal = normal(slope);
-        if flag(128u) {
+        if flag(BASE_SPECULAR) {
             let first_response = sample_image(6u, first_uv);
             let response = first_response + weight * (sample_image(7u, second_uv) - first_response);
             result = fit_response(result, response.gba * response.gba, response.r);
@@ -198,7 +224,7 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     if index >= recipe.count { return; }
     let sample = samples[index];
     let uv0 = sample.uv01.xy;
-    if (recipe.flags & 0x7f0000u) != 0u {
+    if flag(SPECIAL_SURFACE) {
         output[index] = special_surface(uv0);
         return;
     }
@@ -208,15 +234,15 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let blue = sample.uv2_color.w;
     let base = sample_image(0u, uv0);
     let n0 = sample_image(1u, uv0);
-    let layer = sample_image(select(2u, 1u, flag(256u)), uv1);
+    let layer = sample_image(select(2u, 1u, flag(GEOMETRIC_NORMAL)), uv1);
     var result: Pixel;
     result.response = vec4<f32>(1.0, 1.0, 0.0, 1.0);
     result.specular = vec4<f32>(0.0);
-    if flag(2u) || flag(4u) || flag(8u) || flag(256u) {
+    if flag(MULTIPLY) || flag(ADDITIVE) || flag(BLEND_COLOR) || flag(GEOMETRIC_NORMAL) {
         var second = vec4<f32>(1.0);
-        if flag(1u) { second = sample_image(recipe.slots.w, uv2); }
+        if flag(DECAL) { second = sample_image(recipe.slots.w, uv2); }
         var second_weight = blue * second.a;
-        if flag(4096u) { second_weight = reveal_weight(second.a, blue, recipe.second_parms); }
+        if flag(SECOND_REVEAL) { second_weight = reveal_weight(second.a, blue, recipe.second_parms); }
         if second_weight < 0.0 {
             result.color.x = bitcast<f32>(0x7fc00001u);
             output[index] = result;
@@ -224,39 +250,39 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
         }
         let tint = vec3<f32>(1.0) + green * (layer.rgb - vec3<f32>(1.0));
         var color: vec3<f32>;
-        if flag(8u) {
+        if flag(BLEND_COLOR) {
             let first = base.rgb + green * layer.a * (layer.rgb - base.rgb);
             var weight = 0.0;
-            if flag(1u) { weight = second_weight; }
+            if flag(DECAL) { weight = second_weight; }
             color = first + weight * (second.rgb - first);
-        } else if flag(4u) {
+        } else if flag(ADDITIVE) {
             color = (base.rgb + layer.rgb * green * layer.a) * (vec3<f32>(1.0) + blue * (second.rgb - vec3<f32>(1.0)));
         }
         else { color = base.rgb * tint * (vec3<f32>(1.0) + blue * (second.rgb - vec3<f32>(1.0))); }
         result.color = vec4<f32>(color * color, 1.0);
-        if flag(64u) {
+        if flag(BASE_ALPHA_RESPONSE) {
             var gloss = base.a;
-            if flag(4u) && flag(1u) {
+            if flag(ADDITIVE) && flag(DECAL) {
                 let second_tint = vec3<f32>(1.0) + blue * (second.rgb - vec3<f32>(1.0));
                 gloss = base.a * (second_tint.x * 0.3 + second_tint.y * 0.6 + second_tint.z * 0.1);
-            } else if !flag(4u) && !flag(8u) { gloss = base.a * (tint.x * 0.3 + tint.y * 0.6 + tint.z * 0.1); }
+            } else if !flag(ADDITIVE) && !flag(BLEND_COLOR) { gloss = base.a * (tint.x * 0.3 + tint.y * 0.6 + tint.z * 0.1); }
             result.response = vec4<f32>(1.0, roughness(gloss), 0.0, gloss);
         }
         result.normal = vec4<f32>(0.0, 0.0, 1.0, 1.0);
-        if !flag(256u) {
+        if !flag(GEOMETRIC_NORMAL) {
             var slope = decode(n0.xy);
-            if flag(1024u) {
+            if flag(SECOND_NORMAL_COLOR) {
                 let s = decode(sample_image(recipe.slots.z, uv2).xy);
                 let rotated = vec2<f32>(s.x * sample.transform.x + s.y * sample.transform.y, s.x * sample.transform.z + s.y * sample.transform.w);
                 slope = slope + second_weight * (rotated - slope);
             }
             result.normal = normal(slope);
         }
-        if flag(128u) || flag(8192u) {
+        if flag(BASE_SPECULAR) || flag(SECOND_SPECULAR) {
             let k = bitcast<f32>(0x3e4ccccdu);
             var specular = vec4<f32>(k, k, k, base.a);
-            if flag(128u) { specular = sample_image(recipe.padding.x - 1u, uv0); }
-            if flag(8192u) {
+            if flag(BASE_SPECULAR) { specular = sample_image(recipe.last_image, uv0); }
+            if flag(SECOND_SPECULAR) {
                 let second_specular = sample_image(recipe.slots.y, uv2);
                 specular = specular + second_weight * (second_specular - specular);
             }
@@ -267,12 +293,12 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     }
     let n1 = sample_image(3u, uv1);
     var weight = layer.a * green;
-    if flag(16u) { weight = reveal_weight(layer.a, green, recipe.parms); }
-    else if flag(32768u) { weight = select(0.0, 1.0, layer.a * green >= 0.5); }
+    if flag(REVEAL) { weight = reveal_weight(layer.a, green, recipe.parms); }
+    else if flag(LAYER_CUTOUT) { weight = select(0.0, 1.0, layer.a * green >= 0.5); }
     var decal = vec4<f32>(1.0);
-    if flag(1u) { decal = sample_image(recipe.slots.w, uv2); }
+    if flag(DECAL) { decal = sample_image(recipe.slots.w, uv2); }
     var second_weight = blue * decal.a;
-    if flag(4096u) { second_weight = reveal_weight(decal.a, blue, recipe.second_parms); }
+    if flag(SECOND_REVEAL) { second_weight = reveal_weight(decal.a, blue, recipe.second_parms); }
     if weight < 0.0 || second_weight < 0.0 {
         result.color.x = bitcast<f32>(0x7fc00001u);
         output[index] = result;
@@ -280,50 +306,50 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     }
     let first = base.rgb + weight * (layer.rgb - base.rgb);
     var color = first * (vec3<f32>(1.0) + blue * (decal.rgb - vec3<f32>(1.0)));
-    if flag(512u) { color = first + blue * decal.a * decal.rgb; }
-    else if flag(2048u) { color = first + second_weight * (decal.rgb - first); }
+    if flag(SECOND_ADDITIVE) { color = first + blue * decal.a * decal.rgb; }
+    else if flag(SECOND_NORMAL_LAYER) { color = first + second_weight * (decal.rgb - first); }
     var third_tint = vec3<f32>(1.0);
-    if flag(16384u) {
-        let third_color = sample_image(recipe.padding.y, sample.third.xy);
+    if flag(THIRD_MULTIPLY) {
+        let third_color = sample_image(recipe.last_image, sample.third.xy);
         third_tint = vec3<f32>(1.0) + sample.third.z * (third_color.rgb - vec3<f32>(1.0));
     }
     color = color * third_tint;
     var alpha = 1.0;
-    if flag(32768u) && weight == 1.0 { alpha = layer.a; }
+    if flag(LAYER_CUTOUT) && weight == 1.0 { alpha = layer.a; }
     result.color = vec4<f32>(color * color, alpha);
     let s0 = decode(n0.xy);
     let s1 = decode(n1.xy);
     let rotated = vec2<f32>(s1.x * sample.transform.x + s1.y * sample.transform.y, s1.x * sample.transform.z + s1.y * sample.transform.w);
     var slope = s0 + weight * (rotated - s0);
-    if flag(2048u) {
+    if flag(SECOND_NORMAL_LAYER) {
         let s = decode(sample_image(recipe.slots.z, uv2).xy);
         let rotated_second = vec2<f32>(s.x * sample.second_transform.x + s.y * sample.second_transform.y,
             s.x * sample.second_transform.z + s.y * sample.second_transform.w);
         slope = slope + second_weight * (rotated_second - slope);
     }
     result.normal = normal(slope);
-    if flag(32u) || flag(128u) || flag(8192u) {
+    if flag(LAYER_SPECULAR) || flag(BASE_SPECULAR) || flag(SECOND_SPECULAR) {
         let k = bitcast<f32>(0x3e4ccccdu);
         var base_gloss = 0.0;
-        if flag(64u) { base_gloss = base.a; }
+        if flag(BASE_ALPHA_RESPONSE) { base_gloss = base.a; }
         var specular = vec4<f32>(k, k, k, base_gloss);
-        if flag(128u) { specular = sample_image(recipe.padding.x - 1u, uv0); }
-        if flag(32u) {
+        if flag(BASE_SPECULAR) { specular = sample_image(recipe.last_image, uv0); }
+        if flag(LAYER_SPECULAR) {
             let layer_specular = sample_image(recipe.slots.x, uv1);
             specular = specular + weight * (layer_specular - specular);
         }
-        if flag(8192u) {
+        if flag(SECOND_SPECULAR) {
             let second_specular = sample_image(recipe.slots.y, uv2);
             specular = specular + second_weight * (second_specular - specular);
         }
         let rgb = specular.rgb * specular.rgb;
         var gloss = specular.a;
-        if flag(16384u) { gloss = gloss * (third_tint.x * 0.3 + third_tint.y * 0.6 + third_tint.z * 0.1); }
-        else if flag(1u) && !flag(512u) && !flag(1024u) && !flag(2048u) {
+        if flag(THIRD_MULTIPLY) { gloss = gloss * (third_tint.x * 0.3 + third_tint.y * 0.6 + third_tint.z * 0.1); }
+        else if flag(DECAL) && !flag(SECOND_ADDITIVE) && !flag(SECOND_NORMAL_COLOR) && !flag(SECOND_NORMAL_LAYER) {
             let tint = vec3<f32>(1.0) + blue * (decal.rgb - vec3<f32>(1.0));
             gloss = gloss * (tint.x * 0.3 + tint.y * 0.6 + tint.z * 0.1);
         }
         result = fit_response(result, rgb, gloss);
-    } else if flag(64u) { result.response = vec4<f32>(1.0, roughness(base.a), 0.0, base.a); }
+    } else if flag(BASE_ALPHA_RESPONSE) { result.response = vec4<f32>(1.0, roughness(base.a), 0.0, base.a); }
     output[index] = result;
 }
