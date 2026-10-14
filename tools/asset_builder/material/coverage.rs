@@ -87,10 +87,10 @@ pub fn accept_initial_visual_approximations(
                     | character::CharacterRecipe::ClothRevealEmissiveMask
             )
         ) && surface["source_script_layers"]["code_constant"] == 172
-            && surface["source_script_layers"]["normal_view_base"] == json!([0.; 4])
+            && surface["source_script_layers"]["normal_view_base"] == json!([0., 0., 0., 0.])
             && surface["source_script_layers"]["baseline_evaluated"] == true
             && surface["source_script_layers"]["prepared_time"] == 0.
-            && surface["source_script_layers"]["prepared_vertex"] == json!([1.; 4])
+            && surface["source_script_layers"]["prepared_vertex"] == json!([1., 1., 1., 1.])
             && surface["source_character_lighting"]["charred"]["normal_view_base"] == 0.;
         let hero = name == "mc/mtl_c_zom_tomb_richtofen_vial_out"
             && family == "mc_lit_sm_b0c0n0s0_68f25z0u"
