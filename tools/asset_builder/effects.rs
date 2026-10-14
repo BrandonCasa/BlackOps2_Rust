@@ -520,8 +520,8 @@ mod tests {
         for (name, effect) in &effects.definitions {
             for (index, element) in effect["elements"].as_array().unwrap().iter().enumerate() {
                 *kinds.entry(element["type"].as_u64().unwrap()).or_default() += 1;
-                if matches!(element["type"].as_u64(), Some(9 | 11))
-                    || element["visuals"]
+                let superflare =
+                    element["visuals"]
                         .as_array()
                         .into_iter()
                         .flatten()
@@ -531,7 +531,9 @@ mod tests {
                                     "gfx_fxt_superflare_zmb_tomb_elec_bolt_lg",
                                 )
                             })
-                        })
+                        });
+                if matches!(element["type"].as_u64(), Some(9 | 11))
+                    || superflare
                     || ["impact", "emitted", "attached"].iter().any(|field| {
                         element[*field]
                             .as_str()
@@ -551,6 +553,20 @@ mod tests {
                         element["emit_distance"],
                         element["emit_variance"]
                     );
+                    if superflare {
+                        let colors: Vec<_> = element["states"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|sample| {
+                                json!([sample["base"]["color"], sample["amplitude"]["color"]])
+                            })
+                            .collect();
+                        println!(
+                            "Required superflare {name}/{index}: native color samples {colors:?}; atlas {}",
+                            element["atlas"]
+                        );
+                    }
                 }
             }
         }
