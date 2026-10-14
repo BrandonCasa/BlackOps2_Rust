@@ -29,6 +29,8 @@ def capture(client, output, name):
     if output is None:
         return None
     path = output / (name + '.png')
+    if path.exists():
+        raise FileExistsError('Capture output must be new: ' + str(path))
     client.call('origins/capture', {'path': str(path)})
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
