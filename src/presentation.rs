@@ -95,7 +95,7 @@ impl Plugin for PresentationPlugin {
                     spawn_viewmodels.run_if(crate::flythrough::normal_play),
                     build_graphs,
                     attach_weapons,
-                    attachment_visuals,
+                    attachment_visuals.run_if(resource_exists::<GameDefinition>),
                     offhand::select_visible,
                     animate,
                 )
