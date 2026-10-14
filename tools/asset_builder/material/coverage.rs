@@ -116,6 +116,41 @@ pub fn accept_initial_visual_approximations(
             } else {
                 "native_lighting_and_framebuffer_to_shared_pbr"
             }
+        } else if let Some(recipe) = character::lookup(family) {
+            use character::CharacterRecipe::*;
+            let inputs: &[&str] = match recipe {
+                Cloth | Skin | SkinMask | Hair | Transparent => {
+                    roles.extend(["normal", "response"]);
+                    &["source_color", "source_normal", "source_specular_gloss"]
+                }
+                Optic => {
+                    roles.extend(["normal", "response"]);
+                    &[
+                        "source_color",
+                        "source_normal",
+                        "source_specular_color",
+                        "source_gloss",
+                    ]
+                }
+                Cornea => &["source_highlight_mask", "source_highlight_normal"],
+                Canopy | CanopyShadow | CanopyBlend => &["source_color"],
+                _ => continue,
+            };
+            recipe.validate(name, material)?;
+            if inputs.iter().any(|role| {
+                let input = &surface["source_inputs"][*role];
+                input["uri"].as_str().is_none_or(str::is_empty)
+                    || input["sampler"]
+                        .as_u64()
+                        .is_none_or(|sampler| sampler > 255)
+                    || !matches!(
+                        input["transfer"].as_str(),
+                        Some("encoded_gamma2" | "linear")
+                    )
+            }) {
+                continue;
+            }
+            "native_character_lighting_and_coverage_to_shared_pbr"
         } else if let Some(recipe) = single_unlit_recipe(family) {
             let mode = recipe.mode;
             if matches!(mode, "layer" | "layer_reflection") {
@@ -132,11 +167,22 @@ pub fn accept_initial_visual_approximations(
             "native_unlit_fog_hdr_and_framebuffer"
         } else if let Some(recipe) = unlit_recipe(family) {
             let alpha = recipe.alpha;
-            if alpha != "add" {
+            if !matches!(alpha, "add" | "multiply" | "decal_add" | "decal_multiply") {
                 continue;
             }
             validate_unlit(name, material, recipe)?;
-            "native_additive_fog_attenuation"
+            if alpha == "add" {
+                "native_additive_fog_attenuation"
+            } else {
+                if surface["source_input"]["uri"]
+                    .as_str()
+                    .is_none_or(str::is_empty)
+                    || !surface["source_composition"].is_object()
+                {
+                    continue;
+                }
+                "native_unlit_fragment_composition_to_shared_hdr"
+            }
         } else if matches!(
             family,
             "mc_sw4_3d_cod7_tile_blend_spec_8w40z341"
