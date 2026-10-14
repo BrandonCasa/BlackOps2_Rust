@@ -556,7 +556,7 @@ pub(super) fn combat_clip(model: &str, decoded: &crate::animation::DecodedClip) 
     json!({"animation":format!("animation.{model}.{}",clip.name),"seconds":seconds,"duration":duration,"hits":hits,"stops":stops})
 }
 
-fn traversal_clip(model: &str, decoded: &crate::animation::DecodedClip) -> Result<Value> {
+pub(super) fn traversal_clip(model: &str, decoded: &crate::animation::DecodedClip) -> Result<Value> {
     let name = &decoded.clip.name;
     let motion = root_motion(decoded);
     let mut translation: Vec<[f32; 4]> = serde_json::from_value(motion["translation"].clone())
