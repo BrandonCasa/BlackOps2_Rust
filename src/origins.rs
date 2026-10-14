@@ -370,7 +370,12 @@ mod packed_definition_tests {
     fn installed_initial_runtime_game_definition() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/origins.pack");
         let pack = crate::pack::Pack::read(&path).unwrap();
-        let definition = GameDefinition::load(pack.get("game.json").unwrap()).unwrap();
+        let mut definition = GameDefinition::load(pack.get("game.json").unwrap()).unwrap();
+        crate::assets::prepared::PreparedArt::load(&pack)
+            .unwrap()
+            .bind(&mut definition)
+            .unwrap();
+        definition.validate().unwrap();
         assert_eq!(definition.delivery_scope, DeliveryScope::FirstPlayableSolo);
     }
 }

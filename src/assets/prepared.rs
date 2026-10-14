@@ -28,7 +28,12 @@ impl PreparedArt {
                     "name"
                 };
                 if let Some(name) = row[key].as_str() {
-                    names.entry(name.to_owned()).or_default().push(index);
+                    let name = if category == "sounds" {
+                        name.to_ascii_lowercase()
+                    } else {
+                        name.to_owned()
+                    };
+                    names.entry(name).or_default().push(index);
                 }
             }
             indices.insert(category.to_owned(), names);
@@ -60,9 +65,10 @@ impl PreparedArt {
 
     fn entries<'a>(&'a self, category: &str, name: &str) -> impl Iterator<Item = &'a Value> {
         let rows = &self.data[category];
+        let sound_name = (category == "sounds").then(|| name.to_ascii_lowercase());
         self.indices
             .get(category)
-            .and_then(|names| names.get(name))
+            .and_then(|names| names.get(sound_name.as_deref().unwrap_or(name)))
             .into_iter()
             .flatten()
             .map(move |index| &rows[*index])
@@ -326,5 +332,37 @@ impl PreparedArt {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_sound_case_preserves_variant_and_zone_priority_without_folding_images() {
+        let mut pack = crate::pack::Pack::default();
+        pack.entries.insert(
+            "prepared/runtime.json".into(),
+            std::sync::Arc::new(serde_json::to_vec(&serde_json::json!({
+                "schema_version":1,
+                "sounds":[
+                    {"name":"wpn_1911_LFE","index":1,"uri":"other.wav","zone":"all-common_zm"},
+                    {"name":"WPN_1911_lfe","index":0,"uri":"base.wav","zone":"all-zm_tomb"},
+                    {"name":"wpn_1911_LFE","index":0,"uri":"patch.wav","zone":"all-zm_tomb_patch"}
+                ],
+                "images":[{"name":"Source_Texture","uris":{"srgb":"image.ktx2"}}]
+            })).unwrap()),
+        );
+        let art = PreparedArt::load(&pack).unwrap();
+        assert_eq!(art.entries("sounds", "WpN_1911_lFe").count(), 3);
+        let sound = art.entries("sounds", "wpn_1911_lfe")
+            .filter(|value| value["index"] == 0)
+            .min_by_key(|value| PreparedArt::priority(value)).unwrap();
+        assert_eq!(sound["uri"], "patch.wav");
+        assert!(!art.entries("sounds", "wpn_1911_LFE").any(|value| value["index"] == 2));
+        assert!(art.entries("sounds", "missing").next().is_none());
+        assert_eq!(art.image("Source_Texture", "srgb"), Some("image.ktx2"));
+        assert_eq!(art.image("source_texture", "srgb"), None);
     }
 }
