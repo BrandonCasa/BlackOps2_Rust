@@ -556,6 +556,43 @@ pub(super) fn combat_clip(model: &str, decoded: &crate::animation::DecodedClip) 
     json!({"animation":format!("animation.{model}.{}",clip.name),"seconds":seconds,"duration":duration,"hits":hits,"stops":stops})
 }
 
+fn traversal_clip(model: &str, decoded: &crate::animation::DecodedClip) -> Result<Value> {
+    let name = &decoded.clip.name;
+    let motion = root_motion(decoded);
+    let mut translation: Vec<[f32; 4]> = serde_json::from_value(motion["translation"].clone())
+        .map_err(|_| {
+            format!("Required ordinary traversal {name} has no native root translation")
+        })?;
+    let seconds = combat_clip(model, decoded)["seconds"]
+        .as_f64()
+        .ok_or_else(|| format!("Required ordinary traversal {name} has no native finish time"))?
+        as f32;
+    let mut finish = *translation.last().ok_or_else(|| {
+        format!("Required ordinary traversal {name} has empty native root translation")
+    })?;
+    for pair in translation.windows(2) {
+        if seconds <= pair[1][0] {
+            let fraction = ((seconds - pair[0][0]) / (pair[1][0] - pair[0][0])).clamp(0., 1.);
+            finish = std::array::from_fn(|axis| {
+                pair[0][axis] + (pair[1][axis] - pair[0][axis]) * fraction
+            });
+            break;
+        }
+    }
+    finish[0] = seconds;
+    translation.retain(|sample| sample[0] < seconds);
+    translation.push(finish);
+    if translation.len() < 2 {
+        return Err(format!(
+            "Required ordinary traversal {name} finishes before its native root motion"
+        )
+        .into());
+    }
+    Ok(
+        json!({"animation":format!("animation.{model}.{name}"),"seconds":seconds,"motion":translation}),
+    )
+}
+
 fn global_hit_multipliers(catalog: &Catalog<'_>) -> Result<[f32; 21]> {
     let locations = [
         "none",
@@ -859,11 +896,7 @@ pub(super) fn read(
                 for (alias, name) in &source[state] {
                     let alias = if state == "zm_rise" { "rise" } else { alias };
                     let clip = clips[name.as_str()];
-                    let motion = root_motion(clip);
-                    let translation = motion["translation"].as_array().ok_or_else(|| {
-                        format!("Required ordinary traversal {name} has no native root translation")
-                    })?;
-                    let value = json!({"animation":animation_id(name),"seconds":motion["seconds"],"motion":translation});
+                    let value = traversal_clip(model, clip)?;
                     traversals
                         .entry(alias.to_owned())
                         .or_insert_with(|| json!([]))
@@ -958,6 +991,34 @@ pub(super) fn read(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ordinary_traversal_stops_at_source_finish_between_root_keys() {
+        let decoded = crate::animation::DecodedClip {
+            clip: crate::animation::Clip {
+                name: "rise".into(),
+                frame_rate: 10.,
+                frames: 10,
+                source_flags: [0; 4],
+                streamed_file_size: 0,
+                loop_entry_time: 0.,
+                notifies: vec![(Some("finish".into()), 0.75)],
+                bones: Vec::new(),
+            },
+            has_root_delta: true,
+            root_translation: Some(crate::animation::Track {
+                frames: vec![0, 5, 10],
+                values: vec![[0., 0., 0.], [1., 0., 0.], [5., 0., 0.]],
+            }),
+            root_rotation: None,
+        };
+        let converted = traversal_clip("body", &decoded).unwrap();
+        assert_eq!(converted["seconds"], 0.75);
+        assert_eq!(
+            converted["motion"],
+            json!([[0., 0., 0., 0.], [0.5, 1., 0., 0.], [0.75, 3., 0., 0.]])
+        );
+    }
 
     #[test]
     #[ignore = "requires the authorized Steam installation"]

@@ -801,7 +801,7 @@ pub(crate) fn lifecycle(
         }
         if let Some(action)=zombie.barrier_action.as_ref() {
             let Some(window)=definition.content.barriers.iter().find(|window|window.id==action.barrier) else {continue;};
-            let elapsed=zombie.elapsed;
+            let elapsed=zombie.elapsed.min(action.clip.seconds);
             if let Some(motion)=&action.clip.motion {
                 let initial=if action.enter {Vec3::ZERO}else{Vec3::from_array(motion.translation_at(0.))};
                 transform.translation=action.origin+action.rotation*(Vec3::from_array(motion.translation_at(elapsed))-initial);
@@ -827,6 +827,7 @@ pub(crate) fn lifecycle(
                 if enter {
                     zombie.barrier_slot=None;
                     zombie.source_entrance=None;
+                    commands.entity(entity).remove::<ColliderDisabled>();
                 } else {
                     transform.translation=origin;
                 }
@@ -913,7 +914,7 @@ pub(crate) fn lifecycle(
                 .and_then(|clip| clip.root_motion.as_ref())
             {
                 transform.rotation = motion.rotation
-                    * Quat::from_array(root.rotation_at(zombie.elapsed))
+                    * Quat::from_array(root.rotation_at(zombie.elapsed.min(profile.seconds)))
                     * Quat::from_array(root.rotation_at(0.)).inverse();
             }
             if zombie.elapsed >= profile.seconds {
@@ -957,13 +958,21 @@ pub(crate) fn lifecycle(
                     if let Some((_, point)) = positions.iter_mut().find(|(e, _)| *e == entity) {
                         *point = landing;
                     }
+                    let rising = motion.alias=="rise" && (enemy.physics.is_some() || matches!(zombie.eye_spawn,eyes::EyeSpawn::Dug));
                     if motion.alias == "rise" {
                         evidence.rising_finished += 1;
+                    } else if zombie.source_entrance.as_ref().is_some_and(|entrance| {
+                        definition.content.navigation_nodes.iter().any(|node| {
+                            node.id == entrance.node
+                                && (Vec3::from_array(node.position) + Vec3::Y * half_height)
+                                    .distance_squared(motion.start) < 0.001
+                        })
+                    }) {
+                        zombie.source_entrance = None;
                     }
-                    let dug = motion.alias=="rise" && matches!(zombie.eye_spawn,eyes::EyeSpawn::Dug);
                     zombie.traversal = None;
                     zombie.traversal_clip = None;
-                    if dug {
+                    if rising {
                         zombie.landing=0.;
                         let action=match zombie.gait {crate::rounds::Gait::Walk=>EnemyAnimation::Walk,crate::rounds::Gait::Run=>EnemyAnimation::Run,crate::rounds::Gait::Sprint=>EnemyAnimation::Sprint};
                         zombie.transition(action);
@@ -985,23 +994,26 @@ pub(crate) fn lifecycle(
             zombie.velocity = Vec3::ZERO;
             continue;
         }
-        let lure = attractions.0.get(&entity);
+        let entrance = zombie.source_entrance.clone();
+        let lure = entrance.is_none().then(|| attractions.0.get(&entity)).flatten();
         if zombie.lure != lure.map(|l| l.bomb) {
             zombie.lure = lure.map(|l| l.bomb);
             zombie.navigation = 0.;
             zombie.transition(EnemyAnimation::Idle);
         }
-        let goal = lure
-            .is_none()
+        let goal = (lure.is_none() && entrance.is_none())
             .then(|| goals.get(entity).ok().map(|(goal, _)| goal))
             .flatten();
-        let ignored = lure.is_none()
+        let ignored = entrance.is_none()
+            && lure.is_none()
             && goal.is_none()
             && (health.state() != LifeState::Standing || effects.zombie_blood > 0.);
         if ignored {
             zombie.transition(EnemyAnimation::Idle);
         }
-        let target = if ignored {
+        let target = if let Some(entrance) = &entrance {
+            Vec3::from_array(entrance.position) + Vec3::Y * half_height
+        } else if ignored {
             transform.translation
         } else {
             lure.map_or_else(
@@ -1040,6 +1052,7 @@ pub(crate) fn lifecycle(
             zombie.transition(EnemyAnimation::Idle);
         }
         if lure.is_none()
+            && entrance.is_none()
             && !wounds.melee_disabled()
             && !ignored
             && zombie.action != EnemyAnimation::Attack
@@ -1117,7 +1130,7 @@ pub(crate) fn lifecycle(
         }
         let feet = transform.translation - Vec3::Y * half_height;
         let target_center = if enemy.physics.is_some() {
-            if goal.is_some() {
+            if goal.is_some() || entrance.is_some() {
                 half_height
             } else {
                 player_state.height * 0.5
@@ -1142,7 +1155,9 @@ pub(crate) fn lifecycle(
         zombie.navigation -= dt;
         if zombie.navigation <= 0. {
             zombie.navigation = 0.5;
-            zombie.destination = if definition.delivery_scope != crate::origins::DeliveryScope::FirstPlayableSolo
+            zombie.destination = if let Some(entrance) = &entrance {
+                navigation.entrance_destination(feet, entrance, &access) + Vec3::Y * half_height
+            } else if definition.delivery_scope != crate::origins::DeliveryScope::FirstPlayableSolo
                 && distance < 4.
                 && (transform.translation.y - target.y).abs() < 0.7
                 && navigation.direct_allowed(feet, target - Vec3::Y * target_center, &access)
@@ -1155,9 +1170,12 @@ pub(crate) fn lifecycle(
                     + Vec3::Y * half_height
             };
         }
-        if let Some(step) =
+        let step = if let Some(entrance) = &entrance {
+            navigation.entrance_traversal(feet, entrance, &access)
+        } else {
             navigation.traversal(feet, zombie.destination - Vec3::Y * half_height, &access)
-        {
+        };
+        if let Some(step) = step {
             let crate::navigation::TraversalStep {
                 start,
                 end,
@@ -1165,7 +1183,7 @@ pub(crate) fn lifecycle(
                 yaw,
             } = step;
             if let Some(window) = definition.content.barriers.iter().find(|b| {
-                definition
+                entrance.as_ref().is_none_or(|entrance| b.entry == entrance.node) && definition
                     .content
                     .navigation_nodes
                     .iter()
@@ -1240,6 +1258,7 @@ pub(crate) fn lifecycle(
                         rotation:Quat::from_rotation_y(placement.yaw),target:None,waiting_slot:false,
                     });
                     zombie.velocity=Vec3::ZERO;
+                    commands.entity(entity).insert(ColliderDisabled);
                     barriers.release(entity);
                     barriers.entries+=1;
                     continue;
@@ -1419,12 +1438,14 @@ pub(crate) fn lifecycle(
             let speed = transform.translation.xz().distance(before.xz()) / dt;
             zombie.stuck = if speed < 0.05 { zombie.stuck + dt } else { 0. };
             if zombie.stuck > 0.8 {
-                zombie.destination = navigation.alternate(
+                zombie.destination = if let Some(entrance) = &entrance {
+                    navigation.entrance_destination(feet, entrance, &access)
+                } else { navigation.alternate(
                     feet,
                     target - Vec3::Y * target_center,
                     zombie.destination - Vec3::Y * half_height,
                     &access,
-                ) + Vec3::Y * half_height;
+                ) } + Vec3::Y * half_height;
                 zombie.navigation = 0.5;
                 zombie.stuck = 0.;
                 evidence.stuck_recoveries += 1;
