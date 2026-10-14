@@ -75,23 +75,33 @@ def normal_action(client, action, ticks=2):
     return schedule(client, [edge(1, key, True), edge(ticks + 1, key, False)])
 
 
-def normal_look(client, game, point):
+def normal_look(client, point):
     state = client.state()
-    player, controls = state['player'], state['controls']
+    player = state['player']
     eye = player['position'].copy()
     eye[1] += player['eye_height'] - player['height'] / 2
     delta = [target - origin for origin, target in zip(eye, point)]
     yaw = math.atan2(-delta[0], -delta[2])
-    pitch = math.atan2(delta[1], math.hypot(delta[0], delta[2]))
-    hip = game['tuning']['mouse_sensitivity'] * controls['sensitivity']
-    ads = game['tuning']['ads_mouse_sensitivity'] * controls['ads_sensitivity']
-    sensitivity = hip + (ads - hip) * player['ads']
-    horizontal = (yaw - player['yaw'] + math.pi) % math.tau - math.pi
-    vertical = -1 if controls['invert_mouse_y'] else 1
-    schedule(client, [{'tick': 1, 'motion': [-horizontal / sensitivity,
-                                           -(pitch - player['pitch']) / sensitivity / vertical]}])
-    return client.until(lambda s: abs((s['player']['yaw'] - yaw + math.pi) % math.tau - math.pi) < .02
-                        and abs(s['player']['pitch'] - max(-1.5, min(1.5, pitch))) < .02, timeout=5)
+    pitch = max(-1.5, min(1.5, math.atan2(delta[1], math.hypot(delta[0], delta[2]))))
+    for _ in range(3):
+        player = state['player']
+        horizontal = (yaw - player['yaw'] + math.pi) % math.tau - math.pi
+        if abs(horizontal) < .02 and abs(pitch - player['pitch']) < .02:
+            return state
+        vertical = -1 if state['controls']['invert_mouse_y'] else 1
+        probe_y = (1 if player['pitch'] >= 0 else -1) * vertical
+        probe = schedule(client, [{'tick': 1, 'motion': [1, probe_y]}])
+        yaw_step = (player['yaw'] - probe['player']['yaw'] + math.pi) % math.tau - math.pi
+        pitch_step = (player['pitch'] - probe['player']['pitch']) / probe_y
+        if not all(math.isfinite(step) and abs(step) > 1e-6 for step in (yaw_step, pitch_step)):
+            raise RuntimeError('Normal mouse probe produced no measurable look response')
+        horizontal = (yaw - probe['player']['yaw'] + math.pi) % math.tau - math.pi
+        state = schedule(client, [{'tick': 1, 'motion': [-horizontal / yaw_step,
+                             -(pitch - probe['player']['pitch']) / pitch_step]}])
+    if (abs((state['player']['yaw'] - yaw + math.pi) % math.tau - math.pi) >= .02
+            or abs(state['player']['pitch'] - pitch) >= .02):
+        raise RuntimeError('Normal mouse look did not reach the requested direction')
+    return state
 
 
 def native_cook_off(client, grenade):
@@ -287,7 +297,7 @@ def initial_melee(client, report, game):
     ready = client.until(lambda s: any(e['entity'] == admitted and e['ready'] for e in s['enemies']))
     target = next(e for e in ready['enemies'] if e['entity'] == admitted)
     point = target['position'].copy()
-    normal_look(client, game, point)
+    normal_look(client, point)
     normal_action(client, 'melee')
     after = client.until(lambda s: any(r['target'] == admitted and r['category'] == 'Melee'
                                       for r in s['damage']['recent']))
@@ -307,7 +317,7 @@ def initial_grenade_motion(client, report, game, pack, research):
           fixture=fixture, zones=before['zones'])
     point = site['center'].copy()
     point[2] -= .2
-    normal_look(client, game, point)
+    normal_look(client, point)
     before = client.state()
     normal_action(client, 'lethal')
     observed = []
@@ -445,7 +455,7 @@ def initial_rounds(client, report, game, output, timeout):
             point = [(a + b) / 2 for a, b in zip(heads[0]['start'], heads[0]['end'])]
         else:
             point[1] += 1.2
-        normal_look(client, game, point)
+        normal_look(client, point)
         state = client.state()
         distance = math.dist(state['player']['position'], target['position'])
         weapon = state['player']['weapons'][0]
@@ -526,7 +536,7 @@ def initial_revive(client, report, game, output):
             target = min(enemies, key=lambda e: math.dist(e['position'], state['player']['position']))
             target_point = target['position'].copy()
             target_point[1] += 1.2
-            normal_look(client, game, target_point)
+            normal_look(client, target_point)
             weapon = client.state()['player']['weapons'][0]
             normal_action(client, 'fire' if weapon['magazine'] else 'reload')
         client.wait_ticks(6)
@@ -544,7 +554,7 @@ def initial_revive(client, report, game, output):
                         point[2] + radius * math.cos(angle * math.tau / 8)]
             client.call('origins/setup', {'position': position})
             client.wait_ticks(3)
-            normal_look(client, game, point)
+            normal_look(client, point)
             state = client.wait_ticks(3)
             approaches.append({'position': position, 'focus': state['focus']})
             if perk['name'].lower() in (state['focus']['prompt'] or '').lower():
