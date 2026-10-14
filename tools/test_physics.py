@@ -109,16 +109,27 @@ def speed(row, key='velocity_after'):
 def select_flat(client, report, game, candidates, native):
     attempts = []
     bounds = []
-    for trigger in game['environment']['triggers']:
-        if trigger.get('source', {}).get('script_noteworthy') not in ('player_volume', 'life_brush'):
-            continue
-        for volume in trigger.get('shape', {}).get('volumes', []):
-            points = np.array(volume['vertices']) + np.array(volume['position']) + np.array(trigger['position'])
+    initial = game.get('delivery_scope') == 'first_playable_solo'
+    if initial:
+        for row in game['access']['volumes']:
+            if row['zone'] != 'zone_start':
+                continue
+            volume = row['volume']
+            points = np.array(volume['vertices']) + np.array(volume['position'])
             bounds.append((points.min(axis=0), points.max(axis=0)))
+    else:
+        for trigger in game['environment']['triggers']:
+            if trigger.get('source', {}).get('script_noteworthy') not in ('player_volume', 'life_brush'):
+                continue
+            for volume in trigger.get('shape', {}).get('volumes', []):
+                points = np.array(volume['vertices']) + np.array(volume['position']) + np.array(trigger['position'])
+                bounds.append((points.min(axis=0), points.max(axis=0)))
+    offsets = ([-1, game['tuning']['standing_height'] / 2, 1],
+               [1, game['tuning']['standing_height'] / 2, -1]) if initial else ([-2, .9, 2], [2, .9, 2], [0, .9, -8])
     eligible = [c for c in candidates if c['normal'][1] > .9999 and c['radius'] > 1.1
                 and any(all(np.all(np.array(c['center']) + offset >= low)
                             and np.all(np.array(c['center']) + offset <= high)
-                            for offset in ([-2, .9, 2], [2, .9, 2], [0, .9, -8]))
+                            for offset in offsets)
                         for low, high in bounds)]
     for site in eligible[:24]:
         try:
