@@ -121,7 +121,14 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
         let streams = &catalog.zones[zone].1.streams;
         let definition = Address::decode(streams.u32(root.add(8)?)?)?;
         for (event, offset) in [
-            ("shot", 180),
+            (
+                if name == "frag_grenade_zm" {
+                    "throw"
+                } else {
+                    "shot"
+                },
+                180,
+            ),
             ("dry_fire", 236),
             ("prime", 172),
             ("melee", 252),
