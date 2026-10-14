@@ -54,7 +54,7 @@ opt-level = 0
 lto = "off"
 codegen-units = 256
 incremental = true
-debug = true
+debug = "line-tables-only"
 debug-assertions = true
 
 [profile.staging]
