@@ -3,12 +3,13 @@ use bevy::{
     camera::visibility::{NoFrustumCulling, VisibilitySystems},
     prelude::*,
     render::{
-        Render, RenderApp, RenderSystems,
+        Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
         render_resource::{CachedPipelineState, PipelineCache},
     },
     shader::ShaderCacheError,
 };
 use std::{
+    collections::HashSet,
     sync::{Arc, Mutex},
     time::Instant,
 };
@@ -19,6 +20,10 @@ pub(crate) struct PipelineProgress {
     pub frame: u64,
     pub total: usize,
     pub ready: usize,
+    pub gpu_ready: bool,
+    pub gpu_images_pending: usize,
+    pub gpu_meshes_pending: usize,
+    pub gpu_materials_pending: usize,
     pub error: Option<String>,
 }
 
@@ -32,6 +37,12 @@ struct Preparation {
     total: usize,
     settled_frames: u32,
     shaders_ready: bool,
+}
+
+#[derive(Resource, Default)]
+struct GpuRequirements {
+    images: HashSet<AssetId<Image>>,
+    meshes: HashSet<AssetId<Mesh>>,
 }
 
 #[derive(Component)]
@@ -50,8 +61,10 @@ pub(crate) fn install(app: &mut App) {
         .add_systems(Startup, setup.after(crate::rendering::setup))
         .add_systems(
             Update,
-            setup.run_if(resource_exists::<crate::assets::prepared::PreparedArt>
-                .and_then(resource_changed::<crate::assets::prepared::PreparedArt>)),
+            setup.run_if(
+                resource_exists::<crate::assets::prepared::PreparedArt>
+                    .and_then(resource_changed::<crate::assets::prepared::PreparedArt>),
+            ),
         )
         .add_systems(OnEnter(GameState::PreparingShaders), begin)
         .add_systems(OnExit(GameState::PreparingShaders), restore_culling)
@@ -72,11 +85,63 @@ pub(crate) fn install(app: &mut App) {
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
         render
             .insert_resource(progress)
+            .init_resource::<GpuRequirements>()
+            .add_systems(ExtractSchedule, extract_gpu_requirements)
             .add_systems(Render, inspect.after(RenderSystems::Render));
     }
 }
 
-fn inspect(cache: Res<PipelineCache>, progress: Res<ShaderProgress>) {
+fn extract_gpu_requirements(
+    state: Extract<Res<State<GameState>>>,
+    images: Extract<Res<Assets<Image>>>,
+    meshes: Extract<Res<Assets<Mesh>>>,
+    surfaces: Extract<
+        Query<
+            (&Mesh3d, Option<&bevy::solari::prelude::RaytracingMesh3d>),
+            Without<crate::assets::WorldCollider>,
+        >,
+    >,
+    mut required: ResMut<GpuRequirements>,
+) {
+    if **state != GameState::PreparingShaders {
+        return;
+    }
+    required.images.clear();
+    required
+        .images
+        .extend(images.iter().filter_map(|(id, image)| {
+            image
+                .asset_usage
+                .contains(bevy::asset::RenderAssetUsages::RENDER_WORLD)
+                .then_some(id)
+        }));
+    required.meshes.clear();
+    required.meshes.extend(
+        surfaces
+            .iter()
+            .flat_map(|(surface, ray)| [Some(surface.0.id()), ray.map(|ray| ray.0.id())])
+            .flatten()
+            .filter(|id| {
+                meshes.get(*id).is_some_and(|mesh| {
+                    mesh.asset_usage
+                        .contains(bevy::asset::RenderAssetUsages::RENDER_WORLD)
+                })
+            }),
+    );
+}
+
+fn inspect(
+    cache: Res<PipelineCache>,
+    progress: Res<ShaderProgress>,
+    required: Res<GpuRequirements>,
+    images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
+    meshes: Res<bevy::render::render_asset::RenderAssets<bevy::render::mesh::RenderMesh>>,
+    materials: Res<
+        bevy::render::erased_render_asset::ErasedRenderAssets<bevy::pbr::PreparedMaterial>,
+    >,
+    instances: Res<bevy::pbr::RenderMaterialInstances>,
+    scene: Option<Res<bevy::solari::scene::RaytracingSceneBindings>>,
+) {
     let Ok(mut progress) = progress.0.lock() else {
         return;
     };
@@ -86,6 +151,32 @@ fn inspect(cache: Res<PipelineCache>, progress: Res<ShaderProgress>) {
     progress.frame += 1;
     progress.total = 0;
     progress.ready = 0;
+    progress.gpu_images_pending = required
+        .images
+        .iter()
+        .filter(|id| images.get(**id).is_none())
+        .count();
+    progress.gpu_meshes_pending = required
+        .meshes
+        .iter()
+        .filter(|id| meshes.get(**id).is_none())
+        .count();
+    let material_ids: HashSet<_> = instances
+        .instances
+        .values()
+        .map(|instance| instance.asset_id)
+        .collect();
+    progress.gpu_materials_pending = material_ids
+        .iter()
+        .filter(|id| materials.get(**id).is_none())
+        .count();
+    progress.gpu_ready = !required.images.is_empty()
+        && !required.meshes.is_empty()
+        && !material_ids.is_empty()
+        && progress.gpu_images_pending == 0
+        && progress.gpu_meshes_pending == 0
+        && progress.gpu_materials_pending == 0
+        && scene.is_some_and(|scene| scene.bind_group.is_some());
     for pipeline in cache.pipelines() {
         progress.total += 1;
         match &pipeline.state {
@@ -107,6 +198,7 @@ fn inspect(cache: Res<PipelineCache>, progress: Res<ShaderProgress>) {
 fn begin(mut preparation: ResMut<Preparation>, progress: Res<ShaderProgress>) {
     if let Ok(mut progress) = progress.0.lock() {
         progress.preparing = true;
+        progress.gpu_ready = false;
         progress.error = None;
     }
     *preparation = Preparation {
@@ -183,8 +275,12 @@ fn advance(
             .is_some_and(|started| started.elapsed().as_secs() > 180)
     {
         failure.0 = format!(
-            "Shader preparation timed out: {} of {} ready.",
-            progress.ready, progress.total
+            "Shader preparation timed out: {} of {} pipelines ready; GPU assets pending: {} images, {} meshes, {} materials.",
+            progress.ready,
+            progress.total,
+            progress.gpu_images_pending,
+            progress.gpu_meshes_pending,
+            progress.gpu_materials_pending
         );
         error!("{}", failure.0);
         next.set(GameState::LoadError);
@@ -205,6 +301,7 @@ fn advance(
         && models_ready
         && progress.total > 0
         && progress.ready == progress.total
+        && progress.gpu_ready
         && preparation.total == progress.total
     {
         preparation.settled_frames += 1;
@@ -213,7 +310,7 @@ fn advance(
     }
     preparation.total = progress.total;
     preparation.shaders_ready |= preparation.settled_frames >= 8;
-    if preparation.shaders_ready && cinematic_ready {
+    if preparation.shaders_ready && cinematic_ready && progress.gpu_ready {
         info!(
             "Origins shaders ready: {} pipelines in {:.2}s",
             progress.total,
