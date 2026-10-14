@@ -42,7 +42,8 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     println!("Resolved {} distinct native references", references.len());
     let entities = crate::entities::read(&catalog)?;
     crate::scenes::validate_placements(&catalog, &entities)?;
-    let used_materials = crate::geometry::validate(&catalog)?;
+    let used_materials = if preview.is_some() { crate::geometry::material_names(&catalog)? }
+        else { crate::geometry::validate(&catalog)? };
     let mut materials = crate::material::read_used(&catalog, &used_materials)?;
     let research = PathBuf::from(std::env::var_os("USERPROFILE").ok_or("USERPROFILE is unavailable")?)
         .join("Documents/T6ZMResearch/t6zm-master");
@@ -51,61 +52,71 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     }
     if let Some(name) = preview {
         let key = name.to_ascii_lowercase();
-        if let Some((model_name, zone, root)) = catalog.definitions(5).find(|(model, _, _)| model.eq_ignore_ascii_case(name)) {
-            let lods = crate::geometry::model(&catalog, model_name, zone, root)?;
-            let surfaces = lods.first().ok_or("Native model has no LODs")?;
-            let selected = surfaces.iter().map(|surface| {
-                let key = surface.material.to_ascii_lowercase();
-                materials.get(&key).cloned().map(|material| (key, material))
-                    .ok_or_else(|| format!("Native model material is missing: {}", surface.material).into())
-            }).collect::<Result<std::collections::BTreeMap<_, _>>>()?;
-            let required = selected.values().flat_map(|material| material["textures"].as_array().into_iter().flatten())
-                .map(|binding| binding["image"].as_str().map(str::to_ascii_lowercase)
-                    .ok_or_else(|| "Native model image name is missing".into())).collect::<Result<std::collections::BTreeSet<_>>>()?;
-            let mut pack = pack::Pack::default();
-            let (images, _) = convert::images(&authorized, &catalog, &mut pack, Some(&required))?;
-            let converted = selected.iter().map(|(key, material)| {
-                let mut channels = Vec::new();
-                for binding in material["textures"].as_array().into_iter().flatten() {
-                    let name = binding["image"].as_str().ok_or("Native model image name is missing")?;
-                    let image = images.iter().find(|image| image["name"].as_str().is_some_and(|value| value.eq_ignore_ascii_case(name)))
-                        .ok_or_else(|| format!("Native model image is missing: {name}"))?;
-                    let mut channel = binding.clone();
-                    channel["uri"] = image["uris"]["linear"].clone();
-                    channels.push(channel);
+        let model = catalog.definitions(5).find(|(model,_,_)| model.eq_ignore_ascii_case(name));
+        let groups = if let Some((model_name,zone,root)) = model {
+            crate::geometry::model(&catalog,model_name,zone,root)?
+        } else {
+            if !materials.contains_key(&key) { return Err(format!("Native material/model is missing: {name}").into()); }
+            let mut surfaces = Vec::new();
+            for (_,zone,root) in catalog.definitions(17) {
+                surfaces.extend(crate::geometry::world(&catalog,zone,root)?.into_iter()
+                    .filter(|surface| surface.material.eq_ignore_ascii_case(name)));
+            }
+            for (model_name,zone,root) in catalog.definitions(5) {
+                let streams = &catalog.zones[zone].1.streams;
+                let bindings = fastfile::Address::decode(streams.u32(root.add(36)?)?)?;
+                let mut matching = false;
+                for index in 0..streams.u8(root.add(6)?)? as usize {
+                    if catalog.pointer(zone,bindings.add(index*4)?,6)?.0.eq_ignore_ascii_case(name) {
+                        matching = true;
+                        break;
+                    }
                 }
-                Ok((key.clone(), serde_json::json!({"name":key,"extras":{"surface":{
-                    "native":material,"source_vertex_color_transfer":"gamma2","channels":channels}}})))
-            }).collect::<Result<std::collections::BTreeMap<_, _>>>()?;
-            let mut scene = crate::gltf::Scene::new(model_name);
-            let indices = scene.materials(surfaces, &converted)?;
-            let mesh = scene.mesh(model_name, surfaces, &indices, true)?;
-            let owner = scene.node(serde_json::json!({"name":model_name,"mesh":mesh}));
-            scene.skin(owner,&crate::geometry::skeleton(&catalog,model_name,zone,root)?)?;
-            scene.write("prepared/material.gltf", &mut pack)?;
-            pack.entries.retain(|uri, _| !uri.ends_with("/srgb.ktx2"));
-            pack.write(std::io::BufWriter::new(std::fs::File::create(output)?))?;
-            println!("Packed native model {model_name}: {} surfaces into {}", surfaces.len(), output.display());
-            return Ok(());
+                if matching {
+                    surfaces.extend(crate::geometry::model(&catalog,model_name,zone,root)?.into_iter().flatten()
+                        .filter(|surface| surface.material.eq_ignore_ascii_case(name)));
+                }
+            }
+            vec![surfaces]
+        };
+        if groups.is_empty() || groups.iter().any(Vec::is_empty) {
+            return Err(format!("Native preview {name} has an empty geometry selection").into());
         }
-        let material = materials.get(&key).ok_or_else(|| format!("Native material/model is missing: {name}; matching models: {:?}", catalog.definitions(5).filter(|(model, _, _)| model.to_ascii_lowercase().contains(&key)).map(|(model, _, _)| model).collect::<Vec<_>>()))?;
-        let selected = std::collections::BTreeMap::from([(key.clone(), material.clone())]);
-        let required = material["textures"].as_array().ok_or("Native material textures are missing")?
-            .iter().map(|binding| binding["image"].as_str().map(str::to_ascii_lowercase)
-                .ok_or_else(|| "Native material image name is missing".into())).collect::<Result<std::collections::BTreeSet<_>>>()?;
+        let selected = groups.iter().flatten().map(|surface| {
+            let key = surface.material.to_ascii_lowercase();
+            materials.get(&key).cloned().map(|material| (key,material))
+                .ok_or_else(|| format!("Native preview material is missing: {}",surface.material).into())
+        }).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
+        let required = crate::material::inputs(&selected,&catalog)?;
         let mut pack = pack::Pack::default();
-        let (_, images) = convert::images(&authorized, &catalog, &mut pack, Some(&required))?;
+        let (_,images) = convert::images(&authorized,&catalog,&mut pack,Some(&required))?;
         let mut converted = std::collections::BTreeMap::new();
-        let baked = crate::bake::world(&catalog, &selected, &images, &mut converted, &mut pack)?;
-        if !converted.contains_key(&key) { return Err("Material-only output requires a supported layered world material".into()); }
-        let mut scene = crate::gltf::Scene::new(name);
-        let indices = scene.materials(baked.values().flatten(), &converted)?;
-        let mesh = scene.mesh(name, baked.values().flatten(), &indices, false)?;
-        scene.node(serde_json::json!({"name":name,"mesh":mesh}));
-        scene.write("prepared/material.gltf", &mut pack)?;
-        pack.entries.retain(|uri, _| !uri.starts_with("prepared/images/"));
+        let baked = crate::bake::surfaces(&selected,groups.iter().flatten().cloned().collect(),&images,&mut converted,&mut pack)?;
+        converted.extend(crate::material::convert_known(&selected,&images,&mut pack)?);
+        let gaps = crate::material::missing(&selected,&converted);
+        if !gaps.is_empty() {
+            return Err(format!("Native preview has {} unresolved material bindings:\n{}",gaps.len(),gaps.join("\n")).into());
+        }
+        let skeleton = model.map(|(model_name,zone,root)| crate::geometry::skeleton(&catalog,model_name,zone,root)).transpose()?;
+        for (lod,source) in groups.iter().enumerate() {
+            let surfaces: Vec<_> = source.iter().flat_map(|surface|
+                baked.get(&surface.name).cloned().unwrap_or_else(|| vec![surface.clone()])).collect();
+            if source.iter().map(|surface| surface.indices.len()).sum::<usize>()
+                != surfaces.iter().map(|surface| surface.indices.len()).sum::<usize>() {
+                return Err("Prepared preview changed the source triangle count".into());
+            }
+            let mut scene = crate::gltf::Scene::new(name);
+            let indices = scene.materials(&surfaces,&converted)?;
+            let mesh = scene.mesh(name,&surfaces,&indices,skeleton.is_some())?;
+            let owner = scene.node(serde_json::json!({"name":name,"mesh":mesh,
+                "extras":if model.is_some() {serde_json::json!({"source_model":name,"source_lod":lod})} else {serde_json::json!({})}}));
+            if let Some(skeleton) = &skeleton { scene.skin(owner,skeleton)?; }
+            let uri = if lod == 0 {"prepared/material.gltf".to_owned()} else {format!("prepared/lods/{lod}.gltf")};
+            scene.write(&uri,&mut pack)?;
+        }
+        crate::validate_entries(&pack)?;
         pack.write(std::io::BufWriter::new(std::fs::File::create(output)?))?;
-        println!("Packed {} baked native surfaces into {}", baked.len(), output.display());
+        println!("Packed converted native preview {name}: {} source geometry groups into {}",groups.len(),output.display());
         return Ok(());
     }
     let camos = crate::material::read_camos(&catalog)?;
@@ -365,7 +376,7 @@ mod tests {
         let all = crate::material::read_used(&catalog,&used).unwrap();
         assert_eq!(all.len(),1034);
         let gaps = crate::material::unimplemented(&all);
-        assert_eq!(gaps.len(),68);
+        assert_eq!(gaps.len(),58);
         let camos = crate::material::read_camos(&catalog).unwrap();
         let options = crate::material::read_camo_options(&catalog).unwrap();
         let (weapons,attachments) = crate::material::read_material_selection(&catalog).unwrap();
@@ -457,11 +468,14 @@ mod tests {
             "mc_unlit_multiply_97923qz1","mc_unlitdecalblend_add_fzw1z66f","mc_unlitdecalblend_multiply_34w7q3jw",
             "wpc_unlitdecalblend_add_j26wq580","wpc_unlitdecalblend_multiply_35079164",
             "wpc_sw4_3d_unlit_1layer_8691j77q","mc_sw4_3d_unlit_1layer_nofog_91f00f80",
-            "mc_sw4_3d_viewmodel_unlit_j299w86e","mc_sw4_3d_viewmodel_unlit_8216051u","mc_sw4_3d_viewmodel_unlit_60466j88"];
+            "mc_sw4_3d_viewmodel_unlit_j299w86e","mc_sw4_3d_viewmodel_unlit_8216051u","mc_sw4_3d_viewmodel_unlit_60466j88",
+            "mc_sw4_3d_unlit_3layer_nofog_falloff_w840w777","mc_sw4_3d_unlit_3layer_nofog_falloff_5z943qe4",
+            "mc_sw4_3d_unlit_3layer_nofog_falloff_5z909874","mc_sw4_3d_unlit_3layer_nofog_falloff_zfeather_wq4jwzz6",
+            "mlv_sw4_3d_unlit_3layer_nofog_falloff_fjz6ze0u"];
         let selected: std::collections::BTreeMap<_,_> = all.iter().filter(|(_,material)| {
             let family = material["technique_set"].as_str().unwrap(); families.contains(&family) || prior.contains(&family)
         }).map(|(key,material)| (key.clone(),material.clone())).collect();
-        assert_eq!(selected.len(),292);
+        assert_eq!(selected.len(),301);
         let required = crate::material::inputs(&selected,&catalog).unwrap();
         assert!(!required.is_empty());
         let names = ["mc/mtl_p6_zm_tm_foliage_trunk_splinter","mc/mtl_p6_zm_wood_fence","wpc/decal_trim_metal_grate01",
@@ -485,8 +499,18 @@ mod tests {
             "mc/mtl_zm_tm_decal_damage_wall_fillet","mc/mtl_p6_zm_tm_challenge_glow","mc/zm_tm_decal_quaternary",
             "wpc/zm_tm_decal_quaternary_ice","wpc/zm_tm_decal_damage_wall_fillet","wpc/zm_tm_decal_grunge_darkstain_06",
             "wpc/zm_tm_wallbuy_01","mc/mtl_p6_zm_tm_runes","mc/mtl_t6_attach_tritium_grn_glo",
-            "mc/mat_veh_t6_dlc_zm_drone_water_vm","mc/mat_veh_t6_dlc_zm_drone_unlit_vm","mc/mtl_t6_attach_optic_acog_crosshair"];
+            "mc/mat_veh_t6_dlc_zm_drone_water_vm","mc/mat_veh_t6_dlc_zm_drone_unlit_vm","mc/mtl_t6_attach_optic_acog_crosshair",
+            "mc/mtl_p6_zm_tm_elm_spawn_glow","mc/mtl_p6_zm_tm_pap_glow_effect","mc/mtl_p6_zm_tm_soul_box_glow",
+            "mc/mtl_p6_zm_tm_generator_115","mc/mtl_p6_zm_tm_generator_115_vat_opaque","mc/mtl_p6_zm_tm_generator_115_vat",
+            "mc/mtl_p6_zm_tm_elm_plinth_glow_blue","mc/mtl_p6_zm_tm_elm_plinth_glow_yellow","mlv/mtl_p6_zm_tm_elm_spawn_glow"];
         let mut samples: std::collections::BTreeMap<String,_> = names.iter().map(|&name| (name.into(),selected[name].clone())).collect();
+        for (index,name) in ["mc/mtl_p6_zm_tm_elm_spawn_glow","mc/mtl_p6_zm_tm_generator_115_vat_opaque","mc/mtl_p6_zm_tm_generator_115_vat"].into_iter().enumerate() {
+            for (state,vector) in [[0.,0.,0.,0.],[0.25,0.5,0.75,0.],[-1.,2.,0.5,0.]].into_iter().enumerate() {
+                let mut material = selected[name].clone();
+                material["code_constants"]["169"] = serde_json::json!(vector);
+                samples.insert(format!("explicit_falloff_{index}_{state}"),material);
+            }
+        }
         let (bound,constants) = crate::camo::camo_inputs(&[],&selected["mc/mtl_t6_attach_fastmag"],1,
             &std::collections::BTreeMap::from([(181,[0.25,-0.5,3.,1.])])).unwrap();
         assert_eq!(constants[&181],[0.25,-0.5,3.,1.]);
@@ -506,24 +530,27 @@ mod tests {
         let special_families = ["mc_sw4_3d_cod7_tile_blend_spec_8w40z341","mlv_sw4_3d_cod7_tile_blend_spec_w8wezqe6",
             "mc_sw4_3d_cod7_tile_blend_q2q2zej6","mlv_sw4_3d_cod7_tile_blend_26zq1w22","mc_sw4_3d_water_on_surface_reveal_77320z68",
             "mc_sw4_3d_phong_emissive_q0751958","mc_sw4_3d_phong_emissive_alcatraz_90892wq5","mc_sw4_3d_phong_emissive_alcatraz_8q551153",
-            "mlv_sw4_3d_phong_emissive_alcatraz_w1q1w09e","mc_sw4_3d_phong_simple_emissive_flicker_9j5f25q3"];
-        let mut special_checked = 0;
-        for (name,material) in all.iter().filter(|(_,material)| special_families.contains(&material["technique_set"].as_str().unwrap())) {
-            crate::bake::validate_native(material).unwrap_or_else(|error| panic!("{name}: {error}"));
-            for binding in material["textures"].as_array().unwrap() { catalog.resolve(8,binding["image"].as_str().unwrap()).unwrap(); }
-            special_checked+=1;
-        }
-        assert_eq!(special_checked,60);
+            "mlv_sw4_3d_phong_emissive_alcatraz_w1q1w09e","mc_sw4_3d_phong_simple_emissive_flicker_9j5f25q3",
+            "mc_sw4_3d_phong_emissive_fritz_76q5wqjw","mc_sw4_3d_phong_emissive_fritz_61728967",
+            "mc_sw4_3d_phong_emissive_script_multi_72q2fj2u","mc_sw4_3d_phong_emissive_script_multi_j05zz52w","mc_sw4_3d_emissive_tomb_qww536q2"];
+        let special_all: std::collections::BTreeMap<_,_> = all.iter()
+            .filter(|(_,material)| special_families.contains(&material["technique_set"].as_str().unwrap()))
+            .map(|(name,material)| (name.clone(),material.clone())).collect();
+        crate::material::inputs(&special_all,&catalog).unwrap();
+        let special_checked = special_all.len();
+        assert_eq!(special_checked,67);
         let special_names = ["mc/mtl_p6_zm_tm_chamber_btm_piece","mc/mtl_p6_zm_tm_incense_burner","mc/mtl_p6_zm_tm_elm_plinth_top",
             "mc/mtl_p6_zm_tm_templar_statue_head_1","mc/mtl_p6_rocks_cluster_03b_nospec","mlv/mtl_p6_zm_tm_concrete_pillar_cap",
             "mlv/mtl_p6_zm_tm_templar_statue_top","mc/mtl_p6_zm_tm_note_rock_01_anim",
             "mc/mtl_c_zom_german_soldier_upper1","mc/mtl_p6_zm_al_power_station_panels","mc/mtl_p6_zm_lighting_fixture_on",
             "mc/mtl_p6_zm_tm_robot_plaque","mc/mtl_p6_zm_tm_dig_mound_blood","mc/mtl_p6_zm_tm_gas_lamp_glass_on",
-            "mlv/mtl_p6_zm_tm_wind_rings","mc/mtl_p6_zm_tm_shovel","mc/mtl_p6_zm_tm_challenge_box"];
+            "mlv/mtl_p6_zm_tm_wind_rings","mc/mtl_p6_zm_tm_shovel","mc/mtl_p6_zm_tm_challenge_box",
+            "mc/mtl_p6_zm_al_vending_three_gun_logo_on","mc/mtl_p6_zm_al_vending_three_gun_on","mc/mtl_p6_zm_tm_monolith_ring",
+            "mc/mtl_p6_zm_vending_diesel_magic_acc","mc/mtl_p6_zm_vending_diesel_magic_ball","mc/mtl_p6_zm_vending_diesel_magic_logo",
+            "mc/mtl_p6_zm_tm_chamber_mid_piece_lt"];
         let special: std::collections::BTreeMap<_,_> = special_names.into_iter().map(|name| (name.to_owned(),all[name].clone())).collect();
         let mut sample_images = crate::material::inputs(&samples,&catalog).unwrap();
-        sample_images.extend(special.values().flat_map(|material| material["textures"].as_array().unwrap())
-            .map(|binding| binding["image"].as_str().unwrap().to_ascii_lowercase()));
+        sample_images.extend(crate::material::inputs(&special,&catalog).unwrap());
         let mut pack = crate::pack::Pack::default();
         let (rows,images) = crate::convert::images(&install,&catalog,&mut pack,Some(&sample_images)).unwrap();
         let mut shared = 0;
@@ -536,10 +563,10 @@ mod tests {
         }
         assert!(shared>0);
         let converted = crate::material::convert_known(&samples,&images,&mut pack).unwrap();
-        assert_eq!(converted.len(),names.len()+6);
+        assert_eq!(converted.len(),names.len()+15);
         let special_pending = crate::bake::check_special_response(&catalog,&special,&images,&mut pack).unwrap();
         assert!(!special_pending.is_empty());
-        println!("Checked {special_checked} special materials across ten families and {} representative materials plus controlled water/flicker states; {} source/runtime gaps retained",special.len(),special_pending.len());
+        println!("Checked {special_checked} special materials across fifteen families and {} representative materials plus controlled water/flicker states; {} source/runtime gaps retained",special.len(),special_pending.len());
         for material in converted.values() {
             for channel in material["extras"]["surface"]["channels"].as_array().unwrap() {
                 crate::texture::validate(pack.get(channel["uri"].as_str().unwrap()).unwrap()).unwrap();
@@ -547,9 +574,9 @@ mod tests {
         }
         assert_eq!(converted.values().filter(|material| material["extras"]["surface"]["presentation"]["alpha"] == "mask").count(),9);
         assert_eq!(converted.values().filter(|material| material["extras"]["surface"]["presentation"]["alpha"] == "premultiplied").count(),20);
-        assert_eq!(converted.values().filter(|material| material["extras"]["surface"]["standard"]["unlit"] == true).count(),17);
+        assert_eq!(converted.values().filter(|material| material["extras"]["surface"]["standard"]["unlit"] == true).count(),35);
         let pending = crate::material::missing(&samples,&converted);
-        assert_eq!(pending.len(),52);
+        assert_eq!(pending.len(),70);
         assert_eq!(pending.iter().filter(|reason| reason.contains("Native ONE/ONE addition")).count(),2);
         let flag_materials: std::collections::BTreeSet<_> = names.iter().copied()
             .filter(|name| converted[*name]["extras"]["surface"]["source_flag_motion"].is_object()).collect();
@@ -635,12 +662,16 @@ mod tests {
             assert_eq!(surface["source_color_matrix"]["stage"],"coverage_scaled_linear_lighting_before_fog");
             assert_eq!(surface["source_fragment_alpha"],"sqrt_texture_vertex_coverage");
         }
-        for name in names.iter().filter(|name| name.starts_with("mlv/")) {
+        for name in names.iter().filter(|name| selected[**name]["technique_set"].as_str().unwrap().starts_with("mlv_lit_sm_")) {
             let surface = &converted[*name]["extras"]["surface"];
             assert_eq!(surface["source_vertex_lighting"]["source"],5);
             assert_eq!(surface["source_vertex_lighting"]["alpha"],"sun_shadow_fallback");
             assert!(surface["pending_runtime"].as_str().is_some());
         }
+        let falloff = &converted["mlv/mtl_p6_zm_tm_elm_spawn_glow"]["extras"]["surface"];
+        assert_eq!(falloff["source_vertex_color_transfer"],"unused_primary_color");
+        assert_eq!(falloff["source_reflection"]["secondary_vertex_alpha_red_bias"],serde_json::json!(0.00001));
+        assert!(falloff["pending_runtime"].as_str().unwrap().contains("reflection/SH"));
         assert_eq!(converted["mlv/mtl_p6_zm_tm_crate_ammo_cheap"]["extras"]["surface"]["standard"]["reflectance"],0.);
         assert_eq!(converted["mlv/ch_woodwall01"]["extras"]["surface"]["native_specular"]["gloss_channel"],"alpha");
         let camo_pending = crate::material::finish_camos(&mut camo_library,&converted,&mut pack).unwrap();
@@ -665,7 +696,7 @@ mod tests {
         crate::validate_pack(&check_pack).unwrap();
         assert_eq!(converted["mlv/mtl_p6_zm_tm_sandbags_cheap"]["extras"]["surface"]["source_vertex_alpha"],"indirect_diffuse");
         assert_eq!(converted["mlv/mtl_p6_zm_tm_sandbags_cheap"]["extras"]["surface"]["presentation"]["alpha"],"opaque");
-        println!("Checked exact programs, routes, active inputs and states for {} materials in sixty families; {} image definitions resolve; converted {} representative materials/states; reused {shared} identical image encodings; {} dispatch gaps and fifty-two sampled runtime gaps remain; serialized {} native camo variants with one prepared baseline and {} explicit pending variants",selected.len(),required.len(),converted.len(),gaps.len(),decoded.variants.len(),camo_pending.len());
+        println!("Checked exact programs, routes, active inputs and states for {} materials in sixty-five families; {} image definitions resolve; converted {} representative materials/states; reused {shared} identical image encodings; {} dispatch gaps and seventy sampled runtime gaps remain; serialized {} native camo variants with one prepared baseline and {} explicit pending variants",selected.len(),required.len(),converted.len(),gaps.len(),decoded.variants.len(),camo_pending.len());
     }
 
     #[test]
@@ -677,7 +708,7 @@ mod tests {
         let used = crate::geometry::material_names(&catalog).unwrap();
         let all = crate::material::read_used(&catalog,&used).unwrap();
         assert_eq!(all.len(),1034);
-        assert_eq!(crate::material::unimplemented(&all).len(),68);
+        assert_eq!(crate::material::unimplemented(&all).len(),58);
         let families = ["lit_sm_r0c0n0s0_b1c1n1","lit_sm_r0c0n0s0_b1c1n1s1v1","lit_sm_r0c0n0x0_b1c1n1s1",
             "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2","lit_sm_r0c0s0_b1c1","lit_sm_r0c0n0x0_a1c1_m2c2",
             "lit_sm_r0c0n0x0_b1c1n1_a2c2","lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2","lit_sm_r0c0n0x0_b1c1_b2c2n2","lit_sm_r0c0n0x0_b1c1n1_b2c2n2",
@@ -712,7 +743,7 @@ mod tests {
         let pending = crate::bake::check_response_geometry(&catalog,&selected,&images,&mut pack).unwrap();
         assert_eq!(pending.len(),1);
         assert!(pending[0].contains("opaque layer selection"));
-        println!("Checked all {checked} layered materials in nineteen families and one ordinary glass material; representative bakes for {} layered materials including wrap, clamp-V, nine-image, UV3 and layer-selection edges; 68 baseline dispatch gaps and two sampled framebuffer-composition runtime gaps remain",selected.len());
+        println!("Checked all {checked} layered materials in nineteen families and one ordinary glass material; representative bakes for {} layered materials including wrap, clamp-V, nine-image, UV3 and layer-selection edges; 58 baseline dispatch gaps and two sampled framebuffer-composition runtime gaps remain",selected.len());
     }
 
     fn installed_material_families(families: &[&str], expected: usize) {

@@ -83,6 +83,10 @@ fn validate_pack(pack: &pack::Pack) -> Result<()> {
     if let Some(variant) = camos.variants.iter().find(|variant| variant.pending.is_some()) {
         return Err(format!("Native camo state {} is incomplete: {}",variant.inputs["name"],variant.pending.as_deref().unwrap()).into());
     }
+    validate_entries(pack)
+}
+
+fn validate_entries(pack: &pack::Pack) -> Result<()> {
     fn links(pack: &pack::Pack, directory: &Path, data: &Value) -> Result<()> {
         match data {
             Value::Object(fields) => {
@@ -136,7 +140,7 @@ fn validate_pack(pack: &pack::Pack) -> Result<()> {
             _ => (),
         }
     }
-    println!("Runtime pack contents and dependencies resolved: {} entries", pack.entries.len());
+    println!("Pack contents and dependencies resolved: {} entries", pack.entries.len());
     Ok(())
 }
 

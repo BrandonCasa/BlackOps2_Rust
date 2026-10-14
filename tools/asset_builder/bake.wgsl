@@ -90,7 +90,30 @@ fn special_surface(uv: vec2<f32>) -> Pixel {
     var result: Pixel;
     result.response = vec4<f32>(1.0, 1.0, 0.0, 1.0);
     result.specular = vec4<f32>(0.0);
-    if flag(262144u) || flag(524288u) {
+    if flag(1048576u) {
+        let base = sample_image(0u,uv);
+        var color = base;
+        var response = sample_image(2u,uv);
+        if recipe.special_parms[1].x > 0.0 {
+            let warp = sample_image(4u,uv * recipe.second_parms.w).xy * 2.0 - vec2<f32>(1.0);
+            let warped_uv = uv + warp * recipe.second_parms.z;
+            let warped_color = sample_image(0u,warped_uv);
+            let luminance = dot(warped_color.rgb,vec3<f32>(0.3,0.59,0.11));
+            let luma = luminance * luminance * recipe.special_parms[0].x;
+            color = vec4<f32>(base.rgb + recipe.special_parms[1].x * (vec3<f32>(luma) - base.rgb),warped_color.a);
+            let warped_specular = sample_image(2u,warped_uv);
+            let specular_luma = dot(warped_specular.rgb,vec3<f32>(0.3,0.59,0.11));
+            response = vec4<f32>(response.rgb + recipe.special_parms[1].x * (vec3<f32>(specular_luma) - response.rgb),response.a);
+        }
+        result.color = vec4<f32>(color.rgb * color.rgb,1.0);
+        result.normal = normal(decode(sample_image(1u,uv).xy));
+        result = fit_response(result,response.rgb * response.rgb,response.a);
+        let intensity = recipe.parms.z * recipe.special_parms[1].y;
+        result.response.a = intensity * intensity;
+        if recipe.special_parms[0].y != 0.0 {result.color.a = color.a;}
+        return result;
+    }
+    if flag(262144u) || flag(524288u) || flag(2097152u) || flag(4194304u) {
         let base = sample_image(0u, uv);
         result.color = vec4<f32>(base.rgb * base.rgb, 1.0);
         result.normal = normal(decode(sample_image(1u, uv).xy));
@@ -100,13 +123,19 @@ fn special_surface(uv: vec2<f32>) -> Pixel {
             let flicker = (recipe.parms.z + lookup * (recipe.parms.w - recipe.parms.z))
                 * clamp(1.0 - recipe.special_parms[1].x,0.0,1.0) * recipe.parms.x;
             result.response.a = flicker * flicker;
+        } else if flag(2097152u) {
+            let response = sample_image(2u,uv);
+            result = fit_response(result,response.rgb * response.rgb,response.a);
+            let emission = select(0.0,recipe.parms.w,recipe.special_parms[1].z >= recipe.second_parms.z);
+            result.response.a = emission * emission;
+            if recipe.second_parms.w != 0.0 {result.color.a = base.a;}
         } else {
             let response = sample_image(2u, uv);
             let specular = response.rgb * recipe.parms.x;
             result = fit_response(result,specular * specular,response.a * recipe.parms.y);
-            let emission = recipe.parms.z * recipe.parms.z * recipe.parms.w;
+            let emission = select(recipe.parms.z * recipe.parms.z * recipe.parms.w,recipe.parms.w,flag(4194304u));
             result.response.a = emission * emission;
-            if recipe.special_parms[0].x != 0.0 {result.color.a = base.a;}
+            if flag(262144u) && recipe.special_parms[0].x != 0.0 {result.color.a = base.a;}
         }
         return result;
     }
@@ -172,7 +201,7 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     if index >= recipe.count { return; }
     let sample = samples[index];
     let uv0 = sample.uv01.xy;
-    if flag(65536u) || flag(131072u) || flag(262144u) || flag(524288u) {
+    if (recipe.flags & 0x7f0000u) != 0u {
         output[index] = special_surface(uv0);
         return;
     }
