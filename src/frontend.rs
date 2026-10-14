@@ -82,9 +82,11 @@ impl Plugin for FrontendPlugin {
             .add_systems(OnEnter(GameState::MainMenu), show)
             .add_systems(OnEnter(GameState::LoadError), show)
             .add_systems(OnEnter(GameState::GameOver), show)
+            .add_systems(OnEnter(GameState::Ending), show)
             .add_systems(OnExit(GameState::MainMenu), hide)
             .add_systems(OnExit(GameState::LoadError), hide)
-            .add_systems(OnExit(GameState::GameOver), hide);
+            .add_systems(OnExit(GameState::GameOver), hide)
+            .add_systems(OnExit(GameState::Ending), hide);
     }
 }
 
@@ -126,6 +128,17 @@ fn show(
             ("Quit to menu", FrontendAction::MainMenu),
             ("Exit application", FrontendAction::Exit),
         ],
+        GameState::Ending
+            if game.as_ref().is_some_and(|game| {
+                game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
+            }) =>
+        {
+            vec![
+                ("Restart", FrontendAction::Restart),
+                ("Quit to menu", FrontendAction::MainMenu),
+                ("Exit application", FrontendAction::Exit),
+            ]
+        }
         _ => return,
     };
     commands
@@ -165,12 +178,16 @@ fn show(
                 }
                 parent.spawn((
                     NativeText::new(
-                        format!("ZOMBIES\nORIGINS - {}", difficulty.label().to_uppercase()),
+                        if **state == GameState::Ending {"ROUND 5 COMPLETE\nFIRST PLAYABLE SOLO".into()}
+                        else {format!("ZOMBIES\nORIGINS - {}", difficulty.label().to_uppercase())},
                         42.,
                     ),
                     FrontendRootTitle,
                     rect(110., 92., 560., 120.),
                 ));
+                if game.as_ref().is_some_and(|game| game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo) {
+                    parent.spawn((NativeText::new("STARTING AREA - ROUNDS 1 THROUGH 5\nLater Origins content is unavailable in this build.",18.),rect(110.,218.,540.,44.)));
+                }
             }
             let y = if **state == GameState::GameOver {
                 558.
@@ -226,6 +243,7 @@ fn buttons(
 fn shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
     state: Res<State<GameState>>,
+    game: Option<Res<crate::assets::GameDefinition>>,
     mut actions: MessageWriter<FrontendAction>,
     mut selected: ResMut<FrontendSelection>,
     buttons: Query<&FrontendButton>,
@@ -263,7 +281,12 @@ fn shortcuts(
                 actions.write(FrontendAction::Exit);
             }
         }
-        GameState::GameOver => {
+        GameState::GameOver | GameState::Ending
+            if **state == GameState::GameOver
+                || game.as_ref().is_some_and(|game| {
+                    game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
+                }) =>
+        {
             if keys.just_pressed(KeyCode::Enter)
                 && let Some(action) = chosen
             {
@@ -282,6 +305,7 @@ fn apply_actions(
     mut actions: MessageReader<FrontendAction>,
     mut difficulty: ResMut<Difficulty>,
     state: Res<State<GameState>>,
+    game: Option<Res<crate::assets::GameDefinition>>,
     mut next: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
     mut title: Query<&mut NativeText, With<FrontendRootTitle>>,
@@ -299,13 +323,21 @@ fn apply_actions(
                 next.set(GameState::PreparingShaders);
             }
             FrontendAction::Restart
-                if matches!(**state, GameState::Paused | GameState::GameOver) =>
+                if matches!(**state, GameState::Paused | GameState::GameOver)
+                    || (**state == GameState::Ending
+                        && game.as_ref().is_some_and(|game| {
+                            game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
+                        })) =>
             {
                 commands.queue(crate::session::teardown);
                 next.set(GameState::PreparingShaders);
             }
             FrontendAction::MainMenu
-                if matches!(**state, GameState::Paused | GameState::GameOver) =>
+                if matches!(**state, GameState::Paused | GameState::GameOver)
+                    || (**state == GameState::Ending
+                        && game.as_ref().is_some_and(|game| {
+                            game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
+                        })) =>
             {
                 commands.queue(crate::session::teardown);
                 next.set(GameState::MainMenu);

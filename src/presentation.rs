@@ -78,7 +78,15 @@ pub(crate) struct Rig {
 }
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
-        camo::install(app);
+        if app
+            .world()
+            .get_resource::<crate::origins::DeliveryScope>()
+            .copied()
+            .unwrap_or_default()
+            == crate::origins::DeliveryScope::FullOrigins
+        {
+            camo::install(app);
+        }
         locomotion::install(app);
         app.init_resource::<EquipmentPresentationEvidence>()
             .add_systems(

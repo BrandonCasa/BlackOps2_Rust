@@ -126,6 +126,12 @@ fn assemble(
     *focus = InteractionFocus::default();
     *ledger = PointLedger::default();
     for source in &definition.content.interactions {
+        if definition.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
+            && !matches!(&source.action, InteractionAction::Barrier { .. })
+            && !matches!(&source.action, InteractionAction::Perk { perk } if *perk == definition.solo_revive.perk)
+        {
+            continue;
+        }
         let Some(placement) = definition
             .content
             .placements

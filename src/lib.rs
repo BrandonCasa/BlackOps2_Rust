@@ -103,11 +103,22 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 
 pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let configuration = assets::AssetPack::discover();
+    let delivery_scope = configuration
+        .as_ref()
+        .ok()
+        .and_then(|pack| pack.contents.get("game.json").ok())
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .and_then(|value| value.get("delivery_scope").cloned())
+        .and_then(|value| serde_json::from_value::<origins::DeliveryScope>(value).ok())
+        .unwrap_or_default();
     let mut app = App::new();
     let root = bevy::asset::io::memory::Dir::default();
     if let Ok(pack) = &configuration {
         for (path, bytes) in &pack.contents.entries {
-            root.insert_asset(std::path::Path::new(path), bevy::asset::io::memory::Value::Vec(bytes.clone()));
+            root.insert_asset(
+                std::path::Path::new(path),
+                bevy::asset::io::memory::Value::Vec(bytes.clone()),
+            );
         }
     }
     app.register_asset_source(
@@ -185,13 +196,13 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                     ..default()
                 }),
                 ..default()
-            })
-
+            }),
     )
     .add_plugins(bevy::anti_alias::dlss::DlssPlugin)
     .add_plugins(avian3d::prelude::PhysicsPlugins::default())
     .init_state::<GameState>()
     .insert_resource(Time::<Fixed>::from_hz(60.0))
+    .insert_resource(delivery_scope)
     .insert_resource(assets::LoadConfiguration(configuration))
     .add_plugins(animation::GameAnimationPlugin)
     .add_plugins((
@@ -205,13 +216,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             (
                 session::SessionPlugin,
                 frontend::FrontendPlugin,
-                quests::QuestPlugin,
-                stations::StationPlugin,
-                crafting::CraftingPlugin,
-                buildables::BuildablePlugin,
-                tank::TankPlugin,
                 combat_effects::CombatEffectsPlugin,
-                panzer::PanzerPlugin,
                 life::LifeStatePlugin,
             ),
             (
@@ -219,11 +224,9 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                 perks::PerkPlugin,
                 perk_effects::PerkEffectsPlugin,
                 environment::EnvironmentPlugin,
-                powerups::PowerupPlugin,
                 access::AccessPlugin,
                 navigation::NavigationPlugin,
                 barriers::BarrierPlugin,
-                generators::GeneratorPlugin,
                 audio::GameAudioPlugin,
             ),
         ),
@@ -236,27 +239,54 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    app.add_plugins((
-        native_fx::NativeFxPlugin,
-        actions::ActionPlugin,
-        side_rewards::SideRewardPlugin,
-        side_secrets::SecretPlugin,
-        achievements::AchievementPlugin,
-    ));
-    app.add_plugins((
-        portals::PortalPlugin,
-        robots::RobotPlugin,
-        rituals::RitualPlugin,
-        staff_fields::StaffFieldsPlugin,
-        chamber::ChamberPlugin,
-        staff_puzzles::StaffPuzzlePlugin,
-        staff_upgrades::StaffUpgradePlugin,
-        tablets::TabletPlugin,
-        main_quest::MainQuestPlugin,
-        quest_recovery::RecoveryPlugin,
-        finale::FinalePlugin,
-        cinematics::CinematicPlugin,
-    ));
+    app.add_plugins((native_fx::NativeFxPlugin, actions::ActionPlugin));
+    if delivery_scope == origins::DeliveryScope::FullOrigins {
+        app.add_plugins((
+            quests::QuestPlugin,
+            stations::StationPlugin,
+            crafting::CraftingPlugin,
+            buildables::BuildablePlugin,
+            tank::TankPlugin,
+            panzer::PanzerPlugin,
+            powerups::PowerupPlugin,
+            generators::GeneratorPlugin,
+        ));
+        app.add_plugins((
+            side_rewards::SideRewardPlugin,
+            side_secrets::SecretPlugin,
+            achievements::AchievementPlugin,
+        ));
+        app.add_plugins((
+            portals::PortalPlugin,
+            robots::RobotPlugin,
+            rituals::RitualPlugin,
+            staff_fields::StaffFieldsPlugin,
+            chamber::ChamberPlugin,
+            staff_puzzles::StaffPuzzlePlugin,
+            staff_upgrades::StaffUpgradePlugin,
+            tablets::TabletPlugin,
+            main_quest::MainQuestPlugin,
+            quest_recovery::RecoveryPlugin,
+            finale::FinalePlugin,
+            cinematics::CinematicPlugin,
+        ));
+    } else {
+        app.init_resource::<quests::MainQuest>()
+            .init_resource::<buildables::BuildableState>()
+            .init_resource::<crafting::Crafting>()
+            .init_resource::<generators::Generators>()
+            .init_resource::<generators::GeneratorRaids>()
+            .init_resource::<panzer::PanzerWaves>()
+            .init_resource::<robots::Robots>()
+            .init_resource::<rituals::Rituals>()
+            .init_resource::<staff_upgrades::StaffUpgrades>()
+            .init_resource::<staff_puzzles::StaffPuzzles>()
+            .init_resource::<side_secrets::Secrets>()
+            .init_resource::<powerups::PowerupEffects>()
+            .init_resource::<powerups::Drops>()
+            .add_message::<quests::SoulCollected>()
+            .add_message::<powerups::PowerupCollected>();
+    }
     if cfg!(debug_assertions)
         && !release_benchmark
         && !flythrough

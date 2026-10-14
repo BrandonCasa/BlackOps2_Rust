@@ -80,26 +80,111 @@ pub fn brush_entities(entities: &[Entity]) -> Result<Vec<Value>> {
     }).collect()
 }
 
-pub fn convert(catalog: &Catalog<'_>, entities: &[Entity], materials: &BTreeMap<String, Value>, baked: &BTreeMap<String, Vec<geometry::Surface>>, pack: &mut Pack) -> Result<(Vec<Value>, Vec<Value>)> {
+pub fn required_models(catalog: &Catalog<'_>, game: &Value) -> Result<BTreeSet<String>> {
+    let mut models = BTreeSet::new();
+    for (_,zone,root) in catalog.definitions(17) {
+        let streams = &catalog.zones[zone].1.streams;
+        let instances = Address::decode(streams.u32(root.add(876)?)?)?;
+        for index in 0..streams.u32(root.add(784)?)? as usize {
+            models.insert(catalog.pointer(zone,instances.add(index*152+56)?,5)?.0.to_ascii_lowercase());
+        }
+    }
+    for presentation in game["content"]["presentations"].as_array().into_iter().flatten() {
+        if let Some(name) = presentation["source_model"].as_str() {
+            catalog.resolve(5,name)?;
+            models.insert(name.to_ascii_lowercase());
+        } else if !presentation["scene"].is_null() {
+            return Err(format!("Initial presentation {} has no native model dependency",presentation["id"]).into());
+        }
+    }
+    Ok(models)
+}
+
+pub fn bind_presentations(game: &mut Value, models: &[Value]) -> Result<()> {
+    for presentation in game["content"]["presentations"].as_array_mut().into_iter().flatten() {
+        let Some(name) = presentation["source_model"].as_str() else { continue; };
+        let model = models.iter().find(|model| model["name"].as_str().is_some_and(|model| model.eq_ignore_ascii_case(name)))
+            .ok_or_else(|| format!("Initial presentation {} model {name} was not exported",presentation["id"]))?;
+        let uri = model["uri"].as_str().ok_or("Prepared model URI is missing")?;
+        presentation["scene"] = json!(format!("{uri}#Scene0"));
+        presentation.as_object_mut().ok_or("Initial presentation is not an object")?.remove("source_model");
+    }
+    let owners: BTreeMap<_,_> = game["content"]["presentations"].as_array().into_iter().flatten()
+        .filter_map(|presentation| Some((presentation["id"].as_str()?.to_owned(),presentation["scene"].as_str()?.split('#').next()?.to_owned()))).collect();
+    for animation in game["content"]["animations"].as_array_mut().into_iter().flatten() {
+        let id = animation["id"].as_str().ok_or("Initial animation identity is missing")?;
+        let clip = animation["source_clip"].as_str().or_else(|| id.rsplit('.').next()).ok_or("Initial native clip name is missing")?;
+        let skeleton = animation["skeleton"].as_str().ok_or("Initial animation skeleton is missing")?;
+        let uri = owners.get(skeleton).ok_or_else(|| format!("Initial animation {id} has no selected skeleton {skeleton}"))?;
+        let model = models.iter().find(|model| model["uri"] == *uri).ok_or("Initial animation model was not exported")?;
+        let index = model["animations"][clip].as_u64().ok_or_else(|| format!("Initial animation {id} clip {clip} was not exported"))?;
+        animation["path"] = json!(format!("{uri}#Animation{index}"));
+        animation.as_object_mut().ok_or("Initial animation is not an object")?.remove("source_clip");
+    }
+    Ok(())
+}
+
+fn prepared_surfaces(source: &[geometry::Surface], baked: &BTreeMap<String,Vec<geometry::Surface>>) -> Result<Vec<geometry::Surface>> {
+    let surfaces: Vec<_> = source.iter().flat_map(|surface| baked.get(&surface.name).cloned().unwrap_or_else(|| vec![surface.clone()])).collect();
+    if source.iter().map(|surface| surface.indices.len()).sum::<usize>() != surfaces.iter().map(|surface| surface.indices.len()).sum::<usize>() {
+        return Err("Prepared model changed its source triangle count".into());
+    }
+    Ok(surfaces)
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+
+    #[test]
+    fn initial_presentations_bind_only_exported_source_models_and_clips() {
+        let mut game = json!({"content":{
+            "presentations":[{"id":"presentation.initial","source_model":"Exact_Model","scene":null}],
+            "animations":[{"id":"animation.initial.exact_fire","source_clip":"exact_fire","skeleton":"presentation.initial","path":null}]
+        }});
+        let models = vec![json!({"name":"exact_model","uri":"prepared/models/0/0.gltf","animations":{"exact_fire":3}})];
+        bind_presentations(&mut game,&[]).unwrap_err();
+        bind_presentations(&mut game,&models).unwrap();
+        assert_eq!(game["content"]["presentations"][0]["scene"],"prepared/models/0/0.gltf#Scene0");
+        assert!(game["content"]["presentations"][0].get("source_model").is_none());
+        assert_eq!(game["content"]["animations"][0]["path"],"prepared/models/0/0.gltf#Animation3");
+        assert!(game["content"]["animations"][0].get("source_clip").is_none());
+        let mut missing = json!({"content":{
+            "presentations":[{"id":"presentation.initial","source_model":"exact_model","scene":null}],
+            "animations":[{"id":"animation.initial.missing_clip","skeleton":"presentation.initial"}]
+        }});
+        assert!(bind_presentations(&mut missing,&models).unwrap_err().to_string().contains("missing_clip"));
+    }
+}
+
+pub fn convert(catalog: &Catalog<'_>, entities: &[Entity], required_models: Option<&BTreeSet<String>>, animation_bindings: &BTreeMap<String,Vec<&crate::animation_decode::DecodedClip>>, materials: &BTreeMap<String, Value>, baked: &BTreeMap<String, Vec<geometry::Surface>>, pack: &mut Pack) -> Result<(Vec<Value>, Vec<Value>)> {
     let mut models = Vec::new();
     for (name, zone, root) in catalog.definitions(5) {
+        if required_models.is_some_and(|models| !models.contains(&name.to_ascii_lowercase())) { continue; }
         let lods = geometry::model(catalog, name, zone, root)?;
         let joints = geometry::skeleton(catalog,name,zone,root)?;
         let mut rows = Vec::new();
-        for (lod, surfaces) in lods.iter().enumerate() {
+        let mut animations = BTreeMap::new();
+        for (lod, source) in lods.iter().enumerate() {
+            let surfaces = prepared_surfaces(source,baked)?;
             if surfaces.is_empty() { return Err(format!("Model {name} has an empty native LOD {lod}").into()); }
             let mut scene = Scene::new(name);
-            let indices = scene.materials(surfaces, materials)?;
-            let mesh = scene.mesh(name, surfaces, &indices, true)?;
+            let indices = scene.materials(&surfaces, materials)?;
+            let mesh = scene.mesh(name, &surfaces, &indices, true)?;
             let owner = scene.node(json!({"name":name,"mesh":mesh,"extras":{"source_model":name}}));
             scene.skin(owner,&joints)?;
+            for decoded in animation_bindings.get(&name.to_ascii_lowercase()).into_iter().flatten() {
+                if decoded.has_root_delta {return Err(format!("Required animation {} on model {name} has unresolved native root-delta tracks",decoded.clip.name).into());}
+                let index = scene.animation(owner,&joints,&decoded.clip)?;
+                if lod == 0 {animations.insert(decoded.clip.name.clone(),index);}
+            }
             let uri = format!("prepared/models/{}/{lod}.gltf", models.len());
             scene.write(&uri, pack)?;
             let distance = scalar(&catalog.zones[zone].1.streams, root.add(40 + lod * 28)?)? * 0.0254;
             rows.push(json!({"level":lod,"uri":uri,"distance":distance}));
         }
         let zone_name = &catalog.zones[zone].0;
-        models.push(json!({"name":name,"zone":format!("all-{zone_name}"),"uri":rows[0]["uri"],"lods":rows,"animations":{}}));
+        models.push(json!({"name":name,"zone":format!("all-{zone_name}"),"uri":rows[0]["uri"],"lods":rows,"animations":animations}));
     }
     let mut worlds = Vec::new();
     for (name, zone, root) in catalog.definitions(17) {
@@ -150,9 +235,10 @@ pub fn convert(catalog: &Catalog<'_>, entities: &[Entity], materials: &BTreeMap<
                 let lods = geometry::model(catalog, &model_name, owner, model_root)?;
                 let mut meshes = Vec::new();
                 let mut distances = Vec::new();
-                for (level, surfaces) in lods.iter().enumerate() {
-                    let indices = scene.materials(surfaces, materials)?;
-                    meshes.push(scene.mesh(&format!("{model_name}/lod{level}"), surfaces, &indices, false)?);
+                for (level, source) in lods.iter().enumerate() {
+                    let surfaces = prepared_surfaces(source,baked)?;
+                    let indices = scene.materials(&surfaces, materials)?;
+                    meshes.push(scene.mesh(&format!("{model_name}/lod{level}"), &surfaces, &indices, false)?);
                     distances.push(scalar(&catalog.zones[owner].1.streams,model_root.add(40+level*28)?)? * 0.0254);
                 }
                 cache.insert(key.clone(),(meshes,distances));

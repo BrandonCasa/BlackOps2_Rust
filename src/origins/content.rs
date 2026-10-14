@@ -892,6 +892,7 @@ pub struct ContentCatalog {
     pub weapons: Vec<WeaponDefinition>,
     pub enemies: Vec<EnemyDefinition>,
     pub perks: Vec<PerkDefinition>,
+    #[serde(default)]
     pub powerups: Vec<PowerupDefinition>,
     pub zones: Vec<ZoneDefinition>,
     pub definitions: Vec<ContentId>,
@@ -900,19 +901,29 @@ pub struct ContentCatalog {
     pub zone_connections: Vec<ZoneConnection>,
     pub navigation_nodes: Vec<NavigationNode>,
     pub navigation_links: Vec<NavigationLink>,
+    #[serde(default)]
     pub generators: Vec<GeneratorDefinition>,
+    #[serde(default)]
     pub robot_routes: Vec<RouteDefinition>,
+    #[serde(default)]
     pub tank_routes: Vec<RouteDefinition>,
+    #[serde(default)]
     pub weather: Vec<WeatherDefinition>,
+    #[serde(default)]
     pub digging: Vec<DigDefinition>,
+    #[serde(default)]
     pub recipes: Vec<CraftingRecipe>,
+    #[serde(default)]
     pub staff_puzzles: Vec<StaffPuzzle>,
+    #[serde(default)]
     pub quests: Vec<QuestDefinition>,
+    #[serde(default)]
     pub quest_transitions: Vec<QuestTransition>,
     pub presentations: Vec<PresentationDefinition>,
     pub sounds: Vec<SoundDefinition>,
     pub animations: Vec<AnimationDefinition>,
     pub ui_assets: Vec<UiAsset>,
+    #[serde(default)]
     pub cinematics: Vec<CinematicSequence>,
     #[serde(default)]
     pub localized_strings: Vec<LocalizedString>,
@@ -959,6 +970,41 @@ fn positive(v: f32) -> bool {
 fn nonnegative(v: f32) -> bool {
     v.is_finite() && v >= 0.
 }
+
+#[cfg(test)]
+mod weapon_tuning_tests {
+    use super::*;
+
+    #[test]
+    fn native_unused_zero_tuning_does_not_allow_zero_active_fire_or_projectile_lifetime() {
+        let mut content: ContentCatalog = serde_json::from_value(serde_json::json!({
+            "weapons":[{"id":"weapon.fixture","name":"fixture","damage":1,"category":"melee",
+                "magazine":1,"reserve":0,"fire_interval":0.,"reload_seconds":0.,"upgraded":null,"presentation":null,
+                "mechanics":{"delivery":"melee","starting_reserve":0,"pellets":0,"ads_enabled":false,
+                    "ads_fov":0.,"ads_seconds":[0.,0.],"movement":[0.,0.],"recoil_recovery":0.,
+                    "empty_reload":0.,"shell_seconds":0.,"equip_seconds":0.,"unequip_seconds":0.,"projectile_lifetime":0.}}],
+            "enemies":[],"perks":[],"zones":[],"definitions":[],"placements":[],"interactions":[],
+            "zone_connections":[],"navigation_nodes":[],"navigation_links":[],"presentations":[],
+            "sounds":[],"animations":[],"ui_assets":[]
+        })).unwrap();
+        content.validate().unwrap();
+        content.weapons[0].mechanics.delivery = WeaponDelivery::Hitscan;
+        assert!(content.validate().is_err());
+        content.weapons[0].fire_interval = 0.2;
+        content.weapons[0].reload_seconds = 1.;
+        content.weapons[0].mechanics.pellets = 1;
+        content.weapons[0].mechanics.movement[0] = 1.;
+        content.weapons[0].mechanics.empty_reload = 1.;
+        content.validate().unwrap();
+        content.weapons[0].mechanics.delivery = WeaponDelivery::Projectile;
+        assert!(content.validate().is_err());
+        content.weapons[0].mechanics.projectile_lifetime = 2.;
+        content.validate().unwrap();
+        content.weapons[0].mechanics.recoil_recovery = f32::NAN;
+        assert!(content.validate().is_err());
+    }
+}
+
 pub fn validate_asset_path(path: &str) -> Result<(), ContentError> {
     let base = path.split('#').next().unwrap_or("");
     valid(
@@ -971,6 +1017,40 @@ pub fn validate_asset_path(path: &str) -> Result<(), ContentError> {
     )
 }
 impl ContentCatalog {
+    pub fn validate_first_playable(&self) -> Result<(), ContentError> {
+        for name in ["weapon.c96_zm", "weapon.knife_zm", "weapon.frag_grenade_zm"] {
+            let weapon = self
+                .weapons
+                .iter()
+                .find(|weapon| weapon.id.0 == name)
+                .ok_or_else(|| ContentError::MissingReference {
+                    owner: "first_playable_solo".into(),
+                    target: name.into(),
+                })?;
+            valid(
+                weapon.presentation.is_some()
+                    && (name == "weapon.knife_zm" || !weapon.animation_actions.is_empty()),
+                "First playable weapon lacks its source presentation or animations",
+            )?;
+        }
+        valid(
+            !self.enemies.is_empty()
+                && !self.barriers.is_empty()
+                && self
+                    .zones
+                    .iter()
+                    .any(|zone| zone.id.0 == "zone.start" && zone.initially_open)
+                && !self.navigation_nodes.is_empty()
+                && !self.navigation_links.is_empty()
+                && !self.presentations.is_empty()
+                && !self.animations.is_empty()
+                && !self.ui_assets.is_empty()
+                && !self.localized_strings.is_empty(),
+            "First playable solo lacks required enemy, barrier, zone, navigation, animation, or HUD data",
+        )?;
+        Ok(())
+    }
+
     pub fn index(&self) -> Result<ContentIndex<'_>, ContentError> {
         let mut index = ContentIndex(BTreeMap::new());
         macro_rules! add {
@@ -1106,10 +1186,12 @@ impl ContentCatalog {
                                 .flatten()
                                 .all(|id| self.ui_assets.iter().any(|asset| asset.id == *id))
                     })
-                    && positive(v.fire_interval)
-                    && positive(v.reload_seconds)
+                    && nonnegative(v.fire_interval)
+                    && (!uses_ammo || positive(v.fire_interval))
+                    && nonnegative(v.reload_seconds)
+                    && (!uses_ammo || positive(v.reload_seconds))
                     && m.starting_reserve <= v.reserve
-                    && m.pellets > 0
+                    && (!uses_ammo || m.pellets > 0)
                     && m.pellets <= 64
                     && m.hit_multipliers.iter().all(|v| nonnegative(*v))
                     && m.spread.iter().all(|v| nonnegative(*v))
@@ -1122,8 +1204,11 @@ impl ContentCatalog {
                         .all(|v| v.is_finite())
                     && m.recoil_pitch[0] <= m.recoil_pitch[1]
                     && m.recoil_yaw[0] <= m.recoil_yaw[1]
-                    && positive(m.recoil_recovery)
-                    && (1. ..=179.).contains(&m.ads_fov)
+                    && nonnegative(m.recoil_recovery)
+                    && m.ads_recoil_recovery.is_none_or(nonnegative)
+                    && m.ads_fov.is_finite()
+                    && (0. ..=179.).contains(&m.ads_fov)
+                    && (!m.ads_enabled || m.ads_fov >= 1.)
                     && m.ads_zoom_fraction
                         .iter()
                         .all(|v| v.is_finite() && (0. ..=1.).contains(v))
@@ -1150,10 +1235,11 @@ impl ContentCatalog {
                             && (s.rotation.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
                             && s.rotation[3].abs() >= (1_f32.to_radians()).cos()
                     })
-                    && m.ads_seconds
-                        .iter()
-                        .chain(m.movement.iter())
-                        .all(|v| positive(*v))
+                    && m.ads_seconds.iter().all(|v| nonnegative(*v))
+                    && (!m.ads_enabled || m.ads_seconds.iter().all(|v| positive(*v)))
+                    && m.movement.iter().all(|v| nonnegative(*v))
+                    && (!uses_ammo || positive(m.movement[0]))
+                    && (!m.ads_enabled || positive(m.movement[1]))
                     && [
                         m.empty_reload,
                         m.shell_seconds,
@@ -1162,7 +1248,11 @@ impl ContentCatalog {
                         m.projectile_lifetime,
                     ]
                     .into_iter()
-                    .all(positive)
+                    .all(nonnegative)
+                    && (!uses_ammo || positive(m.empty_reload))
+                    && (!m.shell_reload || positive(m.shell_seconds))
+                    && (m.delivery != WeaponDelivery::Projectile
+                        || positive(m.projectile_lifetime))
                     && [
                         m.projectile_speed,
                         m.explosion_radius,

@@ -227,6 +227,7 @@ pub(crate) fn advance(
         Res<crate::panzer::PanzerWaves>,
         Res<crate::robots::Robots>,
     ),
+    mut next: ResMut<NextState<crate::GameState>>,
 ) {
     let (mut started, mut ending) = events;
     let (quest, panzer_waves, robots) = special;
@@ -254,9 +255,16 @@ pub(crate) fn advance(
                 round: session.round,
             });
         }
+        let first_playable_complete = definition.delivery_scope
+            == crate::origins::DeliveryScope::FirstPlayableSolo
+            && session.round >= 5;
         let timer = session.intermission.get_or_insert_with(|| {
             Timer::from_seconds(profile.between_round_seconds, TimerMode::Once)
         });
+        if first_playable_complete {
+            next.set(crate::GameState::Ending);
+            return;
+        }
         timer.tick(time.delta());
         if timer.is_finished() {
             evidence.intermission_seconds = timer.elapsed_secs();

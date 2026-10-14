@@ -409,9 +409,10 @@ pub fn world(catalog: &Catalog<'_>, zone: usize, root: Address) -> Result<Vec<Su
     Ok(meshes)
 }
 
-pub fn material_names(catalog: &Catalog<'_>) -> Result<std::collections::BTreeSet<String>> {
+pub fn material_names(catalog: &Catalog<'_>, required_models: Option<&std::collections::BTreeSet<String>>) -> Result<std::collections::BTreeSet<String>> {
     let mut names = std::collections::BTreeSet::new();
     for (name,zone,root) in catalog.definitions(5) {
+        if required_models.is_some_and(|models| !models.contains(&name.to_ascii_lowercase())) { continue; }
         let streams = &catalog.zones[zone].1.streams;
         let surfaces = pointer(streams,root.add(32)?)?;
         let materials = pointer(streams,root.add(36)?)?;
@@ -444,7 +445,7 @@ pub fn material_names(catalog: &Catalog<'_>) -> Result<std::collections::BTreeSe
     Ok(names)
 }
 
-pub fn validate(catalog: &Catalog<'_>) -> Result<std::collections::BTreeSet<String>> {
+pub fn validate(catalog: &Catalog<'_>, required_models: Option<&std::collections::BTreeSet<String>>) -> Result<std::collections::BTreeSet<String>> {
     for (zone_name, zone) in catalog.zones {
         for asset in zone.assets.iter().filter(|asset| asset.kind == 17 && !asset.reference) {
             println!("Native world {zone_name}/{}: {} surfaces", asset.name, zone.streams.u32(asset.root.add(16)?)?);
@@ -456,6 +457,7 @@ pub fn validate(catalog: &Catalog<'_>) -> Result<std::collections::BTreeSet<Stri
     let mut triangles = 0;
     let mut materials = std::collections::BTreeSet::new();
     for (name, zone, root) in catalog.definitions(5) {
+        if required_models.is_some_and(|models| !models.contains(&name.to_ascii_lowercase())) { continue; }
         let joints = skeleton(catalog,name,zone,root)?;
         for joint in &joints {
             let identity = compose(joint.bind,joint.inverse_bind);

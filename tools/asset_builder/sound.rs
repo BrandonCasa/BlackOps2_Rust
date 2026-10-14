@@ -92,7 +92,7 @@ fn encode(entry: &[u8], payload: Vec<u8>) -> Result<(Vec<u8>, &'static str, u32)
     }
 }
 
-pub fn convert(install: &Path, catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Vec<Value>> {
+pub fn convert(install: &Path, catalog: &Catalog<'_>, required: Option<&std::collections::BTreeSet<String>>, pack: &mut Pack) -> Result<Vec<Value>> {
     let mut banks = Vec::new();
     let mut resident = BTreeMap::new();
     let mut lists = BTreeMap::new();
@@ -139,9 +139,27 @@ pub fn convert(install: &Path, catalog: &Catalog<'_>, pack: &mut Pack) -> Result
             }
         }
     }
+    let selected = if let Some(required) = required {
+        let index: BTreeMap<_,_> = lists.iter().map(|(name,binding)| (name.to_ascii_lowercase(),*binding)).collect();
+        let mut selected = std::collections::BTreeSet::new();
+        let mut pending: Vec<_> = required.iter().cloned().collect();
+        while let Some(name) = pending.pop() {
+            let name = name.to_ascii_lowercase();
+            if !selected.insert(name.clone()) {continue;}
+            let &(zone,list) = index.get(&name).ok_or_else(|| format!("Required native sound alias {name} is missing"))?;
+            let streams = &catalog.zones[zone].1.streams;
+            let aliases = Address::decode(streams.u32(list.add(8)?)?)?;
+            for variant in 0..streams.u32(list.add(12)?)? as usize {
+                let secondary = text(streams,aliases.add(variant*96+12)?)?;
+                if !secondary.is_empty() {pending.push(secondary);}
+            }
+        }
+        Some(selected)
+    } else {None};
     let mut rows = Vec::new();
     let mut converted = BTreeMap::new();
     for (name, (zone_index, list)) in lists {
+        if selected.as_ref().is_some_and(|selected| !selected.contains(&name.to_ascii_lowercase())) {continue;}
         let (zone_name, zone) = &catalog.zones[zone_index];
         let streams = &zone.streams;
         let count = streams.u32(list.add(12)?)? as usize;

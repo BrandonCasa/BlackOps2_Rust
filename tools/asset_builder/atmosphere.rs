@@ -113,6 +113,31 @@ fn sky(catalog: &Catalog<'_>, zone: usize, world: Address, images: &BTreeMap<Str
         "approximations":["HDR cube decoded at source mip texels before filtering for upstream Bevy Skybox and environment lighting"]}))
 }
 
+pub fn inputs(catalog: &Catalog<'_>) -> Result<std::collections::BTreeSet<String>> {
+    let mut images = std::collections::BTreeSet::new();
+    for (_,zone,world) in catalog.definitions(17) {
+        let streams = &catalog.zones[zone].1.streams;
+        let model_name = streams.text(Address::decode(streams.u32(world.add(36)?)?)?)?;
+        let (owner,model) = catalog.resolve(5,&model_name)?;
+        let model_streams = &catalog.zones[owner].1.streams;
+        let materials = Address::decode(model_streams.u32(model.add(36)?)?)?;
+        for index in 0..model_streams.u8(model.add(6)?)? as usize {
+            let name = catalog.pointer(owner,materials.add(index*4)?,6)?.0;
+            let material = material::read(catalog,&name)?;
+            let binding = material["textures"].as_array().ok_or("Native sky textures are missing")?.iter()
+                .find(|binding| binding["hash"] == 2695565377_u32 && binding["semantic"] == 2)
+                .ok_or("Native sky cube binding is missing")?;
+            images.insert(binding["image"].as_str().ok_or("Native sky cube name is missing")?.to_ascii_lowercase());
+        }
+        let lut = material::read(catalog,&catalog.pointer(zone,world.add(984)?,6)?.0)?;
+        let binding = lut["textures"].as_array().ok_or("Native grade textures are missing")?.iter()
+            .find(|binding| binding["hash"] == 2008031959_u32 && binding["semantic"] == 26)
+            .ok_or("Native grade image binding is missing")?;
+        images.insert(binding["image"].as_str().ok_or("Native grade image name is missing")?.to_ascii_lowercase());
+    }
+    Ok(images)
+}
+
 pub fn read(catalog: &Catalog<'_>, images: &BTreeMap<String, texture::Image>, pack: &mut Pack) -> Result<Value> {
     let (_, zone, root) = catalog.definitions(17).next().ok_or("Native Origins world is missing")?;
     let streams = &catalog.zones[zone].1.streams;

@@ -155,7 +155,9 @@ fn decode(catalog: &Catalog<'_>, name: &str, zone: usize, root: Address) -> Resu
     Ok(DecodedClip {clip:Clip {name:name.into(),frame_rate,frames,source_flags,streamed_file_size,loop_entry_time,notifies,bones},has_root_delta:streams.u32(root.add(100)?)? != 0})
 }
 
-pub fn read(catalog: &Catalog<'_>) -> Result<Vec<DecodedClip>> {
-    catalog.definitions(4).map(|(name,zone,root)| decode(catalog,name,zone,root)
+pub fn read(catalog: &Catalog<'_>, required: Option<&std::collections::BTreeSet<String>>) -> Result<Vec<DecodedClip>> {
+    if let Some(required) = required {for name in required {catalog.resolve(4,name)?;}}
+    catalog.definitions(4).filter(|(name,_,_)| required.is_none_or(|required| required.contains(&name.to_ascii_lowercase())))
+        .map(|(name,zone,root)| decode(catalog,name,zone,root)
         .map_err(|error| format!("Native animation {}/{name}: {error}",catalog.zones[zone].0).into())).collect()
 }

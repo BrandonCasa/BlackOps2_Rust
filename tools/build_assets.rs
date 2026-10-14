@@ -72,16 +72,18 @@ fn check(path: &Path) -> Result<()> {
 }
 
 fn validate_pack(pack: &pack::Pack) -> Result<()> {
-    let _: Value = serde_json::from_slice(pack.get("game.json")?)?;
+    let game: Value = serde_json::from_slice(pack.get("game.json")?)?;
     let art: Value = serde_json::from_slice(pack.get("prepared/runtime.json")?)?;
     if art["schema_version"] != 1 {
         return Err("Unsupported runtime art schema".into());
     }
-    let camo_uri = art["camo_uri"].as_str().ok_or("Required native camo library URI is missing")?;
-    let camos: camo::Library = serde_json::from_slice(pack.get(camo_uri)?)?;
-    camos.validate()?;
-    if let Some(variant) = camos.variants.iter().find(|variant| variant.pending.is_some()) {
-        return Err(format!("Native camo state {} is incomplete: {}",variant.inputs["name"],variant.pending.as_deref().unwrap()).into());
+    if game["delivery_scope"] != "first_playable_solo" || art["camo_uri"].is_string() {
+        let camo_uri = art["camo_uri"].as_str().ok_or("Required native camo library URI is missing")?;
+        let camos: camo::Library = serde_json::from_slice(pack.get(camo_uri)?)?;
+        camos.validate()?;
+        if let Some(variant) = camos.variants.iter().find(|variant| variant.pending.is_some()) {
+            return Err(format!("Native camo state {} is incomplete: {}",variant.inputs["name"],variant.pending.as_deref().unwrap()).into());
+        }
     }
     validate_entries(pack)
 }

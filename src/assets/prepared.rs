@@ -139,6 +139,16 @@ impl PreparedArt {
     }
 
     pub(crate) fn bind(&self, game: &mut crate::origins::GameDefinition) -> Result<(), String> {
+        if self.effects_uri().is_none()
+            && game.content.weapons.iter().any(|weapon| {
+                weapon.mechanics.projectile_trail.is_some()
+                    || weapon.mechanics.projectile_effect.is_some()
+            })
+        {
+            return Err(
+                "Enabled weapon effects require the missing prepared native effects library".into(),
+            );
+        }
         let world = self.world().ok_or("Prepared Origins world is missing")?;
         let uri = |value: &Value, key: &str| {
             value[key]
@@ -303,6 +313,16 @@ impl PreparedArt {
                     .get(&sound.path)
                     .ok_or_else(|| format!("Sound has no native alias payload: {}", sound.id.0))?
                     .clone();
+            }
+        }
+        if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo {
+            for character in ["dempsey", "nikolai", "richtofen", "takeo"] {
+                let model = format!("c_zom_{character}_viewhands");
+                if crate::assets::native_scene(game, &model).is_none() {
+                    return Err(format!(
+                        "Source initial player hands are not prepared: {model}"
+                    ));
+                }
             }
         }
         Ok(())

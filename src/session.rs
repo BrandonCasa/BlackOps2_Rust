@@ -73,9 +73,15 @@ fn initialize(world: &mut World) {
         session.character = (session.seed % 4) as usize;
     }
     world.insert_resource(session);
-    world.insert_resource(crate::quests::MainQuest::reset(
-        *world.resource::<crate::frontend::Difficulty>(),
-    ));
+    world.insert_resource(
+        if world.resource::<GameDefinition>().delivery_scope
+            == crate::origins::DeliveryScope::FirstPlayableSolo
+        {
+            crate::quests::MainQuest::default()
+        } else {
+            crate::quests::MainQuest::reset(*world.resource::<crate::frontend::Difficulty>())
+        },
+    );
     world.insert_resource(crate::damage::CombatHistory::default());
     world.insert_resource(crate::powerups::PowerupEffects::default());
     world.insert_resource(crate::powerups::Drops::default());
@@ -154,8 +160,13 @@ pub(crate) fn teardown(world: &mut World) {
     crate::environment::triggers::reset(world);
     clear::<crate::quests::SoulCollected>(world);
     clear::<crate::projectiles::ProjectileImpact>(world);
-    clear::<crate::robots::RobotStomp>(world);
-    clear::<crate::tablets::BeaconStrike>(world);
+    if world
+        .get_resource::<GameDefinition>()
+        .is_none_or(|game| game.delivery_scope == crate::origins::DeliveryScope::FullOrigins)
+    {
+        clear::<crate::robots::RobotStomp>(world);
+        clear::<crate::tablets::BeaconStrike>(world);
+    }
 }
 
 fn clear<M: Message>(world: &mut World) {

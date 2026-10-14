@@ -42,7 +42,8 @@ pub struct VolumeDefinition {
 }
 impl EnvironmentDefinition {
     pub fn valid(&self, game: &GameDefinition) -> bool {
-        !self.crafting_benches.is_empty()
+        (game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
+            || !self.crafting_benches.is_empty())
             && triggers::valid(&self.triggers)
             && brushes::valid(&self.brush_entities)
             && support::valid(self)
@@ -162,11 +163,7 @@ impl Plugin for EnvironmentPlugin {
     fn build(&self, app: &mut App) {
         triggers::register(app);
         app.add_message::<Footstep>()
-            .add_plugins((
-                support::SupportPlugin,
-                weather::WeatherPlugin,
-                digging::DiggingPlugin,
-            ))
+            .add_plugins(support::SupportPlugin)
             .init_resource::<parts::Parts>()
             .register_required_components::<Player, hazards::BoundaryMonitor>()
             .add_systems(
@@ -193,6 +190,18 @@ impl Plugin for EnvironmentPlugin {
                     .before(crate::player::move_player)
                     .run_if(in_state(GameState::Playing)),
             );
+        if app
+            .world()
+            .get_resource::<crate::origins::DeliveryScope>()
+            .copied()
+            .unwrap_or_default()
+            == crate::origins::DeliveryScope::FullOrigins
+        {
+            app.add_plugins((weather::WeatherPlugin, digging::DiggingPlugin));
+        } else {
+            app.init_resource::<weather::Weather>()
+                .init_resource::<digging::Digging>();
+        }
     }
 }
 fn spawn(mut commands: Commands, game: Res<GameDefinition>, existing: Query<(), With<MudVolume>>) {

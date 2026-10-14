@@ -38,12 +38,16 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     let catalog = convert::Catalog::new(&zones);
     let references: std::collections::BTreeSet<_> = zones.iter().flat_map(|(_, zone)| zone.assets.iter())
         .filter(|asset| asset.reference).map(|asset| (asset.kind, asset.name.as_str())).collect();
-    for (kind, name) in &references { catalog.resolve(*kind, name)?; }
-    println!("Resolved {} distinct native references", references.len());
     let entities = crate::entities::read(&catalog)?;
     crate::scenes::validate_placements(&catalog, &entities)?;
-    let used_materials = if preview.is_some() { crate::geometry::material_names(&catalog)? }
-        else { crate::geometry::validate(&catalog)? };
+    let mut game = if preview.is_none() {Some(crate::game::read(&catalog,&entities)?)} else {None};
+    let initial = game.as_ref().is_some_and(|game| game.0["delivery_scope"] == "first_playable_solo");
+    if !initial {
+        for (kind,name) in &references {catalog.resolve(*kind,name)?;}
+        println!("Resolved {} distinct native references",references.len());
+    }
+    let required_models = if initial {Some(crate::scenes::required_models(&catalog,&game.as_ref().unwrap().0)?)} else {None};
+    let used_materials = crate::geometry::material_names(&catalog,required_models.as_ref())?;
     let mut materials = crate::material::read_used(&catalog, &used_materials)?;
     let research = PathBuf::from(std::env::var_os("USERPROFILE").ok_or("USERPROFILE is unavailable")?)
         .join("Documents/T6ZMResearch/t6zm-master");
@@ -119,6 +123,9 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         println!("Packed converted native preview {name}: {} source geometry groups into {}",groups.len(),output.display());
         return Ok(());
     }
+    let (mut camo_library,camo_variants) = if initial {
+        (None,std::collections::BTreeMap::new())
+    } else {
     let camos = crate::material::read_camos(&catalog)?;
     let camo_options = crate::material::read_camo_options(&catalog)?;
     let (weapon_materials,attachment_materials) = crate::material::read_material_selection(&catalog)?;
@@ -138,8 +145,13 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     camo_library.resolve_knife()?;
     camo_library.validate()?;
     let camo_variants = crate::material::camo_variants(&mut camo_library)?;
-    let game = crate::game::read(&catalog,&entities)?;
-    let animations = crate::animation_decode::read(&catalog)?;
+    (Some(camo_library),camo_variants)
+    };
+    let game = game.as_mut().ok_or("Required native game data was not selected")?;
+    let required_animations = initial.then(|| game.0["content"]["animations"].as_array().into_iter().flatten()
+        .filter_map(|animation| animation["source_clip"].as_str().or_else(|| animation["id"].as_str().and_then(|id| id.rsplit('.').next())))
+        .map(str::to_ascii_lowercase).collect::<std::collections::BTreeSet<_>>());
+    let animations = crate::animation_decode::read(&catalog,required_animations.as_ref())?;
     let wide = animations.iter().filter(|entry| entry.clip.frames >= 256).count();
     let modes: std::collections::BTreeSet<_> = animations.iter().map(|entry| entry.clip.source_flags).collect();
     let jumpcuts = animations.iter().filter(|entry| entry.clip.notifies.iter().any(|(name,_)| name.as_deref().is_some_and(|name| name.eq_ignore_ascii_case("jumpcut")))).count();
@@ -148,24 +160,83 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     if !unsupported.is_empty() {
         return Err(format!("Required material conversion has {} unimplemented families:\n{}", unsupported.len(), unsupported.join("\n")).into());
     }
+    let validated_materials = crate::geometry::validate(&catalog,required_models.as_ref())?;
+    if validated_materials != used_materials {return Err("Selected model material metadata and decoded source geometry disagree".into());}
     let mut pack = pack::Pack::default();
     let collision = crate::collision::convert(&catalog, &mut pack)?;
-    let sounds = crate::sound::convert(&authorized, &catalog, &mut pack)?;
-    let (images, image_sources) = convert::images(&authorized, &catalog, &mut pack, None)?;
+    let required_sounds = initial.then(|| {
+        let mut aliases: std::collections::BTreeSet<_> = game.0["audio"]["aliases"].as_object().into_iter().flatten().map(|(name,_)| name.to_ascii_lowercase()).collect();
+        aliases.extend(game.0["content"]["sounds"].as_array().into_iter().flatten().filter_map(|sound| sound["source_alias"].as_str()).map(str::to_ascii_lowercase));
+        aliases
+    });
+    let sounds = crate::sound::convert(&authorized, &catalog, required_sounds.as_ref(), &mut pack)?;
+    let required_images = if initial {
+        let mut images = crate::material::inputs(&materials,&catalog)?;
+        images.extend(crate::atmosphere::inputs(&catalog)?);
+        for asset in game.0["content"]["ui_assets"].as_array().into_iter().flatten() {
+            if let Some(name) = asset["source_image"].as_str() {catalog.resolve(8,name)?;images.insert(name.to_ascii_lowercase());}
+        }
+        Some(images)
+    } else {None};
+    let (images, image_sources) = convert::images(&authorized, &catalog, &mut pack, required_images.as_ref())?;
     let mut converted_materials = std::collections::BTreeMap::new();
-    let baked = crate::bake::world(&catalog, &materials, &image_sources, &mut converted_materials, &mut pack)?;
+    let mut geometry = Vec::new();
+    for (_,zone,root) in catalog.definitions(17) {geometry.extend(crate::geometry::world(&catalog,zone,root)?);}
+    for (name,zone,root) in catalog.definitions(5) {
+        if required_models.as_ref().is_some_and(|models| !models.contains(&name.to_ascii_lowercase())) {continue;}
+        let streams = &catalog.zones[zone].1.streams;
+        let bindings = fastfile::Address::decode(streams.u32(root.add(36)?)?)?;
+        let mut needs_bake = false;
+        for index in 0..streams.u8(root.add(6)?)? as usize {
+            let material = catalog.pointer(zone,bindings.add(index*4)?,6)?.0;
+            needs_bake |= materials.get(&material.to_ascii_lowercase()).is_some_and(|material| crate::bake::supported(material["technique_set"].as_str().unwrap_or_default()));
+        }
+        if needs_bake {
+            geometry.extend(crate::geometry::model(&catalog,name,zone,root)?.into_iter().flatten());
+        }
+    }
+    let baked = crate::bake::surfaces(&materials, geometry, &image_sources, &mut converted_materials, &mut pack)?;
     let mut conversion_inputs = materials.clone();
     for (name,material) in camo_variants {
         if conversion_inputs.insert(name.clone(),material).is_some() { return Err(format!("Duplicate camo conversion identity {name}").into()); }
     }
     converted_materials.extend(crate::material::convert_known(&conversion_inputs, &image_sources, &mut pack)?);
+    if initial {
+        for approximation in crate::material::accept_initial_visual_approximations(&materials,&mut converted_materials)? {
+            println!("Initial visual approximation: {approximation}");
+        }
+    }
     let mut material_gaps = crate::material::missing(&materials, &converted_materials);
-    material_gaps.extend(crate::material::finish_camos(&mut camo_library,&converted_materials,&mut pack)?);
+    if let Some(camo_library) = &mut camo_library {
+        material_gaps.extend(crate::material::finish_camos(camo_library,&converted_materials,&mut pack)?);
+    }
     let atmosphere = crate::atmosphere::read(&catalog, &image_sources, &mut pack)?;
     if !material_gaps.is_empty() {
         return Err(format!("Required material conversion has {} unresolved materials:\n{}", material_gaps.len(), material_gaps.join("\n")).into());
     }
-    let (models, mut worlds) = crate::scenes::convert(&catalog, &entities, &converted_materials, &baked, &mut pack)?;
+    let exported_models = initial.then(|| game.0["content"]["presentations"].as_array().into_iter().flatten()
+        .filter_map(|presentation| presentation["source_model"].as_str()).map(str::to_ascii_lowercase).collect::<std::collections::BTreeSet<_>>());
+    let mut animation_bindings = std::collections::BTreeMap::<String,Vec<&crate::animation_decode::DecodedClip>>::new();
+    for definition in game.0["content"]["animations"].as_array().into_iter().flatten() {
+        let name = definition["source_clip"].as_str().or_else(|| definition["id"].as_str().and_then(|id| id.rsplit('.').next()))
+            .ok_or("Selected animation native name is missing")?;
+        let clip = animations.iter().find(|clip| clip.clip.name.eq_ignore_ascii_case(name)).ok_or_else(|| format!("Required native animation {name} was not decoded"))?;
+        let presentation = game.0["content"]["presentations"].as_array().into_iter().flatten()
+            .find(|presentation| presentation["id"] == definition["skeleton"]).ok_or("Selected animation presentation is missing")?;
+        let model = presentation["source_model"].as_str().ok_or("Selected animation model is missing")?.to_ascii_lowercase();
+        let bindings = animation_bindings.entry(model).or_default();
+        if !bindings.iter().any(|existing| existing.clip.name == clip.clip.name) {bindings.push(clip);}
+    }
+    let (models, mut worlds) = crate::scenes::convert(&catalog, &entities, exported_models.as_ref(), &animation_bindings, &converted_materials, &baked, &mut pack)?;
+    crate::scenes::bind_presentations(&mut game.0,&models)?;
+    for asset in game.0["content"]["ui_assets"].as_array_mut().into_iter().flatten() {
+        if let Some(name) = asset["source_image"].as_str() {
+            let image = images.iter().find(|image| image["name"].as_str().is_some_and(|image| image.eq_ignore_ascii_case(name)))
+                .ok_or_else(|| format!("Initial UI asset {} image {name} was not converted",asset["id"]))?;
+            asset["path"] = image["uris"]["srgb"].clone();
+            asset.as_object_mut().ok_or("Initial UI asset is not an object")?.remove("source_image");
+        }
+    }
     let atmosphere_uri = "prepared/worlds/zm_tomb.atmosphere.json";
     pack.entries.insert(atmosphere_uri.into(), std::sync::Arc::new(serde_json::to_vec(&atmosphere)?));
     for world in &mut worlds {
@@ -175,7 +246,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
             world["atmosphere_uri"] = serde_json::json!(atmosphere_uri);
         }
     }
-    crate::game::write(game, &entities, &worlds, &collision, &mut pack)?;
+    crate::game::write(game.clone(), &entities, &worlds, &collision, &mut pack)?;
     let runtime = runtime(&pack, models, worlds, images, sounds)?;
     pack.entries.insert("prepared/runtime.json".into(), std::sync::Arc::new(serde_json::to_vec(&runtime)?));
     crate::validate_pack(&pack)?;
@@ -223,7 +294,10 @@ fn runtime(pack: &pack::Pack, models: Vec<serde_json::Value>, worlds: Vec<serde_
     let effects_uri = "prepared/effects.nativefx";
     let camo_uri = "prepared/camo.json";
     pack.get(effects_uri).map_err(|_| "Required native FX conversion is missing; no runtime pack was written")?;
-    pack.get(camo_uri).map_err(|_| "Required native camo conversion is missing; no runtime pack was written")?;
+    let camo_uri = if game["delivery_scope"] == "first_playable_solo" {None} else {
+        pack.get(camo_uri).map_err(|_| "Required native camo conversion is missing; no runtime pack was written")?;
+        Some(camo_uri)
+    };
     if worlds.iter().all(|world| world["map"] != "zm_tomb") { return Err("Required Origins world scene is missing".into()); }
     Ok(json!({"schema_version":1,"models":models,"worlds":worlds,"images":images,"sounds":sounds,
         "presentations":presentations,"ui_assets":ui_assets,"effects_uri":effects_uri,"camo_uri":camo_uri}))
@@ -231,6 +305,26 @@ fn runtime(pack: &pack::Pack, models: Vec<serde_json::Value>, worlds: Vec<serde_
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
+    fn installed_initial_material_dependencies() {
+        let zones = super::read_zones(&super::installation().unwrap()).unwrap();
+        let catalog = crate::convert::Catalog::new(&zones);
+        let entities = crate::entities::read(&catalog).unwrap();
+        let (game,_) = crate::game::read(&catalog,&entities).unwrap();
+        assert_eq!(game["delivery_scope"],"first_playable_solo");
+        let models = crate::scenes::required_models(&catalog,&game).unwrap();
+        assert!(models.contains("t6_wpn_zmb_mc96_view"));
+        assert!(models.len() < catalog.definitions(5).count());
+        let materials = crate::geometry::material_names(&catalog,Some(&models)).unwrap();
+        let all = crate::geometry::material_names(&catalog,None).unwrap();
+        assert!(materials.is_subset(&all) && materials.len() < all.len());
+        let native = crate::material::read_used(&catalog,&materials).unwrap();
+        let gaps = crate::material::unimplemented(&native);
+        println!("Initial world/static props plus current source-selected presentation roots: {} of {} models, {} of {} materials; {} missing families before remaining actor/content closure:\n{}",models.len(),catalog.definitions(5).count(),materials.len(),all.len(),gaps.len(),gaps.join("\n"));
+        for image in crate::atmosphere::inputs(&catalog).unwrap() {catalog.resolve(8,&image).unwrap();}
+    }
+
     #[test]
     #[ignore = "requires the authorized Steam installation"]
     fn installed_zone_activation_geometry() {
@@ -263,7 +357,7 @@ mod tests {
     fn installed_ordinary_animation_streams() {
         let zones = super::read_zones(&super::installation().unwrap()).unwrap();
         let catalog = crate::convert::Catalog::new(&zones);
-        crate::animation_decode::read(&catalog).unwrap();
+        crate::animation_decode::read(&catalog,None).unwrap();
     }
 
     #[test]
@@ -304,7 +398,7 @@ mod tests {
         let install = super::installation().unwrap();
         let zones = super::read_zones(&install).unwrap();
         let catalog = crate::convert::Catalog::new(&zones);
-        let used = crate::geometry::validate(&catalog).unwrap();
+        let used = crate::geometry::validate(&catalog,None).unwrap();
         let mut materials = crate::material::read_used(&catalog,&used).unwrap();
         let families = ["mc_lit_sm_r0c0s0_986ezzjq","wpc_lit_sm_r0c0n0_80fe30wz","mc_lit_sm_t0c0_90wz6fe2",
             "wpc_lit_sm_t0c0_2w3887e6","wpc_lit_sm_t0c0n0_9ew0jz24"];
@@ -372,7 +466,7 @@ mod tests {
         let install = super::installation().unwrap();
         let zones = super::read_zones(&install).unwrap();
         let catalog = crate::convert::Catalog::new(&zones);
-        let used = crate::geometry::material_names(&catalog).unwrap();
+        let used = crate::geometry::material_names(&catalog,None).unwrap();
         let all = crate::material::read_used(&catalog,&used).unwrap();
         assert_eq!(all.len(),1034);
         let gaps = crate::material::unimplemented(&all);
@@ -734,7 +828,7 @@ mod tests {
         let install = super::installation().unwrap();
         let zones = super::read_zones(&install).unwrap();
         let catalog = crate::convert::Catalog::new(&zones);
-        let used = crate::geometry::material_names(&catalog).unwrap();
+        let used = crate::geometry::material_names(&catalog,None).unwrap();
         let all = crate::material::read_used(&catalog,&used).unwrap();
         assert_eq!(all.len(),1034);
         assert_eq!(crate::material::unimplemented(&all).len(),53);
@@ -779,7 +873,7 @@ mod tests {
         let install = super::installation().unwrap();
         let zones = super::read_zones(&install).unwrap();
         let catalog = crate::convert::Catalog::new(&zones);
-        let used = crate::geometry::validate(&catalog).unwrap();
+        let used = crate::geometry::validate(&catalog,None).unwrap();
         let mut materials = crate::material::read_used(&catalog,&used).unwrap();
         materials.retain(|_,material| material["technique_set"].as_str().is_some_and(|family| families.contains(&family)));
         assert_eq!(materials.len(),expected);
@@ -809,7 +903,7 @@ mod tests {
     fn installed_geometry_bindings() {
         let zones = super::read_zones(&super::installation().unwrap()).unwrap();
         let catalog = crate::convert::Catalog::new(&zones);
-        let used = crate::geometry::validate(&catalog).unwrap();
+        let used = crate::geometry::validate(&catalog,None).unwrap();
         let materials = crate::material::read_used(&catalog,&used).unwrap();
         let gaps = crate::material::unimplemented(&materials);
         println!("Installed material dispatch: {} unimplemented families",gaps.len());

@@ -400,7 +400,18 @@ impl Plugin for GameAudioPlugin {
         app.add_systems(OnEnter(GameState::MainMenu), stop);
         app.add_systems(OnEnter(GameState::Ending), stop);
         gameplay::install(app);
-        narrative::install(app);
+        if app
+            .world()
+            .get_resource::<crate::origins::DeliveryScope>()
+            .copied()
+            .unwrap_or_default()
+            == crate::origins::DeliveryScope::FullOrigins
+        {
+            narrative::install(app);
+        } else {
+            app.add_message::<NarrativeProgress>()
+                .add_message::<RobotPurgeReady>();
+        }
     }
 }
 fn settings(
