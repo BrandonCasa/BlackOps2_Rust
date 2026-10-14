@@ -1143,6 +1143,7 @@ impl Plugin for GameAudioPlugin {
             )
             .add_systems(OnEnter(GameState::GameOver), (stop, game_over).chain())
             .add_systems(OnEnter(GameState::Loading), stop);
+        app.add_systems(OnEnter(GameState::PreparingShaders), stop);
         app.add_systems(OnEnter(GameState::MainMenu), stop);
         app.add_systems(OnEnter(GameState::Ending), stop);
         gameplay::install(app);
@@ -2170,7 +2171,15 @@ pub(crate) fn stop(
     mut ducks: ResMut<NativeDucks>,
     mut room: ResMut<reverb::ListenerRoom>,
     buses: Query<Entity, With<AudioPlayer<reverb::RoomBus>>>,
+    mut lifetimes: ResMut<Lifetimes>,
+    mut events: ResMut<Messages<PlaybackEvent>>,
+    mut narrative: ResMut<Messages<NarrativeProgress>>,
+    mut robots: ResMut<Messages<RobotPurgeReady>>,
 ) {
+    lifetimes.0.clear();
+    events.clear();
+    narrative.clear();
+    robots.clear();
     reservation.0 = None;
     music.0 = None;
     for e in &sounds {
