@@ -77,9 +77,26 @@ def run(client, report):
           and accepted['player']['health'] < rejected['player']['health'], after=accepted)
 
 
-def run_initial(client, report):
+def first_round_grenades(client, report, game, name):
+    weapon = 'weapon.frag_grenade_zm'
+    frag = next(w['throwable'] for w in game['content']['weapons'] if w['id'] == weapon)
+    state = client.until(lambda s: s['state'] == 'Playing' and s.get('player') and any(
+        event.get('event') == 'round_award' and event.get('round') == 1 and event.get('weapon') == weapon
+        for event in s['equipment']['events']), timeout=max(30, game['rounds']['initial_spawn_seconds'] + 5))
+    awards = [event for event in state['equipment']['events'] if event.get('event') == 'round_award'
+              and event.get('round') == 1 and event.get('weapon') == weapon]
+    expected = min(frag['initial'] + frag['round_award'], frag['capacity'])
+    check(report, name, len(awards) == 1 and state['equipment']['round_awards'] == 1
+          and awards[0]['before'] == frag['initial'] and awards[0]['after'] == expected
+          and state['player']['lethal']['count'] == expected,
+          expected_lethal_count=expected, awards=awards, state=state)
+    return state
+
+
+def run_initial(client, report, game):
     client.reset(difficulty='original')
-    before = client.until(lambda s: s['player']['grounded'] and s['player']['action'] == 'Ready')
+    before = first_round_grenades(client, report, game, 'initial_session_first_round_grenade_award')
+    client.until(lambda s: s['player']['grounded'] and s['player']['action'] == 'Ready')
     fire, reload, pause = [binding(before, action) for action in ('fire', 'reload', 'pause')]
     schedule(client, [edge(1, fire, True), edge(2, fire, False)])
     client.until(lambda s: s['player']['action'] == 'Ready')
@@ -92,12 +109,15 @@ def run_initial(client, report):
           paused['player']['position'] == later['player']['position']
           and paused['player']['weapons'] == later['player']['weapons']
           and paused['player']['action'] == later['player']['action']
+          and paused['player']['lethal'] == later['player']['lethal']
+          and paused['equipment']['round_awards'] == later['equipment']['round_awards'] == 1
           and paused['session']['spawn_remaining'] == later['session']['spawn_remaining'],
           before=paused, after=later)
     schedule(client, [edge(1, pause, True), edge(2, pause, False)])
     resumed = client.until(lambda s: s['state'] == 'Playing' and s['player']['action'] == 'Ready')
     check(report, 'initial_resume_finishes_reload_in_same_session',
           resumed['session_id'] == before['session_id']
+          and resumed['equipment']['round_awards'] == 1
           and resumed['player']['weapons'][0]['magazine'] == before['player']['weapons'][0]['magazine']
           and resumed['player']['weapons'][0]['reserve'] == before['player']['weapons'][0]['reserve'] - 1,
           after=resumed)
@@ -126,6 +146,7 @@ def run_initial(client, report):
           and restarted['equipment']['active_grenades'] == []
           and restarted['barriers']['repaired'] == 0 and restarted['barriers']['destroyed'] == 0,
           after=restarted)
+    first_round_grenades(client, report, game, 'initial_restart_first_round_grenade_award_once')
     schedule(client, [edge(1, pause, True), edge(2, pause, False)])
     client.until(lambda s: s['state'] == 'Paused')
     select_menu(client, 4)

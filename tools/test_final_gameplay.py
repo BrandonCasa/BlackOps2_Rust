@@ -108,21 +108,44 @@ def native_cook_off(client, grenade):
         client.release()
 
 
+def camera_snapshot(client):
+    state = client.state()
+    registered = client.call('world.list_components')
+    paths = {}
+    for name in ('Camera3d', 'Transform', 'GlobalTransform', 'Projection'):
+        matches = [path for path in registered if path.startswith('bevy_') and path.endswith('::' + name)]
+        if len(matches) != 1:
+            raise RuntimeError('Camera snapshot requires one registered ' + name + ': ' + str(matches))
+        paths[name] = matches[0]
+    rows = client.call('world.query', {
+        'data': {'components': [paths[name] for name in ('Transform', 'GlobalTransform', 'Projection')]},
+        'filter': {'with': [paths['Camera3d']]}, 'strict': True})
+    cameras = [row for row in rows if any(path.endswith('::GameCamera') for path in
+               client.call('world.list_components', {'entity': row['entity']}))]
+    if len(cameras) != 1:
+        raise RuntimeError('Camera snapshot requires one GameCamera: ' + str(cameras))
+    return {'state_before_query': {'fixed_tick': state['fixed_tick'], 'player': state['player']},
+            'cameras': cameras}
+
+
 def initial_start(client, report, game, output):
     state = client.until(lambda s: s['state'] == 'Playing' and s.get('player')
                          and s['player']['grounded'] and s['player']['action'] == 'Ready', timeout=300)
     pistol = next(w for w in game['content']['weapons'] if w['id'] == 'weapon.c96_zm')
     frag = next(w['throwable'] for w in game['content']['weapons'] if w['id'] == 'weapon.frag_grenade_zm')
     owned = state['player']['weapons']
+    awards = [event for event in state['equipment']['events'] if event.get('event') == 'round_award'
+              and event.get('round') == 1 and event.get('weapon') == 'weapon.frag_grenade_zm']
+    expected_frag = min(frag['initial'] + len(awards) * frag['round_award'], frag['capacity'])
     check(report, 'initial_pack_declares_scoped_content', game['delivery_scope'] == 'first_playable_solo'
           and game['render_meshes'] > 0 and game['collision_meshes'] > 0,
           scene=game['scene'], collision_scene=game['collision_scene'])
     check(report, 'initial_source_loadout_without_grants', len(owned) == 1
           and owned[0]['id'] == pistol['id'] and owned[0]['magazine'] == pistol['magazine']
           and owned[0]['reserve'] == pistol['mechanics']['starting_reserve']
-          and state['player']['lethal']['count'] == frag['initial']
+          and len(awards) <= 1 and state['player']['lethal']['count'] == expected_frag
           and not state['player']['perks'] and state['player']['solo_charges'] == 0,
-          player=state['player'])
+          player=state['player'], expected_lethal_count=expected_frag, natural_first_round_awards=awards)
     check(report, 'initial_grounded_in_authored_spawn_area', state['session']['round'] == 1
           and state['player']['health'] == game['player_health']['maximum']
           and min(math.dist(state['player']['position'], spawn['position'])
@@ -134,8 +157,16 @@ def initial_start(client, report, game, output):
           and bool(materials['first_person'])
           and all(row['textures_ready'] for row in materials['first_person']), materials=materials)
     report['initial_scene'] = {'scene': game['scene'], 'collision_scene': game['collision_scene'],
-                               'materials': materials, 'animations': client.call('origins/animations'),
-                               'capture': ui.capture(client, output, 'initial-start')}
+                               'materials': materials, 'animations': client.call('origins/animations')}
+    try:
+        report['initial_scene']['camera_before_capture'] = camera_snapshot(client)
+    except RuntimeError as error:
+        report['initial_scene']['camera_before_capture_error'] = str(error)
+    report['initial_scene']['capture'] = ui.capture(client, output, 'initial-start')
+    try:
+        report['initial_scene']['camera_after_capture'] = camera_snapshot(client)
+    except RuntimeError as error:
+        report['initial_scene']['camera_after_capture_error'] = str(error)
     paths = {asset['id']: asset['path'] for asset in game['content']['ui_assets']}
     ammo = owned[0]
     expected = Counter(paths['ui.hud_zm_num_tomb_' + ('slash' if char == '/' else char)]
@@ -147,6 +178,7 @@ def initial_start(client, report, game, output):
     check(report, 'initial_hud_images_loaded', ui.text(hud, str(state['session']['points']))
           and all(hud['images'].get(path, 0) >= count for path, count in expected.items()),
           expected_glyph_images=dict(expected), expected_points=state['session']['points'], ui=hud)
+    session.first_round_grenades(client, report, game, 'initial_natural_first_round_grenade_award')
 
 
 def initial_controls(client, report, game):
@@ -682,7 +714,7 @@ def main():
                     ui.run(client, report, None if args.no_captures else output, game)
                 elif name == 'session':
                     if args.milestone == 'initial':
-                        session.run_initial(client, report)
+                        session.run_initial(client, report, game)
                     else:
                         session.run(client, report)
                 elif name == 'projectiles':
