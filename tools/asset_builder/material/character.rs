@@ -603,7 +603,42 @@ impl CharacterRecipe {
             channels.push(json!({"uri":uri,"role":"color","layer":0,"color_space":"linear","sampler":sampler}));
             color_space = "linear";
         } else {
-            let (color_name, color, color_sampler) = &inputs["source_color"];
+            let (color_name, source_color, color_sampler) = &inputs["source_color"];
+            let baseline = if self.reveal() {
+                let temporal = &inputs["source_temporal"];
+                let emissive = self.reveal_emissive().then(|| &inputs["source_emissive"]);
+                let (color, emission) = reveal_baseline(
+                    source_color,
+                    temporal.1,
+                    emissive.map(|input| input.1),
+                    [
+                        *color_sampler,
+                        temporal.2,
+                        emissive.map_or(20, |input| input.2),
+                    ],
+                    contract::literal(native, 3105072277)?,
+                    contract::literal(native, 3218137492)?,
+                    contract::literal(native, 3228582790)?[0],
+                    if self.reveal_emissive() {
+                        contract::literal(native, 2251066627)?[0]
+                    } else {
+                        1.
+                    },
+                )?;
+                let uri = store_channel(
+                    &format!("{key}:normal-view-zero"),
+                    "emissive",
+                    &emission,
+                    false,
+                    shared,
+                    pack,
+                )?;
+                channels.push(json!({"uri":uri,"role":"emissive","layer":0,"color_space":"linear","sampler":color_sampler}));
+                Some(color)
+            } else {
+                None
+            };
+            let color = baseline.as_ref().unwrap_or(source_color);
             let (normal_name, normal, normal_sampler) = &inputs["source_normal"];
             let normal = ordinary::bake(normal, "normal", None)?;
             let uri = store_channel(normal_name, "normal", &normal, false, shared, pack)?;
@@ -631,7 +666,12 @@ impl CharacterRecipe {
             native_specular =
                 json!({"uri":specular_uri,"gloss_channel":"alpha","specular_rgb":"gamma2"});
             let identity = format!(
-                "{color_name}:{color_sampler}:{specular_identity}:{specular_sampler}:character"
+                "{color_name}:{color_sampler}:{specular_identity}:{specular_sampler}:character{}",
+                if self.reveal() {
+                    format!(":{key}:normal-view-zero")
+                } else {
+                    String::new()
+                }
             );
             if !shared.contains_key(&(identity.clone(), "color".into())) {
                 let (base, response) = ordinary::metallic_workflow(
@@ -700,7 +740,13 @@ impl CharacterRecipe {
                     surface["source_script_layers"] = json!({"stage":"character_temporal_reveal","code_constant":172,
                         "temporal":source_inputs["source_temporal"],"state1":contract::literal(native,3105072277)?,
                         "state2":contract::literal(native,1288488438)?,"edge1":contract::literal(native,3218137492)?,
-                        "edge2":contract::literal(native,348546551)?,"edge_brightness":contract::literal(native,3228582790)?[0]});
+                        "edge2":contract::literal(native,348546551)?,"edge_brightness":contract::literal(native,3228582790)?[0],
+                        "normal_view_base":[0.,0.,0.,0.],"base_state_origin":"normal_view_zero_template_preserved_by_class2_constant_copy",
+                        "baseline_evaluated":true,"prepared_time":0.,"prepared_vertex":[1.,1.,1.,1.]});
+                    surface["source_character_lighting"]["charred"]["normal_view_base"] = json!(0.);
+                    surface["standard"]["emissive"] = json!([1., 1., 1.]);
+                    surface["approximations"].as_array_mut().unwrap().push(json!("Native unmapped scriptVector0/3 zero baseline evaluates original temporal-mask red alteration and leading-edge emission before PBR conversion at unit vertex tint; exported source vertex tint retains the existing shared PBR approximation. The independent authored emissive pulse is prepared at native time zero, with source pulse controls retained"));
+                    surface["approximations"].as_array_mut().unwrap().push(json!("Native position-dependent hero affine lighting, grid/probe responses and gamma2 framebuffer composition are replaced by shared PBR lighting without inventing hero matrix rows"));
                     if self.reveal_emissive() {
                         surface["source_script_layers"]["emissive"] = json!({
                             "texture":source_inputs["source_emissive"],
@@ -776,6 +822,120 @@ impl CharacterRecipe {
         }
         Ok(converted)
     }
+}
+
+fn reveal_baseline(
+    color: &texture::Image,
+    temporal: &texture::Image,
+    emissive: Option<&texture::Image>,
+    samplers: [u8; 3],
+    state1: [f32; 4],
+    edge1: [f32; 4],
+    brightness: f32,
+    emissive_amount: f32,
+) -> Result<(texture::Image, texture::Image)> {
+    let sources: Vec<_> = [Some(color), Some(temporal), emissive]
+        .into_iter()
+        .flatten()
+        .collect();
+    let width = sources
+        .iter()
+        .map(|image| image.width)
+        .max()
+        .ok_or("Character reveal has no source images")?;
+    let height = sources.iter().map(|image| image.height).max().unwrap();
+    let levels = sources
+        .iter()
+        .map(|image| image.levels.len())
+        .max()
+        .unwrap();
+    let mut albedo = texture::Image {
+        width,
+        height,
+        depth: 1,
+        faces: 1,
+        format: 19,
+        flags: 0,
+        levels: Vec::new(),
+    };
+    let mut emission = albedo.clone();
+    for level in 0..levels {
+        let w = (width >> level).max(1);
+        let h = (height >> level).max(1);
+        let decoded = sources
+            .iter()
+            .map(|image| {
+                let bias = width.max(height).ilog2() - image.width.max(image.height).ilog2();
+                let source_level = level
+                    .saturating_sub(bias as usize)
+                    .min(image.levels.len() - 1);
+                Ok((
+                    texture::pixels(image, source_level)?,
+                    (image.width >> source_level).max(1),
+                    (image.height >> source_level).max(1),
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut colors = Vec::with_capacity(w * h * 8);
+        let mut emissions = Vec::with_capacity(w * h * 8);
+        for y in 0..h {
+            for x in 0..w {
+                let uv = [(x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32];
+                let sample = |index: usize| {
+                    texture::sample(
+                        &decoded[index].0,
+                        decoded[index].1,
+                        decoded[index].2,
+                        uv,
+                        samplers[index],
+                    )
+                };
+                let original = sample(0);
+                let mask = sample(1)[0];
+                let smooth = |value: f32| {
+                    let value = value.clamp(0., 1.);
+                    value * value * (3. - 2. * value)
+                };
+                let first = smooth((mask - 0.06) * -8.333333);
+                let second = smooth((mask + 0.03) * 16.666666);
+                let emissive_sample = emissive.map(|_| sample(2));
+                let output: [f32; 4] = std::array::from_fn(|axis| {
+                    if axis == 3 {
+                        original[3]
+                    } else {
+                        original[axis] + first * (original[0] * state1[axis] - original[axis])
+                    }
+                });
+                let glow: [f32; 4] = std::array::from_fn(|axis| {
+                    if axis == 3 {
+                        1.
+                    } else {
+                        let pulse = emissive_sample.map_or(0., |sample| {
+                            (1. + 0.5 * (emissive_amount - 1.))
+                                * original[axis]
+                                * sample[axis]
+                                * second
+                        });
+                        ((edge1[axis] * first * second + pulse) * brightness).powi(2)
+                    }
+                });
+                for (values, target) in [(output, &mut colors), (glow, &mut emissions)] {
+                    for value in values {
+                        let encoded = half::f16::from_f32(value);
+                        if !value.is_finite() || !encoded.is_finite() {
+                            return Err(
+                                "Character reveal baseline exceeds finite source channels".into()
+                            );
+                        }
+                        target.extend(encoded.to_le_bytes());
+                    }
+                }
+            }
+        }
+        albedo.levels.push(colors);
+        emission.levels.push(emissions);
+    }
+    Ok((albedo, emission))
 }
 
 fn store_channel(
@@ -951,6 +1111,78 @@ mod tests {
             format: 1,
             flags: 0,
             levels: vec![rgba.to_vec()],
+        }
+    }
+
+    #[test]
+    fn zero_script_reveal_keeps_mask_edges_and_initial_emissive_pulse() {
+        let color = image([128, 64, 32, 80]);
+        let dark = image([0, 0, 0, 255]);
+        let light = image([255, 0, 0, 255]);
+        let (altered, emission) = reveal_baseline(
+            &color,
+            &dark,
+            None,
+            [20; 3],
+            [1., 0., 0., 0.],
+            [1., 2., 0., 0.],
+            2.,
+            1.,
+        )
+        .unwrap();
+        let pixel = texture::pixels(&altered, 0).unwrap()[0];
+        for (actual, expected) in
+            pixel
+                .into_iter()
+                .zip([128. / 255., 32. / 255., 16. / 255., 80. / 255.])
+        {
+            assert!((actual - expected).abs() < 0.001);
+        }
+        let glow = texture::pixels(&emission, 0).unwrap()[0];
+        for (actual, expected) in glow.into_iter().zip([0.25, 1., 0., 1.]) {
+            assert!((actual - expected).abs() < 0.001);
+        }
+        let (unchanged, no_edge) = reveal_baseline(
+            &color,
+            &light,
+            None,
+            [20; 3],
+            [1., 0., 0., 0.],
+            [1., 2., 0., 0.],
+            2.,
+            1.,
+        )
+        .unwrap();
+        for (actual, expected) in texture::pixels(&unchanged, 0).unwrap()[0]
+            .into_iter()
+            .zip(texture::pixels(&color, 0).unwrap()[0])
+        {
+            assert!((actual - expected).abs() < 0.001);
+        }
+        assert_eq!(texture::pixels(&no_edge, 0).unwrap()[0], [0., 0., 0., 1.]);
+        let emissive = image([64, 128, 255, 255]);
+        let (_, pulsed) = reveal_baseline(
+            &color,
+            &light,
+            Some(&emissive),
+            [20; 3],
+            [1., 0., 0., 0.],
+            [1., 2., 0., 0.],
+            2.,
+            3.,
+        )
+        .unwrap();
+        let expected: [f32; 3] = std::array::from_fn(|axis| {
+            (texture::pixels(&color, 0).unwrap()[0][axis]
+                * texture::pixels(&emissive, 0).unwrap()[0][axis]
+                * 4.)
+                .powi(2)
+        });
+        for (actual, expected) in texture::pixels(&pulsed, 0).unwrap()[0][..3]
+            .iter()
+            .zip(expected)
+        {
+            assert!((actual - expected).abs() < 0.001);
         }
     }
 

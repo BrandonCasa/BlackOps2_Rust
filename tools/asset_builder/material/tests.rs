@@ -308,6 +308,9 @@ fn initial_visual_acceptance_never_fills_missing_payloads_or_source_state() {
         "source_effective_inputs",
         "source_color_matrix",
         "source_flag_motion",
+        "source_reveal",
+        "source_script_layers",
+        "source_hero_lighting",
     ] {
         let mut converted = BTreeMap::from([("add".into(), converted.clone())]);
         let surface = &mut converted.get_mut("add").unwrap()["extras"]["surface"];

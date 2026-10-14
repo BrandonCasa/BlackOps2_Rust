@@ -68,6 +68,40 @@ pub fn accept_initial_visual_approximations(
             .as_str()
             .ok_or("Initial material has no native family")?;
         let flag = ordinary_recipe(family).is_some_and(|recipe| recipe.flag);
+        let static_reveal = matches!(
+            family,
+            "mc_lit_sm_b0c0n0v0_3559e8jj"
+                | "wpc_lit_sm_b0c0n0v0_ew347fe3"
+                | "wpc_lit_sm_b0c0n0s0v0_efz5w56f"
+        ) && surface["source_reveal"]["baked"] == true
+            && surface["source_reveal"]["vertex_alpha_consumed"] == true
+            && surface["source_reveal"]["vertex_channel"] == "alpha"
+            && surface["source_coverage"] == "baked_reveal_coverage"
+            && surface["presentation"]["alpha"] == "blend";
+        let character_zero = matches!(
+            character::lookup(family),
+            Some(
+                character::CharacterRecipe::ClothReveal
+                    | character::CharacterRecipe::ClothRevealMask
+                    | character::CharacterRecipe::ClothRevealEmissive
+                    | character::CharacterRecipe::ClothRevealEmissiveMask
+            )
+        ) && surface["source_script_layers"]["code_constant"] == 172
+            && surface["source_script_layers"]["normal_view_base"] == json!([0.; 4])
+            && surface["source_script_layers"]["baseline_evaluated"] == true
+            && surface["source_script_layers"]["prepared_time"] == 0.
+            && surface["source_script_layers"]["prepared_vertex"] == json!([1.; 4])
+            && surface["source_character_lighting"]["charred"]["normal_view_base"] == 0.;
+        let hero = name == "mc/mtl_c_zom_tomb_richtofen_vial_out"
+            && family == "mc_lit_sm_b0c0n0s0_68f25z0u"
+            && surface["source_hero_lighting"]["buffer"] == 0
+            && surface["source_hero_lighting"]["rows"] == json!([114, 115, 116])
+            && surface["source_hero_lighting"]["stage"]
+                == "coverage_scaled_linear_lighting_before_fog"
+            && surface["presentation"]["alpha"] == "blend";
+        if !surface["source_hero_lighting"].is_null() && !hero {
+            continue;
+        }
         if !surface["source_flag_motion"].is_null() && !flag {
             continue;
         }
@@ -86,8 +120,11 @@ pub fn accept_initial_visual_approximations(
             "source_emission_modulation",
         ]
         .iter()
-        .any(|field| !surface[*field].is_null())
-        {
+        .any(|field| {
+            !surface[*field].is_null()
+                && !(*field == "source_reveal" && static_reveal
+                    || *field == "source_script_layers" && character_zero)
+        }) {
             continue;
         }
         let mut roles = vec!["color"];
@@ -98,6 +135,8 @@ pub fn accept_initial_visual_approximations(
                 && surface["source_vertex_lighting"]["stage"] == "separate_indirect_lighting_terms";
             if !vertex_lighting
                 && !flag
+                && !static_reveal
+                && !hero
                 && !matches!(
                     family,
                     "mc_lit_sm_b0c0n0s0_21fz2e61"
@@ -110,6 +149,17 @@ pub fn accept_initial_visual_approximations(
                 continue;
             }
             validate_ordinary(name, material, &recipe)?;
+            if static_reveal {
+                if surface["source_reveal"]["parameters"]
+                    != json!(contract::literal(material, 2932833280)?)
+                    || surface["source_reveal"]["input"]["uri"]
+                        .as_str()
+                        .is_none_or(str::is_empty)
+                    || surface["source_reveal"]["input"]["sampler"] != 20
+                {
+                    continue;
+                }
+            }
             if flag {
                 let motion = &surface["source_flag_motion"];
                 if !motion.is_object()
@@ -133,7 +183,11 @@ pub fn accept_initial_visual_approximations(
             if recipe.specular != 0 {
                 roles.push("response");
             }
-            if flag {
+            if static_reveal {
+                "native_baked_static_alpha_reveal_shared_pbr"
+            } else if hero {
+                "native_hero_lighting_to_shared_pbr"
+            } else if flag {
                 "native_flag_motion_with_shared_pbr_lighting"
             } else if vertex_lighting {
                 "native_vertex_lighting_to_shared_pbr"
@@ -157,6 +211,25 @@ pub fn accept_initial_visual_approximations(
                     ]
                 }
                 Cornea => &["source_highlight_mask", "source_highlight_normal"],
+                ClothReveal | ClothRevealMask if character_zero => {
+                    roles.extend(["normal", "response", "emissive"]);
+                    &[
+                        "source_color",
+                        "source_normal",
+                        "source_specular_gloss",
+                        "source_temporal",
+                    ]
+                }
+                ClothRevealEmissive | ClothRevealEmissiveMask if character_zero => {
+                    roles.extend(["normal", "response", "emissive"]);
+                    &[
+                        "source_color",
+                        "source_normal",
+                        "source_specular_gloss",
+                        "source_temporal",
+                        "source_emissive",
+                    ]
+                }
                 Canopy | CanopyShadow | CanopyBlend => &["source_color"],
                 _ => continue,
             };
@@ -174,7 +247,11 @@ pub fn accept_initial_visual_approximations(
             }) {
                 continue;
             }
-            "native_character_lighting_and_coverage_to_shared_pbr"
+            if character_zero {
+                "native_character_zero_state_baseline_shared_pbr"
+            } else {
+                "native_character_lighting_and_coverage_to_shared_pbr"
+            }
         } else if world::lookup(family) == Some(world::WorldRecipe::Water) {
             world::WorldRecipe::Water.validate(name, material)?;
             let water = &surface["source_water"];

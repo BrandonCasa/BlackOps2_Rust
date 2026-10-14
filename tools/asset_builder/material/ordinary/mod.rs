@@ -788,6 +788,21 @@ pub(super) fn convert(
             surface["pending_runtime"] = json!(
                 "Native translucent model material applies coverage to diffuse plus specular before its affine color matrix, then coverage-scaled fog and sqrt fragment alpha in gamma2 premultiplied composition; matching runtime composition remains unconnected"
             );
+            if key == "mc/mtl_c_zom_tomb_richtofen_vial_out"
+                && material["technique_set"] == "mc_lit_sm_b0c0n0s0_68f25z0u"
+            {
+                surface["source_hero_lighting"] = surface["source_color_matrix"].take();
+                surface
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("source_color_matrix");
+                surface["source_hero_lighting"]["producer"] =
+                    json!("native_position_dependent_hero_lighting");
+                surface["presentation"]["alpha"] = json!("blend");
+                surface["pending_runtime"] = json!(
+                    "Native vial heroLightingR/G/B applies coverage-scaled diffuse/specular plus coverage-independent affine bias before sqrt/fog/HDR composition; actual source maps and texture-times-vertex coverage use straight linear PBR blending while hero affine lighting and native framebuffer composition are replaced by shared PBR lighting"
+                );
+            }
         }
         RuntimeFeature::ColorMatrix => {
             surface["pending_runtime"] = json!(
