@@ -24,7 +24,17 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 mod eyes;
 mod gibs;
 mod ragdoll;
-pub(crate) use ragdoll::{RagdollBullet, RagdollCollisionHooks, RagdollExplosion, terrain_fraction};
+pub(crate) use ragdoll::{RagdollBullet, RagdollCollisionHooks, RagdollExplosion};
+
+pub(crate) fn reset(world: &mut World) {
+    world.insert_resource(gibs::GibCounter::default());
+    if let Some(mut messages) = world.get_resource_mut::<Messages<RagdollBullet>>() {
+        messages.clear();
+    }
+    if let Some(mut messages) = world.get_resource_mut::<Messages<RagdollExplosion>>() {
+        messages.clear();
+    }
+}
 
 #[derive(Component)]
 pub struct EnemyGoal {
