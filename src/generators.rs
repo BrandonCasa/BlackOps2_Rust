@@ -11,9 +11,11 @@ use crate::{
 use bevy::prelude::*;
 use bevy::world_serialization::WorldInstanceReady;
 use std::collections::{BTreeMap, BTreeSet};
+mod crystals;
 mod effects;
 mod raids;
 mod rewards;
+pub use crystals::CrystalProfile;
 pub use raids::GeneratorRaids;
 pub(crate) use rewards::BoxGlowRamp;
 
@@ -25,6 +27,7 @@ fn enabled(
 }
 
 pub(crate) fn reset(world: &mut World) {
+    crystals::reset(world);
     world.insert_resource(Generators::default());
     world.insert_resource(GeneratorRaids::default());
     world.insert_resource(rewards::CaptureRewards::default());
@@ -237,43 +240,47 @@ impl GeneratorDefender {
 pub struct GeneratorPlugin;
 impl Plugin for GeneratorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((rewards::CaptureRewardsPlugin, effects::CaptureEffectsPlugin))
-            .init_resource::<Generators>()
-            .init_resource::<raids::GeneratorRaids>()
-            .add_systems(
-                OnEnter(GameState::PreparingShaders),
-                raids::reset.in_set(crate::session::SessionSetup::World),
-            )
-            .add_systems(
-                OnEnter(GameState::PreparingShaders),
-                assemble.in_set(crate::session::SessionSetup::World),
-            )
-            .add_observer(visual_ready)
-            .add_systems(
-                FixedUpdate,
-                defender_intent
-                    .in_set(GameStep::EnemyIntent)
-                    .before(crate::enemies::lifecycle)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(
-                FixedUpdate,
-                tick.in_set(GameStep::Zombies)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(
-                FixedUpdate,
-                (retire_excess, clear_defenders, defenders)
-                    .chain()
-                    .in_set(GameStep::Zombies)
-                    .after(tick)
-                    .before(crate::enemies::EnemyRetirement)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(
-                Update,
-                (presentation, audio_evidence).run_if(in_state(GameState::Playing)),
-            );
+        app.add_plugins((
+            rewards::CaptureRewardsPlugin,
+            effects::CaptureEffectsPlugin,
+            crystals::CrystalPlugin,
+        ))
+        .init_resource::<Generators>()
+        .init_resource::<raids::GeneratorRaids>()
+        .add_systems(
+            OnEnter(GameState::PreparingShaders),
+            raids::reset.in_set(crate::session::SessionSetup::World),
+        )
+        .add_systems(
+            OnEnter(GameState::PreparingShaders),
+            assemble.in_set(crate::session::SessionSetup::World),
+        )
+        .add_observer(visual_ready)
+        .add_systems(
+            FixedUpdate,
+            defender_intent
+                .in_set(GameStep::EnemyIntent)
+                .before(crate::enemies::lifecycle)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(
+            FixedUpdate,
+            tick.in_set(GameStep::Zombies)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(
+            FixedUpdate,
+            (retire_excess, clear_defenders, defenders)
+                .chain()
+                .in_set(GameStep::Zombies)
+                .after(tick)
+                .before(crate::enemies::EnemyRetirement)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(
+            Update,
+            (presentation, audio_evidence).run_if(in_state(GameState::Playing)),
+        );
         if app.world().resource::<crate::origins::DeliveryScope>()
             == &crate::origins::DeliveryScope::FullOrigins
         {

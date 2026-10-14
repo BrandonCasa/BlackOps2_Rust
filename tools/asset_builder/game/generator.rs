@@ -13,6 +13,135 @@ fn character_field(source: &str, field: &str) -> Result<String> {
         .ok_or_else(|| format!("Initial capture character field is missing: {field}").into())
 }
 
+fn crystal_profile(
+    catalog: &Catalog<'_>,
+    game: &mut Value,
+    entities: &[crate::entities::Entity],
+    server: &str,
+) -> Result<()> {
+    let client = source("source/client-tomb/clientscripts/mp/zm_tomb_capture_zones.csc")?;
+    let native_mapping = source("exports/functions/0050/005021c0.c")?;
+    for local in ["local_10", "local_c", "local_8", "local_4"] {
+        if !native_mapping.contains(&format!("{local} = 0.0;")) {
+            return Err("Native mapshaderconstant omitted-component initialization changed".into());
+        }
+    }
+    for expression in [
+        "self set_zombie_controlled_area( 1 );",
+        "level setclientfield( \"zone_capture_monolith_crystal_\" + self.script_int, 1 );",
+        "level setclientfield( \"zone_capture_monolith_crystal_\" + self.script_int, 0 );",
+    ] {
+        if !server.contains(expression) {
+            return Err(
+                format!("Source monolith crystal lifecycle is unsupported: {expression}").into(),
+            );
+        }
+    }
+    if !client.contains("get_monolith_crystal_model( fieldname, localclientnumber )")
+        || !client.contains("getent( localclientnum, str_targetname, \"targetname\" )")
+        || !client
+            .contains("self setshaderconstant( localclientnumber, 2, self.n_glow_value, 0, 0, 0 );")
+    {
+        return Err("Source monolith crystal target or mapped vector producer changed".into());
+    }
+    let initial = client
+        .split_once("mapshaderconstant( localclientnum, 2, \"ScriptVector0\", ")
+        .and_then(|(_, value)| value.split_once(" );"))
+        .ok_or("Source initial monolith crystal vector is missing")?
+        .0
+        .trim()
+        .parse::<f32>()?;
+    let sample = client
+        .split_once("n_steps = int( n_transition_time / ")
+        .and_then(|(_, value)| value.split_once(" );"))
+        .ok_or("Source crystal sampling interval is missing")?
+        .0
+        .trim()
+        .parse::<f32>()?;
+    if !client.contains(&format!("wait {sample};")) {
+        return Err(
+            "Source crystal transition sampling wait differs from its interpolation interval"
+                .into(),
+        );
+    }
+    let phases = client.lines().map(str::trim)
+        .filter_map(|line| line.strip_prefix("m_crystal thread crystal_flicker( localclientnumber, "))
+        .map(|line| -> Result<Value> {
+            let values = line.strip_suffix(" );").ok_or("Source crystal flicker arguments are malformed")?
+                .split(',').map(|value| value.trim().parse::<f32>()).collect::<std::result::Result<Vec<_>, _>>()?;
+            let [low, high, transition_low, transition_high, hold_low, hold_high]: [f32; 6] = values.try_into()
+                .map_err(|_| "Source crystal flicker requires six literal arguments")?;
+            Ok(json!({"range":[low,high],"transition_seconds":[transition_low,transition_high],"hold_seconds":[hold_low,hold_high]}))
+        }).collect::<Result<Vec<_>>>()?;
+    let [zombie, player]: [Value; 2] = phases
+        .try_into()
+        .map_err(|_| "Source crystal callback must distinguish zombie and player control")?;
+    let mut crystals = Vec::new();
+    let mut numbers = BTreeSet::new();
+    for generator in entities.iter().filter(|entity| {
+        entity
+            .get("targetname")
+            .is_some_and(|name| name == "s_generator")
+    }) {
+        let number = generator
+            .get("script_int")
+            .ok_or("Source generator crystal number is missing")?
+            .parse::<u8>()?;
+        if !numbers.insert(number) {
+            return Err(format!("Source generator crystal number {number} is ambiguous").into());
+        }
+        let target = format!("zone_capture_monolith_crystal_{number}");
+        let candidates = entities
+            .iter()
+            .filter(|entity| entity.get("targetname") == Some(&target))
+            .collect::<Vec<_>>();
+        let [entity] = candidates.as_slice() else {
+            return Err(format!(
+                "Source crystal target {target} resolves {} native entities",
+                candidates.len()
+            )
+            .into());
+        };
+        let model = entity
+            .get("model")
+            .ok_or_else(|| format!("Source crystal {target} has no native model"))?;
+        if model.starts_with('*') {
+            return Err(format!(
+                "Source crystal {target} requires an unimplemented brush binding: {model}"
+            )
+            .into());
+        }
+        catalog.resolve(5, model)?;
+        let (position, yaw) = pose(entity)?;
+        let angles = crate::entities::vector(entity, "angles")?.unwrap_or([0.; 3]);
+        if angles[0] != 0. || angles[2] != 0. {
+            return Err(
+                format!("Source crystal {target} has unsupported tilted orientation").into(),
+            );
+        }
+        let presentation = format!("actor.{model}");
+        if !game["content"]["presentations"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row["id"] == presentation))
+        {
+            append(
+                game,
+                "presentations",
+                json!({"id":presentation,"source_model":model,"scene":null,"animations":[],"sounds":[]}),
+            )?;
+        }
+        let owner = generator
+            .get("script_noteworthy")
+            .ok_or("Source generator crystal owner is missing")?;
+        crystals.push(json!({"number":number,"generator":format!("generator.{owner}"),"target":target,"presentation":presentation,"source_model":model,"position":position,"yaw":yaw}));
+    }
+    if crystals.is_empty() {
+        return Err("Source generator monolith crystal bindings are missing".into());
+    }
+    game["generator_crystals"] = json!({"initial_state":[initial,0.,0.,0.],"sample_seconds":sample,"zombie_controlled":zombie,"player_controlled":player,"crystals":crystals});
+    Ok(())
+}
+
 pub(super) fn read(
     catalog: &Catalog<'_>,
     game: &mut Value,
@@ -20,6 +149,7 @@ pub(super) fn read(
     _gaps: &mut Vec<String>,
 ) -> Result<()> {
     let capture = source("source/server-tomb/maps/mp/zm_tomb_capture_zones.gsc")?;
+    crystal_profile(catalog, game, entities, &capture)?;
     let unitrigger = source("source/server-patch/maps/mp/zombies/_zm_unitrigger.gsc")?;
     if !unitrigger.contains("box_radius = length( ( unitrigger_stub.script_width / 2, unitrigger_stub.script_length / 2, unitrigger_stub.script_height / 2 ) );") || !unitrigger.contains("level._unitriggers.largest_radius = min( 113.0, unitrigger_stub.radius );") {
         return Err("Initial native unitrigger global use radius source changed".into());
@@ -595,6 +725,18 @@ mod tests {
         let zones = crate::source::read_zones(&crate::source::installation().unwrap()).unwrap();
         let catalog = Catalog::new(&zones);
         let entities = crate::entities::read(&catalog).unwrap();
+        let mut visual_bindings = json!({"content":{"presentations":[]}});
+        crystal_profile(
+            &catalog,
+            &mut visual_bindings,
+            &entities,
+            &source("source/server-tomb/maps/mp/zm_tomb_capture_zones.gsc").unwrap(),
+        )
+        .unwrap();
+        println!(
+            "Source monolith crystal bindings: {}",
+            visual_bindings["generator_crystals"]
+        );
         let generators = entities
             .iter()
             .enumerate()
