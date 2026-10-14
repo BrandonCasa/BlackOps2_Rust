@@ -91,6 +91,7 @@ pub fn accept_initial_visual_approximations(
             continue;
         }
         let mut roles = vec!["color"];
+        let mut shadow_only = false;
         let feature = if let Some(recipe) = ordinary_recipe(family) {
             let vertex_lighting = family.starts_with("mlv_")
                 && surface["source_vertex_lighting"]["source"] == 5
@@ -174,6 +175,20 @@ pub fn accept_initial_visual_approximations(
                 continue;
             }
             "native_character_lighting_and_coverage_to_shared_pbr"
+        } else if world::lookup(family) == Some(world::WorldRecipe::Shadow) {
+            world::WorldRecipe::Shadow.validate(name, material)?;
+            let shadow = &surface["source_shadow_only"];
+            if shadow["visible_lit_pass"] != false
+                || shadow["cast_shadows"] != true
+                || shadow["depth_prepass"]["color_write"] != false
+                || shadow["shadowmap"]["color_write"] != false
+                || surface["presentation"]["visible"] != false
+            {
+                continue;
+            }
+            roles.clear();
+            shadow_only = true;
+            "native_shadow_only_geometry_with_solari_occlusion"
         } else if let Some(recipe) = single_unlit_recipe(family) {
             let mode = recipe.mode;
             if matches!(mode, "layer" | "layer_reflection") {
@@ -232,7 +247,7 @@ pub fn accept_initial_visual_approximations(
         };
         let Some(channels) = surface["channels"]
             .as_array()
-            .filter(|channels| !channels.is_empty())
+            .filter(|channels| shadow_only || !channels.is_empty())
         else {
             continue;
         };
@@ -265,6 +280,9 @@ pub fn accept_initial_visual_approximations(
             format!("Initial visual approximation has no documented bake/PBR limits: {name}")
         })?;
         approximations.push(json!(reason));
+        if shadow_only {
+            approximations.push(json!("Source shadow-only geometry participates in opaque Solari occlusion while a dedicated camera-excluded render layer prevents color output; secondary ray hits absorb light instead of reflecting native tool artwork"));
+        }
         surface["approximation_scope"] = json!("first_playable_solo");
         surface["accepted_visual_feature"] = json!(feature);
         surface.as_object_mut().unwrap().remove("pending_runtime");

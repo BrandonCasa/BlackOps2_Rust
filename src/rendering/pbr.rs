@@ -10,6 +10,8 @@ use bevy::{
 use serde::Deserialize;
 use std::collections::HashMap;
 
+const SHADOW_ONLY_LAYER: usize = 31;
+
 #[derive(Clone, Debug, Deserialize)]
 pub(super) struct PreparedTexture {
     pub uri: String,
@@ -60,6 +62,19 @@ pub(crate) fn validate(surface: &serde_json::Value) -> Result<(), String> {
         return Err(format!("Unresolved material runtime binding: {reason}"));
     }
     textures(&surface["channels"])?;
+    if !surface["source_shadow_only"].is_null() {
+        let shadow = &surface["source_shadow_only"];
+        if surface["native"]["technique_set"] != "wpc_shadowcaster_wj6w5j60"
+            || shadow["visible_lit_pass"] != false
+            || shadow["cast_shadows"] != true
+            || shadow["depth_prepass"]["color_write"] != false
+            || shadow["shadowmap"]["color_write"] != false
+            || surface["presentation"]["visible"] != false
+            || surface["presentation"]["alpha"] != "opaque"
+        {
+            return Err("Invalid native shadow-only material binding".into());
+        }
+    }
     uv_transform(&surface["standard"])?;
     let state = &surface["presentation"];
     if !matches!(
@@ -297,7 +312,17 @@ pub(super) fn prepare(
             Some("multiply") => AlphaMode::Multiply,
             _ => AlphaMode::Opaque,
         };
-        if state["visible"].as_bool() == Some(false) {
+        if !surface["source_shadow_only"].is_null() {
+            material.base_color = Color::BLACK;
+            material.reflectance = 0.;
+            material.emissive = LinearRgba::BLACK;
+            material.unlit = false;
+            commands.entity(entity).insert((
+                bevy::camera::visibility::RenderLayers::layer(SHADOW_ONLY_LAYER),
+                Visibility::Inherited,
+                super::SurfaceReady,
+            ));
+        } else if state["visible"].as_bool() == Some(false) {
             commands.entity(entity).insert(Visibility::Hidden);
         }
         if super::shadows::excludes_caster(surface) {
