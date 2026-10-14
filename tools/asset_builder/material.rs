@@ -916,8 +916,7 @@ mod tests {
         assert_eq!(bake(&base,"normal",Some((&detail,20,[8.,2.,0.,0.]))).unwrap().levels,bake(&base,"normal",None).unwrap().levels);
         assert!(bake(&base,"normal",Some((&detail,20,[8.,f32::NAN,1.,0.]))).is_err());
     }
-
-
+    #[test]
     fn implemented_dispatch_does_not_satisfy_converted_material_closure() {
         let native = BTreeMap::from([
             ("ordinary".into(),json!({"technique_set":"mc_lit_sm_r0c0n0_2z223015"})),

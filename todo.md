@@ -100,7 +100,7 @@ Primary files: tools/asset_builder/material.rs, bake.rs, geometry.rs, texture.rs
 
 ## 1.4 Material selectors, animation, and Solari runtime bindings
 
-- [ ] Recover exact weapon and attachment material selections for every required camo-dependent family.
+- [ ] Recover exact weapon and attachment material selections for every required camo-dependent family. The merged runtime work adds shared viewmodel descriptor construction, native attachment/combined-model selection and a Rust reader for all source weapon/attachment selection fields. Packing those tables, live owner rebuilds and active submission remain pending.
 - [x] Read native camo pattern and material-set data directly through the existing Rust pipeline. Reads all 35 installed definitions, both base images, every pattern tuple/image pair, ordered material sets/pairs/flags, all eight record constants, and the native 128-slot option table. Positive-count null arrays fail explicitly; null individual pairs retain the native rejection behavior. Generated runtime serialization and consumers remain separate outstanding work.
 - [ ] Apply source surface masks and material scope to texture and constant overrides. Native input planner implements low-16-bit model-index eligibility, destination-material scope, source semantic 2/5/8 to destination 2/13/14 preservation and command order. Focused checks pass, including indices 16..31, scope mismatch and retained destination samplers. Live descriptor construction and runtime application remain pending.
 - [ ] Preserve source pattern-mode image replacement order and success conditions. Native planner preserves first/second swap order, null/equal rejection, the shared 1,024-command limit, partial first-swap success and the requirement that both swaps succeed before the parameter write. Focused checks pass; the runtime selector and submission consumer remain pending.
@@ -108,7 +108,7 @@ Primary files: tools/asset_builder/material.rs, bake.rs, geometry.rs, texture.rs
 - [ ] Preserve the active weaponParam2 values and their disabled/default state. Planner reads exact pattern offset/scale, writes [x,y,scale,1] only after both image swaps succeed, and preserves the supplied initial constants otherwise. Checks cover disabled zero input, partial swap failure, capacity exhaustion, option masking and the mapped-distance boundary. Runtime per-object registration, refresh and reset remain pending.
 - [ ] Preserve the active weaponParam6 values for material-set paths that consume them. Planner delivers record XYZ and W+10 only when flag 2 is set, scoped to the replacement material. Consumer checks preserve head-first traversal, including older matching constant writes overwriting newer ones as in the recovered native consumer. All eight record constants remain available; selected shader use and live runtime delivery remain pending.
 - [ ] Resolve required model, weapon, attachment, and hand ownership for material state selection.
-- [ ] Reset material overrides on weapon replacement, unequip, owner destruction, and session reset.
+- [ ] Reset material overrides on weapon replacement, unequip, owner destruction, and session reset. The merged runtime work restores saved material/name/extras on replacement and loading, resets preparation and animation markers, and refreshes animation ownership. Actual-game lifecycle validation and descriptor-driven submissions remain pending.
 - [ ] Convert source time controls, offsets, and UV animation inputs into the existing UvAnimation path where applicable.
 - [ ] Convert source scalar lookup/curve controls into the existing ScalarAnimation path where applicable.
 - [ ] Use existing AnimatedMaterial state/frame support where it represents the recovered source behavior.
@@ -122,9 +122,9 @@ Primary files: tools/asset_builder/material.rs, bake.rs, geometry.rs, texture.rs
 - [ ] Preserve required flag/cloth material geometry motion through the existing supported geometry and Solari integration.
 - [ ] Keep scope, reticle, lens, and viewmodel material ownership and visibility tied to actual weapon state.
 - [ ] Complete source-derived water, glass, cornea, and transparent material bindings through the current rendering architecture.
-- [ ] Ensure changed material handles and textures reach the existing Solari scene/material update path.
-- [ ] Ensure shared material reuse does not leak one object's animated state into another object.
-- [ ] Ensure material animation waits for required packed texture dependencies before applying a frame.
+- [ ] Ensure changed material handles and textures reach the existing Solari scene/material update path. The merged runtime work refreshes changed material extras, invalidates changed mesh proxies, updates UV-transformed ray meshes after material animation and retains source meshes needed by live animation. Compilation and actual-game/Solari validation remain pending.
+- [ ] Ensure shared material reuse does not leak one object's animated state into another object. The merged runtime work allocates animated material handles per object and retains/restores source bindings. Descriptor-driven camo changes and actual-game validation remain pending.
+- [ ] Ensure material animation waits for required packed texture dependencies before applying a frame. The merged runtime work checks frame dependencies and reports failed loads before binding animation frames. Actual-game validation remains pending.
 - [ ] Keep source lighting and view-dependent response out of fixed albedo/emission bakes.
 - [ ] Preserve the current source-derived atmosphere and color response while adding material coverage.
 
@@ -530,7 +530,7 @@ Primary files: tools/asset_builder/collision.rs, entities.rs, game.rs, scenes.rs
 - [ ] Complete required non-brush trigger kinds currently reported by game::read.
 - [ ] Preserve native radius/cylinder geometry without replacing it with a box approximation.
 - [ ] Preserve rotated box geometry and the committed convex representation.
-- [ ] Carry required terrain/triangle trigger geometry through the existing collision output.
+- [ ] Carry required terrain/triangle trigger geometry through the existing collision output. The merged runtime work accepts rotated brush trigger shapes with convex and triangle pieces through the existing Avian compound path. Source trigger conversion, exact ownership and actual behavior validation remain pending.
 - [ ] Preserve source contents and surface flags on triangle and convex geometry.
 - [ ] Preserve body/brush ownership so dynamic brushes are not duplicated in static collision.
 - [ ] Resolve source-selected mud volumes and their movement consumer.
