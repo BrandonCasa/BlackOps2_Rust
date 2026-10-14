@@ -10,7 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 type Vector = [f64; 3];
 type Triangle = [Vector; 3];
-type Batches = BTreeMap<u32, Vec<Triangle>>;
+type Batches = BTreeMap<(u32, u32), Vec<Triangle>>;
+
+const WORLD_CONTENTS: u32 = 0x10001 | 0x0281ee93;
 
 pub(crate) use brush::model as model_triangles;
 
@@ -61,6 +63,82 @@ mod brush;
 mod terrain;
 use brush::{brush, brush_geometry, brushes_in_node, model};
 use terrain::{inactive_terrain_triangles, terrain_partitions, triangle_shape};
+
+pub(crate) fn water(catalog: &Catalog<'_>) -> Result<Value> {
+    let (_, zone, root) = catalog
+        .definitions(12)
+        .next()
+        .ok_or("Origins clip map is missing")?;
+    let streams = &catalog.zones[zone].1.streams;
+    let info = root.add(8)?;
+    let mut dynamic = BTreeSet::new();
+    let models = pointer(streams, root.add(148)?)?;
+    for index in 1..streams.u32(root.add(144)?)? as usize {
+        let model = models.add(index * 76)?;
+        let model_info = if streams.u32(model.add(28)?)? == 0 {
+            info
+        } else {
+            pointer(streams, model.add(28)?)?
+        };
+        let node = streams.u32(model.add(68)?)? as usize;
+        if model_info == info && node != 0 {
+            dynamic.extend(brushes_in_node(streams, info, node)?);
+        }
+    }
+    let brushes = pointer(streams, info.add(60)?)?;
+    let mut volumes = Vec::new();
+    for index in 0..streams.u16(info.add(56)?)? as usize {
+        let brush = brushes.add(index * 96)?;
+        if !dynamic.contains(&index) && streams.u32(brush.add(12)?)? & 0x20 != 0 {
+            let (_, planes) = brush_geometry(streams, brush)?;
+            volumes.push(
+                planes
+                    .into_iter()
+                    .map(|(normal, distance, _)| {
+                        [normal[0], normal[2], -normal[1], distance * 0.0254]
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        }
+    }
+    let mut partitions = BTreeSet::new();
+    let leaves = pointer(streams, root.add(104)?)?;
+    for index in 0..streams.u32(root.add(100)?)? as usize {
+        let leaf = leaves.add(index * 44)?;
+        partitions.extend(terrain_partitions(
+            streams,
+            root,
+            streams.u16(leaf)? as usize,
+            streams.u16(leaf.add(2)?)? as usize,
+        )?);
+    }
+    let mut triangles = Vec::<[[f64; 3]; 3]>::new();
+    let mut seen = BTreeSet::new();
+    for (partition, material) in partitions {
+        let (shape, owned) = triangle_shape(streams, root, info, partition, material)?;
+        if shape["contents"]
+            .as_u64()
+            .ok_or("Native water terrain lacks contents")?
+            & 0x20
+            == 0
+        {
+            continue;
+        }
+        let vertices: Vec<[f64; 3]> = serde_json::from_value(shape["vertices"].clone())?;
+        let indices: Vec<[usize; 3]> = serde_json::from_value(shape["indices"].clone())?;
+        for (index, triangle) in owned.into_iter().zip(indices) {
+            if seen.insert(index) {
+                triangles.push(triangle.map(|vertex| vertices[vertex]));
+            }
+        }
+    }
+    println!(
+        "Converted {} native static water volumes and {} water contact triangles",
+        volumes.len(),
+        triangles.len()
+    );
+    Ok(json!({"volumes":volumes,"triangles":triangles}))
+}
 
 pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
     let (name, zone, root) = catalog
@@ -171,13 +249,17 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
         }
     }
     let mut batches = Batches::new();
+    let mut static_volumes = Vec::new();
     let count = streams.u16(info.add(56)?)? as usize;
     let brushes = pointer(streams, info.add(60)?)?;
     for index in 0..count {
         let entry = brushes.add(index * 96)?;
-        if !dynamic.contains(&index) && streams.u32(entry.add(12)?)? & 0x10001 != 0 {
+        let contents = streams.u32(entry.add(12)?)?;
+        if !dynamic.contains(&index) && contents & WORLD_CONTENTS != 0 {
             brush(streams, entry, &mut batches)
                 .map_err(|error| format!("Collision brush {index}: {error}"))?;
+            let (_, planes) = brush_geometry(streams, entry)?;
+            static_volumes.push(json!({"contents":contents,"planes":planes.into_iter().map(|(normal,distance,_)|[normal[0],normal[2],-normal[1],distance*0.0254]).collect::<Vec<_>>()}));
         }
     }
     let mut terrain_batches = BTreeMap::<(u32, u32), Vec<Triangle>>::new();
@@ -204,7 +286,7 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
             }
             if let Some(flags) = static_triangles.get(&index) {
                 for &(contents, surface_flags) in flags {
-                    if contents & 0x10001 != 0 {
+                    if contents & WORLD_CONTENTS != 0 {
                         terrain_batches
                             .entry((contents, surface_flags))
                             .or_default()
@@ -243,18 +325,19 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
     }
     let count = streams.u32(root.add(84)?)? as usize;
     let mut model_cache = BTreeMap::new();
+    let mut model_batches = Batches::new();
     if count != 0 {
         let instances = pointer(streams, root.add(88)?)?;
         for index in 0..count {
             let instance = instances.add(index * 84)?;
-            if streams.u32(instance.add(8)?)? & 0x10001 == 0 {
+            if streams.u32(instance.add(8)?)? & WORLD_CONTENTS == 0 {
                 continue;
             }
             let (name, owner, model_root) = catalog.pointer(zone, instance.add(4)?, 5)?;
             if !model_cache.contains_key(&name) {
                 model_cache.insert(
                     name.clone(),
-                    model(catalog, owner, model_root, 0x10001, None)?,
+                    model(catalog, owner, model_root, WORLD_CONTENTS, None)?,
                 );
             }
             let origin = vector(streams, instance.add(12)?)?;
@@ -271,57 +354,50 @@ pub fn convert(catalog: &Catalog<'_>, pack: &mut Pack) -> Result<Value> {
                             .ok_or("Singular native collision placement")?;
                         placed[corner] = std::array::from_fn(|axis| point[axis] + origin[axis]);
                     }
-                    batches.entry(*flags).or_default().push(placed);
+                    model_batches.entry(*flags).or_default().push(placed);
                 }
             }
         }
     }
     let mut scene = Scene::new(name);
-    scene.data["extras"] = json!({"brush_models":brush_models});
+    scene.data["extras"] = json!({"brush_models":brush_models,"static_volumes":static_volumes});
     let mut triangles = 0;
-    for (flags, batch) in &batches {
-        let positions: Vec<_> = batch
-            .iter()
-            .flatten()
-            .map(|[x, y, z]| {
-                [
-                    (*x * 0.0254) as f32,
-                    (*z * 0.0254) as f32,
-                    (-*y * 0.0254) as f32,
-                ]
-            })
-            .collect();
-        triangles += batch.len();
-        scene.collision(&format!("native-surface-{flags:08x}"), &positions, *flags)?;
-    }
-    for ((contents, flags), batch) in &terrain_batches {
-        let positions: Vec<_> = batch
-            .iter()
-            .flatten()
-            .map(|[x, y, z]| {
-                [
-                    (*x * 0.0254) as f32,
-                    (*z * 0.0254) as f32,
-                    (-*y * 0.0254) as f32,
-                ]
-            })
-            .collect();
-        triangles += batch.len();
-        scene.collision(
-            &format!("native-terrain-{contents:08x}-{flags:08x}"),
-            &positions,
-            *flags,
-        )?;
-        let material = scene.data["materials"]
-            .as_array_mut()
-            .ok_or("Collision scene has no materials")?
-            .last_mut()
-            .ok_or("Collision terrain has no material")?;
-        material["extras"]["surface"]["contents"] = json!(contents);
+    for (prefix, batches) in [
+        ("native-surface", &batches),
+        ("native-model", &model_batches),
+        ("native-terrain", &terrain_batches),
+    ] {
+        for ((contents, flags), batch) in batches {
+            let positions: Vec<_> = batch
+                .iter()
+                .flatten()
+                .map(|[x, y, z]| {
+                    [
+                        (*x * 0.0254) as f32,
+                        (*z * 0.0254) as f32,
+                        (-*y * 0.0254) as f32,
+                    ]
+                })
+                .collect();
+            triangles += batch.len();
+            scene.collision(
+                &format!("{prefix}-{contents:08x}-{flags:08x}"),
+                &positions,
+                *flags,
+            )?;
+            let material = scene.data["materials"]
+                .as_array_mut()
+                .ok_or("Collision scene has no materials")?
+                .last_mut()
+                .ok_or("Collision surface has no material")?;
+            material["extras"]["surface"]["contents"] = json!(contents);
+            material["extras"]["surface"]["static_model"] = json!(prefix == "native-model");
+            material["extras"]["surface"]["terrain"] = json!(prefix == "native-terrain");
+        }
     }
     let uri = "prepared/worlds/zm_tomb.collision.gltf";
     scene.write(uri, pack)?;
-    let mesh_count = batches.len() + terrain_batches.len();
+    let mesh_count = batches.len() + model_batches.len() + terrain_batches.len();
     println!(
         "Excluded {} terrain triangles belonging only to partitions unreferenced by every native AABB leaf",
         inactive_triangles.len()

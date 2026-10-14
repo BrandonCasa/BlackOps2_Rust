@@ -132,7 +132,7 @@ pub(crate) struct NativeClock {
 }
 
 impl NativeClock {
-    pub(super) fn render_milliseconds(&self) -> Option<i32> {
+    pub(crate) fn render_milliseconds(&self) -> Option<i32> {
         self.render
     }
 

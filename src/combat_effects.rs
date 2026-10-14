@@ -78,7 +78,8 @@ impl Armor {
         delivered
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BodyGib {
     Guts,
     RightArm,
@@ -215,6 +216,7 @@ pub struct Wounds {
     pub right_arm: bool,
     pub body_gib: Option<BodyGib>,
     pub hatless: bool,
+    pub(crate) gib_events: Vec<u8>,
     pub ice_recovery: f32,
     pub field_captured: bool,
     pub disintegrated: bool,
@@ -353,14 +355,16 @@ fn observe(
         let Ok((health, pose, mut wounds, mut zombie, kind)) = actors.get_mut(hit.target) else {
             continue;
         };
-        if matches!(hit.source, ImpactSource::Status(_)) {
+        let status = matches!(hit.source, ImpactSource::Status(_));
+        if status {
             if event.lethal && matches!(hit.category, DamageCategory::Ice) {
                 wounds.shattered = true;
             }
-            continue;
         }
         let weapon = match &hit.source {
-            ImpactSource::Weapon(id) | ImpactSource::Projectile(id) => Some(id.clone()),
+            ImpactSource::Weapon(id) | ImpactSource::Projectile(id) | ImpactSource::Status(id) => {
+                Some(id.clone())
+            }
             _ => None,
         };
         let joint = |name: &str| {
@@ -384,8 +388,11 @@ fn observe(
                     .find(|weapon| weapon.id == *id)
             })
             .is_some_and(|weapon| weapon.throwable.is_some());
-        let gib = *kind == crate::rounds::PopulationKind::Ordinary
-            && wounds.burning == 0.
+        let gib = matches!(
+            kind,
+            crate::rounds::PopulationKind::Ordinary
+                | crate::rounds::PopulationKind::GeneratorDefender
+        ) && wounds.burning == 0.
             && matches!(
                 hit.category,
                 DamageCategory::Bullet | DamageCategory::Explosive
@@ -419,6 +426,8 @@ fn observe(
                     && health.current().unwrap_or(0) <= health.maximum() / 10
             };
             if head_point && !wounds.headless && shooters.contains(hit.attacker) {
+                let event = (1 << 5) | if wounds.hatless { 0 } else { 1 << 7 };
+                wounds.gib_events.push(event);
                 wounds.headless = true;
                 wounds.hatless = true;
                 wounds.bleed_tick = 1.;
@@ -434,13 +443,32 @@ fn observe(
                     && health.current().unwrap_or(0) > health.maximum() / 10
                     && shooters.contains(hit.attacker)
                 {
+                    if !wounds.hatless {
+                        wounds.gib_events.push(1 << 7);
+                    }
                     wounds.hatless = true;
                 }
                 if wounds.body_gib.is_none() {
-                    let refs = gib_refs(hit.region, event.lethal, hit.point, joint);
+                    let point = if matches!(hit.category, DamageCategory::Explosive) {
+                        hit.point
+                    } else {
+                        None
+                    };
+                    let refs = gib_refs(hit.region, event.lethal, point, joint);
                     if !refs.is_empty() {
                         let selected = refs[session.random() as usize % refs.len()];
                         wounds.body_gib = Some(selected);
+                        let pieces = match selected {
+                            BodyGib::Guts => 0,
+                            BodyGib::RightArm => 1 << 1,
+                            BodyGib::LeftArm => 1 << 2,
+                            BodyGib::RightLeg => 1 << 3,
+                            BodyGib::LeftLeg => 1 << 4,
+                            BodyGib::NoLegs => (1 << 3) | (1 << 4),
+                        };
+                        if pieces != 0 {
+                            wounds.gib_events.push(pieces);
+                        }
                         wounds.left_arm = selected == BodyGib::LeftArm;
                         wounds.right_arm = selected == BodyGib::RightArm;
                         wounds.crawler = matches!(
@@ -450,6 +478,9 @@ fn observe(
                     }
                 }
             }
+        }
+        if status {
+            continue;
         }
         if event.lethal && (wounds.frozen > 0. || wounds.ice_recovery > 0.) {
             wounds.shattered = true;
@@ -525,6 +556,8 @@ fn tick(
     mut damage: ResMut<DamageQueue>,
     effects: Res<crate::powerups::PowerupEffects>,
     definition: Res<crate::origins::GameDefinition>,
+    rigs: Query<&crate::enemies::ActorRig>,
+    joints: Query<&GlobalTransform>,
 ) {
     let dt = time.delta_secs();
     for (entity, health, collider, mut pose, mut wounds, mut zombie) in &mut actors {
@@ -590,7 +623,11 @@ fn tick(
                 && let Some(mut impact) = wounds.bleed_impact.clone()
             {
                 wounds.bleed_tick += 1.;
-                impact.point = None;
+                impact.point = rigs
+                    .iter()
+                    .find_map(|rig| rig.socket(entity, "j_neck"))
+                    .and_then(|entity| joints.get(entity).ok())
+                    .map(GlobalTransform::translation);
                 if let Some(weapon) = definition
                     .content
                     .weapons

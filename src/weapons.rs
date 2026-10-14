@@ -85,6 +85,7 @@ pub struct WeaponInventory {
     stored_staff: BTreeMap<WeaponId, AmmoSnapshot>,
     weapon_ammo: BTreeMap<WeaponId, (ContentId, u32, u32)>,
     ads_leaving: bool,
+    ads_requested: bool,
     pub recoil: Vec2,
     pending: WeaponIntent,
     reload_duration_scale: f32,
@@ -117,6 +118,7 @@ impl Default for WeaponInventory {
             stored_staff: BTreeMap::new(),
             weapon_ammo: BTreeMap::new(),
             ads_leaving: false,
+            ads_requested: false,
             recoil: Vec2::ZERO,
             pending: WeaponIntent::default(),
             reload_duration_scale: 1.,
@@ -514,6 +516,9 @@ impl WeaponInventory {
             return if self.ads >= 1. { 1. } else { 0. };
         }
         ((self.ads - (1. - fraction)) / fraction).clamp(0., 1.)
+    }
+    pub(crate) fn native_ads_requested(&self) -> bool {
+        self.ads_requested
     }
     pub fn ads_fov(&self, hip_vertical: f32, definition: &WeaponDefinition) -> f32 {
         let mechanics = &definition.mechanics;
@@ -1321,6 +1326,7 @@ impl WeaponInventory {
         };
         let aiming =
             intent.ads && definition.mechanics.ads_enabled && self.action == WeaponAction::Ready;
+        self.ads_requested = aiming;
         let target = if aiming { 1. } else { 0. };
         let attachment_scale = if aiming && self.attachment() == "is" {
             0.85

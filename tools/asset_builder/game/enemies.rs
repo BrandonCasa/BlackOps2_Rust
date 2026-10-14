@@ -2,11 +2,102 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 fn state_source(catalog: &Catalog<'_>) -> Result<String> {
-    let (zone, root) = catalog.resolve(41, "animstatedefs/zm_tomb_basic.asd")?;
+    raw_source(catalog, "animstatedefs/zm_tomb_basic.asd")
+}
+
+fn raw_source(catalog: &Catalog<'_>, name: &str) -> Result<String> {
+    let (zone, root) = catalog.resolve(41, name)?;
     let streams = &catalog.zones[zone].1.streams;
     let length = streams.u32(root.add(4)?)? as usize;
     let data = Address::decode(streams.u32(root.add(8)?)?)?;
     Ok(std::str::from_utf8(streams.read(data, length)?)?.to_owned())
+}
+
+pub(super) fn gib_piece(catalog: &Catalog<'_>, name: &str, joint: &str) -> Result<Value> {
+    let (zone, root) = catalog.resolve(5, name)?;
+    let streams = &catalog.zones[zone].1.streams;
+    let number = |streams: &crate::fastfile::Streams, field: Address| -> Result<f32> {
+        let value = f32::from_bits(streams.u32(field)?);
+        if !value.is_finite() {
+            return Err("Native gib physics contains a nonfinite float".into());
+        }
+        Ok(value)
+    };
+    let vector = |streams: &crate::fastfile::Streams, field: Address| -> Result<[f32; 3]> {
+        Ok([
+            number(streams, field)?,
+            number(streams, field.add(8)?)?,
+            -number(streams, field.add(4)?)?,
+        ]
+        .map(|value| value * 0.0254))
+    };
+    let (_, preset_zone, preset) = catalog.pointer(zone, root.add(216)?, 1)?;
+    let preset_streams = &catalog.zones[preset_zone].1.streams;
+    let count = streams.u8(root.add(220)?)?;
+    if count == 0 {
+        return Err(format!("Native gib {name} has no source collision map").into());
+    }
+    let maps = Address::decode(streams.u32(root.add(224)?)?)?;
+    let map = Address::decode(streams.u32(maps)?)?;
+    let count = streams.u32(map)? as usize;
+    let array = Address::decode(streams.u32(map.add(4)?)?)?;
+    let mut shapes = Vec::new();
+    for index in 0..count {
+        let geometry = array.add(index * 68)?;
+        let brush = streams.u32(geometry)?;
+        if brush == 0 {
+            return Err(format!(
+                "Native gib {name} requires non-brush physics geometry conversion"
+            )
+            .into());
+        }
+        let brush = Address::decode(brush)?;
+        let count = streams.u32(brush.add(84)?)? as usize;
+        let points = if streams.u32(brush.add(28)?)? == 0 {
+            let low = vector(streams, brush)?;
+            let high = vector(streams, brush.add(16)?)?;
+            (0..8)
+                .map(|corner| {
+                    std::array::from_fn(|axis| {
+                        if corner & (1 << axis) == 0 {
+                            low[axis].min(high[axis])
+                        } else {
+                            low[axis].max(high[axis])
+                        }
+                    })
+                })
+                .collect::<Vec<[f32; 3]>>()
+        } else {
+            let vertices = Address::decode(streams.u32(brush.add(88)?)?)?;
+            (0..count)
+                .map(|index| vector(streams, vertices.add(index * 12)?))
+                .collect::<Result<Vec<_>>>()?
+        };
+        if points.len() < 4 {
+            return Err(format!("Native gib {name} has insufficient collision vertices").into());
+        }
+        shapes.push(points);
+    }
+    if shapes.is_empty() {
+        return Err(format!("Native gib {name} has empty collision geometry").into());
+    }
+    let mut low = [f32::INFINITY; 3];
+    let mut high = [f32::NEG_INFINITY; 3];
+    for point in shapes.iter().flatten() {
+        for axis in 0..3 {
+            low[axis] = low[axis].min(point[axis]);
+            high[axis] = high[axis].max(point[axis]);
+        }
+    }
+    let offset = vector(preset_streams, preset.add(48)?)?;
+    let center: [f32; 3] =
+        std::array::from_fn(|axis| (low[axis] + high[axis]) * 0.5 + offset[axis]);
+    Ok(
+        json!({"presentation":format!("actor.{name}"),"joint":joint,"physics":{
+        "mass":number(preset_streams,preset.add(8)?)?,"bounce":number(preset_streams,preset.add(12)?)?,
+        "friction":number(preset_streams,preset.add(16)?)?,"bullet_force_scale":number(preset_streams,preset.add(20)?)?,"explosive_force_scale":number(preset_streams,preset.add(24)?)?,
+        "gravity_scale":number(preset_streams,preset.add(44)?)?,"center":center,"shapes":shapes}}),
+    )
 }
 
 fn parse_states(source: &str) -> Result<BTreeMap<String, Vec<(String, String)>>> {
@@ -101,6 +192,185 @@ pub(super) fn state_clips(catalog: &Catalog<'_>, state: &str) -> Result<Vec<(Str
         .ok_or_else(|| format!("Required ordinary native ASD state is missing: {state}").into())
 }
 
+pub(super) fn ragdoll_profile(catalog: &Catalog<'_>) -> Result<Value> {
+    let source = raw_source(catalog, "ragdoll.cfg")?;
+    let empty = || json!({"bones":[],"joints":[],"baselerp":[],"self_pairs":[]});
+    let mut profiles = [empty(), empty()];
+    for line in source.trim_end_matches('\0').lines() {
+        let line = line.split_once("//").map_or(line, |(line, _)| line).trim();
+        if line.is_empty() {
+            continue;
+        }
+        let words = line.split_whitespace().collect::<Vec<_>>();
+        let command = words[0];
+        let profile: usize = words
+            .get(1)
+            .ok_or("Native ragdoll command lacks profile")?
+            .parse()?;
+        let row = profiles
+            .get_mut(profile)
+            .ok_or("Native ragdoll profile exceeds source limit")?;
+        let number = |index: usize| -> Result<f32> {
+            let value: f32 = words
+                .get(index)
+                .ok_or("Native ragdoll numeric field is missing")?
+                .parse()?;
+            if !value.is_finite() {
+                return Err("Native ragdoll numeric field is not finite".into());
+            }
+            Ok(value)
+        };
+        let index = |field: usize| -> Result<usize> {
+            Ok(words
+                .get(field)
+                .ok_or("Native ragdoll index field is missing")?
+                .parse()?)
+        };
+        match command {
+            "ragdoll_clear" if words.len() == 2 => *row = empty(),
+            "ragdoll_bone" if words.len() == 12 => {
+                if !words[10].starts_with("cap") {
+                    return Err(format!(
+                        "Native ragdoll geometry requires conversion: {}",
+                        words[10]
+                    )
+                    .into());
+                }
+                number(5)?;
+                number(11)?;
+                let parent: i32 = words[8].parse()?;
+                let parent = (parent >= 0).then_some(parent as usize);
+                let bones = row["bones"].as_array_mut().unwrap();
+                if bones.len() >= 14 || parent.is_some_and(|parent| parent >= bones.len()) {
+                    return Err("Native ragdoll bone parent/order exceeds source limits".into());
+                }
+                bones.push(json!({"joint":words[2],"end_joint":words[3],"radius":number(4)?*0.0254,
+                    "mass":number(6)?*0.001,"friction":number(7)?,"parent":parent,"mirror":number(9)?!=0.}));
+            }
+            "ragdoll_joint" if words.len() == 4 => {
+                let bone = index(2)?;
+                if bone == 0
+                    || bone >= row["bones"].as_array().unwrap().len()
+                    || !matches!(words[3], "hinge" | "swivel")
+                {
+                    return Err("Native ragdoll joint has unsupported source bone/type".into());
+                }
+                let joints = row["joints"].as_array_mut().unwrap();
+                if joints.len() >= 28 {
+                    return Err("Native ragdoll joint count exceeds source limit".into());
+                }
+                joints.push(json!({"bone":bone,"kind":words[3],"limits":[]}));
+            }
+            "ragdoll_limit" if words.len() == 7 => {
+                let axis = match words[3] {
+                    "x" => [1., 0., 0.],
+                    "y" => [0., 0., -1.],
+                    "z" => [0., 1., 0.],
+                    _ => return Err("Native ragdoll angular axis requires conversion".into()),
+                };
+                let joint = row["joints"]
+                    .as_array_mut()
+                    .unwrap()
+                    .get_mut(index(2)?)
+                    .ok_or("Native ragdoll limit references missing joint")?;
+                let limits = joint["limits"].as_array_mut().unwrap();
+                if limits.len() >= 3 {
+                    return Err("Native ragdoll angular axes exceed source limit".into());
+                }
+                let radians = |field| {
+                    number(field).map(|value| {
+                        value
+                            .to_radians()
+                            .clamp(-std::f32::consts::PI, std::f32::consts::PI)
+                    })
+                };
+                limits.push(json!({"axis":axis,"friction":number(4)?,"minimum":radians(5)?,"maximum":radians(6)?}));
+            }
+            "ragdoll_baselerp_bone" if (3..=5).contains(&words.len()) => {
+                let seconds = if words.len() > 3 {
+                    number(3)?.clamp(100., 6000.) / 1000.
+                } else {
+                    1.
+                };
+                let bone = if words.len() > 4 { index(4)? } else { 0 };
+                if bone >= row["bones"].as_array().unwrap().len() {
+                    return Err("Native ragdoll baselerp parent is missing".into());
+                }
+                row["baselerp"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"joint":words[2],"bone":bone,"seconds":seconds}));
+            }
+            "ragdoll_selfpair" if words.len() == 4 => {
+                let pair = [index(2)?, index(3)?];
+                if pair
+                    .iter()
+                    .any(|bone| *bone >= row["bones"].as_array().unwrap().len())
+                {
+                    return Err("Native ragdoll collision pair references missing bone".into());
+                }
+                row["self_pairs"].as_array_mut().unwrap().push(json!(pair));
+            }
+            _ => return Err(format!("Native ragdoll command requires conversion: {line}").into()),
+        }
+    }
+    let profile = profiles.into_iter().nth(1).unwrap();
+    if profile["bones"].as_array().unwrap().len() != 12
+        || profile["joints"].as_array().unwrap().len() != 11
+    {
+        return Err(
+            "Native ordinary ragdoll profile1 has unexpected source body/joint counts".into(),
+        );
+    }
+    Ok(profile)
+}
+
+pub(super) fn ragdoll_model(catalog: &Catalog<'_>, model: &str, profile: &Value) -> Result<Value> {
+    let (zone, root) = catalog.resolve(5, model)?;
+    let joints = crate::geometry::skeleton(catalog, model, zone, root)?;
+    let named = joints
+        .iter()
+        .filter_map(|joint| joint.name.as_deref().map(|name| (name, joint)))
+        .collect::<BTreeMap<_, _>>();
+    let mut profile = profile.clone();
+    for (index, bone) in profile["bones"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .enumerate()
+    {
+        let first = bone["joint"].as_str().unwrap();
+        let end = bone["end_joint"].as_str().unwrap();
+        let first = named.get(first).ok_or_else(|| {
+            format!("Native ragdoll {model} is missing capsule base joint {first}")
+        })?;
+        let end = named.get(end).ok_or_else(|| {
+            format!("Native ragdoll {model} is missing capsule base end joint {end}")
+        })?;
+        let length = (12..15)
+            .map(|axis| (first.bind[axis] - end.bind[axis]).powi(2))
+            .sum::<f32>()
+            .sqrt();
+        bone["half_length"] = json!(length * 0.5 + if index == 3 { 2. * 0.0254 } else { 0. });
+        bone["base"] = json!(first.bind);
+    }
+    let bones = profile["bones"].as_array().unwrap().clone();
+    for bone in profile["baselerp"].as_array_mut().unwrap() {
+        let joint = bone["joint"].as_str().unwrap();
+        let parent = bones[bone["bone"].as_u64().unwrap() as usize]["joint"]
+            .as_str()
+            .unwrap();
+        let joint = named
+            .get(joint)
+            .ok_or_else(|| format!("Native ragdoll {model} is missing base-lerp joint {joint}"))?;
+        let parent = named.get(parent).ok_or_else(|| {
+            format!("Native ragdoll {model} is missing base-lerp parent {parent}")
+        })?;
+        bone["base"] = json!(crate::geometry::compose(parent.inverse_bind, joint.bind));
+    }
+    Ok(profile)
+}
+
 pub(crate) fn root_motion(decoded: &crate::animation::DecodedClip) -> Value {
     if !decoded.has_root_delta {
         return Value::Null;
@@ -163,7 +433,7 @@ pub(crate) fn root_motion(decoded: &crate::animation::DecodedClip) -> Value {
     json!({"seconds":seconds,"translation":translation,"rotation":rotation})
 }
 
-fn hit_volumes(catalog: &Catalog<'_>, models: &[&str]) -> Result<Vec<Value>> {
+pub(super) fn hit_volumes(catalog: &Catalog<'_>, models: &[&str]) -> Result<Vec<Value>> {
     let locations = [
         "none",
         "helmet",
@@ -261,6 +531,31 @@ fn hit_volumes(catalog: &Catalog<'_>, models: &[&str]) -> Result<Vec<Value>> {
     Ok(volumes)
 }
 
+pub(super) fn combat_clip(model: &str, decoded: &crate::animation::DecodedClip) -> Value {
+    let clip = &decoded.clip;
+    let duration = clip.frames as f32 / clip.frame_rate;
+    let seconds = clip
+        .notifies
+        .iter()
+        .find(|(name, _)| matches!(name.as_deref(), Some("end" | "finish" | "undefined")))
+        .map_or(duration, |(_, time)| time * duration);
+    let hits = clip
+        .notifies
+        .iter()
+        .filter(|(name, _)| name.as_deref() == Some("fire"))
+        .map(|(_, time)| time * duration)
+        .filter(|time| *time <= seconds)
+        .collect::<Vec<_>>();
+    let stops = clip
+        .notifies
+        .iter()
+        .filter(|(name, _)| name.as_deref() == Some("stop"))
+        .map(|(_, time)| time * duration)
+        .filter(|time| *time <= seconds)
+        .collect::<Vec<_>>();
+    json!({"animation":format!("animation.{model}.{}",clip.name),"seconds":seconds,"duration":duration,"hits":hits,"stops":stops})
+}
+
 fn global_hit_multipliers(catalog: &Catalog<'_>) -> Result<[f32; 21]> {
     let locations = [
         "none",
@@ -319,6 +614,44 @@ fn global_hit_multipliers(catalog: &Catalog<'_>) -> Result<[f32; 21]> {
     Ok(multipliers)
 }
 
+fn destructible_spawn_models(catalog: &Catalog<'_>) -> Result<BTreeSet<String>> {
+    let mut models = BTreeSet::new();
+    for (_, zone, root) in catalog.definitions(3) {
+        let streams = &catalog.zones[zone].1.streams;
+        let count = streams.u32(root.add(12)?)? as usize;
+        if count == 0 {
+            continue;
+        }
+        let pieces = Address::decode(streams.u32(root.add(16)?)?)?;
+        for piece in 0..count {
+            for stage in 0..5 {
+                for offset in [32, 36, 40] {
+                    let field = pieces.add(piece * 312 + stage * 48 + offset)?;
+                    if streams.u32(field)? != 0 {
+                        models.insert(catalog.pointer(zone, field, 5)?.0);
+                    }
+                }
+            }
+        }
+    }
+    Ok(models)
+}
+
+fn reload_clip_model(catalog: &Catalog<'_>, weapon: &str) -> Result<Option<String>> {
+    let (zone, root) = catalog.resolve(25, weapon)?;
+    let streams = &catalog.zones[zone].1.streams;
+    let array = streams.u32(root.add(44)?)?;
+    if array == 0 {
+        return Ok(None);
+    }
+    let field = Address::decode(array)?.add(24)?;
+    if streams.u32(field)? == 0 {
+        Ok(None)
+    } else {
+        Ok(Some(catalog.pointer(zone, field, 5)?.0))
+    }
+}
+
 pub(super) fn read(
     catalog: &Catalog<'_>,
     game: &mut Value,
@@ -326,6 +659,9 @@ pub(super) fn read(
     gaps: &mut Vec<String>,
 ) -> Result<()> {
     game["tuning"]["global_hit_multipliers"] = json!(global_hit_multipliers(catalog)?);
+    game["rounds"]["corpse_limit"] = json!(8);
+    game["rounds"]["actor_think_seconds"] = json!(0.05);
+    let ragdoll = ragdoll_profile(catalog)?;
     let source = parse_states(&state_source(catalog)?)?;
     let locomotion = [
         ("walk", "zm_move_walk"),
@@ -429,12 +765,59 @@ pub(super) fn read(
             .into()),
         };
         for (index, (model, hat)) in characters.into_iter().enumerate() {
+            let mut pieces = Vec::new();
+            for (piece, joint) in [
+                ("rarm", "j_elbow_ri"),
+                ("larm", "j_elbow_le"),
+                ("rleg", "j_knee_ri"),
+                ("lleg", "j_knee_le"),
+            ] {
+                let name = format!("c_zom_buried_g_{piece}spawn");
+                pieces.push(gib_piece(catalog, &name, joint)?);
+                models.entry(name).or_default();
+            }
+            let hat_piece = hat
+                .map(|hat| gib_piece(catalog, hat, "j_head"))
+                .transpose()?;
+            let variant = match model {
+                "c_zom_tomb_german_body_1a" | "c_zom_tomb_german_body_1a_nohat" => "1a",
+                "c_zom_tomb_german_body_1b" | "c_zom_tomb_german_body_1b_nohat" => "1b",
+                "c_zom_tomb_german_body_3c" | "c_zom_tomb_german_body_3c_nohat" => "3c",
+                _ => return Err(format!("Native gib character variant is missing: {model}").into()),
+            };
+            let replacement = |name: &str| format!("c_zom_tomb_german_body_g_{name}_{variant}");
+            let beheaded = "c_zom_tomb_german_body_g_behead";
+            let mut gib_models = serde_json::Map::new();
+            let mut gib_sources = BTreeSet::from([beheaded.to_owned()]);
+            for (kind, torso, legs) in [
+                ("right_arm", "rarm", "lowclean"),
+                ("left_arm", "larm", "lowclean"),
+                ("right_leg", "upclean", "rleg"),
+                ("left_leg", "upclean", "lleg"),
+                ("no_legs", "upclean", "legsoff"),
+            ] {
+                let body = replacement(torso);
+                let legs = replacement(legs);
+                gib_sources.extend([body.clone(), legs.clone()]);
+                gib_models.insert(
+                    kind.into(),
+                    json!({"body":format!("actor.{body}"),"legs":format!("actor.{legs}")}),
+                );
+            }
+            for gib in &gib_sources {
+                catalog.resolve(5, gib)?;
+                models
+                    .entry(gib.clone())
+                    .or_default()
+                    .extend(required.iter().cloned());
+            }
             catalog.resolve(5, model)?;
             models
                 .entry(model.into())
                 .or_default()
                 .extend(required.iter().cloned());
             let presentation = format!("actor.{model}");
+            let model_ragdoll = ragdoll_model(catalog, model, &ragdoll)?;
             let animation_id = |clip: &str| format!("animation.{model}.{clip}");
             let mut actions = serde_json::Map::new();
             for (action, state) in [
@@ -463,20 +846,7 @@ pub(super) fn read(
             for (action, state) in combat {
                 let values = source[state]
                     .iter()
-                    .map(|(_, name)| {
-                        let clip = &clips[name.as_str()].clip;
-                        let duration = clip.frames as f32 / clip.frame_rate;
-                        let seconds = clip.notifies.iter().find(|(name,_)|name.as_deref()==Some("end")).map_or(duration,|(_,time)|time*duration);
-                        let hits = clip
-                            .notifies
-                            .iter()
-                            .filter(|(name, _)| name.as_deref() == Some("fire"))
-                            .map(|(_, time)| time * duration)
-                            .filter(|time|*time <= seconds)
-                            .collect::<Vec<_>>();
-                        let stops=clip.notifies.iter().filter(|(name,_)|name.as_deref()==Some("stop")).map(|(_,time)|time*duration).filter(|time|*time <= seconds).collect::<Vec<_>>();
-                        json!({"animation":animation_id(name),"seconds":seconds,"hits":hits,"stops":stops})
-                    })
+                    .map(|(_, name)| combat_clip(model, clips[name.as_str()]))
                     .collect::<Vec<_>>();
                 combat_states.insert(action.into(), json!(values));
             }
@@ -520,10 +890,24 @@ pub(super) fn read(
                 if let Some(hat) = hat {
                     hit_models.push(hat);
                 }
-                let hit_regions = hit_volumes(catalog, &hit_models)?;
+                let mut hit_regions = hit_volumes(catalog, &hit_models)?;
+                let mut ids = hit_regions
+                    .iter()
+                    .map(|hit| hit["id"].as_str().unwrap().to_owned())
+                    .collect::<BTreeSet<_>>();
+                for gib in &gib_sources {
+                    for hit in hit_volumes(catalog, &[model, gib.as_str()])? {
+                        if ids.insert(hit["id"].as_str().unwrap().to_owned()) {
+                            hit_regions.push(hit);
+                        }
+                    }
+                }
                 enemies.push(json!({"id":format!("enemy.{archetype}.{index}.{head}"),"health":game["rounds"]["health_start"],"damage":60,
+                    "physics":{"radius":15.*0.0254,"height":72.*0.0254,"crawler_height":24.*0.0254},
                     "family":"german","archetype":archetype,"character_group":"tomb.auto","character_index":index,
                     "presentation":presentation,"parts":parts,"hit_regions":hit_regions,"animation_actions":actions,"locomotion_states":locomotion_states,"combat_states":combat_states,"traversals":traversals,
+                    "gibs":{"models":gib_models,"beheaded":format!("actor.{beheaded}"),"pieces":pieces,"hat":hat_piece},
+                    "ragdoll":model_ragdoll,
                     "attack_seconds":attack.frames as f32/attack.frame_rate,"attack_hits":attack.notifies.iter().filter(|(name,_)|name.as_deref()==Some("fire")).map(|(_,time)|time*attack.frames as f32/attack.frame_rate).collect::<Vec<_>>(),
                     "death_seconds":death.frames as f32/death.frame_rate}));
             }
@@ -540,7 +924,7 @@ pub(super) fn read(
             let id = format!("animation.{model}.{name}");
             ids.push(id.clone());
             let seconds = clip.frames as f32 / clip.frame_rate;
-            animations.push(json!({"id":id,"source_clip":name,"path":null,"skeleton":skeleton,
+            animations.push(json!({"id":id,"source_clip":name,"path":null,"skeleton":skeleton,"seconds":seconds,
                 "notifications":clip.notifies.iter().filter_map(|(name,time)|name.as_ref().map(|name|json!({"seconds":time*seconds,"event":name}))).collect::<Vec<_>>(),"root_motion":root_motion(decoded),"looping":clip.source_flags[0]!=0}));
         }
         presentations.push(
@@ -556,11 +940,13 @@ pub(super) fn read(
         .as_array_mut()
         .ok_or("Initial animations are missing before ordinary enemy conversion")?
         .extend(animations);
-    gaps.push("ordinary enemy limb replacement/gib model bindings and damage-category behavior require conversion".into());
-    gaps.push(
-        "ordinary enemy server corpse allocation/actor retirement and physical ragdoll require conversion"
-            .into(),
-    );
+    let destructibles = destructible_spawn_models(catalog)?;
+    if !destructibles.is_empty() {
+        gaps.push(format!("Initial source destructible allocations sharing the detached gib pool require consumers: {}",destructibles.into_iter().collect::<Vec<_>>().join(", ")));
+    }
+    if let Some(model) = reload_clip_model(catalog, "c96_zm")? {
+        gaps.push(format!("Initial C96 dropped reload clip {model} shares the detached gib pool and requires a source consumer"));
+    }
     println!(
         "Converted {} source ordinary character/head selections and {} required native animation clips with root-motion samples",
         game["content"]["enemies"].as_array().unwrap().len(),
@@ -572,6 +958,83 @@ pub(super) fn read(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
+    fn installed_ordinary_ragdoll_source() {
+        let zones = crate::source::read_zones(&crate::source::installation().unwrap()).unwrap();
+        let catalog = Catalog::new(&zones);
+        let profile = ragdoll_profile(&catalog).unwrap();
+        assert_eq!(profile["bones"].as_array().unwrap().len(), 12);
+        assert_eq!(profile["joints"].as_array().unwrap().len(), 11);
+        assert_eq!(profile["bones"][0]["joint"], "j_mainroot");
+        assert_eq!(profile["bones"][0]["end_joint"], "j_spinelower");
+        assert_eq!(profile["bones"][6]["mirror"], true);
+        let limits = profile["joints"][3]["limits"].as_array().unwrap();
+        assert_eq!(limits.len(), 3);
+        assert_eq!(limits[1]["axis"], json!([0., 0., -1.]));
+        assert!(
+            (limits[1]["minimum"].as_f64().unwrap() as f32 - (-90f32).to_radians()).abs() < 0.00001
+        );
+        println!(
+            "Parsed native ordinary ragdoll profile1: {} bodies, {} joints, {} baselerp bones, {} collision pairs",
+            profile["bones"].as_array().unwrap().len(),
+            profile["joints"].as_array().unwrap().len(),
+            profile["baselerp"].as_array().unwrap().len(),
+            profile["self_pairs"].as_array().unwrap().len()
+        );
+        for name in [
+            "c_zom_buried_g_rarmspawn",
+            "c_zom_buried_g_larmspawn",
+            "c_zom_buried_g_rlegspawn",
+            "c_zom_buried_g_llegspawn",
+            "c_zom_tomb_german_hat_1",
+            "c_zom_tomb_german_hat_2",
+            "c_zom_tomb_german_hat_3",
+        ] {
+            let piece = gib_piece(&catalog, name, "j_head").unwrap();
+            assert!((piece["physics"]["mass"].as_f64().unwrap() - 0.003).abs() < 0.000001);
+            assert_eq!(piece["physics"]["bullet_force_scale"], 1.);
+            assert_eq!(piece["physics"]["explosive_force_scale"], 1.);
+            assert!(!piece["physics"]["shapes"].as_array().unwrap().is_empty());
+        }
+        let model = ragdoll_model(&catalog, "c_zom_tomb_german_body_1a", &profile).unwrap();
+        assert!(
+            model["bones"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|bone| bone["half_length"].as_f64().unwrap() > 0.)
+        );
+        assert!(
+            model["baselerp"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|bone| bone["base"].as_array().unwrap().len() == 16)
+        );
+        for weapon in ["c96_zm", "c96_upgraded_zm"] {
+            let model = reload_clip_model(&catalog, weapon).unwrap();
+            println!("Native source {weapon} dropped reload clip model: {model:?}");
+            assert!(model.is_none());
+        }
+        let destructibles = catalog
+            .definitions(3)
+            .map(|(name, _, _)| name)
+            .collect::<Vec<_>>();
+        println!("Native destructible definitions: {destructibles:?}");
+        let spawned = destructible_spawn_models(&catalog).unwrap();
+        println!("Native destructible physical spawn models: {spawned:?}");
+        assert!(spawned.is_empty());
+        let entities = crate::entities::read(&catalog).unwrap();
+        for entity in entities.iter().filter(|entity| {
+            entity.iter().any(|(key, value)| {
+                key.contains("destruct") || destructibles.iter().any(|name| *name == value)
+            })
+        }) {
+            println!("Native authored destructible entity: {entity:?}");
+        }
+    }
 
     #[test]
     #[ignore = "requires the authorized Steam installation"]
@@ -647,6 +1110,14 @@ mod tests {
                 .all(|clip| !clip["hits"].as_array().unwrap().is_empty())
         );
         let animations = game["content"]["animations"].as_array().unwrap();
+        println!(
+            "Ordinary native selected notify events: {:?}",
+            animations
+                .iter()
+                .flat_map(|animation| animation["notifications"].as_array().unwrap())
+                .map(|note| note["event"].as_str().unwrap())
+                .collect::<BTreeSet<_>>()
+        );
         assert!(
             animations
                 .iter()
@@ -657,7 +1128,7 @@ mod tests {
                     .len()
                     == 2)
         );
-        assert!(!gaps.is_empty());
+        assert!(gaps.is_empty(), "{gaps:?}");
         println!(
             "Ordinary source closure retained {} exact pending consumers",
             gaps.len()

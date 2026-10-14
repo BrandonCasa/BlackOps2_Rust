@@ -127,6 +127,10 @@ pub fn solids(excluded: impl IntoIterator<Item = Entity>) -> SpatialQueryFilter 
     SpatialQueryFilter::from_mask(LayerMask::DEFAULT).with_excluded_entities(excluded)
 }
 pub const PLAYER_INGRESS_LAYER: u32 = 4;
+pub const MONSTER_CLIP_LAYER: u32 = 64;
+pub fn actor_solids(excluded: impl IntoIterator<Item = Entity>) -> SpatialQueryFilter {
+    SpatialQueryFilter::from_mask(1u32 | MONSTER_CLIP_LAYER).with_excluded_entities(excluded)
+}
 pub fn player_solids(excluded: impl IntoIterator<Item = Entity>) -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(1u32 | PLAYER_INGRESS_LAYER).with_excluded_entities(excluded)
 }

@@ -251,6 +251,7 @@ pub fn use_candidate(
     eye: Vec3,
     forward: Vec3,
     require_look_at: bool,
+    use_radius: f32,
 ) -> Option<f32> {
     let actor = super::triggers::TriggerActor {
         contact_mask: 0x200000,
@@ -263,7 +264,7 @@ pub fn use_candidate(
     let point = (bounds.min + bounds.max) * 0.5;
     let delta = point - eye;
     let distance = delta.length();
-    if distance > 72. * 0.0254 {
+    if distance > use_radius {
         return None;
     }
     let direction = Dir3::new(delta).ok();
@@ -511,7 +512,8 @@ mod tests {
                 0,
                 Vec3::ZERO,
                 Vec3::X,
-                false
+                false,
+                72. * 0.0254
             )
             .is_some()
         );
@@ -527,7 +529,8 @@ mod tests {
                 0,
                 Vec3::ZERO,
                 Vec3::X,
-                false
+                false,
+                72. * 0.0254
             )
             .is_none()
         );
@@ -542,7 +545,8 @@ mod tests {
                 0,
                 Vec3::ZERO,
                 Vec3::NEG_X,
-                false
+                false,
+                72. * 0.0254
             )
             .is_some()
         );
@@ -557,7 +561,8 @@ mod tests {
                 0,
                 Vec3::ZERO,
                 Vec3::NEG_X,
-                true
+                true,
+                72. * 0.0254
             )
             .is_none()
         );
@@ -573,7 +578,8 @@ mod tests {
                     mode,
                     Vec3::ZERO,
                     Vec3::X,
-                    false
+                    false,
+                    72. * 0.0254
                 )
                 .is_none()
             );
@@ -590,7 +596,8 @@ mod tests {
                 0,
                 Vec3::ZERO,
                 Vec3::X,
-                false
+                false,
+                72. * 0.0254
             )
             .is_none()
         );

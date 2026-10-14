@@ -199,7 +199,7 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             }),
     )
     .add_plugins(bevy::anti_alias::dlss::DlssPlugin)
-    .add_plugins(avian3d::prelude::PhysicsPlugins::default())
+    .add_plugins(avian3d::prelude::PhysicsPlugins::new(PostUpdate).with_collision_hooks::<crate::enemies::RagdollCollisionHooks>())
     .init_state::<GameState>()
     .insert_resource(Time::<Fixed>::from_hz(60.0))
     .insert_resource(delivery_scope)

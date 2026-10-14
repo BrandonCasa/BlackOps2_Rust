@@ -68,7 +68,7 @@ pub(crate) fn alias_hashes(catalog: &Catalog<'_>) -> Result<BTreeMap<u32, String
 pub(crate) fn definitions(
     catalog: &Catalog<'_>,
     required: &std::collections::BTreeSet<String>,
-    missing: &mut Vec<String>,
+    absent: &mut std::collections::BTreeSet<String>,
 ) -> Result<Vec<Value>> {
     let mut lists = BTreeMap::new();
     for (zone_index, (_, zone)) in catalog.zones.iter().enumerate() {
@@ -108,7 +108,8 @@ pub(crate) fn definitions(
             continue;
         }
         let Some(&(zone, list)) = lists.get(&name) else {
-            missing.push(format!("Initial sound alias {name} referenced by {consumer} has no installed native bank definition"));
+            println!("Native sound lookup returns no alias: {name}, {consumer}");
+            absent.insert(name);
             continue;
         };
         let streams = &catalog.zones[zone].1.streams;
@@ -131,6 +132,84 @@ pub(crate) fn definitions(
     Ok(rows)
 }
 
+pub(crate) fn ducks(
+    catalog: &Catalog<'_>,
+    required: &std::collections::BTreeSet<u32>,
+) -> Result<BTreeMap<u32, Value>> {
+    let mut profiles = BTreeMap::new();
+    for (_, zone) in catalog.zones {
+        let streams = &zone.streams;
+        for asset in zone
+            .assets
+            .iter()
+            .filter(|asset| asset.kind == 9 && !asset.reference)
+        {
+            let count = streams.u32(asset.root.add(24)?)? as usize;
+            if count == 0 {
+                continue;
+            }
+            let ducks = Address::decode(streams.u32(asset.root.add(28)?)?)?;
+            for index in 0..count {
+                let duck = ducks.add(index * 76)?;
+                let id = streams.u32(duck.add(32)?)?;
+                if !required.contains(&id) {
+                    continue;
+                }
+                let scalar =
+                    |offset| -> Result<f32> { Ok(f32::from_bits(streams.u32(duck.add(offset)?)?)) };
+                let array = |offset| -> Result<Vec<f32>> {
+                    let values = Address::decode(streams.u32(duck.add(offset)?)?)?;
+                    (0..32)
+                        .map(|index| Ok(f32::from_bits(streams.u32(values.add(index * 4)?)?)))
+                        .collect()
+                };
+                profiles.insert(id, json!({"name":streams.text(duck)?,"fades":[scalar(36)?,scalar(40)?],
+                    "delay":scalar(44)?,"distance":scalar(48)?*0.0254,"length":scalar(52)?,
+                    "attenuation":array(64)?,"filter":array(68)?,"update_while_paused":streams.u32(duck.add(72)?)?!=0}));
+            }
+        }
+    }
+    Ok(profiles)
+}
+
+pub(crate) fn rooms(
+    catalog: &Catalog<'_>,
+    required: &std::collections::BTreeSet<String>,
+) -> Result<BTreeMap<String, Value>> {
+    let mut profiles = BTreeMap::new();
+    for (_, zone) in catalog.zones {
+        let streams = &zone.streams;
+        for asset in zone
+            .assets
+            .iter()
+            .filter(|asset| asset.kind == 9 && !asset.reference)
+        {
+            let count = streams.u32(asset.root.add(16)?)? as usize;
+            if count == 0 {
+                continue;
+            }
+            let rooms = Address::decode(streams.u32(asset.root.add(20)?)?)?;
+            for index in 0..count {
+                let room = rooms.add(index * 100)?;
+                let name = streams.text(room)?;
+                if !required.contains(&name) {
+                    continue;
+                }
+                let parameters = (0..16)
+                    .map(|index| Ok(f32::from_bits(streams.u32(room.add(36 + index * 4)?)?)))
+                    .collect::<Result<Vec<_>>>()?;
+                profiles.insert(name, json!({"parameters":parameters}));
+            }
+        }
+    }
+    for name in required {
+        if !profiles.contains_key(name) {
+            return Err(format!("Required native sound room {name} is absent").into());
+        }
+    }
+    Ok(profiles)
+}
+
 fn definition(
     streams: &Streams,
     name: &str,
@@ -139,7 +218,7 @@ fn definition(
     alias: Address,
 ) -> Result<Value> {
     Ok(
-        json!({"name":name,"index":index,"asset_id":streams.u32(alias.add(16)?)?,
+        json!({"name":name,"index":index,"alias_id":streams.u32(alias.add(4)?)?,"asset_id":streams.u32(alias.add(16)?)?,
         "flags":streams.u32(alias.add(24)?)?,"flags1":streams.u32(alias.add(28)?)?,
         "list_sequence":streams.u32(list.add(16)?)?,"context_type":streams.u32(alias.add(36)?)?,
         "context_value":streams.u32(alias.add(40)?)?,"probability":streams.u8(alias.add(88)?)?,
@@ -337,21 +416,24 @@ pub fn convert(
             .map(|(name, binding)| (name.to_ascii_lowercase(), *binding))
             .collect();
         let mut selected = std::collections::BTreeSet::new();
-        let mut pending: Vec<_> = required.iter().cloned().collect();
-        while let Some(name) = pending.pop() {
+        let mut pending: Vec<_> = required.iter().cloned().map(|name| (name, true)).collect();
+        while let Some((name, primary)) = pending.pop() {
             let name = name.to_ascii_lowercase();
             if !selected.insert(name.clone()) {
                 continue;
             }
-            let &(zone, list) = index
-                .get(&name)
-                .ok_or_else(|| format!("Required native sound alias {name} is missing"))?;
+            let Some(&(zone, list)) = index.get(&name) else {
+                if primary {
+                    return Err(format!("Required native sound alias {name} is missing").into());
+                }
+                continue;
+            };
             let streams = &catalog.zones[zone].1.streams;
             let aliases = Address::decode(streams.u32(list.add(8)?)?)?;
             for variant in 0..streams.u32(list.add(12)?)? as usize {
                 let secondary = text(streams, aliases.add(variant * 96 + 12)?)?;
                 if !secondary.is_empty() {
-                    pending.push(secondary);
+                    pending.push((secondary, false));
                 }
             }
         }

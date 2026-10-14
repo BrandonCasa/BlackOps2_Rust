@@ -76,11 +76,19 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         }
         println!("Resolved {} distinct native references", references.len());
     }
+    let effects = game
+        .as_ref()
+        .map(|game| {
+            crate::effects::Effects::read(
+                &catalog,
+                crate::effects::initial_roots(&catalog, &game.0)?,
+            )
+        })
+        .transpose()?;
     let required_models = if initial {
-        Some(crate::scenes::required_models(
-            &catalog,
-            &game.as_ref().unwrap().0,
-        )?)
+        let mut models = crate::scenes::required_models(&catalog, &game.as_ref().unwrap().0)?;
+        models.extend(effects.as_ref().unwrap().models.iter().cloned());
+        Some(models)
     } else {
         None
     };
@@ -202,12 +210,19 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
                 .filter_map(|sound| sound["source_alias"].as_str())
                 .map(str::to_ascii_lowercase),
         );
+        let absent = game.0["audio"]["absent"].as_array().into_iter().flatten()
+            .filter_map(serde_json::Value::as_str).map(str::to_ascii_lowercase)
+            .collect::<std::collections::BTreeSet<_>>();
+        aliases.retain(|alias| !absent.contains(alias));
         aliases
     });
     let sounds = crate::sound::convert(&authorized, &catalog, required_sounds.as_ref(), &mut pack)?;
     crate::game::bind_audio(&mut game.0, &sounds)?;
     let required_images = if initial {
         let mut images = crate::material::inputs(&materials, &catalog)?;
+        if let Some(effects) = &effects {
+            images.extend(effects.inputs(&catalog)?);
+        }
         images.extend(crate::atmosphere::inputs(&catalog)?);
         for asset in game.0["content"]["ui_assets"]
             .as_array()
@@ -300,13 +315,15 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         .into());
     }
     let exported_models = initial.then(|| {
-        game.0["content"]["presentations"]
+        let mut models = game.0["content"]["presentations"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|presentation| presentation["source_model"].as_str())
             .map(str::to_ascii_lowercase)
-            .collect::<std::collections::BTreeSet<_>>()
+            .collect::<std::collections::BTreeSet<_>>();
+        models.extend(effects.as_ref().unwrap().models.iter().cloned());
+        models
     });
     let mut animation_bindings =
         std::collections::BTreeMap::<String, Vec<&crate::animation::DecodedClip>>::new();
@@ -355,6 +372,9 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
         &mut pack,
     )?;
     crate::scenes::bind_presentations(&mut game.0, &models)?;
+    if let Some(effects) = &effects {
+        effects.write(&catalog, &models, &images, &mut pack)?;
+    }
     for asset in game.0["content"]["ui_assets"]
         .as_array_mut()
         .into_iter()

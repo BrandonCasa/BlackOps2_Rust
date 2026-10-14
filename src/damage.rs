@@ -497,6 +497,8 @@ fn rewards(
     nuked: Query<(), With<crate::powerups::NukeTarget>>,
     panzers: Query<(), With<crate::panzer::Panzer>>,
     zombies: Query<(), With<Zombie>>,
+    capture_actors: Query<&crate::rounds::PopulationKind>,
+    mut generators: ResMut<crate::generators::Generators>,
 ) {
     for applied in applied.read() {
         if !zombies.contains(applied.impact.target) {
@@ -523,8 +525,11 @@ fn rewards(
         } else {
             0
         };
+        let capture=capture_actors.get(impact.target).is_ok_and(|kind|*kind==crate::rounds::PopulationKind::GeneratorDefender);
         let points =
-            if lethal && panzers.contains(impact.target) && impact.source.player_attributed() {
+            if capture {
+                if lethal && impact.source.player_attributed() {generators.capture_kill_points(session.round)}else{0}
+            } else if lethal && panzers.contains(impact.target) && impact.source.player_attributed() {
                 750
             } else if panzers.contains(impact.target) {
                 0
@@ -544,7 +549,7 @@ fn rewards(
             } else {
                 hit
             };
-        let cherry_bonus = if cherry && lethal && !applied.insta_kill {
+        let cherry_bonus = if !capture && cherry && lethal && !applied.insta_kill {
             40
         } else {
             0

@@ -6,38 +6,34 @@ use crate::{
     player::Player,
 };
 use avian3d::prelude::*;
-use bevy::prelude::*;
+use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 
-const ORIGINS: [Vec3; 2] = [
-    Vec3::new(68.723002, -7.9248, -118.373398),
-    Vec3::new(33.632902, 7.6708, 94.288102),
-];
-
-#[derive(Default)]
-struct RewardState {
+#[derive(Resource, Default)]
+pub(super) struct CaptureRewards {
     queued: bool,
     wait: f32,
     elapsed: Option<f32>,
     reward: Option<Entity>,
-    claimed: bool,
-}
-#[derive(Resource, Default)]
-pub(super) struct CaptureRewards {
-    states: [RewardState; 2],
+    sound: Option<Entity>,
+    claimed: Option<(Entity, f32)>,
     latched: bool,
 }
 impl CaptureRewards {
-    pub(super) fn queue(&mut self, index: usize, seconds: f32) {
-        if !self.states[index].queued {
-            self.states[index].queued = true;
-            self.states[index].wait = seconds;
+    pub(super) fn queue(&mut self, seconds: f32) {
+        if !self.queued {
+            self.queued = true;
+            self.wait = seconds;
         }
+    }
+    fn close_elapsed(&self) -> Option<f32> {
+        self.claimed
+            .and_then(|(_, elapsed)| (elapsed >= 1.1).then_some(elapsed - 1.1))
     }
 }
 #[derive(Component)]
 struct Chest {
-    index: usize,
     source: Handle<Gltf>,
+    origin_tag: Option<Entity>,
     glow: Option<Entity>,
     sound: Option<Entity>,
     glow_ramps: Vec<BoxGlowRamp>,
@@ -82,13 +78,12 @@ impl BoxGlowRamp {
     }
 }
 #[derive(Component)]
-struct Reward {
-    index: usize,
-}
+struct Reward;
 pub(super) struct CaptureRewardsPlugin;
 impl Plugin for CaptureRewardsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CaptureRewards>()
+            .add_observer(ready)
             .add_systems(
                 OnEnter(GameState::PreparingShaders),
                 setup.in_set(crate::session::SessionSetup::World),
@@ -114,16 +109,27 @@ fn setup(
     mut rewards: ResMut<CaptureRewards>,
     game: Res<GameDefinition>,
     server: Res<AssetServer>,
-    extras: Query<(Entity, &bevy::gltf::GltfExtras)>,
+    extras: Query<(Entity, &bevy::gltf::GltfExtras, &GlobalTransform)>,
     children: Query<&Children>,
 ) {
     *rewards = default();
-    for (entity, metadata) in &extras {
-        if serde_json::from_str::<serde_json::Value>(&metadata.value)
-            .ok()
-            .is_some_and(|v| {
-                v["static_instance"] == true && v["source_model"] == "p6_zm_tm_challenge_box"
-            })
+    let Some(reward) = game
+        .content
+        .generators
+        .iter()
+        .find_map(|generator| generator.initial_reward.as_ref())
+    else {
+        return;
+    };
+    let position = Vec3::from_array(reward.position);
+    for (entity, metadata, pose) in &extras {
+        if pose.translation().distance_squared(position) < 0.0001
+            && serde_json::from_str::<serde_json::Value>(&metadata.value)
+                .ok()
+                .is_some_and(|value| {
+                    value["static_instance"] == true
+                        && value["source_model"] == "p6_zm_tm_challenge_box"
+                })
         {
             commands.entity(entity).insert(Visibility::Hidden);
             for child in children.iter_descendants(entity) {
@@ -131,24 +137,41 @@ fn setup(
             }
         }
     }
-    if let Some(scene) = crate::assets::native_scene(&game, "p6_zm_tm_challenge_box") {
-        for (index, position) in ORIGINS.into_iter().enumerate() {
-            commands.spawn((
-                SessionEntity,
-                Chest {
-                    index,
-                    source: server.load(scene.split('#').next().unwrap_or(scene).to_owned()),
-                    glow: None,
-                    sound: None,
-                    glow_ramps: Vec::new(),
-                },
-                crate::rendering::NativeArtInputs::default(),
-                crate::rendering::opaque::NativeShaderStart(0.),
-                WorldAssetRoot(server.load(scene.clone())),
-                Transform::from_translation(position)
-                    .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
-            ));
-        }
+    if let Some(scene) = game
+        .content
+        .presentations
+        .iter()
+        .find(|presentation| presentation.id == reward.presentation)
+        .and_then(|presentation| presentation.scene.as_ref())
+    {
+        commands.spawn((
+            SessionEntity,
+            Chest {
+                source: server.load(scene.split('#').next().unwrap_or(scene).to_owned()),
+                origin_tag: None,
+                glow: None,
+                sound: None,
+                glow_ramps: Vec::new(),
+            },
+            crate::rendering::NativeArtInputs::default(),
+            crate::rendering::opaque::NativeShaderStart(0.),
+            WorldAssetRoot(server.load(scene.clone())),
+            Transform::from_translation(position).with_rotation(Quat::from_rotation_y(reward.yaw)),
+        ));
+    }
+}
+fn ready(
+    event: On<WorldInstanceReady>,
+    mut chests: Query<&mut Chest>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+) {
+    if let Ok(mut chest) = chests.get_mut(event.entity) {
+        chest.origin_tag = children.iter_descendants(event.entity).find(|entity| {
+            names
+                .get(*entity)
+                .is_ok_and(|name| name.as_str() == "tag_origin")
+        });
     }
 }
 fn tick(
@@ -158,91 +181,122 @@ fn tick(
     game: Res<GameDefinition>,
     server: Res<AssetServer>,
     mut chests: Query<(Entity, &mut Chest, &mut crate::rendering::NativeArtInputs)>,
-    mut visuals: Query<(&Reward, &mut Transform)>,
+    mut visuals: Query<&mut Transform, With<Reward>>,
 ) {
+    let Some(profile) = game
+        .content
+        .generators
+        .iter()
+        .find_map(|generator| generator.initial_reward.as_ref())
+    else {
+        return;
+    };
     let dt = time.delta_secs();
-    for (index, state) in rewards.states.iter_mut().enumerate() {
-        if !state.queued {
-            continue;
+    if !rewards.queued {
+        return;
+    }
+    if rewards.elapsed.is_none() {
+        rewards.wait -= dt;
+        if rewards.wait <= 0. {
+            rewards.elapsed = Some(0.);
+        } else {
+            return;
         }
-        if state.elapsed.is_none() {
-            state.wait -= dt;
-            if state.wait <= 0. {
-                state.elapsed = Some(0.);
-            } else {
-                continue;
-            }
-        }
-        let elapsed = state.elapsed.as_mut().unwrap();
-        *elapsed += dt;
-        if *elapsed >= 0.5 && state.reward.is_none() && !state.claimed {
-            let scene = if index == 0 {
+    }
+    *rewards.elapsed.as_mut().unwrap() += dt;
+    let elapsed = rewards.elapsed.unwrap();
+    if elapsed >= 0.5 && rewards.reward.is_none() && rewards.claimed.is_none() {
+        if let Some(scene) = game
+            .content
+            .powerups
+            .iter()
+            .find(|powerup| powerup.id == profile.powerup)
+            .and_then(|powerup| powerup.presentation.as_ref())
+            .and_then(|id| {
                 game.content
-                    .powerups
+                    .presentations
                     .iter()
-                    .find(|p| p.id.0 == "powerup.double_points")
-                    .and_then(|p| {
-                        game.content
-                            .presentations
-                            .iter()
-                            .find(|v| p.presentation.as_ref() == Some(&v.id))
-                    })
-                    .and_then(|p| p.scene.as_ref())
-            } else {
-                crate::assets::native_scene(&game, "t6_wpn_zmb_staff_tip_fire_world")
-            };
-            if let Some(scene) = scene {
-                let entity = commands
-                    .spawn((
-                        SessionEntity,
-                        Reward { index },
-                        WorldAssetRoot(server.load(scene.clone())),
-                        Transform::from_translation(ORIGINS[index]),
-                        Visibility::Inherited,
-                    ))
-                    .id();
-                state.reward = Some(entity);
-                crate::audio::emit(
-                    &mut commands,
-                    "zmb_spawn_powerup",
-                    crate::audio::SoundSource::attached(entity),
-                );
-            }
+                    .find(|presentation| presentation.id == *id)
+            })
+            .and_then(|presentation| presentation.scene.as_ref())
+        {
+            let entity = commands
+                .spawn((
+                    SessionEntity,
+                    Reward,
+                    WorldAssetRoot(server.load(scene.clone())),
+                    Transform::from_translation(Vec3::from_array(profile.position))
+                        .with_rotation(Quat::from_rotation_y(profile.yaw + std::f32::consts::PI)),
+                    Visibility::Inherited,
+                ))
+                .id();
+            rewards.reward = Some(entity);
+            crate::audio::emit(
+                &mut commands,
+                "zmb_spawn_powerup",
+                crate::audio::SoundSource::attached(entity),
+            );
+            let sound = crate::audio::emit_loop(
+                &mut commands,
+                "zmb_spawn_powerup_loop",
+                crate::audio::SoundSource::attached(entity),
+            );
+            commands.entity(sound).insert(crate::audio::SoundControl {
+                volume: 0.5,
+                pitch: 1.,
+            });
+            rewards.sound = Some(sound);
         }
     }
-    for (reward, mut pose) in &mut visuals {
-        let elapsed = rewards.states[reward.index].elapsed.unwrap_or(0.);
-        pose.translation =
-            ORIGINS[reward.index] + Vec3::Y * ((elapsed - 0.5).clamp(0., 2.) * 0.635);
-        pose.rotate_y(dt);
+    for mut pose in &mut visuals {
+        pose.translation = Vec3::from_array(profile.position)
+            + Vec3::Y * (50. * 0.0254 * ((elapsed - 0.5) / 2.).clamp(0., 1.));
     }
+    if let Some((owner, previous)) = rewards.claimed {
+        let elapsed = previous + dt;
+        rewards.claimed = Some((owner, elapsed));
+        if previous < 0.1 && elapsed >= 0.1 {
+            if let Some(reward) = rewards.reward.take() {
+                commands.entity(reward).try_despawn();
+            }
+            if let Some(sound) = rewards.sound.take() {
+                commands.entity(sound).insert(crate::audio::SoundFade {
+                    remaining: 0.1,
+                    duration: 0.1,
+                    out: true,
+                });
+            }
+            crate::audio::emit(
+                &mut commands,
+                "zmb_powerup_grabbed",
+                crate::audio::SoundSource::attached(owner),
+            );
+        }
+    }
+    let close = rewards.close_elapsed();
     for (entity, mut chest, mut inputs) in &mut chests {
         chest
             .glow_ramps
             .retain_mut(|ramp| ramp.tick(dt, &mut inputs));
-        let elapsed = rewards.states[chest.index].elapsed.unwrap_or(100.);
-        let glowing = (0.75..2.25).contains(&elapsed);
-        if glowing && chest.glow.is_none() {
+        let glowing = elapsed >= 0.75 && close.is_none_or(|elapsed| elapsed < 0.75);
+        if glowing
+            && chest.glow.is_none()
+            && let Some(origin) = chest.origin_tag
+        {
             inputs.script_vectors[1] = [0.; 4];
             inputs.script_available |= 1 << 1;
             chest.glow_ramps.push(BoxGlowRamp::new(true));
             chest.glow = Some(crate::native_fx::attach(
                 &mut commands,
                 "maps/zombie_tomb/fx_tomb_challenge_fire",
-                entity,
+                origin,
                 Transform::default(),
             ));
-            let sound = crate::audio::emit_loop(
+            chest.sound = Some(crate::audio::emit_loop(
                 &mut commands,
                 "zmb_footprintbox_glow_lp",
                 crate::audio::SoundSource::attached(entity),
-            );
-            commands.entity(sound).insert(crate::audio::SoundFade {
-                remaining: 1.,
-                duration: 1.,
-                out: false,
-            });
-            chest.sound = Some(sound);
+            ));
         } else if !glowing {
             if let Some(glow) = chest.glow.take() {
                 inputs.script_vectors[1] = [0.; 4];
@@ -254,11 +308,10 @@ fn tick(
                 commands.entity(sound).try_despawn();
             }
         }
-        let (clip, seconds) = if elapsed < 1.5 {
-            ("o_zombie_dlc4_challenge_box_open", elapsed)
-        } else {
-            ("o_zombie_dlc4_challenge_box_close", elapsed - 1.5)
-        };
+        let (clip, seconds) = close
+            .map_or(("o_zombie_dlc4_challenge_box_open", elapsed), |elapsed| {
+                ("o_zombie_dlc4_challenge_box_close", elapsed)
+            });
         commands
             .entity(entity)
             .insert(crate::animation::NativeAnimation {
@@ -266,7 +319,7 @@ fn tick(
                 clip: clip.into(),
                 seconds,
                 looping: false,
-                restart: 0,
+                restart: u64::from(close.is_some()),
             });
     }
 }
@@ -277,91 +330,142 @@ fn collect(
     mut rewards: ResMut<CaptureRewards>,
     mut focus: ResMut<crate::interactions::InteractionFocus>,
     game: Res<GameDefinition>,
-    server: Res<AssetServer>,
+    session: Res<crate::gameplay::Session>,
     spatial: SpatialQuery,
-    targets: Query<(Entity, &Reward, &Transform)>,
     players: Query<(
         Entity,
         &Player,
         &Transform,
         &Vitality,
+        &crate::access::TriggerClientMode,
         Option<&crate::actions::HandReservation>,
         Has<crate::perks::PerkDrinking>,
+        &crate::weapons::WeaponInventory,
+        &crate::equipment::GrenadeInventory,
+        &crate::equipment::TacticalInventory,
     )>,
-    mut parts: ResMut<crate::environment::parts::Parts>,
-    mut pickups: MessageWriter<crate::powerups::DronePickup>,
+    triggers: Query<(
+        Entity,
+        &crate::environment::triggers::MapTrigger,
+        &Collider,
+        &Transform,
+        &crate::environment::triggers::TriggerState,
+    )>,
+    mut effects: ResMut<crate::powerups::PowerupEffects>,
+    mut drops: ResMut<crate::powerups::Drops>,
+    mut collected: MessageWriter<crate::powerups::PowerupCollected>,
 ) {
     if !input.use_held {
         rewards.latched = false;
     }
-    if focus.target.is_some() {
+    if focus.target.is_some()
+        || rewards.claimed.is_some()
+        || rewards.elapsed.is_none_or(|elapsed| elapsed < 2.5)
+    {
         return;
     }
-    let Ok((owner, player, pose, health, reservation, drinking)) = players.single() else {
+    let Some(profile) = game
+        .content
+        .generators
+        .iter()
+        .find_map(|generator| generator.initial_reward.as_ref())
+    else {
         return;
     };
-    if health.state() != LifeState::Standing || reservation.is_some() || drinking {
+    let Ok((owner, player, pose, health, mode, reservation, drinking, weapons, grenades, tactical)) =
+        players.single()
+    else {
+        return;
+    };
+    if health.state() != LifeState::Standing
+        || reservation.is_some()
+        || drinking
+        || grenades.busy()
+        || tactical.busy()
+        || matches!(
+            weapons.action,
+            crate::weapons::WeaponAction::Equipping { .. }
+                | crate::weapons::WeaponAction::Unequipping { .. }
+        )
+    {
         return;
     }
+    let Some((trigger, _, shape, trigger_pose, state)) = triggers
+        .iter()
+        .find(|(_, native, _, _, _)| native.0 == profile.source_trigger)
+    else {
+        return;
+    };
     let eye = pose.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
     let forward = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.) * Vec3::NEG_Z;
-    for (entity, reward, position) in &targets {
-        let state = &rewards.states[reward.index];
-        if state.claimed || state.elapsed.is_none_or(|t| t < 2.5) {
-            continue;
-        }
-        let delta = position.translation - eye;
-        let Ok(direction) = Dir3::new(delta) else {
-            continue;
-        };
-        if delta.length() > 2.54
-            || forward.dot(*direction) < 0.7
-            || spatial
-                .cast_ray(
-                    eye,
-                    direction,
-                    (delta.length() - 0.1).max(0.),
-                    true,
-                    &crate::environment::solids([owner]),
-                )
-                .is_some()
+    if crate::environment::support::use_candidate(
+        trigger,
+        shape,
+        trigger_pose,
+        state,
+        &spatial,
+        owner,
+        mode.0,
+        eye,
+        forward,
+        false,
+        game.tuning.use_radius,
+    )
+    .is_none()
+    {
+        return;
+    }
+    let Some(reward) = rewards.reward else {
+        return;
+    };
+    focus.target = Some(reward);
+    focus.prompt = format!(
+        "Press {} to take Double Points",
+        settings.label(crate::input::Action::Interact)
+    );
+    if input.use_held && !rewards.latched {
+        if let Some(powerup) = game
+            .content
+            .powerups
+            .iter()
+            .find(|powerup| powerup.id == profile.powerup)
         {
-            continue;
-        }
-        focus.target = Some(entity);
-        focus.prompt = format!(
-            "Press {} to take {}",
-            settings.label(crate::input::Action::Interact),
-            if reward.index == 0 {
-                "Double Points"
-            } else {
-                "Fire Staff part"
-            }
-        );
-        if input.use_held && !rewards.latched {
-            if reward.index == 0 {
-                if let Some(pickup) = crate::powerups::spawn_named(
-                    &mut commands,
-                    &game,
-                    &server,
-                    "double_points",
-                    position.translation,
-                ) {
-                    pickups.write(crate::powerups::DronePickup { owner, pickup });
-                }
-            } else {
-                parts.pieces.insert(
-                    "part.elemental_staff_fire.upper_staff".into(),
-                    crate::environment::parts::PartState::Owned {
-                        player: owner.to_bits(),
-                    },
-                );
-            }
-            rewards.states[reward.index].claimed = true;
+            effects.double_points = powerup.duration;
+            crate::audio::voice(
+                &mut commands,
+                &game,
+                &session,
+                "powerup_doublepoints",
+                owner,
+                drops.collected,
+            );
+            crate::audio::emit(
+                &mut commands,
+                "vox_zmba_powerup_doublepoints_0",
+                crate::audio::SoundSource::attached(owner),
+            );
+            collected.write(crate::powerups::PowerupCollected(profile.powerup.clone()));
+            drops.collected += 1;
+            rewards.claimed = Some((owner, 0.));
             rewards.latched = true;
-            commands.entity(entity).despawn();
             focus.accepted += 1;
         }
-        return;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn initial_reward_waits_for_grab_before_source_close_delay() {
+        let mut rewards = CaptureRewards {
+            elapsed: Some(120.),
+            ..default()
+        };
+        assert!(rewards.close_elapsed().is_none());
+        rewards.claimed = Some((Entity::PLACEHOLDER, 1.099));
+        assert!(rewards.close_elapsed().is_none());
+        rewards.claimed = Some((Entity::PLACEHOLDER, 1.6));
+        assert!((rewards.close_elapsed().unwrap() - 0.5).abs() < 0.00001);
     }
 }

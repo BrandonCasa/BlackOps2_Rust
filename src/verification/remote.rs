@@ -738,10 +738,7 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         if let Some(id) = actor.defender {
             entity.insert((
                 crate::rounds::PopulationKind::GeneratorDefender,
-                crate::generators::GeneratorDefender {
-                    generator: crate::origins::ContentId(id),
-                    slot: 0,
-                },
+                crate::generators::GeneratorDefender::new(crate::origins::ContentId(id),0),
             ));
         } else {
             entity.insert(crate::rounds::PopulationKind::Ordinary);

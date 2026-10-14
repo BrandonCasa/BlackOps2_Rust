@@ -13,6 +13,7 @@ pub(crate) struct SkeletalReady;
 pub(crate) struct HitRig {
     pub owner: Entity,
     pub bindings: Vec<HitBinding>,
+    pub active: bool,
 }
 pub(crate) struct HitBinding {
     pub id: String,
@@ -204,6 +205,16 @@ impl Hitboxes {
         direction: Dir3,
         range: f32,
     ) -> Option<RegionHit> {
+        self.cast_part(transform, origin, direction, range)
+            .map(|(_, hit)| hit)
+    }
+    pub(crate) fn cast_part(
+        &self,
+        transform: &Transform,
+        origin: Vec3,
+        direction: Dir3,
+        range: f32,
+    ) -> Option<(&str, RegionHit)> {
         self.volumes
             .iter()
             .filter(|volume| !self.disabled_region(volume.region))
@@ -223,13 +234,16 @@ impl Hitboxes {
                         )
                         .map(|(distance, _)| distance)
                 }?;
-                Some(RegionHit {
-                    region: volume.region,
-                    distance,
-                    point: origin + direction.as_vec3() * distance,
-                })
+                Some((
+                    volume.id.as_str(),
+                    RegionHit {
+                        region: volume.region,
+                        distance,
+                        point: origin + direction.as_vec3() * distance,
+                    },
+                ))
             })
-            .min_by(|a, b| a.distance.total_cmp(&b.distance))
+            .min_by(|a, b| a.1.distance.total_cmp(&b.1.distance))
     }
     pub fn aim_points(
         &self,
@@ -503,6 +517,12 @@ fn capture(
         let Ok((owner, mut hitboxes)) = actors.get_mut(rig.owner) else {
             continue;
         };
+        if !rig.active {
+            hitboxes
+                .volumes
+                .retain(|volume| !rig.bindings.iter().any(|binding| binding.id == volume.id));
+            continue;
+        }
         let inverse = owner.affine().inverse();
         for binding in &rig.bindings {
             let Ok(joint) = joints.get(binding.joint) else {
@@ -590,21 +610,53 @@ mod tests {
         world.init_resource::<avian3d::collider_tree::ColliderTrees>();
         let shooter = world.spawn_empty().id();
         for index in 1..=7 {
-            world.spawn((Vitality::ordinary_actor(150,150).unwrap(),
-                Transform::from_xyz(0.,0.,-(index as f32)),Hitboxes {
-                    disabled:Vec::new(),volumes:vec![HitVolume {id:format!("actor.{index}"),
-                        region:HitRegion::UpperTorso,start:Vec3::ZERO,end:Vec3::ZERO,
-                        shape:Collider::cuboid(0.2,0.2,0.0254),native:None}]
-                }));
+            world.spawn((
+                Vitality::ordinary_actor(150, 150).unwrap(),
+                Transform::from_xyz(0., 0., -(index as f32)),
+                Hitboxes {
+                    disabled: Vec::new(),
+                    volumes: vec![HitVolume {
+                        id: format!("actor.{index}"),
+                        region: HitRegion::UpperTorso,
+                        start: Vec3::ZERO,
+                        end: Vec3::ZERO,
+                        shape: Collider::cuboid(0.2, 0.2, 0.0254),
+                        native: None,
+                    }],
+                },
+            ));
         }
-        let mut state = SystemState::<(RayTargets,PenetrationSurfaces,SpatialQuery)>::new(&mut world);
-        let (targets,surfaces,query) = state.get(&world).unwrap();
-        assert_eq!(penetrating(&targets,&surfaces,&query,shooter,Vec3::ZERO,Dir3::NEG_Z,10.,None).len(),1);
-        let depths = [0.;32];
-        let hits = penetrating(&targets,&surfaces,&query,shooter,Vec3::ZERO,Dir3::NEG_Z,10.,Some(&depths));
-        assert_eq!(hits.len(),6);
-        for (index,(_,energy)) in hits.into_iter().enumerate() {
-            assert!((energy-(1.-index as f32*0.01)).abs()<0.00001);
+        let mut state =
+            SystemState::<(RayTargets, PenetrationSurfaces, SpatialQuery)>::new(&mut world);
+        let (targets, surfaces, query) = state.get(&world).unwrap();
+        assert_eq!(
+            penetrating(
+                &targets,
+                &surfaces,
+                &query,
+                shooter,
+                Vec3::ZERO,
+                Dir3::NEG_Z,
+                10.,
+                None
+            )
+            .len(),
+            1
+        );
+        let depths = [0.; 32];
+        let hits = penetrating(
+            &targets,
+            &surfaces,
+            &query,
+            shooter,
+            Vec3::ZERO,
+            Dir3::NEG_Z,
+            10.,
+            Some(&depths),
+        );
+        assert_eq!(hits.len(), 6);
+        for (index, (_, energy)) in hits.into_iter().enumerate() {
+            assert!((energy - (1. - index as f32 * 0.01)).abs() < 0.00001);
         }
     }
 

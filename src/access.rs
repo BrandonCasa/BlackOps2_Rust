@@ -16,6 +16,8 @@ pub struct AccessDefinition {
     pub doors: Vec<DoorDefinition>,
     pub volumes: Vec<ZoneVolumeDefinition>,
     pub spawns: Vec<SpawnDefinition>,
+    pub spawners: Vec<ActorSpawnerDefinition>,
+    pub entrances: Vec<SpawnEntranceDefinition>,
     pub flag_links: Vec<ZoneFlagLinkDefinition>,
     pub trigger_activations: Vec<TriggerActivationDefinition>,
 }
@@ -63,6 +65,25 @@ pub struct SpawnDefinition {
     pub zone: ZoneId,
     pub position: [f32; 3],
     pub rising: bool,
+    #[serde(default)]
+    pub yaw: f32,
+    #[serde(default)]
+    pub desired_origin: Option<[f32; 3]>,
+}
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActorSpawnerDefinition {
+    pub id: String,
+    pub archetype: String,
+    pub position: [f32; 3],
+    pub yaw: f32,
+    pub desired_origin: Option<[f32; 3]>,
+}
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpawnEntranceDefinition {
+    pub node: ContentId,
+    pub position: [f32; 3],
 }
 #[derive(Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -158,7 +179,21 @@ impl AccessDefinition {
                 !s.id.is_empty()
                     && s.id.len() < 128
                     && s.position.iter().all(|x| x.is_finite())
+                    && s.yaw.is_finite()
+                    && s.desired_origin.is_none_or(|point| point.iter().all(|value| value.is_finite()))
                     && content.zones.iter().any(|z| z.id == s.zone)
+            })
+            && self.spawners.iter().all(|spawner| {
+                !spawner.id.is_empty()
+                    && spawner.id.len() < 128
+                    && spawner.position.iter().all(|value| value.is_finite())
+                    && spawner.yaw.is_finite()
+                    && spawner.desired_origin.is_none_or(|point| point.iter().all(|value| value.is_finite()))
+                    && content.enemies.iter().any(|enemy| enemy.archetype == spawner.archetype)
+            })
+            && self.entrances.iter().all(|entrance| {
+                entrance.position.iter().all(|value| value.is_finite())
+                    && content.navigation_nodes.iter().any(|node| node.id == entrance.node && node.native.is_some_and(|native| native.r#type == 17))
             })
             && self.doors.len() <= 256
             && self

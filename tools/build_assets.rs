@@ -15,6 +15,8 @@ mod catalog;
 mod collision;
 #[path = "asset_builder/core.rs"]
 pub mod core;
+#[path = "asset_builder/effects.rs"]
+mod effects;
 #[path = "asset_builder/entities.rs"]
 mod entities;
 #[path = "asset_builder/fastfile/mod.rs"]
@@ -104,6 +106,11 @@ fn validate_entries(pack: &pack::Pack) -> Result<()> {
         match data {
             Value::Object(fields) => {
                 for (key, value) in fields {
+                    if key == "pending_runtime"
+                        && let Some(reason) = value.as_str()
+                    {
+                        return Err(format!("Unresolved runtime conversion: {reason}").into());
+                    }
                     if key == "surface"
                         && let Some(reason) = value["pending_runtime"].as_str()
                     {

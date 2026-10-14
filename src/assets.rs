@@ -287,11 +287,17 @@ pub struct AssetPack {
 impl AssetPack {
     pub fn discover() -> Result<Self, String> {
         let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-        let path = executable.parent().ok_or("Executable directory is unavailable")?.join("origins.pack");
+        let path = executable
+            .parent()
+            .ok_or("Executable directory is unavailable")?
+            .join("origins.pack");
         let contents = crate::pack::Pack::read(&path).map_err(|error| {
             format!("Cannot load runtime pack {}: {error}. Build origins.pack from the authorized game installation and place it beside origins.exe.", path.display())
         })?;
-        Ok(Self { pack_root: path, contents })
+        Ok(Self {
+            pack_root: path,
+            contents,
+        })
     }
 }
 
@@ -307,6 +313,125 @@ pub(crate) struct MapRoot {
 }
 #[derive(Component)]
 pub struct WorldCollider;
+#[derive(Component, Clone, Copy)]
+pub(crate) struct WorldContents(pub u32);
+#[derive(Component)]
+pub(crate) struct WorldTerrain;
+pub(crate) const RAGDOLL_WORLD_LAYER: u32 = 256;
+pub(crate) const DYNENT_WORLD_LAYER: u32 = 512;
+pub(crate) fn world_collision_layers(contents: u32) -> CollisionLayers {
+    let membership = if contents & 0x10001 != 0 { 1 } else { 0 }
+        | if contents & 0x0281ee93 != 0 {
+            RAGDOLL_WORLD_LAYER
+        } else {
+            0
+        }
+        | if contents & 0x0280ec93 != 0 {
+            DYNENT_WORLD_LAYER
+        } else {
+            0
+        };
+    CollisionLayers::new(membership, LayerMask::ALL)
+}
+#[derive(Resource)]
+pub(crate) struct WorldBrushes(Vec<(u32, Vec<Vec4>)>);
+impl WorldBrushes {
+    fn load(bytes: &[u8]) -> Result<Self, String> {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Brush {
+            contents: u32,
+            planes: Vec<[f32; 4]>,
+        }
+        let scene: serde_json::Value =
+            serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+        let brushes: Vec<Brush> = serde_json::from_value(scene["extras"]["static_volumes"].clone())
+            .map_err(|error| format!("Native world collision volumes are invalid: {error}"))?;
+        let brushes = brushes
+            .into_iter()
+            .map(|brush| {
+                let planes = brush
+                    .planes
+                    .into_iter()
+                    .map(Vec4::from_array)
+                    .collect::<Vec<_>>();
+                if planes.len() < 6
+                    || planes.iter().any(|plane| {
+                        !plane.is_finite() || (plane.truncate().length_squared() - 1.).abs() > 0.001
+                    })
+                {
+                    return Err("Native world collision volume has invalid planes".to_owned());
+                }
+                Ok((brush.contents, planes))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(Self(brushes))
+    }
+    pub(crate) fn trace(&self, start: Vec3, end: Vec3, mask: u32) -> (bool, f32) {
+        let mut start_solid = false;
+        let mut fraction = 1f32;
+        for (_, planes) in self.0.iter().filter(|(contents, _)| contents & mask != 0) {
+            let mut enter = 0f32;
+            let mut leave = fraction;
+            let mut inside = true;
+            let mut rejected = false;
+            for plane in planes {
+                let first = plane.truncate().dot(start) - plane.w;
+                let last = plane.truncate().dot(end) - plane.w;
+                if first > 0. {
+                    inside = false;
+                    if last >= first.min(0.125 * 0.0254) {
+                        rejected = true;
+                        break;
+                    }
+                    enter = enter.max((first - 0.125 * 0.0254) / (first - last));
+                } else if last > 0. {
+                    leave = leave.min(first / (first - last));
+                }
+                if leave <= enter {
+                    rejected = true;
+                    break;
+                }
+            }
+            if !rejected {
+                if inside {
+                    start_solid = true;
+                } else {
+                    fraction = fraction.min(enter);
+                }
+            }
+        }
+        (start_solid, fraction)
+    }
+}
+#[cfg(test)]
+mod collision_tests {
+    use super::*;
+    #[test]
+    fn native_world_brush_trace_preserves_contents_and_enter_plane_bias() {
+        let mut brushes = WorldBrushes(vec![(
+            1,
+            vec![
+                Vec4::new(1., 0., 0., 1.),
+                Vec4::new(-1., 0., 0., 1.),
+                Vec4::new(0., 1., 0., 1.),
+                Vec4::new(0., -1., 0., 1.),
+                Vec4::new(0., 0., 1., 1.),
+                Vec4::new(0., 0., -1., 1.),
+            ],
+        )]);
+        let (solid, fraction) = brushes.trace(Vec3::X * -2., Vec3::X * 2., 0x0280ec93);
+        assert!(!solid);
+        assert!((fraction - (1. - 0.125 * 0.0254) / 4.).abs() < 0.000001);
+        assert!(brushes.trace(Vec3::ZERO, Vec3::X * 2., 0x0280ec93).0);
+        brushes.0[0].0 = 0x10000;
+        assert_eq!(
+            brushes.trace(Vec3::ZERO, Vec3::X * 2., 0x0280ec93),
+            (false, 1.)
+        );
+        assert!(brushes.trace(Vec3::ZERO, Vec3::X * 2., 0x0281ee93).0);
+    }
+}
 #[derive(Resource)]
 struct Loading {
     handles: Vec<Handle<WorldAsset>>,
@@ -340,6 +465,7 @@ pub(crate) fn begin_load(
     }
     commands.remove_resource::<Loading>();
     commands.remove_resource::<prepared::PreparedArt>();
+    commands.remove_resource::<WorldBrushes>();
     failure.0.clear();
     let definition = (|| {
         if let Some(error) = &options.error {
@@ -348,10 +474,27 @@ pub(crate) fn begin_load(
         let config = config.0.as_ref().map_err(Clone::clone)?;
         info!("Origins asset pack: {}", config.pack_root.display());
         reload_failed_pack_assets(&server, &config.contents);
-        let mut definition = GameDefinition::load(config.contents.get("game.json").map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        let mut definition = GameDefinition::load(
+            config
+                .contents
+                .get("game.json")
+                .map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         let art = prepared::PreparedArt::load(&config.contents)?;
         art.bind(&mut definition)?;
         definition.validate().map_err(|error| error.to_string())?;
+        let collision = definition
+            .collision_scene
+            .split('#')
+            .next()
+            .ok_or("Native collision scene path is missing")?;
+        commands.insert_resource(WorldBrushes::load(
+            config
+                .contents
+                .get(collision)
+                .map_err(|error| error.to_string())?,
+        )?);
         commands.insert_resource(art);
         Ok(definition)
     })();
@@ -390,9 +533,11 @@ pub(crate) fn begin_load(
 
 fn reload_failed_pack_assets(server: &AssetServer, pack: &crate::pack::Pack) {
     for path in pack.entries.keys() {
-        if server.get_path_ids(path.clone()).iter().any(|id| {
-            matches!(server.get_load_state(*id), Some(LoadState::Failed(_)))
-        }) {
+        if server
+            .get_path_ids(path.clone())
+            .iter()
+            .any(|id| matches!(server.get_load_state(*id), Some(LoadState::Failed(_))))
+        {
             server.reload(path.clone());
         }
     }
@@ -500,7 +645,12 @@ fn scene_ready(
                         .iter()
                         .find(|o| o.id == source.id),
                 );
-            } else if !definition.environment.triggers.iter().any(|trigger| trigger.id == id) {
+            } else if !definition
+                .environment
+                .triggers
+                .iter()
+                .any(|trigger| trigger.id == id)
+            {
                 failure.0 = format!("Unknown brush entity {id}");
                 next.set(GameState::LoadError);
             }
@@ -515,15 +665,27 @@ fn scene_ready(
                     Some(collider)
                 });
                 if let Some(collider) = collider {
+                    let metadata = metadata.and_then(|extras| {
+                        serde_json::from_str::<serde_json::Value>(&extras.value).ok()
+                    });
+                    let Some(contents) = metadata
+                        .as_ref()
+                        .and_then(|value| value["surface"]["contents"].as_u64())
+                        .and_then(|value| u32::try_from(value).ok())
+                    else {
+                        failure.0 = "A native map collision mesh lacks source contents.".into();
+                        next.set(GameState::LoadError);
+                        continue;
+                    };
                     commands.entity(entity).insert((
                         RigidBody::Static,
                         collider,
                         WorldCollider,
+                        WorldContents(contents),
+                        world_collision_layers(contents),
                         crate::movement::physics::SurfaceFlags(
                             metadata
-                                .and_then(|extras| {
-                                    serde_json::from_str::<serde_json::Value>(&extras.value).ok()
-                                })
+                                .as_ref()
                                 .and_then(|value| value["surface"]["flags"].as_u64())
                                 .unwrap_or(0) as u32,
                         ),
@@ -534,6 +696,12 @@ fn scene_ready(
                                 .unwrap_or_else(|| "default".into()),
                         ),
                     ));
+                    if metadata
+                        .as_ref()
+                        .is_some_and(|value| value["surface"]["terrain"] == true)
+                    {
+                        commands.entity(entity).insert(WorldTerrain);
+                    }
                     loading.colliders += 1;
                 } else {
                     error!("Could not build collision for {:?}", mesh.0.path());

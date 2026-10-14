@@ -76,6 +76,7 @@ pub struct Tuning {
     pub crouch_height: f32,
     pub crouch_eye: f32,
     pub eye_height: f32,
+    pub use_radius: f32,
     pub mouse_sensitivity: f32,
     pub ads_mouse_sensitivity: f32,
     pub pistol_damage: u32,
@@ -111,6 +112,7 @@ impl Default for Tuning {
             crouch_height: 1.15,
             crouch_eye: 40. * 0.0254,
             eye_height: 1.62,
+            use_radius: 72. * 0.0254,
             mouse_sensitivity: 0.002,
             ads_mouse_sensitivity: 0.0012,
             pistol_damage: 50,
@@ -192,7 +194,8 @@ impl GameDefinition {
         self.content.validate()?;
         if self.delivery_scope == DeliveryScope::FirstPlayableSolo {
             self.content.validate_first_playable()?;
-            if self.initial_spawns.is_empty()
+            if self.access.spawners.is_empty() || self.access.entrances.is_empty()
+                || self.initial_spawns.is_empty()
                 || self.initial_spawns.iter().any(|spawn| {
                     !spawn.position.iter().all(|value| value.is_finite())
                         || !spawn.yaw.is_finite()
@@ -214,7 +217,11 @@ impl GameDefinition {
                 .content
                 .perks
                 .iter()
-                .any(|perk| perk.id == self.solo_revive.perk)
+                .any(|perk| {
+                    perk.id == self.solo_revive.perk
+                        && !perk.collision.is_empty()
+                        && perk.path_bounds_radius.is_some()
+                })
                 || self.content.sounds.is_empty()
                 || self.audio.aliases.is_empty()
                 || self.audio.bindings.is_empty()
@@ -271,6 +278,7 @@ impl GameDefinition {
             self.tuning.crouch_height,
             self.tuning.crouch_eye,
             self.tuning.eye_height,
+            self.tuning.use_radius,
             self.tuning.mouse_sensitivity,
             self.tuning.ads_mouse_sensitivity,
             self.tuning.fire_interval,
@@ -290,6 +298,9 @@ impl GameDefinition {
                 .all(|v| v.is_finite())
             || !values.iter().all(|v| v.is_finite() && *v > 0.)
             || !self.environment.valid(self)
+            || self.content.barriers.iter().any(|barrier|!barrier.valid_actions())
+            || self.content.generators.iter().any(|generator| generator.initial_reward.as_ref().is_some_and(|reward| !self.environment.triggers.iter().any(|trigger|trigger.id==reward.source_trigger)))
+            || self.content.perks.iter().any(|perk| perk.bump_trigger.as_ref().is_some_and(|id| !self.environment.triggers.iter().any(|trigger| trigger.id == *id)))
             || self.content.interactions.iter().any(|interaction| {
                 interaction.source_trigger.as_ref().is_some_and(|id| {
                     !self

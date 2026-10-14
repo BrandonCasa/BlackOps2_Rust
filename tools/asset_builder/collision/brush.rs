@@ -108,6 +108,7 @@ pub(super) fn brush_geometry(
 
 pub(super) fn brush(streams: &Streams, root: Address, batches: &mut Batches) -> Result<()> {
     let (vertices, planes) = brush_geometry(streams, root)?;
+    let contents = streams.u32(root.add(12)?)?;
     for (normal, distance, flag) in planes {
         let mut face: Vec<_> = vertices
             .iter()
@@ -130,10 +131,11 @@ pub(super) fn brush(streams: &Streams, root: Address, batches: &mut Batches) -> 
                 )
         });
         for index in 1..face.len() - 1 {
-            batches
-                .entry(flag)
-                .or_default()
-                .push([face[0], face[index + 1], face[index]]);
+            batches.entry((contents, flag)).or_default().push([
+                face[0],
+                face[index + 1],
+                face[index],
+            ]);
         }
     }
     Ok(())
@@ -160,7 +162,8 @@ pub(crate) fn model(
                 continue;
             }
         }
-        if streams.u32(surface.add(36)?)? & contents_mask == 0 {
+        let contents = streams.u32(surface.add(36)?)?;
+        if contents & contents_mask == 0 {
             continue;
         }
         let flags = streams.u32(surface.add(40)?)?;
@@ -187,7 +190,10 @@ pub(crate) fn model(
                 .ok_or("Degenerate native model collision triangle")?;
             let c = solve(matrix, [distances[0], distances[1], distances[2] + 1.])
                 .ok_or("Degenerate native model collision triangle")?;
-            batches.entry(flags).or_default().push([a, c, b]);
+            batches
+                .entry((contents, flags))
+                .or_default()
+                .push([a, c, b]);
         }
     }
     Ok(batches)

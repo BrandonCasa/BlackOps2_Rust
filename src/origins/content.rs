@@ -257,6 +257,7 @@ pub struct WeaponMechanics {
     pub ads_pose: Vec<AdsPoseSample>,
     pub ads_sight: Option<AdsSight>,
     pub ads_enabled: bool,
+    pub native_ads_pitch: Option<f32>,
     pub ads_translation: [f32; 3],
     pub ads_rotation: [f32; 4],
     pub burst_delay: f32,
@@ -315,6 +316,7 @@ impl Default for WeaponMechanics {
             ads_pose: Vec::new(),
             ads_sight: None,
             ads_enabled: true,
+            native_ads_pitch: None,
             ads_translation: [0.; 3],
             ads_rotation: [0., 0., 0., 1.],
             burst_delay: 0.,
@@ -388,6 +390,215 @@ pub struct EnemyDefinition {
     pub character_index: Option<u8>,
     #[serde(default)]
     pub hit_regions: Vec<HitVolumeDefinition>,
+    #[serde(default)]
+    pub physics: Option<EnemyPhysics>,
+    #[serde(default)]
+    pub gibs: Option<EnemyGibs>,
+    #[serde(default)]
+    pub ragdoll: Option<EnemyRagdoll>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnemyRagdoll {
+    pub bones: Vec<RagdollBone>,
+    pub joints: Vec<RagdollJoint>,
+    pub baselerp: Vec<RagdollBaseLerp>,
+    pub self_pairs: Vec<[usize; 2]>,
+}
+impl EnemyRagdoll {
+    fn valid(&self) -> bool {
+        !self.bones.is_empty()
+            && self.bones.len() <= 14
+            && self.bones.iter().enumerate().all(|(index, bone)| {
+                !bone.joint.is_empty()
+                    && !bone.end_joint.is_empty()
+                    && bone.radius.is_finite()
+                    && bone.radius > 0.
+                    && bone.half_length.is_finite()
+                    && bone.half_length >= 0.
+                    && bone.base.iter().all(|value| value.is_finite())
+                    && bone.base[3].abs() < 0.0001
+                    && bone.base[7].abs() < 0.0001
+                    && bone.base[11].abs() < 0.0001
+                    && (bone.base[15] - 1.).abs() < 0.0001
+                    && bone.mass.is_finite()
+                    && bone.mass > 0.
+                    && bone.friction.is_finite()
+                    && bone.friction >= 0.
+                    && bone.parent.is_none_or(|parent| parent < index)
+            })
+            && self.joints.len() <= 28
+            && self.joints.iter().all(|joint| {
+                joint.bone < self.bones.len()
+                    && self.bones[joint.bone].parent.is_some()
+                    && !joint.limits.is_empty()
+                    && joint.limits.len() <= 3
+                    && joint.limits.iter().all(|limit| {
+                        limit.axis.iter().all(|value| value.is_finite())
+                            && (limit.axis.iter().map(|value| value * value).sum::<f32>() - 1.)
+                                .abs()
+                                < 0.0001
+                            && limit.friction.is_finite()
+                            && limit.friction >= 0.
+                            && limit.minimum.is_finite()
+                            && limit.maximum.is_finite()
+                            && limit.minimum <= limit.maximum
+                            && limit.minimum >= -std::f32::consts::PI
+                            && limit.maximum <= std::f32::consts::PI
+                    })
+            })
+            && self.baselerp.iter().all(|bone| {
+                !bone.joint.is_empty()
+                    && bone.bone < self.bones.len()
+                    && bone.seconds.is_finite()
+                    && (0.1..=6.).contains(&bone.seconds)
+                    && bone.base.iter().all(|value| value.is_finite())
+                    && bone.base[3].abs() < 0.0001
+                    && bone.base[7].abs() < 0.0001
+                    && bone.base[11].abs() < 0.0001
+                    && (bone.base[15] - 1.).abs() < 0.0001
+            })
+            && self.self_pairs.iter().all(|pair| {
+                pair[0] < self.bones.len() && pair[1] < self.bones.len() && pair[0] != pair[1]
+            })
+    }
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RagdollBone {
+    pub joint: String,
+    pub end_joint: String,
+    pub radius: f32,
+    pub half_length: f32,
+    pub base: [f32; 16],
+    pub mass: f32,
+    pub friction: f32,
+    pub parent: Option<usize>,
+    pub mirror: bool,
+}
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RagdollJointKind {
+    Hinge,
+    Swivel,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RagdollJoint {
+    pub bone: usize,
+    pub kind: RagdollJointKind,
+    pub limits: Vec<RagdollLimit>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RagdollLimit {
+    pub axis: [f32; 3],
+    pub friction: f32,
+    pub minimum: f32,
+    pub maximum: f32,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RagdollBaseLerp {
+    pub joint: String,
+    pub bone: usize,
+    pub seconds: f32,
+    pub base: [f32; 16],
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnemyGibs {
+    pub models: BTreeMap<crate::combat_effects::BodyGib, EnemyGibModels>,
+    pub beheaded: ContentId,
+    pub pieces: [EnemyGibPiece; 4],
+    pub hat: Option<EnemyGibPiece>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnemyGibPiece {
+    pub presentation: ContentId,
+    pub joint: String,
+    pub physics: NativeModelPhysics,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeModelPhysics {
+    pub mass: f32,
+    pub bounce: f32,
+    pub friction: f32,
+    pub bullet_force_scale: f32,
+    pub explosive_force_scale: f32,
+    pub gravity_scale: f32,
+    pub center: [f32; 3],
+    pub shapes: Vec<Vec<[f32; 3]>>,
+}
+impl NativeModelPhysics {
+    fn valid(&self) -> bool {
+        self.mass.is_finite()
+            && self.mass > 0.
+            && self.bounce.is_finite()
+            && (0. ..=1.).contains(&self.bounce)
+            && self.friction.is_finite()
+            && self.friction >= 0.
+            && self.bullet_force_scale.is_finite()
+            && self.bullet_force_scale >= 0.
+            && self.explosive_force_scale.is_finite()
+            && self.explosive_force_scale >= 0.
+            && self.gravity_scale.is_finite()
+            && self.center.iter().all(|value| value.is_finite())
+            && !self.shapes.is_empty()
+            && self.shapes.iter().all(|points| {
+                points.len() >= 4
+                    && points.iter().flatten().all(|value| value.is_finite())
+                    && avian3d::prelude::Collider::convex_hull(
+                        &points
+                            .iter()
+                            .copied()
+                            .map(bevy::prelude::Vec3::from_array)
+                            .collect::<Vec<_>>(),
+                    )
+                    .is_some()
+            })
+    }
+}
+impl EnemyGibs {
+    pub fn presentations(&self) -> impl Iterator<Item = &ContentId> {
+        self.models
+            .values()
+            .flat_map(|models| [&models.body, &models.legs])
+            .chain(std::iter::once(&self.beheaded))
+    }
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnemyGibModels {
+    pub body: ContentId,
+    pub legs: ContentId,
+}
+#[derive(Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnemyPhysics {
+    pub radius: f32,
+    pub height: f32,
+    pub crawler_height: f32,
+}
+impl EnemyPhysics {
+    pub fn height(self, crawler: bool) -> f32 {
+        if crawler {
+            self.crawler_height
+        } else {
+            self.height
+        }
+    }
+    pub fn center(self, crawler: bool) -> bevy::prelude::Vec3 {
+        bevy::prelude::Vec3::Y * (self.height(crawler) * 0.5)
+    }
+    fn valid(self) -> bool {
+        [self.radius, self.height, self.crawler_height]
+            .into_iter()
+            .all(|value| value.is_finite() && value > 0.)
+            && self.crawler_height < self.height
+    }
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -471,6 +682,8 @@ pub enum EnemyCombat {
 pub struct EnemyCombatClip {
     pub animation: ContentId,
     pub seconds: f32,
+    #[serde(default)]
+    pub duration: Option<f32>,
     pub hits: Vec<f32>,
     #[serde(default)]
     pub stops: Vec<f32>,
@@ -510,6 +723,14 @@ pub struct PerkDefinition {
     pub icon: Option<ContentId>,
     #[serde(default)]
     pub presentation: Option<ContentId>,
+    #[serde(default)]
+    pub off_presentation: Option<ContentId>,
+    #[serde(default)]
+    pub collision: Vec<crate::environment::VolumeDefinition>,
+    #[serde(default)]
+    pub path_bounds_radius: Option<f32>,
+    #[serde(default)]
+    pub bump_trigger: Option<String>,
     #[serde(default)]
     pub drink: Option<PerkDrinkDefinition>,
     #[serde(default)]
@@ -665,6 +886,14 @@ pub struct NavigationNode {
     pub id: ContentId,
     pub position: [f32; 3],
     pub zone: ZoneId,
+    #[serde(default)]
+    pub native: Option<NativePathNode>,
+}
+#[derive(Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativePathNode {
+    pub r#type: u8,
+    pub spawn_flags: i32,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -724,7 +953,9 @@ impl NegotiationNode {
             .iter()
             .all(|s| s.len() < 128)
             && nodes.iter().find(|n| n.id == *identity).is_some_and(|n| {
-                n.position
+                n.native.is_none_or(|native| {
+                    native.r#type == self.r#type && native.spawn_flags == self.spawn_flags
+                }) && n.position
                     .iter()
                     .zip(self.position)
                     .all(|(a, b)| (a - b).abs() < 0.0001)
@@ -764,10 +995,36 @@ pub struct GeneratorDefinition {
     pub recovery_seconds: f32,
     pub presentation: ContentId,
     pub model_position: [f32; 3],
-    pub emergence: Vec<[f32; 3]>,
+    pub emergence: Vec<GeneratorEmergence>,
+    pub capture_enemy: ContentId,
+    pub attack_points: Vec<GeneratorAttackPoint>,
     pub clip_seconds: [f32; 8],
     pub capture_sound: ContentId,
     pub active_sound: ContentId,
+    #[serde(default)]
+    pub initial_reward: Option<GeneratorReward>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneratorReward {
+    pub position: [f32; 3],
+    pub yaw: f32,
+    pub presentation: ContentId,
+    pub powerup: ContentId,
+    pub source_trigger: String,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneratorEmergence {
+    pub position: [f32; 3],
+    pub yaw: f32,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneratorAttackPoint {
+    pub position: [f32; 3],
+    pub face: [f32; 3],
+    pub inaccessible: bool,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -853,6 +1110,7 @@ pub struct AnimationDefinition {
     pub id: ContentId,
     pub path: String,
     pub skeleton: ContentId,
+    pub seconds: f32,
     pub notifications: Vec<AnimationNotification>,
     #[serde(default)]
     pub looping: bool,
@@ -1146,12 +1404,15 @@ impl ContentCatalog {
         valid(
             !self.enemies.is_empty()
                 && !self.barriers.is_empty()
+                && self.barriers.iter().all(|barrier| barrier.enter.is_some())
                 && self
                     .zones
                     .iter()
                     .any(|zone| zone.id.0 == "zone.start" && zone.initially_open)
                 && !self.navigation_nodes.is_empty()
+                && self.navigation_nodes.iter().all(|node| node.native.is_some())
                 && !self.navigation_links.is_empty()
+                && self.navigation_links.iter().all(|link| link.cost.is_some())
                 && !self.presentations.is_empty()
                 && !self.animations.is_empty()
                 && !self.ui_assets.is_empty()
@@ -1340,6 +1601,7 @@ impl ContentCatalog {
                                 .all(|v| v.is_finite())
                             && (p.rotation.iter().map(|v| v * v).sum::<f32>() - 1.).abs() < 0.002
                     })
+                    && m.native_ads_pitch.is_none_or(|pitch| pitch.is_finite())
                     && m.ads_sight.as_ref().is_none_or(|s| {
                         matches!(s.joint.as_str(), "j_gun" | "tag_sights")
                             && s.point
@@ -1414,6 +1676,8 @@ impl ContentCatalog {
                     && positive(v.attack_seconds)
                     && positive(v.death_seconds)
                     && positive(v.bounds_margin)
+                    && v.physics.is_none_or(EnemyPhysics::valid)
+                    && v.ragdoll.as_ref().is_none_or(EnemyRagdoll::valid)
                     && v.attack_hits
                         .iter()
                         .all(|t| nonnegative(*t) && *t <= v.attack_seconds)
@@ -1442,10 +1706,26 @@ impl ContentCatalog {
                         && hit.sphere.iter().all(|v| v.is_finite())
                         && hit.sphere[3] >= 4. * 0.0254 * 0.0254
                         && (v.presentation.as_ref() == Some(&hit.presentation)
-                            || v.parts.iter().any(|p| p.presentation == hit.presentation)),
+                            || v.parts.iter().any(|p| p.presentation == hit.presentation)
+                            || v.gibs.as_ref().is_some_and(|gibs| {
+                                gibs.presentations().any(|id| *id == hit.presentation)
+                            })),
                     "Invalid enemy hit region",
                 )?;
                 index.resolve(&v.id.0, &hit.presentation.0, "presentation")?;
+            }
+            if let Some(gibs) = &v.gibs {
+                for id in gibs.presentations() {
+                    r(&v.id.0, &id.0, "presentation")?;
+                }
+                valid(!gibs.models.is_empty(), "Empty native gib replacements")?;
+                for piece in gibs.pieces.iter().chain(gibs.hat.iter()) {
+                    r(&v.id.0, &piece.presentation.0, "presentation")?;
+                    valid(
+                        !piece.joint.is_empty() && piece.physics.valid(),
+                        "Invalid native gib physics",
+                    )?;
+                }
             }
             for part in &v.parts {
                 r(&v.id.0, &part.presentation.0, "presentation")?;
@@ -1482,6 +1762,9 @@ impl ContentCatalog {
                     r(&v.id.0, &clip.animation.0, "animation")?;
                     valid(
                         positive(clip.seconds)
+                            && clip.duration.is_none_or(|duration| {
+                                positive(duration) && duration >= clip.seconds
+                            })
                             && clip
                                 .hits
                                 .iter()
@@ -1515,6 +1798,39 @@ impl ContentCatalog {
             }
         }
         for v in &self.perks {
+            optional(&v.id.0, &v.off_presentation, "presentation")?;
+            valid(
+                v.path_bounds_radius.is_none_or(positive),
+                "Invalid perk source path bounds",
+            )?;
+            valid(
+                v.bump_trigger
+                    .as_ref()
+                    .is_none_or(|id| !id.is_empty() && id.len() < 128),
+                "Invalid perk bump trigger",
+            )?;
+            valid(
+                v.collision.iter().all(|shape| {
+                    !shape.id.is_empty()
+                        && shape.position.iter().all(|value| value.is_finite())
+                        && (4..=128).contains(&shape.vertices.len())
+                        && shape
+                            .vertices
+                            .iter()
+                            .flatten()
+                            .all(|value| value.is_finite())
+                        && avian3d::prelude::Collider::convex_hull(
+                            &shape
+                                .vertices
+                                .iter()
+                                .copied()
+                                .map(bevy::prelude::Vec3::from_array)
+                                .collect::<Vec<_>>(),
+                        )
+                        .is_some()
+                }),
+                "Invalid perk source collision",
+            )?;
             if let Some(generator) = &v.generator {
                 r(&v.id.0, &generator.0, "generator")?;
             }
@@ -1633,6 +1949,8 @@ impl ContentCatalog {
                     && v.audio.repair_delay.is_none_or(nonnegative),
                 "Invalid native barrier repair audio",
             )?;
+            valid(v.repair_quake.as_ref().is_none_or(|quake| quake.valid()), "Invalid native barrier repair earthquake")?;
+            valid(v.valid_actions(), "Invalid native barrier actor action")?;
             valid(v.boards.len() == 6, "Invalid barrier board count")?;
             valid(
                 v.repair_origin.iter().all(|value| value.is_finite())
@@ -1662,7 +1980,10 @@ impl ContentCatalog {
                         .all(|alias| !alias.is_empty())
                         && b.audio.repeat_pause.is_none_or(|[min, max]| {
                             nonnegative(min) && max.is_finite() && max >= min
-                        }),
+                        })
+                        && b.audio.effect_delay.iter().all(|value| nonnegative(*value))
+                        && b.audio.effect_delay[1] >= b.audio.effect_delay[0]
+                        && b.repair_effects.iter().flatten().all(|effect| !effect.name.is_empty() && effect.offset.iter().all(|value| value.is_finite())),
                     "Invalid native barrier board audio",
                 )?;
                 for attack in &b.attacks {
@@ -1682,7 +2003,8 @@ impl ContentCatalog {
         for v in &self.navigation_nodes {
             r(&v.id.0, &v.zone.0, "zone")?;
             valid(
-                v.position.iter().all(|x| x.is_finite()),
+                v.position.iter().all(|x| x.is_finite())
+                    && v.native.is_none_or(|native| native.r#type <= 21),
                 "Invalid navigation position",
             )?;
         }
@@ -1717,6 +2039,12 @@ impl ContentCatalog {
             r(&v.id.0, &v.presentation.0, "presentation")?;
             r(&v.id.0, &v.capture_sound.0, "sound")?;
             r(&v.id.0, &v.active_sound.0, "sound")?;
+            r(&v.id.0, &v.capture_enemy.0, "enemy")?;
+            if let Some(reward)=&v.initial_reward {
+                r(&v.id.0,&reward.presentation.0,"presentation")?;
+                r(&v.id.0,&reward.powerup.0,"powerup")?;
+                valid(reward.position.iter().all(|value|value.is_finite()) && reward.yaw.is_finite() && !reward.source_trigger.is_empty() && reward.source_trigger.len()<128,"Invalid initial generator reward")?;
+            }
             for z in &v.zones {
                 r(&v.id.0, &z.0, "zone")?;
             }
@@ -1728,8 +2056,19 @@ impl ContentCatalog {
                     && positive(v.shutdown_seconds)
                     && positive(v.recovery_seconds)
                     && v.model_position.iter().all(|v| v.is_finite())
-                    && v.emergence.len() == 4
-                    && v.emergence.iter().flatten().all(|v| v.is_finite())
+                    && !v.emergence.is_empty()
+                    && v.emergence.len() <= 128
+                    && v.emergence.iter().all(|spot| {
+                        spot.position.iter().all(|value| value.is_finite()) && spot.yaw.is_finite()
+                    })
+                    && v.attack_points.len() == 12
+                    && v.attack_points.iter().all(|point| {
+                        point
+                            .position
+                            .iter()
+                            .chain(&point.face)
+                            .all(|value| value.is_finite())
+                    })
                     && v.clip_seconds.iter().all(|v| positive(*v)),
                 "Invalid generator parameters",
             )?;
@@ -1806,7 +2145,7 @@ impl ContentCatalog {
                     && positive(v.pitch[0])
                     && v.pitch[1].is_finite()
                     && v.pitch[1] >= v.pitch[0]
-                    && positive(v.distance)
+                    && nonnegative(v.distance)
                     && nonnegative(v.distance_min)
                     && v.distance_min <= v.distance,
                 "Invalid sound tuning",
@@ -1815,6 +2154,7 @@ impl ContentCatalog {
         for v in &self.animations {
             validate_asset_path(&v.path)?;
             r(&v.id.0, &v.skeleton.0, "presentation")?;
+            valid(positive(v.seconds), "Invalid native animation duration")?;
             valid(
                 v.root_motion
                     .as_ref()
@@ -1822,12 +2162,12 @@ impl ContentCatalog {
                 "Invalid native animation root motion",
             )?;
             valid(
-                v.notifications
-                    .iter()
-                    .all(|n| nonnegative(n.seconds) && !n.event.is_empty())
-                    && v.notifications
-                        .windows(2)
-                        .all(|w| w[0].seconds <= w[1].seconds),
+                v.notifications.iter().all(|n| {
+                    nonnegative(n.seconds) && n.seconds <= v.seconds + 0.001 && !n.event.is_empty()
+                }) && v
+                    .notifications
+                    .windows(2)
+                    .all(|w| w[0].seconds <= w[1].seconds),
                 "Invalid animation notifications",
             )?;
         }

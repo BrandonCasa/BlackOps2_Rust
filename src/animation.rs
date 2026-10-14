@@ -84,6 +84,8 @@ pub(crate) struct AnimationLayer {
     pub seconds: Option<f32>,
     pub looping: bool,
     pub weight: f32,
+    pub blend_seconds: Option<f32>,
+    pub preserve_on_restart: bool,
 }
 
 impl AnimationLayer {
@@ -93,6 +95,8 @@ impl AnimationLayer {
             seconds,
             looping,
             weight: 1.,
+            blend_seconds: None,
+            preserve_on_restart: false,
         }
     }
 
@@ -181,6 +185,8 @@ struct WeightGoal {
     from: f32,
     target: f32,
     elapsed: f32,
+    blend_seconds: f32,
+    preserve_on_restart: bool,
 }
 
 #[derive(Component, Default)]
@@ -239,7 +245,12 @@ impl Plugin for GameAnimationPlugin {
             )
             .add_systems(
                 PostUpdate,
-                (native_playback, apply_playback, remember_poses, restore_rest_pose)
+                (
+                    native_playback,
+                    apply_playback,
+                    remember_poses,
+                    restore_rest_pose,
+                )
                     .chain()
                     .before(bevy::app::AnimationSystems),
             )
@@ -294,8 +305,28 @@ fn apply_playback(
         }
         let initialized = applied.graph == Some(request.graph.id());
         if !initialized || applied.restart != request.restart {
-            player.stop_all();
-            applied.weights.clear();
+            let retained = |node| {
+                initialized
+                    && (request
+                        .layers
+                        .iter()
+                        .any(|layer| layer.node == node && layer.preserve_on_restart)
+                        || applied
+                            .weights
+                            .iter()
+                            .any(|goal| goal.node == node && goal.preserve_on_restart))
+            };
+            let stopped = player
+                .playing_animations()
+                .map(|(node, _)| *node)
+                .filter(|node| !retained(*node))
+                .collect::<Vec<_>>();
+            for node in stopped {
+                player.stop(node);
+            }
+            applied
+                .weights
+                .retain(|goal| initialized && goal.preserve_on_restart);
             applied.graph = Some(request.graph.id());
             applied.restart = request.restart;
             commands
@@ -306,13 +337,13 @@ fn apply_playback(
         let delta = if playing { time.delta_secs() } else { 0. };
         for layer in &request.layers {
             if player.animation(layer.node).is_none() {
-                player
-                    .start(layer.node)
-                    .set_weight(if initialized && request.blend_seconds > 0. {
+                player.start(layer.node).set_weight(
+                    if initialized && layer.blend_seconds.unwrap_or(request.blend_seconds) > 0. {
                         0.
                     } else {
                         layer.weight
-                    });
+                    },
+                );
             }
             let active = player.animation_mut(layer.node).unwrap();
             active
@@ -347,6 +378,10 @@ fn apply_playback(
                         from: active.weight(),
                         target,
                         elapsed: 0.,
+                        blend_seconds: desired
+                            .and_then(|layer| layer.blend_seconds)
+                            .unwrap_or(request.blend_seconds),
+                        preserve_on_restart: desired.is_some_and(|layer| layer.preserve_on_restart),
                     });
                     applied.weights.last_mut().unwrap()
                 }
@@ -357,8 +392,8 @@ fn apply_playback(
                 goal.elapsed = 0.;
             }
             goal.elapsed += delta;
-            let fraction = if request.blend_seconds > 0. {
-                (goal.elapsed / request.blend_seconds).min(1.)
+            let fraction = if goal.blend_seconds > 0. {
+                (goal.elapsed / goal.blend_seconds).min(1.)
             } else {
                 1.
             };
@@ -375,6 +410,67 @@ fn apply_playback(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod playback_tests {
+    use super::*;
+
+    #[test]
+    fn independent_aim_layers_keep_their_seek_and_blend_when_a_shot_restarts() {
+        let (_, nodes) = AnimationGraph::from_clips([
+            Handle::default(),
+            Handle::default(),
+            Handle::default(),
+            Handle::default(),
+        ]);
+        let mut app = App::new();
+        let mut time = Time::<()>::default();
+        time.advance_by(std::time::Duration::from_millis(20));
+        app.insert_resource(time)
+            .insert_resource(State::new(GameState::Playing))
+            .add_systems(Update, apply_playback);
+        let mut aim = AnimationLayer::new(nodes[1], Some(0.1), false);
+        aim.blend_seconds = Some(0.1);
+        aim.preserve_on_restart = true;
+        let mut lower = AnimationLayer::new(nodes[2], Some(0.1), false).weighted(0.);
+        lower.blend_seconds = Some(0.1);
+        lower.preserve_on_restart = true;
+        let entity = app
+            .world_mut()
+            .spawn(AnimationPlayback::new(
+                Handle::default(),
+                vec![AnimationLayer::new(nodes[0], None, false), aim, lower],
+            ))
+            .id();
+        app.update();
+        {
+            let mut playback = app
+                .world_mut()
+                .get_mut::<AnimationPlayback>(entity)
+                .unwrap();
+            playback.layers[0].node = nodes[3];
+            playback.layers[1].seconds = Some(0.15);
+            playback.layers[1].weight = 0.;
+            playback.layers[2].weight = 1.;
+            playback.restart += 1;
+        }
+        app.update();
+        let player = app.world().get::<AnimationPlayer>(entity).unwrap();
+        assert!(player.animation(nodes[0]).is_none());
+        assert_eq!(player.animation(nodes[3]).unwrap().weight(), 1.);
+        assert_eq!(player.animation(nodes[1]).unwrap().seek_time(), 0.15);
+        assert!((player.animation(nodes[1]).unwrap().weight() - 0.8).abs() < 1e-6);
+        assert!((player.animation(nodes[2]).unwrap().weight() - 0.2).abs() < 1e-6);
+        app.world_mut()
+            .get_mut::<AnimationPlayback>(entity)
+            .unwrap()
+            .restart += 1;
+        app.update();
+        let player = app.world().get::<AnimationPlayer>(entity).unwrap();
+        assert!((player.animation(nodes[1]).unwrap().weight() - 0.6).abs() < 1e-6);
+        assert!((player.animation(nodes[2]).unwrap().weight() - 0.4).abs() < 1e-6);
     }
 }
 

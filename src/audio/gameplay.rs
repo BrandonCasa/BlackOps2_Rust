@@ -18,10 +18,12 @@ struct ActionClock {
 #[derive(Default)]
 struct ActorClock {
     position: Option<Vec3>,
-    distance: f32,
+    joints: [Option<Entity>; 3],
     vocal: f32,
     action: Option<EnemyAnimation>,
     elapsed: f32,
+    talking: Option<Entity>,
+    animation: ActionClock,
 }
 #[derive(Resource, Default)]
 struct AudioState {
@@ -32,14 +34,35 @@ struct AudioState {
     perks: BTreeSet<crate::origins::PerkId>,
     round: u32,
     intermission: bool,
-    critical: bool,
+    health_heartbeat: f32,
+    health_heartbeat_wait: f32,
     downed: bool,
+    downed_origin: Vec3,
+    heartbeat: f32,
+    heartbeat_interval: f32,
+    heartbeat_volume: f32,
+    revive_gasp: Option<f32>,
     position: Option<Vec3>,
     crawl_distance: f32,
     raid: bool,
     raid_clock: f32,
 }
+#[derive(Resource, Default)]
+struct VocalChoke {
+    remaining: f32,
+    calls: u8,
+}
+impl VocalChoke {
+    fn allow(&mut self) -> bool {
+        if self.calls >= 5 {
+            return false;
+        }
+        self.calls += 1;
+        true
+    }
+}
 pub(super) fn install(app: &mut App) {
+    app.init_resource::<VocalChoke>();
     app.init_resource::<TriggerAudio>()
         .add_observer(trigger_sound)
         .add_systems(OnEnter(GameState::PreparingShaders), reset_trigger_audio)
@@ -56,6 +79,11 @@ pub(super) fn install(app: &mut App) {
             .after(GameStep::Rounds)
             .run_if(in_state(GameState::Playing)),
     );
+    app.add_systems(OnEnter(GameState::PreparingShaders), reset_gameplay_audio);
+}
+fn reset_gameplay_audio(mut state: ResMut<AudioState>, mut choke: ResMut<VocalChoke>) {
+    *state = AudioState::default();
+    *choke = VocalChoke::default();
 }
 
 #[derive(Resource, Default)]
@@ -515,8 +543,10 @@ fn actions(
                 .animations
                 .iter()
                 .find(|a| a.id == *clip)
-                .and_then(|a| a.notifications.last())
-                .map_or(1., |n| n.seconds);
+                .map(|animation| animation.seconds);
+            let Some(native_duration) = native_duration else {
+                continue;
+            };
             let sampled = if let Some((duration, remaining)) = timing {
                 clock.age = (duration - remaining).max(0.);
                 clock.age / duration * native_duration
@@ -546,75 +576,186 @@ fn actions(
 }
 fn actors(
     mut commands: Commands,
+    game: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
     mut state: ResMut<AudioState>,
+    mut session: ResMut<Session>,
+    mut playback: MessageReader<PlaybackEvent>,
+    mut choke: ResMut<VocalChoke>,
+    mixer: Res<Mixer>,
+    mut footstep_frame: Local<(u64, usize)>,
     zombies: Query<(
         Entity,
         &crate::enemies::Zombie,
         &Transform,
         &Vitality,
         Option<&crate::generators::GeneratorDefender>,
+        Option<&crate::rounds::PopulationKind>,
     )>,
-    query: SpatialQuery,
-    surfaces: Query<&SurfaceSound>,
+    children: Query<&Children>,
+    joints: Query<(&Name, &GlobalTransform)>,
+    spatial: SpatialQuery,
+    surfaces: Query<&crate::movement::physics::SurfaceFlags>,
 ) {
+    let finished = playback
+        .read()
+        .filter(|event| event.status != PlaybackStatus::Accepted)
+        .map(|event| event.entity)
+        .collect::<BTreeSet<_>>();
+    let alive = zombies
+        .iter()
+        .filter(|(_, _, _, health, defender, population)| {
+            health.state() == LifeState::ActorAlive
+                && defender.is_none()
+                && population
+                    .is_none_or(|kind| *kind != crate::rounds::PopulationKind::GeneratorDefender)
+        })
+        .count();
+    choke.remaining -= time.delta_secs();
+    if choke.remaining <= 0. {
+        choke.remaining = 0.1;
+        choke.calls = 0;
+    }
     state.actors.retain(|e, _| zombies.contains(*e));
-    for (owner, zombie, pose, health, defender) in &zombies {
-        let new_actor = !state.actors.contains_key(&owner);
+    if footstep_frame.0 != mixer.native_frame {
+        *footstep_frame = (mixer.native_frame, 0);
+    }
+    for (owner, zombie, pose, health, defender, population) in &zombies {
+        let capture_actor = defender.is_some()
+            || population
+                .is_some_and(|kind| *kind == crate::rounds::PopulationKind::GeneratorDefender);
         let clock = state.actors.entry(owner).or_default();
-        if new_actor && defender.is_some() {
-            emit(
-                &mut commands,
-                "zmb_vocals_capzomb_spawn",
-                SoundSource::attached(owner),
-            );
+        let speed_squared = clock.position.map_or(0., |position| {
+            position.xz().distance_squared(pose.translation.xz()) / time.delta_secs().powi(2)
+        });
+        clock.position = Some(pose.translation);
+        if clock.joints.iter().any(Option::is_none) {
+            for entity in children.iter_descendants(owner) {
+                if let Ok((name, _)) = joints.get(entity) {
+                    if let Some(index) = ["j_ball_le", "j_ball_ri", "j_mainroot"]
+                        .iter()
+                        .position(|joint| *joint == name.as_str())
+                    {
+                        clock.joints[index] = Some(entity);
+                    }
+                }
+            }
+        }
+        let feet = [0, 1].map(|index| {
+            clock.joints[index]
+                .and_then(|entity| joints.get(entity).ok())
+                .map_or(pose.translation, |(_, pose)| pose.translation())
+        });
+        let mainroot = clock.joints[2]
+            .and_then(|entity| joints.get(entity).ok())
+            .map(|(_, pose)| pose.translation());
+        if clock
+            .talking
+            .is_some_and(|entity| finished.contains(&entity))
+        {
+            clock.talking = None;
+        }
+        if let Some(animation) = game
+            .content
+            .enemies
+            .iter()
+            .find(|enemy| enemy.id == zombie.definition)
+            .and_then(|enemy| zombie.animation_clip(enemy, &game))
+        {
+            let clock = &mut clock.animation;
+            if clock.key != animation.id.0
+                || clock.sequence != zombie.animation_sequence()
+                || zombie.elapsed < clock.age
+            {
+                clock.key = animation.id.0.clone();
+                clock.sequence = zombie.animation_sequence();
+                clock.sampled = -0.001;
+            }
+            if let Some(notes) = game.audio.timelines.get(&animation.id.0) {
+                for note in notes {
+                    let count = note_crossings(
+                        note.seconds,
+                        clock.sampled,
+                        zombie.elapsed,
+                        animation.seconds,
+                        animation.looping,
+                    );
+                    for _ in 0..count {
+                        emit(
+                            &mut commands,
+                            note.alias.clone(),
+                            SoundSource::attached(owner),
+                        );
+                    }
+                }
+            }
+            for note in animation.notifications.iter().filter(|note| {
+                note.event.starts_with("footstep_left_")
+                    || note.event.starts_with("footstep_right_")
+            }) {
+                let count = note_crossings(
+                    note.seconds,
+                    clock.sampled,
+                    zombie.elapsed,
+                    animation.seconds,
+                    animation.looping,
+                );
+                let foot = feet[usize::from(note.event.starts_with("footstep_right_"))];
+                let mut surface = spatial
+                    .cast_ray_predicate(
+                        foot + Vec3::Y * 15. * 0.0254,
+                        Dir3::NEG_Y,
+                        30. * 0.0254,
+                        true,
+                        &crate::environment::solids([owner]),
+                        &|entity| surfaces.contains(entity),
+                    )
+                    .and_then(|hit| surfaces.get(hit.entity).ok())
+                    .map_or(0, |flags| (flags.0 >> 20 & 63) as usize);
+                if game.audio.water.touches(foot) {
+                    surface = 20;
+                }
+                let movement =
+                    footstep_movement(speed_squared, mainroot.map(|root| root.y - foot.y));
+                let alias = game
+                    .audio
+                    .footsteps
+                    .get(surface)
+                    .and_then(|aliases| aliases[movement].as_ref());
+                for _ in 0..count {
+                    if footstep_frame.1 >= 16 {
+                        break;
+                    }
+                    footstep_frame.1 += 1;
+                    if let Some(alias) = alias {
+                        emit(&mut commands, alias.clone(), SoundSource::World(foot));
+                    }
+                }
+            }
+            clock.sampled = zombie.elapsed;
+            clock.age = zombie.elapsed;
         }
         if health.state() != LifeState::ActorAlive {
             continue;
         }
-        let moving = matches!(
-            zombie.action,
-            EnemyAnimation::Walk | EnemyAnimation::Run | EnemyAnimation::Sprint
-        );
-        let distance = clock
-            .position
-            .map_or(0., |p| p.xz().distance(pose.translation.xz()));
-        clock.position = Some(pose.translation);
-        if moving && distance < 0.5 {
-            clock.distance += distance;
-            if clock.distance >= 0.75 {
-                clock.distance %= 0.75;
-                let surface = ground_surface(&query, &surfaces, pose.translation);
-                let gait = match zombie.action {
-                    EnemyAnimation::Run => "run",
-                    EnemyAnimation::Sprint => "sprint",
-                    _ => "walk",
-                };
-                emit(
-                    &mut commands,
-                    format!("fly_step_{gait}_npc_{surface}"),
-                    SoundSource::attached(owner),
-                );
-            }
-        }
         if clock.action != Some(zombie.action) || zombie.elapsed < clock.elapsed {
-            if zombie.action == EnemyAnimation::Attack {
-                emit(
-                    &mut commands,
-                    "zmb_attack_whoosh",
-                    SoundSource::attached(owner),
-                );
-            }
             let alias = match zombie.action {
-                EnemyAnimation::Attack => Some(if defender.is_some() {
+                EnemyAnimation::Attack => Some(if capture_actor {
                     "zmb_vocals_capzomb_attack"
                 } else {
                     "zmb_vocals_zombie_attack"
                 }),
-                EnemyAnimation::Tear => Some("zmb_vocals_zombie_teardown"),
+                EnemyAnimation::Tear => Some(match zombie.barrier_vocal() {
+                    Some("attack") if capture_actor => "zmb_vocals_capzomb_attack",
+                    Some("attack") => "zmb_vocals_zombie_attack",
+                    Some("taunt") => "zmb_vocals_zombie_taunt",
+                    _ => "zmb_vocals_zombie_teardown",
+                }),
                 _ => None,
             };
-            if let Some(alias) = alias {
+            if let Some(alias) = alias
+                && choke.allow()
+            {
                 emit(&mut commands, alias, SoundSource::attached(owner));
             }
         }
@@ -622,18 +763,69 @@ fn actors(
         clock.elapsed = zombie.elapsed;
         clock.vocal -= time.delta_secs();
         if clock.vocal <= 0. {
-            emit(
-                &mut commands,
-                match (defender.is_some(), zombie.action == EnemyAnimation::Sprint) {
-                    (true, true) => "zmb_vocals_capzomb_sprint",
-                    (true, false) => "zmb_vocals_capzomb_ambience",
-                    (false, true) => "zmb_vocals_zombie_sprint",
-                    (false, false) => "zmb_vocals_zombie_ambience",
-                },
-                SoundSource::attached(owner),
-            );
-            clock.vocal = 4. + (owner.to_bits() % 37) as f32 * 0.1;
+            let alias = match (
+                capture_actor,
+                matches!(
+                    zombie.gait,
+                    crate::rounds::Gait::Run | crate::rounds::Gait::Sprint
+                ),
+            ) {
+                (true, true) => "zmb_vocals_capzomb_sprint",
+                (true, false) => "zmb_vocals_capzomb_ambience",
+                (false, true) => "zmb_vocals_zombie_sprint",
+                (false, false) => "zmb_vocals_zombie_ambience",
+            };
+            let alias = if zombie.crawler() && !capture_actor {
+                "zmb_vocals_zombie_crawler"
+            } else {
+                alias
+            };
+            if clock.talking.is_none() && choke.allow() {
+                let alias = if alive <= 1 {
+                    format!("{alias}_loud")
+                } else {
+                    alias.into()
+                };
+                clock.talking = Some(emit(&mut commands, alias, SoundSource::attached(owner)));
+            }
+            clock.vocal = 1. + session.random() as f32 / u32::MAX as f32 * 3.;
         }
+    }
+}
+fn note_crossings(
+    seconds: f32,
+    previous: f32,
+    current: f32,
+    duration: f32,
+    looping: bool,
+) -> usize {
+    if looping {
+        let first = ((previous - seconds) / duration).floor() as i64 + 1;
+        let last = ((current - seconds) / duration).floor() as i64;
+        (last - first.max(0) + 1).max(0) as usize
+    } else {
+        usize::from(seconds > previous && seconds <= current)
+    }
+}
+fn footstep_movement(speed_squared: f32, root_height: Option<f32>) -> usize {
+    if let Some(height) = root_height {
+        if height < 6. * 0.0254 {
+            return 5;
+        }
+        if height < 22. * 0.0254 {
+            return if speed_squared >= (100. * 0.0254_f32).powi(2) {
+                3
+            } else {
+                4
+            };
+        }
+    }
+    if speed_squared >= (170. * 0.0254_f32).powi(2) {
+        0
+    } else if speed_squared >= (100. * 0.0254_f32).powi(2) {
+        1
+    } else {
+        2
     }
 }
 fn world(
@@ -646,7 +838,6 @@ fn world(
             Entity,
             &Transform,
             &Vitality,
-            &crate::player_health::Recovery,
             &crate::solo_revive::PerkInventory,
             &Player,
         ),
@@ -662,7 +853,7 @@ fn world(
         Res<MusicOverride>,
     ),
 ) {
-    let Ok((player, pose, health, recovery, perks, body)) = players.single() else {
+    let Ok((player, pose, health, perks, body)) = players.single() else {
         return;
     };
     if state.player != Some(player) {
@@ -673,6 +864,8 @@ fn world(
         }
         *state = AudioState {
             player: Some(player),
+            health_heartbeat: 2.2,
+            health_heartbeat_wait: 0.2,
             ..default()
         };
     }
@@ -699,34 +892,70 @@ fn world(
         state.crawl_distance = 0.;
     }
     let mut wanted = BTreeMap::<String, (String, SoundSource)>::new();
-    let critical = recovery.critical || health.state() == LifeState::Downed;
-    if critical {
-        wanted.insert(
-            "player.critical".into(),
-            ("chr_breathing_hurt".into(), SoundSource::attached(player)),
-        );
-        if !state.critical {
+    state.health_heartbeat -= time.delta_secs();
+    if state.health_heartbeat <= 0. && health.current().is_some_and(|health| health > 0) {
+        state.health_heartbeat += 0.2;
+        if health.current().unwrap() as f32 >= health.maximum() as f32 * 0.35 {
+            state.health_heartbeat_wait = 0.3;
+        } else {
             emit(
                 &mut commands,
-                "chr_breathing_hurt_start",
+                "mpl_player_heartbeat",
                 SoundSource::attached(player),
             );
+            state.health_heartbeat += state.health_heartbeat_wait;
+            if state.health_heartbeat_wait <= 0.6 {
+                state.health_heartbeat_wait += 0.1;
+            }
         }
-    } else if state.critical {
-        emit(
-            &mut commands,
-            "chr_breathing_better",
-            SoundSource::attached(player),
-        );
     }
-    state.critical = critical;
     let downed = health.state() == LifeState::Downed;
-    if state.downed && !downed {
+    if downed && !state.downed {
+        state.downed_origin = position;
+        state.heartbeat = 0.;
+        state.heartbeat_interval = 0.5;
+        state.heartbeat_volume = 0.5;
+        state.revive_gasp = None;
+    }
+    if downed {
+        wanted.insert(
+            "player.laststand".into(),
+            (
+                "evt_laststand_loop".into(),
+                SoundSource::World(state.downed_origin),
+            ),
+        );
+        state.heartbeat -= time.delta_secs();
+        if state.heartbeat <= 0. {
+            let heartbeat = emit(
+                &mut commands,
+                "chr_heart_beat",
+                SoundSource::attached(player),
+            );
+            commands.entity(heartbeat).insert(SoundControl {
+                volume: state.heartbeat_volume,
+                ..default()
+            });
+            state.heartbeat += state.heartbeat_interval;
+            state.heartbeat_interval = (state.heartbeat_interval * 1.05).min(2.);
+            state.heartbeat_volume = (state.heartbeat_volume * 1.05).min(1.);
+        }
+    }
+    let last_stand_ended = state.downed && !downed;
+    if last_stand_ended {
+        if let Some(looping) = state.loops.remove("player.laststand") {
+            commands.entity(looping).try_insert(SoundFade {
+                remaining: 0.7,
+                duration: 0.7,
+                out: true,
+            });
+        }
         emit(
             &mut commands,
-            "chr_revive_gasp",
-            SoundSource::attached(player),
+            "evt_laststand_in",
+            SoundSource::World(Vec3::ZERO),
         );
+        state.revive_gasp = Some(0.7);
         voice(
             &mut commands,
             &game,
@@ -737,6 +966,13 @@ fn world(
         );
     }
     state.downed = downed;
+    if !last_stand_ended && let Some(remaining) = state.revive_gasp.as_mut() {
+        *remaining -= time.delta_secs();
+        if *remaining <= 0. {
+            emit(&mut commands, "revive_gasp", SoundSource::attached(player));
+            state.revive_gasp = None;
+        }
+    }
     if generators.raid_active != state.raid {
         emit(
             &mut commands,
@@ -870,6 +1106,12 @@ fn world(
     for (key, (alias, source)) in wanted {
         if !state.loops.contains_key(&key) && game.audio.aliases.contains_key(&alias) {
             let entity = emit_loop(&mut commands, alias, source);
+            if key == "player.laststand" {
+                commands.entity(entity).insert(SoundControl {
+                    volume: 0.3,
+                    ..default()
+                });
+            }
             if key == "raid.music" {
                 commands.entity(entity).insert(SoundFade {
                     remaining: 5.,
@@ -899,12 +1141,13 @@ fn feedback(
     mut commands: Commands,
     game: Res<GameDefinition>,
     session: Res<Session>,
+    mut choke: ResMut<VocalChoke>,
     mut steps: MessageReader<crate::environment::Footstep>,
     mut deaths: MessageReader<crate::damage::EnemyDeath>,
     mut damages: MessageReader<crate::player_health::PlayerDamage>,
     mut applied: MessageReader<crate::damage::DamageApplied>,
     poses: Query<&Transform>,
-    defenders: Query<(), With<crate::generators::GeneratorDefender>>,
+    populations: Query<&crate::rounds::PopulationKind>,
     nuked: Query<(), With<crate::powerups::NukeTarget>>,
     players: Query<(Entity, &crate::movement::SprintState, &Player), With<Player>>,
     query: SpatialQuery,
@@ -951,15 +1194,20 @@ fn feedback(
         );
     }
     for crate::damage::EnemyDeath(receipt) in deaths.read() {
-        emit(
-            &mut commands,
-            if defenders.contains(receipt.impact.target) {
-                "zmb_vocals_capzomb_death"
-            } else {
-                "zmb_vocals_zombie_death"
-            },
-            SoundSource::attached(receipt.impact.target),
-        );
+        if choke.allow() {
+            emit(
+                &mut commands,
+                if populations
+                    .get(receipt.impact.target)
+                    .is_ok_and(|kind| *kind == crate::rounds::PopulationKind::GeneratorDefender)
+                {
+                    "zmb_vocals_capzomb_death"
+                } else {
+                    "zmb_vocals_zombie_death"
+                },
+                SoundSource::attached(receipt.impact.target),
+            );
+        }
         if nuked.contains(receipt.impact.target) {
             continue;
         }
@@ -1016,4 +1264,29 @@ fn ground_surface<'a>(
         )
         .and_then(|hit| surfaces.get(hit.entity).ok())
         .map_or("default", |s| s.0.as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_notifies_cross_loop_seams_once() {
+        assert_eq!(note_crossings(0., 0.9, 1.1, 1., true), 1);
+        assert_eq!(note_crossings(0.5, 0.9, 1.1, 1., true), 0);
+        assert_eq!(note_crossings(0.1, -0.001, 2.2, 1., true), 3);
+        assert_eq!(note_crossings(0.5, 0.5, 0.6, 1., false), 0);
+        assert_eq!(note_crossings(0., -0.001, 0., 1., false), 1);
+    }
+
+    #[test]
+    fn footstep_table_uses_native_speed_and_root_height_boundaries() {
+        assert_eq!(footstep_movement(0., None), 2);
+        assert_eq!(footstep_movement((100. * 0.0254_f32).powi(2), None), 1);
+        assert_eq!(footstep_movement((170. * 0.0254_f32).powi(2), None), 0);
+        assert_eq!(footstep_movement(99., Some(5. * 0.0254)), 5);
+        assert_eq!(footstep_movement(0., Some(6. * 0.0254)), 4);
+        assert_eq!(footstep_movement(99., Some(21. * 0.0254)), 3);
+        assert_eq!(footstep_movement(0., Some(22. * 0.0254)), 2);
+    }
 }

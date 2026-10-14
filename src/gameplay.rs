@@ -165,7 +165,10 @@ pub(crate) fn combat(
         crate::environment::support::DamageTriggerTargets,
     ),
     surfaces: crate::hit_regions::PenetrationSurfaces,
-    mut environment_hits: MessageWriter<crate::environment::support::EnvironmentalHit>,
+    (mut environment_hits, mut ragdoll_hits): (
+        MessageWriter<crate::environment::support::EnvironmentalHit>,
+        MessageWriter<crate::enemies::RagdollBullet>,
+    ),
 ) {
     let dt = time.delta_secs();
     let Ok((
@@ -428,6 +431,35 @@ pub(crate) fn combat(
                 weapon.map_or(crate::origins::DamageCategory::Bullet, |w| w.category)
             };
             let native_mod = crate::environment::support::weapon_damage_mod(weapon, melee);
+            if !melee && matches!(category, crate::origins::DamageCategory::Bullet) {
+                let mut distance = actor_hits
+                    .first()
+                    .map_or(range, |(hit, _)| hit.hit.distance);
+                if let Some(blocker) = query.cast_ray_predicate(
+                    origin,
+                    direction,
+                    distance,
+                    true,
+                    &crate::environment::solids([entity]),
+                    &|target| !enemies.contains(target),
+                ) {
+                    distance = distance.min(blocker.distance);
+                }
+                if let Some((_, hit)) = crate::environment::support::cast(
+                    &environmental,
+                    &query,
+                    entity,
+                    origin,
+                    direction,
+                    distance,
+                ) {
+                    distance = distance.min(hit);
+                }
+                ragdoll_hits.write(crate::enemies::RagdollBullet {
+                    origin,
+                    end: origin + *direction * distance,
+                });
+            }
             crate::environment::support::trace_damage(
                 &trigger_targets,
                 &query,

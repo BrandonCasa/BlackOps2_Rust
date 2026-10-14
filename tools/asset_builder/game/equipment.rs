@@ -211,9 +211,16 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
                 mechanics["penetration"] = json!(penetration(catalog, integer(definition, 36)?)?);
             }
             if mechanics["ads_enabled"] == true {
-                gaps.push(format!(
-                    "Initial weapon {name} requires source ADS sight/alignment binding"
-                ));
+                if !["ads_enter", "ads_leave"]
+                    .into_iter()
+                    .all(|action| actions.contains_key(action))
+                {
+                    return Err(format!(
+                        "Initial weapon {name} lacks required native ADS up/down clips"
+                    )
+                    .into());
+                }
+                mechanics["native_ads_pitch"] = json!(scalar(definition, 1924)?);
             }
         }
         for (offset, key) in [(1888, "projectile_trail"), (1776, "projectile_effect")] {
@@ -236,7 +243,7 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
                 )
                 .into());
             }
-            gaps.push(format!("Initial weapon {name} requires native rolling/friction trajectory, source launch origin/velocity and tick-boundary prime/throw timing"));
+            gaps.push(format!("Initial weapon {name} requires native rolling/friction trajectory, source weapon-view launch angles and tick-boundary prime/throw timing"));
             Some(
                 json!({"slot":"lethal","initial":0,"capacity":magazine,"round_award":2,
                 "prime_seconds":seconds(definition,1144)?,"throw_seconds":seconds(definition,1128)?,
@@ -246,6 +253,7 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
                 "inner_damage":integer(definition,1720)?,"outer_damage":integer(definition,1724)?,
                 "tangent_bounce":bounce(1880)?,"normal_bounce":bounce(1884)?,
                 "collision_radius":1.5_f32*0.0254,"collision_half_extents":([1.5_f32*0.0254;3]),
+                "native_launch":{"right_speed":integer(definition,1740)? as f32*0.0254,"horizontal_speed":integer(definition,1744)? as f32*0.0254},
                 "cook_in_hand":streams.u8(definition.add(1604)?)? != 0,"sticky":false}),
             )
         } else {

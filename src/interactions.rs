@@ -129,6 +129,7 @@ fn assemble(
         if definition.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
             && !matches!(&source.action, InteractionAction::Barrier { .. })
             && !matches!(&source.action, InteractionAction::Perk { perk } if *perk == definition.solo_revive.perk)
+            && !matches!(&source.action, InteractionAction::Generator { generator } if definition.content.perks.iter().any(|perk|perk.id==definition.solo_revive.perk && perk.generator.as_ref()==Some(generator)))
         {
             continue;
         }
@@ -151,6 +152,23 @@ fn assemble(
             Visibility::Inherited,
         ));
         if let InteractionAction::Perk { perk } = &source.action {
+            if source.source_trigger.is_some() {
+                if let Some(profile) = definition.content.perks.iter().find(|p|p.id==*perk) {
+                    entity.insert(crate::perks::PerkMachine::new(perk.clone()));
+                    entity.with_children(|parent| {
+                        for volume in &profile.collision {
+                            let layers = (if volume.contents & 1 != 0 {1}else{0})
+                                | (if volume.contents & 0x10000 != 0 {crate::environment::PLAYER_INGRESS_LAYER}else{0})
+                                | (if volume.contents & 0x20000 != 0 {crate::environment::MONSTER_CLIP_LAYER}else{0});
+                            let memberships = crate::assets::world_collision_layers(volume.contents).memberships
+                                & LayerMask::from(crate::assets::RAGDOLL_WORLD_LAYER | crate::assets::DYNENT_WORLD_LAYER);
+                            if let Some(shape)=Collider::convex_hull(&volume.vertices.iter().copied().map(Vec3::from_array).collect::<Vec<_>>()) {
+                                parent.spawn((crate::perks::PerkMachineClip,RigidBody::Static,shape,CollisionLayers::new(LayerMask::from(layers) | memberships,LayerMask::ALL),Transform::from_translation(Vec3::from_array(volume.position))));
+                            }
+                        }
+                    });
+                }
+            } else {
             let scene = definition
                 .content
                 .perks
@@ -168,13 +186,14 @@ fn assemble(
             if let Some(scene) = scene {
                 entity.insert(WorldAssetRoot(server.load(scene.clone())));
             }
-            if source.source_trigger.is_none() { entity.with_children(|parent| {
+            entity.with_children(|parent| {
                 parent.spawn((
                     RigidBody::Static,
                     Collider::cuboid(1.66, 2.17, 0.9),
                     Transform::from_xyz(-0.203, 1.085, 0.152),
                 ));
-            }); }
+            });
+            }
         }
         if let InteractionAction::Weapon { weapon, .. } = &source.action {
             let scene = definition
@@ -350,7 +369,7 @@ pub(crate) fn interact(
             if let Some(id) = &usable.source.source_trigger {
                 let (trigger,_,shape,pose,state) = native_triggers.iter().find(|(_,native,_,_,_)|native.0==*id)?;
                 let score = crate::environment::support::use_candidate(trigger,shape,pose,state,&query,
-                    player_entity,client_modes.get(player_entity).ok()?.0,origin,forward,true)?;
+                    player_entity,client_modes.get(player_entity).ok()?.0,origin,forward,matches!(usable.source.action,InteractionAction::Generator {..}),definition.tuning.use_radius)?;
                 return Some((-score,score,entity,usable,Some(trigger)));
             }
             if let InteractionAction::Door { connection, .. } = &usable.source.action {
@@ -358,7 +377,7 @@ pub(crate) fn interact(
                     let source = definition.environment.triggers.iter().find(|source| source.id == native.0)?;
                     if !native_door_connection(&source.source, &definition.access.flag_links, connection) { return None; }
                     let score = crate::environment::support::use_candidate(trigger,shape,pose,state,&query,
-                        player_entity,client_modes.get(player_entity).ok()?.0,origin,forward,false)?;
+                        player_entity,client_modes.get(player_entity).ok()?.0,origin,forward,false,definition.tuning.use_radius)?;
                     Some((trigger,score))
                 }).min_by(|a,b|a.1.total_cmp(&b.1))?;
                 return Some((-score,score,entity,usable,Some(trigger)));

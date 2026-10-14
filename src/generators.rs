@@ -13,6 +13,7 @@ use bevy::world_serialization::WorldInstanceReady;
 use std::collections::{BTreeMap, BTreeSet};
 mod raids;
 mod rewards;
+mod effects;
 pub use raids::GeneratorRaids;
 pub(crate) use rewards::BoxGlowRamp;
 
@@ -39,6 +40,8 @@ pub struct Capture {
     pump_clip: Option<usize>,
     pump_elapsed: f32,
     rotation: Option<(usize, f32)>,
+    progress_clock: f32,
+    source_progress: f32,
 }
 impl Default for Capture {
     fn default() -> Self {
@@ -51,6 +54,24 @@ impl Default for Capture {
             pump_clip: None,
             pump_elapsed: 0.,
             rotation: None,
+            progress_clock: 0.,
+            source_progress: 0.,
+        }
+    }
+}
+impl Capture {
+    fn advance(&mut self, dt: f32, capture_seconds: f32, decay_seconds: f32, inside: bool) {
+        self.progress_clock -= dt;
+        if self.progress_clock <= 0. {
+            self.progress_clock += 0.1;
+            self.source_progress = (self.source_progress
+                + if inside {
+                    100. / capture_seconds * 0.1
+                } else {
+                    -100. / decay_seconds * 0.1
+                })
+            .clamp(0., 100.);
+            self.progress = self.source_progress / 100.;
         }
     }
 }
@@ -71,12 +92,43 @@ pub struct Generators {
     pub excess_retired: u32,
     pub(crate) raid_active: bool,
     initial_reward: bool,
-    fire_reward: bool,
     retirement_pending: bool,
     spawn_clock: f32,
-    spawn_cursor: usize,
+    used_emergence: BTreeMap<ContentId, BTreeSet<usize>>,
+    capture_points_round: u32,
+    capture_points: u32,
 }
 impl Generators {
+    pub(crate) fn capture_kill_points(&mut self, round: u32) -> u32 {
+        if self.capture_points_round != round {
+            self.capture_points_round = round;
+            self.capture_points = 0;
+        }
+        if self.capture_points < round.saturating_mul(100) {
+            self.capture_points += 10;
+            10
+        } else {
+            0
+        }
+    }
+
+    fn emergence_index(
+        &mut self,
+        id: &ContentId,
+        count: usize,
+        session: &mut Session,
+    ) -> Option<usize> {
+        let used = self.used_emergence.entry(id.clone()).or_default();
+        if used.len() >= count {
+            used.clear();
+        }
+        let choices = (0..count)
+            .filter(|index| !used.contains(index))
+            .collect::<Vec<_>>();
+        let index = *choices.get(session.spawn_index(choices.len())?)?;
+        used.insert(index);
+        Some(index)
+    }
     pub fn available(&self, id: &ContentId) -> bool {
         self.sites
             .get(id)
@@ -137,6 +189,9 @@ pub struct GeneratorVisual {
     sound_time: f32,
     players: Vec<Entity>,
     recorded_clips: u8,
+    pole: Option<Entity>,
+    voice_then: Option<(Entity, String)>,
+    capture_voice: Option<(Entity, f32)>,
 }
 #[derive(Component)]
 struct GeneratorAudio(ContentId, ContentId);
@@ -147,11 +202,25 @@ struct CaptureRetirement;
 pub struct GeneratorDefender {
     pub generator: ContentId,
     pub slot: usize,
+    attack_point: Option<usize>,
+    scan: f32,
+    acquired_player: bool,
+}
+impl GeneratorDefender {
+    pub(crate) fn new(generator: ContentId, slot: usize) -> Self {
+        Self {
+            generator,
+            slot,
+            attack_point: None,
+            scan: 0.,
+            acquired_player: false,
+        }
+    }
 }
 pub struct GeneratorPlugin;
 impl Plugin for GeneratorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(rewards::CaptureRewardsPlugin)
+        app.add_plugins((rewards::CaptureRewardsPlugin,effects::CaptureEffectsPlugin))
             .init_resource::<Generators>()
             .add_systems(
                 FixedUpdate,
@@ -219,18 +288,40 @@ impl Plugin for GeneratorPlugin {
 }
 fn defender_intent(
     mut commands: Commands,
+    time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
-    players: Query<(&Transform, &Vitality), With<Player>>,
-    defenders: Query<
+    mut session: ResMut<Session>,
+    players: Query<(&Player, &Transform, &Vitality)>,
+    mut defenders: Query<
         (
             Entity,
-            &GeneratorDefender,
+            &mut GeneratorDefender,
+            &crate::enemies::Zombie,
+            &Vitality,
             Option<&crate::enemies::EnemyGoal>,
         ),
         Without<Player>,
     >,
 ) {
-    for (entity, guard, current_goal) in &defenders {
+    let mut claimed = BTreeMap::<ContentId, BTreeSet<usize>>::new();
+    for (_, guard, _, health, _) in &defenders {
+        if health.state() == LifeState::ActorAlive
+            && let Some(index) = guard.attack_point
+        {
+            claimed
+                .entry(guard.generator.clone())
+                .or_default()
+                .insert(index);
+        }
+    }
+    for (entity, mut guard, zombie, health, current_goal) in &mut defenders {
+        if health.state() != LifeState::ActorAlive || !zombie.completed_emerging() {
+            continue;
+        }
+        guard.scan -= time.delta_secs();
+        if guard.scan > 0. {
+            continue;
+        }
         let Some(d) = definition
             .content
             .generators
@@ -248,24 +339,76 @@ fn defender_intent(
             continue;
         };
         let origin = Vec3::from_array(p.position);
-        if players.iter().any(|(t, v)| {
+        guard.acquired_player |= players
+            .iter()
+            .any(|(_, _, health)| health.state() == LifeState::Standing);
+        if players.iter().any(|(player, t, v)| {
             v.state() == LifeState::Standing
-                && t.translation.distance_squared(origin) < 17.78 * 17.78
+                && (t.translation - Vec3::Y * (player.height * 0.5)).distance_squared(origin)
+                    < (700. * 0.0254_f32).powi(2)
         }) {
+            if let Some(index) = guard.attack_point.take() {
+                claimed
+                    .entry(guard.generator.clone())
+                    .or_default()
+                    .remove(&index);
+            }
+            guard.scan = 0.5;
             if current_goal.is_some() {
                 commands
                     .entity(entity)
                     .remove::<crate::enemies::EnemyGoal>();
             }
-        } else {
-            let rotation = Quat::from_rotation_y(p.yaw);
-            let offset =
-                rotation * [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z][guard.slot % 4] * 1.3208;
-            let goal = crate::enemies::EnemyGoal {
-                position: origin + offset + Vec3::Y * 0.85,
-                face: origin + Vec3::Y * 0.85,
-                radius: 0.762,
+        } else if guard.acquired_player {
+            let used = claimed.entry(guard.generator.clone()).or_default();
+            let index = if let Some(index) = guard.attack_point {
+                index
+            } else {
+                let group = if used.range(0..3).count() < 3 {
+                    0..3
+                } else if used.range(4..7).count() < 1 {
+                    4..7
+                } else if used.range(8..11).count() < 1 {
+                    8..11
+                } else {
+                    0..11
+                };
+                let valid = |index: &usize| {
+                    !used.contains(index)
+                        && d.attack_points
+                            .get(*index)
+                            .is_some_and(|point| !point.inaccessible)
+                };
+                let mut choices = group.filter(valid).collect::<Vec<_>>();
+                if choices.is_empty() {
+                    choices = (0..11).filter(valid).collect();
+                }
+                let Some(selection) = session.spawn_index(choices.len()) else {
+                    continue;
+                };
+                let index = choices[selection];
+                used.insert(index);
+                guard.attack_point = Some(index);
+                index
             };
+            let Some(point) = d.attack_points.get(index) else {
+                continue;
+            };
+            let Some(enemy) = definition
+                .content
+                .enemies
+                .iter()
+                .find(|enemy| enemy.id == zombie.definition)
+            else {
+                continue;
+            };
+            let center = crate::enemies::body_center(enemy, false);
+            let goal = crate::enemies::EnemyGoal {
+                position: Vec3::from_array(point.position) + center,
+                face: Vec3::from_array(point.face) + center,
+                radius: 30. * 0.0254,
+            };
+            guard.scan = 0.2 + 1.3 * (session.random() as f64 / u32::MAX as f64) as f32;
             if current_goal.is_none_or(|current| {
                 current.position != goal.position
                     || current.face != goal.face
@@ -341,12 +484,14 @@ fn defenders(
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
     mut generators: ResMut<Generators>,
-    session: Res<Session>,
-    navigation: Res<crate::navigation::Navigation>,
-    access: Res<crate::access::ZoneAccess>,
-    query: avian3d::prelude::SpatialQuery,
+    mut session: ResMut<Session>,
     actors: Query<
-        (&Vitality, &Transform, Option<&GeneratorDefender>),
+        (
+            &Vitality,
+            &Transform,
+            Option<&GeneratorDefender>,
+            Has<crate::enemies::ActorCorpse>,
+        ),
         With<crate::enemies::Zombie>,
     >,
 ) {
@@ -366,64 +511,60 @@ fn defenders(
     let id = id.clone();
     let alive: Vec<_> = actors
         .iter()
-        .filter(|(v, _, _)| v.state() == LifeState::ActorAlive)
+        .filter(|(v, _, _, _)| v.state() == LifeState::ActorAlive)
         .collect();
     let slots: Vec<_> = alive
         .iter()
-        .filter_map(|(_, _, g)| g.filter(|g| g.generator == id).map(|g| g.slot))
+        .filter_map(|(_, _, g, _)| g.filter(|g| g.generator == id).map(|g| g.slot))
         .collect();
-    if slots.len() >= 4 || alive.len() >= definition.rounds.actor_cap as usize {
+    if slots.len() >= 4
+        || actors.iter().filter(|(_, _, _, corpse)| !*corpse).count()
+            >= definition.rounds.actor_cap as usize
+    {
         return;
     }
     let Some(d) = definition.content.generators.iter().find(|d| d.id == id) else {
         return;
     };
-    let variants: Vec<_> = definition
+    let Some(enemy) = definition
         .content
         .enemies
         .iter()
-        .filter(|e| e.family == "crusader")
-        .collect();
-    let Some(enemy) = variants.get(generators.spawn_cursor % variants.len().max(1)) else {
+        .find(|enemy| enemy.id == d.capture_enemy)
+    else {
         return;
     };
     let Some(slot) = (0..4).find(|s| !slots.contains(s)) else {
         return;
     };
-    let native = Vec3::from_array(d.emergence[slot]);
-    let Some(base) = navigation.project_emergence(native, &access) else {
-        generators.defender_failures += 1;
+    let Some(index) = generators.emergence_index(&id, d.emergence.len(), &mut session) else {
         return;
     };
-    let position = base + Vec3::Y * 0.85;
-    let shape = crate::player::capsule(0.3, 1.7);
-    if alive.iter().any(|(_, t, _)| {
-        (t.translation - position).xz().length_squared() < 0.5625
-            && (t.translation.y - position.y).abs() < 1.
-    }) || !query
-        .shape_intersections(
-            &shape,
-            position,
-            Quat::IDENTITY,
-            &crate::environment::solids([]),
-        )
-        .is_empty()
-    {
-        generators.defender_failures += 1;
-        return;
-    }
+    let spot = &d.emergence[index];
+    let position = Vec3::from_array(spot.position) + crate::enemies::body_center(enemy, false);
+    let shape = crate::enemies::body_shape(enemy, false);
+    let rotation = Quat::from_rotation_y(spot.yaw);
     let health = definition.rounds.health(session.round);
     let Ok(health) = Vitality::ordinary_actor(health, health) else {
         return;
     };
-    let mut zombie =
-        crate::enemies::Zombie::new(position, enemy.id.clone(), crate::rounds::Gait::Run);
+    let gait_seed = session.random();
+    let gait = session
+        .difficulty
+        .gait(&definition.rounds, session.round, gait_seed);
+    let gait = if gait == crate::rounds::Gait::Walk {
+        crate::rounds::Gait::Run
+    } else {
+        gait
+    };
+    let mut zombie = crate::enemies::Zombie::new(position, enemy.id.clone(), gait)
+        .with_locomotion_seed(session.random());
     let rise = enemy
         .traversals
         .get("rise")
         .and_then(|profiles| profiles.first());
     if let Some(rise) = rise {
-        zombie = zombie.rising(rise);
+        zombie = zombie.dug_rising(rise, rotation);
     }
     let mut actor = commands.spawn((
         SessionEntity,
@@ -431,11 +572,8 @@ fn defenders(
         shape,
         health,
         crate::rounds::PopulationKind::GeneratorDefender,
-        GeneratorDefender {
-            generator: id,
-            slot,
-        },
-        Transform::from_translation(position),
+        GeneratorDefender::new(id, slot),
+        Transform::from_translation(position).with_rotation(rotation),
         Visibility::Inherited,
         Name::new("Generator defender"),
     ));
@@ -443,7 +581,6 @@ fn defenders(
         actor.insert(ColliderDisabled);
     }
     generators.defenders_admitted += 1;
-    generators.spawn_cursor += 1;
 }
 fn assemble(
     mut commands: Commands,
@@ -486,6 +623,9 @@ fn assemble(
                 sound_time: -0.001,
                 players: Vec::new(),
                 recorded_clips: 0,
+                pole: None,
+                voice_then: None,
+                capture_voice: None,
             },
             WorldAssetRoot(server.load(scene.clone())),
             Transform::from_translation(Vec3::from_array(d.model_position))
@@ -499,6 +639,7 @@ fn visual_ready(
     mut visuals: Query<&mut GeneratorVisual>,
     children: Query<&Children>,
     players: Query<(), With<AnimationPlayer>>,
+    names: Query<&Name>,
 ) {
     let Ok(mut visual) = visuals.get_mut(event.entity) else {
         return;
@@ -507,6 +648,11 @@ fn visual_ready(
         .iter_descendants(event.entity)
         .filter(|child| players.contains(*child))
         .collect();
+    visual.pole = children.iter_descendants(event.entity).find(|child| {
+        names
+            .get(*child)
+            .is_ok_and(|name| name.as_str().eq_ignore_ascii_case("j_generator_pole"))
+    });
 }
 fn tick(
     time: Res<Time<Fixed>>,
@@ -556,13 +702,7 @@ fn tick(
         let mut completed = false;
         let mut abandoned = false;
         if site.state == GeneratorState::Capturing {
-            site.progress = (site.progress
-                + if inside(None) {
-                    dt / d.capture_seconds
-                } else {
-                    -dt / d.decay_seconds
-                })
-            .clamp(0., 1.);
+            site.advance(dt, d.capture_seconds, d.decay_seconds, inside(None));
             let pump_clip = if site.progress <= 0. {
                 Some(3)
             } else if site.progress > previous_progress && site.age > d.clip_seconds[0] {
@@ -594,7 +734,7 @@ fn tick(
         } else if site.progress < 1. && previous_progress >= 1. {
             site.rotation = Some((7, 0.));
         }
-        if let Some(delay) = site.refund.as_mut() {
+        if !completed && let Some(delay) = site.refund.as_mut() {
             *delay -= dt;
             if *delay <= 0. {
                 if inside(site.purchaser) {
@@ -606,11 +746,7 @@ fn tick(
         }
         if completed && !generators.initial_reward {
             generators.initial_reward = true;
-            chests.queue(0, 2.);
-        }
-        if completed && d.number == 6 && !generators.fire_reward {
-            generators.fire_reward = true;
-            chests.queue(1, 0.);
+            chests.queue(2.);
         }
         generators.completions += u32::from(completed);
         generators.abandoned += u32::from(abandoned);
@@ -628,6 +764,7 @@ fn audio_evidence(
 }
 fn presentation(
     mut commands: Commands,
+    time: Res<Time>,
     session: Res<Session>,
     definition: Res<GameDefinition>,
     mut generators: ResMut<Generators>,
@@ -636,8 +773,14 @@ fn presentation(
     mut graph_cache: ResMut<AnimationGraphs>,
     mut visuals: Query<(Entity, &mut GeneratorVisual)>,
     audio: Query<(Entity, &GeneratorAudio)>,
+    mut voice_events: MessageReader<crate::audio::PlaybackEvent>,
 ) {
     let _span = info_span!("generator_presentation").entered();
+    let completed = voice_events
+        .read()
+        .filter(|event| event.status == crate::audio::PlaybackStatus::Completed)
+        .map(|event| event.entity)
+        .collect::<BTreeSet<_>>();
     for (entity, mut visual) in &mut visuals {
         let Some(d) = definition
             .content
@@ -652,6 +795,32 @@ fn presentation(
         };
         let state = site.state;
         let progress = site.progress;
+        if visual
+            .voice_then
+            .as_ref()
+            .is_some_and(|(voice, _)| completed.contains(voice))
+            && let Some((_, alias)) = visual.voice_then.take()
+        {
+            crate::audio::emit(
+                &mut commands,
+                alias,
+                crate::audio::SoundSource::attached(entity),
+            );
+        }
+        if let Some((speaker, remaining)) = visual.capture_voice.as_mut() {
+            *remaining -= time.delta_secs();
+            if *remaining <= 0. {
+                crate::audio::voice(
+                    &mut commands,
+                    &definition,
+                    &session,
+                    "capture_zombies",
+                    *speaker,
+                    u32::from(d.number),
+                );
+                visual.capture_voice = None;
+            }
+        }
         let index = site.pump_clip;
         let elapsed = index.map_or(0., |index| {
             if matches!(index, 1 | 2) {
@@ -673,6 +842,10 @@ fn presentation(
             }
             if desired == Some(&a.1) {
                 found = true;
+                commands.entity(e).insert(crate::audio::SoundControl {
+                    volume: 1.,
+                    pitch: 0.8 + 0.8 * progress,
+                });
             } else {
                 commands.entity(e).despawn();
             }
@@ -680,15 +853,20 @@ fn presentation(
         if !found
             && let Some(id) = desired
             && let Some(alias) = definition.audio.bindings.get(&id.0)
+            && let Some(pole) = visual.pole
         {
             let sound = crate::audio::emit_loop(
                 &mut commands,
                 alias.clone(),
-                crate::audio::SoundSource::attached(entity),
+                crate::audio::SoundSource::attached(pole),
             );
-            commands
-                .entity(sound)
-                .insert(GeneratorAudio(d.id.clone(), id.clone()));
+            commands.entity(sound).insert((
+                GeneratorAudio(d.id.clone(), id.clone()),
+                crate::audio::SoundControl {
+                    volume: 1.,
+                    pitch: 0.8 + 0.8 * progress,
+                },
+            ));
         }
         if visual.sound_state != Some(state) {
             let position = Vec3::from_array(d.model_position);
@@ -699,16 +877,12 @@ fn presentation(
                         "zmb_capturezone_donut_start",
                         crate::audio::SoundSource::attached(entity),
                     );
-                    if let Some(speaker) = site.purchaser {
-                        crate::audio::voice(
-                            &mut commands,
-                            &definition,
-                            &session,
-                            "capture_zones",
-                            speaker,
-                            u32::from(d.number),
-                        );
-                    }
+                    crate::audio::emit(
+                        &mut commands,
+                        "vox_maxi_generator_initiate_0",
+                        crate::audio::SoundSource::attached(entity),
+                    );
+                    visual.capture_voice = site.purchaser.map(|speaker| (speaker, 2.5));
                 }
                 GeneratorState::Active => {
                     crate::audio::emit(
@@ -716,15 +890,19 @@ fn presentation(
                         "zmb_capturezone_success",
                         crate::audio::SoundSource::attached(entity),
                     );
+                    let voice = crate::audio::emit(
+                        &mut commands,
+                        "vox_maxi_generator_process_complete_0",
+                        crate::audio::SoundSource::attached(entity),
+                    );
+                    visual.voice_then = Some((
+                        voice,
+                        format!("vox_maxi_generator_{}_activated_0", d.number),
+                    ));
                     crate::audio::emit(
                         &mut commands,
                         format!("mus_event_generator_{}", d.number),
                         crate::audio::SoundSource::World(position),
-                    );
-                    crate::audio::emit(
-                        &mut commands,
-                        "zmb_capturezone_donut_stop",
-                        crate::audio::SoundSource::attached(entity),
                     );
                 }
                 GeneratorState::Disabled => {
@@ -808,5 +986,61 @@ fn presentation(
             }
         }
         visual.recorded_clips = recorded_clips;
+    }
+}
+
+#[cfg(test)]
+mod source_capture_tests {
+    use super::*;
+
+    #[test]
+    fn capture_rewards_preserve_source_round_cap_and_reset() {
+        let mut generators = Generators::default();
+        assert_eq!(
+            (0..15)
+                .map(|_| generators.capture_kill_points(1))
+                .sum::<u32>(),
+            100
+        );
+        assert_eq!(generators.capture_kill_points(1), 0);
+        assert_eq!(
+            (0..25)
+                .map(|_| generators.capture_kill_points(2))
+                .sum::<u32>(),
+            200
+        );
+        assert_eq!(generators.capture_kill_points(2), 0);
+    }
+
+    #[test]
+    fn source_emergence_selects_every_authored_point_before_reuse() {
+        let id = ContentId("generator.generator_start_bunker".into());
+        let mut generators = Generators::default();
+        let mut session = Session::default();
+        for _ in 0..4 {
+            let cycle = (0..6)
+                .map(|_| generators.emergence_index(&id, 6, &mut session).unwrap())
+                .collect::<BTreeSet<_>>();
+            assert_eq!(cycle, (0..6).collect());
+        }
+        assert!(generators.emergence_index(&id, 0, &mut session).is_none());
+    }
+
+    #[test]
+    fn capture_progress_preserves_immediate_source_poll_and_percentage_rounding() {
+        let mut capture = Capture::default();
+        capture.advance(0., 12., 20., true);
+        assert!((capture.progress - 1. / 120.).abs() < 0.000001);
+        let before = capture.progress;
+        capture.advance(0.099, 12., 20., true);
+        assert_eq!(capture.progress, before);
+        capture.advance(0.002, 12., 20., true);
+        assert!(capture.progress > before);
+        for _ in 2..120 {
+            capture.advance(0.1, 12., 20., true);
+        }
+        assert_eq!(capture.progress, 1.);
+        capture.advance(0.1, 12., 20., false);
+        assert!((capture.progress - 0.995).abs() < 0.000001);
     }
 }

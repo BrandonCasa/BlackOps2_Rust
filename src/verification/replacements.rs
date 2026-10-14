@@ -470,16 +470,36 @@ fn drive(world: &mut World) {
                 run.phase = 7;
                 run.age = 0.;
             }
-            7 if run.age > 1.5 => {
-                let cleared = world.resource::<RoundEvidence>().corpses_cleared_for_cap;
-                let absent = run.corpses.iter().all(|e| world.get_entity(*e).is_err());
+            7 if run.age
+                > world
+                    .resource::<GameDefinition>()
+                    .content
+                    .enemies
+                    .iter()
+                    .flat_map(|enemy| enemy.combat_states.values())
+                    .flatten()
+                    .map(|clip| clip.seconds)
+                    .fold(0., f32::max)
+                    + 1. =>
+            {
+                let limit = world.resource::<GameDefinition>().rounds.corpse_limit as usize;
+                let retained = run
+                    .corpses
+                    .iter()
+                    .filter(|entity| world.get::<crate::enemies::ActorCorpse>(**entity).is_some())
+                    .count();
+                let absent = run
+                    .corpses
+                    .iter()
+                    .filter(|entity| world.get_entity(**entity).is_err())
+                    .count();
                 row(
                     &mut run,
-                    "native_actor_cap_clears_corpses",
-                    cleared == 11 && absent,
+                    "native_retirement_preserves_eight_corpse_slots",
+                    retained == limit && absent == 11 - limit,
                 );
                 let admitted = world.resource::<Session>().pending < run.pending;
-                row(&mut run, "corpse_cleanup_reopens_admission", admitted);
+                row(&mut run, "corpse_retirement_reopens_admission", admitted);
                 let unchanged = run.corpse_score
                     == (
                         world.resource::<Session>().score,

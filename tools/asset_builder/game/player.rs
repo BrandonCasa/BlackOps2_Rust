@@ -1,6 +1,6 @@
 use super::*;
 
-fn source(path: &str) -> Result<String> {
+pub(super) fn source(path: &str) -> Result<String> {
     Ok(std::fs::read_to_string(
         std::path::PathBuf::from(
             std::env::var_os("USERPROFILE").ok_or("USERPROFILE is unavailable")?,
@@ -38,7 +38,7 @@ fn dvar(source: &str, name: &str, integer: bool) -> Result<f32> {
     Ok(value)
 }
 
-fn append(game: &mut Value, key: &str, row: Value) -> Result<()> {
+pub(super) fn append(game: &mut Value, key: &str, row: Value) -> Result<()> {
     if game["content"][key].is_null() {
         game["content"][key] = json!([]);
     }
@@ -55,7 +55,7 @@ fn append(game: &mut Value, key: &str, row: Value) -> Result<()> {
     Ok(())
 }
 
-fn pose(entity: &crate::entities::Entity) -> Result<([f32; 3], f32)> {
+pub(super) fn pose(entity: &crate::entities::Entity) -> Result<([f32; 3], f32)> {
     let [x, y, z] = crate::entities::vector(entity, "origin")?
         .ok_or("Native initial player interaction has no origin")?;
     let yaw = if let Some(angles) = crate::entities::vector(entity, "angles")? {
@@ -67,10 +67,88 @@ fn pose(entity: &crate::entities::Entity) -> Result<([f32; 3], f32)> {
             .transpose()?
             .unwrap_or(0.)
     };
-    Ok((
-        [x * 0.0254, z * 0.0254, -y * 0.0254],
-        (yaw - 90.).to_radians(),
-    ))
+    Ok(([x * 0.0254, z * 0.0254, -y * 0.0254], yaw.to_radians()))
+}
+
+fn revive_collision(catalog: &Catalog<'_>) -> Result<Vec<Value>> {
+    let (zone, root) = catalog.resolve(5, "zm_collision_perks1")?;
+    let streams = &catalog.zones[zone].1.streams;
+    let count = streams.u8(root.add(220)?)? as usize;
+    if count != 1 {
+        return Err(format!(
+            "Native Quick Revive collision requires one PhysCollmap, found {count}"
+        )
+        .into());
+    }
+    let maps = Address::decode(streams.u32(root.add(224)?)?)?;
+    let map = Address::decode(streams.u32(maps)?)?;
+    let count = streams.u32(map)? as usize;
+    let contents = streams.u32(map.add(8)?)?;
+    let geometries = Address::decode(streams.u32(map.add(4)?)?)?;
+    let mut shapes = Vec::new();
+    let mut brush_union = 0;
+    for index in 0..count {
+        let geometry = geometries.add(index * 68)?;
+        let kind = streams.u32(geometry.add(4)?)?;
+        if kind != 2 {
+            return Err(format!(
+                "Native Quick Revive PhysCollmap requires geometry type {kind} conversion"
+            )
+            .into());
+        }
+        let brush = Address::decode(streams.u32(geometry)?)?;
+        let brush_contents = streams.u32(brush.add(12)?)?;
+        if brush_contents & 0x30000 != 0x30000 {
+            return Err(
+                "Native Quick Revive brush lacks source player and actor clip contents".into(),
+            );
+        }
+        brush_union |= brush_contents;
+        let count = streams.u32(brush.add(84)?)? as usize;
+        if !(4..=128).contains(&count) {
+            return Err("Native Quick Revive PhysCollmap vertex count is unsupported".into());
+        }
+        let vertices = Address::decode(streams.u32(brush.add(88)?)?)?;
+        let mut points = Vec::with_capacity(count);
+        for index in 0..count {
+            let vertex = vertices.add(index * 12)?;
+            let x = f32::from_bits(streams.u32(vertex)?);
+            let y = f32::from_bits(streams.u32(vertex.add(4)?)?);
+            let z = f32::from_bits(streams.u32(vertex.add(8)?)?);
+            if ![x, y, z].iter().all(|value| value.is_finite()) {
+                return Err("Native Quick Revive PhysCollmap contains nonfinite vertices".into());
+            }
+            points.push([x * 0.0254, z * 0.0254, -y * 0.0254]);
+        }
+        shapes.push(json!({"id":format!("quick_revive.clip.{index}"),"position":[0.,0.,0.],"vertices":points,"contents":brush_contents}));
+    }
+    if shapes.is_empty() {
+        return Err("Native Quick Revive PhysCollmap has no geometry".into());
+    }
+    if brush_union != contents {
+        return Err(
+            "Native Quick Revive PhysCollmap broadphase contents differ from brush union".into(),
+        );
+    }
+    Ok(shapes)
+}
+
+fn revive_path_bounds_radius(catalog: &Catalog<'_>) -> Result<f32> {
+    let (zone, root) = catalog.resolve(5, "zm_collision_perks1")?;
+    let streams = &catalog.zones[zone].1.streams;
+    let mut squared = 0.;
+    for (axis, (minimum, maximum)) in [(-4_f32, 4_f32), (-4., 4.), (0., 10.)]
+        .into_iter()
+        .enumerate()
+    {
+        let low = f32::from_bits(streams.u32(root.add(172 + axis * 4)?)?);
+        let high = f32::from_bits(streams.u32(root.add(184 + axis * 4)?)?);
+        if !low.is_finite() || !high.is_finite() || low > high {
+            return Err("Native Quick Revive XModel path bounds are invalid".into());
+        }
+        squared += low.min(minimum).abs().max(high.max(maximum).abs()).powi(2);
+    }
+    Ok((squared.sqrt() + 1.) * 0.0254)
 }
 
 pub(super) fn read(
@@ -229,6 +307,7 @@ pub(super) fn read(
         "structs = getstructarray( \"zm_perk_machine\", \"targetname\" );",
         "use_trigger = spawn( \"trigger_radius_use\", pos[i].origin + vectorscale( ( 0, 0, 1 ), 30.0 ), 0, 40, 70 );",
         "collision setmodel( \"zm_collision_perks1\" );",
+        "bump_trigger = spawn( \"trigger_radius\", pos[i].origin, 0, 35, 64 );",
     ] {
         if !perks.contains(expression) {
             return Err(format!(
@@ -281,6 +360,15 @@ pub(super) fn read(
         "presentations",
         json!({"id":format!("actor.{model}"),"source_model":model,"scene":null,"animations":[],"sounds":[]}),
     )?;
+    let off_model = "p6_zm_tm_vending_revive";
+    catalog.resolve(5, off_model)?;
+    append(
+        game,
+        "presentations",
+        json!({"id":format!("actor.{off_model}"),"source_model":off_model,"scene":null,"animations":[],"sounds":[]}),
+    )?;
+    let collision = revive_collision(catalog)?;
+    let path_bounds_radius = revive_path_bounds_radius(catalog)?;
     let mut icon = Value::Null;
     let material = "specialty_quickrevive_zombies";
     match catalog.resolve(6, material) {
@@ -315,7 +403,7 @@ pub(super) fn read(
     append(
         game,
         "perks",
-        json!({"id":"perk.quick_revive","name":"Quick Revive","price":500,"icon":icon,"presentation":format!("actor.{model}"),"generator":"generator.generator_start_bunker","drink":drink}),
+        json!({"id":"perk.quick_revive","name":"Quick Revive","price":500,"icon":icon,"presentation":format!("actor.{model}"),"off_presentation":format!("actor.{off_model}"),"collision":collision,"path_bounds_radius":path_bounds_radius,"bump_trigger":format!("trigger.quick_revive.bump.native.{trigger_index}"),"generator":"generator.generator_start_bunker","drink":drink}),
     )?;
     game["solo_revive"]["maximum_purchases"] = json!(3);
     game["_initial_quick_revive"] = json!({"trigger":format!("trigger.quick_revive.native.{trigger_index}"),"position":position,"yaw":yaw,"source":machine});
@@ -351,6 +439,17 @@ pub(super) fn prepare(
         .as_array_mut()
         .ok_or("Native initial ownership is missing")?
         .push(json!({"id":trigger,"owner":"native","shootable":false}));
+    let bump = game["content"]["perks"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"] == "perk.quick_revive"))
+        .and_then(|row| row["bump_trigger"].as_str())
+        .ok_or("Initial Quick Revive bump trigger is missing")?
+        .to_owned();
+    game["environment"]["triggers"].as_array_mut().ok_or("Native initial triggers are missing")?.push(json!({"id":bump,"position":position,"source":{"classname":"trigger_radius","targetname":"audio_bump_trigger","script_activated":"1","script_sound":"zmb_perks_bump_bottle","script_string":"revive_perk"},"shape":{"kind":"cylinder","radius":35.*0.0254,"height":64.*0.0254}}));
+    game["environment"]["ownership"]
+        .as_array_mut()
+        .ok_or("Native initial ownership is missing")?
+        .push(json!({"id":bump,"owner":"native","shootable":false}));
     let generators = entities
         .iter()
         .filter(|entity| {
@@ -445,6 +544,11 @@ mod tests {
         assert_eq!(perk["price"], 500);
         assert_eq!(perk["generator"], "generator.generator_start_bunker");
         assert_eq!(perk["drink"]["bottle"], "weapon.zombie_perk_bottle_revive");
+        assert!(
+            perk["path_bounds_radius"]
+                .as_f64()
+                .is_some_and(|radius| radius > 0.)
+        );
         assert_eq!(
             game["_initial_quick_revive"]["source"]["script_noteworthy"],
             "specialty_quickrevive"
@@ -452,6 +556,10 @@ mod tests {
         println!(
             "Native initial Quick Revive source trigger {}",
             game["_initial_quick_revive"]["trigger"]
+        );
+        println!(
+            "Native Quick Revive path radius {} and authored blocker {}",
+            perk["path_bounds_radius"], game["_initial_quick_revive"]["source"]["blocker_model"]
         );
     }
 }

@@ -794,20 +794,31 @@ fn camera_pose(
                     .find(|w| w.id == rig.weapon)
                     .and_then(|w| inventory.effective_ads_sight(w))
                     .map_or(Quat::IDENTITY, |s| Quat::from_array(s.rotation)),
+                definition
+                    .content
+                    .weapons
+                    .iter()
+                    .find(|w| w.id == rig.weapon)
+                    .and_then(|w| w.mechanics.native_ads_pitch),
             ));
         }
     }
-    for (owner, eye, ads, calibration) in eyes {
+    for (owner, eye, ads, calibration, native_pitch) in eyes {
         let inverse = Transform::from_matrix(eye.to_matrix().inverse());
         for (mut pose, group, camera) in &mut poses.p1() {
             if camera.is_some() {
                 *pose = pose.mul_transform(eye);
             } else if group.is_some_and(|g| g.owner == owner) {
                 *pose = inverse
-                    .mul_transform(Transform::from_rotation(
-                        Quat::IDENTITY.slerp(calibration, ads),
-                    ))
-                    .mul_transform(Transform::from_translation(VIEWMODEL_ORIGIN * (1. - ads)));
+                    .mul_transform(Transform::from_rotation(native_pitch.map_or_else(
+                        || Quat::IDENTITY.slerp(calibration, ads),
+                        |pitch| Quat::from_rotation_x(-pitch.to_radians() * ads),
+                    )))
+                    .mul_transform(Transform::from_translation(if native_pitch.is_some() {
+                        Vec3::ZERO
+                    } else {
+                        VIEWMODEL_ORIGIN * (1. - ads)
+                    }));
             }
         }
     }
@@ -1222,6 +1233,31 @@ fn animate(
             .is_some_and(|source| source.looping);
         let mut playback =
             AnimationPlayback::new(graph, vec![AnimationLayer::new(node, seek, looping)]);
+        if rig.arms && selected.is_none() && weapon.mechanics.native_ads_pitch.is_some() {
+            let requested = inventory.native_ads_requested();
+            for (action, fraction, selected) in [
+                (WeaponAnimation::AdsEnter, inventory.ads, requested),
+                (WeaponAnimation::AdsLeave, 1. - inventory.ads, !requested),
+            ] {
+                if let Some(name) = weapon
+                    .animation_actions
+                    .get(&action)
+                    .and_then(|id| id.0.rsplit('.').next())
+                    && let Some(node) = rig.nodes.get(name)
+                    && let Some(clip) = gltfs
+                        .get(&rig.source)
+                        .and_then(|gltf| gltf.named_animations.get(name))
+                        .and_then(|handle| clips.get(handle))
+                {
+                    let mut layer =
+                        AnimationLayer::new(*node, Some(fraction * clip.duration()), false)
+                            .weighted(if selected { 1. } else { 0. });
+                    layer.blend_seconds = Some(0.1);
+                    layer.preserve_on_restart = true;
+                    playback.layers.push(layer);
+                }
+            }
+        }
         playback.restart = rig.playback_revision;
         for &entity in &rig.players {
             commands.entity(entity).insert(playback.clone());

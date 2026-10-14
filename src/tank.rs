@@ -1172,6 +1172,7 @@ pub(crate) fn interact(
                 eye,
                 forward,
                 false,
+                game.tuning.use_radius,
             )?;
             Some((entity, called, score))
         })

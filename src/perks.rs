@@ -11,6 +11,8 @@ use crate::{
 };
 use bevy::prelude::*;
 mod vendors;
+mod machines;
+pub(crate) use machines::{PerkMachine, PerkMachineClip};
 pub(crate) use vendors::grant_random_perk;
 pub(crate) use vendors::interact as vendors_interaction;
 
@@ -104,6 +106,8 @@ impl Plugin for PerkPlugin {
         app.add_plugins(vendors::VendorPlugin);
         app.init_resource::<PerkEvidence>()
             .init_resource::<FiringEvidence>()
+            .add_observer(machines::ready)
+            .add_systems(Update,machines::update.run_if(in_state(GameState::Playing)))
             .add_systems(
                 FixedUpdate,
                 tick.in_set(GameStep::Interactions)
@@ -178,7 +182,7 @@ fn tick(
                     && perks.solo_purchases >= game.solo_revive.maximum_purchases
                 {
                     for (entity, usable) in &machines {
-                        if matches!(&usable.source.action, crate::origins::InteractionAction::Perk { perk } if *perk == drink.perk)
+                        if usable.source.source_trigger.is_none() && matches!(&usable.source.action, crate::origins::InteractionAction::Perk { perk } if *perk == drink.perk)
                         {
                             commands.entity(entity).despawn();
                         }

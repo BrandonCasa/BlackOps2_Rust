@@ -20,12 +20,105 @@ pub struct BarrierDefinition {
     pub exit: ContentId,
     pub boards: Vec<BoardDefinition>,
     pub audio: BarrierAudioDefinition,
+    pub repair_quake: Option<RepairQuakeDefinition>,
     pub repair_origin: [f32; 3],
     pub repair_yaw: f32,
     pub repair_radius: f32,
     pub repair_height: f32,
     pub repair_interval: f32,
     pub repair_points: u32,
+    pub taunt: Option<BarrierActorAction>,
+    pub reach_through: Option<BarrierActorAction>,
+    pub enter: Option<BarrierEntryDefinition>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BarrierEntryDefinition {
+    pub standing: BTreeMap<String, Vec<BarrierActorClip>>,
+    pub crawler: BTreeMap<String, Vec<BarrierActorClip>>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BarrierActorAction {
+    pub state: String,
+    pub frequency: u32,
+    pub range: f32,
+    pub clips: Vec<BarrierActorClip>,
+}
+impl BarrierActorAction {
+    pub(crate) fn reach_clip(&self, slot: usize, random: u32) -> Option<&BarrierActorClip> {
+        if slot == 0 {
+            self.clips.get(random as usize % self.clips.len().max(1))
+        } else {
+            self.clips.get(slot - 1)
+        }
+    }
+    pub(crate) fn hits_through(&self, player: Vec3, actor: Vec3, trigger: Vec3) -> bool {
+        let actor_delta = player - actor;
+        let trigger_delta = player - trigger;
+        actor_delta.xz().length_squared() < self.range.powi(2)
+            && actor_delta.y.abs() < self.range
+            && trigger_delta.xz().length_squared() < (51. * 0.0254_f32).powi(2)
+            && trigger_delta.y.abs() < 51. * 0.0254
+    }
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BarrierActorClip {
+    pub name: String,
+    pub seconds: f32,
+    pub duration: f32,
+    pub hits: Vec<f32>,
+    pub motion: Option<crate::origins::content::AnimationRootMotion>,
+}
+impl BarrierDefinition {
+    pub(crate) fn entry_clip(&self, gait: crate::rounds::Gait, slot: usize, crawler: bool, random: u32) -> Option<&BarrierActorClip> {
+        let entry = self.enter.as_ref()?;
+        let gait = match gait {
+            crate::rounds::Gait::Walk => "walk",
+            crate::rounds::Gait::Run => "run",
+            crate::rounds::Gait::Sprint => "sprint",
+        };
+        let slot = ["m", "r", "l"].get(slot)?;
+        let clips = if crawler { &entry.crawler } else { &entry.standing };
+        let clips = clips.get(&format!("barrier_{gait}_{slot}"))?;
+        clips.get(random as usize % clips.len().max(1))
+    }
+
+    pub(crate) fn valid_actions(&self) -> bool {
+        let valid_clip = |clip: &BarrierActorClip| {
+            !clip.name.is_empty()
+                && clip.name.len() < 128
+                && clip.seconds.is_finite()
+                && clip.seconds > 0.
+                && clip.duration.is_finite()
+                && clip.duration >= clip.seconds
+                && clip.hits.iter().all(|time| time.is_finite() && *time >= 0. && *time <= clip.seconds)
+                && clip.motion.as_ref().is_none_or(|motion| motion.valid() && (motion.seconds - clip.duration).abs() < 0.001)
+        };
+        self.enter.as_ref().is_none_or(|entry| {
+            [&entry.standing, &entry.crawler].into_iter().all(|clips| {
+                ["walk", "run", "sprint"].into_iter().all(|gait| {
+                    ["m", "r", "l"].into_iter().all(|slot| {
+                        clips.get(&format!("barrier_{gait}_{slot}")).is_some_and(|clips| !clips.is_empty() && clips.iter().all(|clip| valid_clip(clip) && clip.motion.is_some()))
+                    })
+                })
+            })
+        }) && [&self.taunt, &self.reach_through]
+            .into_iter()
+            .all(|action| {
+                action.as_ref().is_none_or(|action| {
+                    !action.state.is_empty()
+                        && action.state.len() < 128
+                        && action.frequency <= 100
+                        && action.range.is_finite()
+                        && action.range >= 0.
+                        && !action.clips.is_empty()
+                        && action.clips.len() <= 64
+                        && action.clips.iter().all(valid_clip)
+                })
+            })
+    }
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -38,6 +131,37 @@ pub struct BoardDefinition {
     pub collision: Vec<crate::environment::brushes::TriangleShape>,
     pub attacks: [BoardAttackDefinition; 3],
     pub audio: BoardAudioDefinition,
+    pub repair_effects: [Option<BoardRepairEffect>; 2],
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BoardRepairEffect {
+    pub name: String,
+    pub offset: [f32; 3],
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepairQuakeDefinition {
+    pub scale: [f32; 2],
+    pub duration: [f32; 2],
+    pub radius: f32,
+}
+
+impl RepairQuakeDefinition {
+    pub(crate) fn valid(&self) -> bool {
+        self.scale
+            .iter()
+            .chain(&self.duration)
+            .all(|value| value.is_finite())
+            && self.scale[0] >= 0.
+            && self.scale[1] >= self.scale[0]
+            && self.duration[0] > 0.
+            && self.duration[1] >= self.duration[0]
+            && self.radius.is_finite()
+            && self.radius >= 0.
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -53,8 +177,17 @@ pub struct BoardAudioDefinition {
     pub opening: Option<String>,
     pub hover: Option<String>,
     pub repeat_pause: Option<[f32; 2]>,
+    pub effect_delay: [f32; 2],
 }
 impl BoardDefinition {
+    pub(crate) fn attack(&self, slot: usize, crawler: bool) -> &BoardAttackDefinition {
+        let attack = &self.attacks[slot];
+        if crawler {
+            attack.crawler.as_deref().unwrap_or(attack)
+        } else {
+            attack
+        }
+    }
     pub fn collider(&self) -> Option<Collider> {
         crate::environment::brushes::compound(&[], &self.collision)
     }
@@ -69,6 +202,7 @@ pub struct BoardAttackDefinition {
     pub tear_clip: String,
     pub grab_motion: crate::origins::content::AnimationRootMotion,
     pub tear_motion: crate::origins::content::AnimationRootMotion,
+    pub crawler: Option<Box<BoardAttackDefinition>>,
 }
 impl BoardAttackDefinition {
     pub fn valid_motion(&self) -> bool {
@@ -77,7 +211,15 @@ impl BoardAttackDefinition {
             (&self.tear_motion, self.tear_seconds),
         ]
         .into_iter()
-        .all(|(motion, seconds)| motion.valid() && (motion.seconds - seconds).abs() < 0.001)
+        .all(|(motion, seconds)| {
+            seconds.is_finite() && seconds > 0. && motion.valid() && motion.seconds >= seconds
+        }) && self.crawler.as_ref().is_none_or(|crawler| {
+            crawler.crawler.is_none()
+                && crawler.valid_motion()
+                && crawler.destroy_seconds.is_finite()
+                && crawler.destroy_seconds >= 0.
+                && crawler.destroy_seconds < crawler.tear_seconds
+        })
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -104,8 +246,8 @@ pub struct Barriers {
     repairers: BTreeMap<(ContentId, usize), (Entity, f32)>,
     repair_cooldowns: BTreeMap<ContentId, f32>,
     audio: BTreeMap<(ContentId, usize), BoardAudioPlayback>,
-    audio_elapsed: std::time::Duration,
     audio_random: Option<u32>,
+    quakes: RepairQuakes,
     round: u32,
     use_poll: f32,
     use_ticks: u32,
@@ -171,22 +313,28 @@ impl Barriers {
         Some(index)
     }
     pub fn obstructed(&self, id: &ContentId) -> bool {
-        self.windows
-            .get(id)
-            .is_some_and(|boards| boards.iter().any(|state| *state != BoardState::Missing))
+        self.windows.get(id).is_some_and(|boards| {
+            boards
+                .iter()
+                .any(|state| !matches!(state, BoardState::Missing | BoardState::Opening(_)))
+        })
     }
-    pub fn claim(&mut self, id: &ContentId, owner: Entity, random: u32) -> Option<(usize, usize)> {
+    pub fn slot(&mut self, id: &ContentId, owner: Entity, random: u32) -> Option<usize> {
         let slots = self.owners.entry(id.clone()).or_insert([None; 3]);
+        if let Some(slot) = slots.iter().position(|slot| *slot == Some(owner)) {
+            return Some(slot);
+        }
         let available = slots
             .iter()
             .enumerate()
             .filter_map(|(index, slot)| slot.is_none().then_some(index))
             .collect::<Vec<_>>();
-        let existing = slots.iter().position(|slot| *slot == Some(owner));
-        if available.is_empty() && existing.is_none() {
-            return None;
-        }
-        let slot = existing.unwrap_or_else(|| available[random as usize % available.len()]);
+        let slot = *available.get((random as usize) % available.len().max(1))?;
+        slots[slot] = Some(owner);
+        Some(slot)
+    }
+    pub fn claim(&mut self, id: &ContentId, owner: Entity, random: u32) -> Option<(usize, usize)> {
+        let slot = self.slot(id, owner, random)?;
         let boards = self.windows.get_mut(id)?;
         let closed = boards
             .iter()
@@ -198,7 +346,6 @@ impl Barriers {
         }
         let i = closed[(random as usize / 3) % closed.len()];
         boards[i] = BoardState::Reserved(owner);
-        slots[slot] = Some(owner);
         Some((i, slot))
     }
     pub fn destroy(&mut self, id: &ContentId, index: usize, owner: Entity) -> bool {
@@ -210,6 +357,9 @@ impl Barriers {
         }
         *b = BoardState::Opening(0.);
         self.destroyed += 1;
+        if !self.obstructed(id) {
+            self.owners.remove(id);
+        }
         true
     }
     pub fn begin_pull(&mut self, id: &ContentId, index: usize, owner: Entity) {
@@ -255,12 +405,16 @@ enum BoardSoundSequence {
     Repair,
     WaitingRepair(u64),
     RepairSecond,
+    RepairEffectPause,
+    WaitingRepairEffect(u64),
+    RepairEffectSecond,
 }
 
 #[derive(Default)]
 struct BoardAudioPlayback {
     previous: AudioBoardState,
     sequence: Option<BoardSoundSequence>,
+    effect_phase: Option<usize>,
 }
 
 impl BoardAudioPlayback {
@@ -272,6 +426,7 @@ impl BoardAudioPlayback {
         now: u64,
         random: impl FnOnce() -> u32,
     ) -> Vec<&'a str> {
+        self.effect_phase = None;
         let state = match state {
             BoardState::Opening(_) => AudioBoardState::Opening,
             BoardState::Missing => AudioBoardState::Open,
@@ -326,6 +481,24 @@ impl BoardAudioPlayback {
             }
             Some(BoardSoundSequence::RepairSecond) => {
                 sounds.extend(general.repair[1].as_deref());
+                self.effect_phase = Some(0);
+                Some(BoardSoundSequence::RepairEffectPause)
+            }
+            Some(BoardSoundSequence::RepairEffectPause) => {
+                let [min, max] = board.effect_delay;
+                let seconds = min as f64
+                    + (random() & 32767) as f64
+                        * (max as f64 - min as f64)
+                        * 3.051851e-05_f32 as f64;
+                Some(BoardSoundSequence::WaitingRepairEffect(
+                    now + (seconds * 1000.) as u64,
+                ))
+            }
+            Some(BoardSoundSequence::WaitingRepairEffect(deadline)) if now > deadline => {
+                Some(BoardSoundSequence::RepairEffectSecond)
+            }
+            Some(BoardSoundSequence::RepairEffectSecond) => {
+                self.effect_phase = Some(1);
                 None
             }
             waiting => waiting,
@@ -333,6 +506,148 @@ impl BoardAudioPlayback {
         sounds
     }
 }
+
+fn native_random(seed: &mut Option<u32>) -> u32 {
+    let next = seed
+        .unwrap_or(1)
+        .wrapping_mul(0x343fd)
+        .wrapping_add(0x269ec3);
+    *seed = Some(next);
+    next >> 16 & 32767
+}
+
+#[derive(Clone, Copy)]
+struct RepairQuake {
+    start: i32,
+    duration: i32,
+    scale: f32,
+    radius: f32,
+    origin: Vec3,
+}
+
+impl RepairQuake {
+    fn gains(self, now: i32, eye: Vec3) -> Option<(f32, f32)> {
+        let elapsed = now.checked_sub(self.start)?;
+        if elapsed < 0 || elapsed >= self.duration {
+            return None;
+        }
+        let life = (1. - elapsed as f32 / self.duration as f32) * self.scale;
+        if life <= 0. {
+            return None;
+        }
+        let distance = if self.radius > 0. {
+            1. - self.origin.distance(eye) / self.radius
+        } else {
+            1.
+        };
+        Some((
+            if distance < 0. {
+                distance / life
+            } else {
+                life * distance
+            },
+            life,
+        ))
+    }
+}
+
+#[derive(Default)]
+struct RepairQuakes {
+    slots: [Option<RepairQuake>; 4],
+    pending: Vec<RepairQuake>,
+    phase: f32,
+    idle_time: Option<i32>,
+}
+
+impl RepairQuakes {
+    fn insert(&mut self, quake: RepairQuake, now: i32, eye: Vec3) {
+        let free = self.slots.iter().position(|slot| {
+            slot.is_none_or(|slot| {
+                now < slot.start || now as f32 >= slot.start as f32 + slot.duration as f32
+            })
+        });
+        let replace = free.or_else(|| {
+            let mut lowest = 0.;
+            let mut replace = None;
+            for (index, slot) in self.slots.iter().enumerate() {
+                if let Some((gain, _)) = slot.and_then(|slot| slot.gains(now, eye))
+                    && gain < lowest
+                {
+                    lowest = gain;
+                    replace = Some(index);
+                }
+            }
+            replace
+        });
+        if let Some(index) = replace {
+            self.slots[index] = Some(quake);
+        }
+    }
+
+    fn angles(&self, now: i32, eye: Vec3) -> Option<Vec3> {
+        let mut strongest = (0., 0.);
+        for slot in self.slots.iter().flatten() {
+            if let Some((gain, life)) = slot.gains(now, eye)
+                && gain > strongest.0
+            {
+                strongest = (gain, life);
+            }
+        }
+        let (gain, life) = strongest;
+        if gain <= 0. {
+            return None;
+        }
+        let time = now as f32 * 0.0016666667;
+        let amplitude = gain.min(1.) * life;
+        Some(
+            Vec3::new(
+                (time * 25.132742 + self.phase).sin() * 18. * amplitude,
+                (time * 47.12389 + self.phase).sin() * 16. * amplitude,
+                (time * 37.699112 + self.phase).sin() * 10. * amplitude,
+            ) * (std::f32::consts::PI / 180.),
+        )
+    }
+}
+
+fn repair_quake_camera(
+    state: Res<State<GameState>>,
+    clock: Res<crate::rendering::opaque::NativeClock>,
+    mut barriers: ResMut<Barriers>,
+    mut cameras: Query<&mut Transform, With<crate::rendering::GameCamera>>,
+) {
+    if !matches!(
+        **state,
+        GameState::Playing | GameState::Paused | GameState::GameOver
+    ) {
+        return;
+    }
+    let Some(now) = clock.render_milliseconds() else {
+        return;
+    };
+    let Ok(mut camera) = cameras.single_mut() else {
+        return;
+    };
+    let barriers = &mut *barriers;
+    let pending = std::mem::take(&mut barriers.quakes.pending);
+    for quake in pending {
+        barriers.quakes.insert(quake, now, camera.translation);
+    }
+    if let Some(angles) = barriers.quakes.angles(now, camera.translation) {
+        let (yaw, pitch, roll) = camera.rotation.to_euler(EulerRot::YXZ);
+        camera.rotation = Quat::from_euler(
+            EulerRot::YXZ,
+            yaw + angles.y,
+            pitch - angles.x,
+            roll - angles.z,
+        );
+    } else if barriers.quakes.idle_time != Some(now) {
+        barriers.quakes.phase =
+            (native_random(&mut barriers.audio_random) as f32 * 0.000030517578 * 2. - 1.)
+                * std::f32::consts::PI;
+        barriers.quakes.idle_time = Some(now);
+    }
+}
+
 #[derive(Component)]
 pub struct BarrierBlocker(pub ContentId, pub usize);
 #[derive(Component)]
@@ -369,6 +684,12 @@ impl Plugin for BarrierPlugin {
             .add_systems(
                 Update,
                 audio.after(animate).run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                PostUpdate,
+                repair_quake_camera
+                    .after(crate::animation::AnimationPoseModifiers)
+                    .before(bevy::transform::TransformSystems::Propagate),
             );
     }
 }
@@ -617,13 +938,14 @@ fn tick(
 
 fn audio(
     mut commands: Commands,
-    time: Res<Time>,
+    clock: Res<crate::rendering::opaque::NativeClock>,
     definition: Res<GameDefinition>,
     mut barriers: ResMut<Barriers>,
 ) {
     let barriers = &mut *barriers;
-    barriers.audio_elapsed += time.delta();
-    let now = barriers.audio_elapsed.as_millis() as u64;
+    let Some(now) = clock.render_milliseconds() else {
+        return;
+    };
     for d in &definition.content.barriers {
         let Some(states) = barriers.windows.get(&d.id).cloned() else {
             continue;
@@ -639,14 +961,11 @@ fn audio(
         for (index, state) in states.into_iter().enumerate() {
             let playback = barriers.audio.entry((d.id.clone(), index)).or_default();
             let random = &mut barriers.audio_random;
-            let sounds = playback.advance(state, &d.audio, &d.boards[index].audio, now, || {
-                let value = random
-                    .unwrap_or(1)
-                    .wrapping_mul(0x343fd)
-                    .wrapping_add(0x269ec3);
-                *random = Some(value);
-                value >> 16 & 32767
-            });
+            let sounds =
+                playback.advance(state, &d.audio, &d.boards[index].audio, now as u64, || {
+                    native_random(random)
+                });
+            let effect_phase = playback.effect_phase;
             for alias in sounds {
                 let sound = crate::audio::emit(
                     &mut commands,
@@ -655,6 +974,39 @@ fn audio(
                 );
                 commands.entity(sound).insert(WoodAudio);
                 barriers.sounds += 1;
+            }
+            if let Some(phase) = effect_phase {
+                let pose = Transform::from_translation(Vec3::from_array(placement.position))
+                    .with_rotation(Quat::from_rotation_y(placement.yaw));
+                if phase == 0
+                    && let Some(definition) = &d.repair_quake
+                {
+                    let range = |range: [f32; 2], random: &mut Option<u32>| {
+                        range[0] as f64
+                            + native_random(random) as f64
+                                * (range[1] as f64 - range[0] as f64)
+                                * 3.051851e-05_f32 as f64
+                    };
+                    let scale = range(definition.scale, &mut barriers.audio_random) as f32;
+                    let duration =
+                        (range(definition.duration, &mut barriers.audio_random) * 1000.) as i32;
+                    barriers.quakes.pending.push(RepairQuake {
+                        start: now,
+                        duration,
+                        scale,
+                        radius: definition.radius,
+                        origin: pose.translation,
+                    });
+                }
+                if let Some(effect) = &d.boards[index].repair_effects[phase] {
+                    crate::native_fx::emit(
+                        &mut commands,
+                        &effect.name,
+                        pose.mul_transform(Transform::from_translation(Vec3::from_array(
+                            effect.offset,
+                        ))),
+                    );
+                }
             }
         }
     }
@@ -771,6 +1123,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_reach_uses_source_slot_minus_one_and_separate_trigger_height_checks() {
+        let action = BarrierActorAction {
+            state: "zm_window_melee".into(),
+            frequency: 50,
+            range: 109.8 * 0.0254,
+            clips: (0..3)
+                .map(|index| BarrierActorClip {
+                    name: format!("clip{index}"),
+                    seconds: 1.,
+                    duration: 1.,
+                    hits: vec![0.5],
+                    motion: None,
+                })
+                .collect(),
+        };
+        assert_eq!(action.reach_clip(0, 2).unwrap().name, "clip2");
+        assert_eq!(action.reach_clip(1, 2).unwrap().name, "clip0");
+        assert_eq!(action.reach_clip(2, 2).unwrap().name, "clip1");
+        let near = Vec3::new(50. * 0.0254, 50. * 0.0254, 0.);
+        assert!(action.hits_through(near, Vec3::ZERO, Vec3::ZERO));
+        assert!(!action.hits_through(near.with_y(51. * 0.0254), Vec3::ZERO, Vec3::ZERO));
+        assert!(!action.hits_through(near.with_x(51. * 0.0254), Vec3::ZERO, Vec3::ZERO));
+    }
+
+    #[test]
+    fn source_opening_last_board_clears_attack_slots_before_visual_finishes() {
+        let id = ContentId("barrier.test".into());
+        let mut world = World::new();
+        let actor = world.spawn_empty().id();
+        let mut barriers = Barriers::default();
+        barriers.windows.insert(
+            id.clone(),
+            vec![BoardState::Missing, BoardState::Reserved(actor)],
+        );
+        barriers.slot(&id, actor, 0);
+        assert!(barriers.destroy(&id, 1, actor));
+        assert!(!barriers.obstructed(&id));
+        assert!(!barriers.owners.contains_key(&id));
+    }
+
+    #[test]
     fn native_attack_slots_survive_other_actor_retirement() {
         let mut world = World::new();
         let actors = std::array::from_fn::<_, 4, _>(|_| world.spawn_empty().id());
@@ -810,6 +1203,40 @@ mod tests {
     }
 
     #[test]
+    fn native_repair_quakes_keep_four_slots_and_use_source_lifetime_distance_gain() {
+        let quake = RepairQuake {
+            start: 0,
+            duration: 1000,
+            scale: 0.4,
+            radius: 10.,
+            origin: Vec3::ZERO,
+        };
+        assert_eq!(quake.gains(0, Vec3::ZERO), Some((0.4, 0.4)));
+        let (gain, life) = quake.gains(500, Vec3::X * 5.).unwrap();
+        assert!((gain - 0.1).abs() < 1e-6);
+        assert!((life - 0.2).abs() < 1e-6);
+        assert!(quake.gains(1000, Vec3::ZERO).is_none());
+        assert!(quake.gains(-1, Vec3::ZERO).is_none());
+        let mut quakes = RepairQuakes::default();
+        for _ in 0..4 {
+            quakes.insert(quake, 0, Vec3::ZERO);
+        }
+        quakes.insert(RepairQuake { scale: 1., ..quake }, 0, Vec3::ZERO);
+        assert!(quakes.slots.iter().flatten().all(|slot| slot.scale == 0.4));
+        quakes.slots[2] = Some(RepairQuake {
+            origin: Vec3::X * 20.,
+            ..quake
+        });
+        quakes.insert(RepairQuake { scale: 1., ..quake }, 0, Vec3::ZERO);
+        assert_eq!(quakes.slots[2].unwrap().scale, 1.);
+        let angles = quakes.angles(500, Vec3::ZERO).unwrap();
+        let time = 500. * 0.0016666667;
+        assert!(
+            (angles.x - (time * 25.132742_f32).sin() * 18_f32.to_radians() * 0.25).abs() < 1e-6
+        );
+    }
+
+    #[test]
     fn native_board_audio_preserves_transition_and_delay_order() {
         let general = BarrierAudioDefinition {
             repair: [Some("repair.first".into()), Some("repair.second".into())],
@@ -819,6 +1246,7 @@ mod tests {
             opening: Some("tear".into()),
             hover: Some("hover".into()),
             repeat_pause: Some([0.1, 0.1]),
+            effect_delay: [0.1, 0.1],
         };
         let mut playback = BoardAudioPlayback::default();
         assert!(
@@ -867,10 +1295,18 @@ mod tests {
             playback.advance(BoardState::Closed, &general, &board, 752, || 0),
             ["repair.second"]
         );
+        assert_eq!(playback.effect_phase, Some(0));
         assert!(
             playback
                 .advance(BoardState::Closed, &general, &board, 1000, || 0)
                 .is_empty()
         );
+        assert_eq!(playback.effect_phase, None);
+        playback.advance(BoardState::Closed, &general, &board, 1100, || 0);
+        assert_eq!(playback.effect_phase, None);
+        playback.advance(BoardState::Closed, &general, &board, 1101, || 0);
+        assert_eq!(playback.effect_phase, None);
+        playback.advance(BoardState::Closed, &general, &board, 1102, || 0);
+        assert_eq!(playback.effect_phase, Some(1));
     }
 }

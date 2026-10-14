@@ -70,6 +70,48 @@ fn installed_initial_equipment_profiles() {
         serde_json::json!([300, 75])
     );
     assert!((grenade["mechanics"]["fuse_seconds"].as_f64().unwrap() - 3.5).abs() < 0.00001);
+    let (zone, root) = catalog.resolve(25, "frag_grenade_zm").unwrap();
+    let streams = &catalog.zones[zone].1.streams;
+    let definition =
+        crate::fastfile::Address::decode(streams.u32(root.add(8).unwrap()).unwrap()).unwrap();
+    println!(
+        "Native frag trajectory flags rolling/stickiness/rotateType/rotate/keepRolling: {:?}",
+        [1688, 1840, 1844, 1852, 1853].map(|offset| if offset < 1852 {
+            streams.u32(definition.add(offset).unwrap()).unwrap()
+        } else {
+            streams.u8(definition.add(offset).unwrap()).unwrap() as u32
+        })
+    );
+    for name in ["c96_zm", "c96_upgraded_zm"] {
+        let (zone, root) = catalog.resolve(25, name).unwrap();
+        let streams = &catalog.zones[zone].1.streams;
+        let animations =
+            crate::fastfile::Address::decode(streams.u32(root.add(32).unwrap()).unwrap()).unwrap();
+        let mut names = std::collections::BTreeSet::new();
+        for index in [85, 86] {
+            let pointer = streams.u32(animations.add(index * 4).unwrap()).unwrap();
+            if pointer != 0 {
+                names.insert(
+                    streams
+                        .text(crate::fastfile::Address::decode(pointer).unwrap())
+                        .unwrap(),
+                );
+            }
+        }
+        for clip in crate::animation::read(&catalog, Some(&names)).unwrap() {
+            assert_eq!(clip.clip.source_flags, [0; 4]);
+            assert_eq!(clip.clip.bones.len(), 1);
+            assert_eq!(clip.clip.bones[0].name.as_deref(), Some("tag_torso"));
+            assert!(clip.clip.bones[0].translation.is_some());
+        }
+        assert!(
+            weapons
+                .iter()
+                .find(|weapon| weapon["id"] == format!("weapon.{name}"))
+                .unwrap()["mechanics"]["native_ads_pitch"]
+                .is_number()
+        );
+    }
 }
 
 #[test]

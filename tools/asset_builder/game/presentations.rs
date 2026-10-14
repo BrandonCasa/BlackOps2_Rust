@@ -80,7 +80,7 @@ pub(super) const WEAPON_ACTIONS: &[(usize, &str)] = &[
     (55, "prone_leave_empty"),
     (61, "ads_fire"),
     (62, "ads_last_shot"),
-    (63, "ads_rechamber"),
+    (64, "ads_rechamber"),
     (65, "dive_enter"),
     (66, "dive_loop"),
     (67, "dive_leave"),
@@ -239,7 +239,7 @@ pub(super) fn initial_presentations(
             }
             let id = format!("animation.{model}.{clip}");
             ids.push(id.clone());
-            animations.push(json!({"id":id,"source_clip":clip,"path":null,"skeleton":skeleton,"notifications":notifications,"looping":streams.u8(root.add(16)?)? != 0}));
+            animations.push(json!({"id":id,"source_clip":clip,"path":null,"skeleton":skeleton,"seconds":frames/rate,"notifications":notifications,"looping":streams.u8(root.add(16)?)? != 0}));
         }
         presentations.push(
             json!({"id":skeleton,"source_model":model,"scene":null,"animations":ids,"sounds":[]}),

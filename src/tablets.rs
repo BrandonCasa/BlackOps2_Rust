@@ -144,6 +144,7 @@ fn setup(
             normal_bounce: [0.25; 32],
             collision_radius: 0.08,
             collision_half_extents: None,
+            native_launch: None,
             cook_in_hand: false,
             sticky: false,
         });
@@ -360,6 +361,7 @@ pub(crate) fn interact(
                 eye,
                 forward,
                 false,
+                game.tuning.use_radius,
             )?;
             Some((entity, target, score))
         })

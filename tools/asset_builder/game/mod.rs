@@ -6,6 +6,7 @@ mod audio;
 mod barriers;
 mod enemies;
 mod equipment;
+mod generator;
 mod navigation;
 mod player;
 mod presentations;
@@ -300,8 +301,16 @@ pub fn read(
     equipment::read(catalog, &mut game, &mut native_gaps)?;
     player::read(catalog, &mut game, entities, &mut native_gaps)?;
     enemies::read(catalog, &mut game, entities, &mut native_gaps)?;
+    generator::read(catalog, &mut game, entities, &mut native_gaps)?;
     barriers::read(catalog, &mut game, entities, &mut native_gaps)?;
     navigation::read(catalog, &mut game)?;
+    let effects = crate::effects::Effects::read(catalog, crate::effects::initial_roots(catalog, &game)?)?;
+    if game["audio"]["bindings"].is_null() {
+        game["audio"]["bindings"] = json!({});
+    }
+    for alias in &effects.sounds {
+        game["audio"]["bindings"][format!("sound.fx.{alias}")] = json!(alias);
+    }
     audio::read(catalog, &mut game, &mut native_gaps)?;
     Ok((game, native_gaps))
 }
@@ -335,6 +344,7 @@ pub fn prepare(
     link_owners(game, entities)?;
     zone_graph(game, entities, &mut missing)?;
     navigation::prepare(game, entities, &mut missing)?;
+    generator::prepare(game, entities, &mut missing)?;
     player::prepare(game, entities, &mut missing)?;
     barriers::prepare(game, entities, &mut missing)?;
     for key in [

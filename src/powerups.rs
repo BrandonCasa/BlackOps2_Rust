@@ -253,13 +253,14 @@ fn drop_powerups(
     definition: Res<GameDefinition>,
     mut drops: ResMut<Drops>,
     mut session: ResMut<Session>,
-    enemies: Query<&Transform, With<Zombie>>,
+    enemies: Query<(&Transform, Option<&crate::rounds::PopulationKind>), With<Zombie>>,
     panzers: Query<(), With<crate::panzer::Panzer>>,
     players: Query<Entity, With<Player>>,
     spatial: SpatialQuery,
     server: Res<AssetServer>,
     volumes: Query<&crate::environment::hazards::BoundaryVolume>,
 ) {
+    if definition.delivery_scope==crate::origins::DeliveryScope::FirstPlayableSolo {return;}
     if drops.round != session.round {
         drops.round = session.round;
         drops.count = 0;
@@ -270,6 +271,7 @@ fn drop_powerups(
         drops.earned = true;
     }
     for EnemyDeath(receipt) in deaths.read() {
+        if enemies.get(receipt.impact.target).is_ok_and(|(_,kind)|kind.is_some_and(|kind|*kind==crate::rounds::PopulationKind::GeneratorDefender)) {continue;}
         if panzers.contains(receipt.impact.target)
             || drops.count >= 4
             || !receipt.impact.source.player_attributed()
@@ -286,7 +288,7 @@ fn drop_powerups(
         if session.random() % 100 > 2 && !drops.earned {
             continue;
         }
-        let Ok(transform) = enemies.get(receipt.impact.target) else {
+        let Ok((transform,_)) = enemies.get(receipt.impact.target) else {
             continue;
         };
         let origin = transform.translation + Vec3::Y * 0.127;

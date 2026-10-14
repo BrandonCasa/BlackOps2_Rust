@@ -19,6 +19,85 @@ fn entity_position(entity: &crate::entities::Entity) -> Result<[f32; 3]> {
     ))
 }
 
+fn target_origin(
+    entity: &crate::entities::Entity,
+    entities: &[crate::entities::Entity],
+    nodes: &[Value],
+) -> Result<Option<[f32; 3]>> {
+    let Some(target) = entity.get("target").filter(|target| !target.is_empty()) else {
+        return Ok(None);
+    };
+    for structs in [false, true] {
+        let matching = entities
+            .iter()
+            .filter(|entity| {
+                entity.get("targetname") == Some(target)
+                    && entity
+                        .get("classname")
+                        .is_some_and(|class| (class == "script_struct") == structs)
+            })
+            .collect::<Vec<_>>();
+        if matching.len() > 1 {
+            return Err(
+                format!("Initial spawn target {target} resolves multiple source entities").into(),
+            );
+        }
+        if let Some(entity) = matching.first() {
+            return entity_position(entity).map(Some);
+        }
+    }
+    let matching = nodes
+        .iter()
+        .filter(|node| node["targetname"] == *target)
+        .collect::<Vec<_>>();
+    if matching.len() != 1 {
+        return Err(format!(
+            "Initial spawn target {target} resolves {} native nodes",
+            matching.len()
+        )
+        .into());
+    }
+    Ok(Some(serde_json::from_value(
+        matching[0]["position"].clone(),
+    )?))
+}
+
+fn entrance_choices(
+    goals: &[Value],
+    origin: [f32; 3],
+    desired: Option<[f32; 3]>,
+) -> Result<Vec<usize>> {
+    let center = desired.unwrap_or(origin);
+    let mut indices = (0..goals.len()).collect::<Vec<_>>();
+    let distance = |index: usize, point: [f32; 3]| -> Result<f32> {
+        let goal: [f32; 3] = serde_json::from_value(goals[index]["position"].clone())?;
+        let delta = difference(goal, point);
+        Ok(dot(delta, delta).sqrt())
+    };
+    let distances = indices
+        .iter()
+        .map(|&index| distance(index, center))
+        .collect::<Result<Vec<_>>>()?;
+    indices.sort_by(|a, b| distances[*a].total_cmp(&distances[*b]));
+    indices.truncate(if desired.is_some() { 1 } else { 3 });
+    if desired.is_none()
+        && let Some(&first) = indices.first()
+    {
+        let mut previous = distance(first, origin)?;
+        let mut count = 1;
+        for &index in indices.iter().skip(1) {
+            let current = distance(index, origin)?;
+            if current - previous > 500. * 0.0254 {
+                break;
+            }
+            previous = current;
+            count += 1;
+        }
+        indices.truncate(count);
+    }
+    Ok(indices)
+}
+
 struct ZoneVolume {
     zone: String,
     minimum: [f32; 3],
@@ -118,9 +197,14 @@ impl ZoneVolume {
 }
 
 pub(super) fn zone_at(game: &Value, position: [f32; 3]) -> Result<Option<String>> {
-    for row in game["access"]["volumes"].as_array().ok_or("Native zone volumes are missing")? {
+    for row in game["access"]["volumes"]
+        .as_array()
+        .ok_or("Native zone volumes are missing")?
+    {
         let volume = ZoneVolume::read(row)?;
-        if volume.contains(position) { return Ok(Some(volume.zone)); }
+        if volume.contains(position) {
+            return Ok(Some(volume.zone));
+        }
     }
     Ok(None)
 }
@@ -339,11 +423,24 @@ pub(super) fn prepare(
                 )
                 .into());
             }
-            spawns.push(json!({"id":format!("spawn.native.{index}"),"zone":zone,"position":entity_position(entity)?,"rising":*ordinary[0] == "riser_location"}));
+            spawns.push(json!({"id":format!("spawn.native.{index}"),"zone":zone,"position":entity_position(entity)?,"rising":*ordinary[0] == "riser_location","yaw":super::player::pose(entity)?.1,"desired_origin":target_origin(entity,entities,&nodes)?}));
         }
     }
     if spawns.is_empty() {
         return Err("Source initial zone closure contains no ordinary spawn locations".into());
+    }
+    let spawners = entities.iter().enumerate().filter(|(_,entity)| {
+        entity.get("script_noteworthy").is_some_and(|name| name=="zombie_spawner")
+            && entity.get("script_int").is_some_and(|number| number=="1")
+    }).map(|(index,entity)| {
+        if entity.get("script_forcespawn").is_none_or(|value| value != "1") {
+            return Err(format!("Initial ordinary spawner requires its native force-spawn branch: {entity:?}").into());
+        }
+        let (position,yaw)=super::player::pose(entity)?;
+        Ok(json!({"id":format!("spawner.native.{index}"),"archetype":entity.get("classname").ok_or("Native ordinary spawner has no class")?,"position":position,"yaw":yaw,"desired_origin":target_origin(entity,entities,&nodes)?}))
+    }).collect::<Result<Vec<_>>>()?;
+    if spawners.is_empty() {
+        return Err("Initial ordinary source spawner pool is empty".into());
     }
     let positions: Vec<[f32; 3]> = nodes
         .iter()
@@ -444,6 +541,42 @@ pub(super) fn prepare(
             work.extend(adjacency[node].iter().copied());
         }
     }
+    let goals = entities
+        .iter()
+        .filter(|entity| {
+            entity
+                .get("targetname")
+                .is_some_and(|name| name == "exterior_goal")
+        })
+        .map(|entity| {
+            Ok(json!({"position":entity_position(entity)?,"target":entity.get("target")}))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut required_goals = BTreeSet::new();
+    for spawn in &spawns {
+        let origin: [f32; 3] = serde_json::from_value(spawn["position"].clone())?;
+        for spawner in &spawners {
+            let desired = if spawn["desired_origin"].is_null() {
+                &spawner["desired_origin"]
+            } else {
+                &spawn["desired_origin"]
+            };
+            let desired: Option<[f32; 3]> = serde_json::from_value(desired.clone())?;
+            required_goals.extend(entrance_choices(&goals, origin, desired)?);
+        }
+    }
+    let entrances = required_goals.into_iter().map(|goal| {
+        let target=goals[goal]["target"].as_str().ok_or("Initial exterior goal has no native barrier target")?;
+        let matching=nodes.iter().enumerate().filter(|(_,node)|node["type"]==17 && node["targetname"]==target).collect::<Vec<_>>();
+        let [(index,_)] = matching.as_slice() else {return Err(format!("Initial exterior goal {target} has {} native Begin endpoints",matching.len()).into());};
+        if !selected.contains_key(index) {return Err(format!("Source initial spawn selects exterior goal {target} outside the retained native navigation closure").into());}
+        Ok(json!({"node":format!("node.native.{index}"),"position":goals[goal]["position"]}))
+    }).collect::<Result<Vec<_>>>()?;
+    if entrances.is_empty() {
+        return Err("Initial ordinary source entrance pool is empty".into());
+    }
+    game["access"]["spawners"] = json!(spawners);
+    game["access"]["entrances"] = json!(entrances);
     let mut links = Vec::new();
     let mut aliases = BTreeSet::new();
     for (&from, _) in &selected {
@@ -529,7 +662,7 @@ pub(super) fn prepare(
             links.push(row);
         }
     }
-    game["content"]["navigation_nodes"] = json!(selected.iter().map(|(index,zone)|json!({"id":format!("node.native.{index}"),"position":positions[*index],"zone":zone})).collect::<Vec<_>>());
+    game["content"]["navigation_nodes"] = json!(selected.iter().map(|(index,zone)|json!({"id":format!("node.native.{index}"),"position":positions[*index],"zone":zone,"native":{"type":nodes[*index]["type"],"spawn_flags":nodes[*index]["spawn_flags"]}})).collect::<Vec<_>>());
     game["content"]["navigation_links"] = json!(links);
     game["access"]["spawns"] = json!(spawns);
     game["content"]["zone_connections"] = json!(
@@ -656,6 +789,19 @@ mod tests {
         let links = game["content"]["navigation_links"].as_array().unwrap();
         assert_eq!(nodes.len(), 80);
         assert_eq!(links.len(), 562);
+        for node in nodes {
+            let index: usize = node["id"]
+                .as_str()
+                .unwrap()
+                .rsplit('.')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert_eq!(node["position"], native[index]["position"]);
+            assert_eq!(node["native"]["type"], native[index]["type"]);
+            assert_eq!(node["native"]["spawn_flags"], native[index]["spawn_flags"]);
+        }
         assert!(nodes.iter().all(|node| matches!(
             node["zone"].as_str(),
             Some("zone.start" | "zone.start_a" | "zone.start_b")

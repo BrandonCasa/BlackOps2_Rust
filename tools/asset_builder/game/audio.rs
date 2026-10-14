@@ -27,8 +27,9 @@ fn word(catalog: &Catalog<'_>, zone: usize, field: Address) -> Result<Option<Str
 }
 
 pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<String>) -> Result<()> {
-    let available: BTreeSet<_> = crate::sound::alias_hashes(catalog)?
-        .into_values()
+    let alias_ids = crate::sound::alias_hashes(catalog)?;
+    let available: BTreeSet<_> = alias_ids
+        .values()
         .map(|name| name.to_ascii_lowercase())
         .collect();
     let mut bindings = game["audio"]["bindings"]
@@ -41,6 +42,80 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
         .map(str::to_ascii_lowercase)
         .collect();
     let mut timelines = serde_json::Map::new();
+    let (zone, table) = catalog.resolve(57, "default_ai")?;
+    let streams = &catalog.zones[zone].1.streams;
+    let footsteps = (0..32)
+        .map(|surface| {
+            (0..7)
+                .map(|movement| {
+                    let id = streams.u32(table.add(4 + (surface * 7 + movement) * 4)?)?;
+                    let alias = alias_ids.get(&id).map(|alias| alias.to_ascii_lowercase());
+                    if let Some(alias) = &alias {
+                        required.insert(alias.clone());
+                    }
+                    Ok(alias)
+                })
+                .collect::<Result<Vec<_>>>()
+        })
+        .collect::<Result<Vec<_>>>()?;
+    game["audio"]["footsteps"] = json!(footsteps);
+    game["audio"]["water"] = crate::collision::water(catalog)?;
+    let room_contexts = [
+        ("tomb_outdoor", 3434048311_u32),
+        ("tomb_tunnel", 1609388568),
+        ("tomb_cave", 1609388568),
+        ("tomb_spiral_staircase_bot", 1609388568),
+        ("tomb_robot_head", 1609388568),
+        ("tomb_large_chamber", 1609388568),
+        ("tomb_bunker_sml", 1609388568),
+        ("tomb_bunker_sml_prtl", 1609388568),
+        ("tomb_bunker_med", 1609388568),
+        ("tomb_bunker_med_prtl", 1609388568),
+        ("tomb_bunker_lrg", 1609388568),
+        ("tomb_bunker_lrg_prtl", 1609388568),
+        ("tomb_overhang", 1609388568),
+        ("tomb_overhang_prtl", 3434048311),
+        ("tomb_spiral_staircase", 1609388568),
+        ("tomb_church", 1609388568),
+        ("tomb_church_prtl", 3434048311),
+    ]
+    .into_iter()
+    .map(|(room, value)| (room.to_owned(), json!({"2155298321":value})))
+    .collect::<serde_json::Map<_, _>>();
+    game["audio"]["room_contexts"] = json!(room_contexts);
+    game["audio"]["contexts"] = json!({"822242733":2546536281_u32});
+    let room_names = [
+        ("tomb_outdoor", "tomb_outdoor"),
+        ("tomb_tunnel", "tomb_tunnel"),
+        ("tomb_cave", "tomb_cave"),
+        ("tomb_spiral_staircase_bot", "tomb_stairs_big"),
+        ("tomb_robot_head", "tomb_bot_head"),
+        ("tomb_large_chamber", "tomb_cave_2"),
+        ("tomb_bunker_sml", "tomb_bunker_smallroom"),
+        ("tomb_bunker_sml_prtl", "tomb_bunker_smallroom"),
+        ("tomb_bunker_med", "tomb_bunker_mediumroom"),
+        ("tomb_bunker_med_prtl", "tomb_bunker_mediumroom"),
+        ("tomb_bunker_lrg", "tomb_bunker_largeroom"),
+        ("tomb_bunker_lrg_prtl", "tomb_bunker_largeroom"),
+        ("tomb_overhang", "tomb_overhang"),
+        ("tomb_overhang_prtl", "tomb_overhang"),
+        ("tomb_spiral_staircase", "tomb_stairs"),
+        ("tomb_church", "tomb_church"),
+        ("tomb_church_prtl", "tomb_church"),
+    ];
+    let profiles = crate::sound::rooms(
+        catalog,
+        &room_names
+            .iter()
+            .map(|(_, name)| (*name).to_owned())
+            .collect(),
+    )?;
+    game["audio"]["rooms"] = json!(
+        room_names
+            .into_iter()
+            .map(|(room, name)| (room.to_owned(), profiles[name].clone()))
+            .collect::<BTreeMap<_, _>>()
+    );
     for name in super::equipment::INITIAL_WEAPONS {
         let (zone, root) = catalog.resolve(25, name)?;
         let streams = &catalog.zones[zone].1.streams;
@@ -94,8 +169,11 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
                 .into_iter()
                 .flatten()
                 .filter_map(|note| {
-                    notes
-                        .get(note["event"].as_str()?)
+                    let event = note["event"].as_str()?;
+                    event
+                        .strip_prefix("sndnt#")
+                        .filter(|alias| !alias.is_empty())
+                        .or_else(|| notes.get(event).map(String::as_str))
                         .map(|alias| (note, alias))
                 })
                 .map(|(note, alias)| {
@@ -120,6 +198,39 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
             }
         }
     }
+    for animation in game["content"]["animations"].as_array().unwrap() {
+        let id = animation["id"]
+            .as_str()
+            .ok_or("Selected sound animation lacks its ID")?;
+        for note in animation["notifications"].as_array().into_iter().flatten() {
+            let Some(alias) = note["event"]
+                .as_str()
+                .and_then(|event| event.strip_prefix("sndnt#"))
+                .filter(|alias| !alias.is_empty())
+            else {
+                continue;
+            };
+            let alias = alias.to_ascii_lowercase();
+            required.insert(alias.clone());
+            let sound = json!({"seconds":note["seconds"],"alias":alias});
+            let timeline = timelines
+                .entry(id.to_owned())
+                .or_insert_with(|| json!([]))
+                .as_array_mut()
+                .unwrap();
+            if !timeline.contains(&sound) {
+                timeline.push(sound);
+            }
+        }
+    }
+    for timeline in timelines.values_mut() {
+        timeline.as_array_mut().unwrap().sort_by(|a, b| {
+            a["seconds"]
+                .as_f64()
+                .unwrap()
+                .total_cmp(&b["seconds"].as_f64().unwrap())
+        });
+    }
     for alias in [
         "zmb_cha_ching",
         "zmb_no_cha_ching",
@@ -132,16 +243,35 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
         "zmb_vocals_zombie_sprint",
         "zmb_vocals_zombie_ambience",
         "zmb_vocals_zombie_death",
-        "chr_breathing_hurt",
-        "chr_breathing_hurt_start",
-        "chr_breathing_better",
-        "chr_revive_gasp",
+        "zombie_head_gib",
+        "zmb_death_gibs",
+        "zmb_spawn_powerup",
+        "zmb_spawn_powerup_loop",
+        "zmb_powerup_grabbed",
+        "zmb_footprintbox_glow_lp",
+        "vox_zmba_powerup_doublepoints_0",
+        "mpl_player_heartbeat",
+        "revive_gasp",
+        "chr_heart_beat",
+        "evt_laststand_loop",
+        "evt_laststand_in",
         "mus_perks_revive_sting",
         "mus_perks_revive_jingle",
+        "zmb_perks_bump_bottle",
+        "zmb_perks_power_on",
+        "vox_maxi_generator_initiate_0",
+        "vox_maxi_generator_process_complete_0",
+        "vox_maxi_generator_1_activated_0",
+        "mus_event_generator_1",
         "zmb_capturezone_donut_start",
         "zmb_capturezone_rise",
         "zmb_capturezone_donut_stop",
         "zmb_capturezone_success",
+        "zmb_capturezone_portal_start",
+        "zmb_capturezone_portal_stop",
+        "zmb_capturezone_portal_loop",
+        "zmb_capturezone_vat_loop",
+        "zmb_capturezone_zombie_loop",
         "zmb_zone_plate_down",
         "zmb_zone_plate_up",
         "zmb_zone_plate_loop",
@@ -150,14 +280,10 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
         "zmb_vocals_capzomb_ambience",
         "zmb_vocals_capzomb_sprint",
         "zmb_vocals_capzomb_death",
+        "zmb_vocals_capzomb_ambience_loud",
+        "zmb_vocals_capzomb_sprint_loud",
     ] {
-        if available.contains(alias) {
-            required.insert(alias.into());
-        } else {
-            gaps.push(format!(
-                "Initial sound consumer {alias} has no installed native alias binding"
-            ));
-        }
+        required.insert(alias.into());
     }
     for alias in &available {
         if [
@@ -182,6 +308,8 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
                     "kill_close",
                     "heal_revived",
                     "perk_revive",
+                    "capture_zombies",
+                    "powerup_doublepoints",
                 ]
                 .iter()
                 .any(|event| alias.starts_with(&format!("vox_plr_{character}_{event}_")))
@@ -189,8 +317,44 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
         {
             required.insert(alias.clone());
         }
+        if alias.starts_with("zmb_vocals_zombie_")
+            && ["ambience_loud", "sprint_loud", "crawler", "crawler_loud"]
+                .iter()
+                .any(|event| alias == &format!("zmb_vocals_zombie_{event}"))
+        {
+            required.insert(alias.clone());
+        }
     }
-    let rows = crate::sound::definitions(catalog, &required, gaps)?;
+    let mut absent = BTreeSet::new();
+    let rows = crate::sound::definitions(catalog, &required, &mut absent)?;
+    let duck_ids = rows
+        .iter()
+        .filter_map(|row| {
+            let bytes = serde_json::from_value::<Vec<u8>>(row["parameters"].clone()).ok()?;
+            let id = u32_at(&bytes, 4);
+            (id != 0).then_some(id)
+        })
+        .collect::<BTreeSet<_>>();
+    let ducks = crate::sound::ducks(catalog, &duck_ids)?;
+    for (id, profile) in &ducks {
+        let filters: Vec<f32> = serde_json::from_value(profile["filter"].clone())?;
+        let attenuation: Vec<f32> = serde_json::from_value(profile["attenuation"].clone())?;
+        println!(
+            "Initial native duck {id} {}: fades {}, delay {}, length {}, distance {}, attenuation {:?}, filter {:?}",
+            profile["name"],
+            profile["fades"],
+            profile["delay"],
+            profile["length"],
+            profile["distance"],
+            attenuation,
+            filters
+        );
+    }
+    game["audio"]["ducks"] = json!(ducks);
+    bindings.retain(|_, name| {
+        name.as_str()
+            .is_some_and(|name| !absent.contains(&name.to_ascii_lowercase()))
+    });
     let globals = catalog.definitions(32).collect::<Vec<_>>();
     if globals.len() != 1 {
         return Err(format!(
@@ -205,6 +369,66 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
     let group_count = streams.u32(root.add(4)?)? as usize;
     let curves = Address::decode(streams.u32(root.add(16)?)?)?;
     let curve_count = streams.u32(root.add(12)?)? as usize;
+    let pans = Address::decode(streams.u32(root.add(24)?)?)?;
+    let pan_count = streams.u32(root.add(20)?)? as usize;
+    let mut default_pan = None;
+    for index in 0..pan_count {
+        if streams.text(pans.add(index * 60)?)? == "default" {
+            default_pan = Some(index);
+        }
+    }
+    let default_pan = default_pan.ok_or("Native default pan is absent")?;
+    let masters = Address::decode(streams.u32(root.add(48)?)?)?;
+    let master_count = streams.u32(root.add(44)?)? as usize;
+    let mut master = None;
+    for index in 0..master_count {
+        let entry = masters.add(index * 240)?;
+        let name = streams.text(entry)?;
+        if !matches!(name.as_str(), "default" | "treyarch_mix") {
+            continue;
+        }
+        let scalar =
+            |offset| -> Result<f32> { Ok(f32::from_bits(streams.u32(entry.add(offset)?)?)) };
+        println!(
+            "Initial native master {name}: {:?}",
+            (36..240)
+                .step_by(4)
+                .map(|offset| streams.u32(entry.add(offset)?))
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        );
+        if name != "default" {
+            continue;
+        }
+        let mut buses = Vec::new();
+        for bus in 0..8 {
+            buses.push(if streams.u32(entry.add(196 + bus * 4)?)? != 0 {
+                scalar(160 + bus * 4)?
+            } else {
+                0.
+            });
+        }
+        buses.push(1.);
+        master = Some(json!({"buses":buses,"gain":scalar(100)?}));
+        for (label, enabled, gain) in [
+            ("low shelf", 36, 40),
+            ("peak1", 52, 56),
+            ("peak2", 68, 72),
+            ("high shelf", 84, 88),
+        ] {
+            if streams.u32(entry.add(enabled)?)? != 0 && scalar(gain)?.abs() > 1.52879e-05 {
+                gaps.push(format!("Initial native default master {label} gain {} requires its source biquad consumer006f6010",scalar(gain)?));
+            }
+        }
+        for (label, enabled, offset) in [("compressor", 104, 108), ("limiter", 132, 136)] {
+            if streams.u32(entry.add(enabled)?)? != 0 {
+                let parameters = (0..6)
+                    .map(|index| scalar(offset + index * 4))
+                    .collect::<Result<Vec<_>>>()?;
+                gaps.push(format!("Initial native default master {label} parameters {parameters:?} require source consumer00835603"));
+            }
+        }
+    }
+    game["audio"]["master"] = master.ok_or("Native default master fallback is absent")?;
     let curve = |index: usize| -> Result<(String, Vec<[f32; 2]>)> {
         if index >= curve_count {
             return Err(format!("Native sound falloff curve {index} is out of range").into());
@@ -223,6 +447,7 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
     };
     let mut sounds = Vec::new();
     let mut aliases = serde_json::Map::new();
+    let mut unsupported_consumers = BTreeMap::<String, BTreeSet<String>>::new();
     for row in &rows {
         let name = row["name"]
             .as_str()
@@ -233,6 +458,24 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
         let flags = row["flags"].as_u64().unwrap() as u32;
         let flags1 = row["flags1"].as_u64().unwrap() as u32;
         let group_index = (flags >> 17 & 31) as usize;
+        let pan_index = parameters[92 - 28] as usize;
+        if pan_index >= pan_count {
+            return Err(format!("Initial sound {name} pan {pan_index} is out of range").into());
+        }
+        let pan = pans.add(pan_index * 60)?;
+        let pan_scalar =
+            |offset| -> Result<f32> { Ok(f32::from_bits(streams.u32(pan.add(offset)?)?)) };
+        let pan_sum = pan_scalar(36)? + pan_scalar(40)?;
+        let pan_coefficients = [
+            [
+                pan_scalar(52)? * pan_sum.clamp(0., 1.),
+                pan_scalar(56)? * pan_sum.clamp(0., 1.),
+            ],
+            [
+                pan_scalar(52)? * pan_sum * 0.5,
+                pan_scalar(56)? * pan_sum * 0.5,
+            ],
+        ];
         if group_index >= group_count {
             return Err(
                 format!("Native alias {name} volume group {group_index} is invalid").into(),
@@ -262,135 +505,101 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
             }
         };
         let mut unsupported = Vec::<String>::new();
-        if row["asset_id"] == 0 {
-            unsupported.push("silent variant with secondary/subtitle semantics".into());
-        }
-        if raw(60) != raw(62) {
-            unsupported.push(format!("random volume range {}/{}", raw(60), raw(62)));
-        }
-        if flags >> 29 != 0 {
-            unsupported.push(format!("entity randomization flags {}", flags >> 29));
-        }
-        if row["context_type"] != 0 || row["context_value"] != 0 {
+        if row["context_type"] != 0
+            && row["context_type"] != 2155298321_u32
+            && row["context_type"] != 822242733_u32
+        {
             unsupported.push(format!(
-                "context {}/{}",
+                "initial context setter {}/{}",
                 row["context_type"], row["context_value"]
             ));
         }
-        if row["start_delay"] != 0 {
-            unsupported.push(format!("start delay {}ms", row["start_delay"]));
-        }
-        if row["probability"] != 0 && row["probability"] != 255 {
-            unsupported.push(format!("probability {}", row["probability"]));
-        }
-        if parameters[90 - 28] != parameters[91 - 28] {
-            unsupported.push("distance-dependent priority".into());
-        }
-        if parameters[93 - 28] == 0 {
-            unsupported.push("unbounded native alias voice limit".into());
-        }
-        if parameters[94 - 28] != 0 {
-            unsupported.push(format!("entity voice limit {}", parameters[94 - 28]));
-        }
-        let policy = if channel == "dialogue"
-            && ["vox_plr_", "vox_sam_", "vox_maxi_"]
-                .iter()
-                .any(|prefix| name.starts_with(prefix))
-        {
-            2
-        } else {
-            1
-        };
-        if flags >> 25 & 3 != policy {
-            unsupported.push(format!("voice limit policy {}", flags >> 25 & 3));
-        }
-        if raw(70) == 0 {
-            unsupported
-                .push("native zero maximum distance requires nonspatial sound validation".into());
-        }
-        for (offset, label) in [(32, "duck"), (44, "stop-on-play"), (48, "futz patch")] {
+        for (offset, label) in [(44, "stop-on-play"), (48, "futz patch")] {
             if u32_at(&parameters, offset - 28) != 0 {
                 unsupported.push(format!("{label} {}", u32_at(&parameters, offset - 28)));
             }
         }
-        if flags >> 22 & 7 != 0 || raw(52) != 0 {
-            unsupported.push("flux modulation".into());
+        if flags & 2 != 0 && flags >> 22 & 7 != 0 && !matches!(flags >> 22 & 7, 1 | 3) {
+            unsupported.push(format!(
+                "native sound motion type {} with fluxTime {}ms",
+                flags >> 22 & 7,
+                raw(52)
+            ));
         }
         if flags & (1 << 3) != 0 {
             unsupported.push("Doppler pitch".into());
         }
-        if raw(80) != 0 || raw(82) != 0 {
-            unsupported.push("native fade-in/fade-out".into());
-        }
-        if flags & 2 != 0 {
-            for (curve_index, minimum, label) in [
-                (flags1 >> 2 & 63, false, "volume"),
-                (flags1 >> 14 & 63, true, "minimum volume"),
-            ] {
-                let (name, points) = curve(curve_index as usize)?;
-                if points.iter().any(|[x, y]| {
-                    !x.is_finite()
-                        || !y.is_finite()
-                        || (*y - if minimum { 1. } else { 1. - *x }).abs() > 0.00001
-                }) {
-                    unsupported.push(format!("{label} falloff curve {name} ({curve_index})"));
-                }
-            }
-        }
-        if raw(56) != 0 {
+        if flags & 2 != 0 && parameters[89 - 28] != 0 {
             unsupported.push(format!(
-                "native room reverb send {} and falloff curves {}/{}",
-                raw(56),
-                flags1 >> 8 & 63,
-                flags1 >> 20 & 63
+                "native obstruction blend {} in consumers00829650/00838790",
+                parameters[89 - 28]
             ));
         }
-        if flags1 & 1 != 0 {
-            unsupported.push("never-play-twice variant rule".into());
-        }
-        if !unsupported.is_empty() {
-            gaps.push(format!(
-                "Initial sound {name}/{index} requires {}",
-                unsupported.join(", ")
-            ));
+        for reason in unsupported {
+            unsupported_consumers
+                .entry(reason)
+                .or_default()
+                .insert(name.to_owned());
         }
         let id = format!("sound.native.{name}.{index}");
-        bindings.insert(id.clone(), json!(name));
-        sounds.push(json!({"id":id,"source_alias":name,"source_index":index,"path":null,
-            "volume":if raw(60)==raw(62) {json!(raw(60) as f32*1.5259022e-05*attenuation)}else{Value::Null},
-            "pitch":[raw(64) as f32*3.051851e-05,raw(66) as f32*3.051851e-05],
-            "distance_min":raw(68) as f32*2.*0.0254,"distance":raw(70) as f32*2.*0.0254,"looping":flags&1!=0}));
-        let alias = aliases.entry(name.to_owned()).or_insert_with(||json!({"sounds":[],"spatial":flags&2!=0,"channel":channel,
+        let sound = (row["asset_id"] != 0).then_some(id.clone());
+        if sound.is_some() {
+            bindings.insert(id.clone(), json!(name));
+            sounds.push(json!({"id":id,"source_alias":name,"source_index":index,"path":null,
+                "volume":raw(60) as f32*1.5259022e-05*attenuation,
+                "pitch":[raw(64) as f32*3.051851e-05,raw(66) as f32*3.051851e-05],
+                "distance_min":raw(68) as f32*2.*0.0254,"distance":raw(70) as f32*2.*0.0254,"looping":flags&1!=0}));
+        }
+        let secondary = row["secondary"]
+            .as_str()
+            .filter(|name| !name.is_empty() && !absent.contains(&name.to_ascii_lowercase()));
+        let alias=aliases.entry(name.to_owned()).or_insert_with(||json!({"sounds":[],"spatial":flags&2!=0,"channel":channel,
             "subtitle":row["subtitle"],"limit":parameters[93-28],"priority":parameters[90-28],"seconds":null,
-            "secondary":row["secondary"].as_str().filter(|name|!name.is_empty()),"reverb_send":raw(56) as f32*1.5259022e-05*100.,"wet_distance_min":raw(68) as f32*2.*0.0254,"wet_distance_max":raw(72) as f32*2.*0.0254}));
-        for (field, expected) in [
-            ("spatial", json!(flags & 2 != 0)),
-            ("channel", json!(channel)),
-            ("subtitle", row["subtitle"].clone()),
-            ("limit", json!(parameters[93 - 28])),
-            ("priority", json!(parameters[90 - 28])),
-            (
-                "secondary",
-                json!(row["secondary"].as_str().filter(|name| !name.is_empty())),
-            ),
-        ] {
-            if alias[field] != expected {
-                gaps.push(format!("Initial sound alias {name} has variant-specific {field} requiring a runtime consumer"));
-            }
+            "secondary":secondary,"reverb_send":raw(56) as f32*1.5259022e-05*100.,"wet_distance_min":raw(68) as f32*2.*0.0254,
+            "wet_distance_max":raw(72) as f32*2.*0.0254,"native":[]}));
+        if sound.is_some() {
+            alias["sounds"].as_array_mut().unwrap().push(json!(id));
         }
-        alias["sounds"].as_array_mut().unwrap().push(json!(id));
+        alias["native"].as_array_mut().unwrap().push(json!({"id":row["alias_id"],"source_index":index,"sound":sound,"seconds":null,
+            "volume_max":raw(62) as f32*1.5259022e-05*attenuation,"spatial":flags&2!=0,"channel":channel,"subtitle":row["subtitle"],"secondary":secondary,
+            "context":[row["context_type"],row["context_value"]],"probability":row["probability"],"randomize":flags>>29,
+            "never_play_twice":flags1&1!=0,"ignore_max_distance":flags&(1<<10)!=0,"stop_on_death":flags&(1<<7)!=0,"loaded":flags>>15&3==1,
+            "voice_limit":flags&(1<<9)!=0,"announcer":streams.text(groups.add(group_index*80)?)?=="grp_announcer","pauseable":flags&(1<<5)!=0,
+            "motion":flags>>22&7,"motion_seconds":raw(52) as f32*0.001,
+            "bus":flags>>11&15,"distance_low_pass":flags&(1<<2)!=0,"large":flags&(1<<4)!=0,
+            "panning":flags&2!=0 && pan_index==default_pan,"pan":pan_coefficients,
+            "duck":ducks.contains_key(&u32_at(&parameters,4)).then_some(u32_at(&parameters,4)),"duck_group":parameters[95-28],
+            "priority":[parameters[90-28],parameters[91-28]],"priority_threshold":[parameters[86-28] as f32*0.003921569,parameters[87-28] as f32*0.003921569],
+            "limit":{"count":parameters[93-28],"policy":flags>>25&3},"entity_limit":{"count":parameters[94-28],"policy":flags>>27&3},
+            "delay":raw(54) as f32*0.001,"fades":[raw(80) as i16 as f32*0.001,raw(82) as i16 as f32*0.001],
+            "curves":[curve((flags1>>2&63) as usize)?.1,curve((flags1>>14&63) as usize)?.1],
+            "reverb_send":raw(56) as f32*1.5259022e-05*100.,"wet_distance":[raw(68) as f32*2.*0.0254,raw(72) as f32*2.*0.0254],
+            "reverb_curves":[curve((flags1>>8&63) as usize)?.1,curve((flags1>>20&63) as usize)?.1]}));
     }
-    for (name, alias) in &aliases {
-        if alias["sounds"].as_array().unwrap().len() > 2 {
-            gaps.push(format!("Initial sound alias {name} requires native random variant selection and source previous-variant handling"));
+    for alias in aliases.values_mut() {
+        if alias["sounds"].as_array().unwrap().is_empty() {
+            alias["seconds"] = json!(0.);
         }
+    }
+    for (consumer, aliases) in unsupported_consumers {
+        gaps.push(format!(
+            "Initial sound requires {consumer} for {} selected aliases, including {}",
+            aliases.len(),
+            aliases
+                .iter()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
     game["content"]["sounds"] = json!(sounds);
     game["audio"]["aliases"] = json!(aliases);
     game["audio"]["bindings"] = json!(bindings);
     game["audio"]["timelines"] = json!(timelines);
+    game["audio"]["absent"] = json!(absent);
     println!(
-        "Converted {} initial sound aliases, {} native variants and {} weapon sound timelines",
+        "Converted {} initial sound aliases, {} native variants and {} animation sound timelines",
         game["audio"]["aliases"].as_object().unwrap().len(),
         rows.len(),
         game["audio"]["timelines"].as_object().unwrap().len()
@@ -399,7 +608,7 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
 }
 
 pub fn bind(game: &mut Value, converted: &[Value]) -> Result<()> {
-    let mut durations = BTreeMap::<String, Vec<f64>>::new();
+    let mut durations = BTreeMap::<(String, u64), f64>::new();
     for sound in game["content"]["sounds"]
         .as_array_mut()
         .ok_or("Required initial sounds are absent")?
@@ -430,13 +639,34 @@ pub fn bind(game: &mut Value, converted: &[Value]) -> Result<()> {
         sound["path"] = json!(path);
         sound.as_object_mut().unwrap().remove("source_alias");
         sound.as_object_mut().unwrap().remove("source_index");
-        durations.entry(name).or_default().push(seconds);
+        durations.insert(
+            (
+                name,
+                index
+                    .as_u64()
+                    .ok_or("Native sound variant index is invalid")?,
+            ),
+            seconds,
+        );
     }
-    for (name, seconds) in durations {
-        if seconds.iter().any(|duration| *duration != seconds[0]) {
-            return Err(format!("Initial native sound alias {name} requires variant-specific playback duration consumption").into());
+    for (name, alias) in game["audio"]["aliases"].as_object_mut().unwrap() {
+        let mut first = None;
+        for native in alias["native"].as_array_mut().unwrap() {
+            let index = native
+                .as_object_mut()
+                .unwrap()
+                .remove("source_index")
+                .and_then(|index| index.as_u64())
+                .ok_or("Native sound variant index is absent")?;
+            if !native["sound"].is_null() {
+                let seconds = *durations
+                    .get(&(name.clone(), index))
+                    .ok_or("Native variant has no converted duration")?;
+                native["seconds"] = json!(seconds);
+                first.get_or_insert(seconds);
+            }
         }
-        game["audio"]["aliases"][name]["seconds"] = json!(seconds[0]);
+        alias["seconds"] = json!(first.unwrap_or(0.));
     }
     Ok(())
 }
@@ -454,6 +684,73 @@ mod tests {
         assert!(!game["content"]["sounds"].as_array().unwrap().is_empty());
         for gap in gaps.iter().filter(|gap| gap.starts_with("Initial sound")) {
             println!("{gap}");
+        }
+    }
+
+    #[test]
+    #[ignore = "requires the authorized Steam installation"]
+    fn installed_initial_footstep_bindings() {
+        let zones = crate::source::read_zones(&crate::source::installation().unwrap()).unwrap();
+        let catalog = Catalog::new(&zones);
+        for name in [
+            "aitype/clientscripts/zm_tomb_basic_german.csc",
+            "aitype/clientscripts/zm_tomb_basic_german2.csc",
+        ] {
+            let (zone, root) = catalog.resolve(48, name).unwrap();
+            let streams = &catalog.zones[zone].1.streams;
+            let length = streams.u32(root.add(4).unwrap()).unwrap() as usize;
+            let data = Address::decode(streams.u32(root.add(8).unwrap()).unwrap()).unwrap();
+            let data = streams.read(data, length).unwrap();
+            assert_eq!(u32_at(data, 0), 0x43534780);
+            assert_eq!(u32_at(data, 4), 0x06000a0d);
+            let string = |offset: usize| {
+                let bytes = &data[offset..];
+                std::str::from_utf8(&bytes[..bytes.iter().position(|byte| *byte == 0).unwrap()])
+                    .unwrap()
+                    .to_owned()
+            };
+            let mut strings = BTreeMap::new();
+            let mut offset = u32_at(data, 0x18) as usize;
+            for _ in 0..u16_at(data, 0x32) {
+                let value = string(u16_at(data, offset) as usize);
+                let count = data[offset + 2] as usize;
+                for index in 0..count {
+                    strings.insert(u32_at(data, offset + 4 + index * 4) as usize, value.clone());
+                }
+                offset += 4 + count * 4;
+            }
+            let includes = u32_at(data, 0xc) as usize;
+            for index in 0..data[0x3c] as usize {
+                println!(
+                    "Native initial actor script {name} includes {}",
+                    string(u32_at(data, includes + index * 4) as usize)
+                );
+            }
+            let mut offset = u32_at(data, 0x20) as usize;
+            for _ in 0..u16_at(data, 0x36) {
+                let function = string(u16_at(data, offset) as usize);
+                let namespace = string(u16_at(data, offset + 2) as usize);
+                let count = u16_at(data, offset + 4) as usize;
+                println!(
+                    "Native initial actor script {name} imports {namespace}::{function} with {} arguments and {count} calls",
+                    data[offset + 6]
+                );
+                if function.contains("footstep") {
+                    for index in 0..count {
+                        let call = u32_at(data, offset + 8 + index * 4) as usize;
+                        let arguments = strings
+                            .range(call.saturating_sub(32)..call)
+                            .map(|(reference, value)| {
+                                (call - *reference, data[reference - 1], value)
+                            })
+                            .collect::<Vec<_>>();
+                        println!(
+                            "Native initial actor footstep call {name} {function} at {call:#x}: preceding string references {arguments:?}"
+                        );
+                    }
+                }
+                offset += 8 + count * 4;
+            }
         }
     }
 }

@@ -1090,7 +1090,7 @@ fn dug_zombie(
         .get("rise")
         .and_then(|profiles| profiles.first())
     {
-        zombie.dug_rising(profile)
+        zombie.dug_rising(profile, Quat::IDENTITY)
     } else {
         zombie
     };

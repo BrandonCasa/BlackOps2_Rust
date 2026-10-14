@@ -67,12 +67,9 @@ pub fn tick(
     mut session: ResMut<Session>,
     mut generators: ResMut<Generators>,
     mut raids: ResMut<GeneratorRaids>,
-    navigation: Res<crate::navigation::Navigation>,
-    access: Res<crate::access::ZoneAccess>,
-    query: avian3d::prelude::SpatialQuery,
     mut rounds: MessageReader<crate::rounds::RoundStarted>,
     mut attackers: Query<(Entity, &Vitality, &Transform, &mut GeneratorAttacker)>,
-    actors: Query<&Vitality, With<Zombie>>,
+    actors: Query<&Vitality, (With<Zombie>, Without<crate::enemies::ActorCorpse>)>,
 ) {
     let dt = time.delta_secs();
     for (id, site) in &mut generators.sites {
@@ -213,11 +210,7 @@ pub fn tick(
     raids.spawn_clock -= dt;
     if raids.spawned >= 4
         || raids.spawn_clock > 0.
-        || actors
-            .iter()
-            .filter(|v| v.state() == LifeState::ActorAlive)
-            .count()
-            >= game.rounds.actor_cap as usize
+        || actors.iter().count() >= game.rounds.actor_cap as usize
     {
         return;
     }
@@ -225,33 +218,22 @@ pub fn tick(
     let Some(site) = game.content.generators.iter().find(|g| g.id == target) else {
         return;
     };
-    let Some(base) =
-        navigation.project_emergence(Vec3::from_array(site.emergence[raids.spawned]), &access)
-    else {
-        return;
-    };
-    let position = base + Vec3::Y * 0.85;
-    let shape = crate::player::capsule(0.3, 1.7);
-    if !query
-        .shape_intersections(
-            &shape,
-            position,
-            Quat::IDENTITY,
-            &crate::environment::solids([]),
-        )
-        .is_empty()
-    {
-        return;
-    }
-    let variants: Vec<_> = game
+    let Some(enemy) = game
         .content
         .enemies
         .iter()
-        .filter(|e| e.family == "crusader")
-        .collect();
-    let Some(enemy) = variants.get(raids.spawned % variants.len().max(1)) else {
+        .find(|enemy| enemy.id == site.capture_enemy)
+    else {
         return;
     };
+    let Some(index) = generators.emergence_index(&target, site.emergence.len(), &mut session)
+    else {
+        return;
+    };
+    let spot = &site.emergence[index];
+    let position = Vec3::from_array(spot.position) + crate::enemies::body_center(enemy, false);
+    let shape = crate::enemies::body_shape(enemy, false);
+    let rotation = Quat::from_rotation_y(spot.yaw);
     let health = game.rounds.health(session.round);
     let Ok(health) = Vitality::ordinary_actor(health, health) else {
         return;
@@ -262,7 +244,7 @@ pub fn tick(
         .get("rise")
         .and_then(|profiles| profiles.first())
     {
-        zombie.rising(rise)
+        zombie.dug_rising(rise, rotation)
     } else {
         zombie
     };
@@ -277,7 +259,7 @@ pub fn tick(
             target: None,
             attacking: false,
         },
-        Transform::from_translation(position),
+        Transform::from_translation(position).with_rotation(rotation),
         Visibility::Inherited,
         Name::new("Generator attacker"),
     ));

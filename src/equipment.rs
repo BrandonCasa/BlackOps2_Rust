@@ -33,8 +33,34 @@ pub struct ThrowableDefinition {
     pub collision_radius: f32,
     #[serde(default)]
     pub collision_half_extents: Option<[f32; 3]>,
+    #[serde(default)]
+    pub native_launch: Option<GrenadeLaunch>,
     pub cook_in_hand: bool,
     pub sticky: bool,
+}
+#[derive(Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GrenadeLaunch {
+    pub right_speed: f32,
+    pub horizontal_speed: f32,
+}
+
+fn native_launch_velocity(
+    tuning: &ThrowableDefinition,
+    rotation: Quat,
+    player_velocity: Vec3,
+) -> Vec3 {
+    let Some(native) = &tuning.native_launch else {
+        return rotation * Vec3::NEG_Z * tuning.speed + Vec3::Y * tuning.up_speed + player_velocity;
+    };
+    let forward = rotation * Vec3::NEG_Z;
+    let initial = forward * (tuning.speed / 0.0254).round()
+        + rotation * Vec3::X * (native.right_speed / 0.0254).round()
+        + Vec3::Y * (tuning.up_speed / 0.0254).round()
+        + forward.with_y(0.).normalize_or_zero() * (native.horizontal_speed / 0.0254).round();
+    let direction = initial.normalize_or_zero();
+    let snapped = Vec3::from_array(initial.to_array().map(f32::trunc)) * 0.0254;
+    snapped + direction * direction.dot(player_velocity)
 }
 #[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -74,6 +100,9 @@ impl ThrowableDefinition {
             && self
                 .collision_half_extents
                 .is_none_or(|v| v.into_iter().all(|v| v.is_finite() && v > 0.))
+            && self.native_launch.as_ref().is_none_or(|native| {
+                native.right_speed.is_finite() && native.horizontal_speed.is_finite()
+            })
     }
 }
 #[derive(Clone, Copy, Debug, Default)]
@@ -542,11 +571,19 @@ pub(crate) fn throw_input(
                 let forward = rotation * Vec3::NEG_Z;
                 let eye =
                     transform.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
-                let position = eye + forward * if cooked || dropped { 0. } else { 0.25 };
+                let position = if tuning.native_launch.is_some() {
+                    if dropped {
+                        transform.translation + Vec3::Y * (40. * 0.0254 - player.height * 0.5)
+                    } else {
+                        eye
+                    }
+                } else {
+                    eye + forward * if cooked || dropped { 0. } else { 0.25 }
+                };
                 let velocity = if cooked || dropped {
                     Vec3::ZERO
                 } else {
-                    forward * tuning.speed + Vec3::Y * tuning.up_speed + player.velocity
+                    native_launch_velocity(tuning, rotation, player.velocity)
                 };
                 let entity = commands
                     .spawn((
@@ -853,6 +890,7 @@ pub(crate) fn resolve_blasts(
     mut evidence: ResMut<EquipmentEvidence>,
     environmental: crate::environment::support::DamageTriggerTargets,
     mut environment_hits: MessageWriter<crate::environment::support::EnvironmentalHit>,
+    mut ragdoll_explosions: MessageWriter<crate::enemies::RagdollExplosion>,
 ) {
     for blast in queue.0.drain(..) {
         if blast.session != *session {
@@ -860,6 +898,16 @@ pub(crate) fn resolve_blasts(
             continue;
         }
         let center = blast.center;
+        if blast.definition.0 == "weapon.frag_grenade_zm" {
+            ragdoll_explosions.write(crate::enemies::RagdollExplosion {
+                center,
+                inner_radius: 0.,
+                radius: blast.radius,
+                direction: Vec3::ZERO,
+                magnitude: 1.,
+                inward: false,
+            });
+        }
         for (target, shape, pose, state, trigger) in &environmental {
             if !state.enabled || state.spawnflags & 0x40 != 0 {
                 continue;

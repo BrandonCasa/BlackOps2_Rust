@@ -94,11 +94,67 @@ fn motion(decoded: &crate::animation::DecodedClip) -> Result<Value> {
     )
 }
 
+fn bind_actor_clips(
+    game: &mut Value,
+    decoded: &[crate::animation::DecodedClip],
+    required: &BTreeSet<String>,
+) -> Result<()> {
+    let models = game["content"]["enemies"]
+        .as_array()
+        .ok_or("Native barrier actor profiles are missing")?
+        .iter()
+        .flat_map(|enemy| {
+            std::iter::once(enemy["presentation"].as_str())
+                .chain(std::iter::once(enemy["gibs"]["beheaded"].as_str()))
+                .chain(
+                    enemy["gibs"]["models"]
+                        .as_object()
+                        .into_iter()
+                        .flat_map(|models| {
+                            models
+                                .values()
+                                .flat_map(|model| [model["body"].as_str(), model["legs"].as_str()])
+                        }),
+                )
+                .flatten()
+                .map(str::to_owned)
+        })
+        .collect::<BTreeSet<_>>();
+    for presentation in models {
+        let model = presentation
+            .strip_prefix("actor.")
+            .ok_or("Native barrier actor presentation has no model")?;
+        for decoded in decoded
+            .iter()
+            .filter(|decoded| required.contains(&decoded.clip.name))
+        {
+            let seconds = decoded.clip.frames as f32 / decoded.clip.frame_rate;
+            let id = format!("animation.{model}.{}", decoded.clip.name);
+            append(
+                game,
+                "animations",
+                json!({"id":id,"source_clip":decoded.clip.name,"path":null,"skeleton":presentation,"seconds":seconds,"notifications":decoded.clip.notifies.iter().filter_map(|(name,time)|name.as_ref().map(|name|json!({"event":name,"seconds":time*seconds}))).collect::<Vec<_>>(),"looping":decoded.clip.source_flags[0]!=0,"root_motion":super::enemies::root_motion(decoded)}),
+            )?;
+            let row = game["content"]["presentations"]
+                .as_array_mut()
+                .and_then(|rows| rows.iter_mut().find(|row| row["id"] == presentation))
+                .ok_or("Native barrier actor presentation is absent")?;
+            let animations = row["animations"]
+                .as_array_mut()
+                .ok_or("Native barrier actor animation list is invalid")?;
+            if !animations.iter().any(|animation| animation == &json!(id)) {
+                animations.push(json!(id));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn read(
     catalog: &Catalog<'_>,
     game: &mut Value,
     entities: &[crate::entities::Entity],
-    missing: &mut Vec<String>,
+    _missing: &mut Vec<String>,
 ) -> Result<()> {
     let wood: Vec<_> = entities
         .iter()
@@ -125,7 +181,25 @@ pub(super) fn read(
         )
         .into());
     }
-    for (flag, state, behavior) in [(60, 68, "taunt"), (64, 70, "reach-through attack")] {
+    let mut actor_actions = serde_json::Map::new();
+    let spawner = super::player::source("source/server-patch/maps/mp/zombies/_zm_spawner.gsc")?;
+    for expression in [
+        "setdvar( \"zombie_taunt_freq\", \"5\" );",
+        "setdvar( \"zombie_reachin_freq\", \"50\" );",
+        "level.attack_player_thru_boards_range = 109.8;",
+        "_trigger_dist_sq = 2601;",
+        "self.attacking_spot_index - 1",
+    ] {
+        if !spawner.contains(expression) {
+            return Err(
+                format!("Native barrier actor source expression changed: {expression}").into(),
+            );
+        }
+    }
+    for (flag, state, behavior, frequency, range) in [
+        (60, 68, "taunt", 5, 0.),
+        (64, 70, "reach_through", 50, 109.8_f32 * 0.0254),
+    ] {
         if streams.u32(root.add(flag)?)? != 0 {
             let word = streams.u16(root.add(state)?)? as usize;
             let name = streams
@@ -136,15 +210,88 @@ pub(super) fn read(
                 .map(|address| streams.text(address))
                 .transpose()?
                 .unwrap_or_default();
-            missing.push(format!("Initial ordinary barrier native {behavior} state {name:?} requires source actor consumer"));
+            if name.is_empty() {
+                return Err(
+                    format!("Native barrier {behavior} enabled with no source state").into(),
+                );
+            }
+            let selected = super::enemies::state_clips(catalog, &name)?;
+            let clips = selected
+                .iter()
+                .map(|(_, clip)| clip.clone())
+                .collect::<BTreeSet<_>>();
+            let decoded = crate::animation::read(catalog, Some(&clips))?;
+            let mut actions = Vec::new();
+            for (_, clip) in selected {
+                let decoded = decoded
+                    .iter()
+                    .find(|decoded| decoded.clip.name == clip)
+                    .ok_or("Native barrier action clip did not decode")?;
+                let duration = decoded.clip.frames as f32 / decoded.clip.frame_rate;
+                let seconds = decoded
+                    .clip
+                    .notifies
+                    .iter()
+                    .find(|(name, _)| name.as_deref() == Some("end"))
+                    .map(|(_, time)| time * duration)
+                    .ok_or_else(|| {
+                        format!("Native barrier {behavior} clip {clip} has no source end notetrack")
+                    })?;
+                let hits = decoded
+                    .clip
+                    .notifies
+                    .iter()
+                    .filter(|(name, _)| name.as_deref() == Some("fire"))
+                    .map(|(_, time)| time * duration)
+                    .collect::<Vec<_>>();
+                actions.push(json!({"name":clip,"seconds":seconds,"duration":duration,"hits":hits,"motion":super::enemies::root_motion(decoded)}));
+            }
+            bind_actor_clips(game, &decoded, &clips)?;
+            actor_actions.insert(
+                behavior.into(),
+                json!({"state":name,"frequency":frequency,"range":range,"clips":actions}),
+            );
         }
     }
-    if streams.u32(root.add(28)?)? != 0 {
-        missing.push("Initial ordinary barrier native repair earthquake requires source scale/duration/radius playback binding".into());
+    game["_native_barrier_actions"] = json!(actor_actions);
+    let mut entry = serde_json::Map::new();
+    for (kind, state) in [("standing", "zm_barricade_enter"), ("crawler", "zm_barricade_enter_crawl")] {
+        let selected = super::enemies::state_clips(catalog, state)?;
+        let required = selected.iter().map(|(_, clip)| clip.clone()).collect::<BTreeSet<_>>();
+        let decoded = crate::animation::read(catalog, Some(&required))?;
+        let mut clips = serde_json::Map::new();
+        for (alias, name) in selected {
+            let decoded = decoded.iter().find(|decoded| decoded.clip.name == name).ok_or("Native barricade entry clip did not decode")?;
+            let duration = decoded.clip.frames as f32 / decoded.clip.frame_rate;
+            let seconds = decoded.clip.notifies.iter().find(|(name, _)| name.as_deref() == Some("end")).map(|(_, time)| time * duration).ok_or_else(|| format!("Native barricade entry {name} has no source end notetrack"))?;
+            clips.entry(alias).or_insert_with(||json!([])).as_array_mut().unwrap().push(json!({"name":name,"seconds":seconds,"duration":duration,"hits":[],"motion":motion(decoded)?}));
+        }
+        bind_actor_clips(game, &decoded, &required)?;
+        entry.insert(kind.into(), json!(clips));
     }
+    game["_native_barrier_entry"] = json!(entry);
+    let repair_quake = if streams.u32(root.add(28)?)? != 0 {
+        let values = [32, 36, 40, 44, 48]
+            .map(|offset| streams.u32(root.add(offset)?).map(f32::from_bits))
+            .into_iter()
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        if values.iter().any(|value| !value.is_finite())
+            || values[0] < 0.
+            || values[1] < values[0]
+            || values[2] <= 0.
+            || values[3] < values[2]
+            || values[4] < 0.
+        {
+            return Err("Native barrier repair earthquake range is invalid".into());
+        }
+        json!({"scale":[values[0],values[1]],"duration":[values[2],values[3]],"radius":values[4]*0.0254})
+    } else {
+        Value::Null
+    };
     let mut source = Vec::new();
     let mut required = BTreeSet::new();
-    let mut repair_effects = BTreeSet::new();
+    let mut actor_required = BTreeSet::new();
+    let mut board_effects = Vec::new();
     let mut board_audio = Vec::new();
     let aliases = crate::sound::alias_hashes(catalog)?;
     let mut audio_bindings = serde_json::Map::new();
@@ -164,11 +311,10 @@ pub(super) fn read(
         let pause_repeat = streams.u32(board.add(60)?)?;
         let min_pause = f32::from_bits(streams.u32(board.add(64)?)?);
         let max_pause = f32::from_bits(streams.u32(board.add(68)?)?);
-        if pause_repeat != 0
-            && (!min_pause.is_finite()
-                || !max_pause.is_finite()
-                || min_pause < 0.
-                || max_pause < min_pause)
+        if !min_pause.is_finite()
+            || !max_pause.is_finite()
+            || min_pause < 0.
+            || max_pause < min_pause
         {
             return Err(format!(
                 "Native barrier board {index} repair sound pause range is invalid"
@@ -177,13 +323,32 @@ pub(super) fn read(
         }
         board_audio.push(
             json!({"opening":resolve_sound(repair_sound)?,"hover":resolve_sound(hover_sound)?,
-            "repeat_pause":if pause_repeat != 0 {json!([min_pause,max_pause])} else {Value::Null}}),
+            "repeat_pause":if pause_repeat != 0 {json!([min_pause,max_pause])} else {Value::Null},"effect_delay":[min_pause,max_pause]}),
         );
-        for offset in [20, 24] {
-            if streams.u32(board.add(offset)?)? != 0 {
-                repair_effects.insert(catalog.pointer(zone, board.add(offset)?, 33)?.0);
-            }
-        }
+        let effects = [20, 24]
+            .into_iter()
+            .zip([28, 40])
+            .map(|(pointer, offset)| -> Result<Value> {
+                if streams.u32(board.add(pointer)?)? == 0 {
+                    return Ok(Value::Null);
+                }
+                let name = catalog.pointer(zone, board.add(pointer)?, 33)?.0;
+                let [x, y, z] = [0, 4, 8]
+                    .map(|axis| streams.u32(board.add(offset + axis)?).map(f32::from_bits))
+                    .into_iter()
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+                    .try_into()
+                    .unwrap();
+                if [x, y, z].into_iter().any(|value| !value.is_finite()) {
+                    return Err(format!(
+                        "Native barrier board {index} repair effect offset is invalid"
+                    )
+                    .into());
+                }
+                Ok(json!({"name":name,"offset":[x*0.0254,z*0.0254,-y*0.0254]}))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        board_effects.push(json!(effects));
         let text = |offset| -> Result<String> {
             Ok(streams.text(Address::decode(streams.u32(board.add(offset)?)?)?)?)
         };
@@ -201,34 +366,52 @@ pub(super) fn read(
         let repair = text(16)?;
         let state = script(72)?;
         let piece = script(74)?;
-        let select = |slot: usize, suffix: &str| -> Result<String> {
+        let select = |slot: usize, suffix: &str, crawler: bool| -> Result<String> {
             let alias = format!("spot_{slot}_piece_{piece}");
             let state = format!("{state}_{suffix}");
             let mut clips = super::enemies::state_clips(catalog, &state)?
                 .into_iter()
-                .filter(|(substate, _)| substate == &alias);
+                .enumerate()
+                .filter(|(_, (substate, _))| substate == &alias);
             let clip = clips
                 .next()
-                .ok_or_else(|| format!("Native barrier ASD state {state} lacks {alias}"))?
-                .1;
+                .ok_or_else(|| format!("Native barrier ASD state {state} lacks {alias}"))?;
             if clips.next().is_some() {
                 return Err(
                     format!("Native barrier ASD state {state}/{alias} is ambiguous").into(),
                 );
             }
-            Ok(clip)
+            if crawler {
+                Ok(super::enemies::state_clips(catalog,&format!("{state}_crawl"))?.get(clip.0).ok_or_else(||format!("Native crawler barrier state {state}_crawl lacks standing substate index {}",clip.0))?.1.clone())
+            } else {
+                Ok(clip.1.1)
+            }
         };
         let mut attacks = Vec::new();
         for slot in 0..slots as usize {
-            let grab = select(slot, "in")?;
-            let tear = select(slot, "out")?;
-            required.extend([grab.clone(), tear.clone()]);
-            attacks.push((grab, tear));
+            let grab = select(slot, "in", false)?;
+            let tear = select(slot, "out", false)?;
+            let crawl_grab = select(slot, "in", true)?;
+            let crawl_tear = select(slot, "out", true)?;
+            actor_required.extend([
+                grab.clone(),
+                tear.clone(),
+                crawl_grab.clone(),
+                crawl_tear.clone(),
+            ]);
+            required.extend([
+                grab.clone(),
+                tear.clone(),
+                crawl_grab.clone(),
+                crawl_tear.clone(),
+            ]);
+            attacks.push((grab, tear, crawl_grab, crawl_tear));
         }
         required.extend([repair.clone(), pull.clone()]);
         source.push((model, repair, pull, attacks));
     }
     let decoded = crate::animation::read(catalog, Some(&required))?;
+    bind_actor_clips(game, &decoded, &actor_required)?;
     let clip = |name: &str| {
         decoded
             .iter()
@@ -254,7 +437,7 @@ pub(super) fn read(
             append(
                 game,
                 "animations",
-                json!({"id":id,"source_clip":name,"path":null,"skeleton":presentation,"notifications":notifications,"looping":decoded.clip.source_flags[0]!=0,"root_motion":super::enemies::root_motion(decoded)}),
+                json!({"id":id,"source_clip":name,"path":null,"skeleton":presentation,"seconds":duration,"notifications":notifications,"looping":decoded.clip.source_flags[0]!=0,"root_motion":super::enemies::root_motion(decoded)}),
             )?;
         }
         append(
@@ -263,10 +446,28 @@ pub(super) fn read(
             json!({"id":presentation,"source_model":model,"scene":null,"animations":ids,"sounds":[]}),
         )?;
         let mut variants = Vec::new();
-        for (grab, tear) in attacks {
+        let attack = |grab: &str, tear: &str| -> Result<Value> {
             let grab_decoded = clip(&grab)?;
             let tear_decoded = clip(&tear)?;
-            let tear_seconds = tear_decoded.clip.frames as f32 / tear_decoded.clip.frame_rate;
+            let end = |decoded: &crate::animation::DecodedClip| {
+                decoded
+                    .clip
+                    .notifies
+                    .iter()
+                    .find(|(name, _)| name.as_deref() == Some("end"))
+                    .map(|(_, fraction)| {
+                        fraction * decoded.clip.frames as f32 / decoded.clip.frame_rate
+                    })
+                    .ok_or_else(|| {
+                        format!(
+                            "Native barrier actor clip {} lacks source end notetrack",
+                            decoded.clip.name
+                        )
+                    })
+            };
+            let grab_seconds = end(grab_decoded)?;
+            let tear_seconds = end(tear_decoded)?;
+            let tear_duration = tear_decoded.clip.frames as f32 / tear_decoded.clip.frame_rate;
             let destroy: Vec<_> = tear_decoded
                 .clip
                 .notifies
@@ -275,7 +476,7 @@ pub(super) fn read(
                     name.as_deref()
                         .is_some_and(|name| matches!(name, "board" | "destroy_piece" | "bar"))
                 })
-                .map(|(_, fraction)| fraction * tear_seconds)
+                .map(|(_, fraction)| fraction * tear_duration)
                 .collect();
             if destroy.len() != 1 {
                 return Err(format!(
@@ -284,8 +485,15 @@ pub(super) fn read(
                 )
                 .into());
             }
-            variants.push(json!({"grab_seconds":grab_decoded.clip.frames as f32/grab_decoded.clip.frame_rate,"tear_seconds":tear_seconds,
-            "destroy_seconds":destroy[0],"grab_clip":grab,"tear_clip":tear,"grab_motion":motion(grab_decoded)?,"tear_motion":motion(tear_decoded)?}));
+            Ok(
+                json!({"grab_seconds":grab_seconds,"tear_seconds":tear_seconds,
+            "destroy_seconds":destroy[0],"grab_clip":grab,"tear_clip":tear,"grab_motion":motion(grab_decoded)?,"tear_motion":motion(tear_decoded)?}),
+            )
+        };
+        for (grab, tear, crawl_grab, crawl_tear) in attacks {
+            let mut variant = attack(&grab, &tear)?;
+            variant["crawler"] = attack(&crawl_grab, &crawl_tear)?;
+            variants.push(variant);
         }
         boards.push(json!({"presentation":presentation,"repair":ids[0],"pull":ids[1],
             "repair_seconds":clip(&repair)?.clip.frames as f32/clip(&repair)?.clip.frame_rate,
@@ -348,7 +556,7 @@ pub(super) fn read(
             Some(bone),
         )?;
         let mut shapes = Vec::new();
-        for (flags, triangles) in batches {
+        for ((contents, flags), triangles) in batches {
             let vertices = triangles
                 .iter()
                 .flatten()
@@ -379,6 +587,7 @@ pub(super) fn read(
             .into());
         }
         board["collision"] = json!(shapes);
+        board["repair_effects"] = board_effects[index].clone();
     }
     println!(
         "Native ordinary barrier collision: contents {contents:#x}, {} triangles",
@@ -397,17 +606,13 @@ pub(super) fn read(
     if delay != 0 && (!delay_seconds.is_finite() || delay_seconds < 0.) {
         return Err("Native ordinary barrier general repair sound delay is invalid".into());
     }
+    game["_native_barrier_quake"] = repair_quake;
     game["_native_barrier_audio"] = json!({"repair":[resolve_sound(general[0])?,resolve_sound(general[1])?],
         "repair_delay":if delay != 0 {json!(delay_seconds)}else{Value::Null}});
     game["audio"]["bindings"]
         .as_object_mut()
         .ok_or("Source audio bindings are not an object")?
         .extend(audio_bindings);
-    for effect in repair_effects {
-        missing.push(format!(
-            "Initial ordinary barrier repair effect {effect} requires native runtime timing/binding"
-        ));
-    }
     println!(
         "Converted native ordinary barrier model/animation/timing roots: {} authored wood barriers, six board models, {} selected clips",
         wood.len(),
@@ -432,6 +637,11 @@ pub(super) fn prepare(
         .unwrap()
         .remove("_native_barrier_audio")
         .ok_or("Native ordinary barrier audio was not read")?;
+    let repair_quake = game
+        .as_object_mut()
+        .unwrap()
+        .remove("_native_barrier_quake")
+        .ok_or("Native ordinary barrier earthquake was not read")?;
     let links = game["content"]["navigation_links"]
         .as_array()
         .ok_or("Initial barriers require native navigation links")?
@@ -533,18 +743,35 @@ pub(super) fn prepare(
         append(
             game,
             "placements",
-            json!({"id":placement,"definition":id,"position":[x*0.0254,z*0.0254,-y*0.0254],"yaw":(yaw-90.).to_radians(),"zone":zone}),
+            json!({"id":placement,"definition":id,"position":[x*0.0254,z*0.0254,-y*0.0254],"yaw":yaw.to_radians(),"zone":zone}),
         )?;
         append(
             game,
             "interactions",
             json!({"id":format!("interaction.barrier.native.{index}"),"placement":placement,"action":{"kind":"barrier","barrier":id},"reach":repair_radius,"hold_seconds":0.25,"hidden_prompt":false}),
         )?;
-        barriers.push(json!({"id":id,"placement":placement,"entry":link["from"],"exit":exit,"boards":boards["boards"],"audio":audio,
+        barriers.push(json!({"id":id,"placement":placement,"entry":link["from"],"exit":exit,"boards":boards["boards"],"audio":audio,"repair_quake":repair_quake,
             "repair_origin":[rx*0.0254,rz*0.0254,-ry*0.0254],"repair_yaw":(repair_yaw-90.).to_radians(),"repair_radius":repair_radius,"repair_height":64_f32*0.0254,"repair_interval":1.,"repair_points":repair_points}));
     }
     if barriers.is_empty() {
         return Err("Initial native path routes have no authored wood barrier binding".into());
+    }
+    let actions = game
+        .as_object_mut()
+        .ok_or("Native barrier game is invalid")?
+        .remove("_native_barrier_actions")
+        .ok_or("Native barrier action source is missing")?;
+    let enter = game.as_object_mut().ok_or("Native barrier game is invalid")?.remove("_native_barrier_entry").ok_or("Native barricade entry source is missing")?;
+    for barrier in &mut barriers {
+        barrier["taunt"] = actions["taunt"].clone();
+        barrier["reach_through"] = actions["reach_through"].clone();
+        barrier["enter"] = enter.clone();
+        barrier["repair_yaw"] = json!(
+            barrier["repair_yaw"]
+                .as_f64()
+                .ok_or("Native barrier repair yaw is invalid")?
+                + std::f64::consts::FRAC_PI_2
+        );
     }
     println!(
         "Bound {} initial authored barriers to exact native entry/exit negotiations",
@@ -564,9 +791,15 @@ mod tests {
         let zones = crate::source::read_zones(&crate::source::installation().unwrap()).unwrap();
         let catalog = Catalog::new(&zones);
         let entities = crate::entities::read(&catalog).unwrap();
-        let mut game = json!({"content":{}});
-        let mut missing = Vec::new();
-        read(&catalog, &mut game, &entities, &mut missing).unwrap();
+        let (zone, root) = catalog.resolve(59, "zmcore_BasicWoodBarrier").unwrap();
+        let streams = &catalog.zones[zone].1.streams;
+        println!(
+            "Native barrier earthquake fields32/36/40/44/48: {:?}",
+            std::array::from_fn::<_, 5, _>(|index| f32::from_bits(
+                streams.u32(root.add(32 + index * 4).unwrap()).unwrap()
+            ))
+        );
+        let (game, missing) = super::super::read(&catalog, &entities).unwrap();
         assert_eq!(
             game["_native_barrier_boards"]["boards"]
                 .as_array()
@@ -586,6 +819,11 @@ mod tests {
             let attacks = board["attacks"].as_array().unwrap();
             assert_eq!(attacks.len(), 3);
             for attack in attacks {
+                assert!(attack["crawler"].is_object());
+                assert!(
+                    attack["crawler"]["destroy_seconds"].as_f64().unwrap()
+                        < attack["crawler"]["tear_seconds"].as_f64().unwrap()
+                );
                 assert!(
                     attack["destroy_seconds"].as_f64().unwrap()
                         < attack["tear_seconds"].as_f64().unwrap()
