@@ -54,6 +54,71 @@ fn state(streams: &Streams, at: Address) -> Result<Value> {
     )
 }
 
+fn superflare_inputs<'a>(
+    name: &str,
+    native: &'a Value,
+) -> Result<Option<([&'a Value; 2], [f32; 2])>> {
+    if name != "gfx_fxt_superflare_zmb_tomb_elec_bolt_lg" {
+        return Ok(None);
+    }
+    let pass = crate::material::contract::pass(native, 3)?;
+    let arguments = [
+        (3_u32, 67109077_u32, 3_u32, 0_u32, 64_u32),
+        (3, 67109093, 0, 576, 64),
+        (0, 1689783251, 2, 80, 4),
+        (0, 3604000676, 2, 84, 4),
+        (2, 65694933, 0, 513, 1),
+        (2, 1809720840, 0, 256, 1),
+        (3, 16777233, 0, 1520, 16),
+    ];
+    if native["technique_set"] != "sw4_3d_superflare_zmb_tomb_elec_bolt_lg_e317308u"
+        || pass["vertex_shader"]
+            != "pimp_shader_sw4_3d_superflare_zmb_tomb_elec_bolt_lg_ff55a322.hlsl"
+        || pass["pixel_shader"] != "pimp_shader_sw4_3d_superflare_zmb_tomb_light1_8a62ca3a.hlsl"
+        || pass["vertex_routes"]
+            != json!([{"source":0,"destination":0},{"source":1,"destination":2},{"source":2,"destination":5}])
+        || native["state_entries"][3] != 0
+        || native["state_bits"][0] != json!([421611810_u32, 2_u32])
+        || pass["arguments"].as_array().is_none_or(|values| {
+            values.len() != arguments.len()
+                || values.iter().zip(arguments).any(
+                    |(value, (kind, hash, buffer, location, size))| {
+                        value["type"] != kind
+                            || value["value"] != hash
+                            || value["buffer"] != buffer
+                            || value["location"] != location
+                            || value["size"] != size
+                    },
+                )
+        })
+    {
+        return Err(format!(
+            "Required FX superflare {name} has an unreviewed native pass, route, argument or state"
+        )
+        .into());
+    }
+    let inputs = [
+        crate::material::contract::texture_binding(native, 65694933)?,
+        crate::material::contract::texture_binding(native, 1809720840)?,
+    ];
+    if inputs.iter().any(|binding| {
+        binding["sampler"] != 226 || binding["image"].as_str().is_none_or(str::is_empty)
+    }) {
+        return Err(format!(
+            "Required FX superflare {name} has invalid native sprite/grime inputs"
+        )
+        .into());
+    }
+    let controls = [
+        crate::material::contract::literal(native, 1689783251)?[0],
+        crate::material::contract::literal(native, 3604000676)?[0],
+    ];
+    if controls != [0.5, 2.5] {
+        return Err(format!("Required FX superflare {name} has unreviewed source controls").into());
+    }
+    Ok(Some((inputs, controls)))
+}
+
 fn material_inputs<'a>(name: &str, native: &'a Value) -> Result<(&'a Value, &'static str, u64)> {
     let family = native["technique_set"]
         .as_str()
@@ -64,12 +129,17 @@ fn material_inputs<'a>(name: &str, native: &'a Value) -> Result<(&'a Value, &'st
         3
     };
     let pass = crate::material::contract::pass(native, index)?;
-    let binding = crate::material::contract::texture_binding(native, 2695565377)?;
+    let hash = if superflare_inputs(name, native)?.is_some() {
+        65694933_u32
+    } else {
+        2695565377_u32
+    };
+    let binding = crate::material::contract::texture_binding(native, hash)?;
     if !pass["arguments"]
         .as_array()
         .ok_or("Native FX shader arguments are absent")?
         .iter()
-        .any(|argument| argument["type"] == 2 && argument["value"] == 2695565377_u32)
+        .any(|argument| argument["type"] == 2 && argument["value"] == hash)
     {
         return Err(format!(
             "Required native FX material {name} ({family}) has no supported color-map consumer"
@@ -112,20 +182,138 @@ fn atlas_dimensions(catalog: &Catalog<'_>, name: &str) -> Result<[u8; 2]> {
     if columns == 0 || rows == 0 {
         return Err(format!("Required FX material {name} has zero native atlas dimensions").into());
     }
+    if name == "gfx_fxt_superflare_zmb_tomb_elec_bolt_lg" && [columns, rows] != [1, 1] {
+        return Err(
+            format!("Required FX superflare {name} has an unsupported native atlas").into(),
+        );
+    }
     Ok([columns, rows])
 }
 
+fn image_uri<'a>(
+    name: &str,
+    binding: &Value,
+    images: &'a [Value],
+    transfer: &str,
+    pack: &crate::pack::Pack,
+) -> Result<&'a str> {
+    let image = images
+        .iter()
+        .find(|image| {
+            image["name"].as_str().is_some_and(|name| {
+                binding["image"]
+                    .as_str()
+                    .is_some_and(|source| source.eq_ignore_ascii_case(name))
+            })
+        })
+        .ok_or_else(|| {
+            format!(
+                "Required FX material {name} image {} was not converted",
+                binding["image"]
+            )
+        })?;
+    let uri = image["uris"][transfer]
+        .as_str()
+        .ok_or_else(|| format!("Required FX material {name} {transfer} image URI is absent"))?;
+    pack.get(uri)?;
+    Ok(uri)
+}
+
 impl Effects {
+    fn validate_superflare_elements(&self) -> Result<()> {
+        if !self
+            .materials
+            .contains("gfx_fxt_superflare_zmb_tomb_elec_bolt_lg")
+        {
+            return Ok(());
+        }
+        let mut found = false;
+        for (name, effect) in &self.definitions {
+            for (index, element) in effect["elements"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+            {
+                if !element["visuals"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|visual| {
+                        visual.as_str().is_some_and(|name| {
+                            name.eq_ignore_ascii_case("gfx_fxt_superflare_zmb_tomb_elec_bolt_lg")
+                        })
+                    })
+                {
+                    continue;
+                }
+                found = true;
+                if !name.eq_ignore_ascii_case("maps/zombie_tomb/fx_tomb_capture_progression_c")
+                    || index != 1
+                    || element["type"] != 0
+                    || element["flags"] != 98438
+                    || element["visuals"] != json!(["gfx_fxt_superflare_zmb_tomb_elec_bolt_lg"])
+                    || effect["flags"] != 33820
+                    || effect["loop_life"] != 0
+                    || effect["oneshot_life"] != 0
+                    || element["looping"] != true
+                    || element["emission"] != false
+                    || element["spawn"] != json!([100, 1])
+                    || element["delay"] != json!([0, 0])
+                    || element["life"] != json!([100, 0])
+                    || element["fade_in"] != json!([1000., 1000.])
+                    || element["fade_out"] != json!([0., 0.])
+                    || element["lighting_fraction"] != 0
+                    || element["states"].as_array().is_none_or(|samples| {
+                        samples.len() != 2
+                            || samples.iter().any(|sample| {
+                                sample["base"]["color"] != json!([255., 255., 255., 255.])
+                                    || sample["amplitude"]["color"]
+                                        != json!([255., 255., 255., 255.])
+                            })
+                    })
+                    || element["sort_order"] != 5
+                    || element["atlas"] != json!([0, 0, 0, 1, 0, 0, 513])
+                    || effect["occlusion_query"]["depth_bias"] != 0.
+                    || effect["occlusion_query"]["fade_in_ms"] != 0
+                    || effect["occlusion_query"]["fade_out_ms"] != 0
+                    || effect["occlusion_query"]["scale_range"] != json!([1., 0.])
+                    || effect["elements"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .enumerate()
+                        .filter(|(source_index, _)| (*source_index).min(7) == 1)
+                        .count()
+                        != 1
+                {
+                    return Err(format!("Required FX superflare {name}/{index} has an unsupported native vertex producer or emission/visibility bounds").into());
+                }
+            }
+        }
+        if !found {
+            return Err("Required FX superflare has no recovered native element producer".into());
+        }
+        Ok(())
+    }
+
     pub fn inputs(&self, catalog: &Catalog<'_>) -> Result<BTreeSet<String>> {
+        self.validate_superflare_elements()?;
         let mut images = BTreeSet::new();
         for name in &self.materials {
             let material = crate::material::read(catalog, name)?;
             material_inputs(name, &material)?;
             atlas_dimensions(catalog, name)?;
-            for binding in material["textures"]
-                .as_array()
-                .ok_or("Native FX material texture list is absent")?
-            {
+            let bindings = if let Some((bindings, _)) = superflare_inputs(name, &material)? {
+                bindings.to_vec()
+            } else {
+                material["textures"]
+                    .as_array()
+                    .ok_or("Native FX material texture list is absent")?
+                    .iter()
+                    .collect()
+            };
+            for binding in bindings {
                 let name = binding["image"]
                     .as_str()
                     .ok_or("Native FX material image is absent")?;
@@ -144,40 +332,30 @@ impl Effects {
         initial: bool,
         pack: &mut crate::pack::Pack,
     ) -> Result<()> {
+        self.validate_superflare_elements()?;
         let mut materials = BTreeMap::new();
         for name in &self.materials {
             let native = crate::material::read(catalog, name)?;
             let (binding, alpha, _) = material_inputs(name, &native)?;
             let [columns, rows] = atlas_dimensions(catalog, name)?;
-            let image = images
-                .iter()
-                .find(|image| {
-                    image["name"].as_str().is_some_and(|name| {
-                        binding["image"]
-                            .as_str()
-                            .is_some_and(|source| source.eq_ignore_ascii_case(name))
-                    })
-                })
-                .ok_or_else(|| {
-                    format!(
-                        "Required FX material {name} image {} was not converted",
-                        binding["image"]
-                    )
-                })?;
-            let uri = image["uris"]["srgb"]
-                .as_str()
-                .ok_or("Required FX color-map URI is absent")?;
-            pack.get(uri)?;
-            let reason = "Native FX source pixel equations, depth feathering, destination-alpha composition and source framebuffer transfer use the existing color-map PBR approximation";
-            let mut material = json!({"texture":uri,"sampler":binding["sampler"],"presentation":{"alpha":alpha},"columns":columns,"rows":rows,"native":native});
+            let mut material = json!({"presentation":{"alpha":alpha},"columns":columns,"rows":rows,"native":native});
+            let reason = if let Some((inputs, controls)) = superflare_inputs(name, &native)? {
+                material["source_superflare"] = json!({"consumer":"native_cached_superflare","red_producer":"native_cached_visible_ordinal",
+                    "sprite":{"uri":image_uri(name,inputs[0],images,"linear",pack)?,"sampler":inputs[0]["sampler"],"color_space":"native_encoded"},
+                    "grime":{"uri":image_uri(name,inputs[1],images,"linear",pack)?,"sampler":inputs[1]["sampler"],"color_space":"native_encoded"},
+                    "intensity":controls[0],"scale":controls[1]});
+                "Source superflare SpriteMap/GrimeMap, screen expansion and literal tint use the dedicated consumer. The guarded source definition emits at most one particle per effect instance, so its cached visible ordinal is zero only when admitted. Current renderer frustum, source distance fade and packed curve alpha drive admission; native query visibility/alpha and hardware-cache visibility remain approximated, alongside native framebuffer/exposure composition. The source scale range [1,0], zero query fade times and zero lighting fraction eliminate variable radius and HDR alpha conversion in this guarded case"
+            } else {
+                material["texture"] = json!(image_uri(name, binding, images, "srgb", pack)?);
+                material["sampler"] = binding["sampler"].clone();
+                "Native FX source pixel equations, depth feathering, destination-alpha composition and source framebuffer transfer use the existing color-map PBR approximation"
+            };
             if initial {
                 material["approximation_scope"] = json!("first_playable_solo");
                 material["approximations"] = json!([reason]);
                 println!("Initial visual approximation: FX material {name}: {reason}");
             } else {
-                material["pending_runtime"] = json!(
-                    "Native FX source pixel equations, depth feathering, destination-alpha composition and source framebuffer transfer require matching consumers"
-                );
+                material["pending_runtime"] = json!(reason);
             }
             materials.insert(name, material);
         }
@@ -591,6 +769,28 @@ mod tests {
             }
         }
         let mut material_gaps = Vec::new();
+        if let Err(error) = effects.validate_superflare_elements() {
+            material_gaps.push(error.to_string());
+        } else {
+            let mut expanded = Effects {
+                definitions: effects.definitions.clone(),
+                materials: effects.materials.clone(),
+                ..Default::default()
+            };
+            let owner = expanded
+                .definitions
+                .get_mut("maps/zombie_tomb/fx_tomb_capture_progression_c")
+                .unwrap();
+            owner["loop_life"] = json!(100);
+            owner["elements"][1]["spawn"] = json!([50, 2]);
+            assert!(
+                expanded
+                    .validate_superflare_elements()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("emission/visibility bounds")
+            );
+        }
         let mut blend_states = BTreeMap::<u64, (String, usize)>::new();
         let mut atlas_sizes = BTreeMap::<[u8; 2], usize>::new();
         assert!(
@@ -606,6 +806,29 @@ mod tests {
                     "Required superflare active native pass: {}",
                     crate::material::contract::pass(&native, 3).unwrap()
                 );
+                let (inputs, controls) = superflare_inputs(name, &native).unwrap().unwrap();
+                assert_eq!(
+                    [
+                        inputs[0]["hash"].as_u64().unwrap(),
+                        inputs[1]["hash"].as_u64().unwrap()
+                    ],
+                    [65694933, 1809720840]
+                );
+                assert_eq!(controls, [0.5, 2.5]);
+                let mut missing_grime = native.clone();
+                missing_grime["textures"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|binding| binding["hash"] != 1809720840_u32);
+                assert!(superflare_inputs(name, &missing_grime).is_err());
+                let mut changed_scale = native.clone();
+                changed_scale["constants"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|constant| constant["hash"] == 3604000676_u32)
+                    .unwrap()["literal"][0] = json!(3.);
+                assert!(superflare_inputs(name, &changed_scale).is_err());
             }
             match atlas_dimensions(&catalog, name) {
                 Ok(dimensions) => *atlas_sizes.entry(dimensions).or_default() += 1,

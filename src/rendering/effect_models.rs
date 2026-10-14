@@ -357,6 +357,7 @@ mod tests {
             ),
             ShaderDefVal::UInt("MAX_RECT_LIGHTS".into(), bevy::pbr::MAX_RECT_LIGHTS as u32),
             ShaderDefVal::UInt("PER_OBJECT_BUFFER_BATCH_SIZE".into(), 1),
+            ShaderDefVal::Bool("VERTEX_POSITIONS".into(), true),
             ShaderDefVal::Bool("VERTEX_OUTPUT_INSTANCE_INDEX".into(), true),
             ShaderDefVal::Bool("VERTEX_UVS_A".into(), true),
             ShaderDefVal::Bool("VERTEX_COLORS".into(), true),
@@ -399,5 +400,16 @@ mod tests {
             ),
         );
         cache.get(3, animated, &definitions).unwrap();
+        let flare = AssetId::Uuid {
+            uuid: bevy::asset::uuid::Uuid::from_u128(index + 5),
+        };
+        cache.set_shader(
+            flare,
+            Shader::from_wesl(
+                include_str!("../native_fx/superflare.wesl"),
+                "embedded://origins/native_fx/superflare.wesl",
+            ),
+        );
+        cache.get(4, flare, &definitions).unwrap();
     }
 }
