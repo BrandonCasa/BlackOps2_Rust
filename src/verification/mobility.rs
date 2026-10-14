@@ -134,12 +134,16 @@ fn drive(
             input.jump = true;
             next = Some(4);
         }
-        4 if c.age > 0.3 => {
-            c.rows.push(serde_json::json!({"case":"prone_jump_rejected","passed":p.prone && p.grounded && p.velocity.y<=0.}));
+        4 if c.age > 0.7 => {
+            c.rows.push(serde_json::json!({"case":"prone_jump_requests_stand_without_launch","passed":!p.prone && !p.crouched && p.grounded && p.velocity.y<=0.}));
+            input.prone = true;
+            next = Some(24);
+        }
+        24 if c.age > 0.9 && p.prone => {
             input.prone = true;
             next = Some(5);
         }
-        5 if c.age > 0.4 => {
+        5 if c.age > 0.7 => {
             c.rows.push(serde_json::json!({"case":"prone_stand","passed":!p.crouched && (p.eye_height-game.tuning.eye_height).abs()<0.01}));
             input.jump = true;
             next = Some(21);

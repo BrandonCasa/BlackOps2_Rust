@@ -277,7 +277,7 @@ pub(crate) fn move_player(
     surfaces: Query<&crate::movement::physics::SurfaceFlags>,
 ) {
     let prone_edge = std::mem::take(&mut input.prone);
-    let (jump, fire, melee, reload) = input.take_edges();
+    let (mut jump, fire, melee, reload) = input.take_edges();
     *actions = TickActions {
         fire,
         melee,
@@ -372,7 +372,10 @@ pub(crate) fn move_player(
         mobility.airborne = false;
         requested = crate::movement::Stance::Crouched;
     } else if drinking.is_none() && !reserved.contains(entity) && !mobility.busy() {
-        if prone_edge {
+        if jump && mobility.stance != crate::movement::Stance::Standing {
+            requested = crate::movement::Stance::Standing;
+            jump = false;
+        } else if prone_edge {
             requested = if mobility.stance == crate::movement::Stance::Prone {
                 crate::movement::Stance::Standing
             } else {
