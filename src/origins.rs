@@ -47,6 +47,8 @@ pub struct GameDefinition {
     pub rounds: crate::rounds::RoundProfile,
     pub solo_revive: crate::solo_revive::SoloReviveProfile,
     #[serde(default)]
+    pub generator_crystals: Option<crate::generators::CrystalProfile>,
+    #[serde(default)]
     pub environment: crate::environment::EnvironmentDefinition,
     #[serde(default)]
     pub access: crate::access::AccessDefinition,
@@ -298,6 +300,13 @@ impl GameDefinition {
                 .all(|v| v.is_finite())
             || !values.iter().all(|v| v.is_finite() && *v > 0.)
             || !self.environment.valid(self)
+            || self
+                .generator_crystals
+                .as_ref()
+                .is_some_and(|profile| !profile.valid(&self.content))
+            || (self.delivery_scope == DeliveryScope::FirstPlayableSolo
+                && self.content.generators.iter().any(|generator| generator.number == 1)
+                && self.generator_crystals.is_none())
             || self.content.barriers.iter().any(|barrier|!barrier.valid_actions())
             || self.content.generators.iter().any(|generator| generator.initial_reward.as_ref().is_some_and(|reward| !self.environment.triggers.iter().any(|trigger|trigger.id==reward.source_trigger)))
             || self.content.perks.iter().any(|perk| perk.bump_trigger.as_ref().is_some_and(|id| !self.environment.triggers.iter().any(|trigger| trigger.id == *id)))
