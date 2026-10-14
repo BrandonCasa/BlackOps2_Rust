@@ -210,8 +210,12 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
                 .filter_map(|sound| sound["source_alias"].as_str())
                 .map(str::to_ascii_lowercase),
         );
-        let absent = game.0["audio"]["absent"].as_array().into_iter().flatten()
-            .filter_map(serde_json::Value::as_str).map(str::to_ascii_lowercase)
+        let absent = game.0["audio"]["absent"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_ascii_lowercase)
             .collect::<std::collections::BTreeSet<_>>();
         aliases.retain(|alias| !absent.contains(alias));
         aliases
@@ -373,7 +377,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     )?;
     crate::scenes::bind_presentations(&mut game.0, &models)?;
     if let Some(effects) = &effects {
-        effects.write(&catalog, &models, &images, &mut pack)?;
+        effects.write(&catalog, &models, &images, initial, &mut pack)?;
     }
     for asset in game.0["content"]["ui_assets"]
         .as_array_mut()

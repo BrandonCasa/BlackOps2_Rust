@@ -78,6 +78,7 @@ impl Effects {
         catalog: &Catalog<'_>,
         models: &[Value],
         images: &[Value],
+        initial: bool,
         pack: &mut crate::pack::Pack,
     ) -> Result<()> {
         let mut materials = BTreeMap::new();
@@ -143,8 +144,30 @@ impl Effects {
                 )
                 .into());
             }
-            materials.insert(name,json!({"texture":image["uris"]["srgb"],"sampler":binding["sampler"],"presentation":{"alpha":alpha},"columns":columns,"rows":rows,"native":native,
-                "pending_runtime":"Native FX source pixel equations, depth feathering and source framebuffer transfer require matching consumers"}));
+            let uri = image["uris"]["srgb"]
+                .as_str()
+                .ok_or("Required FX color-map URI is absent")?;
+            pack.get(uri)?;
+            if binding["sampler"]
+                .as_u64()
+                .is_none_or(|sampler| sampler > 255)
+            {
+                return Err(
+                    format!("Required FX material {name} has invalid native sampler").into(),
+                );
+            }
+            let reason = "Native FX source pixel equations, depth feathering and source framebuffer transfer use the existing color-map PBR approximation";
+            let mut material = json!({"texture":uri,"sampler":binding["sampler"],"presentation":{"alpha":alpha},"columns":columns,"rows":rows,"native":native});
+            if initial {
+                material["approximation_scope"] = json!("first_playable_solo");
+                material["approximations"] = json!([reason]);
+                println!("Initial visual approximation: FX material {name}: {reason}");
+            } else {
+                material["pending_runtime"] = json!(
+                    "Native FX source pixel equations, depth feathering and source framebuffer transfer require matching consumers"
+                );
+            }
+            materials.insert(name, material);
         }
         let models = self
             .models
@@ -374,16 +397,6 @@ pub fn initial_roots(catalog: &Catalog<'_>, game: &Value) -> Result<BTreeSet<Str
         "weapon/bullet/fx_flesh_gib_fatal_01",
         "trail/fx_trail_blood_streak",
         "misc/fx_zombie_eye_single",
-        "maps/zombie_tomb/fx_tomb_capture_progression",
-        "maps/zombie_tomb/fx_tomb_capture_complete",
-        "maps/zombie_tomb/fx_tomb_capture_exhaust_back",
-        "maps/zombie_tomb/fx_tomb_emergence_spawn",
-        "maps/zombie_alcatraz/fx_alcatraz_afterlife_zmb_tport",
-        "maps/zombie_tomb/fx_tomb_screecher_vortex",
-        "maps/zombie_tomb/fx_tomb_crusader_torso_loop",
-        "maps/zombie/fx_zombie_crusader_eyes",
-        "maps/zombie_tomb/fx_tomb_capture_light_red",
-        "maps/zombie_tomb/fx_tomb_capture_light_green",
         "misc/fx_zombie_cola_revive_on",
         "maps/zombie/fx_zmb_cola_revive_flicker",
         "misc/fx_zombie_couch_effect",
@@ -391,6 +404,24 @@ pub fn initial_roots(catalog: &Catalog<'_>, game: &Value) -> Result<BTreeSet<Str
     .into_iter()
     .map(str::to_owned)
     .collect::<BTreeSet<_>>();
+    if game["delivery_scope"] != "first_playable_solo" {
+        roots.extend(
+            [
+                "maps/zombie_tomb/fx_tomb_capture_progression",
+                "maps/zombie_tomb/fx_tomb_capture_complete",
+                "maps/zombie_tomb/fx_tomb_capture_exhaust_back",
+                "maps/zombie_tomb/fx_tomb_emergence_spawn",
+                "maps/zombie_alcatraz/fx_alcatraz_afterlife_zmb_tport",
+                "maps/zombie_tomb/fx_tomb_screecher_vortex",
+                "maps/zombie_tomb/fx_tomb_crusader_torso_loop",
+                "maps/zombie/fx_zombie_crusader_eyes",
+                "maps/zombie_tomb/fx_tomb_capture_light_red",
+                "maps/zombie_tomb/fx_tomb_capture_light_green",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        );
+    }
     for weapon in game["content"]["weapons"].as_array().into_iter().flatten() {
         let name = weapon["id"]
             .as_str()
