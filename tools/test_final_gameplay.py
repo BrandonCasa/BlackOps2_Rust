@@ -27,7 +27,8 @@ import test_weapon_locomotion as animation
 from test_throwable_down import binding, check, edge, schedule
 
 
-INITIAL_SECTIONS = ('initial_start', 'initial_controls', 'initial_combat', 'initial_rounds', 'initial_life')
+INITIAL_SECTIONS = ('initial_start', 'initial_controls', 'initial_combat', 'initial_rounds',
+                    'initial_life', 'initial_revive', 'initial_barriers')
 
 
 def normal_action(client, action, ticks=2):
@@ -52,6 +53,20 @@ def normal_look(client, game, point):
                                            -(pitch - player['pitch']) / sensitivity / vertical]}])
     return client.until(lambda s: abs((s['player']['yaw'] - yaw + math.pi) % math.tau - math.pi) < .02
                         and abs(s['player']['pitch'] - max(-1.5, min(1.5, pitch))) < .02, timeout=5)
+
+
+def native_cook_off(client, grenade):
+    before = client.until(lambda s: s['player']['lethal']['state'] == 'Ready')
+    end = math.ceil((grenade['prime_seconds'] + grenade['fuse_seconds'] + 1)
+                    / before['fixed_delta_seconds'])
+    key = binding(before, 'lethal')
+    client.call('origins/input', {'events': [edge(1, key, True), edge(end, key, False)]})
+    try:
+        return client.until(lambda s: s['equipment']['cooked_off'] > before['equipment']['cooked_off']
+                            and (s['player']['health'] != before['player']['health']
+                                 or s['player']['life'] != before['player']['life']), timeout=30)
+    finally:
+        client.release()
 
 
 def initial_start(client, report, game, output):
@@ -187,11 +202,12 @@ def initial_rounds(client, report, game, output, timeout):
     report['initial_rounds'] = round_log
     while time.monotonic() < deadline:
         state = client.state()
-        number = state['session']['round']
-        finished_five = number == 5 and state['session']['pending'] == 0 and not any(
+        display_round = state['session']['round']
+        finished_five = display_round == 5 and state['session']['pending'] == 0 and not any(
             enemy.get('health') for enemy in state['enemies'])
         if (state['state'] != 'Playing' and not finished_five) or state['player']['life'] != 'Standing':
             raise RuntimeError('Normal-input survival ended: ' + json.dumps(state['session']))
+        number = display_round - 1 if state['session']['intermission'] else display_round
         if (state['session']['intermission'] or finished_five) and number not in completed:
             admissions = [row for row in state['round_evidence']['admitted'] if row['round'] == number]
             check(report, 'initial_round_' + str(number) + '_population_health_and_kills',
@@ -266,26 +282,11 @@ def initial_life(client, report, game):
     check(report, 'initial_revive_requires_purchase', not before['player']['perks']
           and before['player']['solo_charges'] == 0, player=before['player'])
     frag = next(w['throwable'] for w in game['content']['weapons'] if w['id'] == 'weapon.frag_grenade_zm')
-    injuries = []
-    for index in range(2):
-        state = client.until(lambda s: s['player']['lethal']['state'] == 'Ready')
-        end = math.ceil((frag['prime_seconds'] + frag['fuse_seconds'] + 1)
-                        / state['fixed_delta_seconds'])
-        key = binding(state, 'lethal')
-        client.call('origins/input', {'events': [edge(1, key, True), edge(end, key, False)]})
-        injured = client.until(lambda s: s['equipment']['cooked_off'] > state['equipment']['cooked_off']
-                               and (s['player']['health'] != state['player']['health']
-                                    or s['player']['life'] != state['player']['life']), timeout=30)
-        client.release()
-        injuries.append(injured)
-        if index == 0:
-            check(report, 'initial_first_frag_self_hit_is_nonlethal', injured['state'] == 'Playing'
-                  and injured['player']['life'] == 'Standing'
-                  and 0 < injured['player']['health'] < state['player']['health'], after=injured)
+    injured = native_cook_off(client, frag)
     ended = client.until(lambda s: s['state'] == 'GameOver', timeout=10)
     check(report, 'initial_unpurchased_revive_does_not_admit_downed',
           ended['player']['life'] == 'HumanTerminal' and ended['session']['downs'] == 1,
-          injuries=injuries, after=ended)
+          injury=injured, after=ended)
     restart = binding(ended, 'restart')
     client.call('origins/input', {'events': [edge(1, restart, True), edge(2, restart, False)]})
     restarted = client.until(lambda s: s['state'] == 'Playing' and s.get('player')
@@ -296,8 +297,138 @@ def initial_life(client, report, game):
           and restarted['session']['downs'] == 0 and not restarted['held_inputs']
           and not restarted['queued_inputs'] and restarted['player']['health'] == game['player_health']['maximum']
           and not restarted['player']['perks'], after=restarted)
-    report['initial_life_limitations'] = ['Quick Revive purchase/revival still requires a powered authored station case.',
-                                         'Ordinary solo automatic revival precedes source bleedout; no unreachable bleedout claim is made.']
+    report['initial_life_limitations'] = ['Ordinary solo automatic revival precedes source bleedout; no unreachable bleedout claim is made.']
+
+
+def initial_revive(client, report, game, output):
+    client.reset(difficulty='original')
+    perk = next(p for p in game['content']['perks'] if p['id'] == game['solo_revive']['perk'])
+    interaction = next(i for i in game['content']['interactions']
+                       if i['action'].get('perk') == perk['id'])
+    placement = next(p for p in game['content']['placements'] if p['id'] == interaction['placement'])
+    point = placement['position'].copy()
+    point[1] += 1
+    generator = next(g for g in game['content']['generators'] if g['id'] == perk['generator'])
+    fixture = {'clear_enemies': True, 'pending': 1, 'pause_spawning_seconds': 300,
+               'points': perk['price'] + generator['price']}
+    client.call('origins/setup', fixture)
+    from test_generator_population import focus_generator
+    site = next(site for site in client.state()['generators']['sites'] if site['id'] == generator['id'])
+    generator_focus = focus_generator(client, site)
+    normal_action(client, 'interact')
+    capturing = client.until(lambda s: next(g for g in s['generators']['sites']
+                                            if g['id'] == site['id'])['state'] == 'Capturing')
+    check(report, 'initial_generator_activation_charges_source_cost',
+          capturing['session']['points'] == generator_focus['session']['points'] - generator['price'],
+          fixture=fixture, before=generator_focus['session'], after=capturing['session'])
+    deadline = time.monotonic() + 60
+    captured = None
+    while time.monotonic() < deadline:
+        state = client.state()
+        if state['state'] != 'Playing' or state['player']['life'] != 'Standing':
+            raise RuntimeError('Generator prerequisite capture ended: ' + json.dumps(state['session']))
+        current = next(g for g in state['generators']['sites'] if g['id'] == site['id'])
+        if current['state'] == 'Active':
+            captured = state
+            break
+        enemies = [enemy for enemy in state['enemies'] if enemy.get('health') and enemy['ready']]
+        if enemies and state['player']['action'] == 'Ready':
+            target = min(enemies, key=lambda e: math.dist(e['position'], state['player']['position']))
+            target_point = target['position'].copy()
+            target_point[1] += 1.2
+            normal_look(client, game, target_point)
+            weapon = client.state()['player']['weapons'][0]
+            normal_action(client, 'fire' if weapon['magazine'] else 'reload')
+        client.wait_ticks(6)
+    if captured is None:
+        raise TimeoutError('Normal-input starting generator capture did not complete')
+    check(report, 'initial_generator_capture_enables_quick_revive_prerequisite',
+          captured['generators']['completions'] > generator_focus['generators']['completions'],
+          after=captured)
+    focused = None
+    approaches = []
+    for radius in (1.2, .8, 1.6):
+        for angle in range(8):
+            position = [point[0] + radius * math.sin(angle * math.tau / 8),
+                        placement['position'][1] + game['tuning']['standing_height'] / 2 + .02,
+                        point[2] + radius * math.cos(angle * math.tau / 8)]
+            client.call('origins/setup', {'position': position})
+            client.wait_ticks(3)
+            normal_look(client, game, point)
+            state = client.wait_ticks(3)
+            approaches.append({'position': position, 'focus': state['focus']})
+            if perk['name'].lower() in (state['focus']['prompt'] or '').lower():
+                focused = state
+                break
+        if focused:
+            break
+    if focused is None:
+        raise RuntimeError('Authored Quick Revive prompt unavailable: ' + json.dumps(approaches))
+    check(report, 'initial_quick_revive_focus_after_generator_capture',
+          focused['focus']['rejection'] is None and focused['player']['solo_charges'] == 0
+          and focused['session']['points'] >= perk['price'], fixture=fixture, approaches=approaches,
+          focus=focused['focus'], capture=ui.capture(client, output, 'initial-quick-revive-prompt'))
+    ticks = math.ceil((interaction['hold_seconds'] + .5) / focused['fixed_delta_seconds'])
+    normal_action(client, 'interact', max(2, ticks))
+    bought = client.until(lambda s: perk['id'] in s['player']['perks']
+                          and s['player']['solo_charges'] == 1 and not s['player']['drinking'])
+    check(report, 'initial_normal_quick_revive_purchase',
+          bought['session']['points'] == focused['session']['points'] - perk['price'],
+          before=focused['player'], after=bought['player'], session=bought['session'])
+    grenade = next(w['throwable'] for w in game['content']['weapons'] if w['id'] == 'weapon.frag_grenade_zm')
+    native_cook_off(client, grenade)
+    downed = client.until(lambda s: s['player']['life'] == 'Downed')
+    check(report, 'initial_purchased_revive_admits_native_downed_state',
+          downed['player']['trigger_client_mode'] == 7
+          and not downed['player']['perks'] and downed['session']['downs'] == 1
+          and any(w['id'] == game['solo_revive']['downed_weapon'] for w in downed['player']['weapons']),
+          downed=downed['player'])
+    client.until(lambda s: s['player']['life'] == 'Downed' and s['player']['action'] == 'Ready')
+    normal_action(client, 'fire')
+    fired = client.state()
+    check(report, 'initial_downed_pistol_fires_from_input', fired['session']['shots'] > downed['session']['shots'],
+          before=downed['player'], after=fired['player'])
+    revived = client.until(lambda s: s['player']['life'] == 'Standing'
+                           and s['player']['solo_charges'] == 0, timeout=30)
+    elapsed = (revived['fixed_tick'] - downed['fixed_tick']) * revived['fixed_delta_seconds']
+    check(report, 'initial_purchased_quick_revive_recovers_on_source_schedule',
+          abs(elapsed - game['solo_revive']['seconds']) <= .2
+          and revived['player']['trigger_client_mode'] == 0
+          and revived['player']['health'] == game['player_health']['maximum']
+          and not revived['player']['perks'], elapsed=elapsed, player=revived['player'])
+
+
+def initial_barriers(client, report, game):
+    client.reset(difficulty='original')
+    state = client.until(lambda s: s.get('barriers') and s['player']['grounded'])
+    baseline = state['barriers']
+    damaged = client.until(lambda s: s['barriers']['destroyed'] > baseline['destroyed']
+                           and any(window['repairable'] for window in s['barriers']['windows']), timeout=180)
+    entered = client.until(lambda s: s['barriers']['entries'] > baseline['entries'], timeout=120)
+    check(report, 'initial_natural_zombie_barrier_destruction_and_entry',
+          entered['barriers']['destroyed'] > baseline['destroyed'],
+          before=baseline, damaged=damaged['barriers'], entered=entered['barriers'])
+    attacked = client.until(lambda s: s['enemy_evidence']['attack_hits'] > state['enemy_evidence']['attack_hits']
+                            and s['player']['health'] < state['player']['health'], timeout=90)
+    check(report, 'initial_natural_zombie_pursuit_and_attack_damage',
+          attacked['enemy_evidence']['attacks_started'] > state['enemy_evidence']['attacks_started']
+          and attacked['health_evidence']['nonterminal_hits'] > state['health_evidence']['nonterminal_hits'],
+          before=state['player'], after=attacked['player'], enemy_evidence=attacked['enemy_evidence'])
+    window = next(window for window in entered['barriers']['windows'] if window['repairable'])
+    definition = next(b for b in game['content']['barriers'] if b['id'] == window['id'])
+    position = window['repair_origin'].copy()
+    position[1] += game['tuning']['standing_height'] / 2 + .02
+    fixture = {'clear_enemies': True, 'pending': 1, 'pause_spawning_seconds': 300, 'position': position}
+    client.call('origins/setup', fixture)
+    before = client.wait_ticks(3)
+    normal_action(client, 'interact', math.ceil((definition['repair_interval'] + 2)
+                                              / before['fixed_delta_seconds']))
+    repaired = client.until(lambda s: s['barriers']['repaired'] > before['barriers']['repaired'])
+    awarded = repaired['barriers']['awarded'] - before['barriers']['awarded']
+    check(report, 'initial_normal_barrier_repair_awards_source_points',
+          repaired['session']['points'] - before['session']['points'] == awarded
+          and awarded > 0 and awarded % definition['repair_points'] == 0,
+          fixture=fixture, before=before['barriers'], after=repaired['barriers'], session=repaired['session'])
 
 
 def main():
@@ -357,10 +488,17 @@ def main():
                     initial_rounds(client, report, game, capture_output, args.round_timeout)
                 elif name == 'initial_life':
                     initial_life(client, report, game)
+                elif name == 'initial_revive':
+                    initial_revive(client, report, game, capture_output)
+                elif name == 'initial_barriers':
+                    initial_barriers(client, report, game)
                 elif name == 'ui':
                     ui.run(client, report, None if args.no_captures else output, game)
                 elif name == 'session':
-                    session.run(client, report)
+                    if args.milestone == 'initial':
+                        session.run_initial(client, report)
+                    else:
+                        session.run(client, report)
                 elif name == 'projectiles':
                     phase.run(client, report, None if args.no_captures else output)
                 elif name == 'physics':

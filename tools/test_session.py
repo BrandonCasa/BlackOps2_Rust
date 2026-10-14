@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from test_support import Client, write_report
+from test_throwable_down import binding, edge, schedule
 
 
 def check(report, name, condition, **evidence):
@@ -74,6 +75,69 @@ def run(client, report):
           and accepted['equipment']['self_impacts'] == rejected['equipment']['self_impacts'] + 1
           and accepted['equipment']['round_awards'] == rejected['equipment']['round_awards'] + 1
           and accepted['player']['health'] < rejected['player']['health'], after=accepted)
+
+
+def run_initial(client, report):
+    client.reset(difficulty='original')
+    before = client.until(lambda s: s['player']['grounded'] and s['player']['action'] == 'Ready')
+    fire, reload, pause = [binding(before, action) for action in ('fire', 'reload', 'pause')]
+    schedule(client, [edge(1, fire, True), edge(2, fire, False)])
+    client.until(lambda s: s['player']['action'] == 'Ready')
+    client.call('origins/input', {'events': [edge(1, reload, True), edge(2, reload, False),
+                                           edge(3, pause, True), edge(4, pause, False)]})
+    paused = client.until(lambda s: s['state'] == 'Paused' and s['player']['action'].startswith('Reloading'))
+    client.until(lambda s: not s['held_inputs'] and not s['queued_inputs'])
+    later = client.wait_ticks(120)
+    check(report, 'initial_pause_freezes_player_reload_and_spawn_timer',
+          paused['player']['position'] == later['player']['position']
+          and paused['player']['weapons'] == later['player']['weapons']
+          and paused['player']['action'] == later['player']['action']
+          and paused['session']['spawn_remaining'] == later['session']['spawn_remaining'],
+          before=paused, after=later)
+    schedule(client, [edge(1, pause, True), edge(2, pause, False)])
+    resumed = client.until(lambda s: s['state'] == 'Playing' and s['player']['action'] == 'Ready')
+    check(report, 'initial_resume_finishes_reload_in_same_session',
+          resumed['session_id'] == before['session_id']
+          and resumed['player']['weapons'][0]['magazine'] == before['player']['weapons'][0]['magazine']
+          and resumed['player']['weapons'][0]['reserve'] == before['player']['weapons'][0]['reserve'] - 1,
+          after=resumed)
+    forward, lethal = [binding(resumed, action) for action in ('forward', 'lethal')]
+    client.call('origins/input', {'events': [edge(1, forward, True), edge(1, fire, True),
+                                           edge(1, lethal, True), edge(3, pause, True),
+                                           edge(4, pause, False), edge(1800, forward, False),
+                                           edge(1800, fire, False), edge(1800, lethal, False)]})
+    client.until(lambda s: s['state'] == 'Paused' and bool(s['held_inputs']))
+    client.release()
+    from test_ui import key, observe, select_menu
+    select_menu(client, 3)
+    key(client, 'Enter')
+    restarted = client.until(lambda s: s['state'] == 'Playing' and s.get('player')
+                             and s['session_id'] > resumed['session_id'], timeout=120)
+    check(report, 'initial_paused_menu_restart_clears_session_and_inputs',
+          restarted['player']['entity'] != resumed['player']['entity']
+          and restarted['session']['round'] == 1 and restarted['session']['kills'] == 0
+          and restarted['session']['shots'] == 0 and restarted['session']['downs'] == 0
+          and restarted['player']['trigger_client_mode'] == 0
+          and not restarted['held_inputs'] and not restarted['queued_inputs']
+          and restarted['equipment']['active_grenades'] == []
+          and restarted['barriers']['repaired'] == 0 and restarted['barriers']['destroyed'] == 0,
+          after=restarted)
+    schedule(client, [edge(1, pause, True), edge(2, pause, False)])
+    client.until(lambda s: s['state'] == 'Paused')
+    select_menu(client, 4)
+    key(client, 'Enter')
+    menu = client.until(lambda s: s['state'] == 'MainMenu')
+    check(report, 'initial_quit_to_menu_removes_session_objects',
+          not (menu.get('player') or {}).get('entity') and not menu['enemies']
+          and not menu['equipment']['active_grenades'] and not menu['zones']['contacts'], after=menu)
+    observe(client, lambda h: h.get('selected_frontend_row') == 0)
+    key(client, 'Enter')
+    started = client.until(lambda s: s['state'] == 'Playing' and (s.get('player') or {}).get('entity')
+                           and s['session_id'] > restarted['session_id'], timeout=120)
+    check(report, 'initial_normal_menu_start_creates_fresh_session',
+          started['session']['round'] == 1 and started['session']['points'] == 500
+          and not started['held_inputs'] and not started['queued_inputs']
+          and started['player']['trigger_client_mode'] == 0, after=started)
 
 
 def main():
