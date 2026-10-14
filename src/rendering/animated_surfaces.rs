@@ -406,7 +406,7 @@ fn advance(
         return;
     };
     for (entity, handle) in &surfaces {
-        let Some(material) = materials.get_mut(&handle.0) else {
+        let Some(mut material) = materials.get_mut(&handle.0) else {
             continue;
         };
         let mut current = Some(entity);
