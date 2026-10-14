@@ -145,7 +145,8 @@ fn restore_culling(
 fn advance(
     state: Res<State<GameState>>,
     progress: Res<ShaderProgress>,
-    loading: Res<crate::cinematics::LoadingPlayback>,
+    loading: Option<Res<crate::cinematics::LoadingPlayback>>,
+    game: Res<crate::assets::GameDefinition>,
     mut preparation: ResMut<Preparation>,
     surfaces: Res<super::OpaqueSurfaceStatus>,
     atmosphere: Res<super::atmosphere::AtmosphereState>,
@@ -158,6 +159,15 @@ fn advance(
     if **state != GameState::PreparingShaders {
         return;
     }
+    let cinematic_ready = match (game.delivery_scope, loading.as_deref()) {
+        (crate::origins::DeliveryScope::FirstPlayableSolo, _) => true,
+        (_, Some(loading)) => loading.done,
+        (_, None) => {
+            failure.0 = "Required loading cinematic playback is unavailable.".into();
+            next.set(GameState::LoadError);
+            return;
+        }
+    };
     let Ok(progress) = progress.0.lock() else {
         return;
     };
@@ -203,7 +213,7 @@ fn advance(
     }
     preparation.total = progress.total;
     preparation.shaders_ready |= preparation.settled_frames >= 8;
-    if preparation.shaders_ready && loading.done {
+    if preparation.shaders_ready && cinematic_ready {
         info!(
             "Origins shaders ready: {} pipelines in {:.2}s",
             progress.total,
