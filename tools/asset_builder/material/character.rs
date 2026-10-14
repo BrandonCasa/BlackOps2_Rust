@@ -456,7 +456,7 @@ impl CharacterRecipe {
                 Self::ClothRevealEmissive => vec![(403867666, 13)],
                 Self::ClothRevealMask | Self::ClothRevealEmissiveMask => vec![(403853330, 13)],
                 Self::SkinMask => vec![(403869714, 13)],
-                Self::Hair => vec![(422084965, 12)],
+                Self::Hair => vec![(422084965, 12), (422068581, 12)],
                 Self::Cornea => vec![(422084965, 12)],
                 Self::Optic => vec![(422084965, 12), (422068581, 12)],
                 Self::Transparent
