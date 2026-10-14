@@ -633,7 +633,7 @@ fn process_contact(world: &mut World, contact: CollectedContact) {
     }
 }
 
-fn contacts(world: &mut World) {
+pub(crate) fn contacts(world: &mut World) {
     let contacts = world
         .run_system_cached(overlapping_contacts)
         .expect("Trigger overlap system failed");

@@ -161,6 +161,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     }
     let mut pack = pack::Pack::default();
     let collision = crate::collision::convert(&catalog, &mut pack)?;
+    crate::game::prepare(game, &entities, &collision)?;
     let required_sounds = initial.then(|| {
         let mut aliases: std::collections::BTreeSet<_> = game.0["audio"]["aliases"]
             .as_object()
@@ -366,7 +367,7 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
             world["atmosphere_uri"] = serde_json::json!(atmosphere_uri);
         }
     }
-    crate::game::write(game.clone(), &entities, &worlds, &collision, &mut pack)?;
+    crate::game::write(game.0.clone(), &worlds, &mut pack)?;
     let runtime = runtime::assemble(&pack, models, worlds, images, sounds)?;
     pack.entries.insert(
         "prepared/runtime.json".into(),

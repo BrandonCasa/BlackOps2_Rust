@@ -25,6 +25,7 @@ pub struct SoloReviveProfile {
     pub pistol_ranks: Vec<PistolRank>,
     pub pistol_replace_below: u32,
     pub downed_height: f32,
+    pub downed_eye: f32,
     pub downed_speed: f32,
 }
 #[derive(Clone, Deserialize)]
@@ -40,6 +41,7 @@ impl SoloReviveProfile {
             self.bleedout_seconds,
             self.bleedout_poll_seconds,
             self.downed_height,
+            self.downed_eye,
             self.downed_speed,
         ]
         .iter()
@@ -76,6 +78,7 @@ impl SoloReviveProfile {
                 .any(|p| p.weapon == self.downed_weapon && p.rank > self.pistol_replace_below)
             && self.downed_height >= game.tuning.radius * 2.
             && self.downed_height < game.tuning.standing_height
+            && self.downed_eye < self.downed_height
             && game.content.perks.iter().any(|p| p.id == self.perk)
             && game
                 .content

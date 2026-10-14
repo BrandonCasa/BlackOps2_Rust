@@ -207,7 +207,7 @@ pub(super) fn zone_graph(
             .collect::<Vec<_>>()
     );
     game["access"]["trigger_activations"] = json!(triggers);
-    zone_gaps.push("access native client-mode synchronization, source zone events, spawn enablement, barriers and remaining flag producers require conversion".into());
+    zone_gaps.push("access source zone events, spawn enablement, barriers and remaining flag producers require conversion".into());
     println!(
         "Converted {calls} source zone links into {} undirected connections and {} zone definitions",
         edges.len(),

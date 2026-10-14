@@ -439,7 +439,7 @@ pub(crate) fn move_player(
     }
     player.crouched = mobility.stance != crate::movement::Stance::Standing || downed;
     player.prone = mobility.stance == crate::movement::Stance::Prone && !downed;
-    let step_height = if player.prone || mobility.dive.is_some() {
+    let step_height = if player.prone || downed || mobility.dive.is_some() {
         m.prone_step
     } else {
         tuning.step_height
@@ -551,7 +551,7 @@ pub(crate) fn move_player(
         input.staff_secondary = false;
     }
     let target_eye = if downed {
-        player.height * 0.8
+        definition.solo_revive.downed_eye
     } else if player.prone {
         m.prone_eye
     } else if player.crouched {
@@ -627,7 +627,7 @@ pub(crate) fn move_player(
     let desired = tuning.physics.wish_velocity(
         input.movement,
         player.yaw,
-        if motion_grounded {
+        if motion_grounded || downed {
             speed
         } else {
             tuning.walk_speed
@@ -706,7 +706,7 @@ pub(crate) fn move_player(
             player.velocity,
             desired,
             ground_normal.filter(|_| motion_grounded),
-            player.prone,
+            player.prone || downed,
             player.crouched,
             slick,
             mobility.landing_recovery > 0.,

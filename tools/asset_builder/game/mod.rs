@@ -273,7 +273,8 @@ pub fn read(
         "minimum_spawn_seconds":0.08,"first_spawn_seconds":2.5,"between_round_seconds":variable(catalog,"zombie_between_round_time",1,json!(10))?,
         "speed_multiplier":variable(catalog,"zombie_move_speed_multiplier",2,json!(8))?,"speed_random_band":35,"gait_thresholds":[35,70]});
     let solo = json!({"perk":"perk.quick_revive","seconds":10.,"bleedout_seconds":45.,"bleedout_poll_seconds":1.,
-        "maximum_purchases":3,"downed_weapon":"weapon.c96_upgraded_zm","reserve_clips":2,"pistol_ranks":ranks,"pistol_replace_below":15});
+        "maximum_purchases":3,"downed_weapon":"weapon.c96_upgraded_zm","reserve_clips":2,"pistol_ranks":ranks,"pistol_replace_below":15,
+        "downed_height":30_f32*0.0254,"downed_eye":22_f32*0.0254,"downed_speed":190_f32*0.15*0.0254});
     println!(
         "Converted {} native localized strings, player health and recovered round/solo-revive parameters",
         localized.len()
@@ -291,40 +292,34 @@ pub fn read(
     Ok((game, native_gaps))
 }
 
-pub fn write(
-    (mut game, mut native_gaps): (Value, Vec<String>),
+pub fn prepare(
+    (game, native_gaps): &mut (Value, Vec<String>),
     entities: &[crate::entities::Entity],
-    worlds: &[Value],
     collision: &Value,
-    pack: &mut Pack,
 ) -> Result<()> {
-    let world = worlds
-        .iter()
-        .find(|world| world["map"] == "zm_tomb")
-        .ok_or("Required Origins world scene is missing")?;
-    for (target, source) in [("scene", "uri"), ("collision_scene", "collision_uri")] {
-        let uri = world[source]
-            .as_str()
-            .ok_or_else(|| format!("Prepared world is missing {source}"))?;
-        pack.get(uri)?;
-        game[target] = json!(format!("{uri}#Scene0"));
+    let initial = game["delivery_scope"] == "first_playable_solo";
+    if initial {
+        game["environment"]
+            .as_object_mut()
+            .ok_or("Initial environment source is missing")?
+            .remove("crafting_benches");
+        for owner in game["environment"]["ownership"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+        {
+            if owner["owner"] == "crafting" {
+                owner["owner"] = json!("deferred");
+            }
+        }
+        native_gaps.retain(|gap| !gap.starts_with("crafting "));
     }
-    for key in [
-        "source_surfaces",
-        "render_meshes",
-        "collision_meshes",
-        "static_model_instances",
-    ] {
-        let count = world[key]
-            .as_u64()
-            .ok_or_else(|| format!("Prepared world is missing {key}"))?;
-        game[key] = json!(count);
-    }
-    let (brushes, mut missing) = brushes(world, collision)?;
-    missing.append(&mut native_gaps);
-    environment(&mut game, brushes, &mut missing)?;
-    link_owners(&mut game, entities)?;
-    zone_graph(&mut game, entities, &mut missing)?;
+    let world = json!({"brush_entities":crate::scenes::brush_entities(entities)?});
+    let (brushes, mut missing) = brushes(&world, collision)?;
+    missing.extend(native_gaps.iter().cloned());
+    environment(game, brushes, &mut missing)?;
+    link_owners(game, entities)?;
+    zone_graph(game, entities, &mut missing)?;
     for key in [
         "mud",
         "triggers",
@@ -333,11 +328,17 @@ pub fn write(
         "parts",
         "crafting_benches",
     ] {
+        if initial && matches!(key, "digging" | "parts" | "crafting_benches") {
+            continue;
+        }
         if game["environment"].get(key).is_none() {
             missing.push(format!("environment.{key}"));
         }
     }
     for key in ["doors", "volumes", "spawns"] {
+        if initial && key == "doors" {
+            continue;
+        }
         if game["access"].get(key).is_none() {
             missing.push(format!("access.{key}"));
         }
@@ -361,7 +362,10 @@ pub fn write(
     }
     for (profile, fields) in [
         ("rounds", &["gait_speeds"][..]),
-        ("solo_revive", &["downed_height", "downed_speed"][..]),
+        (
+            "solo_revive",
+            &["downed_height", "downed_eye", "downed_speed"][..],
+        ),
     ] {
         for field in fields {
             if game[profile].get(field).is_none() {
@@ -397,6 +401,24 @@ pub fn write(
         "ui_assets",
         "cinematics",
     ] {
+        if initial
+            && matches!(
+                key,
+                "powerups"
+                    | "generators"
+                    | "robot_routes"
+                    | "tank_routes"
+                    | "weather"
+                    | "digging"
+                    | "recipes"
+                    | "staff_puzzles"
+                    | "quests"
+                    | "quest_transitions"
+                    | "cinematics"
+            )
+        {
+            continue;
+        }
         if !game["content"][key].is_array() {
             missing.push(format!("content.{key}"));
         }
@@ -407,6 +429,53 @@ pub fn write(
             missing.join(", ")
         )
         .into());
+    }
+    Ok(())
+}
+
+pub fn write(mut game: Value, worlds: &[Value], pack: &mut Pack) -> Result<()> {
+    let world = worlds
+        .iter()
+        .find(|world| world["map"] == "zm_tomb")
+        .ok_or("Required Origins world scene is missing")?;
+    for (target, source) in [("scene", "uri"), ("collision_scene", "collision_uri")] {
+        let uri = world[source]
+            .as_str()
+            .ok_or_else(|| format!("Prepared world is missing {source}"))?;
+        pack.get(uri)?;
+        game[target] = json!(format!("{uri}#Scene0"));
+    }
+    for key in [
+        "source_surfaces",
+        "render_meshes",
+        "collision_meshes",
+        "static_model_instances",
+    ] {
+        let count = world[key]
+            .as_u64()
+            .ok_or_else(|| format!("Prepared world is missing {key}"))?;
+        game[key] = json!(count);
+    }
+    for brush in game["environment"]["brush_entities"]
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+    {
+        let source = world["brush_entities"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|source| source["id"] == brush["id"])
+            .ok_or_else(|| {
+                format!(
+                    "Prepared world has no native brush binding: {}",
+                    brush["id"]
+                )
+            })?;
+        let count = source["visual_meshes"]
+            .as_u64()
+            .ok_or("Prepared native brush visual mesh count is missing")?;
+        brush["visual_meshes"] = json!(count);
     }
     pack.entries
         .insert("game.json".into(), Arc::new(serde_json::to_vec(&game)?));

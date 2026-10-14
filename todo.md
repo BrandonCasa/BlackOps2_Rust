@@ -35,8 +35,8 @@ The source-derived profile tasks below apply to the supported solo states and in
 - [ ] Convert the exact player spawn position and initial yaw.
 - [ ] Convert source player movement, stance, mud, sprint, dive, and downed tuning required by runtime.
 - [ ] Complete rounds.gait_speeds.
-- [ ] Complete solo_revive.downed_height.
-- [ ] Complete solo_revive.downed_speed.
+- [x] Complete solo_revive.downed_height and source downed eye height.
+- [x] Complete solo_revive.downed_speed.
 - [ ] Preserve source solo-revive timing, limits, downed weapon selection, and recovery behavior.
 - [ ] Bind source solo-revive eligibility and any prerequisite purchase/interaction needed in the initial area; do not grant revival unconditionally because general perk coverage is deferred.
 - [ ] Bind the solo player's required model, skeleton, hit volumes, and essential presentation through the packed content.
@@ -62,14 +62,14 @@ The source-derived profile tasks below apply to the supported solo states and in
 ### Native client mode and zone contact
 
 - [ ] Recover the source transitions relevant to TriggerClientMode for the supported player states.
-- [ ] Update TriggerClientMode from actual player/session lifecycle transitions.
-- [ ] Preserve exact source mode exclusions used by zone trigger activation.
-- [ ] Connect converted player volumes to zone membership.
+- [x] Update TriggerClientMode from actual player/session lifecycle transitions.
+- [x] Preserve exact source mode exclusions used by zone trigger activation.
+- [x] Connect converted player volumes to zone membership.
 - [ ] Preserve source handling for overlapping player volumes.
 - [ ] Preserve entry, exit, death/downed, revival, and respawn behavior where the source distinguishes them.
 - [ ] Deliver the required source zone events through existing ECS messages.
 - [ ] Preserve source single-use activation flag updates and sensor deletion.
-- [ ] Clear zone contact/membership state when the player or session is removed.
+- [x] Clear zone contact/membership state when the player or session is removed.
 - [ ] Complete the existing source activation bindings without replacing the committed zone graph.
 
 ## 4. Build, open, and prove the initial game is playable

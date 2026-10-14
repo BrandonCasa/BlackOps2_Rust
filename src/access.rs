@@ -34,6 +34,18 @@ pub struct TriggerActivationDefinition {
 }
 #[derive(Component, Default)]
 pub struct TriggerClientMode(pub i32);
+
+pub(crate) fn synchronize_client_modes(
+    mut players: Query<(&crate::life::Vitality, &mut TriggerClientMode), With<Player>>,
+) {
+    for (life, mut mode) in &mut players {
+        mode.0 = match life.state() {
+            crate::life::LifeState::Standing => 0,
+            crate::life::LifeState::Downed => 7,
+            _ => 10,
+        };
+    }
+}
 #[derive(Message)]
 pub struct ZoneFlagSet(pub String);
 #[derive(Clone, serde::Deserialize)]
@@ -269,6 +281,19 @@ fn audio_evidence(
 }
 #[derive(Resource, Default)]
 pub struct CurrentZone(pub Option<ZoneId>);
+#[derive(Resource, Default)]
+pub struct PlayerZoneContacts(pub BTreeSet<ZoneId>);
+
+fn clear_removed_player_contacts(
+    players: Query<(), With<Player>>,
+    mut zone: ResMut<CurrentZone>,
+    mut contacts: ResMut<PlayerZoneContacts>,
+) {
+    if players.is_empty() {
+        zone.0 = None;
+        contacts.0.clear();
+    }
+}
 #[derive(Component, Default)]
 struct ZoneCheckpoint(Option<Vec3>);
 const ZONE_SENSOR_LAYER: u32 = 8;
@@ -278,36 +303,32 @@ struct ZoneSensor {
 }
 fn locate(
     query: SpatialQuery,
-    mut players: Query<(&mut Transform, &mut Player, &mut ZoneCheckpoint)>,
-    volumes: Query<(&ZoneSensor, &Transform), Without<Player>>,
+    mut players: Query<(&mut Transform, &mut Player, &mut ZoneCheckpoint, &Collider)>,
+    volumes: Query<&ZoneSensor, Without<Player>>,
     mut zone: ResMut<CurrentZone>,
+    mut contacts: ResMut<PlayerZoneContacts>,
     access: Res<ZoneAccess>,
     game: Res<GameDefinition>,
 ) {
-    let Ok((mut pose, mut player, mut checkpoint)) = players.single_mut() else {
+    let Ok((mut pose, mut player, mut checkpoint, shape)) = players.single_mut() else {
         zone.0 = None;
+        contacts.0.clear();
         return;
     };
     let filter = SpatialQueryFilter::from_mask(ZONE_SENSOR_LAYER);
-    let candidate = query
-        .shape_intersections(
-            &Collider::sphere(0.03),
-            pose.translation,
-            Quat::IDENTITY,
-            &filter,
-        )
+    let touching: BTreeSet<_> = query
+        .shape_intersections(shape, pose.translation, pose.rotation, &filter)
         .into_iter()
         .filter_map(|e| volumes.get(e).ok())
-        .min_by(|(_, a), (_, b)| {
-            a.translation
-                .distance_squared(pose.translation)
-                .total_cmp(&b.translation.distance_squared(pose.translation))
-        })
-        .map(|(z, _)| z.zone.clone());
-    if candidate
-        .as_ref()
-        .is_some_and(|id| !access.reachable.contains(id))
-    {
+        .map(|sensor| sensor.zone.clone())
+        .collect();
+    let candidate = game
+        .content
+        .zones
+        .iter()
+        .find(|zone| touching.contains(&zone.id) && access.reachable.contains(&zone.id))
+        .map(|zone| zone.id.clone());
+    if candidate.is_none() && !touching.is_empty() {
         pose.translation = checkpoint
             .0
             .unwrap_or(Vec3::from_array(game.spawn) + Vec3::Y * (player.height * 0.5));
@@ -315,6 +336,7 @@ fn locate(
         return;
     }
     checkpoint.0 = Some(pose.translation);
+    contacts.0 = touching;
     zone.0 = candidate;
 }
 pub struct AccessPlugin;
@@ -326,12 +348,28 @@ impl Plugin for AccessPlugin {
             .add_message::<ZoneFlagSet>()
             .add_observer(activate_triggers)
             .init_resource::<CurrentZone>()
+            .init_resource::<PlayerZoneContacts>()
             .init_resource::<DoorEvidence>()
             .add_systems(
                 OnEnter(GameState::PreparingShaders),
                 assemble.in_set(crate::session::SessionSetup::World),
             )
-            .add_systems(Update, audio_evidence)
+            .add_systems(
+                Update,
+                (
+                    audio_evidence,
+                    synchronize_client_modes,
+                    clear_removed_player_contacts,
+                ),
+            )
+            .add_systems(
+                FixedUpdate,
+                synchronize_client_modes
+                    .in_set(GameStep::Movement)
+                    .after(crate::player::move_player)
+                    .before(crate::environment::triggers::contacts)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(
                 FixedUpdate,
                 (apply_flags, locate)
@@ -405,11 +443,13 @@ fn assemble(
     mut evidence: ResMut<DoorEvidence>,
     volumes: Query<(), With<ZoneSensor>>,
     mut zone: ResMut<CurrentZone>,
+    mut contacts: ResMut<PlayerZoneContacts>,
 ) {
     if !players.is_empty() {
         return;
     }
     zone.0 = None;
+    contacts.0.clear();
     if volumes.is_empty() {
         for v in &definition.access.volumes {
             if let Some(shape) = Collider::convex_hull(
@@ -549,5 +589,105 @@ fn opening(
             commands.entity(entity).despawn();
             evidence.animated += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::life::{PlayerLethalPolicy, ResolvedDamage, ReviveRestoration, Vitality};
+
+    fn player() -> Player {
+        Player {
+            yaw: 0.,
+            pitch: 0.,
+            velocity: Vec3::ZERO,
+            height: 1.8,
+            grounded: true,
+            crouched: false,
+            prone: false,
+            eye_height: 1.62,
+        }
+    }
+
+    #[test]
+    fn client_contact_modes_follow_damage_revive_and_respawn() {
+        let mut app = App::new();
+        app.register_required_components::<Player, TriggerClientMode>()
+            .init_resource::<CurrentZone>()
+            .init_resource::<PlayerZoneContacts>()
+            .add_systems(
+                Update,
+                (synchronize_client_modes, clear_removed_player_contacts),
+            );
+        let owner = app
+            .world_mut()
+            .spawn((
+                player(),
+                Vitality::human(100, 100, 1, PlayerLethalPolicy::SoloSelfRevive).unwrap(),
+            ))
+            .id();
+        let trigger = crate::environment::triggers::TriggerState::from_definition(
+            &crate::environment::triggers::TriggerDefinition {
+                id: "zone.sensor".into(),
+                position: [0.; 3],
+                target_position: None,
+                source: std::collections::BTreeMap::from([
+                    ("classname".into(), "trigger_box".into()),
+                    ("spawnflags".into(), "1024".into()),
+                ]),
+                shape: crate::environment::triggers::TriggerShape::Convex { volumes: vec![] },
+            },
+        );
+        app.update();
+        assert_eq!(app.world().get::<TriggerClientMode>(owner).unwrap().0, 0);
+        app.world_mut()
+            .get_mut::<Vitality>(owner)
+            .unwrap()
+            .apply(ResolvedDamage::new(100).unwrap())
+            .unwrap();
+        app.update();
+        let mode = app.world().get::<TriggerClientMode>(owner).unwrap().0;
+        assert_eq!(mode, 7);
+        assert!(trigger.accepts_player(mode));
+        {
+            let mut life = app.world_mut().get_mut::<Vitality>(owner).unwrap();
+            let episode = life.downed_episode().unwrap();
+            let token = life.begin_self_revive(owner, episode).unwrap();
+            life.complete_self_revive(owner, token, ReviveRestoration::new(100, 100).unwrap())
+                .unwrap();
+        }
+        app.update();
+        assert_eq!(app.world().get::<TriggerClientMode>(owner).unwrap().0, 0);
+        {
+            let mut life = app.world_mut().get_mut::<Vitality>(owner).unwrap();
+            life.apply(ResolvedDamage::new(100).unwrap()).unwrap();
+            let expiry = life.downed_expiry(owner).unwrap();
+            life.expire_downed(owner, expiry).unwrap();
+        }
+        app.update();
+        let mode = app.world().get::<TriggerClientMode>(owner).unwrap().0;
+        assert!(!trigger.accepts_player(mode));
+        app.world_mut().resource_mut::<CurrentZone>().0 = Some(ZoneId("zone.start".into()));
+        app.world_mut()
+            .resource_mut::<PlayerZoneContacts>()
+            .0
+            .insert(ZoneId("zone.start".into()));
+        app.world_mut().despawn(owner);
+        app.update();
+        assert!(app.world().resource::<CurrentZone>().0.is_none());
+        assert!(app.world().resource::<PlayerZoneContacts>().0.is_empty());
+        let replacement = app
+            .world_mut()
+            .spawn((
+                player(),
+                Vitality::human(100, 100, 1, PlayerLethalPolicy::SoloSelfRevive).unwrap(),
+            ))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world().get::<TriggerClientMode>(replacement).unwrap().0,
+            0
+        );
     }
 }
