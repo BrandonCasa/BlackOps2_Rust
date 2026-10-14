@@ -1331,6 +1331,35 @@ fn multiply_gloss_uses_encoded_tint_luminance_and_base_alpha() {
 }
 
 #[test]
+fn paged_counts_preserve_distinct_model_owners_with_the_same_local_surface_index() {
+    let sources = [
+        ("ivy_model_a_surface0", 0, 9),
+        ("ivy_model_b_surface0", 0, 6),
+        ("world_surface0", 0, 3),
+    ];
+    let parts = [
+        ("ivy_model_a_surface0", 0, 3),
+        ("ivy_model_b_surface0", 0, 6),
+        ("ivy_model_a_surface0", 0, 6),
+        ("world_surface0", 0, 3),
+    ];
+    validate_paged_counts(sources, parts).unwrap();
+
+    let mut missing = parts;
+    missing[0].2 -= 3;
+    assert!(validate_paged_counts(sources, missing).is_err());
+    assert!(validate_paged_counts(sources, parts.into_iter().chain([parts[0]])).is_err());
+
+    let mut reassigned = parts;
+    reassigned[0].0 = "ivy_model_b_surface0";
+    assert!(validate_paged_counts(sources, reassigned).is_err());
+    let mut unowned = parts;
+    unowned[0].1 = 1;
+    assert!(validate_paged_counts(sources, unowned).is_err());
+    assert!(validate_paged_counts(sources, parts.into_iter().chain([("unowned", 1, 3)])).is_err());
+}
+
+#[test]
 fn oversized_chart_rotation_preserves_geometry_and_directional_metric() {
     let points = [[0., 0.], [11521., 0.], [5760., 64.]];
     let a: [f64; 2] = std::array::from_fn(|axis| points[1][axis] - points[0][axis]);

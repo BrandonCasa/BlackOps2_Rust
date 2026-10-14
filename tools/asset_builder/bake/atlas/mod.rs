@@ -654,15 +654,41 @@ pub(super) fn layered(
             fragments[page_index].len()
         );
     }
-    for surface in surfaces {
-        let count: usize = result
+    validate_paged_counts(
+        surfaces.iter().map(|surface| {
+            (
+                surface.name.as_str(),
+                surface.source_index,
+                surface.indices.len(),
+            )
+        }),
+        result
             .iter()
-            .filter(|part| part.source_index == surface.source_index)
-            .map(|part| part.indices.len())
-            .sum();
-        if count != surface.indices.len() {
-            return Err("Paged bake changed a source surface triangle count".into());
+            .map(|part| (part.name.as_str(), part.source_index, part.indices.len())),
+    )?;
+    Ok(result)
+}
+
+pub(super) fn validate_paged_counts<'a>(
+    sources: impl IntoIterator<Item = (&'a str, usize, usize)>,
+    parts: impl IntoIterator<Item = (&'a str, usize, usize)>,
+) -> Result<()> {
+    let mut counts = BTreeMap::new();
+    for (name, source_index, count) in parts {
+        *counts.entry((name, source_index)).or_insert(0_usize) += count;
+    }
+    for (name, source_index, expected) in sources {
+        let actual = counts.remove(&(name, source_index)).unwrap_or(0);
+        if actual != expected {
+            return Err(format!(
+                "Paged bake changed a source surface triangle count: {name} (local surface {source_index}), expected {} triangles, got {}",
+                expected / 3,
+                actual / 3
+            ).into());
         }
     }
-    Ok(result)
+    if !counts.is_empty() {
+        return Err("Paged bake contains parts without a source surface".into());
+    }
+    Ok(())
 }
