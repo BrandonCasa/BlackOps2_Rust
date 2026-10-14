@@ -2237,7 +2237,7 @@ mod tests {
                 .0
                 .is_empty()
         );
-        let proxy = app
+        let mut proxy = app
             .world()
             .get::<RaytracingMesh3d>(objects[0].1)
             .unwrap()
@@ -2286,20 +2286,28 @@ mod tests {
             .resource::<Messages<AssetEvent<Mesh>>>()
             .get_cursor_current();
         app.update();
+        assert_eq!(
+            app.world().get::<RaytracingMesh3d>(objects[0].1).unwrap().0,
+            proxy
+        );
         assert!(
             !events
                 .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
-                .any(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
+                .any(|event| matches!(event, AssetEvent::Added { id } | AssetEvent::Modified { id } if *id == proxy.id()))
         );
         app.world_mut()
             .get_mut::<NativeArtInputs>(objects[0].0)
             .unwrap()
             .shader_time = Some((1750, 0.));
         app.update();
-        assert_eq!(
-            app.world().get::<RaytracingMesh3d>(objects[0].1).unwrap().0,
-            proxy
-        );
+        let previous_proxy = proxy;
+        proxy = app
+            .world()
+            .get::<RaytracingMesh3d>(objects[0].1)
+            .unwrap()
+            .0
+            .clone();
+        assert_ne!(proxy, previous_proxy);
         let meshes = app.world().resource::<Assets<Mesh>>();
         let Some(VertexAttributeValues::Float32x3(positions)) = meshes
             .get(&proxy)
@@ -2309,18 +2317,28 @@ mod tests {
             panic!()
         };
         assert!(positions[1][1] < -0.09);
+        let changes: Vec<_> = events
+            .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+            .copied()
+            .collect();
         assert_eq!(
-            events
-                .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
-                .filter(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
+            changes
+                .iter()
+                .filter(|event| matches!(event, AssetEvent::Added { id } if *id == proxy.id()))
                 .count(),
             1
         );
+        assert!(!changes.iter().any(|event| matches!(event,
+            AssetEvent::Modified { id } if *id == previous_proxy.id() || *id == proxy.id())));
         app.update();
+        assert_eq!(
+            app.world().get::<RaytracingMesh3d>(objects[0].1).unwrap().0,
+            proxy
+        );
         assert!(
             !events
                 .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
-                .any(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
+                .any(|event| matches!(event, AssetEvent::Added { id } | AssetEvent::Modified { id } if *id == proxy.id()))
         );
         app.world_mut()
             .entity_mut(objects[0].1)
@@ -2334,23 +2352,33 @@ mod tests {
         assert!(
             !events
                 .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
-                .any(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
+                .any(|event| matches!(event, AssetEvent::Added { id } | AssetEvent::Modified { id } if *id == proxy.id()))
         );
         app.world_mut()
             .entity_mut(objects[0].1)
             .insert(InheritedVisibility::VISIBLE);
         app.update();
+        let previous_proxy = proxy;
+        proxy = app
+            .world()
+            .get::<RaytracingMesh3d>(objects[0].1)
+            .unwrap()
+            .0
+            .clone();
+        assert_ne!(proxy, previous_proxy);
+        let changes: Vec<_> = events
+            .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+            .copied()
+            .collect();
         assert_eq!(
-            app.world().get::<RaytracingMesh3d>(objects[0].1).unwrap().0,
-            proxy
-        );
-        assert_eq!(
-            events
-                .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
-                .filter(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
+            changes
+                .iter()
+                .filter(|event| matches!(event, AssetEvent::Added { id } if *id == proxy.id()))
                 .count(),
             1
         );
+        assert!(!changes.iter().any(|event| matches!(event,
+            AssetEvent::Modified { id } if *id == previous_proxy.id() || *id == proxy.id())));
         let meshes = app.world().resource::<Assets<Mesh>>();
         assert_eq!(
             meshes
@@ -2374,6 +2402,27 @@ mod tests {
             app.world().get::<FlagMotion>(objects[0].1).unwrap().owner,
             Some(objects[1].0)
         );
+        let previous_proxy = proxy;
+        proxy = app
+            .world()
+            .get::<RaytracingMesh3d>(objects[0].1)
+            .unwrap()
+            .0
+            .clone();
+        assert_ne!(proxy, previous_proxy);
+        let changes: Vec<_> = events
+            .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
+            .copied()
+            .collect();
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|event| matches!(event, AssetEvent::Added { id } if *id == proxy.id()))
+                .count(),
+            1
+        );
+        assert!(!changes.iter().any(|event| matches!(event,
+            AssetEvent::Modified { id } if *id == previous_proxy.id() || *id == proxy.id())));
         let Some(VertexAttributeValues::Float32x3(positions)) = app
             .world()
             .resource::<Assets<Mesh>>()
