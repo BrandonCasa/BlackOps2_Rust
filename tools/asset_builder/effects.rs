@@ -521,6 +521,17 @@ mod tests {
             for (index, element) in effect["elements"].as_array().unwrap().iter().enumerate() {
                 *kinds.entry(element["type"].as_u64().unwrap()).or_default() += 1;
                 if matches!(element["type"].as_u64(), Some(9 | 11))
+                    || element["visuals"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|visual| {
+                            visual.as_str().is_some_and(|name| {
+                                name.eq_ignore_ascii_case(
+                                    "gfx_fxt_superflare_zmb_tomb_elec_bolt_lg",
+                                )
+                            })
+                        })
                     || ["impact", "emitted", "attached"].iter().any(|field| {
                         element[*field]
                             .as_str()
