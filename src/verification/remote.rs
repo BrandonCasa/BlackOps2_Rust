@@ -178,6 +178,7 @@ pub(super) fn install(app: &mut App, port: u16) {
                     accumulate_mouse_scroll_system,
                 ),
                 crate::input::collect,
+                crate::player::look,
                 crate::input::menu::navigate.run_if(in_state(GameState::Paused)),
                 crate::input::pause_and_restart,
                 scheduled_transition,
