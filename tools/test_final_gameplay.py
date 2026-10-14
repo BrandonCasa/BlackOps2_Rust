@@ -27,8 +27,8 @@ import test_weapon_locomotion as animation
 from test_throwable_down import binding, check, edge, schedule
 
 
-INITIAL_SECTIONS = ('initial_start', 'initial_controls', 'initial_combat', 'initial_rounds',
-                    'initial_life', 'initial_revive', 'initial_barriers')
+INITIAL_SECTIONS = ('initial_start', 'initial_controls', 'initial_combat', 'initial_melee',
+                    'initial_life', 'initial_revive', 'initial_barriers', 'initial_rounds')
 
 
 def normal_action(client, action, ticks=2):
@@ -75,6 +75,9 @@ def initial_start(client, report, game, output):
     pistol = next(w for w in game['content']['weapons'] if w['id'] == 'weapon.c96_zm')
     frag = next(w['throwable'] for w in game['content']['weapons'] if w['id'] == 'weapon.frag_grenade_zm')
     owned = state['player']['weapons']
+    check(report, 'initial_pack_declares_scoped_content', game['delivery_scope'] == 'first_playable_solo'
+          and game['render_meshes'] > 0 and game['collision_meshes'] > 0,
+          scene=game['scene'], collision_scene=game['collision_scene'])
     check(report, 'initial_source_loadout_without_grants', len(owned) == 1
           and owned[0]['id'] == pistol['id'] and owned[0]['magazine'] == pistol['magazine']
           and owned[0]['reserve'] == pistol['mechanics']['starting_reserve']
@@ -88,6 +91,9 @@ def initial_start(client, report, game, output):
     materials = client.call('origins/materials')
     check(report, 'initial_render_pipelines_ready', materials['pipelines']['pending'] == 0
           and materials['pipelines']['error'] is None, materials=materials)
+    check(report, 'initial_first_person_model_and_textures_loaded', materials['pending'] == 0
+          and bool(materials['first_person'])
+          and all(row['textures_ready'] for row in materials['first_person']), materials=materials)
     hud = ui.observe(client, lambda h: h['visible_images'] > 0
                      and h['loaded_images'] == h['visible_images'] and h['crosshair'])
     check(report, 'initial_hud_images_loaded', ui.text(hud, str(state['session']['points']))
@@ -152,6 +158,11 @@ def initial_combat(client, report, game, output):
     check(report, 'initial_pistol_consumes_one_round',
           fired['player']['weapons'][0]['magazine'] == before['player']['weapons'][0]['magazine'] - 1,
           fixture=fixture, before=before['player'], after=fired['player'])
+    shot_alias = game['audio']['bindings']['weapon.c96_zm.shot']
+    audible = client.until(lambda s: s['audio']['sinks'].get(shot_alias, 0)
+                           > before['audio']['sinks'].get(shot_alias, 0), timeout=10)
+    check(report, 'initial_pistol_creates_native_audio_sink', True,
+          alias=shot_alias, sinks=audible['audio']['sinks'])
     normal_action(client, 'reload')
     after = client.until(lambda s: s['player']['action'] == 'Ready'
                          and s['player']['weapons'][0]['magazine'] == before['player']['weapons'][0]['magazine'])
@@ -181,6 +192,29 @@ def initial_combat(client, report, game, output):
                                             'capture': ui.capture(client, output, 'initial-combat')}
 
 
+def initial_melee(client, report, game):
+    client.reset(difficulty='original')
+    before = client.until(lambda s: s['player']['grounded'] and s['player']['action'] == 'Ready')
+    player = before['player']
+    position = [player['position'][0] - math.sin(player['yaw']) * 1.1,
+                player['position'][1], player['position'][2] - math.cos(player['yaw']) * 1.1]
+    fixture = {'clear_enemies': True, 'pending': 1, 'pause_spawning_seconds': 300,
+               'enemies': [{'position': position, 'health': game['rounds']['health_start']}]}
+    admitted = client.call('origins/setup', fixture)['enemies'][0]
+    ready = client.until(lambda s: any(e['entity'] == admitted and e['ready'] for e in s['enemies']))
+    target = next(e for e in ready['enemies'] if e['entity'] == admitted)
+    point = target['position'].copy()
+    normal_look(client, game, point)
+    normal_action(client, 'melee')
+    after = client.until(lambda s: any(r['target'] == admitted and r['category'] == 'Melee'
+                                      for r in s['damage']['recent']))
+    hits = [r for r in after['damage']['recent'] if r['target'] == admitted and r['category'] == 'Melee']
+    check(report, 'initial_normal_knife_damages_source_health_enemy',
+          all(r['base_amount'] > 0 and r['points'] > 0 for r in hits)
+          and after['session']['points'] > ready['session']['points'],
+          fixture=fixture, hits=hits, before=ready['session'], after=after['session'])
+
+
 def initial_rounds(client, report, game, output, timeout):
     client.reset(difficulty='original')
     state = client.until(lambda s: s['player']['grounded'] and s['player']['action'] == 'Ready')
@@ -198,6 +232,7 @@ def initial_rounds(client, report, game, output, timeout):
         expected[number] = {'population': count, 'health': health}
     deadline = time.monotonic() + timeout
     completed = set()
+    emerged = set()
     round_log = []
     report['initial_rounds'] = round_log
     while time.monotonic() < deadline:
@@ -249,6 +284,14 @@ def initial_rounds(client, report, game, output, timeout):
             continue
         player = state['player']
         target = min(enemies, key=lambda enemy: math.dist(player['position'], enemy['position']))
+        if target['entity'] not in emerged:
+            animation_state = client.call('origins/animations')
+            observed = next((enemy for enemy in animation_state['enemies']
+                             if enemy['entity'] == target['entity']), None)
+            if observed is None or not observed['completed_emerging']:
+                client.wait_ticks(12)
+                continue
+            emerged.add(target['entity'])
         point = target['position'].copy()
         heads = [region for region in target['hit_regions'] if region['region'] == 'Head']
         if heads:
@@ -492,6 +535,8 @@ def main():
                     initial_revive(client, report, game, capture_output)
                 elif name == 'initial_barriers':
                     initial_barriers(client, report, game)
+                elif name == 'initial_melee':
+                    initial_melee(client, report, game)
                 elif name == 'ui':
                     ui.run(client, report, None if args.no_captures else output, game)
                 elif name == 'session':
