@@ -737,6 +737,49 @@ mod tests {
             "Source monolith crystal bindings: {}",
             visual_bindings["generator_crystals"]
         );
+        for (_, zone, root) in catalog.definitions(17) {
+            let streams = &catalog.zones[zone].1.streams;
+            let instances = Address::decode(streams.u32(root.add(876).unwrap()).unwrap()).unwrap();
+            for crystal in visual_bindings["generator_crystals"]["crystals"]
+                .as_array()
+                .unwrap()
+            {
+                let mut matches = 0;
+                for index in 0..streams.u32(root.add(784).unwrap()).unwrap() as usize {
+                    let instance = instances.add(index * 152).unwrap();
+                    let model = catalog
+                        .pointer(zone, instance.add(56).unwrap(), 5)
+                        .unwrap()
+                        .0;
+                    if !model.eq_ignore_ascii_case(crystal["source_model"].as_str().unwrap()) {
+                        continue;
+                    }
+                    let native: [f32; 3] = std::array::from_fn(|axis| {
+                        f32::from_bits(streams.u32(instance.add(4 + axis * 4).unwrap()).unwrap())
+                    });
+                    let position = [native[0] * 0.0254, native[2] * 0.0254, -native[1] * 0.0254];
+                    let target: [f32; 3] =
+                        serde_json::from_value(crystal["position"].clone()).unwrap();
+                    if position
+                        .iter()
+                        .zip(target)
+                        .map(|(a, b)| (a - b).powi(2))
+                        .sum::<f32>()
+                        < 0.0001
+                    {
+                        println!(
+                            "Source crystal {} already has native static instance {index} model {model} at {position:?}",
+                            crystal["target"]
+                        );
+                        matches += 1;
+                    }
+                }
+                println!(
+                    "Source crystal {} matching native static owners: {matches}",
+                    crystal["target"]
+                );
+            }
+        }
         let generators = entities
             .iter()
             .enumerate()
