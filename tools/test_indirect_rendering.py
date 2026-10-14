@@ -18,12 +18,17 @@ def settled(client, timeout=120):
         result = client.call("origins/materials")
         require(not result["pipelines"]["error"], "Render pipeline failed")
         if result["pending"] == 0 and result["pipelines"]["pending"] == 0:
-            consistency = result["pipelines"]["mesh_consistency"]
+            consistency = result["pipelines"]["mesh_consistency"] or {}
             require(not consistency.get("mismatches"), "Mesh allocator offsets disagree")
+            require(consistency.get("mismatch_frames", 0) == 0,
+                    "Mesh allocator or skin offsets disagreed in an earlier frame")
+            require(not consistency.get("first_mismatches"),
+                    "Mesh allocator or skin offset mismatch history is nonempty")
             require(result["preprocessing"]["active_mode"] == "gpu_culling", "GPU culling disabled")
-            return result
+            if consistency.get("frames", 0) > 0 and consistency.get("checked", 0) > 0:
+                return result
         time.sleep(0.1)
-    raise TimeoutError("Render pipelines did not settle")
+    raise TimeoutError("Render pipelines and skinned-mesh checks did not settle")
 
 
 def inputs(client, key, ticks):
@@ -43,6 +48,67 @@ def capture(client, path):
             return str(path)
         time.sleep(0.1)
     raise TimeoutError(f"Screenshot was not written: {path}")
+
+
+def bound_key(state, action):
+    for binding in state["controls"]["bindings"][action]:
+        if isinstance(binding, dict) and "key" in binding:
+            return binding["key"]
+        if isinstance(binding, dict) and binding.get("mouse") in ("Left", "Right", "Middle"):
+            return "Mouse" + binding["mouse"]
+    raise AssertionError(f"No supported keyboard or mouse binding for {action}")
+
+
+def weapon_views(client, report, output):
+    client.reset()
+    client.call("origins/setup", {"weapons": ["weapon.mp40_zm"], "clear_enemies": True,
+                                  "pending": 0, "pause_spawning_seconds": 120})
+    ready = client.until(lambda s: s.get("player") and s["player"]["action"] == "Ready"
+                         and s["player"]["weapons"][0]["id"] == "weapon.mp40_zm")
+    settled(client)
+    case = {"weapon": "weapon.mp40_zm", "captures": {}, "ready": ready}
+    report["weapon_views"] = case
+    case["captures"]["hip"] = capture(client, output / "weapon-hip.png")
+    aim = bound_key(ready, "aim")
+    fire = bound_key(ready, "fire")
+    reload_key = bound_key(ready, "reload")
+    try:
+        client.call("origins/input", {"events": [
+            {"tick": 1, "key": aim, "pressed": True},
+            {"tick": 3600, "key": aim, "pressed": False},
+        ]})
+        case["ads"] = client.until(lambda s: s["player"]["ads"] >= 0.99, timeout=10)
+        case["captures"]["ads"] = capture(client, output / "weapon-ads.png")
+        require(client.state()["player"]["ads"] >= 0.99, "ADS ended before capture completed")
+    finally:
+        client.release()
+    if ready["controls"]["aim_mode"] == "toggle":
+        inputs(client, aim, 1)
+    before = client.until(lambda s: s["player"]["ads"] <= 0.01
+                          and s["player"]["action"] == "Ready"
+                          and not s["held_inputs"] and not s["queued_inputs"])
+    try:
+        client.call("origins/input", {"events": [
+            {"tick": 1, "key": fire, "pressed": True},
+            {"tick": 3600, "key": fire, "pressed": False},
+        ]})
+        case["firing"] = client.until(lambda s: s["session"]["shots"] > before["session"]["shots"],
+                                      timeout=10)
+        case["captures"]["firing"] = capture(client, output / "weapon-firing.png")
+        case["after_firing_capture"] = client.state()
+    finally:
+        client.release()
+    before_reload = client.until(lambda s: s["player"]["action"] == "Ready"
+                                 and not s["held_inputs"] and not s["queued_inputs"])
+    inputs(client, reload_key, 1)
+    case["reload"] = client.until(lambda s: s["player"]["action"].startswith("Reloading"),
+                                  timeout=5)
+    case["captures"]["reload"] = capture(client, output / "weapon-reload.png")
+    case["after_reload_capture"] = client.state()
+    case["reloaded"] = client.until(lambda s: s["player"]["action"] == "Ready"
+                                    and s["player"]["weapons"][0]["magazine"]
+                                    > before_reload["player"]["weapons"][0]["magazine"])
+    case["render_after"] = settled(client)
 
 
 def gpu_cases(client, report):
@@ -121,8 +187,7 @@ def run(client, report, output, process, startup_only=False, require_bindless=Fa
     client.reset()
     client.call("origins/setup", {"clear_enemies": True, "pause_spawning_seconds": 120})
     before = client.wait_ticks(12)
-    key = next(binding["key"] for binding in before["controls"]["bindings"]["forward"]
-               if isinstance(binding, dict) and "key" in binding)
+    key = bound_key(before, "forward")
     after = inputs(client, key, 24)
     distance = math.dist(before["player"]["position"], after["player"]["position"])
     require(distance > 0.15, "Normal movement input did not move player")
@@ -142,9 +207,11 @@ def run(client, report, output, process, startup_only=False, require_bindless=Fa
         report["screenshots"].append(capture(client, output / f"rotation-{index}.png"))
     client.reset()
     before = client.wait_ticks(12)
-    after = inputs(client, "MouseLeft", 12)
+    after = inputs(client, bound_key(before, "fire"), 12)
     require(after["session"]["shots"] > before["session"]["shots"], "Fire input produced no shot")
     report["firing"] = {"before": before, "after": after}
+    report["screenshots"].append(capture(client, output / "firing.png"))
+    weapon_views(client, report, output)
     report["render_after"] = settled(client)
     shadows = report["render_after"]["shadows"]
     require(len(shadows["cameras"]) == 1 and shadows["cameras"][0]["active"], "Expected one active game camera")
@@ -159,6 +226,7 @@ def run(client, report, output, process, startup_only=False, require_bindless=Fa
     report["coverage_limits"] = [
         "Screenshots require visual review; pipeline success alone does not prove geometry.",
         "The offscreen GPU integration cases are separate from the native-scene gameplay checks.",
+        "The MP40 inventory and enemy suppression are setup; ADS, firing and reload use normal inputs.",
     ]
 
 
