@@ -110,6 +110,13 @@ pub fn build(install: &Path, output: &Path, preview: Option<&str>) -> Result<()>
     }
     let camos = crate::material::read_camos(&catalog)?;
     let camo_options = crate::material::read_camo_options(&catalog)?;
+    let (weapon_materials,attachment_materials) = crate::material::read_material_selection(&catalog)?;
+    for name in weapon_materials.values().filter_map(|weapon| weapon.camo.as_ref())
+        .chain(attachment_materials.values().filter_map(|attachment| attachment.camo.as_ref())) {
+        if !camos.contains_key(name) { return Err(format!("Native weapon/attachment camo definition {name} is missing").into()); }
+    }
+    println!("Recovered material selectors for {} native weapons and {} attachment definitions; packed selector delivery and live owner submissions remain required",
+        weapon_materials.len(),attachment_materials.len());
     if camo_options[45].is_none() { return Err("Required Origins upgraded camo option is missing from the installed source table".into()); }
     let camo_dependencies = crate::camo::camo_dependencies(&camos,&camo_options,45);
     let extra: std::collections::BTreeSet<_> = camo_dependencies.into_iter().filter(|name| !materials.contains_key(name)).collect();
@@ -351,6 +358,29 @@ mod tests {
         assert_eq!(gaps.len(),107);
         let camos = crate::material::read_camos(&catalog).unwrap();
         let options = crate::material::read_camo_options(&catalog).unwrap();
+        let (weapons,attachments) = crate::material::read_material_selection(&catalog).unwrap();
+        assert_eq!(weapons.len(),130);
+        assert_eq!(attachments.len(),56);
+        for name in weapons.values().filter_map(|weapon| weapon.camo.as_ref())
+            .chain(attachments.values().filter_map(|attachment| attachment.camo.as_ref())) {
+            assert!(camos.contains_key(name),"Selected source camo {name}");
+        }
+        for (name,a,b) in [("weapon.hamr_upgraded_zm",1,12),("weapon.type95_upgraded_zm",11,16),("weapon.type95_upgraded_zm",19,11)] {
+            let weapon = &weapons[name];
+            let index = weapon.main_models.iter().position(Option::is_some).unwrap();
+            let selected = weapon.attachments[a].as_ref().unwrap();
+            let original_camo = &attachments[selected].camo;
+            for mode in [0,1] {
+                let output = crate::camo::viewmodel_materials(weapon,None,&attachments,"controlled.slot0",
+                    ((a as u32)<<8)|((b as u32)<<14),0,index,mode).unwrap();
+                assert_eq!(output.models[0],"controlled.slot0");
+                assert_eq!(output.models[1],*weapon.main_models[index].as_ref().unwrap());
+                assert!(output.descriptors.len()<=8);
+                assert!(output.descriptors.iter().all(|descriptor| descriptor.mask&1 == 0));
+                assert!(output.descriptors.iter().any(|descriptor| descriptor.camo == *original_camo && descriptor.mask&!3 != 0));
+            }
+        }
+        println!("Resolved all {} weapon and {} attachment selector inputs and six controlled native combined-attachment descriptor plans; this is not active owner delivery",weapons.len(),attachments.len());
         assert_eq!(camos.len(),35);
         assert!(options[45].unwrap().material);
         assert_eq!(options[45].unwrap().selection,13);
