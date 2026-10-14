@@ -1175,6 +1175,7 @@ pub(crate) fn lifecycle(
         } else {
             navigation.traversal(feet, zombie.destination - Vec3::Y * half_height, &access)
         };
+        let mut approaching_barrier = false;
         if let Some(step) = step {
             let crate::navigation::TraversalStep {
                 start,
@@ -1193,6 +1194,26 @@ pub(crate) fn lifecycle(
                         d.xz().length_squared() < 0.25 && d.y.abs() < 0.8
                     })
             }) {
+                if zombie.barrier_wait > 0. { continue; }
+                let slot = zombie.barrier_slot.as_ref()
+                    .filter(|(id, _)| *id == window.id)
+                    .map(|(_, slot)| *slot)
+                    .or_else(|| barriers.slot(&window.id, entity, session.random()));
+                let Some(slot) = slot else {
+                    zombie.velocity = Vec3::ZERO;
+                    zombie.barrier_wait = 0.5;
+                    if !zombie.barrier_behavior(window, None, None, &transform, &mut session) {
+                        zombie.transition(EnemyAnimation::Idle);
+                    }
+                    continue;
+                };
+                zombie.barrier_slot = Some((window.id.clone(), slot));
+                let Some(attack_spot) = barriers.attack_spot(&window.id, slot) else { continue; };
+                if (attack_spot - feet).length_squared() > (2. * 0.0254_f32).powi(2) {
+                    zombie.destination = attack_spot + Vec3::Y * half_height;
+                    approaching_barrier = true;
+                }
+                if !approaching_barrier {
                 if barriers.obstructed(&window.id) {
                     zombie.velocity = Vec3::ZERO;
                     if zombie.barrier_wait>0. {continue;}
@@ -1264,7 +1285,9 @@ pub(crate) fn lifecycle(
                     continue;
                 }
                 barriers.entries += 1;
+                }
             }
+            if !approaching_barrier {
             let alias = if alias == "zm_mantle_over_40" {
                 if zombie.crawler {
                     "barrier_crawl"
@@ -1305,6 +1328,7 @@ pub(crate) fn lifecycle(
                 commands.entity(entity).insert(ColliderDisabled);
                 evidence.traversals_started += 1;
                 continue;
+            }
             }
         }
         let delta = zombie.destination - transform.translation;
@@ -1374,11 +1398,15 @@ pub(crate) fn lifecycle(
         let velocity = if zombie.action == EnemyAnimation::Attack {
             zombie.combat_rotation * displacement / dt
         } else {
-            direction * displacement.xz().length() / dt
+            direction * if approaching_barrier {
+                displacement.xz().length().min(delta.xz().length()) / dt
+            } else {
+                displacement.xz().length() / dt
+            }
         };
         zombie.velocity.x = velocity.x;
         zombie.velocity.z = velocity.z;
-        if moving {
+        if moving && !approaching_barrier {
             let mut separate = Vec3::ZERO;
             for (other, point) in &positions {
                 if *other == entity {
