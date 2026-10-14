@@ -33,9 +33,10 @@ fn exercise(
     mut next: ResMut<NextState<GameState>>,
     mut coverage: ResMut<Coverage>,
     mut settings: ResMut<crate::audio::AudioSettings>,
-    spatial: Query<&SpatialAudioSink>,
-    regular: Query<&AudioSink>,
+    spatial: Query<(&SpatialAudioSink, &crate::audio::PlayingSound)>,
+    regular: Query<(&AudioSink, &crate::audio::PlayingSound)>,
     evidence: Res<crate::audio::AudioEvidence>,
+    game: Option<Res<crate::assets::GameDefinition>>,
 ) {
     let Some(v) = verification else {
         return;
@@ -44,6 +45,11 @@ fn exercise(
         return;
     }
     coverage.age += time.delta_secs();
+    let pauseable = |sound: &crate::audio::PlayingSound| {
+        game.as_ref()
+            .and_then(|game| sound.native_definition(game))
+            .is_none_or(|native| native.pauseable)
+    };
     match coverage.phase {
         0 if **state == GameState::Playing
             && coverage.age > 1.
@@ -57,11 +63,19 @@ fn exercise(
         1 if **state == GameState::Paused
             && coverage.age > 0.2
             && !regular.is_empty()
-            && spatial.iter().all(|s| s.is_paused())
-            && regular.iter().all(|s| s.is_paused()) =>
+            && spatial
+                .iter()
+                .all(|(s, sound)| !pauseable(sound) || s.is_paused())
+            && regular
+                .iter()
+                .all(|(s, sound)| !pauseable(sound) || s.is_paused()) =>
         {
-            coverage.paused = spatial.iter().all(|s| s.is_paused())
-                && regular.iter().all(|s| s.is_paused())
+            coverage.paused = spatial
+                .iter()
+                .all(|(s, sound)| !pauseable(sound) || s.is_paused())
+                && regular
+                    .iter()
+                    .all(|(s, sound)| !pauseable(sound) || s.is_paused())
                 && !regular.is_empty();
             settings.music = 0.35;
             settings.effects = 0.5;
@@ -74,11 +88,11 @@ fn exercise(
         2 if **state == GameState::Playing
             && coverage.age > 0.2
             && !regular.is_empty()
-            && spatial.iter().all(|s| !s.is_paused())
-            && regular.iter().all(|s| !s.is_paused()) =>
+            && spatial.iter().all(|(s, _)| !s.is_paused())
+            && regular.iter().all(|(s, _)| !s.is_paused()) =>
         {
-            coverage.resumed =
-                spatial.iter().all(|s| !s.is_paused()) && regular.iter().all(|s| !s.is_paused());
+            coverage.resumed = spatial.iter().all(|(s, _)| !s.is_paused())
+                && regular.iter().all(|(s, _)| !s.is_paused());
             *settings = default();
             coverage.phase = 3;
         }
@@ -307,6 +321,7 @@ fn observe(
     mut c: ResMut<SourceExercise>,
     poses: Query<&GlobalTransform>,
     camera: Query<&GlobalTransform, With<crate::rendering::GameCamera>>,
+    game: Option<Res<crate::assets::GameDefinition>>,
     sounds: Query<
         (
             Entity,
@@ -314,6 +329,8 @@ fn observe(
             &GlobalTransform,
             &PlaybackSettings,
             Option<&SpatialAudioSink>,
+            Option<&AudioSink>,
+            &crate::audio::SemanticPlayback,
         ),
         Without<crate::audio::RetiringSound>,
     >,
@@ -323,7 +340,7 @@ fn observe(
         return;
     };
     coverage.previous.retain(|e, _| sounds.contains(*e));
-    for (entity, sound, pose, playback, sink) in &sounds {
+    for (entity, sound, pose, playback, spatial, regular, semantic) in &sounds {
         let position = pose.translation();
         let expected = match sound.source {
             SoundSource::World(p) => Some(p),
@@ -357,9 +374,18 @@ fn observe(
         } else {
             1.
         };
-        let expected_volume = sound.base * channel_gain * falloff;
+        let native = game.as_ref().and_then(|game| sound.native_definition(game));
+        let expected_volume = if native.is_some() {
+            playback.volume.to_linear()
+        } else {
+            sound.base * channel_gain * falloff
+        };
         if (playback.volume.to_linear() - expected_volume).abs() > 0.0001
-            || sink.is_some_and(|s| (s.volume().to_linear() - expected_volume).abs() > 0.0001)
+            || spatial.is_some_and(|s| (s.volume().to_linear() - expected_volume).abs() > 0.0001)
+            || regular.is_some_and(|s| (s.volume().to_linear() - expected_volume).abs() > 0.0001)
+            || semantic
+                .dry_gain()
+                .is_some_and(|gain| !gain.is_finite() || (gain - expected_volume).abs() > 0.0001)
         {
             coverage.volume_errors += 1;
         }
@@ -375,8 +401,18 @@ fn observe(
     }
     if (2..=5).contains(&c.phase) {
         if let Some(entity) = c.world_loop {
-            if let Ok((_, _, _, playback, Some(sink))) = sounds.get(entity) {
+            if let Ok((_, sound, _, playback, spatial, regular, semantic)) = sounds.get(entity) {
                 let phase = c.phase;
+                if let Some(actual) = semantic.dry_gain() {
+                    let synchronized = regular
+                        .is_some_and(|sink| (sink.volume().to_linear() - actual).abs() < 0.0001);
+                    c.rows.push(serde_json::json!({"case":"routed_native_gain","phase":phase,"passed":actual.is_finite() && synchronized && (actual-playback.volume.to_linear()).abs()<0.0001,"gain":actual,"alias":sound.alias,"entity":entity.to_bits()}));
+                    c.sampled = true;
+                    return;
+                }
+                let Some(sink) = spatial else {
+                    return;
+                };
                 let expected = match phase {
                     2 | 5 => 1.,
                     3 => 0.5,

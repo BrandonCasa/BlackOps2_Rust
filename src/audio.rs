@@ -995,7 +995,7 @@ impl NativeDucks {
     }
 }
 #[derive(Component, Default)]
-struct SemanticPlayback {
+pub(crate) struct SemanticPlayback {
     accepted: bool,
     completed: bool,
     dry_done: Option<Arc<AtomicBool>>,
@@ -1008,6 +1008,14 @@ struct SemanticPlayback {
     wet_curves: Option<[SoundCurve; 2]>,
     obstruction: f32,
     obstruction_target: f32,
+}
+impl SemanticPlayback {
+    #[cfg(feature = "dev-tools")]
+    pub(crate) fn dry_gain(&self) -> Option<f32> {
+        self.voice
+            .as_ref()
+            .map(|voice| f32::from_bits(voice.dry.load(Ordering::Relaxed)))
+    }
 }
 impl Drop for SemanticPlayback {
     fn drop(&mut self) {
@@ -1079,6 +1087,19 @@ pub(crate) struct PlayingSound {
     stop_remaining: Option<f32>,
     speed: f32,
     velocity: Vec3,
+}
+impl PlayingSound {
+    #[cfg(feature = "dev-tools")]
+    pub(crate) fn native_definition<'a>(
+        &self,
+        game: &'a GameDefinition,
+    ) -> Option<&'a NativeSound> {
+        game.audio
+            .aliases
+            .get(&self.alias)?
+            .native
+            .get(self.native?)
+    }
 }
 pub(crate) fn attenuation(distance: f32, minimum: f32, maximum: f32) -> f32 {
     if distance >= maximum {

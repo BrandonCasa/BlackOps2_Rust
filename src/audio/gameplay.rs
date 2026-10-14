@@ -956,14 +956,16 @@ fn world(
             SoundSource::World(Vec3::ZERO),
         );
         state.revive_gasp = Some(0.7);
-        voice(
-            &mut commands,
-            &game,
-            &session,
-            "heal_revived",
-            player,
-            session.kills,
-        );
+        if health.state() == LifeState::Standing {
+            voice(
+                &mut commands,
+                &game,
+                &session,
+                "heal_revived",
+                player,
+                session.kills,
+            );
+        }
     }
     state.downed = downed;
     if !last_stand_ended && let Some(remaining) = state.revive_gasp.as_mut() {
