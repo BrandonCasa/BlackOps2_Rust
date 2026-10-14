@@ -335,6 +335,13 @@ pub(crate) fn resolve(
                 .trunc()
                 .max(1.) as u32;
         }
+        if player
+            && (matches!(impact.category, DamageCategory::Explosive)
+                || matches!(impact.source, ImpactSource::Projectile(_)))
+            && health.current().is_some_and(|health| health > 75)
+        {
+            impact.amount = 75;
+        }
         let base_amount = impact.amount;
         if panzer.is_some()
             && matches!(impact.category, DamageCategory::Ice)
