@@ -985,6 +985,39 @@ fn native_contact(
     (next, resting, displacement)
 }
 
+fn native_trace(
+    query: &SpatialQuery,
+    start: Vec3,
+    delta: Vec3,
+    filter: &SpatialQueryFilter,
+) -> Option<(Entity, Vec3, Vec3, f32)> {
+    let direction = Dir3::new(delta).ok()?;
+    let mut hit = query
+        .cast_ray(start, direction, delta.length(), true, filter)
+        .map(|hit| {
+            (
+                hit.entity,
+                start + direction.as_vec3() * hit.distance.max(0.),
+                hit.normal,
+                (hit.distance / delta.length()).clamp(0., 1.),
+            )
+        });
+    if hit.is_none_or(|(_, _, normal, _)| normal.y > 0.7) {
+        let end = hit.map_or(start + delta, |(_, point, _, _)| point);
+        let top = end + Vec3::Y * (0.135 * 0.0254);
+        let length = (0.135 + 1.5) * 0.0254;
+        if let Some(ground) = query.cast_ray(top, Dir3::NEG_Y, length, true, filter) {
+            hit = Some((
+                ground.entity,
+                top + Vec3::Y * (1.5 * 0.0254 - ground.distance),
+                ground.normal,
+                (ground.distance / length).clamp(0., 1.),
+            ));
+        }
+    }
+    hit
+}
+
 pub(crate) fn flight(
     mut commands: Commands,
     session: Res<crate::session::SessionId>,
@@ -1074,26 +1107,38 @@ pub(crate) fn flight(
                     || Collider::sphere(grenade.radius),
                     |half| Collider::cuboid(half[0] * 2., half[1] * 2., half[2] * 2.),
                 );
-                let hit = query.cast_shape(
-                    &shape,
-                    transform.translation,
-                    Quat::IDENTITY,
-                    direction,
-                    &ShapeCastConfig::from_max_distance(delta.length()),
-                    &crate::environment::solids([grenade.owner]),
-                );
-                if let Some(hit) = hit {
-                    let normal = hit.normal1;
-                    transform.translation += direction.as_vec3() * hit.distance.max(0.);
-                    let fraction = (hit.distance / delta.length()).clamp(0., 1.);
+                let filter = crate::environment::solids([grenade.owner]);
+                let hit = if tuning.native_launch.is_some() {
+                    native_trace(&query, transform.translation, delta, &filter)
+                } else {
+                    query
+                        .cast_shape(
+                            &shape,
+                            transform.translation,
+                            Quat::IDENTITY,
+                            direction,
+                            &ShapeCastConfig::from_max_distance(delta.length()),
+                            &filter,
+                        )
+                        .map(|hit| {
+                            (
+                                hit.entity,
+                                transform.translation + direction.as_vec3() * hit.distance.max(0.),
+                                hit.normal1,
+                                (hit.distance / delta.length()).clamp(0., 1.),
+                            )
+                        })
+                };
+                if let Some((hit_entity, contact, normal, fraction)) = hit {
+                    transform.translation = contact;
                     if tuning.native_launch.is_some() {
                         velocity = before - Vec3::Y * gravity_step * fraction;
                         grenade.angles = before_angles + angular_velocity * motion_dt * fraction;
                     } else {
                         transform.translation += normal * 0.003;
                     }
-                    let surface = surfaces.get(hit.entity).map_or(
-                        if targets.contains(hit.entity) {
+                    let surface = surfaces.get(hit_entity).map_or(
+                        if targets.contains(hit_entity) {
                             "flesh"
                         } else {
                             "default"
@@ -1118,7 +1163,7 @@ pub(crate) fn flight(
                             crate::audio::SoundSource::World(transform.translation),
                         );
                         transform.rotation = Quat::from_rotation_arc(Vec3::Y, normal);
-                        grenade.motion = if let Ok((local, global, parent)) = poses.get(hit.entity)
+                        grenade.motion = if let Ok((local, global, parent)) = poses.get(hit_entity)
                         {
                             let pose = if !parent {
                                 *local
@@ -1126,7 +1171,7 @@ pub(crate) fn flight(
                                 global.compute_transform()
                             };
                             GrenadeMotion::Attached {
-                                target: hit.entity,
+                                target: hit_entity,
                                 offset: pose
                                     .compute_affine()
                                     .inverse()
@@ -1136,16 +1181,16 @@ pub(crate) fn flight(
                         } else {
                             GrenadeMotion::Resting
                         };
-                        let actor = targets.contains(hit.entity);
+                        let actor = targets.contains(hit_entity);
                         evidence.actor_attachments += u32::from(actor);
                         evidence.surface_attachments += u32::from(!actor);
-                        evidence.record(serde_json::json!({"event":"attach","target":hit.entity.to_bits(),"actor":actor,"position":transform.translation.to_array()}));
+                        evidence.record(serde_json::json!({"event":"attach","target":hit_entity.to_bits(),"actor":actor,"position":transform.translation.to_array()}));
                     } else {
                         let surface_index = surfaces
-                            .get(hit.entity)
+                            .get(hit_entity)
                             .ok()
                             .and_then(|(_, flags)| flags)
-                            .map_or(if targets.contains(hit.entity) { 7 } else { 0 }, |flags| {
+                            .map_or(if targets.contains(hit_entity) { 7 } else { 0 }, |flags| {
                                 ((flags.0 >> 20) & 0x3f) as usize
                             });
                         let incident = velocity;
@@ -1162,13 +1207,12 @@ pub(crate) fn flight(
                             velocity = next;
                             if let Ok(direction) = Dir3::new(wobble) {
                                 let distance = query
-                                    .cast_shape(
-                                        &shape,
+                                    .cast_ray(
                                         transform.translation,
-                                        Quat::IDENTITY,
                                         direction,
-                                        &ShapeCastConfig::from_max_distance(wobble.length()),
-                                        &crate::environment::solids([grenade.owner]),
+                                        wobble.length(),
+                                        true,
+                                        &filter,
                                     )
                                     .map_or(wobble.length(), |hit| hit.distance.max(0.));
                                 transform.translation += direction.as_vec3() * distance;
@@ -1433,6 +1477,51 @@ mod native_grenade_tests {
         assert!(kick.rotation(0.1).angle_between(Quat::IDENTITY) > 0.2);
         assert!(kick.rotation(0.499).angle_between(Quat::IDENTITY) < 0.001);
         assert_eq!(kick.rotation(0.5), Quat::IDENTITY);
+    }
+
+    #[test]
+    fn native_point_trace_advances_a_rolling_grenade_and_preserves_ground_clearance() {
+        use avian3d::collider_tree::{ColliderTreeProxy, ColliderTrees};
+        use bevy::ecs::system::SystemState;
+        let mut world = World::new();
+        let floor = Collider::cuboid(20., 0.2, 20.);
+        let floor_position = Vec3::new(0., -0.1, 0.);
+        let bounds = floor.aabb(floor_position, Quat::IDENTITY, 0.);
+        let entity = world
+            .spawn((Position(floor_position), Rotation::IDENTITY, floor, bounds))
+            .id();
+        let mut trees = ColliderTrees::default();
+        trees.static_tree.add_proxy(
+            bounds.into(),
+            ColliderTreeProxy {
+                collider: entity,
+                body: None,
+                layers: CollisionLayers::default(),
+                flags: default(),
+            },
+        );
+        world.insert_resource(trees);
+        let mut state = SystemState::<SpatialQuery>::new(&mut world);
+        let query = state.get(&world);
+        let tuning = profile();
+        let native = tuning.native_launch.as_ref().unwrap();
+        let mut body = grenade();
+        let mut position = Vec3::Y * (1.5 * 0.0254);
+        let mut velocity = Vec3::X * (50. * 0.0254);
+        for _ in 0..10 {
+            let delta = (velocity - Vec3::Y * (20.32 * 0.05 * 0.5)) * 0.05;
+            let (hit, contact, normal, fraction) =
+                native_trace(&query, position, delta, &SpatialQueryFilter::default()).unwrap();
+            assert_eq!(hit, entity);
+            assert!(contact.x > position.x + 0.05);
+            assert!((contact.y - 1.5 * 0.0254).abs() < 0.00001);
+            let incident = velocity - Vec3::Y * (20.32 * 0.05 * fraction);
+            let (next, resting, _) =
+                native_contact(&mut body, &tuning, native, incident, normal, 0, 20.32);
+            assert!(!resting);
+            position = contact;
+            velocity = next;
+        }
     }
 }
 

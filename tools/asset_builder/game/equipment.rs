@@ -276,6 +276,11 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
                 (0..32).map(|index| scalar(table, index * 4)).collect()
             };
             let sticky = integer(definition, 1840)?;
+            if streams.u8(definition.add(1848)?)? != 0 {
+                return Err(
+                    "Initial frag unexpectedly requires native plantable box traces".into(),
+                );
+            }
             if sticky != 0 {
                 return Err(format!(
                     "Initial frag grenade has unexpected native stickiness {sticky}"
