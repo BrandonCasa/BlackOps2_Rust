@@ -54,11 +54,61 @@ fn state(streams: &Streams, at: Address) -> Result<Value> {
     )
 }
 
+fn material_inputs<'a>(name: &str, native: &'a Value) -> Result<(&'a Value, &'static str, u64)> {
+    let family = native["technique_set"]
+        .as_str()
+        .ok_or("Native FX material family is absent")?;
+    let index = if family.starts_with("mc_lit_") || family.starts_with("wc_lit_") {
+        4
+    } else {
+        3
+    };
+    let pass = crate::material::contract::pass(native, index)?;
+    let binding = crate::material::contract::texture_binding(native, 2695565377)?;
+    if !pass["arguments"]
+        .as_array()
+        .ok_or("Native FX shader arguments are absent")?
+        .iter()
+        .any(|argument| argument["type"] == 2 && argument["value"] == 2695565377_u32)
+    {
+        return Err(format!(
+            "Required native FX material {name} ({family}) has no supported color-map consumer"
+        )
+        .into());
+    }
+    let state_index = native["state_entries"][index]
+        .as_u64()
+        .ok_or("Native FX state entry is absent")? as usize;
+    let state = native["state_bits"][state_index][0]
+        .as_u64()
+        .ok_or("Native FX state bits are absent")?;
+    let alpha = match state & 0x7ff {
+        0x12 => "opaque",
+        0x122 | 0x125 | 0x12a => "add",
+        0x165 => "blend",
+        0x131 => "multiply",
+        blend => {
+            return Err(format!(
+                "Required FX material {name} has unsupported native blend state {blend:#x}"
+            )
+            .into());
+        }
+    };
+    if binding["sampler"]
+        .as_u64()
+        .is_none_or(|sampler| sampler > 255)
+    {
+        return Err(format!("Required FX material {name} has invalid native sampler").into());
+    }
+    Ok((binding, alpha, state))
+}
+
 impl Effects {
     pub fn inputs(&self, catalog: &Catalog<'_>) -> Result<BTreeSet<String>> {
         let mut images = BTreeSet::new();
         for name in &self.materials {
             let material = crate::material::read(catalog, name)?;
+            material_inputs(name, &material)?;
             for binding in material["textures"]
                 .as_array()
                 .ok_or("Native FX material texture list is absent")?
@@ -84,24 +134,7 @@ impl Effects {
         let mut materials = BTreeMap::new();
         for name in &self.materials {
             let native = crate::material::read(catalog, name)?;
-            let family = native["technique_set"]
-                .as_str()
-                .ok_or("Native FX material family is absent")?;
-            let index = if family.starts_with("mc_lit_") || family.starts_with("wc_lit_") {
-                4
-            } else {
-                3
-            };
-            let pass = crate::material::contract::pass(&native, index)?;
-            let binding = crate::material::contract::texture_binding(&native, 2695565377)?;
-            if !pass["arguments"]
-                .as_array()
-                .ok_or("Native FX shader arguments are absent")?
-                .iter()
-                .any(|argument| argument["type"] == 2 && argument["value"] == 2695565377_u32)
-            {
-                return Err(format!("Required native FX material {name} ({family}) has no supported color-map consumer").into());
-            }
+            let (binding, alpha, _) = material_inputs(name, &native)?;
             let image = images
                 .iter()
                 .find(|image| {
@@ -117,23 +150,6 @@ impl Effects {
                         binding["image"]
                     )
                 })?;
-            let state_index = native["state_entries"][index]
-                .as_u64()
-                .ok_or("Native FX state entry is absent")? as usize;
-            let state = native["state_bits"][state_index][0]
-                .as_u64()
-                .ok_or("Native FX state bits are absent")?;
-            let alpha =
-                match state & 0x7ff {
-                    0x12 => "opaque",
-                    0x122 | 0x12a => "add",
-                    0x165 => "blend",
-                    0x131 => "multiply",
-                    blend => return Err(format!(
-                        "Required FX material {name} has unsupported native blend state {blend:#x}"
-                    )
-                    .into()),
-                };
             let (zone, root) = catalog.resolve(6, name)?;
             let streams = &catalog.zones[zone].1.streams;
             let columns = streams.u8(root.add(11)?)?;
@@ -148,15 +164,7 @@ impl Effects {
                 .as_str()
                 .ok_or("Required FX color-map URI is absent")?;
             pack.get(uri)?;
-            if binding["sampler"]
-                .as_u64()
-                .is_none_or(|sampler| sampler > 255)
-            {
-                return Err(
-                    format!("Required FX material {name} has invalid native sampler").into(),
-                );
-            }
-            let reason = "Native FX source pixel equations, depth feathering and source framebuffer transfer use the existing color-map PBR approximation";
+            let reason = "Native FX source pixel equations, depth feathering, destination-alpha composition and source framebuffer transfer use the existing color-map PBR approximation";
             let mut material = json!({"texture":uri,"sampler":binding["sampler"],"presentation":{"alpha":alpha},"columns":columns,"rows":rows,"native":native});
             if initial {
                 material["approximation_scope"] = json!("first_playable_solo");
@@ -164,7 +172,7 @@ impl Effects {
                 println!("Initial visual approximation: FX material {name}: {reason}");
             } else {
                 material["pending_runtime"] = json!(
-                    "Native FX source pixel equations, depth feathering and source framebuffer transfer require matching consumers"
+                    "Native FX source pixel equations, depth feathering, destination-alpha composition and source framebuffer transfer require matching consumers"
                 );
             }
             materials.insert(name, material);
@@ -531,9 +539,43 @@ mod tests {
                 }
             }
         }
+        let mut material_gaps = Vec::new();
+        let mut blend_states = BTreeMap::<u64, (String, usize)>::new();
+        assert!(
+            effects
+                .materials
+                .contains("gfx_fxt_env_dust_mote_pcloud_add")
+        );
         for name in &effects.materials {
-            crate::material::read(&catalog, name).unwrap();
+            let mut native = crate::material::read(&catalog, name).unwrap();
+            match material_inputs(name, &native) {
+                Ok((_, alpha, state)) => {
+                    blend_states
+                        .entry(state & 0x7ff)
+                        .or_insert((alpha.into(), 0))
+                        .1 += 1;
+                    if name == "gfx_fxt_env_dust_mote_pcloud_add" {
+                        assert_eq!(state & 0x7ff, 0x125);
+                        assert_eq!(alpha, "add");
+                        let state_index = native["state_entries"][3].as_u64().unwrap() as usize;
+                        native["state_bits"][state_index][0] = json!((state & !0x7ff) | 0x225);
+                        assert!(
+                            material_inputs(name, &native)
+                                .unwrap_err()
+                                .to_string()
+                                .contains("unsupported native blend state 0x225")
+                        );
+                    }
+                }
+                Err(error) => material_gaps.push(error.to_string()),
+            }
         }
+        println!("Required FX native RGB blend states: {blend_states:?}");
+        assert!(
+            material_gaps.is_empty(),
+            "Required FX material compatibility gaps:\n{}",
+            material_gaps.join("\n")
+        );
         assert!(
             roots
                 .iter()
