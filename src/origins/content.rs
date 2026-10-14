@@ -1955,6 +1955,8 @@ impl ContentCatalog {
             valid(
                 v.repair_origin.iter().all(|value| value.is_finite())
                     && v.repair_yaw.is_finite()
+                    && positive(v.attack_spacing)
+                    && v.attack_yaw.is_finite()
                     && positive(v.repair_radius)
                     && positive(v.repair_height)
                     && positive(v.repair_interval)

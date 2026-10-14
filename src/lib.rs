@@ -239,7 +239,12 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         hud::HudPlugin,
         verification::VerificationPlugin,
     ));
-    app.add_plugins((native_fx::NativeFxPlugin, actions::ActionPlugin));
+    app.add_plugins((
+        native_fx::NativeFxPlugin,
+        actions::ActionPlugin,
+        generators::GeneratorPlugin,
+        powerups::PowerupPlugin,
+    ));
     if delivery_scope == origins::DeliveryScope::FullOrigins {
         app.add_plugins((
             quests::QuestPlugin,
@@ -248,8 +253,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             buildables::BuildablePlugin,
             tank::TankPlugin,
             panzer::PanzerPlugin,
-            powerups::PowerupPlugin,
-            generators::GeneratorPlugin,
         ));
         app.add_plugins((
             side_rewards::SideRewardPlugin,
@@ -274,18 +277,13 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         app.init_resource::<quests::MainQuest>()
             .init_resource::<buildables::BuildableState>()
             .init_resource::<crafting::Crafting>()
-            .init_resource::<generators::Generators>()
-            .init_resource::<generators::GeneratorRaids>()
             .init_resource::<panzer::PanzerWaves>()
             .init_resource::<robots::Robots>()
             .init_resource::<rituals::Rituals>()
             .init_resource::<staff_upgrades::StaffUpgrades>()
             .init_resource::<staff_puzzles::StaffPuzzles>()
             .init_resource::<side_secrets::Secrets>()
-            .init_resource::<powerups::PowerupEffects>()
-            .init_resource::<powerups::Drops>()
-            .add_message::<quests::SoulCollected>()
-            .add_message::<powerups::PowerupCollected>();
+            .add_message::<quests::SoulCollected>();
     }
     if cfg!(debug_assertions)
         && !release_benchmark

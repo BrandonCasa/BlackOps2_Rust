@@ -12,8 +12,8 @@ use bevy::{
         ButtonState, InputSystems,
         keyboard::{Key, KeyboardInput, NativeKey, keyboard_input_system},
         mouse::{
-            MouseButtonInput, accumulate_mouse_motion_system, accumulate_mouse_scroll_system,
-            mouse_button_input_system,
+            MouseButtonInput, MouseMotion, accumulate_mouse_motion_system,
+            accumulate_mouse_scroll_system, mouse_button_input_system,
         },
     },
     prelude::*,
@@ -33,7 +33,7 @@ struct RemoteState {
     tick: u64,
     epoch: u64,
     reset: bool,
-    queue: BTreeMap<u64, Vec<Edge>>,
+    queue: BTreeMap<u64, Vec<InputEvent>>,
     held: BTreeMap<String, Edge>,
 }
 #[derive(Clone, Deserialize)]
@@ -43,10 +43,30 @@ struct Edge {
     key: String,
     pressed: bool,
 }
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Motion {
+    tick: u64,
+    motion: [f32; 2],
+}
+#[derive(Clone, Deserialize)]
+#[serde(untagged)]
+enum InputEvent {
+    Button(Edge),
+    Motion(Motion),
+}
+impl InputEvent {
+    fn tick(&self) -> u64 {
+        match self {
+            Self::Button(edge) => edge.tick,
+            Self::Motion(motion) => motion.tick,
+        }
+    }
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Inputs {
-    events: Vec<Edge>,
+    events: Vec<InputEvent>,
 }
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -226,12 +246,21 @@ fn scheduled(world: &mut World) {
             remote.reset = false;
         }
         if let Some(edges) = remote.queue.remove(&tick) {
-            for edge in edges {
-                if send(world, &edge).is_ok() {
-                    if edge.pressed {
-                        remote.held.insert(edge.key.clone(), edge);
-                    } else {
-                        remote.held.remove(&edge.key);
+            for event in edges {
+                match event {
+                    InputEvent::Motion(motion) => {
+                        world.write_message(MouseMotion {
+                            delta: Vec2::from_array(motion.motion),
+                        });
+                    }
+                    InputEvent::Button(edge) => {
+                        if send(world, &edge).is_ok() {
+                            if edge.pressed {
+                                remote.held.insert(edge.key.clone(), edge);
+                            } else {
+                                remote.held.remove(&edge.key);
+                            }
+                        }
                     }
                 }
             }
@@ -266,7 +295,7 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
             "origins/assets":{"params":{},"result":"Preview load state, mesh visibility ranges, skin readiness, animation players and local bone poses"},
             "origins/capture":{"params":{"path":"absolute PNG path"},"result":"asynchronous screenshot request"},
             "origins/reset":{"params":{"difficulty":"optional original or easy"},"effect":"Release inputs, select next session difficulty, transition to GameOver, send normal RestartGame"},
-            "origins/input":{"params":{"events":[{"tick":"relative integer 1..3600","key":"Bevy KeyCode name or MouseLeft/MouseRight/MouseMiddle","pressed":"boolean"}]},"max_events":512,"effect":"Queue native input messages; automatic release after final scheduled tick"},
+            "origins/input":{"params":{"events":[{"tick":"relative integer 1..3600","key":"Bevy KeyCode name or MouseLeft/MouseRight/MouseMiddle","pressed":"boolean"},{"tick":"relative integer 1..3600","motion":"finite [dx,dy] mouse pixels"}]},"max_events":512,"effect":"Queue native input messages; automatic button release after final scheduled tick"},
             "origins/release":{"params":{},"effect":"Cancel queued input and release remotely held buttons"},
             "origins/quit":{"params":{},"effect":"Release remote inputs and emit normal AppExit"},
             "origins/setup":{"params":{"points":"optional u32","position":"optional [x,y,z] player center","yaw":"optional radians","pitch":"optional radians","weapons":"optional 1..2 native weapon IDs","charge_level":"optional 0..3 source staff charge level, scenario setup","equipment":"optional up to 3 native IDs, one per lethal/tactical/mine slot","pickups":[{"id":"supported native powerup ID","position":"[x,y,z]"}],"owned_perks":"optional 0..8 unique native perk IDs","open_connections":"optional native door connection IDs","blast":{"session_id":"u64","center":"[x,y,z]","damage":"0..1000000","radius":"0.01..100"},"round_event":{"session_id":"u64","round":"1..10000"},"clear_enemies":"optional bool","pending":"optional 0..10000","pause_spawning_seconds":"optional 0..300","enemies":[{"position":"[x,y,z]","health":"1..1000000, default100","defender":"optional generator ID"}]},"max_enemies":64,"max_pickups":64,"effect":"Direct scenario setup only; not evidence of gameplay"}
@@ -280,11 +309,17 @@ fn input(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         return Err(error("Expected 1..512 events"));
     }
     for event in &request.events {
-        if !(1..=3600).contains(&event.tick) {
+        if !(1..=3600).contains(&event.tick()) {
             return Err(error("Tick outside 1..3600"));
         }
-        if mouse(&event.key).is_none() {
-            key_code(&event.key)?;
+        match event {
+            InputEvent::Button(edge) if mouse(&edge.key).is_none() => {
+                key_code(&edge.key)?;
+            }
+            InputEvent::Motion(motion) if motion.motion.iter().any(|value| !value.is_finite()) => {
+                return Err(error("Mouse motion must be finite"));
+            }
+            _ => (),
         }
     }
     let mut remote = world.resource_mut::<RemoteState>();
@@ -292,19 +327,25 @@ fn input(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         return Err(error("Release or finish the existing input batch first"));
     }
     let start = remote.tick;
-    let last = request.events.iter().map(|e| e.tick).max().unwrap();
+    let last = request.events.iter().map(InputEvent::tick).max().unwrap();
     let mut keys = BTreeMap::new();
-    for edge in request.events {
-        keys.insert(edge.key.clone(), edge.clone());
+    for event in request.events {
+        if let InputEvent::Button(edge) = &event {
+            keys.insert(edge.key.clone(), edge.clone());
+        }
         remote
             .queue
-            .entry(start + edge.tick)
+            .entry(start + event.tick())
             .or_default()
-            .push(edge);
+            .push(event);
     }
     for (_, mut edge) in keys {
         edge.pressed = false;
-        remote.queue.entry(start + last + 1).or_default().push(edge);
+        remote
+            .queue
+            .entry(start + last + 1)
+            .or_default()
+            .push(InputEvent::Button(edge));
     }
     Ok(json!({"start_tick":start,"finish_tick":start+last+1}))
 }
@@ -371,6 +412,18 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
     let history = world.resource::<crate::damage::CombatHistory>();
     result["damage"] = json!({"awarded_points":history.awarded_points,"headshot_kills":history.headshot_kills,"melee_kills":history.melee_kills,
         "recent":history.recent.iter().map(|receipt|json!({"attacker":receipt.impact.attacker.to_bits(),"target":receipt.impact.target.to_bits(),"source":receipt.impact.source.id(),"category":format!("{:?}",receipt.impact.category),"region":format!("{:?}",receipt.impact.region),"amount":receipt.impact.amount,"base_amount":receipt.base_amount,"lethal":receipt.lethal,"points":receipt.points,"aimed_bullet":receipt.aimed_bullet,"insta_kill":receipt.insta_kill,"soul_eligible":receipt.can_supply_soul()})).collect::<Vec<_>>()});
+    if let Some(evidence) = world.get_resource::<crate::player_health::HealthEvidence>() {
+        result["health_evidence"] = json!({"nonterminal_hits":evidence.nonterminal_hits,"immunity_rejections":evidence.immunity_rejections,"terminal_rejections":evidence.terminal_rejections,
+            "death_events":evidence.death_events,"feedback_events":evidence.feedback_events,"hits":evidence.hits,"heals":evidence.heals});
+    }
+    if let Some(evidence) = world.get_resource::<crate::solo_revive::SoloReviveEvidence>() {
+        result["solo_revive_evidence"] = json!({"events":evidence.events});
+    }
+    if let Some(evidence) = world.get_resource::<crate::enemies::EnemyEvidence>() {
+        result["enemy_evidence"] = json!({"attacks_started":evidence.attacks_started,"attack_hits":evidence.attack_hits,"deaths":evidence.deaths,"replans":evidence.replans,
+            "corpses_retired":evidence.corpses_retired,"corpses_evicted":evidence.corpses_evicted,"corpses_removed":evidence.corpses_removed,
+            "traversals_started":evidence.traversals_started,"traversals_finished":evidence.traversals_finished,"rising_finished":evidence.rising_finished});
+    }
     result["equipment"]["active_grenades"] = json!(world.query::<(Entity, &crate::equipment::Grenade, &Transform)>().iter(world)
         .map(|(entity, grenade, pose)| json!({"entity":entity.to_bits(),"id":grenade.definition.0,"remaining":grenade.remaining,"position":pose.translation.to_array()})).collect::<Vec<_>>());
     result["equipment"]["mine_placed"] =
@@ -455,7 +508,30 @@ fn snapshot(_: In<Option<Value>>, world: &mut World) -> BrpResult {
             json!({"ordinary":p.ordinary,"special":p.special,"defenders":p.defenders});
     }
     if let Some(r) = world.get_resource::<crate::rounds::RoundEvidence>() {
-        result["round_evidence"] = json!({"retired":r.retired,"requeued":r.requeued,"replacement_admissions":r.replacement_admissions,"attempts":r.attempts,"admitted":r.admitted,"transitions":r.transitions});
+        result["round_evidence"] = json!({"retired":r.retired,"requeued":r.requeued,"replacement_admissions":r.replacement_admissions,"attempts":r.attempts,"admitted":r.admitted,"transitions":r.transitions,
+            "failed_admissions":r.failed_admissions,"budget_consumed_on_failure":r.budget_consumed_on_failure,"peak_ordinary":r.peak_ordinary,"cap_waits":r.cap_waits,"intermission_seconds":r.intermission_seconds});
+    }
+    if let Some(barriers) = world.get_resource::<crate::barriers::Barriers>() {
+        let game = world.resource::<GameDefinition>();
+        result["barriers"] = json!({"repaired":barriers.repaired,"destroyed":barriers.destroyed,"entries":barriers.entries,"awarded":barriers.awarded,
+            "use_progress":barriers.use_progress(),"windows":game.content.barriers.iter().map(|definition| {
+                let boards = barriers.windows.get(&definition.id).into_iter().flatten().map(|state| {
+                    use crate::barriers::BoardState;
+                    json!({"state":format!("{state:?}"),"present":!matches!(state,BoardState::Missing | BoardState::Opening(_)),"repairing":matches!(state,BoardState::Closing(_))})
+                }).collect::<Vec<_>>();
+                json!({"id":definition.id.0,"placement":definition.placement.0,"repair_origin":definition.repair_origin,"repair_radius":definition.repair_radius,"repair_height":definition.repair_height,
+                    "repairable":barriers.repairable(&definition.id),"boards":boards})
+            }).collect::<Vec<_>>()});
+    }
+    if let Some(access) = world.get_resource::<crate::access::ZoneAccess>() {
+        result["zones"] = json!({"current":world.resource::<crate::access::CurrentZone>().0.as_ref().map(|id|&id.0),
+            "contacts":world.resource::<crate::access::PlayerZoneContacts>().0.iter().map(|id|&id.0).collect::<Vec<_>>(),
+            "occupied":access.occupied.iter().map(|id|&id.0).collect::<Vec<_>>(),"active":access.active.iter().map(|id|&id.0).collect::<Vec<_>>(),
+            "reachable":access.reachable.iter().map(|id|&id.0).collect::<Vec<_>>(),"flags":access.flags});
+        result["player"]["trigger_client_mode"] = entities
+            .first()
+            .and_then(|entity| world.get::<crate::access::TriggerClientMode>(*entity))
+            .map_or(Value::Null, |mode| json!(mode.0));
     }
     if let Some(d) = world.get_resource::<crate::powerups::Drops>() {
         result["drops"] = json!({"spawned":d.spawned,"collected":d.collected,"expired":d.expired});
@@ -738,7 +814,7 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         if let Some(id) = actor.defender {
             entity.insert((
                 crate::rounds::PopulationKind::GeneratorDefender,
-                crate::generators::GeneratorDefender::new(crate::origins::ContentId(id),0),
+                crate::generators::GeneratorDefender::new(crate::origins::ContentId(id), 0),
             ));
         } else {
             entity.insert(crate::rounds::PopulationKind::Ordinary);
@@ -1051,5 +1127,71 @@ fn preview_ready(
             bevy::camera::visibility::RenderLayers::layer(1),
             bevy::light::NotShadowCaster,
         ));
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    #[test]
+    fn scheduled_mouse_motion_and_buttons_keep_native_timing_and_release() {
+        let mut app = App::new();
+        app.init_resource::<RemoteState>()
+            .add_message::<MouseMotion>()
+            .add_message::<KeyboardInput>()
+            .add_message::<MouseButtonInput>();
+        app.world_mut().spawn(PrimaryWindow);
+        let reply = input(
+            In(Some(json!({"events":[
+                {"tick":1,"key":"MouseLeft","pressed":true},
+                {"tick":2,"motion":[12.,-4.]}
+            ]}))),
+            app.world_mut(),
+        )
+        .unwrap();
+        assert_eq!(reply["finish_tick"], 3);
+        scheduled(app.world_mut());
+        assert!(app.world().resource::<Messages<MouseMotion>>().is_empty());
+        let pressed: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<MouseButtonInput>>()
+            .drain()
+            .collect();
+        assert_eq!(pressed.len(), 1);
+        assert_eq!(pressed[0].state, ButtonState::Pressed);
+        scheduled(app.world_mut());
+        let motion: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<MouseMotion>>()
+            .drain()
+            .collect();
+        assert_eq!(motion.len(), 1);
+        assert_eq!(motion[0].delta, Vec2::new(12., -4.));
+        scheduled(app.world_mut());
+        let released: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<MouseButtonInput>>()
+            .drain()
+            .collect();
+        assert_eq!(released.len(), 1);
+        assert_eq!(released[0].state, ButtonState::Released);
+        assert!(app.world().resource::<RemoteState>().held.is_empty());
+        assert!(app.world().resource::<RemoteState>().queue.is_empty());
+    }
+
+    #[test]
+    fn input_rejects_ambiguous_events_without_mutating_the_queue() {
+        let mut app = App::new();
+        app.init_resource::<RemoteState>();
+        app.world_mut().spawn(PrimaryWindow);
+        for events in [
+            json!([{"tick":1,"key":"KeyW","pressed":true,"motion":[1.,0.]}]),
+            json!([{"tick":0,"motion":[1.,0.]}]),
+            json!([{"tick":1,"key":"UnknownKey","pressed":true}]),
+        ] {
+            assert!(input(In(Some(json!({"events":events}))), app.world_mut()).is_err());
+            assert!(app.world().resource::<RemoteState>().queue.is_empty());
+        }
     }
 }
