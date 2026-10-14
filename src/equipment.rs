@@ -343,6 +343,7 @@ pub struct Grenade {
     wobble: f32,
     curve: f32,
     random: u64,
+    contacts: u32,
     pub lure_active: bool,
 }
 impl Grenade {
@@ -466,6 +467,7 @@ pub(crate) fn dig_grenade(
             wobble: 0.,
             curve: 0.,
             random: owner.to_bits(),
+            contacts: 0,
             lure_active: false,
         },
         Transform::from_translation(position),
@@ -793,6 +795,7 @@ pub(crate) fn throw_input(
                             wobble: 0.,
                             curve: 0.,
                             random: seed,
+                            contacts: 0,
                             lure_active: false,
                         },
                         SessionEntity,
@@ -990,7 +993,7 @@ fn native_trace(
     start: Vec3,
     delta: Vec3,
     filter: &SpatialQueryFilter,
-) -> Option<(Entity, Vec3, Vec3, f32)> {
+) -> Option<(Entity, Vec3, Vec3, f32, Option<Vec3>)> {
     let direction = Dir3::new(delta).ok()?;
     let mut hit = query
         .cast_ray(start, direction, delta.length(), true, filter)
@@ -1000,10 +1003,11 @@ fn native_trace(
                 start + direction.as_vec3() * hit.distance.max(0.),
                 hit.normal,
                 (hit.distance / delta.length()).clamp(0., 1.),
+                None,
             )
         });
-    if hit.is_none_or(|(_, _, normal, _)| normal.y > 0.7) {
-        let end = hit.map_or(start + delta, |(_, point, _, _)| point);
+    if hit.is_none_or(|(_, _, normal, _, _)| normal.y > 0.7) {
+        let end = hit.map_or(start + delta, |(_, point, _, _, _)| point);
         let top = end + Vec3::Y * (0.135 * 0.0254);
         let length = (0.135 + 1.5) * 0.0254;
         if let Some(ground) = query.cast_ray(top, Dir3::NEG_Y, length, true, filter) {
@@ -1012,6 +1016,7 @@ fn native_trace(
                 top + Vec3::Y * (1.5 * 0.0254 - ground.distance),
                 ground.normal,
                 (ground.distance / length).clamp(0., 1.),
+                Some(top - Vec3::Y * ground.distance),
             ));
         }
     }
@@ -1093,6 +1098,7 @@ pub(crate) fn flight(
             && motion_dt > 0.
         {
             let before = velocity;
+            let position_before = transform.translation;
             let before_angles = grenade.angles;
             let angular_velocity = grenade.angular_velocity;
             grenade.angles += angular_velocity * motion_dt;
@@ -1126,10 +1132,11 @@ pub(crate) fn flight(
                                 transform.translation + direction.as_vec3() * hit.distance.max(0.),
                                 hit.normal1,
                                 (hit.distance / delta.length()).clamp(0., 1.),
+                                None,
                             )
                         })
                 };
-                if let Some((hit_entity, contact, normal, fraction)) = hit {
+                if let Some((hit_entity, contact, normal, fraction, ground_point)) = hit {
                     transform.translation = contact;
                     if tuning.native_launch.is_some() {
                         velocity = before - Vec3::Y * gravity_step * fraction;
@@ -1254,8 +1261,27 @@ pub(crate) fn flight(
                         } else {
                             GrenadeMotion::Flying(velocity)
                         };
+                        grenade.contacts += 1;
                         evidence.bounces += 1;
-                        evidence.record(serde_json::json!({"event":"bounce","normal":normal.to_array(),"surface":surface_index,"position":transform.translation.to_array(),"speed":velocity.length(),"velocity":velocity.to_array(),"resting":resting,"rotation":transform.rotation.to_array()}));
+                        let rolling = tuning
+                            .native_launch
+                            .as_ref()
+                            .is_some_and(|native| native.rolling)
+                            && incident.dot(normal) <= 0.
+                            && incident.dot(normal).abs() < 25. * 0.0254;
+                        if !rolling
+                            || resting
+                            || grenade.contacts <= 4
+                            || grenade.contacts % 16 == 0
+                        {
+                            evidence.record(serde_json::json!({"event":"bounce","entity":entity.to_bits(),
+                                "motion":if resting {"resting"} else if rolling {"rolling"} else {"bouncing"},
+                                "normal":normal.to_array(),"surface":surface_index,
+                                "position":transform.translation.to_array(),"position_before":position_before.to_array(),
+                                "position_after":transform.translation.to_array(),"ground_point":ground_point.map(Vec3::to_array),
+                                "speed":velocity.length(),"velocity":velocity.to_array(),"resting":resting,
+                                "rotation":transform.rotation.to_array()}));
+                        }
                     }
                 } else {
                     if cfg!(debug_assertions)
@@ -1363,6 +1389,7 @@ mod native_grenade_tests {
             wobble: 0.,
             curve: 0.,
             random: 1,
+            contacts: 0,
             lure_active: false,
         }
     }
@@ -1510,11 +1537,12 @@ mod native_grenade_tests {
         let mut velocity = Vec3::X * (50. * 0.0254);
         for _ in 0..10 {
             let delta = (velocity - Vec3::Y * (20.32 * 0.05 * 0.5)) * 0.05;
-            let (hit, contact, normal, fraction) =
+            let (hit, contact, normal, fraction, ground_point) =
                 native_trace(&query, position, delta, &SpatialQueryFilter::default()).unwrap();
             assert_eq!(hit, entity);
             assert!(contact.x > position.x + 0.05);
             assert!((contact.y - 1.5 * 0.0254).abs() < 0.00001);
+            assert!(ground_point.unwrap().y.abs() < 0.00001);
             let incident = velocity - Vec3::Y * (20.32 * 0.05 * fraction);
             let (next, resting, _) =
                 native_contact(&mut body, &tuning, native, incident, normal, 0, 20.32);
