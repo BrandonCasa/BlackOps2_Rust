@@ -503,12 +503,19 @@ fn convert_single_unlit(key: &str, native: &Value, images: &BTreeMap<String,text
         let row = constants.iter().find(|constant| constant["hash"] == hash).ok_or("Missing bound single-layer image parameter")?;
         Ok(serde_json::from_value(row["literal"].clone())?)
     };
-    let amount = constant(if layered {14836402} else {2875883048})?[0];
+    let eyes = mode == "eyes";
+    let eye_state: Option<[f32;4]> = if eyes && !native["code_constants"]["171"].is_null() {
+        let state: [f32;4] = serde_json::from_value(native["code_constants"]["171"].clone())?;
+        if state.iter().any(|value| !value.is_finite()) {return Err("Non-finite native eye luminance input".into());}Some(state)
+    } else {None};
+    let amount = if eyes {eye_state.unwrap_or([0.;4])[1]} else {constant(if layered {14836402} else {2875883048})?[0]};
     let uv = if layered {Some([constant(3320325482)?,constant(3286424575)?,constant(3272022534)?,constant(1886964550)?])} else {None};
     let image = if let Some([scale,offset,origin,rotation]) = uv {
         authored_unlit_uv(source,[scale[0],scale[1]],[offset[0],offset[1]],[origin[0],origin[1]],rotation[0],20)?
     } else {source.clone()};
-    let operation = if layered {"source_layer"} else {match mode {"add" => "source_vm_add","blend" => "source_vm_blend",_ => "source_vm"}};
+    let mut image = image;
+    if eyes {image.levels.truncate(1);}
+    let operation = if layered {"source_layer"} else {match mode {"add" => "source_vm_add","blend" => "source_vm_blend","alpha" => "source_vm_alpha",_ => "source_vm"}};
     let image = unlit_color(&image,amount*amount,operation)?;
     let linear = image.format == 19;
     let channel_key = (name.clone(),format!("single-unlit:{operation}:{}:{uv:?}",amount.to_bits()));
@@ -524,7 +531,7 @@ fn convert_single_unlit(key: &str, native: &Value, images: &BTreeMap<String,text
     let selected = native["state_entries"][index].as_u64().unwrap() as usize;
     let state = native["state_bits"][selected][0].as_u64().unwrap();
     let cull = match state>>14 & 3 {1 => "none",2 => "back",3 => "front",_ => return Err("Unknown single-layer unlit cull state".into())};
-    let alpha = if layered {"blend"} else {mode};
+    let alpha = if layered || mode == "alpha" {"blend"} else if eyes {"opaque"} else {mode};
     let mut surface = json!({"version":3,"identity":key,"native":native,
         "channels":[{"uri":uri,"role":"color","layer":0,"color_space":if linear {"linear"} else {"srgb"},"sampler":20}],
         "source_input":{"uri":source_uri,"sampler":20,"color_space":"native_encoded"},
@@ -553,12 +560,20 @@ fn convert_single_unlit(key: &str, native: &Value, images: &BTreeMap<String,text
             surface["pending_runtime"] = json!("Native wallbuy layer requires view parallax including the depth epsilon, gameTime UV controls and live scriptVector0 alpha, followed by source fog and sqrt coverage in gamma2 framebuffer composition; matching runtime consumers remain unconnected");
         }
     } else {
-        surface["source_fragment_alpha"] = json!(if mode == "blend" {"sqrt_texture_coverage"} else {"one"});
+        surface["source_fragment_alpha"] = json!(if mode == "blend" {"sqrt_texture_coverage"} else if mode == "alpha" {"texture_coverage"} else {"one"});
         surface["pending_runtime"] = json!(match mode {
             "screen" => "Native tritium emission writes squared linear source RGB without the gamma2 sqrt, then blends with inverse destination color plus destination; source fog, screen blending and destination-alpha composition remain unconnected",
             "blend" => "Native translucent viewmodel emission writes squared source RGB without gamma2 sqrt and sqrt texture alpha with source-alpha blending; matching source fog and framebuffer composition remain unconnected",
+            "alpha" => "Native viewmodel alpha emission writes squared source RGB and unchanged texture alpha with source-alpha blending; matching source fog and linear-output framebuffer composition remain unconnected",
+            "eyes" => "Native cheap eyes use scriptVector2.y luminance with explicit LOD-zero sampling before source fog, scene HDR control0 and gamma2 output; mapped actor eye-color/luminance overrides and matching runtime composition remain unconnected",
             _ => "Native additive viewmodel emission squares texture-alpha-premultiplied source RGB, writes alpha one, and adds source fog color before ONE/ONE blending; matching source fog and framebuffer composition remain unconnected",
         });
+        if eyes {
+            surface["source_eye_luminance"] = json!({"code_constant":171,"component":1,"state":eye_state,"base_state":[0.,0.,0.,0.],
+                "base_state_origin":"normal_view_zero_template_preserved_by_type2_constant_copy","lod":0.,"operation":"square_texture_rgb_times_luminance",
+                "active_override_scope":"actor_scriptVector2_mapping_replaces_base_state"});
+            surface["source_emissive"]["output_transfer"] = json!("sqrt_after_source_fog_and_scene_hdr_control0");
+        }
     }
     Ok(json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},"extras":{"surface":surface}}))
 }
@@ -627,6 +642,8 @@ fn single_unlit_recipe(family: &str) -> Option<(usize,&'static str,&'static str,
         "mc_sw4_3d_viewmodel_unlit_j299w86e" => (3,"pimp_shader_sw4_3d_viewmodel_unlit_89d1b67c.hlsl","pimp_shader_sw4_3d_viewmodel_unlit_89d1b67c.hlsl",3053961470,"screen"),
         "mc_sw4_3d_viewmodel_unlit_8216051u" => (3,"pimp_shader_sw4_3d_viewmodel_unlit_89d1b67c.hlsl","pimp_shader_sw4_3d_viewmodel_unlit_657ff8d2.hlsl",3053961470,"blend"),
         "mc_sw4_3d_viewmodel_unlit_60466j88" => (3,"pimp_shader_sw4_3d_viewmodel_unlit_89d1b67c.hlsl","pimp_shader_sw4_3d_viewmodel_unlit_ff86912b.hlsl",3053961470,"add"),
+        "mc_sw4_3d_viewmodel_unlit_alpha_85z6j5w5" => (3,"pimp_shader_sw4_3d_viewmodel_unlit_89d1b67c.hlsl","pimp_shader_sw4_3d_viewmodel_unlit_alpha_161b096b.hlsl",3053961470,"alpha"),
+        "mc_sw4_3d_model_unlit_cheap_zombie_eyes_jq3e7eqw" => (3,"pimp_shader_sw4_3d_model_unlit_cheap_zombie_eyes_6a8c6a7c.hlsl","pimp_shader_sw4_3d_model_unlit_cheap_zombie_eyes_ee6b6abd.hlsl",2695565377,"eyes"),
         _ => return None,
     })
 }
@@ -638,6 +655,9 @@ fn falloff_recipe(family: &str) -> Option<(usize,&'static str,&'static str,&'sta
         "mc_sw4_3d_unlit_3layer_nofog_falloff_5z909874" => (4,"pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_197b665e.hlsl","pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_c21aa953.hlsl","blend"),
         "mc_sw4_3d_unlit_3layer_nofog_falloff_zfeather_wq4jwzz6" => (3,"pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_zfeather_a5140590.hlsl","pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_zfeather_4b540a08.hlsl","zfeather"),
         "mlv_sw4_3d_unlit_3layer_nofog_falloff_fjz6ze0u" => (4,"pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_5f626c64.hlsl","pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_df6a08c2.hlsl","add"),
+        "mc_sw4_3d_unlit_3layer_nofog_qw71w785" => (4,"pimp_shader_sw4_3d_unlit_3layer_nofog_falloff_197b665e.hlsl","pimp_shader_sw4_3d_unlit_3layer_nofog_61f120bd.hlsl","layer_blend"),
+        "mc_sw4_3d_unlit_4layer_nofog_eee768jw" => (4,"pimp_shader_sw4_3d_unlit_4layer_nofog_cd11c014.hlsl","pimp_shader_sw4_3d_unlit_4layer_nofog_8b288e65.hlsl","four_add"),
+        "mlv_sw4_3d_unlit_4layer_nofog_2j0ezz67" => (4,"pimp_shader_sw4_3d_unlit_4layer_nofog_3874c1d6.hlsl","pimp_shader_sw4_3d_unlit_4layer_nofog_7e4d8fa7.hlsl","four_add"),
         _ => return None,
     })
 }
@@ -646,6 +666,7 @@ fn validate_falloff(key: &str, material: &Value) -> Result<(usize,&'static str)>
     let family = material["technique_set"].as_str().ok_or("Missing three-layer falloff family")?;
     let (index,vertex,pixel,mode) = falloff_recipe(family).ok_or("Unreviewed three-layer falloff family")?;
     let feather = mode == "zfeather";
+    let four = mode == "four_add";
     let mut routes = vec![json!({"source":0,"destination":0})];
     if feather {routes.push(json!({"source":1,"destination":2}));}
     routes.extend([json!({"source":2,"destination":5}),json!({"source":3,"destination":1}),json!({"source":4,"destination":7})]);
@@ -657,17 +678,30 @@ fn validate_falloff(key: &str, material: &Value) -> Result<(usize,&'static str)>
         (114353733,(200,8)),(3272022534,(208,8)),(3342767871,(216,4)),(3379389788,(220,4)),(3416155453,(224,4))]);
     if mode != "opaque" {constants.insert(3410903492,(160,4));}
     if feather {constants.extend([(14836402,(228,4)),(3185247991,(232,4)),(3173127725,(236,4)),(3371644427,(240,4))]);}
-    else {constants.extend([(3432544439,(228,4)),(14836402,(232,4)),(211931156,(236,4)),(3185247991,(240,4)),(3173127725,(244,4))]);}
+    else if four {
+        constants.insert(1886964550,(168,8));
+        constants.extend([(3432544439,(228,4)),(14836402,(164,4)),(211931156,(232,4)),(3736587663,(240,8)),
+            (3836749946,(248,8)),(3048924506,(256,8)),(3813076419,(264,8)),(3762764771,(272,4)),(3756660378,(276,4)),(2389732611,(280,8))]);
+    } else {
+        constants.extend([(3432544439,(228,4)),(14836402,(232,4)),(211931156,(236,4))]);
+        if mode != "layer_blend" {constants.extend([(3185247991,(240,4)),(3173127725,(244,4))]);}
+    }
     let mut arguments = vec![(3,67109077_u32,3,0,64),(3,67109093,0,576,64),
-        (5,16777385,1,368,16),(5,16777241,2,64,16)];
+        (5,16777385,1,368,16),(if four {3} else {5},16777241,2,64,16)];
     if feather {arguments.extend([(4,18,0,259,1),(5,16777233,0,1520,16)]);}
     else {arguments.extend([(3,16777286,3,80,16),(3,16777287,3,96,16),(3,16777288,3,112,16)]);}
-    let hashes = [3714339118_u32,3714374925,3714406764];
-    let locations = if feather {[514,769,1024]} else {[258,513,768]};
-    arguments.extend(hashes.into_iter().zip(locations).map(|(hash,location)| (2,hash,0,location,1)));
-    arguments.extend(constants.iter().map(|(&hash,&(location,size))| (6,hash,2,location,size)));
-    let mut state = match mode {"opaque" => [403867666_u32,13],"blend" => [422084965,12],"zfeather" => [421628194,12],_ => [422086946,12]};
+    let mut hashes = vec![3714339118_u32,3714374925,3714406764];
+    if four {hashes.push(3714721355);}
+    let locations = if four {vec![259,514,769,1024]} else if feather {vec![514,769,1024]} else {vec![258,513,768]};
+    arguments.extend(hashes.iter().copied().zip(locations).map(|(hash,location)| (2,hash,0,location,1)));
+    arguments.extend(constants.iter().map(|(&hash,&(location,size))| {
+        let pixel = matches!(hash,14836402 | 211931156 | 3337236870 | 3376302501 | 3410903492 | 3432544439 | 3762764771);
+        (if four && !pixel {0} else {6},hash,2,location,size)
+    }));
+    let mut state = match mode {"opaque" => [403867666_u32,13],"blend" | "layer_blend" => [422084965,12],"zfeather" => [421628194,12],_ => [422086946,12]};
     if family == "mc_sw4_3d_unlit_3layer_nofog_falloff_w840w777" && material["name"] == "mc/mtl_p6_zm_tm_pap_glow_effect" {state[0]=422070562;}
+    let vortex = four && matches!(material["name"].as_str(),Some("mc/mtl_zm_tm_elm_portal_vortex" | "mlv/mtl_zm_tm_elm_portal_vortex"));
+    if vortex {state=[422070562,28];}
     for selected in if feather {vec![3]} else {vec![4,6]} {
         let technique = material["techniques"].as_array().ok_or("Missing three-layer falloff techniques")?.iter()
             .find(|technique| technique["index"] == selected).ok_or("Missing selected three-layer falloff technique")?;
@@ -692,10 +726,11 @@ fn validate_falloff(key: &str, material: &Value) -> Result<(usize,&'static str)>
             return Err(format!("Three-layer falloff material {key} has non-finite constant {hash}").into());
         }
     }
-    for hash in hashes {
+    for &hash in &hashes {
         let binding = material["textures"].as_array().ok_or("Missing three-layer falloff images")?.iter()
             .find(|binding| binding["hash"] == hash).ok_or("Missing active three-layer falloff image")?;
-        if !matches!(binding["sampler"].as_u64(),Some(20 | 84)) || (hash == hashes[0] && binding["sampler"] != 20) {
+        if if four {binding["sampler"] != if vortex {244} else {20}}
+            else {!matches!(binding["sampler"].as_u64(),Some(20 | 84)) || (hash == hashes[0] && binding["sampler"] != 20)} {
             return Err(format!("Three-layer falloff material {key} has unreviewed sampler").into());
         }
     }
@@ -718,7 +753,18 @@ fn falloff_pixel(samples: [[f32;4];3], alpha: [f32;2], last_alpha: Option<f32>, 
     [color[0],color[1],color[2],if mode == "blend" {coverage.sqrt()} else {1.}]
 }
 
-fn falloff_image(sources: [&texture::Image;3], samplers: [u8;3], layers: [UnlitLayer;3], script: [f32;4], amount: f32, mode: &str) -> Result<texture::Image> {
+fn four_layer_pixel(samples: [[f32;4];4], alpha: [f32;4], script: [f32;4]) -> [f32;4] {
+    let weights: [f32;4] = std::array::from_fn(|layer| samples[layer][3]*alpha[layer]*(1.-script[layer].clamp(0.,1.)));
+    let mut color: [f32;3] = std::array::from_fn(|component| samples[3][component]*samples[3][3]);
+    let mut coverage = weights[3];
+    for layer in [2,1,0] {
+        for component in 0..3 {color[component]+=weights[layer]*(samples[layer][component]-color[component]);}
+        coverage = (coverage+weights[layer]).clamp(0.,1.);
+    }
+    [color[0]*coverage,color[1]*coverage,color[2]*coverage,1.]
+}
+
+fn falloff_image<const N: usize>(sources: [&texture::Image;N], samplers: [u8;N], layers: [UnlitLayer;N], script: [f32;4], amount: f32, mode: &str) -> Result<texture::Image> {
     if sources.iter().any(|source| source.depth != 1 || source.faces != 1 || source.width == 0 || source.height == 0 || source.levels.is_empty()) {
         return Err("Three-layer falloff input is not a valid 2D image".into());
     }
@@ -731,7 +777,7 @@ fn falloff_image(sources: [&texture::Image;3], samplers: [u8;3], layers: [UnlitL
         let mut bytes = Vec::with_capacity(w*h*8);
         for y in 0..h {for x in 0..w {
             let uv = [(x as f32+0.5)/w as f32,(y as f32+0.5)/h as f32];
-            let samples = std::array::from_fn(|index| {
+            let samples: [[f32;4];N] = std::array::from_fn(|index| {
                 let source = sources[index];let layer = layers[index];let (sine,cosine) = rotation[index];
                 let centered: [f32;2] = std::array::from_fn(|axis| (uv[axis]-layer.origin[axis]+layer.offset[axis])*layer.scale[axis]);
                 let uv = [cosine*centered[0]+sine*centered[1]+layer.origin[0],-sine*centered[0]+cosine*centered[1]+layer.origin[1]];
@@ -739,7 +785,13 @@ fn falloff_image(sources: [&texture::Image;3], samplers: [u8;3], layers: [UnlitL
                 let lod = level.saturating_sub(bias as usize).min(source.levels.len()-1);
                 texture::sample(&decoded[index][lod],(source.width>>lod).max(1),(source.height>>lod).max(1),uv,samplers[index])
             });
-            let mut pixel = falloff_pixel(samples,[layers[0].alpha.unwrap(),layers[1].alpha.unwrap()],layers[2].alpha,script,mode);
+            let mut pixel = if mode == "four_add" {
+                four_layer_pixel([samples[0],samples[1],samples[2],samples[3]],
+                    [layers[0].alpha.unwrap(),layers[1].alpha.unwrap(),layers[2].alpha.unwrap(),layers[3].alpha.unwrap()],script)
+            } else {
+                falloff_pixel([samples[0],samples[1],samples[2]],[layers[0].alpha.unwrap(),layers[1].alpha.unwrap()],layers[2].alpha,script,
+                    if mode == "layer_blend" {"blend"} else {mode})
+            };
             for component in &mut pixel[..3] {*component=(*component*amount).powi(2);}
             if pixel.iter().any(|value| !value.is_finite() || !(0. ..=65504.).contains(value)) || pixel[3] > 1. {
                 return Err("Three-layer falloff color exceeds the finite half-float/coverage domain".into());
@@ -753,23 +805,27 @@ fn falloff_image(sources: [&texture::Image;3], samplers: [u8;3], layers: [UnlitL
 
 fn convert_falloff(key: &str, native: &Value, images: &BTreeMap<String,texture::Image>, shared: &mut BTreeMap<(String,String),String>, pack: &mut Pack) -> Result<Value> {
     let (index,mode) = validate_falloff(key,native)?;
+    let four = mode == "four_add";
+    let plain = four || mode == "layer_blend";
     let constant = |hash: u32| -> Result<[f32;4]> {
         let row = native["constants"].as_array().unwrap().iter().find(|constant| constant["hash"] == hash).ok_or("Missing bound three-layer falloff parameter")?;
         Ok(serde_json::from_value(row["literal"].clone())?)
     };
     let vec2 = |hash| -> Result<[f32;2]> {let value = constant(hash)?;Ok([value[0],value[1]])};
-    let parameter_hashes = [
+    let mut parameter_hashes = vec![
         [3320325482,3286424575,3272022534,1886964550,2196952607,3342767871,3337236870],
         [3354717129,128962428,114353733,1519946245,3332229724,3379389788,3376302501],
         [3398313000,1565193213,1550647684,1339484996,475721245,3416155453,3410903492],
     ];
+    if four {parameter_hashes.push([3736587663,3836749946,3813076419,2389732611,3048924506,3756660378,3762764771]);}
     let layers = parameter_hashes.into_iter().enumerate().map(|(index,hashes)| Ok(UnlitLayer {
         scale:vec2(hashes[0])?,offset:vec2(hashes[1])?,origin:vec2(hashes[2])?,rotation:vec2(hashes[3])?,scroll:vec2(hashes[4])?,depth:constant(hashes[5])?[0],
         alpha:if index == 2 && mode == "opaque" {None} else {Some(constant(hashes[6])?[0])},
     })).collect::<Result<Vec<_>>>()?;
-    let layers: [UnlitLayer;3] = layers.try_into().unwrap();
     let mut sources = Vec::new();let mut samplers = Vec::new();let mut source_layers = Vec::new();let mut names = Vec::new();
-    for (index,hash) in [3714339118_u32,3714374925,3714406764].into_iter().enumerate() {
+    let mut hashes = vec![3714339118_u32,3714374925,3714406764];
+    if four {hashes.push(3714721355);}
+    for (index,hash) in hashes.into_iter().enumerate() {
         let binding = native["textures"].as_array().unwrap().iter().find(|binding| binding["hash"] == hash).unwrap();
         let name = binding["image"].as_str().ok_or("Missing three-layer falloff source image name")?.to_ascii_lowercase();
         let source = images.get(&name).ok_or_else(|| format!("Missing three-layer falloff image {name}"))?;
@@ -784,17 +840,22 @@ fn convert_falloff(key: &str, native: &Value, images: &BTreeMap<String,texture::
             "scale":layer.scale,"offset":layer.offset,"origin":layer.origin,"rotation":layer.rotation,"scroll":layer.scroll,"depth":layer.depth,"alpha":layer.alpha}));
         sources.push(source);samplers.push(sampler);names.push(name);
     }
-    let script = if native["code_constants"]["169"].is_null() {None} else {
+    let script = if native["code_constants"]["169"].is_null() {if plain {Some([0.;4])} else {None}} else {
         let state: [f32;4] = serde_json::from_value(native["code_constants"]["169"].clone())?;
         if state.iter().any(|value| !value.is_finite()) {return Err("Non-finite source scriptVector0 state".into());}Some(state)
     };
     let amount = constant(14836402)?[0];
     let mut channels = Vec::new();
     if let Some(script) = script {
-        let sources = [sources[0],sources[1],sources[2]];let samplers = [samplers[0],samplers[1],samplers[2]];
         let color_key = (names.join("|"),format!("falloff:{mode}:{layers:?}:{script:?}:{}:{samplers:?}",amount.to_bits()));
         let uri = if let Some(uri) = shared.get(&color_key) {uri.clone()} else {
-            let image = falloff_image(sources,samplers,layers,script,amount,mode)?;
+            let image = if four {
+                falloff_image([sources[0],sources[1],sources[2],sources[3]],[samplers[0],samplers[1],samplers[2],samplers[3]],
+                    [layers[0],layers[1],layers[2],layers[3]],script,amount,mode)?
+            } else {
+                falloff_image([sources[0],sources[1],sources[2]],[samplers[0],samplers[1],samplers[2]],
+                    [layers[0],layers[1],layers[2]],script,amount,mode)?
+            };
             let uri = store_image(&image,format!("prepared/material-channels/{}/color.ktx2",shared.len()),false,"color",pack)?;
             shared.insert(color_key,uri.clone());uri
         };
@@ -805,22 +866,29 @@ fn convert_falloff(key: &str, native: &Value, images: &BTreeMap<String,texture::
     let cull = match state>>14 & 3 {1 => "none",2 => "back",3 => "front",_ => return Err("Unknown three-layer falloff cull state".into())};
     let mut surface = json!({"version":3,"identity":key,"native":native,"channels":channels,"source_layers":source_layers,
         "standard":{"unlit":true,"roughness":1.,"metallic":0.,"reflectance":0.,"base_color":[1.,1.,1.,1.]},
-        "presentation":{"alpha":if mode == "zfeather" {"add"} else {mode},"cull":cull,"fog":false,"visible":state & (1<<27) == 0},
-        "source_script_layers":{"code_constant":169,"state":script,"layer_order":[2,1,0],
+        "presentation":{"alpha":if mode == "zfeather" || four {"add"} else if mode == "layer_blend" {"blend"} else {mode},"cull":cull,"fog":false,"visible":state & (1<<27) == 0},
+        "source_script_layers":{"code_constant":169,"state":script,"layer_order":if four {vec![3,2,1,0]} else {vec![2,1,0]},
             "weights":"texture_alpha_times_layer_alpha_times_one_minus_saturated_script_component",
-            "rgb":"layer3_rgb_times_layer3_texture_alpha_then_mix_layer2_then_layer1_without_saturating_mix_weights",
-            "coverage":if mode == "opaque" {"unused"} else {"saturate_saturated_layer3_plus_layer2_coverage_then_plus_layer1_coverage"},
-            "layer3_alpha_affects_rgb":false,"layer3_alpha_bound":mode != "opaque","rgb_times_coverage":matches!(mode,"add" | "zfeather"),
-            "fragment_alpha":if mode == "blend" {"sqrt_coverage"} else {"one"}},
+            "rgb":if four {"layer4_rgb_times_layer4_texture_alpha_then_mix_layer3_then_layer2_then_layer1_without_saturating_mix_weights"} else {"layer3_rgb_times_layer3_texture_alpha_then_mix_layer2_then_layer1_without_saturating_mix_weights"},
+            "coverage":if mode == "opaque" {"unused"} else {"add_each_preceding_layer_weight_and_saturate_after_each_step"},
+            "layer3_alpha_affects_rgb":four,"layer3_alpha_bound":mode != "opaque","last_layer_alpha_affects_rgb":false,
+            "rgb_times_coverage":matches!(mode,"add" | "zfeather" | "four_add"),
+            "fragment_alpha":if matches!(mode,"blend" | "layer_blend") {"sqrt_coverage"} else {"one"}},
         "source_layer_uv":{"game_time_code":25,"game_time_component":3,"view_parallax":"negative_view_tangent_xy_divided_by_positive_view_normal_z_else_zero",
-            "depth_epsilon":0.,"operation":"scale_centered_uv_plus_scaled_offset_and_scaled_view_parallax_then_rotate_then_add_scaled_time_scroll_and_origin",
+            "depth_epsilon":if four {f32::from_bits(0x3727c5ac)} else {0.},"evaluation":if four {"vertex_then_interpolate"} else {"fragment"},
+            "operation":"scale_centered_uv_plus_scaled_offset_and_scaled_view_parallax_then_rotate_then_add_scaled_time_scroll_and_origin",
             "rotation_operation":"rotation_x_times_one_plus_rotation_y_times_game_time_w","rotation_tau":f32::from_bits(0x40c90fda)},
-        "source_falloff":{"power":constant(3185247991)?[0],"boost":constant(3173127725)?[0],
-            "operation":"pow_saturate_dot_negative_normalized_view_position_and_normalized_normal_times_boost"},
-        "source_emissive":{"amount":amount,"rgb":"square_layer_color_times_view_falloff_times_hdr_amount","output_transfer":"sqrt_after_reflection_and_scene_hdr_control0"},
+        "source_emissive":{"amount":amount,"rgb":if plain {"square_layer_color_times_hdr_amount"} else {"square_layer_color_times_view_falloff_times_hdr_amount"},"output_transfer":"sqrt_after_reflection_and_scene_hdr_control0"},
         "source_blend":{"rgb":[state&15,state>>4&15,state>>8&7],"alpha":[state>>16&15,state>>20&15,state>>24&7]},
         "approximations":["Explicit scriptVector0 states evaluate the three-layer color and coverage with static authored UV terms at source mip resolution",
             "Live view parallax, time, view falloff, scene lighting and framebuffer terms remain separate from the converted texture stage"]});
+    if !plain {surface["source_falloff"] = json!({"power":constant(3185247991)?[0],"boost":constant(3173127725)?[0],
+        "operation":"pow_saturate_dot_negative_normalized_view_position_and_normalized_normal_times_boost"});}
+    if plain {
+        surface["source_script_layers"]["base_state"] = json!([0.,0.,0.,0.]);
+        surface["source_script_layers"]["base_state_origin"] = json!("normal_view_zero_template_preserved_by_type2_constant_copy");
+        surface["source_script_layers"]["active_override_scope"] = json!("per_object_mapped_scriptVector0_replaces_base_state");
+    }
     if mode == "zfeather" {
         surface["source_vertex_color_transfer"] = json!("linear_primary_vertex_rgb_and_squared_primary_vertex_alpha");
         surface["source_depth_fade"] = json!({"code_image":18,"near_plane_code":17,"fade_factor":constant(3371644427)?[0],
@@ -834,9 +902,18 @@ fn convert_falloff(key: &str, native: &Value, images: &BTreeMap<String,texture::
             "weight":"saturate_three_quarters_plus_quarter_gloss_times_reflection_amount","probe_decode":"rgb_divided_by_alpha_plus_epsilon",
             "decode_epsilon":f32::from_bits(0x358637bd),"response":"separate_grid_and_reflection_spherical_harmonics_ratio",
             "secondary_vertex_alpha_red_bias":if native["technique_set"].as_str().unwrap().starts_with("mlv_") {0.00001} else {0.}});
-        surface["pending_runtime"] = json!("Native three-layer falloff requires the live per-object scriptVector0 producer, native clock/offset UV controls, view parallax and falloff, view-dependent reflection/SH response, global HDR control0 and native blend/destination-alpha gamma2 framebuffer composition");
+        surface["source_reflection"]["active"] = json!(constant(211931156)?[0] != 0.);
+        surface["pending_runtime"] = json!(if four {
+            "Native four-layer no-fog surface retains per-object scriptVector0 overrides, native clock UV rotation/scroll, vertex-evaluated positive-facing parallax including its depth epsilon, global HDR control0 and native additive/destination-alpha gamma2 composition; nonzero reflection requires its separate view-dependent SH consumer"
+        } else if plain {
+            "Native three-layer no-fog surface retains per-object scriptVector0 overrides, native clock UV rotation, nonzero view-dependent reflection/SH response, global HDR control0 and native source-alpha/destination-alpha gamma2 composition; authored zero layer depths leave parallax inactive"
+        } else {"Native three-layer falloff requires the live per-object scriptVector0 producer, native clock/offset UV controls, view parallax and falloff, view-dependent reflection/SH response, global HDR control0 and native blend/destination-alpha gamma2 framebuffer composition"});
     }
     surface["source_script_layers"]["composed_color_available"] = json!(script.is_some());
+    if four && native["state_bits"][selected][1] == 28 {
+        let pending = surface["pending_runtime"].as_str().unwrap().to_owned();
+        surface["pending_runtime"] = json!(format!("{pending}; native polygon-offset mode1 remains unconnected"));
+    }
     Ok(json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},"extras":{"surface":surface}}))
 }
 
@@ -851,6 +928,7 @@ fn validate_single_unlit(key: &str, material: &Value) -> Result<(usize,u32,&'sta
     let family = material["technique_set"].as_str().ok_or("Missing single-layer unlit family")?;
     let (index,vertex,pixel,image,mode) = single_unlit_recipe(family).ok_or("Unreviewed single-layer unlit family")?;
     let layered = index == 4;
+    let eyes = mode == "eyes";
     let mut routes = vec![json!({"source":0,"destination":0}),json!({"source":2,"destination":5})];
     if layered {routes.extend([json!({"source":3,"destination":1}),json!({"source":4,"destination":7})]);}
     let mut constants = BTreeMap::new();
@@ -859,15 +937,15 @@ fn validate_single_unlit(key: &str, material: &Value) -> Result<(usize,u32,&'sta
             (3286424575,(0,88,8)),(3320325482,(0,80,8)),(3342767871,(0,128,4)),
             (14836402,(6,108,4)),(3337236870,(6,104,4))]);
         if mode == "layer_reflection" {constants.extend([(211931156,(6,136,4)),(3432544439,(6,132,4))]);}
-    } else {constants.insert(2875883048,(6,80,4));}
+    } else if !eyes {constants.insert(2875883048,(6,80,4));}
     let indices = if layered {vec![4,6]} else {vec![3]};
     let techniques = material["techniques"].as_array().ok_or("Missing single-layer unlit techniques")?;
     let state_index = material["state_entries"][index].as_u64().ok_or("Missing single-layer unlit state index")? as usize;
     let state = &material["state_bits"][state_index];
     let rgb = state[0].as_u64().ok_or("Missing single-layer unlit RGB state")?;
     let depth = state[1].as_u64().ok_or("Missing single-layer unlit depth state")?;
-    let (blend,alpha) = match mode {"screen" => (0x12a,0x121),"add" => (0x122,0x121),_ => (0x165,0x128)};
-    if rgb & 0x7ff != blend || rgb >> 16 & 0x7ff != alpha || depth & !0x30 != 12 {
+    let (blend,alpha) = match mode {"screen" => (0x12a,0x121),"add" => (0x122,0x121),"eyes" => (0x12,0x12),_ => (0x165,0x128)};
+    if rgb & 0x7ff != blend || rgb >> 16 & 0x7ff != alpha || depth & !0x30 != if eyes {13} else {12} {
         return Err(format!("Single-layer unlit material {key} has unreviewed blend or depth state").into());
     }
     for index in indices {
@@ -880,6 +958,16 @@ fn validate_single_unlit(key: &str, material: &Value) -> Result<(usize,u32,&'sta
         let selected = material["state_entries"][index].as_u64().ok_or("Missing selected single-layer unlit state index")? as usize;
         if material["state_bits"][selected] != *state {return Err(format!("Single-layer unlit material {key} has differing selected render states").into());}
         let arguments = passes[0]["arguments"].as_array().ok_or("Missing selected single-layer unlit arguments")?;
+        if matches!(mode,"eyes" | "alpha") {
+            let expected_state = if eyes {json!([403867666_u32,13])} else {json!([422084965_u32,12])};
+            if arguments.len() != 4 || !arguments.iter().any(|argument| argument["type"] == 3 && argument["value"] == 67109077_u32
+                    && argument["buffer"] == 3 && argument["location"] == 0 && argument["size"] == 64)
+                || !arguments.iter().any(|argument| argument["type"] == 3 && argument["value"] == 67109093_u32
+                    && argument["buffer"] == 0 && argument["location"] == 576 && argument["size"] == 64)
+                || *state != expected_state {
+                return Err(format!("Selected eye/alpha material {key} has unreviewed matrices or render state").into());
+            }
+        }
         let images: Vec<_> = arguments.iter().filter(|argument| argument["type"] == 2).collect();
         if images.len() != 1 || images[0]["value"] != image || images[0]["buffer"] != 0
             || images[0]["location"] != 256 || images[0]["size"] != 1 {
@@ -903,6 +991,10 @@ fn validate_single_unlit(key: &str, material: &Value) -> Result<(usize,u32,&'sta
             || !arguments.iter().any(|argument| argument["type"] == 5 && argument["value"] == 16777385_u32
                 && argument["buffer"] == 1 && argument["location"] == 368 && argument["size"] == 16)) {
             return Err(format!("Single-layer unlit material {key} lacks reviewed gameTime or scriptVector0 binding").into());
+        }
+        if eyes && (arguments.len() != 4 || arguments.iter().filter(|argument| argument["type"] == 5
+            && argument["value"] == 16777387_u32 && argument["buffer"] == 1 && argument["location"] == 400 && argument["size"] == 16).count() != 1) {
+            return Err(format!("Cheap eye material {key} lacks its exact scriptVector2 luminance binding").into());
         }
     }
     let texture = material["textures"].as_array().ok_or("Missing single-layer unlit images")?.iter()
@@ -1687,5 +1779,29 @@ mod tests {
         layers[0].alpha = Some(0.);layers[2].alpha = Some(0.25);
         let output = falloff_image([&red,&clear,&blue],[20;3],layers,[0.;4],1.,"blend").unwrap();
         assert_eq!(texture::pixels(&output,0).unwrap()[0],[0.,0.,1.,0.5]);
+    }
+
+    #[test]
+    fn four_layer_emission_keeps_last_alpha_in_coverage_and_unclamped_mix_weights() {
+        let layers = [[1.,0.,0.,1.],[0.,1.,0.,1.],[0.,0.,1.,1.],[0.5,0.25,0.75,1.]];
+        assert_eq!(four_layer_pixel(layers,[0.,0.,0.,1.],[0.;4]),[0.5,0.25,0.75,1.]);
+        assert_eq!(four_layer_pixel(layers,[0.,0.,0.,1.],[0.,0.,0.,1.]),[0.,0.,0.,1.]);
+        let overshoot = four_layer_pixel(layers,[2.,0.,0.,1.],[0.;4]);
+        assert!(overshoot[0]>1.);
+        assert!(overshoot[1]<0. && overshoot[2]<0.);
+        assert_eq!(four_layer_pixel(layers,[-2.5,1.,3.,1.],[0.;4]),[0.,0.,0.,1.]);
+        assert_eq!(four_layer_pixel(layers,[2.,0.,0.,1.],[-2.,3.,0.,0.]),
+            four_layer_pixel(layers,[2.,0.,0.,1.],[0.,1.,0.,0.]));
+    }
+
+    #[test]
+    fn viewmodel_alpha_keeps_raw_coverage_when_emission_is_zero() {
+        let image = texture::Image {width:1,height:1,depth:1,faces:1,format:1,flags:0,levels:vec![vec![255,128,64,64]]};
+        let alpha = unlit_color(&image,0.,"source_vm_alpha").unwrap();
+        let pixel = texture::pixels(&alpha,0).unwrap()[0];
+        assert_eq!(pixel[..3],[0.;3]);
+        assert!((pixel[3]-64./255.).abs()<1e-6);
+        let sqrt = unlit_color(&image,0.,"source_vm_blend").unwrap();
+        assert!(texture::pixels(&sqrt,0).unwrap()[0][3]>pixel[3]);
     }
 }

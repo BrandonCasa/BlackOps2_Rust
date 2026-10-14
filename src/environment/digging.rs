@@ -341,7 +341,11 @@ fn spawn(
             Vec3::from_array(spot.position),
             Quat::from_array(spot.rotation),
         );
-        commands.entity(entity).insert(DigTarget::Shovel(i));
+        commands.entity(entity).insert((
+            DigTarget::Shovel(i),
+            crate::rendering::opaque::NativeShaderStart(0.),
+            crate::rendering::NativeArtInputs::default(),
+        ));
     }
     for (i, spot) in d.mounds.iter().enumerate() {
         if spot.initial {

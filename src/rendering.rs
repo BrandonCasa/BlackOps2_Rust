@@ -95,11 +95,20 @@ impl Plugin for GameRenderingPlugin {
             .add_plugins(readback_shutdown::ReadbackShutdownPlugin)
             .init_resource::<OpaqueSurfaceStatus>()
             .init_resource::<opaque::MaterialTime>()
+            .init_resource::<opaque::NativeClock>()
             .add_systems(Startup, setup)
             .add_systems(
                 OnEnter(GameState::Loading),
                 opaque::initialize.after(crate::assets::begin_load),
             )
+            .add_systems(OnEnter(GameState::MainMenu), opaque::shutdown_native_time)
+            .add_systems(
+                OnEnter(GameState::PreparingShaders),
+                opaque::begin_native_time.after(crate::session::SessionSetup::Initialize),
+            )
+            .add_systems(Update,
+                (opaque::prepare_native_time_owners, opaque::advance_native_time)
+                    .chain().before(SurfacePreparation))
             .add_systems(
                 PostUpdate,
                 pbr::prepare_image_dimensions.after(bevy::asset::AssetEventSystems),
@@ -132,20 +141,20 @@ impl Plugin for GameRenderingPlugin {
                     .after(MaterialAnimation)
                     .after(bevy::transform::TransformSystems::Propagate)
                     .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility)
-                    .run_if(in_state(GameState::Playing)),
+                    .run_if(opaque::material_scene_active),
             )
             .add_systems(
                 PostUpdate,
                 (
-                    opaque::advance_time,
+                    opaque::advance_time.run_if(in_state(GameState::Playing)),
                     opaque::refresh_owners,
-                    opaque::animate,
+                    opaque::animate.run_if(in_state(GameState::Playing)),
                     opaque::animate_scalars,
                     opaque::animate_uvs,
                 )
                     .chain()
                     .in_set(MaterialAnimation)
-                    .run_if(in_state(GameState::Playing)),
+                    .run_if(opaque::material_scene_active),
             );
     }
 

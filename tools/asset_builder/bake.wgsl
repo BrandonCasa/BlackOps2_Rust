@@ -119,10 +119,7 @@ fn special_surface(uv: vec2<f32>) -> Pixel {
         result.normal = normal(decode(sample_image(1u, uv).xy));
         if flag(524288u) {
             result = fit_response(result,vec3<f32>(0.04),base.a);
-            let lookup = sample_image(3u,vec2<f32>(recipe.second_parms.x,recipe.special_parms[2].w * recipe.parms.y)).r;
-            let flicker = (recipe.parms.z + lookup * (recipe.parms.w - recipe.parms.z))
-                * clamp(1.0 - recipe.special_parms[1].x,0.0,1.0) * recipe.parms.x;
-            result.response.a = flicker * flicker;
+            result.response.a = recipe.parms.x * recipe.parms.x;
         } else if flag(2097152u) {
             let response = sample_image(2u,uv);
             result = fit_response(result,response.rgb * response.rgb,response.a);

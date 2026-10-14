@@ -42,14 +42,14 @@ struct Chest {
     sound: Option<Entity>,
     glow_ramps: Vec<BoxGlowRamp>,
 }
-struct BoxGlowRamp {
+pub(crate) struct BoxGlowRamp {
     fading_in: bool,
     timer: f32,
     timer_wait: f32,
     sample_wait: f32,
 }
 impl BoxGlowRamp {
-    fn new(fading_in: bool) -> Self {
+    pub(crate) fn new(fading_in: bool) -> Self {
         Self {
             fading_in,
             timer: 0.,
@@ -57,7 +57,7 @@ impl BoxGlowRamp {
             sample_wait: 0.11,
         }
     }
-    fn tick(&mut self, dt: f32, inputs: &mut crate::rendering::NativeArtInputs) -> bool {
+    pub(crate) fn tick(&mut self, dt: f32, inputs: &mut crate::rendering::NativeArtInputs) -> bool {
         self.timer_wait -= dt;
         if self.timer_wait <= 0. {
             self.timer += 0.016;
@@ -143,6 +143,7 @@ fn setup(
                     glow_ramps: Vec::new(),
                 },
                 crate::rendering::NativeArtInputs::default(),
+                crate::rendering::opaque::NativeShaderStart(0.),
                 WorldAssetRoot(server.load(scene.clone())),
                 Transform::from_translation(position)
                     .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
@@ -223,6 +224,7 @@ fn tick(
         let glowing = (0.75..2.25).contains(&elapsed);
         if glowing && chest.glow.is_none() {
             inputs.script_vectors[1] = [0.; 4];
+            inputs.script_available |= 1 << 1;
             chest.glow_ramps.push(BoxGlowRamp::new(true));
             chest.glow = Some(crate::native_fx::attach(
                 &mut commands,
@@ -244,6 +246,7 @@ fn tick(
         } else if !glowing {
             if let Some(glow) = chest.glow.take() {
                 inputs.script_vectors[1] = [0.; 4];
+                inputs.script_available |= 1 << 1;
                 chest.glow_ramps.push(BoxGlowRamp::new(false));
                 commands.entity(glow).try_despawn();
             }

@@ -420,9 +420,7 @@ impl Recipe {
             let base=sample(0,uv);let n=sample(1,uv);
             let color=std::array::from_fn(|axis| base[axis]*base[axis]);let normal=normal([decode(n[0]),decode(n[1])]);
             if self.special == 8 {
-                let lookup=sample(3,[self.second_parms[0],self.special_parms[2][3]*self.parms[1]])[0];
-                let flicker=(self.parms[2]+lookup*(self.parms[3]-self.parms[2]))*(1.-self.special_parms[1][0]).clamp(0.,1.)*self.parms[0];
-                return Ok(fit(color,normal,[0.04;3],base[3],flicker*flicker));
+                return Ok(fit(color,normal,[0.04;3],base[3],self.parms[0]*self.parms[0]));
             }
             if self.special == 32 {
                 let response=sample(2,uv);let intensity=if self.special_parms[1][2]>=self.second_parms[2] {self.parms[3]} else {0.};
@@ -953,9 +951,9 @@ fn emissive_recipe(native: &Value, images: Option<&BTreeMap<String,texture::Imag
         else {([constant(604090542)?,constant(3662839941)?,constant(3493630810)?,constant(14836402)?],[constant(1020264075)?,constant(2832011523)?,0.,0.])};
     let mut special_parms:[[f32;4];3]=[[0.;4];3];special_parms[0][0]=if fritz {constant(1599130352)?} else if translucent {1.} else {0.};
     if fritz {special_parms[0][1]=if masked {1.} else {0.};}
-    if (flicker || fritz || multi || tomb) && images.is_some() {
-        let mut inputs=vec![(1,if flicker {"170"} else if tomb {"172"} else {"169"})];
-        if flicker || fritz {inputs.push((2,"25"));}
+    if (fritz || multi || tomb) && images.is_some() {
+        let mut inputs=vec![(1,if tomb {"172"} else {"169"})];
+        if fritz {inputs.push((2,"25"));}
         for (slot,key) in inputs {
             let value=native["code_constants"][key].clone();
             if value.is_null() {return Err(format!("Emissive surface requires bound native code constant {key}; no initial state is invented").into());}
@@ -1003,11 +1001,10 @@ pub fn prepare_special(native: &Value, images: &BTreeMap<String,texture::Image>,
         };
         sources.insert(binding["hash"].as_u64().unwrap().to_string(),json!({"uri":path,"sampler":binding["sampler"],"transfer":"source_encoded_rgba"}));
     }
-    let required:&[&str]=match reviewed.special {2 => &["172","25"],8 => &["170","25"],16 => &["169","25"],32 => &["169"],64 => &["172"],_ => &[]};
+    let required:&[&str]=match reviewed.special {2 => &["172","25"],16 => &["169","25"],32 => &["169"],64 => &["172"],_ => &[]};
     if required.iter().any(|key| native["code_constants"][*key].is_null()) {
         let reason=match reviewed.special {
             2 => "Water reveal requires native per-object scriptVector3 and gameTime inputs, wet-normal/refraction sampling, leading-edge emission, separate reflection amount and the linear model color transform; no initial state is invented",
-            8 => "Native emissive flicker requires per-object scriptVector1.x and gameTime.w for authored flicker-map sampling and amplitude; no initial state is invented",
             16 => "Native Fritz material requires per-object scriptVector0.x/y and gameTime.w for source warp, luma, UV-height sparkle, specular and glow evaluation; no initial state is invented",
             32 => "Native threshold emission requires per-object scriptVector0.z and its inclusive authored threshold; no initial state is invented",
             _ => "Native tomb emission requires per-object scriptVector3 RGBA modulation before source RGB-alpha emission multiplication; no initial state is invented",
@@ -1027,7 +1024,7 @@ pub fn prepare_special(native: &Value, images: &BTreeMap<String,texture::Image>,
         (bounds[0],std::array::from_fn(|axis| bounds[1][axis]-bounds[0][axis]),116)
     } else {([0.;2],[1.;2],20)};
     let dimensions:[usize;2]=std::array::from_fn(|axis| {
-        recipe.inputs.iter().enumerate().map(|(index,input)| {
+        recipe.inputs.iter().enumerate().filter(|(index,_)| recipe.special != 8 || *index != 3).map(|(index,input)| {
             let scale=if recipe.special == 1 {match index {2 | 4 | 6 => recipe.parms[axis].abs(),3 | 5 | 7 => recipe.parms[axis+2].abs(),_ => 1.}}
                 else if recipe.special == 16 {match index {4 => recipe.second_parms[3].abs(),5 => recipe.parms[3].abs(),_ => 1.}} else {1.};
             ((if axis == 0 {input.width} else {input.height}) as f64*scale as f64*extent[axis] as f64).ceil() as usize
@@ -1093,11 +1090,19 @@ pub fn prepare_special(native: &Value, images: &BTreeMap<String,texture::Image>,
             surface["source_model_color_transform"]=json!({"buffer":0,"rows":[114,115,116],"operation":"linear_diffuse_plus_specular_plus_emission_before_fog"});
             surface["pending_runtime"]=json!("Water reveal prepared for explicitly bound script/time inputs; live per-object updates, wet UV sampling, separate reflection amount and the native linear model color transform remain unconnected");
         } else if recipe.special == 8 {
-            surface["source_effective_inputs"]=native["code_constants"].clone();
+            let source=&recipe.inputs[3];
+            let lookup:Vec<f32>=(0..source.height).map(|row| source.sample([recipe.second_parms[0],(row as f32+0.5)/source.height as f32])[0]).collect();
+            if lookup.iter().any(|value| !value.is_finite()) {return Err("Native flicker lookup contains non-finite source texels".into());}
+            surface["scalar_animation"]=json!({"time_mode":"native_elapsed","lookup":lookup,"sampler":source.sampler,
+                "speed":recipe.parms[1],"minimum":recipe.parms[2],"maximum":recipe.parms[3],"script_vector":1,"script_component":0});
+            surface["source_effective_inputs"]=json!([170,25]);
             surface["source_flicker"]=json!({"script_constant":170,"component":0,"time_constant":25,"time_component":3,
-                "lookup_hash":23340576,"lookup_uv":[recipe.second_parms[0],recipe.special_parms[2][3]*recipe.parms[1]],
-                "range":[recipe.parms[2],recipe.parms[3]],"hdr_amount":recipe.parms[0],"operation":"lookup_range_times_saturate_one_minus_script_times_hdr_before_emission_square"});
-            surface["pending_runtime"]=json!("Native emissive flicker prepared for explicit scriptVector1.x/gameTime.w inputs; source per-object script/time generation and live flicker-map amplitude updates remain unconnected");
+                "lookup_hash":23340576,"lookup_column":recipe.second_parms[0],"lookup_time":"game_time_w_times_authored_speed",
+                "lookup_rows":source.height,"lookup_transfer":"source_encoded_red","lookup_filter":"native_fixed_column_bilinear_then_vertical_sampler",
+                "range":[recipe.parms[2],recipe.parms[3]],"hdr_amount":recipe.parms[0],"hdr_binding":"squared_in_static_emissive_texture",
+                "script_binding":{"normal_view_base":[0.,0.,0.,0.],"override":"active_object_mapped_script_vector","restore":"normal_view_base"},
+                "time_binding":{"source":"render_client_milliseconds","seconds_multiplier_bits":0x3a83126f_u32,"shader_start":"source_script_model_zero"},
+                "operation":"lookup_range_times_saturate_one_minus_script_times_hdr_before_emission_square"});
         } else if matches!(recipe.special,16 | 32 | 64) {
             surface["source_effective_inputs"]=native["code_constants"].clone();
             if recipe.special != 16 {
@@ -1721,8 +1726,10 @@ fn model_uv_bounds(catalog: &Catalog<'_>, name: &str, nonnegative: bool) -> Resu
 
 #[cfg(test)]
 pub fn check_special_response(catalog: &Catalog<'_>, selected: &BTreeMap<String,Value>, images: &BTreeMap<String,texture::Image>, pack: &mut Pack) -> Result<Vec<String>> {
+    let native_lookups:std::collections::BTreeSet<_>=selected.values().filter(|native| native["technique_set"] == "mc_sw4_3d_phong_simple_emissive_flicker_9j5f25q3")
+        .map(|native| native["textures"].as_array().unwrap().iter().find(|binding| binding["hash"] == 23340576_u32).unwrap()["image"].as_str().unwrap().to_ascii_lowercase()).collect();
     let images:BTreeMap<_,_>=images.iter().map(|(name,image)| {
-        let level=(0..image.levels.len()).find(|&level| (image.width>>level).max(1)<=64 && (image.height>>level).max(1)<=64).unwrap_or(image.levels.len()-1);
+        let level=if native_lookups.contains(name) {0} else {(0..image.levels.len()).find(|&level| (image.width>>level).max(1)<=64 && (image.height>>level).max(1)<=64).unwrap_or(image.levels.len()-1)};
         (name.clone(),texture::Image {width:(image.width>>level).max(1),height:(image.height>>level).max(1),depth:(image.depth>>level).max(1),faces:image.faces,format:image.format,flags:image.flags,levels:image.levels[level..].to_vec()})
     }).collect();
     let mut shared=BTreeMap::new();let mut converted=BTreeMap::new();let mut maximum=0_f32;let mut fractional=0;
@@ -1758,11 +1765,9 @@ pub fn check_special_response(catalog: &Catalog<'_>, selected: &BTreeMap<String,
             }
             println!("Checked water effective-input states against {source_triangles} source model triangles with nonnegative UV, bounds {bounds:?}; full geometry and runtime gates retained");
         } else if emissive_family(native["technique_set"].as_str().unwrap()) {
-            let kind=special_recipe(native,None)?.special;let controlled=matches!(kind,8 | 16 | 32 | 64);
+            let kind=special_recipe(native,None)?.special;let controlled=matches!(kind,16 | 32 | 64);
             let bounds=if kind == 16 {let (bounds,triangles)=model_uv_bounds(catalog,name,false)?;println!("Checked Fritz nonperiodic UV domain against {triangles} source triangles/all LODs: {bounds:?}");Some(bounds)} else {None};
-            let variants=if kind == 8 {[-0.5,0.,0.5,1.,1.5].into_iter().enumerate().map(|(index,state)| {
-                let mut bound=native.clone();bound["code_constants"]=json!({"170":[state,0.,0.,0.],"25":[0.,0.,0.,index as f32*1.25]});bound
-            }).collect::<Vec<_>>()} else if kind == 16 {
+            let variants=if kind == 16 {
                 [(-0.25,1.),(0.,0.),(0.,1.),(0.0001,1.),(0.5,0.5),(1.,1.),(1.25,1.)].into_iter().enumerate().map(|(index,(warp,amount))| {
                     let mut bound=native.clone();bound["code_constants"]=json!({"169":[warp,amount,0.,0.],"25":[0.,0.,0.,index as f32*1.25]});bound
                 }).collect()
@@ -1793,8 +1798,37 @@ pub fn check_special_response(catalog: &Catalog<'_>, selected: &BTreeMap<String,
                 if native["technique_set"].as_str().unwrap().starts_with("mlv_") && (surface["source_vertex_lighting"]["source"] != 5 || surface["pending_runtime"].is_null()) {
                     return Err("Neutral phong lighting amounts bypassed required secondary vertex lighting".into());
                 }
-                if recipe.special == 8 && recipe.special_parms[1][0] >= 1. {
-                    for sample in &samples {if recipe.sample_special([sample[0],sample[1]])?[2][3] != 0. {return Err("Scripted flicker off state retains emission".into());}}
+                if recipe.special == 8 {
+                    let animation=&surface["scalar_animation"];
+                    if !surface["pending_runtime"].is_null() || animation["time_mode"] != "native_elapsed"
+                        || animation["speed"] != json!(recipe.parms[1]) || animation["minimum"] != json!(recipe.parms[2]) || animation["maximum"] != json!(recipe.parms[3])
+                        || animation["script_vector"] != 1 || animation["script_component"] != 0 || animation["sampler"] != recipe.inputs[3].sampler
+                        || surface["source_flicker"]["script_binding"]["normal_view_base"] != json!([0.,0.,0.,0.]) {
+                        return Err(format!("Native flicker {name} live source clock/script binding is missing or changed").into());
+                    }
+                    let lookup:Vec<f32>=serde_json::from_value(animation["lookup"].clone())?;
+                    if lookup.len() != recipe.inputs[3].height {return Err(format!("Native flicker {name} lookup reduced the source row count").into());}
+                    let pixels:Vec<_>=lookup.into_iter().map(|value| [value;4]).collect();
+                    let period=if recipe.parms[1] == 0. {1.} else {1./recipe.parms[1]};
+                    for time in [-1.,0.,1.25,period-0.0001,period,period+0.0001,period*3.+1.25] {
+                        let coordinate=time*recipe.parms[1];
+                        let original=recipe.inputs[3].sample([recipe.second_parms[0],coordinate])[0];
+                        let packed=texture::sample(&pixels,1,pixels.len(),[0.5,coordinate],recipe.inputs[3].sampler)[0];
+                        if (original-packed).abs()>0.00001 {return Err(format!("Native flicker {name} fixed-column source sampling changed at elapsed {time}").into());}
+                        for script in [-0.5_f32,0.,0.5,1.,1.5] {
+                            let factor=(recipe.parms[2]+(recipe.parms[3]-recipe.parms[2])*packed)*(1.-script).clamp(0.,1.);
+                            let source=(recipe.parms[2]+(recipe.parms[3]-recipe.parms[2])*original)*(1.-script).clamp(0.,1.)*recipe.parms[0];
+                            for uv in [[0.125,0.375],[0.625,0.875]] {
+                                let base=recipe.emission_pixel(uv,recipe.parms[0]*recipe.parms[0]);
+                                let expected=recipe.emission_pixel(uv,source*source);
+                                for channel in 0..3 {
+                                    let actual=base[channel]*(factor*factor);
+                                    if (actual-expected[channel]).abs()>0.00003*expected[channel].abs().max(1.) {return Err(format!("Native flicker {name} static HDR and live factor differ from source emission").into());}
+                                    if script>=1. && actual != 0. {return Err(format!("Native flicker {name} scripted off state retains emission").into());}
+                                }
+                            }
+                        }
+                    }
                 }
                 if recipe.special == 32 {
                     let expected=if index == 0 {0.} else {recipe.parms[3]*recipe.parms[3]};
@@ -1838,7 +1872,7 @@ pub fn check_special_response(catalog: &Catalog<'_>, selected: &BTreeMap<String,
         converted.insert(name.clone(),value);
     }
     if fractional == 0 {return Err("Special representative batch omitted the fractional tile-period edge".into());}
-    println!("Checked {} special representatives at existing source mips <=64px, {fractional} fractional-repeat edges and three explicitly bound water states; maximum CPU/GPU error {maximum}; {} raw input encodings shared",selected.len(),shared.len());
+    println!("Checked {} special representatives at existing source mips <=64px, full native uniform flicker lookups, {fractional} fractional-repeat edges and three explicitly bound water states; maximum CPU/GPU error {maximum}; {} raw input encodings shared",selected.len(),shared.len());
     Ok(crate::material::missing(selected,&converted))
 }
 
@@ -1948,16 +1982,13 @@ mod tests {
         assert_eq!(pixel[0],1.5);assert!((pixel[3]-1.24).abs()<0.001);
         texture::validate(&texture::encode(&image,false,"reflectance").unwrap()).unwrap();
         recipe.special=8;recipe.parms=[3.,0.1,0.2,0.8];recipe.second_parms=[0.3,0.,0.,0.];
-        recipe.special_parms=[[0.;4],[0.;4],[0.,0.,0.,10.]];
         recipe.inputs[3]=input([0.25;4]);
-        for (state,amplitude) in [(-0.5,1.1025),(0.,1.1025),(0.5,0.275625),(1.,0.),(1.5,0.)] {
-            recipe.special_parms[1][0]=state;
-            let actual=gpu::Baker::new(&recipe).unwrap().sample(&[sample]).unwrap()[0];
-            assert!((actual[2][3]-amplitude).abs()<0.00001);
-            assert_eq!(actual[3],[0.04,0.04,0.04,0.25]);
-            let expected=recipe.sample_special([sample[0],sample[1]]).unwrap();
-            for (a,b) in actual.into_iter().flatten().zip(expected.into_iter().flatten()) {assert!((a-b).abs()<0.00003);}
-        }
+        let actual=gpu::Baker::new(&recipe).unwrap().sample(&[sample]).unwrap()[0];
+        assert_eq!(actual[2][3],9.);
+        assert_eq!(actual[3],[0.04,0.04,0.04,0.25]);
+        let expected=recipe.sample_special([sample[0],sample[1]]).unwrap();
+        for (a,b) in actual.into_iter().flatten().zip(expected.into_iter().flatten()) {assert!((a-b).abs()<0.00003);}
+        for (actual,expected) in recipe.emission_pixel([0.375,0.625],9.).into_iter().zip([0.9216,1.44,2.0736,1.]) {assert!((actual-expected).abs()<0.00001);}
     }
 
     #[test]

@@ -13,6 +13,7 @@ use bevy::world_serialization::WorldInstanceReady;
 use std::collections::{BTreeMap, BTreeSet};
 mod raids;
 mod rewards;
+pub(crate) use rewards::BoxGlowRamp;
 pub use raids::GeneratorRaids;
 
 pub(crate) fn use_point(origin: Vec3, eye: Vec3, box_size: f32) -> Vec3 {

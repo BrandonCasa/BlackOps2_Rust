@@ -81,7 +81,11 @@ impl SurfaceLibrary {
     }
 }
 
-pub(super) fn initialize(mut commands: Commands, flags: Query<(Entity, &FlagMotion, &Mesh3d)>) {
+pub(super) fn initialize(
+    mut commands: Commands,
+    flags: Query<(Entity, &FlagMotion, &Mesh3d)>,
+    mut inputs: Query<&mut NativeArtInputs>,
+) {
     for (entity, flag, current) in &flags {
         let mut entity = commands.entity(entity);
         if flag.target == current.0 {
@@ -89,6 +93,11 @@ pub(super) fn initialize(mut commands: Commands, flags: Query<(Entity, &FlagMoti
         }
         entity.remove::<FlagMotion>();
     }
+    for mut input in &mut inputs {
+        input.shader_time = None;
+        input.script_available = 0;
+    }
+    commands.insert_resource(NativeClock::default());
     commands.insert_resource(SurfaceLibrary::default());
     commands.insert_resource(MaterialTime::default());
     commands.insert_resource(OpaqueSurfaceStatus::default());
@@ -96,6 +105,178 @@ pub(super) fn initialize(mut commands: Commands, flags: Query<(Entity, &FlagMoti
 
 #[derive(Resource, Default)]
 pub(super) struct MaterialTime(f64);
+
+#[derive(Resource, Default)]
+pub(super) struct NativeClock {
+    running: bool,
+    realtime: std::time::Duration,
+    remainder: std::time::Duration,
+    server: i32,
+    snapshot: Option<i32>,
+    render: Option<i32>,
+    delta: i32,
+    interpolation: i32,
+    extrapolated: bool,
+    paused: bool,
+}
+
+impl NativeClock {
+    fn advance(
+        &mut self,
+        duration: std::time::Duration,
+        paused: bool,
+        scale: f32,
+    ) -> Result<(), String> {
+        if !self.running {
+            return Ok(());
+        }
+        self.realtime += duration;
+        let realtime = i32::try_from(self.realtime.as_millis())
+            .map_err(|_| "Native client clock requires full server restart")?;
+        if paused {
+            self.paused = true;
+            return Ok(());
+        }
+        self.remainder += duration;
+        let ticks = self.remainder.as_millis() / 50;
+        let previous = self.snapshot.unwrap_or(0);
+        if ticks != 0 {
+            let advance =
+                i32::try_from(ticks * 50).map_err(|_| "Native server timestep overflow")?;
+            self.server = self
+                .server
+                .checked_add(advance)
+                .ok_or("Native server clock overflow")?;
+            self.remainder -= std::time::Duration::from_millis(advance as u64);
+            self.snapshot = Some(self.server);
+        }
+        let Some(snapshot) = self.snapshot else {
+            return Ok(());
+        };
+        if self.render.is_none() || self.paused {
+            self.render = Some(snapshot);
+            self.delta = snapshot - realtime;
+            self.extrapolated = false;
+            if self.paused {
+                self.interpolation = 40;
+            }
+            self.paused = false;
+        }
+        let candidate = self.delta + realtime;
+        self.render = Some(candidate.max(self.render.unwrap()));
+        self.extrapolated |= snapshot - self.interpolation <= candidate;
+        if ticks == 0 {
+            return Ok(());
+        }
+        self.interpolation = if self.interpolation < 11 {
+            5
+        } else {
+            self.interpolation - 5
+        };
+        let target = snapshot - realtime - self.interpolation;
+        let interval = if ticks > 1 { 50 } else { snapshot - previous };
+        let desired = target - interval;
+        let error = desired - self.delta;
+        let magnitude = if error <= 0 {
+            -error
+        } else if interval as f32 <= scale * 1000. {
+            (error - interval).max(0)
+        } else {
+            error
+        };
+        if magnitude as f32 > scale * 1000. {
+            self.render = Some(snapshot);
+            self.delta = target;
+        } else if magnitude as f32 > scale * 100. {
+            self.delta = (self.delta + desired) >> 1;
+        } else if self.extrapolated {
+            self.extrapolated = false;
+            self.delta -= 2;
+        } else {
+            self.delta += (desired - self.delta).signum();
+        }
+        Ok(())
+    }
+}
+
+#[derive(Component)]
+#[require(NativeArtInputs)]
+pub(crate) struct NativeShaderStart(pub f32);
+
+pub(super) fn begin_native_time(mut clock: ResMut<NativeClock>) {
+    clock.running = true;
+}
+
+pub(super) fn shutdown_native_time(
+    mut clock: ResMut<NativeClock>,
+    mut inputs: Query<&mut NativeArtInputs>,
+) {
+    *clock = NativeClock::default();
+    for mut input in &mut inputs {
+        input.shader_time = None;
+    }
+}
+
+pub(super) fn prepare_native_time_owners(
+    mut commands: Commands,
+    rigs: Query<&crate::presentation::Rig>,
+    extras: Query<(Entity, &GltfExtras), Added<GltfExtras>>,
+    starts: Query<(), With<NativeShaderStart>>,
+    inputs: Query<&NativeArtInputs>,
+) {
+    let mut owners: HashSet<_> = rigs.iter().map(|rig| rig.owner).collect();
+    owners.extend(extras.iter().filter_map(|(entity, extras)| {
+        serde_json::from_str::<Value>(&extras.value)
+            .ok()
+            .filter(|value| value["static_instance"] == true)
+            .map(|_| entity)
+    }));
+    for owner in owners {
+        if starts.contains(owner) {
+            continue;
+        }
+        let input = inputs.get(owner).ok();
+        let start = input
+            .and_then(|input| input.shader_time)
+            .map_or(0., |(_, start)| start);
+        let mut entity = commands.entity(owner);
+        entity.insert(NativeShaderStart(start));
+    }
+}
+
+pub(super) fn advance_native_time(
+    time: Res<Time>,
+    virtual_time: Res<Time<Virtual>>,
+    state: Res<State<crate::GameState>>,
+    mut clock: ResMut<NativeClock>,
+    mut inputs: Query<(&NativeShaderStart, &mut NativeArtInputs)>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<crate::GameState>>,
+) {
+    if let Err(error) = clock.advance(
+        time.delta(),
+        **state == crate::GameState::Paused,
+        virtual_time.relative_speed(),
+    ) {
+        failure.0 = error;
+        next.set(crate::GameState::LoadError);
+        return;
+    }
+    for (start, mut input) in &mut inputs {
+        input.shader_time = clock.render.map(|milliseconds| (milliseconds, start.0));
+    }
+}
+
+pub(super) fn material_scene_active(state: Res<State<crate::GameState>>) -> bool {
+    matches!(
+        **state,
+        crate::GameState::PreparingShaders
+            | crate::GameState::Playing
+            | crate::GameState::Paused
+            | crate::GameState::GameOver
+            | crate::GameState::Ending
+    )
+}
 
 pub(super) fn advance_time(time: Res<Time>, mut clock: ResMut<MaterialTime>) {
     clock.0 += time.delta_secs_f64();
@@ -255,6 +436,7 @@ pub(super) struct AnimatedMaterial {
 #[derive(Component, Default)]
 pub(crate) struct NativeArtInputs {
     pub script_vectors: [[f32; 4]; 4],
+    pub script_available: u8,
     pub time_offset: f32,
     pub shader_time: Option<(i32, f32)>,
 }
@@ -271,6 +453,8 @@ fn game_time(milliseconds: i32, start_seconds: f32) -> Result<[f32; 4], String> 
 
 #[derive(Component, serde::Deserialize)]
 pub(super) struct ScalarAnimation {
+    #[serde(default = "elapsed_time_mode")]
+    time_mode: String,
     lookup: Vec<f32>,
     sampler: u32,
     speed: f32,
@@ -280,6 +464,10 @@ pub(super) struct ScalarAnimation {
     script_component: usize,
     #[serde(skip)]
     owner: Option<Entity>,
+}
+
+fn elapsed_time_mode() -> String {
+    "elapsed".into()
 }
 
 #[derive(Component, serde::Deserialize)]
@@ -310,6 +498,7 @@ impl FlagParameters {
         if value["time"]["code_constant"] != 25
             || value["time"]["component"] != 3
             || value["time"]["operation"] != "add_parameter_y_then_multiply_parameter_x"
+            || value["vertex_alpha"] != "motion_amplitude_only"
             || value["uv"] != "one_minus_uv0"
             || value["fragment_vertex_alpha"] != 1.
             || value["displacement_axis"] != "decoded_model_normal"
@@ -555,6 +744,7 @@ fn validate_animation(surface: &Value) -> Result<(), String> {
             serde_json::from_value(surface["scalar_animation"].clone())
                 .map_err(|error| format!("Invalid scalar material animation: {error}"))?;
         if animation.lookup.is_empty()
+            || !matches!(animation.time_mode.as_str(), "elapsed" | "native_elapsed")
             || animation.script_vector >= 4
             || animation.script_component >= 4
             || !animation
@@ -602,7 +792,6 @@ pub(super) fn convert(
     mut library: ResMut<SurfaceLibrary>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    native_inputs: Query<&NativeArtInputs>,
     server: Res<AssetServer>,
     mut status: ResMut<OpaqueSurfaceStatus>,
     mut failure: ResMut<crate::assets::LoadFailure>,
@@ -693,9 +882,6 @@ pub(super) fn convert(
                     );
                 }
                 let owner = owner.ok_or("Native flag render-game time owner is not connected")?;
-                let (milliseconds,start) = native_inputs.get(owner).ok().and_then(|input|input.shader_time)
-                    .ok_or("Native flag render-game milliseconds and shader-start input are not connected")?;
-                game_time(milliseconds, start)?;
                 let parameters = FlagParameters::read(&definition.metadata["source_flag_motion"])?;
                 let source_handle = flag
                     .filter(|flag| flag.target == mesh.0)
@@ -860,14 +1046,30 @@ pub(super) fn animate(
 
 pub(super) fn animate_uvs(
     time: Res<MaterialTime>,
+    state: Res<State<crate::GameState>>,
+    clock: Option<Res<NativeClock>>,
+    starts: Query<(), With<NativeShaderStart>>,
     inputs: Query<&NativeArtInputs>,
     entities: Query<(&UvAnimation, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut status: ResMut<OpaqueSurfaceStatus>,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
     for (animation, handle) in &entities {
+        if animation.time_mode != "native_fractional_second" && **state != crate::GameState::Playing
+        {
+            continue;
+        }
         let input = animation.owner.and_then(|owner| inputs.get(owner).ok());
+        if animation.time_mode == "native_fractional_second"
+            && input.is_none_or(|input| input.shader_time.is_none())
+            && animation.owner.is_some_and(|owner| starts.contains(owner))
+            && clock.as_ref().is_some_and(|clock| clock.render.is_none())
+        {
+            status.pending += 1;
+            continue;
+        }
         let seconds = time.0 - input.map_or(0., |input| input.time_offset as f64);
         let phase = if animation.time_mode == "native_fractional_second" {
             let phase = input
@@ -906,6 +1108,8 @@ pub(super) fn animate_uvs(
 pub(super) fn animate_flags(
     mut commands: Commands,
     inputs: Query<&NativeArtInputs>,
+    clock: Option<Res<NativeClock>>,
+    starts: Query<(), With<NativeShaderStart>>,
     mut entities: Query<(
         Entity,
         &Mesh3d,
@@ -914,6 +1118,7 @@ pub(super) fn animate_flags(
         &mut FlagMotion,
     )>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut status: ResMut<OpaqueSurfaceStatus>,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
@@ -923,6 +1128,24 @@ pub(super) fn animate_flags(
                 .entity(entity)
                 .remove::<(FlagMotion, StandardReady)>();
             continue;
+        }
+        if flag.owner.is_some_and(|owner| starts.contains(owner))
+            && flag
+                .owner
+                .and_then(|owner| inputs.get(owner).ok())
+                .is_none_or(|input| input.shader_time.is_none())
+            && clock.as_ref().is_some_and(|clock| clock.render.is_none())
+        {
+            status.pending += 1;
+            continue;
+        }
+        if meshes
+            .get(&handle.0)
+            .is_none_or(|mesh| mesh.try_attributes().is_err())
+        {
+            failure.0 = "Native flag per-object CPU mesh is unavailable".into();
+            next.set(crate::GameState::LoadError);
+            return;
         }
         let result = (|| -> Result<Option<(Vec<[f32; 3]>, Vec<[f32; 3]>, f32)>, String> {
             if skinned {
@@ -961,11 +1184,14 @@ pub(super) fn animate_flags(
         })();
         match result {
             Ok(Some((positions, normals, seconds))) => {
-                if let Some(mut mesh) = meshes.get_mut(&handle.0) {
-                    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-                    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-                    flag.last_time = Some(seconds);
-                }
+                let Some(mut mesh) = meshes.get_mut(&handle.0) else {
+                    failure.0 = "Native flag per-object CPU mesh is unavailable".into();
+                    next.set(crate::GameState::LoadError);
+                    return;
+                };
+                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+                mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+                flag.last_time = Some(seconds);
             }
             Ok(None) => (),
             Err(error) => {
@@ -979,24 +1205,79 @@ pub(super) fn animate_flags(
 
 pub(super) fn animate_scalars(
     time: Res<MaterialTime>,
+    state: Res<State<crate::GameState>>,
+    clock: Option<Res<NativeClock>>,
+    starts: Query<(), With<NativeShaderStart>>,
+    normal_views: Query<(), (With<super::GameCamera>, With<Camera3d>)>,
     inputs: Query<&NativeArtInputs>,
     entities: Query<(&ScalarAnimation, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut status: ResMut<OpaqueSurfaceStatus>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<crate::GameState>>,
 ) {
     for (animation, handle) in &entities {
+        let native = animation.time_mode == "native_elapsed";
+        if !native && **state != crate::GameState::Playing {
+            continue;
+        }
         let count = animation.lookup.len();
         if count == 0 {
             continue;
         }
         let input = animation.owner.and_then(|owner| inputs.get(owner).ok());
-        let seconds = time.0 - input.map_or(0., |input| input.time_offset as f64);
-        let coordinate = seconds * animation.speed as f64;
+        if native
+            && input.is_none_or(|input| input.shader_time.is_none())
+            && animation.owner.is_some_and(|owner| starts.contains(owner))
+            && clock.as_ref().is_some_and(|clock| clock.render.is_none())
+        {
+            status.pending += 1;
+            continue;
+        }
+        let (coordinate, script) = if native {
+            let result = (|| -> Result<(f64, f32), String> {
+                let input = input.ok_or("Native scalar material-input owner is unavailable")?;
+                let (milliseconds, start) = input.shader_time.ok_or("Native scalar render-game milliseconds and shader-start input are not connected")?;
+                let coordinate = game_time(milliseconds, start)?[3] * animation.speed;
+                let script = if input.script_available & (1 << animation.script_vector) != 0 {
+                    input.script_vectors[animation.script_vector][animation.script_component]
+                } else if animation.script_vector <= 1 && !normal_views.is_empty() {
+                    0.
+                } else {
+                    return Err("Native scalar script vector is unavailable in this view".into());
+                };
+                if !coordinate.is_finite() || !script.is_finite() {
+                    return Err("Native scalar time or script input is non-finite".into());
+                }
+                Ok((coordinate as f64, script))
+            })();
+            match result {
+                Ok(values) => values,
+                Err(error) => {
+                    failure.0 = error;
+                    next.set(crate::GameState::LoadError);
+                    return;
+                }
+            }
+        } else {
+            let seconds = time.0 - input.map_or(0., |input| input.time_offset as f64);
+            (
+                seconds * animation.speed as f64,
+                input.map_or(0., |input| {
+                    input.script_vectors[animation.script_vector][animation.script_component]
+                }),
+            )
+        };
         let coordinate = if animation.sampler & 64 != 0 {
             coordinate.clamp(0., 1.)
         } else {
             coordinate.rem_euclid(1.)
         };
-        let texel = (coordinate * count as f64 - 0.5) as f32;
+        let texel = if native {
+            coordinate as f32 * count as f32 - 0.5
+        } else {
+            (coordinate * count as f64 - 0.5) as f32
+        };
         let at = |index: i64| {
             let index = if animation.sampler & 64 != 0 {
                 index.clamp(0, count as i64 - 1)
@@ -1012,11 +1293,6 @@ pub(super) fn animate_scalars(
             let fraction = texel - lower;
             at(lower as i64) * (1. - fraction) + at(lower as i64 + 1) * fraction
         };
-        let script = input
-            .and_then(|input| input.script_vectors.get(animation.script_vector))
-            .and_then(|vector| vector.get(animation.script_component))
-            .copied()
-            .unwrap_or(0.);
         let intensity = (animation.minimum + (animation.maximum - animation.minimum) * value)
             * (1. - script).clamp(0., 1.);
         let emission = intensity * intensity;
@@ -1202,6 +1478,216 @@ mod tests {
     }
 
     #[test]
+    fn native_clock_publishes_actual_snapshots_and_preserves_restart_but_resets_shutdown() {
+        use std::time::Duration;
+        let mut app = App::new();
+        app.init_resource::<NativeClock>();
+        app.world_mut()
+            .run_system_cached(begin_native_time)
+            .unwrap();
+        {
+            let mut clock = app.world_mut().resource_mut::<NativeClock>();
+            clock.advance(Duration::from_millis(49), false, 1.).unwrap();
+            assert_eq!((clock.server, clock.render), (0, None));
+            clock.advance(Duration::from_millis(76), false, 1.).unwrap();
+            assert_eq!((clock.server, clock.render), (100, Some(100)));
+            clock.advance(Duration::from_secs(3), true, 1.).unwrap();
+            assert_eq!((clock.server, clock.render), (100, Some(100)));
+            clock.advance(Duration::ZERO, false, 1.).unwrap();
+            assert_eq!(
+                (clock.server, clock.render, clock.interpolation),
+                (100, Some(100), 40)
+            );
+            clock.advance(Duration::from_millis(25), false, 1.).unwrap();
+            assert_eq!((clock.server, clock.render), (150, Some(125)));
+        }
+        let owner = app
+            .world_mut()
+            .spawn(NativeArtInputs {
+                shader_time: Some((125, 0.5)),
+                ..default()
+            })
+            .id();
+        app.world_mut()
+            .run_system_cached(begin_native_time)
+            .unwrap();
+        assert_eq!(app.world().resource::<NativeClock>().server, 150);
+        app.world_mut()
+            .run_system_cached(shutdown_native_time)
+            .unwrap();
+        assert_eq!(app.world().resource::<NativeClock>().server, 0);
+        assert_eq!(app.world().resource::<NativeClock>().render, None);
+        assert_eq!(
+            app.world()
+                .get::<NativeArtInputs>(owner)
+                .unwrap()
+                .shader_time,
+            None
+        );
+    }
+
+    #[test]
+    fn native_clock_delivery_waits_for_snapshot_and_preserves_explicit_object_start() {
+        use std::time::Duration;
+        let mut app = App::new();
+        app.init_resource::<NativeClock>()
+            .init_resource::<Time>()
+            .init_resource::<Time<Virtual>>()
+            .init_resource::<crate::assets::LoadFailure>()
+            .insert_resource(NextState::<crate::GameState>::Unchanged)
+            .insert_resource(State::new(crate::GameState::PreparingShaders));
+        let owner = app
+            .world_mut()
+            .spawn(GltfExtras {
+                value: json!({"static_instance":true,"source_model":"native_flag"}).to_string(),
+            })
+            .id();
+        app.world_mut()
+            .run_system_cached(prepare_native_time_owners)
+            .unwrap();
+        assert_eq!(app.world().get::<NativeShaderStart>(owner).unwrap().0, 0.);
+        app.world_mut()
+            .run_system_cached(begin_native_time)
+            .unwrap();
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(49));
+        app.world_mut()
+            .run_system_cached(advance_native_time)
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .get::<NativeArtInputs>(owner)
+                .unwrap()
+                .shader_time,
+            None
+        );
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(1));
+        app.world_mut()
+            .run_system_cached(advance_native_time)
+            .unwrap();
+        let input = app.world().get::<NativeArtInputs>(owner).unwrap();
+        assert_eq!(input.shader_time, Some((50, 0.)));
+        assert_eq!(input.script_available, 0);
+        app.world_mut()
+            .get_mut::<NativeShaderStart>(owner)
+            .unwrap()
+            .0 = 0.75;
+        app.world_mut()
+            .insert_resource(State::new(crate::GameState::Paused));
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
+        app.world_mut()
+            .run_system_cached(advance_native_time)
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .get::<NativeArtInputs>(owner)
+                .unwrap()
+                .shader_time,
+            Some((50, 0.75))
+        );
+    }
+
+    #[test]
+    fn native_scalar_uses_full_f32_time_repeat_filter_and_scoped_base_script_values() {
+        use bevy::asset::AssetApp;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<StandardMaterial>()
+            .init_resource::<crate::assets::LoadFailure>()
+            .init_resource::<OpaqueSurfaceStatus>()
+            .insert_resource(NextState::<crate::GameState>::Unchanged)
+            .insert_resource(State::new(crate::GameState::Paused))
+            .insert_resource(MaterialTime(999.))
+            .add_systems(Update, (refresh_owners, animate_scalars).chain());
+        let original = app
+            .world_mut()
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial::default());
+        let mut objects = Vec::new();
+        for start in [0., 0.5] {
+            let owner = app
+                .world_mut()
+                .spawn(NativeArtInputs {
+                    shader_time: Some((1500, start)),
+                    script_vectors: [[0.; 4], [0.25, 0., 0., 0.], [0.; 4], [0.; 4]],
+                    script_available: 1 << 1,
+                    ..default()
+                })
+                .id();
+            let material = app
+                .world_mut()
+                .resource_mut::<Assets<StandardMaterial>>()
+                .add(StandardMaterial::default());
+            let animation: ScalarAnimation = serde_json::from_value(json!({
+                "time_mode":"native_elapsed","lookup":[0.,0.2,0.4,1.],"sampler":20,
+                "speed":0.5,"minimum":2.,"maximum":4.,"script_vector":1,"script_component":0
+            }))
+            .unwrap();
+            let surface = app
+                .world_mut()
+                .spawn((ChildOf(owner), MeshMaterial3d(material.clone()), animation))
+                .id();
+            objects.push((owner, surface, material));
+        }
+        app.update();
+        let materials = app.world().resource::<Assets<StandardMaterial>>();
+        assert!((materials.get(&objects[0].2).unwrap().emissive.red - 6.5025).abs() < 0.00001);
+        assert!((materials.get(&objects[1].2).unwrap().emissive.red - 3.8025).abs() < 0.00001);
+        assert_eq!(materials.get(&original).unwrap().emissive.red, 0.);
+        app.world_mut()
+            .get_mut::<NativeArtInputs>(objects[0].0)
+            .unwrap()
+            .script_available = 0;
+        app.update();
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .contains("script vector is unavailable")
+        );
+        app.world_mut()
+            .resource_mut::<crate::assets::LoadFailure>()
+            .0
+            .clear();
+        app.world_mut()
+            .spawn((super::super::GameCamera, Camera3d::default()));
+        app.update();
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .is_empty()
+        );
+        assert!(
+            (app.world()
+                .resource::<Assets<StandardMaterial>>()
+                .get(&objects[0].2)
+                .unwrap()
+                .emissive
+                .red
+                - 11.56)
+                .abs()
+                < 0.00001
+        );
+        app.world_mut()
+            .get_mut::<ScalarAnimation>(objects[0].1)
+            .unwrap()
+            .script_vector = 2;
+        app.update();
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .contains("script vector is unavailable")
+        );
+    }
+
+    #[test]
     fn rigid_flag_motion_preserves_raw_basis_pins_and_updates_ray_geometry_before_reset() {
         use bevy::{asset::AssetApp, solari::prelude::RaytracingMesh3d};
         let source = flag_mesh();
@@ -1236,12 +1722,14 @@ mod tests {
             .init_asset::<StandardMaterial>()
             .init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>()
             .init_resource::<crate::assets::LoadFailure>()
+            .init_resource::<OpaqueSurfaceStatus>()
             .insert_resource(NextState::<crate::GameState>::Unchanged)
+            .insert_resource(State::new(crate::GameState::Paused))
             .add_systems(
                 Update,
                 (
                     refresh_owners,
-                    animate_flags,
+                    animate_flags.run_if(material_scene_active),
                     super::super::solari::prepare_meshes,
                 )
                     .chain(),
@@ -1416,11 +1904,75 @@ mod tests {
                 .unwrap()
                 .attribute(Mesh::ATTRIBUTE_POSITION)
         );
+        app.world_mut()
+            .entity_mut(objects[0].1)
+            .insert(ChildOf(objects[1].0));
+        app.world_mut()
+            .get_mut::<NativeArtInputs>(objects[1].0)
+            .unwrap()
+            .shader_time = Some((1000, 0.));
+        app.update();
+        assert_eq!(
+            app.world().get::<FlagMotion>(objects[0].1).unwrap().owner,
+            Some(objects[1].0)
+        );
+        let Some(VertexAttributeValues::Float32x3(positions)) = app
+            .world()
+            .resource::<Assets<Mesh>>()
+            .get(&proxy)
+            .unwrap()
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!()
+        };
+        assert!(positions[1][1].abs() < 0.000001);
+        app.world_mut()
+            .entity_mut(objects[1].0)
+            .remove::<NativeArtInputs>();
+        app.update();
+        assert_eq!(
+            app.world().get::<FlagMotion>(objects[0].1).unwrap().owner,
+            None
+        );
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .contains("shader-start input")
+        );
+        app.world_mut()
+            .entity_mut(objects[1].0)
+            .insert(NativeArtInputs {
+                shader_time: Some((1250, 0.)),
+                ..default()
+            });
+        app.world_mut()
+            .resource_mut::<crate::assets::LoadFailure>()
+            .0
+            .clear();
+        app.update();
+        app.world_mut()
+            .resource_mut::<Assets<Mesh>>()
+            .remove(objects[0].2.id());
+        app.update();
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .contains("CPU mesh is unavailable")
+        );
         app.add_systems(Update, initialize.before(refresh_owners));
         app.update();
-        for (_, entity, _) in objects {
+        for (owner, entity, _) in objects {
             assert!(app.world().get::<FlagMotion>(entity).is_none());
             assert_eq!(app.world().get::<Mesh3d>(entity).unwrap().0, original);
+            assert_eq!(
+                app.world()
+                    .get::<NativeArtInputs>(owner)
+                    .unwrap()
+                    .shader_time,
+                None
+            );
         }
     }
 
@@ -1469,8 +2021,10 @@ mod tests {
         app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
             .init_asset::<StandardMaterial>()
             .init_resource::<crate::assets::LoadFailure>()
+            .init_resource::<OpaqueSurfaceStatus>()
             .insert_resource(NextState::<crate::GameState>::Unchanged)
             .insert_resource(MaterialTime(2.))
+            .insert_resource(State::new(crate::GameState::Playing))
             .add_systems(Update, animate_uvs);
         let base =
             super::super::pbr::uv_transform(&json!({"uv_transform":[0.5,0.,0.,0.25,-1.,2.]}))
@@ -1543,6 +2097,25 @@ mod tests {
                 .translation,
             Vec2::new(0., -0.75)
         );
+        let legacy = app
+            .world()
+            .resource::<Assets<StandardMaterial>>()
+            .get(&handle)
+            .unwrap()
+            .uv_transform;
+        app.world_mut()
+            .insert_resource(State::new(crate::GameState::Paused));
+        app.world_mut().resource_mut::<MaterialTime>().0 = 1000.;
+        app.world_mut()
+            .get_mut::<NativeArtInputs>(owner)
+            .unwrap()
+            .shader_time = Some((1800, 0.5));
+        app.update();
+        let materials = app.world().resource::<Assets<StandardMaterial>>();
+        assert_eq!(materials.get(&handle).unwrap().uv_transform, legacy);
+        assert!(
+            (materials.get(&native).unwrap().uv_transform.translation.y + 0.3).abs() < 0.000001
+        );
         app.world_mut()
             .get_mut::<NativeArtInputs>(owner)
             .unwrap()
@@ -1553,6 +2126,130 @@ mod tests {
                 .resource::<crate::assets::LoadFailure>()
                 .0
                 .contains("shader-start input")
+        );
+    }
+
+    #[test]
+    fn native_uv_clock_tracks_nearest_live_owner_and_clears_across_loading() {
+        use bevy::asset::AssetApp;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<StandardMaterial>()
+            .init_resource::<crate::assets::LoadFailure>()
+            .init_resource::<OpaqueSurfaceStatus>()
+            .insert_resource(NextState::<crate::GameState>::Unchanged)
+            .insert_resource(State::new(crate::GameState::Paused))
+            .insert_resource(MaterialTime(987.))
+            .add_systems(
+                Update,
+                (refresh_owners, animate_uvs)
+                    .chain()
+                    .run_if(material_scene_active),
+            );
+        let root = app
+            .world_mut()
+            .spawn(NativeArtInputs {
+                shader_time: Some((1100, 0.5)),
+                ..default()
+            })
+            .id();
+        let nearest = app
+            .world_mut()
+            .spawn((
+                ChildOf(root),
+                NativeArtInputs {
+                    shader_time: Some((1750, 0.)),
+                    ..default()
+                },
+            ))
+            .id();
+        let material = app
+            .world_mut()
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial::default());
+        let surface = app
+            .world_mut()
+            .spawn((
+                ChildOf(nearest),
+                MeshMaterial3d(material.clone()),
+                UvAnimation {
+                    translation: [0., -1.],
+                    time_mode: "native_fractional_second".into(),
+                    owner: None,
+                    base: bevy::math::Affine2::IDENTITY,
+                },
+            ))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world().get::<UvAnimation>(surface).unwrap().owner,
+            Some(nearest)
+        );
+        assert!(
+            (app.world()
+                .resource::<Assets<StandardMaterial>>()
+                .get(&material)
+                .unwrap()
+                .uv_transform
+                .translation
+                .y
+                + 0.75)
+                .abs()
+                <= f32::EPSILON
+        );
+        app.world_mut()
+            .entity_mut(nearest)
+            .remove::<NativeArtInputs>();
+        app.update();
+        assert_eq!(
+            app.world().get::<UvAnimation>(surface).unwrap().owner,
+            Some(root)
+        );
+        assert!(
+            (app.world()
+                .resource::<Assets<StandardMaterial>>()
+                .get(&material)
+                .unwrap()
+                .uv_transform
+                .translation
+                .y
+                + 0.6)
+                .abs()
+                < 0.000001
+        );
+        app.world_mut().entity_mut(root).remove::<NativeArtInputs>();
+        app.update();
+        assert_eq!(app.world().get::<UvAnimation>(surface).unwrap().owner, None);
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .contains("shader-start input")
+        );
+        app.world_mut().entity_mut(root).insert(NativeArtInputs {
+            shader_time: Some((50, 0.)),
+            ..default()
+        });
+        app.world_mut()
+            .resource_mut::<crate::assets::LoadFailure>()
+            .0
+            .clear();
+        app.world_mut()
+            .insert_resource(State::new(crate::GameState::Loading));
+        app.add_systems(Update, initialize);
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<NativeArtInputs>(root)
+                .unwrap()
+                .shader_time,
+            None
+        );
+        assert!(
+            app.world()
+                .resource::<crate::assets::LoadFailure>()
+                .0
+                .is_empty()
         );
     }
 

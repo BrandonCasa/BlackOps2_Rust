@@ -48,6 +48,52 @@ pub struct IronFists {
 pub(crate) struct ChallengeBox;
 #[derive(Component)]
 struct SoulChest(usize);
+#[derive(Component)]
+struct SoulBoxGlow {
+    elapsed: f32,
+    pending: Vec<(f32, bool)>,
+    active: bool,
+    ramps: Vec<crate::generators::BoxGlowRamp>,
+    effect: Option<Entity>,
+}
+impl Default for SoulBoxGlow {
+    fn default() -> Self {
+        Self {
+            elapsed: 0.,
+            pending: vec![(1., true), (2., false)],
+            active: false,
+            ramps: Vec::new(),
+            effect: None,
+        }
+    }
+}
+impl SoulBoxGlow {
+    fn queue(&mut self, delay: f32, active: bool) {
+        self.pending.push((self.elapsed + delay, active));
+    }
+
+    fn advance(&mut self, dt: f32, inputs: &mut crate::rendering::NativeArtInputs) -> Vec<bool> {
+        self.ramps.retain_mut(|ramp| ramp.tick(dt, inputs));
+        self.elapsed += dt;
+        self.pending.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut changed = Vec::new();
+        while self
+            .pending
+            .first()
+            .is_some_and(|(time, _)| *time <= self.elapsed)
+        {
+            let (_, active) = self.pending.remove(0);
+            if self.active != active {
+                self.active = active;
+                inputs.script_vectors[1] = [0.; 4];
+                inputs.script_available |= 1 << 1;
+                self.ramps.push(crate::generators::BoxGlowRamp::new(active));
+                changed.push(active);
+            }
+        }
+        changed
+    }
+}
 pub struct RitualPlugin;
 impl Plugin for RitualPlugin {
     fn build(&self, app: &mut App) {
@@ -63,6 +109,12 @@ impl Plugin for RitualPlugin {
                     .in_set(GameStep::Rewards)
                     .after(crate::damage::reward_deaths)
                     .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                FixedUpdate,
+                soul_box_glow
+                    .after(track)
+                    .run_if(in_state(GameState::PreparingShaders).or_else(in_state(GameState::Playing))),
             )
             .add_systems(
                 FixedUpdate,
@@ -91,6 +143,9 @@ fn setup(
         let mut entity = commands.spawn((
             SessionEntity,
             SoulChest(i),
+            SoulBoxGlow::default(),
+            crate::rendering::opaque::NativeShaderStart(0.),
+            crate::rendering::NativeArtInputs::default(),
             Transform::from_translation(Vec3::from_array(*position)).with_rotation(
                 Quat::from_rotation_y(-[94.8_f32, 355., 180., 170.][i].to_radians()),
             ),
@@ -111,6 +166,31 @@ fn setup(
         ));
     }
 }
+fn soul_box_glow(
+    mut commands: Commands,
+    time: Res<Time<Fixed>>,
+    mut boxes: Query<(
+        Entity,
+        &mut SoulBoxGlow,
+        &mut crate::rendering::NativeArtInputs,
+    )>,
+) {
+    for (entity, mut glow, mut inputs) in &mut boxes {
+        for active in glow.advance(time.delta_secs(), &mut inputs) {
+            if active {
+                glow.effect = Some(crate::native_fx::attach(
+                    &mut commands,
+                    "maps/zombie_tomb/fx_tomb_challenge_fire",
+                    entity,
+                    Transform::default(),
+                ));
+            } else if let Some(effect) = glow.effect.take() {
+                commands.entity(effect).try_despawn();
+            }
+        }
+    }
+}
+
 fn track(
     mut commands: Commands,
     mut rituals: ResMut<Rituals>,
@@ -132,7 +212,7 @@ fn track(
     game: Res<GameDefinition>,
     generators: Res<crate::generators::Generators>,
     ledger: Res<crate::economy::PointLedger>,
-    boxes: Query<(Entity, &SoulChest)>,
+    mut boxes: Query<(Entity, &SoulChest, &mut SoulBoxGlow)>,
     players: Query<(&Vitality, &IronFists), With<Player>>,
 ) {
     rituals.generators = generators.completions;
@@ -148,6 +228,11 @@ fn track(
             {
                 rituals.souls[i] = 0;
                 rituals.resets += 1;
+                for (_, chest, mut glow) in &mut boxes {
+                    if chest.0 == i {
+                        glow.queue(0., false);
+                    }
+                }
             }
         }
     }
@@ -198,12 +283,21 @@ fn track(
             if !inside {
                 continue;
             }
+            let first = rituals.souls[i] == 0;
             rituals.souls[i] += 1;
+            if first {
+                for (_, chest, mut glow) in &mut boxes {
+                    if chest.0 == i {
+                        glow.queue(1., true);
+                    }
+                }
+            }
             if rituals.souls[i] >= 30 {
                 rituals.complete[i] = true;
                 rituals.chests += 1;
-                for (entity, chest) in &boxes {
+                for (entity, chest, mut glow) in &mut boxes {
                     if chest.0 == i {
+                        glow.queue(0.5, false);
                         commands.entity(entity).insert(Visibility::Hidden);
                     }
                 }
@@ -436,5 +530,42 @@ pub fn punch(
             region: HitRegion::Torso,
             amount,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn soul_box_material_maps_source_slot_on_startup_souls_completion_and_stomp() {
+        let mut glow = SoulBoxGlow::default();
+        let mut inputs = crate::rendering::NativeArtInputs::default();
+        assert!(glow.advance(0.99, &mut inputs).is_empty());
+        assert_eq!(inputs.script_available, 0);
+        assert_eq!(glow.advance(0.01, &mut inputs), [true]);
+        assert_eq!(inputs.script_available, 1 << 1);
+        assert_eq!(inputs.script_vectors[1], [0.; 4]);
+        for _ in 0..7 {
+            glow.advance(0.016, &mut inputs);
+        }
+        assert!((inputs.script_vectors[1][0] - 0.888).abs() < 0.000001);
+        glow.queue(0., true);
+        assert!(glow.advance(0., &mut inputs).is_empty());
+        assert!((inputs.script_vectors[1][0] - 0.888).abs() < 0.000001);
+        assert_eq!(glow.advance(0.9, &mut inputs), [false]);
+        assert_eq!(inputs.script_vectors[1], [0.; 4]);
+        glow.queue(1., true);
+        assert!(glow.advance(0.99, &mut inputs).is_empty());
+        assert_eq!(glow.advance(0.02, &mut inputs), [true]);
+        glow.queue(0.5, false);
+        assert!(glow.advance(0.49, &mut inputs).is_empty());
+        assert_eq!(glow.advance(0.02, &mut inputs), [false]);
+        glow.queue(1., true);
+        assert_eq!(glow.advance(1., &mut inputs), [true]);
+        glow.queue(0., false);
+        assert_eq!(glow.advance(0., &mut inputs), [false]);
+        assert_eq!(inputs.script_vectors[1], [0.; 4]);
+        assert_eq!(inputs.script_available, 1 << 1);
     }
 }
