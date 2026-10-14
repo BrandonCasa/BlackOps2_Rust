@@ -311,6 +311,8 @@ struct Recipe {
     inputs: Vec<Input>,
     base_specular: bool,
     geometric_normal: bool,
+    second_additive: bool,
+    second_normal: u8,
     decal: bool,
     multiply: bool,
     additive: bool,
@@ -322,18 +324,37 @@ struct Recipe {
 }
 
 impl Recipe {
-    fn color_only_layer(&self) -> bool { self.multiply || self.additive || self.blend_color || self.geometric_normal }
+    fn color_operations(&self) -> bool { self.multiply || self.additive || self.blend_color || self.geometric_normal }
+    fn color_only_layer(&self) -> bool { self.color_operations() && self.second_normal == 0 }
+
+    fn auxiliary(&self, surface: &Surface, index: usize) -> Result<([f32;2],[f32;2],[f32;4],[f32;4])> {
+        if self.second_normal != 2 {
+            let (uv1,uv2,frame) = auxiliary(surface,index,self.decal,self.color_only_layer())?;
+            return Ok((uv1,uv2,frame,frame));
+        }
+        let bytes = surface.auxiliary.get(index).ok_or("Two-normal layered world vertex has no auxiliary data")?;
+        if bytes.len() != 16 { return Err("Two-normal layered vertex requires sixteen auxiliary bytes".into()); }
+        let uv = |offset| [half::f16::from_bits(u16_at(bytes,offset)).to_f32(),half::f16::from_bits(u16_at(bytes,offset+2)).to_f32()];
+        let (uv1,uv2) = (uv(0),uv(4));
+        if uv1.into_iter().chain(uv2).any(|value| !value.is_finite()) { return Err("Two-normal layered UV is not finite".into()); }
+        Ok((uv1,uv2,std::array::from_fn(|i| bytes[8+i] as f32/255.),std::array::from_fn(|i| bytes[12+i] as f32/255.)))
+    }
 
     fn input_uv(&self, index: usize) -> usize {
         if index == 0 || !self.geometric_normal && index == 1 || self.base_specular && index + 1 == self.inputs.len() { 0 }
-        else if self.decal && index == if self.color_only_layer() { 3 } else { 4 } { 2 }
+        else if self.second_normal != 0 && index + 1 == self.inputs.len() || self.decal && index == if self.color_operations() { 3 } else { 4 } { 2 }
         else { 1 }
     }
 
     #[cfg(test)]
     fn sample(&self, uv0: [f32;2], uv1: [f32;2], uv2: [f32;2], green: f32, blue: f32, transform: [f32;4]) -> Result<[[f32;4];4]> {
+        self.sample_frames(uv0,uv1,uv2,green,blue,transform,transform)
+    }
+
+    #[cfg(test)]
+    fn sample_frames(&self, uv0: [f32;2], uv1: [f32;2], uv2: [f32;2], green: f32, blue: f32, transform: [f32;4], second_transform: [f32;4]) -> Result<[[f32;4];4]> {
         let inputs = &self.inputs;
-        if self.color_only_layer() {
+        if self.color_operations() {
             let base = inputs[0].sample(uv0);
             let layer = inputs[if self.geometric_normal {1} else {2}].sample(uv1);
             let second = if self.decal { inputs[3].sample(uv2) } else { [1.;4] };
@@ -344,11 +365,13 @@ impl Recipe {
                     let weight = if self.decal {blue*second[3]} else {0.};
                     (first+weight*(second[c]-first)).powi(2)
                 }
-                else if self.additive { (base[c]+layer[c]*green*layer[3]).powi(2) }
+                else if self.additive { ((base[c]+layer[c]*green*layer[3])*(1.+blue*(second[c]-1.))).powi(2) }
                 else { (base[c]*tint[c]*(1.+blue*(second[c]-1.))).powi(2) }
             });
             let mut response = if self.base_alpha_response {
-                let gloss = if self.additive || self.blend_color {base[3]} else {base[3]*(tint[0]*0.3+tint[1]*0.6+tint[2]*0.1)};
+                let second_tint: [f32;3] = std::array::from_fn(|c| 1.+blue*(second[c]-1.));
+                let gloss = if self.additive && self.decal {base[3]*(second_tint[0]*0.3+second_tint[1]*0.6+second_tint[2]*0.1)}
+                    else if self.additive || self.blend_color {base[3]} else {base[3]*(tint[0]*0.3+tint[1]*0.6+tint[2]*0.1)};
                 [1.,(2./(2_f32.powf(13.*gloss)+2.)).powf(0.25),0.,gloss]
             } else { [1.,1.,0.,1.] };
             let mut specular = [0.;4];
@@ -362,7 +385,15 @@ impl Recipe {
             }
             if self.geometric_normal { return Ok([color,[0.,0.,1.,1.],response,specular]); }
             let normal = inputs[1].sample(uv0);
-            let slope = [normal[0],normal[1]].map(|value| value*f32::from_bits(0x40808102)+f32::from_bits(0xc0010204));
+            let decode = |value: f32| value*f32::from_bits(0x40808102)+f32::from_bits(0xc0010204);
+            let mut slope = [normal[0],normal[1]].map(decode);
+            if self.second_normal == 1 {
+                let second_normal = inputs[4].sample(uv2);
+                let s = [decode(second_normal[0]),decode(second_normal[1])];
+                let rotated = [s[0]*transform[0]+s[1]*transform[1],s[0]*transform[2]+s[1]*transform[3]];
+                let weight = blue*second[3];
+                slope=std::array::from_fn(|axis| slope[axis]+weight*(rotated[axis]-slope[axis]));
+            }
             let length = (slope[0]*slope[0]+slope[1]*slope[1]+1.).sqrt();
             return Ok([color,[slope[0]/length,slope[1]/length,1./length,1.],response,specular]);
         }
@@ -377,12 +408,24 @@ impl Recipe {
         } else { c1[3]*green };
         let decal = if self.decal { inputs[4].sample(uv2) } else { [1.;4] };
         let mut color = [1.;4];
-        for c in 0..3 { color[c]=((c0[c]+weight*(c1[c]-c0[c]))*(1.+blue*(decal[c]-1.))).powi(2); }
+        for c in 0..3 {
+            let first = c0[c]+weight*(c1[c]-c0[c]);
+            color[c] = if self.second_additive {(first+blue*decal[3]*decal[c]).powi(2)}
+                else if self.second_normal != 0 {(first+blue*decal[3]*(decal[c]-first)).powi(2)}
+                else {(first*(1.+blue*(decal[c]-1.))).powi(2)};
+        }
         let decode = |value: f32| value*f32::from_bits(0x40808102)+f32::from_bits(0xc0010204);
         let s0 = [decode(n0[0]),decode(n0[1])];
         let s1 = [decode(n1[0]),decode(n1[1])];
         let rotated = [s1[0]*transform[0]+s1[1]*transform[1],s1[0]*transform[2]+s1[1]*transform[3]];
-        let slope = [s0[0]+weight*(rotated[0]-s0[0]),s0[1]+weight*(rotated[1]-s0[1])];
+        let mut slope = [s0[0]+weight*(rotated[0]-s0[0]),s0[1]+weight*(rotated[1]-s0[1])];
+        if self.second_normal == 2 {
+            let second = inputs[5].sample(uv2);
+            let s = [decode(second[0]),decode(second[1])];
+            let rotated = [s[0]*second_transform[0]+s[1]*second_transform[1],s[0]*second_transform[2]+s[1]*second_transform[3]];
+            let weight = blue*decal[3];
+            slope=std::array::from_fn(|axis| slope[axis]+weight*(rotated[axis]-slope[axis]));
+        }
         let length = (slope[0]*slope[0]+slope[1]*slope[1]+1.).sqrt();
         let normal = [slope[0]/length,slope[1]/length,1./length,1.];
         let (mut response,mut specular) = ([1.,1.,0.,1.],[0.;4]);
@@ -396,7 +439,7 @@ impl Recipe {
             } else {base};
             let rgb = std::array::from_fn(|c| mixed[c]*mixed[c]);
             let tint: [f32;3] = std::array::from_fn(|c| 1.+blue*(decal[c]-1.));
-            let gloss = mixed[3]*if self.decal {tint[0]*0.3+tint[1]*0.6+tint[2]*0.1} else {1.};
+            let gloss = mixed[3]*if self.decal && !self.second_additive {tint[0]*0.3+tint[1]*0.6+tint[2]*0.1} else {1.};
             let (base,metallic,roughness) = crate::material::pbr_pixel([color[0],color[1],color[2]],rgb,gloss);
             color = [base[0],base[1],base[2],1.];
             response = [1.,roughness,metallic,1.];
@@ -498,13 +541,13 @@ fn periodic(native: &Value, recipe: &Recipe, baker: &gpu::Baker, key: &[u32], ur
     let transform: [f32;4] = std::array::from_fn(|axis| 2.*f32::from_bits(key[axis+1])-1.);
     let offset: [f32;2] = std::array::from_fn(|axis| f32::from_bits(key[axis+5]));
     for start in (0..width*height).step_by(262_144) {
-        let mut samples = vec![[0.;12]; (width*height-start).min(262_144)];
+        let mut samples = vec![[0.;16]; (width*height-start).min(262_144)];
         parallel_chunks_mut(&mut samples, 4096, |base, samples| {
             for (index, sample) in samples.iter_mut().enumerate() {
                 let index = start+base+index;
                 let uv0 = [((index%width) as f32+0.5)/width as f32,((index/width) as f32+0.5)/height as f32];
                 let uv1: [f32;2] = std::array::from_fn(|axis| uv0[axis]+offset[axis]);
-                *sample = [uv0[0],uv0[1],uv1[0],uv1[1],uv0[0],uv0[1],green,0.,transform[0],transform[1],transform[2],transform[3]];
+                *sample = [uv0[0],uv0[1],uv1[0],uv1[1],uv0[0],uv0[1],green,0.,transform[0],transform[1],transform[2],transform[3],transform[0],transform[1],transform[2],transform[3]];
             }
             Ok(())
         })?;
@@ -583,23 +626,31 @@ fn recipe(native: &Value, images: Option<&BTreeMap<String, texture::Image>>) -> 
         "lit_sm_r0c0n0x0_b1c1n1s1" => Some(["c9b52d6f","aa3a8509","420be797","d8158c3f"]),
         "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2" => Some(["3250349a","675e1822","b9eefe62","15711114"]),
         "lit_sm_r0c0s0_b1c1" => Some(["f55271f1","5e9f74f0","7eecbb09","2cb07dc6"]),
+        "lit_sm_r0c0n0x0_a1c1_m2c2" => Some(["8b6985a0","ad25a73a","d74f58","df0aae0c"]),
+        "lit_sm_r0c0n0x0_b1c1n1_a2c2" => Some(["3250349a","f5127bac","b9eefe62","873d729a"]),
+        "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2" => Some(["3250349a","4751c8d3","b9eefe62","357ec1e5"]),
+        "lit_sm_r0c0n0x0_b1c1_b2c2n2" => Some(["3250349a","76c68e0c","b9eefe62","4e9873a"]),
+        "lit_sm_r0c0n0x0_b1c1n1_b2c2n2" => Some(["94510929","d0c7b3bf","1fefc3d1","a2e8ba89"]),
         _ => None,
     };
+    let first_add_second_multiply = family == "lit_sm_r0c0n0x0_a1c1_m2c2";
+    let second_additive = matches!(family,"lit_sm_r0c0n0x0_b1c1n1_a2c2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2");
+    let second_normal = if family == "lit_sm_r0c0n0x0_b1c1_b2c2n2" {1} else if family == "lit_sm_r0c0n0x0_b1c1n1_b2c2n2" {2} else {0};
     let base_specular = matches!(family,"lit_sm_r0c0n0s0_b1c1n1" | "lit_sm_r0c0n0s0_b1c1n1s1v1" | "lit_sm_r0c0s0_b1c1");
     let geometric_normal = family == "lit_sm_r0c0s0_b1c1";
-    let response_decal = family == "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2";
+    let response_decal = matches!(family,"lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2");
     let simple_layer_specular = family == "lit_sm_r0c0n0x0_b1c1n1s1";
     let diffuse_reveal = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1v1";
     let double_blend = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1_b2c2";
-    let blend_color = geometric_normal || double_blend || native["technique_set"] == "lit_sm_r0c0n0x0_b1c1";
-    let additive = native["technique_set"] == "lit_sm_r0c0n0x0_a1c1";
+    let blend_color = second_normal == 1 || geometric_normal || double_blend || native["technique_set"] == "lit_sm_r0c0n0x0_b1c1";
+    let additive = first_add_second_multiply || native["technique_set"] == "lit_sm_r0c0n0x0_a1c1";
     let multiply_response = native["technique_set"] == "lit_sm_r0c0n0x0_m1c1";
     let multiply_decal = native["technique_set"] == "lit_sm_r0c0n0_m1c1_m2c2";
     let multiply = multiply_response || multiply_decal || native["technique_set"] == "lit_sm_r0c0n0_m1c1";
     let base_alpha_reveal = response_decal || native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1s1v1";
-    let base_alpha_response = simple_layer_specular || diffuse_reveal || blend_color || additive || multiply_response || base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
+    let base_alpha_response = second_additive || second_normal != 0 || simple_layer_specular || diffuse_reveal || blend_color || additive || multiply_response || base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1";
     let reveal_decal = native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1_m2c2";
-    let decal = response_decal || double_blend || multiply_decal || reveal_decal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1_m2c2";
+    let decal = first_add_second_multiply || second_additive || second_normal != 0 || response_decal || double_blend || multiply_decal || reveal_decal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1_m2c2";
     let layer_specular = simple_layer_specular || family == "lit_sm_r0c0n0s0_b1c1n1s1v1" || base_alpha_reveal || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1s1v1";
     let reveal = diffuse_reveal || reveal_decal || layer_specular && !simple_layer_specular || native["technique_set"] == "lit_sm_r0c0n0_b1c1n1v1";
     let selected_programs = new_programs.map(|names| names.map(|name| format!("pimp_shader_layer_lmap_{name}.hlsl")));
@@ -642,9 +693,9 @@ fn recipe(native: &Value, images: Option<&BTreeMap<String, texture::Image>>) -> 
         if !values.iter().all(|value| value.is_finite()) || values[0] <= 0. || values[1] < 0. || (!base_alpha_reveal && !diffuse_reveal && values[1] == 0.) { return Err("Layered reveal parameters are outside the recovered domain".into()); }
         values
     } else { [0.;4] };
-    let expected = [(0,0),(1,2),(2,5),(3,1),(4,7),(5,6),(6,8),(8,10)];
+    let expected = [(0,0),(1,2),(2,5),(3,1),(4,7),(5,6),(6,8),(8,10),(9,11)];
     let geometric_routes = [(0,0),(1,2),(2,5),(3,1),(5,6),(6,8)];
-    let expected = if geometric_normal { &geometric_routes[..] } else if multiply || additive || blend_color { &expected[..7] } else { &expected[..] };
+    let expected = if geometric_normal { &geometric_routes[..] } else if second_normal == 2 { &expected[..] } else if (multiply || additive || blend_color) && second_normal == 0 { &expected[..7] } else { &expected[..8] };
     let routes = passes[0]["vertex_routes"].as_array().ok_or("Layered vertex routes are missing")?;
     if routes.len() != expected.len() || routes.iter().zip(expected.iter().copied()).any(|(route, (source, destination))| route["source"] != source || route["destination"] != destination) {
         return Err("Layered material vertex declaration differs from recovered source".into());
@@ -654,7 +705,8 @@ fn recipe(native: &Value, images: Option<&BTreeMap<String, texture::Image>>) -> 
         else if base_specular { vec![(2695565377,20,0),(1507003663,20,257),(3054311504,20,515),(2486480606,20,772)] }
         else { vec![(2695565377_u32,20,0),(1507003663,20,257),(3054311504,if multiply {10} else {20},514)] };
     if !base_specular && !multiply && !additive && !blend_color { bindings.push((2486480606,20,if decal {1027} else {771})); }
-    if decal { bindings.push((3054311507,if double_blend {20} else {10},if multiply || blend_color {771} else if response_decal {773} else {772})); }
+    if decal { bindings.push((3054311507,if double_blend || second_additive || second_normal != 0 {20} else {10},if multiply || additive || blend_color {771} else if response_decal {773} else {772})); }
+    if second_normal != 0 { bindings.push((2486480605,20,if second_normal == 1 {1028} else {1285})); }
     if layer_specular { bindings.push((3532022562,20,if base_specular {1285} else if response_decal {1284} else {1028})); }
     if base_specular { bindings.push((887934131,20,if geometric_normal {513} else {1026})); }
     if new_programs.is_some() {
@@ -685,7 +737,7 @@ fn recipe(native: &Value, images: Option<&BTreeMap<String, texture::Image>>) -> 
             inputs.push(Input::read(image,sampler)?);
         }
     }
-    Ok(Recipe {base_specular,geometric_normal,inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:reveal_parms})
+    Ok(Recipe {second_additive,second_normal,base_specular,geometric_normal,inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:reveal_parms})
 }
 
 fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, baker: &gpu::Baker, uri: &str, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<Vec<Surface>> {
@@ -696,7 +748,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, baker: &gpu::B
     for (surface_index, surface) in surfaces.iter().enumerate() {
         for first in (0..surface.positions.len()).step_by(3) {
             let varying_frame = !constant_frame(surface,first);
-            let auxiliary = (0..3).map(|i| auxiliary(surface, first+i, decal, recipe.color_only_layer())).collect::<Result<Vec<_>>>()?;
+            let auxiliary = (0..3).map(|i| recipe.auxiliary(surface, first+i)).collect::<Result<Vec<_>>>()?;
             let layer_uv: Vec<_> = auxiliary.iter().map(|value| value.0).collect();
             let decal_uv: Vec<_> = auxiliary.iter().map(|value| value.1).collect();
             let uv_streams = if decal { vec![&surface.uv[first..first+3],layer_uv.as_slice(),decal_uv.as_slice()] }
@@ -714,6 +766,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, baker: &gpu::B
                 key.push(surface.colors[first+i][1] as u32);
                 if decal { key.push(surface.colors[first+i][2] as u32); }
                 key.extend(auxiliary[i].2.map(f32::to_bits));
+                key.extend(auxiliary[i].3.map(f32::to_bits));
                 key.push(varying_frame as u32);
                 if varying_frame {
                     key.extend(surface.normals[first+i].map(f32::to_bits));
@@ -803,7 +856,7 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, baker: &gpu::B
         let surface = &surfaces[triangle.surface];
         let frame = if constant_frame(surface,triangle.first) { None } else { Some(NormalFrame::read(surface,triangle.first)?) };
         if frame.is_some() { basis_triangles+=triangle.copies.len(); }
-        let auxiliary = (0..3).map(|i| auxiliary(surface,triangle.first+i,decal,recipe.color_only_layer())).collect::<Result<Vec<_>>>()?;
+        let auxiliary = (0..3).map(|i| recipe.auxiliary(surface,triangle.first+i)).collect::<Result<Vec<_>>>()?;
         let lower: [usize;2] = std::array::from_fn(|axis| triangle.points.iter().map(|point| point[axis].floor().max(0.) as usize).min().unwrap());
         let upper: [usize;2] = std::array::from_fn(|axis| triangle.points.iter().map(|point| point[axis].ceil().max(0.) as usize).max().unwrap()+2*GUTTER);
         let end = [upper[0].min(chart.width+2*GUTTER),upper[1].min(chart.height+2*GUTTER)];
@@ -833,10 +886,11 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, baker: &gpu::B
                         let uv1: [f32;2] = std::array::from_fn(|axis| interpolate(std::array::from_fn(|i| auxiliary[i].0[axis])));
                         let uv2: [f32;2] = std::array::from_fn(|axis| interpolate(std::array::from_fn(|i| auxiliary[i].1[axis])));
                         let transform: [f32;4] = std::array::from_fn(|axis| 2.*interpolate(std::array::from_fn(|i| auxiliary[i].2[axis]))-1.);
+                        let second_transform: [f32;4] = std::array::from_fn(|axis| 2.*interpolate(std::array::from_fn(|i| auxiliary[i].3[axis]))-1.);
                         let green = interpolate(std::array::from_fn(|i| surface.colors[triangle.first+i][1] as f32/255.));
                         let blue = interpolate(std::array::from_fn(|i| surface.colors[triangle.first+i][2] as f32/255.));
                         jobs.push((y*width+chart.x+x,triangle_index,weights,
-                            [uv0[0],uv0[1],uv1[0],uv1[1],uv2[0],uv2[1],green,blue,transform[0],transform[1],transform[2],transform[3]]));
+                            [uv0[0],uv0[1],uv1[0],uv1[1],uv2[0],uv2[1],green,blue,transform[0],transform[1],transform[2],transform[3],second_transform[0],second_transform[1],second_transform[2],second_transform[3]]));
                     }}
                 }
             }
@@ -915,9 +969,9 @@ fn layered(native: &Value, surfaces: &[Surface], recipe: &Recipe, baker: &gpu::B
 }
 
 fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[f32;4]>;4], sampler: u8, charts: usize, pack: &mut Pack) -> Result<Value> {
-    let base_alpha_response = matches!(native["technique_set"].as_str(),Some("lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_m1c1" | "lit_sm_r0c0n0x0_a1c1" | "lit_sm_r0c0n0x0_b1c1" | "lit_sm_r0c0n0x0_b1c1_b2c2" | "lit_sm_r0c0n0x0_b1c1n1v1"));
+    let base_alpha_response = matches!(native["technique_set"].as_str(),Some("lit_sm_r0c0n0x0_a1c1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1_a2c2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2" | "lit_sm_r0c0n0x0_b1c1n1_b2c2n2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_m1c1" | "lit_sm_r0c0n0x0_a1c1" | "lit_sm_r0c0n0x0_b1c1" | "lit_sm_r0c0n0x0_b1c1_b2c2" | "lit_sm_r0c0n0x0_b1c1n1v1"));
     let base_alpha_reveal = native["technique_set"] == "lit_sm_r0c0n0x0_b1c1n1s1v1";
-    let layer_specular = matches!(native["technique_set"].as_str(),Some("lit_sm_r0c0n0s0_b1c1n1" | "lit_sm_r0c0n0s0_b1c1n1s1v1" | "lit_sm_r0c0n0x0_b1c1n1s1" | "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2" | "lit_sm_r0c0s0_b1c1" | "lit_sm_r0c0n0_b1c1n1s1v1")) || base_alpha_reveal;
+    let layer_specular = matches!(native["technique_set"].as_str(),Some("lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2" | "lit_sm_r0c0n0s0_b1c1n1" | "lit_sm_r0c0n0s0_b1c1n1s1v1" | "lit_sm_r0c0n0x0_b1c1n1s1" | "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2" | "lit_sm_r0c0s0_b1c1" | "lit_sm_r0c0n0_b1c1n1s1v1")) || base_alpha_reveal;
     let [albedo,normals,response,specular] = outputs;
     let mut channels = Vec::new();
     let mut outputs = vec![("color",albedo),("normal",normals)];
@@ -963,7 +1017,7 @@ fn store(native: &Value, uri: &str, width: usize, height: usize, outputs: [Vec<[
 }
 
 pub fn supported(family: &str) -> bool {
-    matches!(family,"lit_sm_r0c0n0s0_b1c1n1" | "lit_sm_r0c0n0s0_b1c1n1s1v1" | "lit_sm_r0c0n0x0_b1c1n1s1" | "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2" | "lit_sm_r0c0s0_b1c1" | "lit_sm_r0c0n0x0_b1c1n1v1" | "lit_sm_r0c0n0x0_b1c1_b2c2" | "lit_sm_r0c0n0x0_b1c1" | "lit_sm_r0c0n0x0_a1c1" | "lit_sm_r0c0n0x0_m1c1" | "lit_sm_r0c0n0_m1c1_m2c2" | "lit_sm_r0c0n0_m1c1" | "lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1")
+    matches!(family,"lit_sm_r0c0n0x0_a1c1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1_a2c2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2" | "lit_sm_r0c0n0x0_b1c1_b2c2n2" | "lit_sm_r0c0n0x0_b1c1n1_b2c2n2" | "lit_sm_r0c0n0s0_b1c1n1" | "lit_sm_r0c0n0s0_b1c1n1s1v1" | "lit_sm_r0c0n0x0_b1c1n1s1" | "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2" | "lit_sm_r0c0s0_b1c1" | "lit_sm_r0c0n0x0_b1c1n1v1" | "lit_sm_r0c0n0x0_b1c1_b2c2" | "lit_sm_r0c0n0x0_b1c1" | "lit_sm_r0c0n0x0_a1c1" | "lit_sm_r0c0n0x0_m1c1" | "lit_sm_r0c0n0_m1c1_m2c2" | "lit_sm_r0c0n0_m1c1" | "lit_sm_r0c0n0_b1c1n1" | "lit_sm_r0c0n0_b1c1n1_m2c2" | "lit_sm_r0c0n0_b1c1n1s1v1" | "lit_sm_r0c0n0_b1c1n1v1" | "lit_sm_r0c0n0_b1c1n1v1_m2c2" | "lit_sm_r0c0n0x0_b1c1n1" | "lit_sm_r0c0n0x0_b1c1n1s1v1")
 }
 
 pub fn world(catalog: &Catalog<'_>, native: &BTreeMap<String, Value>, images: &BTreeMap<String, texture::Image>, converted: &mut BTreeMap<String,Value>, pack: &mut Pack) -> Result<BTreeMap<String, Vec<Surface>>> {
@@ -1045,7 +1099,7 @@ pub fn check_response_geometry(catalog: &Catalog<'_>, materials: &BTreeMap<Strin
             let key = surface.material.to_ascii_lowercase();
             let Some(recipe) = recipes.get(&key) else { continue; };
             let surface = surface.unindex()?;
-            for index in 0..surface.positions.len() { auxiliary(&surface,index,recipe.decal,recipe.color_only_layer())?; vertices+=1; }
+            for index in 0..surface.positions.len() { recipe.auxiliary(&surface,index)?; vertices+=1; }
             triangles+=surface.indices.len()/3;
             for triangle in 0..surface.indices.len()/3 {
                 let first = triangle*3;
@@ -1085,33 +1139,38 @@ mod tests {
 
     #[test]
     fn gpu_matches_existing_material_equations_and_sampler_modes() {
-        let modes = [(false,false,false,false,false,false,false,false,false),(true,false,false,false,false,false,false,false,false),
-            (false,false,false,false,true,false,false,false,false),(true,false,false,false,true,false,false,false,false),
-            (false,false,false,false,true,true,false,false,false),(false,false,false,false,true,true,true,false,false),
-            (false,false,false,false,false,false,true,false,false),(false,false,false,false,true,false,true,false,false),
-            (false,true,false,false,false,false,false,false,false),(true,true,false,false,false,false,false,false,false),
-            (false,true,false,false,false,false,true,false,false),(false,false,true,false,false,false,true,false,false),
-            (false,false,false,true,false,false,true,false,false),(true,false,false,true,false,false,true,false,false),
-            (false,false,false,false,false,false,false,true,false),
-            (false,false,false,false,true,true,false,true,false),
-            (false,false,false,false,false,true,true,false,false),
-            (true,false,false,false,true,true,true,false,false),
-            (false,false,false,true,false,false,true,true,true)];
+        let modes = [(false,false,false,false,false,false,false,false,false,false,0),(true,false,false,false,false,false,false,false,false,false,0),
+            (false,false,false,false,true,false,false,false,false,false,0),(true,false,false,false,true,false,false,false,false,false,0),
+            (false,false,false,false,true,true,false,false,false,false,0),(false,false,false,false,true,true,true,false,false,false,0),
+            (false,false,false,false,false,false,true,false,false,false,0),(false,false,false,false,true,false,true,false,false,false,0),
+            (false,true,false,false,false,false,false,false,false,false,0),(true,true,false,false,false,false,false,false,false,false,0),
+            (false,true,false,false,false,false,true,false,false,false,0),(false,false,true,false,false,false,true,false,false,false,0),
+            (false,false,false,true,false,false,true,false,false,false,0),(true,false,false,true,false,false,true,false,false,false,0),
+            (false,false,false,false,false,false,false,true,false,false,0),
+            (false,false,false,false,true,true,false,true,false,false,0),
+            (false,false,false,false,false,true,true,false,false,false,0),
+            (true,false,false,false,true,true,true,false,false,false,0),
+            (false,false,false,true,false,false,true,true,true,false,0),
+            (true,false,true,false,false,false,true,false,false,false,0),
+            (true,false,false,false,false,false,true,false,false,true,0),
+            (true,false,false,false,true,true,true,false,false,true,0),
+            (true,false,false,true,false,false,true,false,false,false,1),
+            (true,false,false,false,false,false,true,false,false,false,2)];
         let mut maximum = 0_f32;
-        for (mode,&(decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,base_specular,geometric_normal)) in modes.iter().enumerate() {
+        for (mode,&(decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,base_specular,geometric_normal,second_additive,second_normal)) in modes.iter().enumerate() {
             for sampler in [1,20,33,65,97,42,74,106] {
                 let inputs = (0..7).map(|input| Input {width:3,height:5,sampler,
                     pixels:(0..15).map(|index| std::array::from_fn(|channel| ((index*7+input*11+channel*3)%31) as f32/31.)).collect()}).collect();
-                let recipe = Recipe {base_specular,geometric_normal,inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:[0.5,1.3,0.,0.]};
+                let recipe = Recipe {second_additive,second_normal,base_specular,geometric_normal,inputs,decal,multiply,additive,blend_color,reveal,layer_specular,base_alpha_response,parms:[0.5,1.3,0.,0.]};
                 let samples: Vec<gpu::Sample> = (0..513).map(|index| {
                     let u = (index%23) as f32/7.-1.5;
                     let v = (index%17) as f32/6.-0.5;
-                    [u,v,u+0.31,v-0.27,u-0.61,v+0.43,(index%13) as f32/12.,(index%11) as f32/10.,0.,-1.,1.,0.]
+                    [u,v,u+0.31,v-0.27,u-0.61,v+0.43,(index%13) as f32/12.,(index%11) as f32/10.,0.,-1.,1.,0.,0.6,0.8,-0.8,0.6]
                 }).collect();
                 let baker = gpu::Baker::new(&recipe).unwrap();
                 let actual = baker.sample(&samples).unwrap();
                 for (sample,actual) in samples.iter().zip(actual) {
-                    let expected = recipe.sample([sample[0],sample[1]],[sample[2],sample[3]],[sample[4],sample[5]],sample[6],sample[7],sample[8..12].try_into().unwrap()).unwrap();
+                    let expected = recipe.sample_frames([sample[0],sample[1]],[sample[2],sample[3]],[sample[4],sample[5]],sample[6],sample[7],sample[8..12].try_into().unwrap(),sample[12..16].try_into().unwrap()).unwrap();
                     for (channel,(actual,expected)) in actual.into_iter().flatten().zip(expected.into_iter().flatten()).enumerate() {
                         let error = (actual-expected).abs();
                         maximum=maximum.max(error);
@@ -1122,10 +1181,10 @@ mod tests {
         }
         println!("GPU parity: {} recipes, 8 samplers, 513 samples each; maximum absolute channel error {maximum}",modes.len());
         let input = |value| Input {width:1,height:1,sampler:20,pixels:vec![value]};
-        let mut recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.4,0.7,0.2,0.3]),input([0.5;4]),input([0.8,0.2,0.4,0.7]),input([0.6;4]),input([0.7;4])],
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.4,0.7,0.2,0.3]),input([0.5;4]),input([0.8,0.2,0.4,0.7]),input([0.6;4]),input([0.7;4])],
             decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:true,base_alpha_response:true,parms:[0.5,1.3,0.,0.]};
         let baker = gpu::Baker::new(&recipe).unwrap();
-        let sample = [0.25,0.5,0.25,0.5,0.25,0.5,0.6,0.,1.,0.,0.,1.];
+        let sample = [0.25,0.5,0.25,0.5,0.25,0.5,0.6,0.,1.,0.,0.,1.,1.,0.,0.,1.];
         let expected = baker.sample(&[sample]).unwrap()[0];
         let samples = vec![sample;262_147];
         let begin = std::time::Instant::now();
@@ -1145,7 +1204,7 @@ mod tests {
     #[test]
     fn authored_specular_preserves_uv0_and_decal_gloss_order() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {base_specular:true,geometric_normal:false,
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:true,geometric_normal:false,
             inputs:vec![input([0.6,0.5,0.4,0.1]),input([0.5,0.5,1.,1.]),input([0.2,0.3,0.4,1.]),input([0.5,0.5,1.,1.]),
                 input([0.4,0.6,0.8,0.9]),input([0.8,0.6,0.4,0.3])],
             decal:false,multiply:false,additive:false,blend_color:false,reveal:false,layer_specular:true,base_alpha_response:false,parms:[0.;4]};
@@ -1173,6 +1232,48 @@ mod tests {
         assert_eq!(geometric[1],[0.,0.,1.,1.]);
         assert!((geometric[3][3]-0.7).abs()<0.000001);
         assert_eq!((0..3).map(|index| recipe.input_uv(index)).collect::<Vec<_>>(),[0,1,0]);
+    }
+
+    #[test]
+    fn add_multiply_and_second_normal_follow_source_order() {
+        let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,
+            inputs:vec![input([0.4,0.5,0.6,0.8]),input([0.5,0.5,1.,1.]),input([0.8,0.6,0.4,0.5]),input([0.2,0.4,0.6,0.3])],
+            decal:true,multiply:false,additive:true,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
+        let first = recipe.sample([0.;2],[0.;2],[0.;2],0.5,1.,[1.,0.,0.,1.]).unwrap();
+        for (actual,expected) in first[0][..3].iter().zip([0.0144,0.0676,0.1764]) { assert!((actual-expected).abs()<0.000001); }
+        assert!((first[2][3]-0.288).abs()<0.000001);
+        recipe.additive=false;
+        recipe.second_additive=true;
+        recipe.inputs.insert(3,input([0.5,0.5,1.,1.]));
+        let without = recipe.sample([0.;2],[0.;2],[0.;2],0.5,0.,[1.,0.,0.,1.]).unwrap();
+        let added = recipe.sample([0.;2],[0.;2],[0.;2],0.5,1.,[1.,0.,0.,1.]).unwrap();
+        for (actual,expected) in added[0][..3].iter().zip([0.3136,0.416025,0.5329]) { assert!((actual-expected).abs()<0.000001); }
+        assert_eq!(without[1],added[1]);
+        assert_eq!(without[2],added[2]);
+        recipe.layer_specular=true;
+        recipe.inputs.push(input([0.4,0.6,0.8,0.2]));
+        let without = recipe.sample([0.;2],[0.;2],[0.;2],0.5,0.,[1.,0.,0.,1.]).unwrap();
+        let added = recipe.sample([0.;2],[0.;2],[0.;2],0.5,1.,[1.,0.,0.,1.]).unwrap();
+        assert_eq!(without[3],added[3]);
+        assert!((added[3][3]-0.65).abs()<0.000001);
+        let slope = |x,y| input([(x-f32::from_bits(0xc0010204))/f32::from_bits(0x40808102),(y-f32::from_bits(0xc0010204))/f32::from_bits(0x40808102),1.,1.]);
+        recipe.second_additive=false;
+        recipe.second_normal=2;
+        recipe.layer_specular=false;
+        recipe.inputs=vec![input([0.4,0.5,0.6,0.8]),slope(1.,0.),input([0.8,0.6,0.4,1.]),slope(0.,1.),input([0.2,0.4,0.6,1.]),slope(0.5,-0.5)];
+        let normal = recipe.sample_frames([0.;2],[0.;2],[0.;2],0.5,0.5,[0.,-1.,1.,0.],[1.,0.,0.,1.]).unwrap()[1];
+        let length = 1.125_f32.sqrt();
+        for (actual,expected) in normal.into_iter().zip([0.25/length,-0.25/length,1./length,1.]) { assert!((actual-expected).abs()<0.000001); }
+        assert_eq!((0..6).map(|index| recipe.input_uv(index)).collect::<Vec<_>>(),[0,0,1,1,2,2]);
+        recipe.second_normal=1;
+        recipe.blend_color=true;
+        recipe.inputs.remove(3);
+        let only_second = recipe.sample([0.;2],[0.;2],[0.;2],0.5,0.5,[1.,0.,0.,1.]).unwrap();
+        let length = 1.625_f32.sqrt();
+        for (actual,expected) in only_second[1].into_iter().zip([0.75/length,-0.25/length,1./length,1.]) { assert!((actual-expected).abs()<0.000001); }
+        assert_eq!(only_second[2][3],0.8);
+        assert_eq!((0..5).map(|index| recipe.input_uv(index)).collect::<Vec<_>>(),[0,0,1,2,2]);
     }
 
     #[test]
@@ -1216,7 +1317,7 @@ mod tests {
     #[test]
     fn multiply_layer_preserves_opaque_coverage_base_normal_and_transfer_order() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
             decal:false,multiply:true,additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.;4]};
         let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[0.,-1.,1.,0.]).unwrap();
         let normal = sample(&recipe,0.)[1];
@@ -1235,7 +1336,7 @@ mod tests {
     #[test]
     fn second_multiply_layer_uses_blue_and_its_own_uv_before_transfer() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.]),
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.]),
             Input {width:2,height:1,sampler:10,pixels:vec![[0.25,1.,0.5,0.],[1.;4]]}],
             decal:true,multiply:true,additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:false,parms:[0.;4]};
         let sample = |recipe: &Recipe,green,blue,uv2| recipe.sample([0.;2],[0.;2],uv2,green,blue,[1.,0.,0.,1.]).unwrap();
@@ -1257,7 +1358,7 @@ mod tests {
     #[test]
     fn multiply_gloss_uses_encoded_tint_luminance_and_base_alpha() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.8]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.8]),input([0.75,0.25,1.,1.]),input([0.5,0.25,1.,0.])],
             decal:false,multiply:true,additive:false,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
         let mut previous_roughness = 0.;
@@ -1304,7 +1405,7 @@ mod tests {
     #[test]
     fn additive_layer_uses_alpha_green_and_preserves_base_gloss() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.8,0.4,0.2,0.5])],
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.8,0.4,0.2,0.5])],
             decal:false,multiply:false,additive:true,blend_color:false,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
         let original = sample(&recipe,0.);
@@ -1346,7 +1447,7 @@ mod tests {
     #[test]
     fn color_blend_uses_layer_alpha_green_and_preserves_base_normal_gloss() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.2,0.4,0.8,0.5])],
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.2,0.4,0.8,0.5])],
             decal:false,multiply:false,additive:false,blend_color:true,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         let sample = |recipe: &Recipe,green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[0.,-1.,1.,0.]).unwrap();
         let original = sample(&recipe,0.);
@@ -1369,7 +1470,7 @@ mod tests {
     #[test]
     fn second_color_blend_uses_blue_alpha_uv2_and_ordered_encoded_composition() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.2,0.4,0.8,0.5]),
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.8,0.6,0.4,0.75]),input([0.75,0.25,1.,1.]),input([0.2,0.4,0.8,0.5]),
             Input {width:2,height:1,sampler:20,pixels:vec![[0.6,0.2,0.4,0.5],[1.,1.,1.,0.]]}],
             decal:true,multiply:false,additive:false,blend_color:true,reveal:false,layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         let sample = |recipe: &Recipe,green,blue,uv2| recipe.sample([0.;2],[0.;2],uv2,green,blue,[1.,0.,0.,1.]).unwrap();
@@ -1390,7 +1491,7 @@ mod tests {
     #[test]
     fn diffuse_reveal_zero_exponent_blends_normals_without_replacing_base_gloss() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
+        let recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.75,0.25,1.,1.])],
             decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:false,base_alpha_response:true,parms:[0.25,0.,0.,0.]};
         let sample = |green| recipe.sample([0.;2],[0.;2],[0.;2],green,1.,[1.,0.,0.,1.]).unwrap();
@@ -1410,7 +1511,7 @@ mod tests {
     #[test]
     fn base_alpha_reveal_preserves_mixed_native_gloss_and_zero_exponent() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.75]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.5,0.5,1.,1.]),input([0.6,0.4,0.2,0.25])],
             decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:true,base_alpha_response:true,parms:[0.5,0.5,0.,0.]};
         for (green,expected) in [(0.,[0.04,0.04,0.04,0.75]),(0.5,[0.16,0.09,0.04,0.5]),(1.,[0.36,0.16,0.04,0.25])] {
@@ -1429,7 +1530,7 @@ mod tests {
     #[test]
     fn layered_base_alpha_response_survives_complete_layer_coverage() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
             input([0.8,0.2,0.4,1.]),input([0.5,0.5,1.,1.])],decal:false,multiply:false,additive:false,blend_color:false,reveal:false,
             layer_specular:false,base_alpha_response:true,parms:[0.;4]};
         for (alpha,roughness) in [(0.,0.903602),(1.,0.12499237)] {
@@ -1452,7 +1553,7 @@ mod tests {
     #[test]
     fn reveal_decal_preserves_uv2_axis_addressing_and_encoded_composition() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let mut recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
+        let mut recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
             input([0.8,0.2,0.4,0.5]),input([0.75,0.25,1.,1.]),
             Input {width:2,height:2,sampler:74,pixels:vec![[0.9,0.8,0.7,1.],[0.1,0.2,0.3,1.],
                 [0.5,0.25,0.75,0.],[1.,0.5,0.25,0.]]}],
@@ -1474,7 +1575,7 @@ mod tests {
     #[test]
     fn diffuse_reveal_uses_four_inputs_and_green_only() {
         let input = |pixel| Input {width:1,height:1,sampler:20,pixels:vec![pixel]};
-        let recipe = Recipe {base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
+        let recipe = Recipe {second_additive:false,second_normal:0,base_specular:false,geometric_normal:false,inputs:vec![input([0.2,0.4,0.6,0.]),input([0.5,0.5,1.,1.]),
             input([0.8,0.6,0.2,0.5]),input([0.5,0.5,1.,1.])],
             decal:false,multiply:false,additive:false,blend_color:false,reveal:true,layer_specular:false,base_alpha_response:false,parms:[0.0713300034403801,0.5,0.,0.]};
         for (green,expected) in [(0.,[0.04,0.16,0.36]),(0.5,[0.25,0.25,0.16]),(1.,[0.64,0.36,0.04])] {

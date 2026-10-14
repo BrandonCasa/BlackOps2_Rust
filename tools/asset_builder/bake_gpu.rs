@@ -3,7 +3,7 @@ use crate::core::*;
 use std::{future::Future, sync::{Arc, OnceLock}, task::{Context, Poll, Wake, Waker}, time::Duration};
 use wgpu::util::DeviceExt;
 
-pub(super) type Sample = [f32; 12];
+pub(super) type Sample = [f32; 16];
 pub(super) type Pixel = [[f32; 4]; 4];
 
 fn wait<T>(future: impl Future<Output = T>) -> T {
@@ -72,7 +72,8 @@ impl Baker {
         let flags = recipe.decal as u32 | (recipe.multiply as u32) << 1 | (recipe.additive as u32) << 2
             | (recipe.blend_color as u32) << 3 | (recipe.reveal as u32) << 4
             | (recipe.layer_specular as u32) << 5 | (recipe.base_alpha_response as u32) << 6
-            | (recipe.base_specular as u32) << 7 | (recipe.geometric_normal as u32) << 8;
+            | (recipe.base_specular as u32) << 7 | (recipe.geometric_normal as u32) << 8
+            | (recipe.second_additive as u32) << 9 | (u32::from(recipe.second_normal == 1)) << 10 | (u32::from(recipe.second_normal == 2)) << 11;
         let mut parameters = Vec::new();
         for value in [flags, 0, recipe.inputs.len() as u32, 0] { push32(&mut parameters, value); }
         for value in recipe.parms { push32(&mut parameters, value.to_bits()); }
@@ -99,7 +100,7 @@ impl Baker {
             .min(device.limits().max_compute_workgroups_per_dimension as usize * 64);
         if capacity == 0 { return Err("GPU cannot dispatch material bake samples".into()); }
         let buffer = |label, size, usage| device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage, mapped_at_creation: false });
-        let samples = buffer("Bake sample coordinates", (capacity * 48) as u64, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
+        let samples = buffer("Bake sample coordinates", (capacity * 64) as u64, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
         let output = buffer("Baked PBR samples", (capacity * 64) as u64, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
         let readback = buffer("Bake readback", (capacity * 64) as u64, wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST);
         let entries: Vec<_> = [&parameters, &images, &samples, &output].into_iter().enumerate()
@@ -113,7 +114,7 @@ impl Baker {
     pub(super) fn sample(&self, samples: &[Sample]) -> Result<Vec<Pixel>> {
         let mut pixels = Vec::with_capacity(samples.len());
         for batch in samples.chunks(self.capacity) {
-            let mut bytes = Vec::with_capacity(batch.len() * 48);
+            let mut bytes = Vec::with_capacity(batch.len() * 64);
             for sample in batch { for value in sample { push32(&mut bytes, value.to_bits()); } }
             self.compute.queue.write_buffer(&self.samples, 0, &bytes);
             self.compute.queue.write_buffer(&self.parameters, 4, &(batch.len() as u32).to_le_bytes());

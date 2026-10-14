@@ -9,6 +9,7 @@ struct Sample {
     uv01: vec4<f32>,
     uv2_color: vec4<f32>,
     transform: vec4<f32>,
+    second_transform: vec4<f32>,
 }
 struct Pixel {
     color: vec4<f32>,
@@ -98,16 +99,29 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
             var weight = 0.0;
             if flag(1u) { weight = blue * second.a; }
             color = first + weight * (second.rgb - first);
-        } else if flag(4u) { color = base.rgb + layer.rgb * green * layer.a; }
+        } else if flag(4u) {
+            color = (base.rgb + layer.rgb * green * layer.a) * (vec3<f32>(1.0) + blue * (second.rgb - vec3<f32>(1.0)));
+        }
         else { color = base.rgb * tint * (vec3<f32>(1.0) + blue * (second.rgb - vec3<f32>(1.0))); }
         result.color = vec4<f32>(color * color, 1.0);
         if flag(64u) {
             var gloss = base.a;
-            if !flag(4u) && !flag(8u) { gloss = base.a * (tint.x * 0.3 + tint.y * 0.6 + tint.z * 0.1); }
+            if flag(4u) && flag(1u) {
+                let second_tint = vec3<f32>(1.0) + blue * (second.rgb - vec3<f32>(1.0));
+                gloss = base.a * (second_tint.x * 0.3 + second_tint.y * 0.6 + second_tint.z * 0.1);
+            } else if !flag(4u) && !flag(8u) { gloss = base.a * (tint.x * 0.3 + tint.y * 0.6 + tint.z * 0.1); }
             result.response = vec4<f32>(1.0, roughness(gloss), 0.0, gloss);
         }
         result.normal = vec4<f32>(0.0, 0.0, 1.0, 1.0);
-        if !flag(256u) { result.normal = normal(decode(n0.xy)); }
+        if !flag(256u) {
+            var slope = decode(n0.xy);
+            if flag(1024u) {
+                let s = decode(sample_image(4u, uv2).xy);
+                let rotated = vec2<f32>(s.x * sample.transform.x + s.y * sample.transform.y, s.x * sample.transform.z + s.y * sample.transform.w);
+                slope = slope + blue * second.a * (rotated - slope);
+            }
+            result.normal = normal(slope);
+        }
         if flag(128u) {
             let specular = sample_image(recipe.padding.x - 1u, uv0);
             result = fit_response(result, specular.rgb * specular.rgb, specular.a);
@@ -131,12 +145,22 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
     }
     var decal = vec4<f32>(1.0);
     if flag(1u) { decal = sample_image(4u, uv2); }
-    let color = (base.rgb + weight * (layer.rgb - base.rgb)) * (vec3<f32>(1.0) + blue * (decal.rgb - vec3<f32>(1.0)));
+    let first = base.rgb + weight * (layer.rgb - base.rgb);
+    var color = first * (vec3<f32>(1.0) + blue * (decal.rgb - vec3<f32>(1.0)));
+    if flag(512u) { color = first + blue * decal.a * decal.rgb; }
+    else if flag(2048u) { color = first + blue * decal.a * (decal.rgb - first); }
     result.color = vec4<f32>(color * color, 1.0);
     let s0 = decode(n0.xy);
     let s1 = decode(n1.xy);
     let rotated = vec2<f32>(s1.x * sample.transform.x + s1.y * sample.transform.y, s1.x * sample.transform.z + s1.y * sample.transform.w);
-    result.normal = normal(s0 + weight * (rotated - s0));
+    var slope = s0 + weight * (rotated - s0);
+    if flag(2048u) {
+        let s = decode(sample_image(5u, uv2).xy);
+        let rotated_second = vec2<f32>(s.x * sample.second_transform.x + s.y * sample.second_transform.y,
+            s.x * sample.second_transform.z + s.y * sample.second_transform.w);
+        slope = slope + blue * decal.a * (rotated_second - slope);
+    }
+    result.normal = normal(slope);
     if flag(32u) || flag(128u) {
         let k = bitcast<f32>(0x3e4ccccdu);
         var base_gloss = 0.0;
@@ -149,7 +173,7 @@ fn bake(@builtin(global_invocation_id) invocation: vec3<u32>) {
         }
         let rgb = specular.rgb * specular.rgb;
         var gloss = specular.a;
-        if flag(1u) {
+        if flag(1u) && !flag(512u) {
             let tint = vec3<f32>(1.0) + blue * (decal.rgb - vec3<f32>(1.0));
             gloss = gloss * (tint.x * 0.3 + tint.y * 0.6 + tint.z * 0.1);
         }

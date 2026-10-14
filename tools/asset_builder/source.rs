@@ -321,7 +321,7 @@ mod tests {
         let all = crate::material::read_used(&catalog,&used).unwrap();
         assert_eq!(all.len(),1034);
         let gaps = crate::material::unimplemented(&all);
-        assert_eq!(gaps.len(),133);
+        assert_eq!(gaps.len(),128);
         let camos = crate::material::read_camos(&catalog).unwrap();
         let options = crate::material::read_camo_options(&catalog).unwrap();
         assert_eq!(camos.len(),35);
@@ -405,9 +405,10 @@ mod tests {
         let used = crate::geometry::material_names(&catalog).unwrap();
         let all = crate::material::read_used(&catalog,&used).unwrap();
         assert_eq!(all.len(),1034);
-        assert_eq!(crate::material::unimplemented(&all).len(),133);
+        assert_eq!(crate::material::unimplemented(&all).len(),128);
         let families = ["lit_sm_r0c0n0s0_b1c1n1","lit_sm_r0c0n0s0_b1c1n1s1v1","lit_sm_r0c0n0x0_b1c1n1s1",
-            "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2","lit_sm_r0c0s0_b1c1"];
+            "lit_sm_r0c0n0x0_b1c1n1s1v1_m2c2","lit_sm_r0c0s0_b1c1","lit_sm_r0c0n0x0_a1c1_m2c2",
+            "lit_sm_r0c0n0x0_b1c1n1_a2c2","lit_sm_r0c0n0x0_b1c1n1s1v1_a2c2","lit_sm_r0c0n0x0_b1c1_b2c2n2","lit_sm_r0c0n0x0_b1c1n1_b2c2n2"];
         let mut selected = std::collections::BTreeMap::new();
         let mut seen = std::collections::BTreeSet::new();
         let mut checked = 0;
@@ -420,14 +421,14 @@ mod tests {
             let clamped = material["textures"].as_array().unwrap().iter().any(|binding| binding["hash"] == 3054311507_u32 && binding["sampler"] == 74);
             if seen.insert(family) || clamped { selected.insert(name.clone(),material.clone()); }
         }
-        assert_eq!(checked,11);
-        assert_eq!(selected.len(),6);
+        assert_eq!(checked,20);
+        assert_eq!(selected.len(),11);
         let required = selected.values().flat_map(|material| material["textures"].as_array().unwrap())
             .map(|binding| binding["image"].as_str().unwrap().to_ascii_lowercase()).collect();
         let mut pack = crate::pack::Pack::default();
         let (_,images) = crate::convert::images(&install,&catalog,&mut pack,Some(&required)).unwrap();
         crate::bake::check_response_geometry(&catalog,&selected,&images,&mut pack).unwrap();
-        println!("Checked all {checked} materials in five layered response families; representative bakes for {} materials including wrap and clamp-V decal edges; 133 baseline dispatch gaps remain",selected.len());
+        println!("Checked all {checked} materials in ten layered response families; representative bakes for {} materials including wrap and clamp-V decal edges; 128 baseline dispatch gaps remain",selected.len());
     }
 
     fn installed_material_families(families: &[&str], expected: usize) {
