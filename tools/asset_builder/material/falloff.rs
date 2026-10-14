@@ -350,6 +350,7 @@ pub(super) struct UnlitLayer {
     pub(super) alpha: Option<f32>,
 }
 
+#[cfg(test)]
 pub(super) fn falloff_pixel(
     samples: [[f32; 4]; 3],
     alpha: [f32; 2],
@@ -388,6 +389,7 @@ pub(super) fn falloff_pixel(
     ]
 }
 
+#[cfg(test)]
 pub(super) fn four_layer_pixel(
     samples: [[f32; 4]; 4],
     alpha: [f32; 4],
@@ -413,6 +415,7 @@ pub(super) fn four_layer_pixel(
     ]
 }
 
+#[cfg(test)]
 pub(super) fn four_opaque_pixel(
     samples: [[f32; 4]; 4],
     alpha: [f32; 3],
@@ -429,6 +432,7 @@ pub(super) fn four_opaque_pixel(
     color
 }
 
+#[cfg(test)]
 pub(super) fn falloff_image<const N: usize>(
     sources: [&texture::Image; N],
     samplers: [u8; N],
@@ -638,10 +642,7 @@ pub(super) fn convert_falloff(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    let mut sources = Vec::new();
-    let mut samplers = Vec::new();
     let mut source_layers = Vec::new();
-    let mut names = Vec::new();
     let mut hashes = vec![3714339118_u32, 3714374925, 3714406764];
     if four {
         hashes.push(3714721355);
@@ -681,16 +682,9 @@ pub(super) fn convert_falloff(
         let layer = layers[index];
         source_layers.push(json!({"uri":uri,"layer":index,"sampler":sampler,"color_space":"native_encoded",
             "scale":layer.scale,"offset":layer.offset,"origin":layer.origin,"rotation":layer.rotation,"scroll":layer.scroll,"depth":layer.depth,"alpha":layer.alpha}));
-        sources.push(source);
-        samplers.push(sampler);
-        names.push(name);
     }
     let script = if native["code_constants"]["169"].is_null() {
-        if plain && !normal {
-            Some([0.; 4])
-        } else {
-            None
-        }
+        Some([0.; 4])
     } else {
         let state: [f32; 4] = serde_json::from_value(native["code_constants"]["169"].clone())?;
         if state.iter().any(|value| !value.is_finite()) {
@@ -699,50 +693,9 @@ pub(super) fn convert_falloff(
         Some(state)
     };
     let amount = constant(14836402)?[0];
-    let mut channels = Vec::new();
-    if let Some(script) = script {
-        let color_key = (
-            names.join("|"),
-            format!(
-                "falloff:{mode}:{layers:?}:{script:?}:{}:{samplers:?}",
-                amount.to_bits()
-            ),
-        );
-        let uri = if let Some(uri) = shared.get(&color_key) {
-            uri.clone()
-        } else {
-            let image = if four {
-                falloff_image(
-                    [sources[0], sources[1], sources[2], sources[3]],
-                    [samplers[0], samplers[1], samplers[2], samplers[3]],
-                    [layers[0], layers[1], layers[2], layers[3]],
-                    script,
-                    amount,
-                    mode,
-                )?
-            } else {
-                falloff_image(
-                    [sources[0], sources[1], sources[2]],
-                    [samplers[0], samplers[1], samplers[2]],
-                    [layers[0], layers[1], layers[2]],
-                    script,
-                    amount,
-                    mode,
-                )?
-            };
-            let uri = store_image(
-                &image,
-                format!("prepared/material-channels/{}/color.ktx2", shared.len()),
-                false,
-                "color",
-                pack,
-            )?;
-            shared.insert(color_key, uri.clone());
-            uri
-        };
-        channels
-            .push(json!({"uri":uri,"role":"color","layer":0,"color_space":"linear","sampler":20}));
-    }
+    let channels = vec![
+        json!({"uri":source_layers[0]["uri"],"role":"color","layer":0,"color_space":"linear","sampler":source_layers[0]["sampler"]}),
+    ];
     let selected = native["state_entries"][index].as_u64().unwrap() as usize;
     let state = native["state_bits"][selected][0].as_u64().unwrap();
     let cull = match state >> 14 & 3 {
@@ -754,7 +707,7 @@ pub(super) fn convert_falloff(
     let mut surface = json!({"version":3,"identity":key,"native":native,"channels":channels,"source_layers":source_layers,
         "standard":{"unlit":true,"roughness":1.,"metallic":0.,"reflectance":0.,"base_color":[1.,1.,1.,1.]},
         "presentation":{"alpha":if mode == "zfeather" || mode == "four_add" {"add"} else if mode == "layer_blend" {"blend"} else if normal || mode == "four_opaque" {"opaque"} else {mode},"cull":cull,"fog":normal || mode == "four_opaque","visible":state & (1<<27) != 0},
-        "source_script_layers":{"code_constant":169,"state":script,"layer_order":if four {vec![3,2,1,0]} else {vec![2,1,0]},
+        "source_script_layers":{"code_constant":169,"state":script,"consumer":"native_live_layers","mode":mode,"layer_order":if four {vec![3,2,1,0]} else {vec![2,1,0]},
             "weights":"texture_alpha_times_layer_alpha_times_one_minus_saturated_script_component",
             "rgb":if four {"layer4_rgb_times_layer4_texture_alpha_then_mix_layer3_then_layer2_then_layer1_without_saturating_mix_weights"} else {"layer3_rgb_times_layer3_texture_alpha_then_mix_layer2_then_layer1_without_saturating_mix_weights"},
             "coverage":if mode == "opaque" || normal || mode == "four_opaque" {"unused"} else {"add_each_preceding_layer_weight_and_saturate_after_each_step"},
@@ -768,19 +721,17 @@ pub(super) fn convert_falloff(
             "rotation_operation":"rotation_x_times_one_plus_rotation_y_times_game_time_w","rotation_tau":if mode == "four_opaque" {1.} else {f32::from_bits(0x40c90fda)}},
         "source_emissive":{"amount":amount,"rgb":if plain {"square_layer_color_times_hdr_amount"} else {"square_layer_color_times_view_falloff_times_hdr_amount"},"output_transfer":"sqrt_after_reflection_and_scene_hdr_control0"},
         "source_blend":{"rgb":[state&15,state>>4&15,state>>8&7],"alpha":[state>>16&15,state>>20&15,state>>24&7]},
-        "approximations":["Explicit scriptVector0 states evaluate the three-layer color and coverage with static authored UV terms at source mip resolution",
-            "Live view parallax, time, view falloff, scene lighting and framebuffer terms remain separate from the converted texture stage"]});
+        "approximations":["Native layer inputs, clock, per-object script state, UV domains, color mixing, view falloff and vertex tint feed the live shader; shared linear HDR/PBR replaces native probe/SH and gamma2 framebuffer composition",
+            "Four-layer view parallax is evaluated per fragment instead of evaluating at vertices before interpolation; feathered surfaces omit native scene-depth softness"]});
     if !plain {
         surface["source_falloff"] = json!({"power":constant(3185247991)?[0],"boost":constant(3173127725)?[0],
         "operation":"pow_saturate_dot_negative_normalized_view_position_and_normalized_normal_times_boost"});
     }
-    if plain && !normal {
-        surface["source_script_layers"]["base_state"] = json!([0., 0., 0., 0.]);
-        surface["source_script_layers"]["base_state_origin"] =
-            json!("normal_view_zero_template_preserved_by_type2_constant_copy");
-        surface["source_script_layers"]["active_override_scope"] =
-            json!("per_object_mapped_scriptVector0_replaces_base_state");
-    }
+    surface["source_script_layers"]["base_state"] = json!([0., 0., 0., 0.]);
+    surface["source_script_layers"]["base_state_origin"] =
+        json!("normal_view_zero_template_preserved_by_type2_constant_copy");
+    surface["source_script_layers"]["active_override_scope"] =
+        json!("per_object_mapped_scriptVector0_replaces_base_state");
     if mode == "zfeather" {
         surface["source_vertex_color_transfer"] =
             json!("linear_primary_vertex_rgb_and_squared_primary_vertex_alpha");
@@ -788,9 +739,6 @@ pub(super) fn convert_falloff(
             "depth_epsilon":f32::from_bits(0x322bcc77),"fade_epsilon":f32::from_bits(0x38d1b717),
             "operation":"saturate_near_plane_divided_by_max_abs_scene_depth_minus_clip_w_divided_by_max_fade_factor",
             "rgb":"layer_color_times_coverage_times_vertex_rgb_times_vertex_alpha_squared_times_depth_fade"});
-        surface["pending_runtime"] = json!(
-            "Native three-layer feather requires the live per-object scriptVector0 producer, native clock/offset UV controls, view parallax and falloff, primary vertex RGB/alpha, scene depth/near-plane/clip-w fade, global HDR control0 and native additive/destination-alpha gamma2 framebuffer composition"
-        );
     } else if mode != "normal_script_unlit" {
         surface["source_vertex_color_transfer"] = json!("unused_primary_color");
         surface["source_reflection"] = json!({"amount":constant(211931156)?[0],"gloss":constant(3432544439)?[0],"lod":"four_times_one_minus_gloss",
@@ -798,13 +746,6 @@ pub(super) fn convert_falloff(
             "decode_epsilon":f32::from_bits(0x358637bd),"response":"separate_grid_and_reflection_spherical_harmonics_ratio",
             "secondary_vertex_alpha_red_bias":if native["technique_set"].as_str().unwrap().starts_with("mlv_") {0.00001} else {0.}});
         surface["source_reflection"]["active"] = json!(constant(211931156)?[0] != 0.);
-        surface["pending_runtime"] = json!(if four {
-            "Native four-layer no-fog surface retains per-object scriptVector0 overrides, native clock UV rotation/scroll, vertex-evaluated positive-facing parallax including its depth epsilon, global HDR control0 and native additive/destination-alpha gamma2 composition; nonzero reflection requires its separate view-dependent SH consumer"
-        } else if plain {
-            "Native three-layer no-fog surface retains per-object scriptVector0 overrides, native clock UV rotation, nonzero view-dependent reflection/SH response, global HDR control0 and native source-alpha/destination-alpha gamma2 composition; authored zero layer depths leave parallax inactive"
-        } else {
-            "Native three-layer falloff requires the live per-object scriptVector0 producer, native clock/offset UV controls, view parallax and falloff, view-dependent reflection/SH response, global HDR control0 and native blend/destination-alpha gamma2 framebuffer composition"
-        });
     }
     if normal {
         surface["source_script_layers"]["layer3_alpha_bound"] = json!(false);
@@ -815,11 +756,6 @@ pub(super) fn convert_falloff(
         );
         surface["source_vertex_color_transfer"] = json!("linear_primary_vertex_rgb_alpha_unused");
         surface["source_layer_uv"]["evaluation"] = json!("fragment");
-        surface["pending_runtime"] = json!(if mode == "normal_script" {
-            "Native normal-script layers require the live per-object scriptVector0 producer, native clock, view parallax, vertex RGB, bumped-normal probe reflection with separate SH response, fog and scene HDR; no missing script state is invented"
-        } else {
-            "Native normal-script layers require the live per-object scriptVector0 producer, native clock, view parallax, vertex RGB, fog and scene HDR; no missing script state is invented"
-        });
         if mode == "normal_script" {
             let binding = contract::texture_binding(native, 1507003663)?;
             let name = binding["image"]
@@ -855,17 +791,11 @@ pub(super) fn convert_falloff(
         surface["source_script_layers"]["coverage"] = json!("unused");
         surface["source_script_layers"]["layer4_alpha_bound"] = json!(false);
         surface["source_script_layers"]["script_weight_components"] = json!([0, 1, 2]);
-        surface["pending_runtime"] = json!(
-            "Native opaque four-layer emission requires per-object scriptVector0 overrides, vertex parallax with depth epsilon, radian rotation/scroll, separate reflection SH, fog and scene HDR"
-        );
     }
-    surface["source_script_layers"]["composed_color_available"] = json!(script.is_some());
-    if four && native["state_bits"][selected][1] == 28 {
-        let pending = surface["pending_runtime"].as_str().unwrap().to_owned();
-        surface["pending_runtime"] = json!(format!(
-            "{pending}; native polygon-offset mode1 remains unconnected"
-        ));
-    }
+    surface["source_script_layers"]["composed_color_available"] = json!(false);
+    surface["pending_runtime"] = json!(
+        "Native probe/reflection-SH, scene HDR and gamma2 framebuffer composition use shared linear PBR; four-layer vertex parallax uses fragment evaluation, feathered depth softness and native polygon offset remain approximated"
+    );
     Ok(
         json!({"name":key,"pbrMetallicRoughness":{"baseColorFactor":[1.,1.,1.,1.],"metallicFactor":0.},"extras":{"surface":surface}}),
     )

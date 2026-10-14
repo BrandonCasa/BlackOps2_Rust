@@ -99,6 +99,14 @@ pub fn accept_initial_visual_approximations(
             && surface["source_hero_lighting"]["stage"]
                 == "coverage_scaled_linear_lighting_before_fog"
             && surface["presentation"]["alpha"] == "blend";
+        let live_layers = surface["source_script_layers"]["consumer"] == "native_live_layers"
+            && surface["source_script_layers"]["code_constant"] == 169
+            && surface["source_script_layers"]["base_state"] == json!([0., 0., 0., 0.])
+            && surface["source_layer_uv"]["game_time_code"] == 25
+            && surface["source_layer_uv"]["game_time_component"] == 3
+            && (falloff_recipe(family).is_some()
+                || single_unlit_recipe(family)
+                    .is_some_and(|recipe| matches!(recipe.mode, "layer" | "layer_reflection")));
         if !surface["source_hero_lighting"].is_null() && !hero {
             continue;
         }
@@ -123,13 +131,72 @@ pub fn accept_initial_visual_approximations(
         .any(|field| {
             !surface[*field].is_null()
                 && !(*field == "source_reveal" && static_reveal
-                    || *field == "source_script_layers" && character_zero)
+                    || *field == "source_script_layers" && character_zero
+                    || live_layers
+                        && matches!(
+                            *field,
+                            "source_script_layers" | "source_layer_uv" | "source_script_coverage"
+                        ))
         }) {
             continue;
         }
         let mut roles = vec!["color"];
         let mut shadow_only = false;
-        let feature = if let Some(recipe) = ordinary_recipe(family) {
+        let feature = if live_layers {
+            let (count, mode) = if let Some(recipe) = falloff_recipe(family) {
+                validate_falloff(name, material, recipe)?;
+                (
+                    if matches!(recipe.mode, "four_add" | "four_opaque") {
+                        4
+                    } else {
+                        3
+                    },
+                    recipe.mode,
+                )
+            } else {
+                validate_single_unlit(name, material, single_unlit_recipe(family).unwrap())?;
+                (1, "single")
+            };
+            if surface["source_script_layers"]["mode"] != mode
+                || surface["source_layers"]
+                    .as_array()
+                    .is_none_or(|layers| layers.len() != count)
+                || surface["source_layers"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .enumerate()
+                    .any(|(index, layer)| {
+                        layer["uri"].as_str().is_none_or(str::is_empty)
+                            || layer["layer"] != index
+                            || layer["color_space"] != "native_encoded"
+                            || layer["sampler"].as_u64().is_none_or(|value| value > 255)
+                            || ["scale", "offset", "origin", "rotation", "scroll"]
+                                .iter()
+                                .any(|key| {
+                                    layer[*key].as_array().is_none_or(|values| {
+                                        values.len() != 2
+                                            || values.iter().any(|value| {
+                                                value
+                                                    .as_f64()
+                                                    .is_none_or(|value| !value.is_finite())
+                                            })
+                                    })
+                                })
+                            || layer["depth"]
+                                .as_f64()
+                                .is_none_or(|value| !value.is_finite())
+                    })
+                || mode == "normal_script"
+                    && (surface["source_normal"]["uri"]
+                        .as_str()
+                        .is_none_or(str::is_empty)
+                        || surface["source_normal"]["use"] != "reflection_only")
+            {
+                continue;
+            }
+            "native_live_layer_clock_script_uv_and_color_shared_hdr"
+        } else if let Some(recipe) = ordinary_recipe(family) {
             let vertex_lighting = family.starts_with("mlv_")
                 && surface["source_vertex_lighting"]["source"] == 5
                 && surface["source_vertex_lighting"]["stage"] == "separate_indirect_lighting_terms";

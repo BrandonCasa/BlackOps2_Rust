@@ -377,5 +377,16 @@ mod tests {
             ),
         );
         cache.get(1, water, &definitions).unwrap();
+        let layers = AssetId::Uuid {
+            uuid: bevy::asset::uuid::Uuid::from_u128(index + 3),
+        };
+        cache.set_shader(
+            layers,
+            Shader::from_wesl(
+                include_str!("script_layers.wesl"),
+                "embedded://origins/rendering/script_layers.wesl",
+            ),
+        );
+        cache.get(2, layers, &definitions).unwrap();
     }
 }

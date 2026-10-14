@@ -1,64 +1,6 @@
 use super::unlit::unlit_color;
 use super::*;
 
-pub(super) fn authored_unlit_uv(
-    source: &texture::Image,
-    scale: [f32; 2],
-    offset: [f32; 2],
-    origin: [f32; 2],
-    rotation: f32,
-    sampler: u8,
-) -> Result<texture::Image> {
-    if scale == [1.; 2] && offset == [0.; 2] && rotation == 0. {
-        return Ok(source.clone());
-    }
-    if source.depth != 1
-        || source.faces != 1
-        || source.levels.is_empty()
-        || !scale
-            .into_iter()
-            .chain(offset)
-            .chain(origin)
-            .chain([rotation])
-            .all(f32::is_finite)
-    {
-        return Err("Invalid authored single-layer UV input".into());
-    }
-    let mut image = source.clone();
-    image.format = 19;
-    image.levels.clear();
-    let (sine, cosine) = (rotation * f32::from_bits(0x40c90fda)).sin_cos();
-    for level in 0..source.levels.len() {
-        let (width, height) = (
-            (source.width >> level).max(1),
-            (source.height >> level).max(1),
-        );
-        let pixels = texture::pixels(source, level)?;
-        let mut bytes = Vec::with_capacity(width * height * 8);
-        for y in 0..height {
-            for x in 0..width {
-                let uv = [
-                    (x as f32 + 0.5) / width as f32,
-                    (y as f32 + 0.5) / height as f32,
-                ];
-                let centered: [f32; 2] = std::array::from_fn(|axis| {
-                    (uv[axis] - origin[axis] + offset[axis]) * scale[axis]
-                });
-                let uv = [
-                    cosine * centered[0] + sine * centered[1] + origin[0],
-                    -sine * centered[0] + cosine * centered[1] + origin[1],
-                ];
-                let pixel = texture::sample(&pixels, width, height, uv, sampler);
-                for value in pixel {
-                    bytes.extend(half::f16::from_f32(value).to_le_bytes());
-                }
-            }
-        }
-        image.levels.push(bytes);
-    }
-    Ok(image)
-}
-
 pub(super) fn convert_single_unlit(
     key: &str,
     native: &Value,
@@ -105,66 +47,7 @@ pub(super) fn convert_single_unlit(
     } else {
         constant(if layered { 14836402 } else { 2875883048 })?[0]
     };
-    let uv = if layered {
-        Some([
-            constant(3320325482)?,
-            constant(3286424575)?,
-            constant(3272022534)?,
-            constant(1886964550)?,
-        ])
-    } else {
-        None
-    };
-    let image = if let Some([scale, offset, origin, rotation]) = uv {
-        authored_unlit_uv(
-            source,
-            [scale[0], scale[1]],
-            [offset[0], offset[1]],
-            [origin[0], origin[1]],
-            rotation[0],
-            20,
-        )?
-    } else {
-        source.clone()
-    };
-    let mut image = image;
-    if eyes {
-        image.levels.truncate(1);
-    }
-    let operation = if layered {
-        "source_layer"
-    } else {
-        match mode {
-            "add" => "source_vm_add",
-            "blend" => "source_vm_blend",
-            "alpha" => "source_vm_alpha",
-            _ => "source_vm",
-        }
-    };
-    let prepared_amount = if eyes { 1. } else { amount };
-    let image = unlit_color(&image, prepared_amount * prepared_amount, operation)?;
-    let linear = image.format == 19;
-    let channel_key = (
-        name.clone(),
-        format!(
-            "single-unlit:{operation}:{}:{uv:?}:lod0-unit={eyes}",
-            prepared_amount.to_bits()
-        ),
-    );
-    let uri = if let Some(uri) = shared.get(&channel_key) {
-        uri.clone()
-    } else {
-        let uri = store_image(
-            &image,
-            format!("prepared/material-channels/{}/color.ktx2", shared.len()),
-            !linear,
-            "color",
-            pack,
-        )?;
-        shared.insert(channel_key, uri.clone());
-        uri
-    };
-    let source_key = (name, "source_color".into());
+    let source_key = (name.clone(), "source_color".into());
     let source_uri = if let Some(uri) = shared.get(&source_key) {
         uri.clone()
     } else {
@@ -180,6 +63,44 @@ pub(super) fn convert_single_unlit(
         )?;
         shared.insert(source_key, uri.clone());
         uri
+    };
+    let (uri, linear) = if layered {
+        (source_uri.clone(), true)
+    } else {
+        let mut image = source.clone();
+        if eyes {
+            image.levels.truncate(1);
+        }
+        let operation = match mode {
+            "add" => "source_vm_add",
+            "blend" => "source_vm_blend",
+            "alpha" => "source_vm_alpha",
+            _ => "source_vm",
+        };
+        let prepared_amount = if eyes { 1. } else { amount };
+        let image = unlit_color(&image, prepared_amount * prepared_amount, operation)?;
+        let linear = image.format == 19;
+        let channel_key = (
+            name,
+            format!(
+                "single-unlit:{operation}:{}:lod0-unit={eyes}",
+                prepared_amount.to_bits()
+            ),
+        );
+        let uri = if let Some(uri) = shared.get(&channel_key) {
+            uri.clone()
+        } else {
+            let uri = store_image(
+                &image,
+                format!("prepared/material-channels/{}/color.ktx2", shared.len()),
+                !linear,
+                "color",
+                pack,
+            )?;
+            shared.insert(channel_key, uri.clone());
+            uri
+        };
+        (uri, linear)
     };
     let selected = native["state_entries"][index].as_u64().unwrap() as usize;
     let state = native["state_bits"][selected][0].as_u64().unwrap();
@@ -215,16 +136,28 @@ pub(super) fn convert_single_unlit(
             "rotation_operation":"rotation_x_times_one_plus_rotation_y_times_game_time_w","rotation_tau":f32::from_bits(0x40c90fda)});
         surface["source_script_coverage"] = json!({"code_constant":169,"component":0,"layer_alpha":constant(3337236870)?[0],
             "operation":"sqrt(texture_alpha*layer_alpha*(1-saturate(scriptVector0.x)))"});
+        let two = |hash| -> Result<[f32; 2]> {
+            let value = constant(hash)?;
+            Ok([value[0], value[1]])
+        };
+        surface["source_layers"] = json!([{"uri":source_uri,"layer":0,"sampler":20,"color_space":"native_encoded",
+            "scale":two(3320325482)?,"offset":two(3286424575)?,"origin":two(3272022534)?,
+            "rotation":two(1886964550)?,"scroll":two(2196952607)?,"depth":constant(3342767871)?[0],"alpha":constant(3337236870)?[0]}]);
+        surface["source_script_layers"] = json!({"consumer":"native_live_layers","mode":"single","code_constant":169,
+            "base_state":[0.,0.,0.,0.],"base_state_origin":"normal_view_zero_template_preserved_by_type2_constant_copy"});
+        surface["approximations"] = json!([
+            "Live native clock, per-object ScriptVector0, source UV domains, view parallax and layer coverage feed shared linear HDR; native fog/gamma2 framebuffer and separate reflection-SH composition are approximated"
+        ]);
         if mode == "layer_reflection" {
             surface["source_reflection"] = json!({"amount":constant(211931156)?[0],"gloss":constant(3432544439)?[0],
                 "lod":"four_times_one_minus_gloss","weight":"saturate_three_quarters_plus_quarter_gloss_times_reflection_amount",
                 "probe_decode":"rgb_divided_by_alpha_plus_epsilon","response":"separate_vertex_spherical_harmonics"});
             surface["pending_runtime"] = json!(
-                "Native no-fog rune layer requires view parallax including the depth epsilon, gameTime UV controls, live scriptVector0 alpha, separate view-dependent reflection/SH response and sqrt coverage in gamma2 composition; source consumers remain unconnected"
+                "Native rune clock, UV, per-object script coverage and view parallax feed shared linear HDR; separate native reflection-SH, scene HDR and gamma2 framebuffer composition remain approximated"
             );
         } else {
             surface["pending_runtime"] = json!(
-                "Native wallbuy layer requires view parallax including the depth epsilon, gameTime UV controls and live scriptVector0 alpha, followed by source fog and sqrt coverage in gamma2 framebuffer composition; matching runtime consumers remain unconnected"
+                "Native wallbuy clock, UV, per-object script coverage and view parallax feed shared linear HDR; native fog, scene HDR and gamma2 framebuffer composition remain approximated"
             );
         }
     } else {
