@@ -240,8 +240,14 @@ pub fn bind_presentations(game: &mut Value, models: &[Value]) -> Result<()> {
             .iter()
             .find(|model| model["uri"] == *uri)
             .ok_or("Initial animation model was not exported")?;
-        let index = model["animations"][clip]
-            .as_u64()
+        let index = model["animations"]
+            .as_object()
+            .and_then(|clips| {
+                clips
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(clip))
+            })
+            .and_then(|(_, index)| index.as_u64())
             .ok_or_else(|| format!("Initial animation {id} clip {clip} was not exported"))?;
         animation["path"] = json!(format!("{uri}#Animation{index}"));
         animation
@@ -287,10 +293,11 @@ mod binding_tests {
     fn initial_presentations_bind_only_exported_source_models_and_clips() {
         let mut game = json!({"content":{
             "presentations":[{"id":"presentation.initial","source_model":"Exact_Model","scene":null}],
-            "animations":[{"id":"animation.initial.exact_fire","source_clip":"exact_fire","skeleton":"presentation.initial","path":null}]
+            "animations":[{"id":"animation.initial.exact_fire","source_clip":"exact_fire","skeleton":"presentation.initial","path":null},
+                {"id":"animation.initial.viewmodel_M4m203_knife_melee_1","source_clip":"viewmodel_M4m203_knife_melee_1","skeleton":"presentation.initial","path":null}]
         }});
         let models = vec![
-            json!({"name":"exact_model","uri":"prepared/models/0/0.gltf","animations":{"exact_fire":3}}),
+            json!({"name":"exact_model","uri":"prepared/models/0/0.gltf","animations":{"exact_fire":3,"viewmodel_m4m203_knife_melee_1":8,"viewmodel_m4m203_knife_melee_10":9}}),
         ];
         bind_presentations(&mut game, &[]).unwrap_err();
         bind_presentations(&mut game, &models).unwrap();
@@ -307,6 +314,14 @@ mod binding_tests {
             game["content"]["animations"][0]["path"],
             "prepared/models/0/0.gltf#Animation3"
         );
+        assert_eq!(
+            game["content"]["animations"][1]["path"],
+            "prepared/models/0/0.gltf#Animation8"
+        );
+        assert_eq!(
+            game["content"]["animations"][1]["id"],
+            "animation.initial.viewmodel_M4m203_knife_melee_1"
+        );
         assert!(
             game["content"]["animations"][0]
                 .get("source_clip")
@@ -321,6 +336,21 @@ mod binding_tests {
                 .unwrap_err()
                 .to_string()
                 .contains("missing_clip")
+        );
+        let mut similar_only = models.clone();
+        similar_only[0]["animations"]
+            .as_object_mut()
+            .unwrap()
+            .remove("viewmodel_m4m203_knife_melee_1");
+        let mut missing_melee = json!({"content":{
+            "presentations":[{"id":"presentation.initial","source_model":"exact_model","scene":null}],
+            "animations":[{"id":"animation.initial.viewmodel_M4m203_knife_melee_1","source_clip":"viewmodel_M4m203_knife_melee_1","skeleton":"presentation.initial","path":null}]
+        }});
+        assert!(
+            bind_presentations(&mut missing_melee, &similar_only)
+                .unwrap_err()
+                .to_string()
+                .contains("viewmodel_M4m203_knife_melee_1")
         );
     }
 }

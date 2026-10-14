@@ -141,6 +141,21 @@ fn installed_initial_animation_bindings() {
         .iter()
         .map(|clip| (clip.clip.name.to_ascii_lowercase(), clip))
         .collect::<BTreeMap<_, _>>();
+    let melee_reference = definitions
+        .iter()
+        .find_map(|definition| {
+            definition["source_clip"]
+                .as_str()
+                .filter(|name| name.eq_ignore_ascii_case("viewmodel_m4m203_knife_melee_1"))
+        })
+        .expect("Initial knife source clip was not selected");
+    let melee = index
+        .get(&melee_reference.to_ascii_lowercase())
+        .expect("Initial knife source clip was not decoded");
+    println!(
+        "Initial knife animation reference {melee_reference}: exported native clip {}",
+        melee.clip.name
+    );
     let mut gaps = BTreeSet::new();
     let mut bindings = 0;
     for presentation in game["content"]["presentations"].as_array().unwrap() {
