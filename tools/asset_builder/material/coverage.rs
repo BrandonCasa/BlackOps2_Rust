@@ -42,11 +42,22 @@ pub fn accept_initial_visual_approximations(
     converted: &mut BTreeMap<String, Value>,
 ) -> Result<Vec<String>> {
     let mut accepted = Vec::new();
-    for (name, material) in native {
-        let Some(surface) = converted
-            .get_mut(name)
-            .and_then(|value| value.get_mut("extras"))
+    for (name, value) in converted {
+        let Some(surface) = value
+            .get_mut("extras")
             .and_then(|value| value.get_mut("surface"))
+        else {
+            continue;
+        };
+        let source_name = name.rsplit_once('#').and_then(|(source, variant)| {
+            let index = variant
+                .strip_prefix("atlas")
+                .or_else(|| variant.strip_prefix("periodic"))?;
+            (!index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())).then_some(source)
+        });
+        let Some(material) = native
+            .get(name)
+            .or_else(|| source_name.and_then(|source| native.get(source)))
         else {
             continue;
         };

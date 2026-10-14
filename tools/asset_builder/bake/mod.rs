@@ -260,11 +260,13 @@ pub fn surfaces(
                 baked.entry(surface.name.clone()).or_default().push(surface);
             }
         } else {
-            let value = converted[periodic_cache
+            let mut value = converted[periodic_cache
                 .values()
                 .next()
                 .ok_or("Layered material has no geometry")?]
             .clone();
+            value["name"] = json!(key);
+            value["extras"]["surface"]["identity"] = json!(key);
             converted.insert(key.clone(), value);
         }
         for (name, count) in source_counts {

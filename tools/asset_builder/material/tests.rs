@@ -250,6 +250,56 @@ fn initial_visual_acceptance_preserves_reported_limits_and_full_scope_gate() {
 }
 
 #[test]
+fn initial_visual_acceptance_validates_each_generated_material_binding() {
+    let (native, converted) = initial_additive_fixture();
+    let native = BTreeMap::from([("add".into(), native)]);
+    let variants = ["add", "add#atlas0", "add#periodic0", "add#atlas_invalid"];
+    let original: BTreeMap<_, _> = variants
+        .into_iter()
+        .map(|name| {
+            let mut value = converted.clone();
+            value["name"] = json!(name);
+            value["extras"]["surface"]["identity"] = json!(name);
+            (name.to_owned(), value)
+        })
+        .collect();
+    let mut converted = original.clone();
+    assert_eq!(
+        accept_initial_visual_approximations(&native, &mut converted)
+            .unwrap()
+            .len(),
+        3
+    );
+    for name in &variants[..3] {
+        let surface = &converted[*name]["extras"]["surface"];
+        assert!(surface["pending_runtime"].is_null());
+        assert_eq!(surface["identity"], *name);
+        assert_eq!(surface["native"], native["add"]);
+        assert_eq!(
+            surface["channels"],
+            original[*name]["extras"]["surface"]["channels"]
+        );
+    }
+    assert!(converted["add#atlas_invalid"]["extras"]["surface"]["pending_runtime"].is_string());
+    let mut mismatched = original.clone();
+    mismatched.get_mut("add#atlas0").unwrap()["extras"]["surface"]["identity"] = json!("add");
+    assert!(accept_initial_visual_approximations(&native, &mut mismatched).is_err());
+    let mut missing = original.clone();
+    missing.get_mut("add#periodic0").unwrap()["extras"]["surface"]["channels"] = json!([]);
+    assert_eq!(
+        accept_initial_visual_approximations(&native, &mut missing)
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(missing["add#periodic0"]["extras"]["surface"]["pending_runtime"].is_string());
+    let mut altered = original;
+    altered.get_mut("add#atlas0").unwrap()["extras"]["surface"]["native"]["state_bits"][0][0] =
+        json!(0);
+    assert!(accept_initial_visual_approximations(&native, &mut altered).is_err());
+}
+
+#[test]
 fn initial_visual_acceptance_never_fills_missing_payloads_or_source_state() {
     let (native, converted) = initial_additive_fixture();
     let native = BTreeMap::from([("add".into(), native)]);

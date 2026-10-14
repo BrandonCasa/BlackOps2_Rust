@@ -613,10 +613,11 @@ pub(super) fn layered(
         material["name"] = json!(identity);
         material["extras"]["surface"]["identity"] = json!(identity);
         if page_index == 0 {
-            converted.insert(
-                native["name"].as_str().unwrap().to_ascii_lowercase(),
-                material.clone(),
-            );
+            let name = native["name"].as_str().unwrap().to_ascii_lowercase();
+            let mut alias = material.clone();
+            alias["name"] = json!(name);
+            alias["extras"]["surface"]["identity"] = json!(name);
+            converted.insert(name, alias);
         }
         converted.insert(identity.clone(), material);
         for (&surface, triangles) in &fragments[page_index] {
