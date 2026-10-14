@@ -26,7 +26,7 @@ This is an explicitly incomplete Origins build. Generator 1, its capture defende
 - [ ] Ensure game.json, prepared/runtime.json, scenes, collision, model buffers, textures, animation clips, sounds, and UI entries needed by the initial game load and resolve inside origins.pack.
 - [ ] Require FX/camo definitions only where enabled initial content actually consumes them; handle absent deferred systems intentionally rather than supplying fake required catalogs or placeholder payloads.
 - [ ] Preserve the source-derived atmosphere already bound to the Origins world without making final graphics work a startup gate.
-- [ ] Generate a fresh compatible origins.pack directly from the authorized Steam installation and pass build_assets check for the declared initial scope.
+- [x] Generate a fresh compatible origins.pack directly from the authorized Steam installation and pass build_assets check for the declared initial scope.
 
 ## 2. Player, equipment, and session behavior
 
@@ -76,7 +76,7 @@ The source-derived profile tasks below apply to the supported solo states and in
 
 ## 4. Build, open, and prove the initial game is playable
 
-- [ ] Run proportional existing checks for changed pack integration and initial gameplay; keep compile/pack results separate from actual-game outcomes.
+- [x] Run proportional existing checks for changed pack integration and initial gameplay; keep compile/pack results separate from actual-game outcomes.
 - [ ] Build changed compiled inputs with cargo build --features dev-tools --locked and static Bevy linking; use that current executable with the fresh compatible pack.
 - [ ] Check all game processes and GPU captures immediately before each launch, wait while occupied, and reuse the owned current executable between scenarios.
 - [ ] Open the actual game window and confirm the real Origins scene, starting-area collision, player, weapon, and ordinary zombies load without missing required dependencies.
