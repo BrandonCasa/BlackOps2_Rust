@@ -168,7 +168,9 @@ pub(super) fn install(app: &mut App, port: u16) {
         ))
         .add_systems(
             OnEnter(GameState::PreparingShaders),
-            reset_inputs.before(crate::session::SessionSetup::Initialize),
+            reset_inputs
+                .after(crate::session::SessionSetup::Initialize)
+                .before(crate::session::SessionSetup::World),
         )
         .add_systems(Update, preview_animation)
         .add_systems(
