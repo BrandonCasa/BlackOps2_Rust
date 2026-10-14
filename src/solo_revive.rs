@@ -174,6 +174,14 @@ fn submit(queue: &mut LifeCommandQueue, target: Entity, command: LifeCommand) ->
 pub struct SoloReviveEvidence {
     pub events: Vec<serde_json::Value>,
 }
+pub(crate) fn reset(world: &mut World) {
+    world.resource_mut::<Messages<RemoteRevive>>().clear();
+    world.insert_resource(SoloReviveEvidence::default());
+    world.insert_resource(crate::player_health::HealthEvidence::default());
+    world.insert_resource(crate::perks::PerkEvidence::default());
+    world.insert_resource(crate::movement::MovementEvidence::default());
+    world.insert_resource(crate::movement::physics::PhysicsEvidence::default());
+}
 impl SoloReviveEvidence {
     fn record(&mut self, event: serde_json::Value) {
         if self.events.len() < 128 {

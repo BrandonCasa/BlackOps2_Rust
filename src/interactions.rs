@@ -656,6 +656,11 @@ pub(crate) fn interact(
         focus.rejection = match result {
             Ok(()) => {
                 focus.accepted += 1;
+                crate::audio::emit(
+                    &mut commands,
+                    "evt_bottle_dispense",
+                    crate::audio::SoundSource::World(transform.translation),
+                );
                 None
             }
             Err(error) => Some(error.into()),
