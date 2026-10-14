@@ -70,6 +70,7 @@ struct FrontendButton(FrontendAction, usize);
 #[derive(Resource, Default)]
 struct FrontendSelection(usize);
 
+#[cfg(all(debug_assertions, feature = "dev-tools"))]
 pub(crate) fn selected_row(world: &World) -> Option<usize> {
     matches!(
         world.resource::<State<GameState>>().get(),
@@ -189,7 +190,9 @@ fn show(
                 ));
             }
             if !matches!(**state, GameState::GameOver | GameState::LoadError) {
-                if let Some(game) = &game {
+                if let Some(game) = &game
+                    && game.content.ui_assets.iter().any(|asset| asset.id.0 == "ui.menu_zm_map_tomb")
+                {
                     parent.spawn((
                         native::image(game, &server, "menu_zm_map_tomb"),
                         rect(665., 86., 430., 530.),
