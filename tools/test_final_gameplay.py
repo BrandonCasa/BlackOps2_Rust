@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 import time
 
-from test_support import Client, write_report
+from test_support import Client, initial_zones, write_report
 from test_support import source_mobility as mobility_tuning, source_gravity as native_physics
 from test_support import source_physics as native_tuning
 import test_dive_physics as dive
@@ -225,7 +225,7 @@ def initial_grenade_motion(client, report, game, pack, research):
     site = physics.select_flat(client, report, game, candidates, native_tuning(research)[0])
     before, fixture = physics.prepare(client, game, site, yaw=0)
     check(report, 'initial_grenade_fixture_retains_starting_zone',
-          before['zones']['current'] == 'zone_start' and not fixture['open_connections'],
+          before['zones']['current'] in initial_zones(game) and not fixture['open_connections'],
           fixture=fixture, zones=before['zones'])
     point = site['center'].copy()
     point[2] -= .2
@@ -263,6 +263,7 @@ def initial_rounds(client, report, game, output, timeout):
     client.reset(difficulty='original')
     state = client.until(lambda s: s['player']['grounded'] and s['player']['action'] == 'Ready')
     profile = game['rounds']
+    enabled = initial_zones(game)
     expected = {}
     health = profile['health_start']
     for number in range(1, 6):
@@ -292,7 +293,7 @@ def initial_rounds(client, report, game, output, timeout):
             check(report, 'initial_round_' + str(number) + '_population_health_and_kills',
                   len(admissions) == expected[number]['population']
                   and all(row['maximum_health'] == expected[number]['health']
-                          and row['spawn_zone'] == 'zone_start' for row in admissions)
+                          and row['spawn_zone'] in enabled for row in admissions)
                   and state['session']['kills'] == sum(expected[r]['population'] for r in range(1, number + 1))
                   and state['round_evidence']['budget_consumed_on_failure'] == 0,
                   expected=expected[number], admissions=admissions, session=state['session'])

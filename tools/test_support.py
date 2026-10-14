@@ -42,6 +42,21 @@ def asset_bytes(path):
     raise FileNotFoundError('Runtime pack is missing ' + wanted)
 
 
+def initial_zones(game):
+    content = game['content']
+    enabled = {zone['id'] for zone in content['zones'] if zone['initially_open']}
+    if not enabled:
+        raise ValueError('Packed content has no initially open zone')
+    while True:
+        previous = enabled.copy()
+        for connection in content['zone_connections']:
+            endpoints = {connection['from'], connection['to']}
+            if connection['initially_open'] and enabled.intersection(endpoints):
+                enabled.update(endpoints)
+        if enabled == previous:
+            return enabled
+
+
 class Client:
     def __init__(self, url="http://127.0.0.1:15702", request_timeout=5, shutdown_timeout=15):
         parsed = urllib.parse.urlparse(url)

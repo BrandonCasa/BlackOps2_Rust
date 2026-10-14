@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from test_support import gltf_accessor as accessor
-from test_support import Client, write_report
+from test_support import Client, initial_zones, write_report
 from test_support import source_physics as native_tuning
 from test_throwable_down import binding, check as record_check, edge, schedule
 
@@ -110,9 +110,10 @@ def select_flat(client, report, game, candidates, native):
     attempts = []
     bounds = []
     initial = game.get('delivery_scope') == 'first_playable_solo'
+    enabled = initial_zones(game) if initial else set()
     if initial:
         for row in game['access']['volumes']:
-            if row['zone'] != 'zone_start':
+            if row['zone'] not in enabled:
                 continue
             volume = row['volume']
             points = np.array(volume['vertices']) + np.array(volume['position'])
@@ -134,7 +135,7 @@ def select_flat(client, report, game, candidates, native):
     for site in eligible[:24]:
         try:
             before, fixture = prepare(client, game, site)
-            if game.get('delivery_scope') == 'first_playable_solo' and before['zones']['current'] != 'zone_start':
+            if initial and before['zones']['current'] not in enabled:
                 attempts.append({'site': site, 'rejected_zone': before['zones']['current']})
                 continue
             if abs(before['player']['position'][1] - before['player']['height'] / 2 - site['center'][1]) > .08:
