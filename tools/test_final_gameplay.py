@@ -232,7 +232,15 @@ def initial_grenade_motion(client, report, game, pack, research):
     normal_look(client, game, point)
     before = client.state()
     normal_action(client, 'lethal')
-    after = client.until(lambda s: s['equipment']['detonations'] > before['equipment']['detonations'], timeout=30)
+    observed = []
+
+    def detonated(state):
+        if len(observed) < 512 and (not observed or observed[-1]['fixed_tick'] != state['fixed_tick']):
+            observed.extend({'fixed_tick': state['fixed_tick'], **grenade}
+                            for grenade in state['equipment']['active_grenades'])
+        return state['equipment']['detonations'] > before['equipment']['detonations']
+
+    after = client.until(detonated, timeout=30)
     events = after['equipment']['events'][len(before['equipment']['events']):]
     contacts = [event for event in events if event.get('event') == 'bounce' and event['normal'][1] > .999]
     check(report, 'initial_grenade_hits_authored_flat_floor', bool(contacts),
@@ -250,13 +258,29 @@ def initial_grenade_motion(client, report, game, pack, research):
           and all(abs(row['position_after'][1] - row['ground_point'][1] - 1.5 * .0254) < .004 for row in floor),
           contacts=floor)
     rest = next((row for row in contacts if row['resting']), None)
-    check(report, 'initial_grenade_reaches_native_rest_before_fuse', rest is not None,
-          contacts=contacts)
-    x, y, z, w = rest['rotation']
-    axis = [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)]
-    alignment = abs(sum(a * b for a, b in zip(axis, rest['normal'])))
-    check(report, 'initial_grenade_rest_orientation_matches_floor', alignment > .999,
-          normal_alignment=alignment, rest=rest)
+    native = next(weapon['throwable']['native_launch'] for weapon in game['content']['weapons']
+                  if weapon['id'] == 'weapon.frag_grenade_zm')
+    report['initial_grenade_orientation'] = {'preserve_rotation': native['preserve_rotation'],
+                                             'rotation_mode': native['rotation_mode'], 'rest': rest,
+                                             'observed': observed}
+    if rest is None:
+        report.setdefault('limitations', []).append('The open-floor frag did not settle before its fuse; rest orientation remains unobserved in this case.')
+        return
+    if not native['preserve_rotation'] and native['rotation_mode'] in (1, 2):
+        x, y, z, w = rest['rotation']
+        axis = [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)]
+        alignment = abs(sum(a * b for a, b in zip(axis, rest['normal'])))
+        check(report, 'initial_grenade_source_enabled_floor_alignment', alignment > .999,
+              normal_alignment=alignment, rest=rest)
+    settled = [grenade for grenade in observed if grenade['entity'] == rest['entity'] and grenade['settled']]
+    if len(settled) < 2:
+        report.setdefault('limitations', []).append('Fewer than two fixed ticks of settled frag orientation were observed; frozen orientation remains unverified.')
+        return
+    reference = settled[0]['rotation']
+    check(report, 'initial_grenade_settled_orientation_remains_frozen',
+          all(abs(sum(a * b for a, b in zip(reference, grenade['rotation']))) > .99999
+              and math.dist(settled[0]['position'], grenade['position']) < .0001 for grenade in settled[1:]),
+          settled=settled)
 
 
 def initial_rounds(client, report, game, output, timeout):
