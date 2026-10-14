@@ -194,15 +194,73 @@ impl GrenadeInventory {
         !matches!(self.state, ThrowState::Ready)
     }
     pub fn cancel(&mut self) {
-        if matches!(
-            self.state,
-            ThrowState::Priming { .. } | ThrowState::Cooking { .. } | ThrowState::Releasing { .. }
-        ) {
-            self.count = self.count.saturating_add(1).min(self.capacity);
-        }
         self.state = ThrowState::Ready;
         self.held = false;
         self.recovery = 0.;
+    }
+    fn advance(
+        &mut self,
+        held: bool,
+        tuning: &ThrowableDefinition,
+        dt: f32,
+    ) -> Option<(f32, bool)> {
+        match self.state {
+            ThrowState::Priming { remaining } => {
+                self.state = if remaining <= dt + 0.000001 {
+                    ThrowState::Cooking {
+                        remaining: tuning.fuse_seconds,
+                    }
+                } else {
+                    ThrowState::Priming {
+                        remaining: remaining - dt,
+                    }
+                };
+            }
+            ThrowState::Cooking { remaining } => {
+                if tuning.cook_in_hand && remaining <= dt + 0.000001 {
+                    return Some((0., true));
+                }
+                let fuse = if tuning.cook_in_hand {
+                    remaining - dt
+                } else {
+                    remaining
+                };
+                self.state = if !held {
+                    self.recovery = tuning.throw_seconds;
+                    ThrowState::Releasing {
+                        remaining: tuning.release_delay,
+                        fuse,
+                    }
+                } else {
+                    ThrowState::Cooking { remaining: fuse }
+                };
+            }
+            ThrowState::Releasing { remaining, fuse } => {
+                self.recovery = (self.recovery - dt).max(0.);
+                let fuse = if tuning.cook_in_hand { fuse - dt } else { fuse };
+                if tuning.cook_in_hand && fuse <= 0.000001 {
+                    return Some((0., true));
+                }
+                if remaining <= dt + 0.000001 {
+                    return Some((fuse, false));
+                }
+                self.state = ThrowState::Releasing {
+                    remaining: remaining - dt,
+                    fuse,
+                };
+            }
+            ThrowState::Recovery { remaining } => {
+                self.state = if remaining <= dt + 0.000001 {
+                    ThrowState::Ready
+                } else {
+                    ThrowState::Recovery {
+                        remaining: remaining - dt,
+                    }
+                };
+            }
+            ThrowState::Ready => {}
+        }
+        None
     }
     pub fn receive(
         &mut self,
@@ -325,7 +383,7 @@ fn damage_view_kick(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
     game: Res<GameDefinition>,
-    mut damage: MessageReader<crate::damage::DamageApplied>,
+    mut damage: MessageReader<crate::player_health::PlayerDamage>,
     players: Query<(&Player, &Transform, &Vitality), With<GrenadeInventory>>,
     poses: Query<&Transform>,
 ) {
@@ -565,6 +623,7 @@ pub(crate) fn throw_input(
         Option<&WeaponViewKick>,
     )>,
     mut evidence: ResMut<EquipmentEvidence>,
+    mut impacts: ResMut<crate::damage::DamageQueue>,
 ) {
     for (
         owner,
@@ -648,81 +707,47 @@ pub(crate) fn throw_input(
                 ThrowState::Ready
                     if pressed && inventory.count > 0 && !mines.busy() && !other_busy =>
                 {
-                    inventory.count -= 1;
                     weapons.cancel_action();
                     inventory.state = ThrowState::Priming {
                         remaining: tuning.prime_seconds,
                     };
                     evidence.primed += 1;
                 }
-                ThrowState::Priming { remaining } => {
-                    if remaining <= dt + 0.000001 {
-                        inventory.state = ThrowState::Cooking {
-                            remaining: tuning.fuse_seconds,
-                        };
-                    } else {
-                        inventory.state = ThrowState::Priming {
-                            remaining: remaining - dt,
-                        };
-                    }
-                }
-                ThrowState::Cooking { remaining } => {
-                    if tuning.cook_in_hand && remaining <= dt + 0.000001 {
-                        launch = Some((0., true, false));
+                previous => {
+                    launch = inventory
+                        .advance(held, tuning, dt)
+                        .map(|(fuse, cooked)| (fuse, cooked, false));
+                    if launch.is_some_and(|(_, cooked, _)| cooked) {
                         evidence.cooked_off += 1;
-                    } else if !held {
-                        inventory.recovery = tuning.throw_seconds;
-                        inventory.state = ThrowState::Releasing {
-                            remaining: tuning.release_delay,
-                            fuse: if tuning.cook_in_hand {
-                                remaining - dt
-                            } else {
-                                remaining
-                            },
-                        };
+                    }
+                    if matches!(previous, ThrowState::Cooking { .. })
+                        && matches!(inventory.state, ThrowState::Releasing { .. })
+                    {
                         evidence.record(serde_json::json!({"event":"release_started",
                             "weapon":weapon.id.0,"release_delay":tuning.release_delay,
                             "throw_seconds":tuning.throw_seconds}));
-                    } else {
-                        inventory.state = ThrowState::Cooking {
-                            remaining: if tuning.cook_in_hand {
-                                remaining - dt
-                            } else {
-                                remaining
-                            },
-                        };
+                    }
+                    if matches!(previous, ThrowState::Recovery { .. })
+                        && matches!(inventory.state, ThrowState::Ready)
+                        && let Some(native) = &tuning.native_launch
+                    {
+                        weapons.restore_offhand(native.restore_seconds + dt);
                     }
                 }
-                ThrowState::Releasing { remaining, fuse } => {
-                    inventory.recovery = (inventory.recovery - dt).max(0.);
-                    let fuse = if tuning.cook_in_hand { fuse - dt } else { fuse };
-                    if tuning.cook_in_hand && fuse <= 0. {
-                        launch = Some((0., true, false));
-                        evidence.cooked_off += 1;
-                    } else if remaining <= dt + 0.000001 {
-                        launch = Some((fuse, false, false));
-                    } else {
-                        inventory.state = ThrowState::Releasing {
-                            remaining: remaining - dt,
-                            fuse,
-                        };
-                    }
-                }
-                ThrowState::Recovery { remaining } => {
-                    inventory.state = if remaining <= dt + 0.000001 {
-                        if let Some(native) = &tuning.native_launch {
-                            weapons.restore_offhand(native.restore_seconds + dt);
-                        }
-                        ThrowState::Ready
-                    } else {
-                        ThrowState::Recovery {
-                            remaining: remaining - dt,
-                        }
-                    };
-                }
-                _ => {}
             }
             if let Some((fuse, cooked, dropped)) = launch {
+                inventory.count = inventory.count.saturating_sub(1);
+                if cooked && tuning.native_launch.is_some() {
+                    impacts.0.push(crate::damage::Impact {
+                        point: Some(transform.translation),
+                        attacker: owner,
+                        target: owner,
+                        source: crate::damage::ImpactSource::Weapon(weapon.id.clone()),
+                        category: DamageCategory::Environmental,
+                        region: HitRegion::None,
+                        amount: 100000,
+                    });
+                }
                 let rotation = Quat::from_rotation_y(player.yaw)
                     * Quat::from_rotation_x(player.pitch)
                     * view_kick.map_or(Quat::IDENTITY, |kick| {
@@ -732,7 +757,7 @@ pub(crate) fn throw_input(
                 let eye =
                     transform.translation + Vec3::Y * (player.eye_height - player.height * 0.5);
                 let position = if tuning.native_launch.is_some() {
-                    if dropped {
+                    if dropped || cooked {
                         transform.translation + Vec3::Y * (40. * 0.0254 - player.height * 0.5)
                     } else {
                         eye
@@ -1252,6 +1277,162 @@ fn blast_lifetime(
         if blast.remaining <= 0. {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+#[cfg(test)]
+mod native_grenade_tests {
+    use super::*;
+
+    fn profile() -> ThrowableDefinition {
+        serde_json::from_value(serde_json::json!({
+            "slot":"lethal","initial":2,"capacity":4,"round_award":2,
+            "prime_seconds":0.32,"throw_seconds":0.5,"release_delay":0.101,
+            "fuse_seconds":4.,"speed":20.32,"up_speed":2.54,
+            "radius":6.5024,"inner_radius":0.,"inner_damage":300,"outer_damage":75,
+            "tangent_bounce":vec![0.25;32],"normal_bounce":vec![0.5;32],
+            "collision_radius":0.0381,"collision_half_extents":vec![0.0381;3],
+            "native_launch":{"right_speed":0.,"horizontal_speed":0.,"rolling":true,
+                "rotating":true,"rotation_mode":1,"preserve_rotation":false,
+                "rest_speed":0.508,"friction":[0.01,0.4],"friction_speed":2.54,
+                "bump_frequency":0.,"bump_magnitude":0.4,"bump_speed":2.54,
+                "wobble_frequency":0.,"wobble_forward":0.,"wobble_side":0.,
+                "wobble_damping":0.,"curve":0.,"restitution_max":0.3,
+                "view_kick":[0.175,0.5,90.],"restore_seconds":0.25},
+            "cook_in_hand":true,"sticky":false
+        }))
+        .unwrap()
+    }
+
+    fn grenade() -> Grenade {
+        Grenade {
+            owner: Entity::PLACEHOLDER,
+            definition: WeaponId("weapon.frag_grenade_zm".into()),
+            motion: GrenadeMotion::Flying(Vec3::ZERO),
+            remaining: 4.,
+            elapsed: 0.,
+            radius: 0.0381,
+            fresh: true,
+            step_age: 0.,
+            angular_velocity: Vec3::ZERO,
+            angles: Vec3::ZERO,
+            wobble: 0.,
+            curve: 0.,
+            random: 1,
+            lure_active: false,
+        }
+    }
+
+    #[test]
+    fn native_prime_and_release_keep_tick_boundaries_and_concurrent_recovery() {
+        let tuning = profile();
+        let mut inventory =
+            GrenadeInventory::new(WeaponId("weapon.frag_grenade_zm".into()), &tuning);
+        inventory.state = ThrowState::Priming {
+            remaining: tuning.prime_seconds,
+        };
+        let dt = 1. / 60.;
+        for _ in 0..19 {
+            assert!(inventory.advance(false, &tuning, dt).is_none());
+        }
+        assert!(matches!(inventory.state, ThrowState::Priming { .. }));
+        assert!(inventory.advance(false, &tuning, dt).is_none());
+        assert!(matches!(inventory.state, ThrowState::Cooking { remaining } if remaining == 4.));
+        assert!(inventory.advance(false, &tuning, dt).is_none());
+        for _ in 0..6 {
+            assert!(inventory.advance(false, &tuning, dt).is_none());
+        }
+        let (fuse, cooked) = inventory.advance(false, &tuning, dt).unwrap();
+        assert!(!cooked);
+        assert!((fuse - (4. - 8. * dt)).abs() < 0.00001);
+        assert!((inventory.recovery - (0.5 - 7. * dt)).abs() < 0.00001);
+        assert_eq!(inventory.count, 2);
+    }
+
+    #[test]
+    fn native_cooking_wins_over_release_and_cancel_keeps_unspent_ammunition() {
+        let tuning = profile();
+        let mut inventory =
+            GrenadeInventory::new(WeaponId("weapon.frag_grenade_zm".into()), &tuning);
+        inventory.state = ThrowState::Releasing {
+            remaining: 0.01,
+            fuse: 0.01,
+        };
+        assert_eq!(
+            inventory.advance(false, &tuning, 1. / 60.),
+            Some((0., true))
+        );
+        inventory.held = true;
+        inventory.cancel();
+        assert_eq!(inventory.count, 2);
+        assert!(!inventory.busy());
+        assert!(!inventory.held);
+    }
+
+    #[test]
+    fn native_contacts_apply_friction_before_restitution_and_settle_on_the_source_threshold() {
+        let tuning = profile();
+        let native = tuning.native_launch.as_ref().unwrap();
+        let mut body = grenade();
+        let (velocity, resting, _) = native_contact(
+            &mut body,
+            &tuning,
+            native,
+            Vec3::new(200., -100., 0.) * 0.0254,
+            Vec3::Y,
+            0,
+            20.32,
+        );
+        assert!(velocity.abs_diff_eq(Vec3::new(120., 50., 0.) * 0.0254, 0.00001));
+        assert!(!resting);
+        let (velocity, resting, _) = native_contact(
+            &mut body,
+            &tuning,
+            native,
+            Vec3::new(50., -1., 0.) * 0.0254,
+            Vec3::Y,
+            0,
+            20.32,
+        );
+        assert!(velocity.abs_diff_eq(Vec3::new(49.5, 0., 0.) * 0.0254, 0.00001));
+        assert!(!resting);
+        assert!((body.angular_velocity.x - 9.9).abs() < 0.00001);
+        let (_, resting, _) = native_contact(
+            &mut body,
+            &tuning,
+            native,
+            Vec3::new(10., -1., 0.) * 0.0254,
+            Vec3::Y,
+            0,
+            20.32,
+        );
+        assert!(resting);
+        assert_eq!(body.angular_velocity, Vec3::ZERO);
+        assert!((body.angles.z - std::f32::consts::FRAC_PI_2).abs() < 0.00001);
+    }
+
+    #[test]
+    fn native_launch_snaps_then_adds_only_projected_player_motion() {
+        let tuning = profile();
+        let base = native_launch_velocity(&tuning, Quat::IDENTITY, Vec3::ZERO);
+        let side = Vec3::X * 5.;
+        assert!(native_launch_velocity(&tuning, Quat::IDENTITY, side).abs_diff_eq(base, 0.00001));
+        let forward = base.normalize();
+        assert!(
+            native_launch_velocity(&tuning, Quat::IDENTITY, forward * 3.)
+                .abs_diff_eq(base + forward * 3., 0.00001)
+        );
+    }
+
+    #[test]
+    fn native_weapon_view_kick_returns_to_zero_at_half_a_second() {
+        let kick = WeaponViewKick {
+            started: 0.,
+            angles: Vec2::new(0.1, 0.2),
+        };
+        assert!(kick.rotation(0.1).angle_between(Quat::IDENTITY) > 0.2);
+        assert!(kick.rotation(0.499).angle_between(Quat::IDENTITY) < 0.001);
+        assert_eq!(kick.rotation(0.5), Quat::IDENTITY);
     }
 }
 

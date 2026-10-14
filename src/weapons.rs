@@ -29,6 +29,7 @@ pub enum WeaponAction {
     Reloading {
         remaining: f32,
         empty: bool,
+        transferred: bool,
     },
     ShellReload {
         remaining: f32,
@@ -302,6 +303,108 @@ mod native_location_tests {
         weapon.mechanics.delivery = crate::origins::content::WeaponDelivery::Melee;
         assert_eq!(damage_at(&weapon, 0., HitRegion::Head), 101);
     }
+
+    fn pistol() -> WeaponDefinition {
+        serde_json::from_value(serde_json::json!({"id":"weapon.c96_zm","name":"C96",
+            "damage":20,"category":"bullet","magazine":8,"reserve":40,
+            "fire_interval":0.2,"reload_seconds":1.2,
+            "mechanics":{"starting_reserve":40,"empty_reload":1.5,
+                "reload_transfer_seconds":[0.4,0.6]}}))
+        .unwrap()
+    }
+
+    #[test]
+    fn native_magazine_reload_transfers_before_animation_end_once() {
+        let weapon = pistol();
+        for (magazine, transfer_at) in [(5, 0.4), (0, 0.6)] {
+            let mut inventory = WeaponInventory::default();
+            inventory.grant(&weapon).unwrap();
+            inventory.slots[0].as_mut().unwrap().magazine = magazine;
+            let definitions = [weapon.clone()];
+            inventory.tick(
+                0.,
+                WeaponIntent {
+                    reload: true,
+                    ..default()
+                },
+                &definitions,
+            );
+            inventory.tick(transfer_at - 0.01, default(), &definitions);
+            assert_eq!(inventory.active().unwrap().magazine, magazine);
+            inventory.tick(0.01, default(), &definitions);
+            assert_eq!(inventory.active().unwrap().magazine, 8);
+            assert_eq!(inventory.reserve(&weapon), 40 - (8 - magazine));
+            assert!(matches!(inventory.action, WeaponAction::Reloading { .. }));
+            let emissions = inventory.tick(2., default(), &definitions);
+            assert_eq!(
+                emissions
+                    .iter()
+                    .filter(|event| matches!(event, WeaponEmission::ReloadCompleted(_)))
+                    .count(),
+                1
+            );
+            assert_eq!(inventory.reserve(&weapon), 40 - (8 - magazine));
+        }
+    }
+
+    #[test]
+    fn native_reload_cancellation_keeps_only_ammunition_already_transferred() {
+        let weapon = pistol();
+        for (age, expected_magazine, expected_reserve) in [(0.3, 5, 40), (0.5, 8, 37)] {
+            let mut inventory = WeaponInventory::default();
+            inventory.grant(&weapon).unwrap();
+            inventory.slots[0].as_mut().unwrap().magazine = 5;
+            let definitions = [weapon.clone()];
+            inventory.tick(
+                0.,
+                WeaponIntent {
+                    reload: true,
+                    ..default()
+                },
+                &definitions,
+            );
+            inventory.tick(age, default(), &definitions);
+            inventory.cancel_action();
+            inventory.tick(2., default(), &definitions);
+            assert_eq!(inventory.active().unwrap().magazine, expected_magazine);
+            assert_eq!(inventory.reserve(&weapon), expected_reserve);
+        }
+    }
+
+    #[test]
+    fn initial_knife_emits_one_hit_after_delay_and_keeps_recovery() {
+        let weapon = pistol();
+        let mut knife = weapon.clone();
+        knife.id = WeaponId("weapon.knife_zm".into());
+        knife.mechanics.delivery = crate::origins::content::WeaponDelivery::Melee;
+        knife.mechanics.melee_seconds = [0.2, 0.6];
+        let mut inventory = WeaponInventory::default();
+        inventory.grant(&weapon).unwrap();
+        let definitions = [weapon, knife];
+        inventory.tick(
+            0.,
+            WeaponIntent {
+                melee: true,
+                ..default()
+            },
+            &definitions,
+        );
+        assert!(inventory.tick(0.19, default(), &definitions).is_empty());
+        let emissions = inventory.tick(0.01, default(), &definitions);
+        assert_eq!(
+            emissions
+                .iter()
+                .filter(|event| matches!(event, WeaponEmission::Melee))
+                .count(),
+            1
+        );
+        assert!(matches!(
+            inventory.action,
+            WeaponAction::Melee { hit: true, .. }
+        ));
+        assert!(inventory.tick(0.4, default(), &definitions).is_empty());
+        assert_eq!(inventory.action, WeaponAction::Ready);
+    }
 }
 pub fn sample(seed: u64) -> f32 {
     let mut value = seed.wrapping_add(0x9e3779b97f4a7c15);
@@ -552,7 +655,9 @@ impl WeaponInventory {
     }
     pub fn reload_timing(&self, definition: &WeaponDefinition) -> Option<(f32, f32)> {
         match self.action {
-            WeaponAction::Reloading { remaining, empty } => Some((
+            WeaponAction::Reloading {
+                remaining, empty, ..
+            } => Some((
                 if empty {
                     definition.mechanics.empty_reload
                 } else {
@@ -1317,7 +1422,11 @@ impl WeaponInventory {
         } else {
             0.
         };
-        self.cooldown = (self.cooldown - dt).max(0.);
+        self.cooldown = if self.cooldown <= dt + 0.000001 {
+            0.
+        } else {
+            self.cooldown - dt
+        };
         if was_cooling
             && self.cooldown == 0.
             && self.burst == 0
@@ -1378,11 +1487,16 @@ impl WeaponInventory {
         match self.action {
             WeaponAction::Ready => {}
             WeaponAction::Melee { remaining, mut hit } => {
-                let remaining = (remaining - dt).max(0.);
+                let remaining = if remaining <= dt + 0.000001 {
+                    0.
+                } else {
+                    remaining - dt
+                };
                 if !hit
                     && melee_definition.mechanics.melee_seconds[1]
                         .max(melee_definition.mechanics.melee_seconds[0])
                         - remaining
+                        + 0.000001
                         >= melee_definition.mechanics.melee_seconds[0]
                 {
                     emissions.push(WeaponEmission::Melee);
@@ -1426,13 +1540,43 @@ impl WeaponInventory {
                 }
                 return emissions;
             }
-            WeaponAction::Reloading { remaining, empty } => {
-                let remaining = (remaining - reload_dt).max(0.);
+            WeaponAction::Reloading {
+                remaining,
+                empty,
+                mut transferred,
+            } => {
+                let remaining = if remaining <= reload_dt + 0.000001 {
+                    0.
+                } else {
+                    remaining - reload_dt
+                };
+                if !transferred && let Some(timing) = definition.mechanics.reload_transfer_seconds {
+                    let duration = if empty {
+                        definition.mechanics.empty_reload
+                    } else {
+                        definition.reload_seconds
+                    };
+                    let transfer = if timing[usize::from(empty)] > 0. {
+                        timing[usize::from(empty)].min(duration)
+                    } else {
+                        duration
+                    };
+                    if duration - remaining + 0.000001 >= transfer {
+                        self.insert(definition, u32::MAX);
+                        transferred = true;
+                    }
+                }
                 if remaining > 0. {
-                    self.action = WeaponAction::Reloading { remaining, empty };
+                    self.action = WeaponAction::Reloading {
+                        remaining,
+                        empty,
+                        transferred,
+                    };
                     return emissions;
                 }
-                self.insert(definition, u32::MAX);
+                if !transferred {
+                    self.insert(definition, u32::MAX);
+                }
                 emissions.push(WeaponEmission::ReloadCompleted(definition.id.clone()));
                 self.action = WeaponAction::Ready;
                 self.emit(WeaponSignal::Idle);
@@ -1571,6 +1715,7 @@ impl WeaponInventory {
                         definition.reload_seconds
                     },
                     empty,
+                    transferred: false,
                 }
             };
             self.emit(if definition.mechanics.shell_reload {

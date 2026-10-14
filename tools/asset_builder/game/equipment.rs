@@ -179,6 +179,16 @@ pub(super) fn read(catalog: &Catalog<'_>, game: &mut Value, gaps: &mut Vec<Strin
             mechanics["hit_multipliers"] = json!(locations);
         }
         if matches!(delivery, "hitscan" | "projectile") {
+            let normal_transfer = seconds(definition, 1180)?;
+            let empty_transfer = seconds(definition, 1184)?;
+            mechanics["reload_transfer_seconds"] = json!([
+                normal_transfer,
+                if empty_transfer > 0. {
+                    empty_transfer
+                } else {
+                    normal_transfer
+                }
+            ]);
             for index in 1..5 {
                 if integer(definition, 996 + index * 4)? != 0
                     || scalar(definition, 1020 + index * 4)? != 0.
