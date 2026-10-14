@@ -581,6 +581,12 @@ mod tests {
         assert!(effects.materials.contains("wc/gfx_impact_blood_spatter03"));
         for name in &effects.materials {
             let mut native = crate::material::read(&catalog, name).unwrap();
+            if name == "gfx_fxt_superflare_zmb_tomb_elec_bolt_lg" {
+                println!(
+                    "Required superflare active native pass: {}",
+                    crate::material::contract::pass(&native, 3).unwrap()
+                );
+            }
             match atlas_dimensions(&catalog, name) {
                 Ok(dimensions) => *atlas_sizes.entry(dimensions).or_default() += 1,
                 Err(error) => material_gaps.push(error.to_string()),
