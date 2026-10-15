@@ -101,16 +101,9 @@ impl Plugin for CinematicPlugin {
         app.init_resource::<Playback>()
             .init_resource::<LoadingPlayback>()
             .add_systems(
-                OnEnter(GameState::Loading),
-                loading_start.after(crate::assets::begin_load).after(crate::audio::stop),
-            )
-            .add_systems(
-                OnEnter(GameState::StartingSession),
-                loading_start.after(crate::session::SessionSetup::Player),
-            )
-            .add_systems(
                 Update,
-                loading_advance
+                (loading_start, loading_advance)
+                    .chain()
                     .before(crate::audio::AudioPlayback)
                     .run_if(|state: Res<State<GameState>>| matches!(**state, GameState::Loading | GameState::StartingSession)),
             )
@@ -403,6 +396,7 @@ fn loading_start(
         return;
     }
     let Some(game) = game else { return; };
+    let Ok(camera) = cameras.single() else { return; };
     *playback = LoadingPlayback {
         done: true,
         ..default()
@@ -420,9 +414,7 @@ fn loading_start(
     }
     playback.done = false;
     playback.sequence = prepare(sequence, &game, &server);
-    if let Ok(camera) = cameras.single() {
-        root(&mut commands, camera, &playback.sequence, false);
-    }
+    root(&mut commands, camera, &playback.sequence, false);
 }
 fn loading_advance(
     mut commands: Commands,
