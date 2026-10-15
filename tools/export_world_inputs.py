@@ -36,7 +36,7 @@ for stream in (0, 1):
 for output, source in zip(data["surfaces"], world["dpvs.surfaces"], strict=True):
     output["materialFile"] = "materials/" + material_file_stem(output["material"]) + ".json"
     output["reflectionProbeIndex"] = source["reflectionProbeIndex"]
-    output["primaryLightIndex"] = source["primaryLightIndex"]
+    output["primaryLightIndex"] = source["primaryLightIndex"] & 255
     output["vertexDataOffset0"] = source["tris.vertexDataOffset0"]
     output["vertexDataOffset1"] = source["tris.vertexDataOffset1"]
     output["bounds"] = [list(source.unpack("<3f", f"bounds[{i}]")) for i in (0, 1)]
@@ -106,6 +106,27 @@ for model_asset in walk.by_type("xmodel"):
     assert model_asset.name not in data["modelGeometry"], "Duplicate original static model"
     data["modelGeometry"][model_asset.name] = model_data
 assert set(data["modelGeometry"]) == requested_models, "Missing original static model streams"
+
+# FX references shared-zone materials as well as map-local ones. Export those
+# original definitions through the same SDK, in the game's overlay order.
+fx_catalog = json.loads((root / "gameplay/origins/fx_catalog.json").read_text(encoding="utf-8"))
+fx_materials = set(fx_catalog["materials"])
+exported_fx_materials = set()
+material_names = material.ZoneNames()
+for source_zone in ("code_post_gfx_zm", "common_zm", "patch_zm", "zm_tomb", "zm_tomb_patch"):
+    source_path = zone.with_name(source_zone + ".ff")
+    source_walk = walk if source_path == zone else backends.for_fastfile(str(source_path)).walk(str(source_path))
+    source_walk.check()
+    for source_material in source_walk.by_type("material"):
+        if source_material.name not in fx_materials:
+            continue
+        destination = assets / "materials" / (material_file_stem(source_material.name) + ".json")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps(material.material_json(source_material, material_names),
+            separators=(",", ":")), encoding="utf-8")
+        exported_fx_materials.add(source_material.name)
+assert exported_fx_materials == fx_materials, f"Missing original FX materials: {sorted(fx_materials - exported_fx_materials)}"
+print(f"Original FX material definitions: {len(exported_fx_materials)}")
 
 
 def fog(record):
