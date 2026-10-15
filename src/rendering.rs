@@ -3,6 +3,7 @@ use bevy::prelude::*;
 pub(crate) mod fog;
 pub(crate) mod material;
 pub mod native;
+pub(crate) mod native_effect;
 pub(crate) mod world;
 pub(crate) const BASE_FOV_DEGREES: f32 = 55.;
 #[derive(Component)]
@@ -10,7 +11,7 @@ pub struct GameCamera;
 pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(native::NativeWorldPlugin)
+        app.add_plugins((native::NativeWorldPlugin, native_effect::NativeEffectPlugin))
             .add_systems(Startup, setup)
             .add_systems(Update, camera_follow)
             .add_systems(
