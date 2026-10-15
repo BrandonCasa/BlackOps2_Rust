@@ -40,7 +40,7 @@ pub fn landing_response(height: f32, percent: u32, slick: bool) -> (f32, f32) {
 }
 
 #[derive(Clone, Copy, serde::Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct PhysicsTuning {
     pub ground_acceleration: f32,
     pub crouch_acceleration: f32,
@@ -94,31 +94,8 @@ impl Default for PhysicsTuning {
     }
 }
 impl PhysicsTuning {
-    pub fn valid(&self) -> bool {
-        [
-            self.ground_acceleration,
-            self.crouch_acceleration,
-            self.prone_acceleration,
-            self.air_acceleration,
-            self.friction,
-            self.stop_speed,
-            self.strafe_scale,
-            self.backward_scale,
-            self.sprint_strafe_scale,
-            self.ground_probe,
-            self.step_down,
-            self.skin_width,
-            self.step_slowdown_height,
-            self.step_speed_min,
-        ]
-        .iter()
-        .all(|v| v.is_finite() && *v > 0.)
-            && self.ground_normal_min.is_finite()
-            && self.ground_normal_min > 0.
-            && self.ground_normal_min < 1.
-            && self.skin_width < self.ground_probe
-            && self.step_speed_min < 1.
-    }
+
+
 
     pub fn wish_velocity(
         &self,

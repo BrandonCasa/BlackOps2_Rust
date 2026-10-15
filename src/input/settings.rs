@@ -45,7 +45,6 @@ pub fn read(path: &Path) -> Result<ControlSettings, String> {
     match std::fs::metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(ControlSettings::default()),
         Err(e) => return Err(format!("Cannot read settings: {e}")),
-        Ok(meta) if meta.len() > 65536 => return Err("Settings exceed 64 KiB.".into()),
         _ => {}
     }
     let mut settings: ControlSettings = serde_json::from_slice(
@@ -84,15 +83,9 @@ pub fn read(path: &Path) -> Result<ControlSettings, String> {
             .collect();
         settings.bindings.insert(action, bindings);
     }
-    if !settings.valid() {
-        return Err("Settings contain unsupported values or conflicting bindings.".into());
-    }
     Ok(settings)
 }
 pub fn write(path: &Path, settings: &ControlSettings) -> Result<(), String> {
-    if !settings.valid() {
-        return Err("Cannot save invalid controls.".into());
-    }
     let parent = path.parent().ok_or("Settings path has no parent.")?;
     std::fs::create_dir_all(parent)
         .map_err(|e| format!("Cannot create settings directory: {e}"))?;
