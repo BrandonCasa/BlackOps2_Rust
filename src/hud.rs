@@ -21,7 +21,7 @@ impl Plugin for HudPlugin {
             performance::PerformanceOverlayPlugin,
             origins::OriginsHudPlugin,
         ))
-        .add_systems(OnEnter(GameState::PreparingShaders), setup)
+        .add_systems(OnEnter(GameState::StartingSession), setup)
         .add_systems(Update, damage_feedback);
     }
 }
@@ -101,81 +101,5 @@ fn damage_feedback(
     }
 }
 
-pub(crate) fn readout(world: &mut World) -> String {
-    let state = *world.resource::<State<GameState>>().get();
-    let scoreboard =
-        state == GameState::GameOver || world.resource::<crate::input::GameInput>().scoreboard;
-    world
-        .query::<(&origins::Field, &native::NativeText)>()
-        .iter(world)
-        .filter_map(|(field, text)| {
-            let name = match field {
-                origins::Field::Score if scoreboard => "Score",
-                origins::Field::Kills if scoreboard => "Kills",
-                origins::Field::Downs if scoreboard => "Downs",
-                origins::Field::Headshots if scoreboard => "Headshots",
-                origins::Field::GameOver if scoreboard => "Scoreboard",
-                origins::Field::Weapon if !scoreboard => "Weapon",
-                origins::Field::Points if !scoreboard => "Points",
-                _ => return None,
-            };
-            Some(format!("{name} {}", text.value))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
 
-#[cfg(all(debug_assertions, feature = "dev-tools"))]
-pub(crate) fn snapshot(world: &mut World) -> serde_json::Value {
-    let labels: Vec<_> = world
-        .query::<(
-            Entity,
-            &native::NativeText,
-            &InheritedVisibility,
-            &ComputedNode,
-        )>()
-        .iter(world)
-        .filter(|(_, _, visible, _)| visible.get())
-        .map(|(entity, text, _, node)| {
-            serde_json::json!({"entity":entity.to_bits(), "text":text.value,
-            "size":node.size().to_array(), "font":text.style, "font_size":text.size})
-        })
-        .collect();
-    let visible_images: Vec<_> = world
-        .query::<(&ImageNode, &InheritedVisibility, &ComputedNode)>()
-        .iter(world)
-        .filter(|(_, visible, _)| visible.get())
-        .map(|(image, _, node)| (image.image.clone(), node.size()))
-        .collect();
-    let images = world.resource::<Assets<Image>>();
-    let loaded = visible_images
-        .iter()
-        .filter(|(handle, _)| images.contains(handle))
-        .count();
-    let server = world.resource::<AssetServer>();
-    let mut paths = std::collections::BTreeMap::<String, usize>::new();
-    for (handle, _) in &visible_images {
-        let path = server
-            .get_path(handle.id())
-            .map_or_else(|| "<unregistered>".to_string(), |path| path.to_string());
-        *paths.entry(path).or_default() += 1;
-    }
-    let crosshair = world
-        .query_filtered::<&InheritedVisibility, With<Crosshair>>()
-        .iter(world)
-        .any(|visible| visible.get());
-    let crafting = world.resource::<crate::crafting::Crafting>();
-    let inventory = serde_json::json!({"gramophone":crafting.gramophone,
-        "records":crafting.records,"consumed":crafting.consumed});
-    let targets: Vec<_> = world.query::<(Entity, &crate::crafting::CraftTarget, &Transform)>()
-        .iter(world).filter_map(|(entity, target, transform)| {
-            let crate::crafting::CraftTarget::Part(id) = target else { return None };
-            Some(serde_json::json!({"entity":entity.to_bits(),"id":id,"position":transform.translation.to_array()}))
-        }).collect();
-    serde_json::json!({"labels":labels, "visible_images":visible_images.len(), "loaded_images":loaded,
-        "images":paths, "crosshair":crosshair,"inventory":inventory,"part_targets":targets,
-        "scoreboard":world.resource::<crate::input::GameInput>().scoreboard,
-        "selected_frontend_row":crate::frontend::selected_row(world),
-        "selected_menu_row":(*world.resource::<State<GameState>>().get() == GameState::Paused)
-            .then(|| world.resource::<crate::input::menu::ControlMenu>().selected)})
-}
+

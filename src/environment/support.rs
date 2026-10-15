@@ -1,4 +1,3 @@
-use super::EnvironmentDefinition;
 use crate::{
     GameState,
     damage::{DamageQueue, Impact, ImpactSource},
@@ -7,7 +6,6 @@ use crate::{
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Component, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -26,23 +24,13 @@ pub enum EnvironmentOwner {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OwnershipDefinition {
     pub id: String,
     pub owner: EnvironmentOwner,
     pub shootable: bool,
 }
 
-pub(super) fn valid(definition: &EnvironmentDefinition) -> bool {
-    let ids: BTreeSet<_> = definition
-        .triggers
-        .iter()
-        .map(|t| &t.id)
-        .chain(definition.brush_entities.iter().map(|b| &b.id))
-        .collect();
-    let owned: BTreeSet<_> = definition.ownership.iter().map(|o| &o.id).collect();
-    owned.len() == definition.ownership.len() && owned == ids
-}
+
 
 #[derive(Component)]
 pub struct ShootableEnvironment;

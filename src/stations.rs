@@ -157,7 +157,7 @@ impl Plugin for StationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Stations>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 setup.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -284,39 +284,6 @@ fn tick(
     };
 }
 
-#[cfg(feature = "dev-tools")]
-pub(crate) fn snapshot(stations: &Stations) -> serde_json::Value {
-    use serde_json::json;
-    let boxes: Vec<_> = stations
-        .boxes
-        .iter()
-        .map(|phase| match phase {
-            BoxPhase::Idle => json!({"phase":"Idle"}),
-            BoxPhase::Rolling {
-                weapon, remaining, ..
-            } => json!({"phase":"Rolling", "weapon":weapon.0, "remaining":remaining}),
-            BoxPhase::Reward {
-                weapon, remaining, ..
-            } => json!({"phase":"Reward", "weapon":weapon.0, "remaining":remaining}),
-            BoxPhase::Relocating { remaining } => {
-                json!({"phase":"Relocating", "remaining":remaining})
-            }
-        })
-        .collect();
-    let upgrade = match &stations.upgrade {
-        UpgradePhase::Idle => json!({"phase":"Idle"}),
-        UpgradePhase::Processing {
-            weapon, remaining, ..
-        } => json!({"phase":"Processing", "weapon":weapon.0, "remaining":remaining}),
-        UpgradePhase::Ready {
-            weapon, remaining, ..
-        } => json!({"phase":"Ready", "weapon":weapon.0, "remaining":remaining}),
-    };
-    json!({"normal_box": stations.normal_box, "boxes":boxes, "box_positions":BOX_POSITIONS,
-        "box_generators":BOX_GENERATORS,
-           "upgrade_position":[-0.1397, 8.5217, 0.2159], "upgrade":upgrade,
-           "purchases":stations.purchases, "collections":stations.collections, "refunds":stations.refunds})
-}
 fn box_candidates(
     definition: &GameDefinition,
     inventory: &WeaponInventory,

@@ -97,7 +97,6 @@ fn setup(mut commands: Commands, cameras: Query<Entity, With<GameCamera>>) {
 
 fn update(
     time: Res<Time<Real>>,
-    options: Res<crate::assets::LaunchOptions>,
     state: Res<State<GameState>>,
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -114,7 +113,7 @@ fn update(
     }
     let active = stats.enabled
         && **state == GameState::Playing
-        && (options.flythrough || windows.single().is_ok_and(|window| window.focused));
+        && windows.single().is_ok_and(|window| window.focused);
     if let Ok(mut visibility) = panel.single_mut() {
         let desired = if active {
             Visibility::Inherited

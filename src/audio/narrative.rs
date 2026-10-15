@@ -49,7 +49,7 @@ pub(super) fn install(app: &mut App) {
         .add_observer(discover_pap)
         .add_message::<NarrativeProgress>()
         .add_message::<RobotPurgeReady>()
-        .add_systems(OnEnter(GameState::PreparingShaders), reset)
+        .add_systems(OnEnter(GameState::StartingSession), reset)
         .add_systems(
             FixedUpdate,
             events

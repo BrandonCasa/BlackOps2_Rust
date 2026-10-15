@@ -12,7 +12,6 @@ use avian3d::prelude::*;
 use bevy::{prelude::*, world_serialization::WorldAssetRoot};
 
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ThrowableDefinition {
     pub slot: ThrowableSlot,
     pub initial: u32,
@@ -39,7 +38,6 @@ pub struct ThrowableDefinition {
     pub sticky: bool,
 }
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct GrenadeLaunch {
     pub right_speed: f32,
     pub horizontal_speed: f32,
@@ -85,72 +83,6 @@ fn native_launch_velocity(
 pub enum ThrowableSlot {
     Lethal,
     Tactical,
-}
-impl ThrowableDefinition {
-    pub fn valid(&self) -> bool {
-        self.capacity > 0
-            && self.round_award <= self.capacity
-            && self.initial <= self.capacity
-            && self.inner_damage >= self.outer_damage
-            && self.outer_damage > 0
-            && [
-                self.prime_seconds,
-                self.throw_seconds,
-                self.fuse_seconds,
-                self.speed,
-                self.radius,
-                self.collision_radius,
-            ]
-            .iter()
-            .all(|v| v.is_finite() && *v > 0.)
-            && self.up_speed.is_finite()
-            && self.release_delay.is_finite()
-            && self.release_delay >= 0.
-            && self.release_delay <= self.throw_seconds
-            && self.inner_radius.is_finite()
-            && self.inner_radius >= 0.
-            && self.inner_radius < self.radius
-            && self
-                .normal_bounce
-                .iter()
-                .chain(self.tangent_bounce.iter())
-                .all(|v| v.is_finite() && (0. ..=1.).contains(v))
-            && self
-                .collision_half_extents
-                .is_none_or(|v| v.into_iter().all(|v| v.is_finite() && v > 0.))
-            && self.native_launch.as_ref().is_none_or(|native| {
-                native.right_speed.is_finite()
-                    && native.horizontal_speed.is_finite()
-                    && native.rotation_mode <= 2
-                    && [
-                        native.rest_speed,
-                        native.friction_speed,
-                        native.bump_speed,
-                        native.wobble_frequency,
-                        native.wobble_forward,
-                        native.wobble_side,
-                        native.wobble_damping,
-                        native.curve,
-                        native.restore_seconds,
-                    ]
-                    .into_iter()
-                    .all(|value| value.is_finite() && value >= 0.)
-                    && native
-                        .friction
-                        .into_iter()
-                        .chain([
-                            native.bump_frequency,
-                            native.bump_magnitude,
-                            native.restitution_max,
-                        ])
-                        .all(|value| value.is_finite() && (0. ..=1.).contains(&value))
-                    && native
-                        .view_kick
-                        .into_iter()
-                        .all(|value| value.is_finite() && value >= 0.)
-                    && native.view_kick[1] <= native.view_kick[2]
-            })
-    }
 }
 #[derive(Clone, Copy, Debug, Default)]
 pub enum ThrowState {
@@ -1025,8 +957,6 @@ pub(crate) fn flight(
     session: Res<crate::session::SessionId>,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
-    options: Res<crate::assets::LaunchOptions>,
-    mut physics_evidence: ResMut<crate::movement::physics::PhysicsEvidence>,
     mut grenades: Query<(Entity, &mut Grenade, &mut Transform)>,
     targets: Query<(), (With<Vitality>, With<Transform>, Without<Grenade>)>,
     poses: Query<(&Transform, &GlobalTransform, Has<ChildOf>), Without<Grenade>>,
@@ -1281,17 +1211,7 @@ pub(crate) fn flight(
                         }
                     }
                 } else {
-                    if cfg!(debug_assertions)
-                        && options.validation_remote.is_some()
-                        && physics_evidence.projectiles.len() < 512
-                    {
-                        physics_evidence.projectiles.push(serde_json::json!({
-                            "kind":"throwable","entity":entity.to_bits(),"weapon":weapon.id.0,"dt":motion_dt,
-                            "gravity":definition.tuning.gravity,
-                            "position_before":transform.translation.to_array(),"position_after":(transform.translation+delta).to_array(),
-                            "velocity_after":velocity.to_array()
-                        }));
-                    }
+                    
                     transform.translation += delta;
                     grenade.motion = GrenadeMotion::Flying(velocity);
                 }

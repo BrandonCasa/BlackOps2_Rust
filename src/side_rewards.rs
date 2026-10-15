@@ -35,7 +35,7 @@ impl Plugin for SideRewardPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SideRewards>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 reset.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(

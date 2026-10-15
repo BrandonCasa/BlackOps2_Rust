@@ -21,7 +21,6 @@ pub struct RoundEnding {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RoundProfile {
     pub health_start: u32,
     pub health_increase: u32,
@@ -56,47 +55,8 @@ fn native_actor_think_seconds() -> f32 {
     0.05
 }
 impl RoundProfile {
-    pub fn valid(&self) -> bool {
-        self.health_start > 0
-            && self.health_start <= i32::MAX as u32
-            && self.health_increase > 0
-            && self.health_increase <= i32::MAX as u32
-            && self.exponential_round >= 2
-            && self.population_base > 0
-            && self.population_round_divisor > 0
-            && self.population_acceleration_round > 0
-            && self.ordinary_cap > 0
-            && self.actor_cap >= self.ordinary_cap
-            && (1..=8).contains(&self.corpse_limit)
-            && self.actor_think_seconds.is_finite()
-            && self.actor_think_seconds > 0.
-            && self.speed_random_band > 0
-            && self.speed_multiplier > 0
-            && self.gait_thresholds[0] < self.gait_thresholds[1]
-            && [
-                self.health_multiplier,
-                self.solo_population_increment,
-                self.population_acceleration,
-            ]
-            .iter()
-            .all(|v| v.is_finite() && *v > 0.)
-            && self
-                .early_population
-                .iter()
-                .all(|v| v.is_finite() && *v > 0. && *v <= 1.)
-            && [
-                self.spawn_seconds,
-                self.spawn_decay,
-                self.minimum_spawn_seconds,
-                self.initial_spawn_seconds,
-                self.first_spawn_seconds,
-                self.between_round_seconds,
-            ]
-            .iter()
-            .all(|v| v.is_finite() && *v > 0.)
-            && self.spawn_decay <= 1.
-            && self.minimum_spawn_seconds <= self.spawn_seconds
-    }
+
+
     pub fn health(&self, round: u32) -> u32 {
         let mut health = self.health_start;
         for r in 2..=round.clamp(1, 255) {
@@ -214,7 +174,6 @@ pub(crate) struct CharacterSelections {
     session: Option<crate::session::SessionId>,
     groups: std::collections::BTreeMap<String, [u64; 6]>,
     round: u32,
-    previous_spawn: Option<String>,
     first_round_started: bool,
 }
 
@@ -249,7 +208,6 @@ pub(crate) fn advance(
         Local<CharacterSelections>,
         Query<Entity, With<crate::enemies::ActorCorpse>>,
     ),
-    mut next: ResMut<NextState<crate::GameState>>,
 ) {
     let (mut started, mut ending) = events;
     let (quest, panzer_waves, robots, mut characters, corpses) = special;
@@ -261,7 +219,6 @@ pub(crate) fn advance(
     }
     if characters.round != session.round {
         characters.round = session.round;
-        characters.previous_spawn = None;
     }
     *population = default();
     for (_, vitality, kind, _, _) in &enemies {
@@ -300,13 +257,6 @@ pub(crate) fn advance(
             session: *session_id,
             round: session.round,
         });
-        let first_playable_complete = definition.delivery_scope
-            == crate::origins::DeliveryScope::FirstPlayableSolo
-            && session.round >= 5;
-        if first_playable_complete {
-            next.set(crate::GameState::Ending);
-            return;
-        }
         session.round = (session.round + 1).min(255);
         session.pending = profile.population(session.round);
         session.intermission = Some(Timer::from_seconds(
@@ -359,58 +309,39 @@ pub(crate) fn advance(
         .min_by_key(|(_, health)| health.sequence);
     let candidate = (|| {
         players.single().ok()?;
-        let native = definition.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo;
-        let mut admission = navigation.choose_spawn(&mut session)?;
-        if native && characters.previous_spawn.as_ref() == Some(&admission.source) {
-            admission = navigation.choose_spawn(&mut session)?;
-        }
-        characters.previous_spawn = Some(admission.source.clone());
-        let spawner = if native {
-            Some(
-                definition
-                    .access
-                    .spawners
-                    .get(session.random() as usize % definition.access.spawners.len().max(1))?
-                    .clone(),
-            )
-        } else {
-            None
-        };
+        let admission = navigation.choose_spawn(&mut session)?;
         let base = admission.position;
-        if !native {
-            let floor = query.cast_ray(
-                base + Vec3::Y * 0.1,
-                Dir3::NEG_Y,
-                4.,
-                false,
-                &crate::environment::solids([]),
-            )?;
-            if floor.normal.y < 0.5 {
-                return None;
-            }
+        let floor = query.cast_ray(
+            base + Vec3::Y * 0.1,
+            Dir3::NEG_Y,
+            4.,
+            false,
+            &crate::environment::solids([]),
+        )?;
+        if floor.normal.y < 0.5 {
+            return None;
         }
+
         let source_enemy = variants.first()?;
         let position = base + crate::enemies::body_center(source_enemy, false);
-        if !native
-            && enemies.iter().any(|(_, health, _, body, zombie)| {
-                let delta = body.translation - position;
-                health.state() == LifeState::ActorAlive
-                    && ((delta.xz().length_squared() < 0.5625 && delta.y.abs() < 1.)
-                        || zombie.is_some_and(|z| z.reserves(position)))
-            })
+        if enemies.iter().any(|(_, health, _, body, zombie)| {
+            let delta = body.translation - position;
+            health.state() == LifeState::ActorAlive
+                && ((delta.xz().length_squared() < 0.5625 && delta.y.abs() < 1.)
+                    || zombie.is_some_and(|z| z.reserves(position)))
+        })
         {
             return None;
         }
         let shape = crate::enemies::body_shape(source_enemy, false);
-        if !native
-            && !query
-                .shape_intersections(
-                    &shape,
-                    position,
-                    Quat::IDENTITY,
-                    &crate::environment::actor_solids([]),
-                )
-                .is_empty()
+        if !query
+            .shape_intersections(
+                &shape,
+                position,
+                Quat::IDENTITY,
+                &crate::environment::actor_solids([]),
+            )
+            .is_empty()
         {
             return None;
         }
@@ -424,13 +355,9 @@ pub(crate) fn advance(
             .iter()
             .map(|enemy| enemy.archetype.as_str())
             .collect();
-        let archetype = if let Some(spawner) = &spawner {
-            spawner.archetype.as_str()
-        } else {
-            *archetypes
-                .iter()
-                .nth(session.random() as usize % archetypes.len().max(1))?
-        };
+        let archetype = *archetypes
+            .iter()
+            .nth(session.random() as usize % archetypes.len().max(1))?;
         let group = variants
             .iter()
             .find(|enemy| enemy.archetype == archetype)?
@@ -452,26 +379,14 @@ pub(crate) fn advance(
             })
             .collect();
         let enemy = choices.get(session.random() as usize % choices.len().max(1))?;
+        let spawners: Vec<_> = definition.access.spawners.iter()
+            .filter(|spawner| spawner.archetype == enemy.archetype)
+            .collect();
+        let spawner = *spawners.get(session.random() as usize % spawners.len().max(1))?;
+        let entrance = navigation.choose_entrance(admission, spawner, &mut session)?;
         let gait = session
             .difficulty
             .gait(profile, session.round, session.random());
-        let source = if let Some(spawner) = spawner {
-            let entrance = navigation.choose_entrance(admission, &spawner, &mut session)?;
-            let rise = if admission.rising {
-                let index = match gait {
-                    Gait::Walk => session.random() as usize % 2,
-                    Gait::Run => 2,
-                    Gait::Sprint => 3,
-                };
-                enemy.traversals.get("rise")?.get(index)?;
-                Some(index)
-            } else {
-                None
-            };
-            Some((spawner, admission.clone(), entrance, rise))
-        } else {
-            None
-        };
         Some((
             position,
             shape,
@@ -481,11 +396,13 @@ pub(crate) fn advance(
             admission.source.clone(),
             admission.zone.clone(),
             admission.rising,
-            source,
+            admission.clone(),
+            spawner.clone(),
+            entrance,
         ))
     })();
-    let Some((position, shape, health, identity, gait, spawn_source, spawn_zone, rising, source)) =
-        candidate
+    let Some((position, shape, health, identity, gait, spawn_source, spawn_zone, rising,
+        admission, spawner, entrance)) = candidate
     else {
         evidence.failed_admissions += 1;
         evidence.budget_consumed_on_failure += u64::from(pending != session.pending);
@@ -527,17 +444,7 @@ pub(crate) fn advance(
         })
         .flatten();
     let zombie = Zombie::new(position, identity, gait).with_locomotion_seed(session.random());
-    let initial = source.as_ref().map(|(spawner, spawn, _, _)| {
-        Transform::from_translation(Vec3::from_array(spawner.position) + position - spawn.position)
-            .with_rotation(Quat::from_rotation_y(spawner.yaw))
-    });
-    let zombie = if let Some((spawner, spawn, entrance, rise)) = source.as_ref() {
-        zombie.source_spawn(spawner, spawn, entrance.clone(), *rise)
-    } else if let Some(profile) = rise {
-        zombie.rising(profile)
-    } else {
-        zombie
-    };
+    let zombie = zombie.source_spawn(&spawner, &admission, entrance, rise.map(|_| 0));
     let mut actor = commands.spawn((
         zombie,
         shape,
@@ -545,17 +452,11 @@ pub(crate) fn advance(
         PopulationKind::Ordinary,
         SpawnZone(spawn_zone),
         SessionEntity,
-        if source.is_some() {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        },
-        initial.unwrap_or_else(|| Transform::from_translation(position)),
+        Visibility::Hidden,
+        avian3d::prelude::ColliderDisabled,
+        Transform::from_translation(position),
         Name::new("Original zombie"),
     ));
-    if rise.is_some() || source.is_some() {
-        actor.insert(avian3d::prelude::ColliderDisabled);
-    }
     if quest.stage == crate::quests::QuestStage::UpgradeFists {
         actor.insert(crate::finale::FistCandidate::default());
     }

@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DigLocation {
     pub id: String,
     pub position: [f32; 3],
@@ -27,7 +26,6 @@ pub struct DigLocation {
     pub initial: bool,
 }
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DigDefinition {
     pub shovels: Vec<DigLocation>,
     pub mounds: Vec<DigLocation>,
@@ -37,85 +35,9 @@ pub struct DigDefinition {
     pub blood_mound: ContentId,
     pub perk_bottle: ContentId,
 }
-impl DigDefinition {
-    pub fn valid(&self, game: &GameDefinition) -> bool {
-        let mut ids = BTreeSet::new();
-        (1..=32).contains(&self.shovels.len())
-            && (1..=256).contains(&self.mounds.len())
-            && (4..=128).contains(&self.hidden.len())
-            && self
-                .shovels
-                .iter()
-                .chain(&self.mounds)
-                .chain(&self.hidden)
-                .all(|l| {
-                    !l.id.is_empty()
-                        && l.id.len() < 128
-                        && l.id
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
-                        && ids.insert(&l.id)
-                        && l.position.iter().all(|n| n.is_finite())
-                        && l.rotation.iter().all(|n| n.is_finite())
-                        && (Quat::from_array(l.rotation).length() - 1.).abs() < 0.001
-                        && game.content.zones.iter().any(|z| z.id.0 == l.zone)
-                        && !l.group.is_empty()
-                        && l.group.len() < 128
-                })
-            && [
-                &self.shovel,
-                &self.mound,
-                &self.blood_mound,
-                &self.perk_bottle,
-            ]
-            .iter()
-            .all(|id| {
-                game.content
-                    .presentations
-                    .iter()
-                    .any(|p| p.id == **id && p.scene.is_some())
-            })
-            && [
-                "ballista_zm",
-                "c96_zm",
-                "870mcs_zm",
-                "dsr50_zm",
-                "srm1216_zm",
-                "claymore_zm",
-                "ak74u_zm",
-                "ksg_zm",
-                "mp40_zm",
-                "mp44_zm",
-                "frag_grenade_zm",
-            ]
-            .iter()
-            .all(|id| {
-                game.content
-                    .weapons
-                    .iter()
-                    .any(|w| w.id.0 == format!("weapon.{id}") && w.pickup.is_some())
-            })
-            && [
-                "nuke",
-                "double_points",
-                "fire_sale",
-                "insta_kill",
-                "full_ammo",
-                "zombie_blood",
-                "bonus_points_player",
-            ]
-            .iter()
-            .all(|id| {
-                game.content
-                    .powerups
-                    .iter()
-                    .any(|p| p.id.0 == format!("powerup.{id}"))
-            })
-    }
-}
 
 #[derive(Component, Default, Clone, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct Digger {
     pub shovel: bool,
     pub golden: bool,
@@ -194,7 +116,7 @@ impl Plugin for DiggingPlugin {
         app.init_resource::<Digging>()
             .register_required_components::<Player, Digger>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 spawn.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -343,8 +265,7 @@ fn spawn(
         );
         commands.entity(entity).insert((
             DigTarget::Shovel(i),
-            crate::rendering::opaque::NativeShaderStart(0.),
-            crate::rendering::NativeArtInputs::default(),
+            crate::presentation::cues::CueParameters::default(),
         ));
     }
     for (i, spot) in d.mounds.iter().enumerate() {

@@ -114,185 +114,184 @@ fn setup(
             canvas
                 .spawn(rect(208., 163., 864., 310.))
                 .with_children(|parent| {
-                    if game.delivery_scope == crate::origins::DeliveryScope::FullOrigins {
-                        for (x, width, category, title) in [
-                            (0., 162.25, "Equipment", "Musical Parts"),
-                            (177.25, 215.25, "Quest Items", "Staff Parts"),
-                            (407.5, 334.25, "Recipes", ""),
-                            (752., 103., "Captures", ""),
-                        ] {
-                            parent.spawn((
-                                rect(x, 0., width, 32.),
-                                BackgroundColor(Color::srgba(0., 0., 0., 0.7)),
-                            ));
-                            parent.spawn((
-                                rect(x, 38., width, 103.),
-                                BackgroundColor(Color::srgba(0., 0., 0., 0.7)),
-                            ));
-                            label(
-                                parent,
-                                category,
-                                20.,
-                                rect(x + 4., 6., width - 4., 20.),
-                                true,
-                            );
-                            label(
-                                parent,
-                                title,
-                                20.,
-                                rect(x + 4., 42., width - 4., 20.),
-                                false,
-                            );
-                        }
+                    for (x, width, category, title) in [
+                        (0., 162.25, "Equipment", "Musical Parts"),
+                        (177.25, 215.25, "Quest Items", "Staff Parts"),
+                        (407.5, 334.25, "Recipes", ""),
+                        (752., 103., "Captures", ""),
+                    ] {
+                        parent.spawn((
+                            rect(x, 0., width, 32.),
+                            BackgroundColor(Color::srgba(0., 0., 0., 0.7)),
+                        ));
+                        parent.spawn((
+                            rect(x, 38., width, 103.),
+                            BackgroundColor(Color::srgba(0., 0., 0., 0.7)),
+                        ));
                         label(
                             parent,
-                            "Maxis Drone",
+                            category,
                             20.,
-                            rect(411.5, 42., 154., 20.),
-                            false,
+                            rect(x + 4., 6., width - 4., 20.),
+                            true,
                         );
                         label(
                             parent,
-                            "Zombie Shield",
+                            title,
                             20.,
-                            rect(583.75, 42., 154., 20.),
+                            rect(x + 4., 42., width - 4., 20.),
                             false,
                         );
-                        slot(
-                            parent,
-                            &game,
-                            &server,
-                            "gramophone",
-                            "zom_hud_craftable_gramophone",
-                            4.,
-                            89.,
-                            48.,
-                        );
-                        slot(
-                            parent,
-                            &game,
-                            &server,
-                            "master",
-                            "zom_hud_craftable_record",
-                            57.,
-                            89.,
-                            48.,
-                        );
-                        slot(
-                            parent,
-                            &game,
-                            &server,
-                            "gem",
-                            "zom_hud_craftable_element_fire",
-                            110.,
-                            89.,
-                            48.,
-                        );
-                        for (index, _element) in ["fire", "air", "lightning", "water"]
-                            .into_iter()
-                            .enumerate()
-                        {
-                            let x = 181.25 + index as f32 * 53.;
-                            parent.spawn((
-                                rect(x, 89., 48., 48.),
-                                BackgroundColor(Color::srgba(0., 0., 0., 0.3)),
-                            ));
-                            parent.spawn((
-                                QuestIcon(index),
-                                native::image(&game, &server, "zom_hud_craftable_record_blank"),
-                                rect(x + 1., 96., 34., 34.),
-                            ));
-                            parent.spawn((
-                                QuestElement(index),
-                                native::image(
-                                    &game,
-                                    &server,
-                                    &format!(
-                                        "zom_hud_craftable_element_{}",
-                                        ["fire", "wind", "lightning", "water"][index]
-                                    ),
+                    }
+                    label(
+                        parent,
+                        "Maxis Drone",
+                        20.,
+                        rect(411.5, 42., 154., 20.),
+                        false,
+                    );
+                    label(
+                        parent,
+                        "Zombie Shield",
+                        20.,
+                        rect(583.75, 42., 154., 20.),
+                        false,
+                    );
+                    slot(
+                        parent,
+                        &game,
+                        &server,
+                        "gramophone",
+                        "zom_hud_craftable_gramophone",
+                        4.,
+                        89.,
+                        48.,
+                    );
+                    slot(
+                        parent,
+                        &game,
+                        &server,
+                        "master",
+                        "zom_hud_craftable_record",
+                        57.,
+                        89.,
+                        48.,
+                    );
+                    slot(
+                        parent,
+                        &game,
+                        &server,
+                        "gem",
+                        "zom_hud_craftable_element_fire",
+                        110.,
+                        89.,
+                        48.,
+                    );
+                    for (index, _element) in ["fire", "air", "lightning", "water"]
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let x = 181.25 + index as f32 * 53.;
+                        parent.spawn((
+                            rect(x, 89., 48., 48.),
+                            BackgroundColor(Color::srgba(0., 0., 0., 0.3)),
+                        ));
+                        parent.spawn((
+                            QuestIcon(index),
+                            native::image(&game, &server, "zom_hud_craftable_record_blank"),
+                            rect(x + 1., 96., 34., 34.),
+                        ));
+                        parent.spawn((
+                            QuestElement(index),
+                            native::image(
+                                &game,
+                                &server,
+                                &format!(
+                                    "zom_hud_craftable_element_{}",
+                                    ["fire", "wind", "lightning", "water"][index]
                                 ),
-                                rect(x + 23., 91., 20., 20.),
+                            ),
+                            rect(x + 23., 91., 20., 20.),
+                        ));
+                        for piece in 0..3 {
+                            parent.spawn((
+                                StaffPiece {
+                                    element: index,
+                                    piece,
+                                },
+                                rect(x + 34., 93. + piece as f32 * 14.1, 11., 12.1),
+                                native::image(&game, &server, "zm_hud_icon_staff_pieces"),
                             ));
-                            for piece in 0..3 {
-                                parent.spawn((
-                                    StaffPiece {
-                                        element: index,
-                                        piece,
-                                    },
-                                    rect(x + 34., 93. + piece as f32 * 14.1, 11., 12.1),
-                                    native::image(&game, &server, "zm_hud_icon_staff_pieces"),
+                        }
+                        parent.spawn((
+                            StaffGlow(index),
+                            native::image(&game, &server, "zom_hud_craftable_staff_glow"),
+                            rect(x + 4., 96., 34., 34.),
+                            Visibility::Hidden,
+                        ));
+                    }
+                    for (piece, name, x) in [
+                        (
+                            "part.equip_dieseldrone_zm.body",
+                            "zom_hud_craftable_zquad_body",
+                            411.,
+                        ),
+                        (
+                            "part.equip_dieseldrone_zm.brain",
+                            "zom_hud_craftable_zquad_brain",
+                            464.,
+                        ),
+                        (
+                            "part.equip_dieseldrone_zm.engine",
+                            "zom_hud_craftable_zquad_engine",
+                            517.,
+                        ),
+                        (
+                            "part.tomb_shield_zm.top",
+                            "zom_hud_craftable_zshield_tomb_vizor",
+                            583.,
+                        ),
+                        (
+                            "part.tomb_shield_zm.door",
+                            "zom_hud_craftable_zshield_tomb_body",
+                            636.,
+                        ),
+                        (
+                            "part.tomb_shield_zm.bracket",
+                            "zom_hud_craftable_zshield_tomb_feet",
+                            689.,
+                        ),
+                    ] {
+                        slot(parent, &game, &server, piece, name, x, 89., 48.);
+                    }
+                    parent
+                        .spawn(rect(756., 42., 95., 95.))
+                        .with_children(|meter| {
+                            meter.spawn((
+                                native::image(&game, &server, "zm_capture_meter_back"),
+                                rect(0., 0., 94., 94.),
+                            ));
+                            for index in 0..6 {
+                                meter.spawn((
+                                    GeneratorSector(index),
+                                    native::image(&game, &server, "zm_capture_meter_wedge"),
+                                    rect(0., 0., 94., 94.),
+                                    UiTransform::from_rotation(Rot2::degrees(
+                                        index as f32 * 60. - 120.,
+                                    )),
                                 ));
                             }
-                            parent.spawn((
-                                StaffGlow(index),
-                                native::image(&game, &server, "zom_hud_craftable_staff_glow"),
-                                rect(x + 4., 96., 34., 34.),
-                                Visibility::Hidden,
+                            meter.spawn((
+                                native::image(&game, &server, "zm_capture_meter_dial"),
+                                rect(0., 0., 94., 94.),
                             ));
-                        }
-                        for (piece, name, x) in [
-                            (
-                                "part.equip_dieseldrone_zm.body",
-                                "zom_hud_craftable_zquad_body",
-                                411.,
-                            ),
-                            (
-                                "part.equip_dieseldrone_zm.brain",
-                                "zom_hud_craftable_zquad_brain",
-                                464.,
-                            ),
-                            (
-                                "part.equip_dieseldrone_zm.engine",
-                                "zom_hud_craftable_zquad_engine",
-                                517.,
-                            ),
-                            (
-                                "part.tomb_shield_zm.top",
-                                "zom_hud_craftable_zshield_tomb_vizor",
-                                583.,
-                            ),
-                            (
-                                "part.tomb_shield_zm.door",
-                                "zom_hud_craftable_zshield_tomb_body",
-                                636.,
-                            ),
-                            (
-                                "part.tomb_shield_zm.bracket",
-                                "zom_hud_craftable_zshield_tomb_feet",
-                                689.,
-                            ),
-                        ] {
-                            slot(parent, &game, &server, piece, name, x, 89., 48.);
-                        }
-                        parent
-                            .spawn(rect(756., 42., 95., 95.))
-                            .with_children(|meter| {
-                                meter.spawn((
-                                    native::image(&game, &server, "zm_capture_meter_back"),
-                                    rect(0., 0., 94., 94.),
-                                ));
-                                for index in 0..6 {
-                                    meter.spawn((
-                                        GeneratorSector(index),
-                                        native::image(&game, &server, "zm_capture_meter_wedge"),
-                                        rect(0., 0., 94., 94.),
-                                        UiTransform::from_rotation(Rot2::degrees(
-                                            index as f32 * 60. - 120.,
-                                        )),
-                                    ));
-                                }
-                                meter.spawn((
-                                    native::image(&game, &server, "zm_capture_meter_dial"),
-                                    rect(0., 0., 94., 94.),
-                                ));
-                                meter.spawn((
-                                    WheelEyes,
-                                    native::image(&game, &server, "zm_capture_meter_eyes"),
-                                    rect(35.625, 35.625, 23.75, 23.75),
-                                ));
-                            });
-                    }
+                            meter.spawn((
+                                WheelEyes,
+                                native::image(&game, &server, "zm_capture_meter_eyes"),
+                                rect(35.625, 35.625, 23.75, 23.75),
+                            ));
+                        });
+
                     parent.spawn((
                         rect(0., 150., 864., 32.),
                         BackgroundColor(Color::srgba(0., 0., 0., 0.75)),
@@ -360,12 +359,11 @@ fn setup(
                         ));
                     }
                     label(parent, "0", 20., rect(698., 191.5, 66., 20.), false);
-                    if game.delivery_scope == crate::origins::DeliveryScope::FullOrigins {
-                        parent.spawn((
-                            native::image(&game, &server, "zm_hud_icon_evil_crusade"),
-                            rect(31., 180., 128., 128.),
-                        ));
-                    }
+                    parent.spawn((
+                        native::image(&game, &server, "zm_hud_icon_evil_crusade"),
+                        rect(31., 180., 128., 128.),
+                    ));
+
                 });
         });
 }

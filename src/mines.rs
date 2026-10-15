@@ -10,7 +10,6 @@ use avian3d::prelude::*;
 use bevy::{prelude::*, world_serialization::WorldAssetRoot};
 
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MineDefinition {
     pub stock: u32,
     pub limit: u32,
@@ -26,28 +25,6 @@ pub struct MineDefinition {
     pub outer_damage: u32,
     pub blast_cos: f32,
     pub presentation: ContentId,
-}
-impl MineDefinition {
-    pub fn valid(&self) -> bool {
-        self.stock > 0
-            && self.limit > 0
-            && self.inner_damage >= self.outer_damage
-            && self.outer_damage > 0
-            && [
-                self.place_seconds,
-                self.recovery_seconds,
-                self.trigger_radius,
-                self.minimum_forward,
-                self.alert_seconds,
-                self.unsafe_seconds,
-                self.radius,
-            ]
-            .iter()
-            .all(|v| v.is_finite() && *v > 0.)
-            && [self.trigger_cos, self.blast_cos]
-                .iter()
-                .all(|v| v.is_finite() && (-1. ..=1.).contains(v))
-    }
 }
 #[derive(Component, Default)]
 pub struct MineInventory {

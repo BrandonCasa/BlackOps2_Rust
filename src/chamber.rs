@@ -42,7 +42,7 @@ impl Plugin for ChamberPlugin {
             .add_message::<ChamberImpact>()
             .add_observer(ready)
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 setup.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -111,19 +111,11 @@ fn setup(
     mut chamber: ResMut<Chamber>,
     game: Res<crate::assets::GameDefinition>,
     server: Res<AssetServer>,
-    extras: Query<(Entity, &bevy::gltf::GltfExtras)>,
+    props: Query<(Entity, &Name), With<crate::assets::StaticPropRoot>>,
     children: Query<&Children>,
 ) {
-    for (entity, extras) in &extras {
-        if serde_json::from_str::<serde_json::Value>(&extras.value)
-            .ok()
-            .is_some_and(|data| {
-                data["static_instance"] == true
-                    && data["source_model"]
-                        .as_str()
-                        .is_some_and(|model| model.contains("p6_zm_tm_elm_divider"))
-            })
-        {
+    for (entity, name) in &props {
+        if name.as_str().contains("p6_zm_tm_elm_divider") {
             commands
                 .entity(entity)
                 .insert((Visibility::Hidden, ColliderDisabled));
@@ -140,7 +132,7 @@ fn setup(
         .content
         .presentations
         .iter()
-        .find(|p| p.id.0 == "source.model.f9817b0fba952a9788ff05e2.lod0")
+        .find(|p| p.id.0 == "actor.p6_zm_tm_elm_divider")
         .and_then(|p| p.scene.as_ref());
     for (index, degrees) in [270_f32, 0., 180., 90.].into_iter().enumerate() {
         let mut entity = commands.spawn((

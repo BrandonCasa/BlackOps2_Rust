@@ -160,7 +160,7 @@ impl Plugin for StaffPuzzlePlugin {
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 (setup, setup_ice, setup_fire)
                     .chain()
                     .in_set(crate::session::SessionSetup::World),
@@ -202,20 +202,12 @@ fn setup(
     mut session: ResMut<crate::gameplay::Session>,
     game: Res<crate::assets::GameDefinition>,
     server: Res<AssetServer>,
-    extras: Query<(Entity, &bevy::gltf::GltfExtras)>,
+    props: Query<(Entity, &Name), With<crate::assets::StaticPropRoot>>,
     brushes: Query<(Entity, &crate::environment::brushes::MapBrush)>,
 ) {
     *puzzles = default();
-    for (entity, extras) in &extras {
-        if serde_json::from_str::<serde_json::Value>(&extras.value)
-            .ok()
-            .is_some_and(|data| {
-                data["static_instance"] == true
-                    && data["source_model"]
-                        .as_str()
-                        .is_some_and(|model| model.contains("p6_zm_tm_wind_ceiling_ring"))
-            })
-        {
+    for (entity, name) in &props {
+        if name.as_str().contains("p6_zm_tm_wind_ceiling_ring") {
             commands.entity(entity).insert(Visibility::Hidden);
         }
     }
@@ -838,7 +830,8 @@ pub(crate) struct FrozenStone {
     wait: f64,
 }
 impl FrozenStone {
-    fn new(inputs: &mut crate::rendering::NativeArtInputs) -> Self {
+    fn new(inputs: &mut crate::presentation::cues::CueParameters) -> Self {
+        inputs.luminous_channel = Some((3, 0));
         inputs.script_vectors[3] = [0.; 4];
         inputs.script_available |= 1 << 3;
         Self {
@@ -848,10 +841,11 @@ impl FrozenStone {
         }
     }
 
-    fn advance(&mut self, seconds: f64, inputs: &mut crate::rendering::NativeArtInputs) {
+    fn advance(&mut self, seconds: f64, inputs: &mut crate::presentation::cues::CueParameters) {
         self.wait -= seconds;
         while self.wait <= 0. && self.next <= 1. {
             self.amount = self.next;
+            inputs.luminous_channel = Some((3, 0));
             inputs.script_vectors[3] = [self.amount; 4];
             self.next += 0.01;
             self.wait += 0.0166_f32 as f64;
@@ -864,7 +858,7 @@ mod frozen_stone_tests {
 
     #[test]
     fn freezing_maps_all_components_and_preserves_source_wait_steps_and_terminal_float() {
-        let mut inputs = crate::rendering::NativeArtInputs {
+        let mut inputs = crate::presentation::cues::CueParameters {
             script_available: 2,
             script_vectors: [[0.5; 4]; 4],
             ..default()
@@ -1012,8 +1006,7 @@ fn setup_ice(
                 base: Vec3::from_array(point),
                 rise: 0.,
             },
-            crate::rendering::opaque::NativeShaderStart(0.),
-            crate::rendering::NativeArtInputs::default(),
+            crate::presentation::cues::CueParameters::default(),
             Transform::from_translation(Vec3::from_array(point)).with_rotation(native_rotation(
                 [354.459, 347.137, 349.084][index],
                 [26.6952, 88.9387, 211.357][index],
@@ -1064,7 +1057,7 @@ fn ice(
             &mut Transform,
             &mut Visibility,
             Option<&mut FrozenStone>,
-            &mut crate::rendering::NativeArtInputs,
+            &mut crate::presentation::cues::CueParameters,
         ),
         Without<IceTile>,
     >,

@@ -36,7 +36,7 @@ impl Plugin for StaffFieldsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActiveFields>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 |mut fields: ResMut<ActiveFields>| fields.0.clear(),
             )
             .add_systems(

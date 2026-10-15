@@ -617,7 +617,7 @@ impl Plugin for NavigationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Navigation>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 reset.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -671,7 +671,6 @@ fn refresh(
             .collect();
         let filter = crate::environment::solids(excluded);
         let shape = capsule(0.3, 1.7);
-        let native = definition.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo;
         let pool = ComputeTaskPool::get();
         let admitted = {
             let _stage = bevy::log::info_span!("navigation_node_admission").entered();
@@ -686,14 +685,6 @@ fn refresh(
                         .iter()
                         .map(|source| {
                             let point = Vec3::from_array(source.position);
-                            if native {
-                                return Node {
-                                    point,
-                                    zone: source.zone.clone(),
-                                    ready: true,
-                                    native: source.native,
-                                };
-                            }
                             let floor = query.cast_ray(
                                 point + Vec3::Y * 0.5,
                                 Dir3::NEG_Y,
@@ -748,8 +739,7 @@ fn refresh(
                             let delta = nodes[to].point - nodes[from].point;
                             let ready = nodes[from].ready
                                 && nodes[to].ready
-                                && (native
-                                    || !matches!(source.traversal, Traversal::Walk)
+                                && (!matches!(source.traversal, Traversal::Walk)
                                     || walking_edge(
                                         &query,
                                         &slide,

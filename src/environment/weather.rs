@@ -49,14 +49,6 @@ pub struct Weather {
     audio: Option<Entity>,
 }
 impl Weather {
-    pub(crate) fn sun_color_blend(&self) -> f32 {
-        self.color_blend
-    }
-
-    pub(crate) fn sun_brightness(&self, normal: f32) -> f32 {
-        normal + (self.flash_peak * 30. - normal) * (self.flash / self.flash_peak).clamp(0., 1.)
-    }
-
     fn random(&mut self) -> u32 {
         self.client_seed = self
             .client_seed
@@ -183,13 +175,6 @@ fn round_weather(
 struct Precipitation {
     velocity: Vec3,
     remaining: f32,
-}
-
-#[cfg(all(debug_assertions, feature = "dev-tools"))]
-pub(crate) fn precipitation_snapshot(world: &mut World) -> serde_json::Value {
-    serde_json::json!(world.query::<(&Precipitation, &Transform)>().iter(world).map(|(drop, pose)| {
-        serde_json::json!({"position":pose.translation.to_array(),"velocity":drop.velocity.to_array(),"remaining":drop.remaining})
-    }).collect::<Vec<_>>())
 }
 
 #[derive(Resource)]

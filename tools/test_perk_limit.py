@@ -112,7 +112,7 @@ def main():
                               "Capture defenders are removed as setup to isolate purchases; capture itself uses native input.",
                               "Earned slots are outside this scenario."]}
     try:
-        game_path = root / "target/debug/origins.pack/game.json"
+        game_path = root / "target/assets/game.json"
         data = asset_bytes(game_path)
         report['content'] = {'path': str(game_path)}
         content = json.loads(data)

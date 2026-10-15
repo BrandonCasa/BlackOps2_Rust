@@ -13,15 +13,13 @@ from pathlib import Path
 import numpy as np
 
 from test_support import gltf_accessor as accessor
-from test_support import Client, initial_zones, write_report
+from test_support import Client, write_report
 from test_support import source_physics as native_tuning
 from test_throwable_down import binding, check as record_check, edge, schedule
-
 
 def check(report, name, passed, **evidence):
     print(json.dumps({'case': name, 'passed': bool(passed)}), flush=True)
     record_check(report, name, passed, **evidence)
-
 
 def surfaces(pack, game):
     path, scene = game['collision_scene'].split('#Scene')
@@ -74,15 +72,13 @@ def surfaces(pack, game):
     return (sorted(candidates, key=lambda item: item['distance']),
             sorted(stair_candidates, key=lambda item: item['distance']))
 
-
 def prepare(client, game, site=None, yaw=None, weapon=None, elevated=False):
     client.reset()
-    initial = game.get('delivery_scope') == 'first_playable_solo'
     if weapon is None:
-        weapon = 'weapon.c96_zm' if initial else 'weapon.mp40_zm'
+        weapon = 'weapon.mp40_zm'
     fixture = {'clear_enemies': True, 'pending': 6, 'pause_spawning_seconds': 300,
                'weapons': [weapon], 'owned_perks': [], 'pitch': 0,
-               'open_connections': [] if initial else [door['connection'] for door in game['access']['doors']]}
+               'open_connections': [door['connection'] for door in game['access']['doors']]}
     if site:
         fixture['position'] = [site['center'][0], site['center'][1] + game['tuning']['standing_height'] / 2 + .02,
                                site['center'][2]]
@@ -104,36 +100,22 @@ def prepare(client, game, site=None, yaw=None, weapon=None, elevated=False):
             state = client.wait_ticks(math.ceil(recovery / state['fixed_delta_seconds']) + 2)
     return state, fixture
 
-
 def samples(state, before):
     return [row for row in state['movement']['physics'] if row['seconds'] > before]
-
 
 def speed(row, key='velocity_after'):
     return math.hypot(row[key][0], row[key][2])
 
-
 def select_flat(client, report, game, candidates, native):
     attempts = []
     bounds = []
-    initial = game.get('delivery_scope') == 'first_playable_solo'
-    enabled = initial_zones(game) if initial else set()
-    if initial:
-        for row in game['access']['volumes']:
-            if row['zone'] not in enabled:
-                continue
-            volume = row['volume']
-            points = np.array(volume['vertices']) + np.array(volume['position'])
+    for trigger in game['environment']['triggers']:
+        if trigger.get('source', {}).get('script_noteworthy') not in ('player_volume', 'life_brush'):
+            continue
+        for volume in trigger.get('shape', {}).get('volumes', []):
+            points = np.array(volume['vertices']) + np.array(volume['position']) + np.array(trigger['position'])
             bounds.append((points.min(axis=0), points.max(axis=0)))
-    else:
-        for trigger in game['environment']['triggers']:
-            if trigger.get('source', {}).get('script_noteworthy') not in ('player_volume', 'life_brush'):
-                continue
-            for volume in trigger.get('shape', {}).get('volumes', []):
-                points = np.array(volume['vertices']) + np.array(volume['position']) + np.array(trigger['position'])
-                bounds.append((points.min(axis=0), points.max(axis=0)))
-    offsets = ([-1, game['tuning']['standing_height'] / 2, 1],
-               [1, game['tuning']['standing_height'] / 2, -1]) if initial else ([-2, .9, 2], [2, .9, 2], [0, .9, -8])
+    offsets = ([-2, .9, 2], [2, .9, 2], [0, .9, -8])
     eligible = [c for c in candidates if c['normal'][1] > .9999 and c['radius'] > 1.1
                 and any(all(np.all(np.array(c['center']) + offset >= low)
                             and np.all(np.array(c['center']) + offset <= high)
@@ -142,9 +124,6 @@ def select_flat(client, report, game, candidates, native):
     for site in eligible[:24]:
         try:
             before, fixture = prepare(client, game, site)
-            if initial and before['zones']['current'] not in enabled:
-                attempts.append({'site': site, 'rejected_zone': before['zones']['current']})
-                continue
             if abs(before['player']['position'][1] - before['player']['height'] / 2 - site['center'][1]) > .08:
                 continue
             jump = binding(before, 'jump')
@@ -163,7 +142,6 @@ def select_flat(client, report, game, candidates, native):
             attempts.append({'site': site, 'error': str(error)[:200]})
             client.release()
     check(report, 'authored_open_floor_supports_native_jump', False, attempts=attempts)
-
 
 def directions(client, report, game, site, native, mobility):
     cases = [('forward', ['forward'], native['walk_speed']),
@@ -201,7 +179,6 @@ def directions(client, report, game, site, native, mobility):
                   and max(residual) < .002 and .4 < distance < 1.2,
                   samples=braking, maximum_error=max(residual), stopping_distance=distance)
 
-
 def air(client, report, game, site, native):
     before, fixture = prepare(client, game, site, yaw=0)
     forward, sprint, jump = [binding(before, action) for action in ('forward', 'sprint', 'jump')]
@@ -231,7 +208,6 @@ def air(client, report, game, site, native):
         check(report, 'native_air_' + action + '_' + weapon + '_acceleration', len(rows) >= 14
               and max(errors) < .002, fixture=fixture, inputs=inputs, samples=rows,
               maximum_error=max(errors, default=None), unfiltered=all_rows if not rows else None)
-
 
 def slopes(client, report, game, candidates, native):
     attempts = []
@@ -267,7 +243,6 @@ def slopes(client, report, game, candidates, native):
             attempts.append({'site': site, 'error': str(error)[:200]})
             client.release()
     check(report, 'authored_walkable_slope_keeps_ground_contact', False, attempts=attempts)
-
 
 def stairs(client, report, game, candidates, native):
     attempts = []
@@ -312,7 +287,6 @@ def stairs(client, report, game, candidates, native):
             client.release()
     check(report, 'authored_stairs_preserve_fixed_tick_travel', False, attempts=attempts)
 
-
 def projectile_case(client, report, game, site, weapon, action, expected_gravity):
     before, fixture = prepare(client, game, site, yaw=0, weapon=weapon, elevated=True)
     key = binding(before, action)
@@ -326,7 +300,6 @@ def projectile_case(client, report, game, site, weapon, action, expected_gravity
     check(report, weapon + '_native_free_flight', len(rows) >= 3
           and all(abs(row['gravity'] - expected_gravity) < .00001 for row in rows)
           and max(error) < .0001, fixture=fixture, samples=rows, maximum_error=max(error, default=None))
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -382,7 +355,6 @@ def main():
     print(json.dumps({'passed': report['passed'], 'checks': len(report['cases']),
                       'report': str(path), 'error': report.get('error')}))
     raise SystemExit(0 if report['passed'] else 1)
-
 
 if __name__ == '__main__':
     main()

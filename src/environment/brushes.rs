@@ -8,7 +8,6 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const BRUSH_LAYER: u32 = 16;
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct TriangleShape {
     pub id: String,
     pub contents: u32,
@@ -18,7 +17,6 @@ pub struct TriangleShape {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BrushDefinition {
     pub id: String,
     pub position: [f32; 3],
@@ -34,7 +32,6 @@ pub struct BrushDefinition {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct InitialBrushState {
     pub visible: bool,
     pub solid: bool,
@@ -113,76 +110,11 @@ pub(crate) fn compound(
     (!pieces.is_empty()).then(|| Collider::compound(pieces))
 }
 
-pub(crate) fn valid_triangle(shape: &TriangleShape) -> bool {
-    identity(&shape.id)
-        && (3..=65536).contains(&shape.vertices.len())
-        && shape
-            .vertices
-            .iter()
-            .flatten()
-            .all(|value| value.is_finite())
-        && (1..=65536).contains(&shape.indices.len())
-        && shape
-            .indices
-            .iter()
-            .flatten()
-            .all(|&index| (index as usize) < shape.vertices.len())
-}
 
-fn identity(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() < 128
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-}
-pub(super) fn valid(brushes: &[BrushDefinition]) -> bool {
-    let mut ids = BTreeSet::new();
-    let mut pieces = BTreeSet::new();
-    brushes.len() <= 4096
-        && brushes.iter().all(|b| {
-            identity(&b.id)
-                && ids.insert(&b.id)
-                && b.position
-                    .iter()
-                    .chain(b.rotation.iter())
-                    .chain(b.bounds.iter().flatten())
-                    .all(|v| v.is_finite())
-                && (Quat::from_array(b.rotation).length_squared() - 1.).abs() < 0.00001
-                && b.bounds[0].iter().zip(b.bounds[1]).all(|(a, z)| *a <= z)
-                && b.visual_meshes <= 4096
-                && (1..=64).contains(&b.source.len())
-                && b.source.iter().all(|(k, v)| {
-                    !k.is_empty()
-                        && k.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
-                        && v.len() <= 4096
-                })
-                && b.source
-                    .get("classname")
-                    .is_some_and(|c| matches!(c.as_str(), "script_brushmodel" | "heli_height_lock"))
-                && b.source.get("model").is_some_and(|m| {
-                    m.strip_prefix('*')
-                        .is_some_and(|n| n.parse::<u32>().is_ok_and(|n| n > 0))
-                })
-                && b.volumes.len() <= 4096
-                && b.volumes.iter().all(|v| {
-                    identity(&v.id)
-                        && pieces.insert(&v.id)
-                        && v.position
-                            .iter()
-                            .chain(v.vertices.iter().flatten())
-                            .all(|p| p.is_finite())
-                        && (4..=128).contains(&v.vertices.len())
-                })
-                && b.triangle_shapes.len() <= 4096
-                && b.triangle_shapes
-                    .iter()
-                    .all(|shape| valid_triangle(shape) && pieces.insert(&shape.id))
-                && ((b.volumes.is_empty() && b.triangle_shapes.is_empty())
-                    || b.collider().is_some())
-        })
-        && pieces.len() <= 32768
-}
+
+
+
+
 
 #[derive(Component)]
 pub struct MapBrush {

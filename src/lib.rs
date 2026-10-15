@@ -34,7 +34,6 @@ pub mod enemies;
 pub mod environment;
 pub mod equipment;
 pub mod finale;
-pub mod flythrough;
 pub mod frontend;
 pub mod gameplay;
 pub mod generators;
@@ -50,7 +49,6 @@ pub mod movement;
 mod native_fx;
 pub mod navigation;
 pub mod origins;
-pub mod pack;
 pub mod panzer;
 pub mod perk_effects;
 pub mod perks;
@@ -62,12 +60,10 @@ pub mod presentation;
 pub mod projectiles;
 pub mod quest_recovery;
 pub mod quests;
-mod render_backend;
 pub mod rendering;
 pub mod rituals;
 pub mod robots;
 pub mod rounds;
-mod run_environment;
 mod session;
 pub mod side_rewards;
 pub mod side_secrets;
@@ -78,7 +74,6 @@ pub mod staff_upgrades;
 pub mod stations;
 pub mod tablets;
 pub mod tank;
-pub mod verification;
 pub mod weapons;
 
 use bevy::prelude::*;
@@ -88,12 +83,12 @@ pub enum GameState {
     #[default]
     Loading,
     MainMenu,
-    PreparingShaders,
+    StartingSession,
     Playing,
     Paused,
     GameOver,
     Ending,
-    LoadError,
+
 }
 
 pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
@@ -102,102 +97,49 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 }
 
 pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
-    let configuration = assets::AssetPack::discover();
-    let delivery_scope = configuration
-        .as_ref()
-        .ok()
-        .and_then(|pack| pack.contents.get("game.json").ok())
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
-        .and_then(|value| value.get("delivery_scope").cloned())
-        .and_then(|value| serde_json::from_value::<origins::DeliveryScope>(value).ok())
-        .unwrap_or_default();
+    let configuration = assets::AssetDirectory::discover(&options.asset_root);
+    // Reserve stack space for the debug glTF asset-loading task frames.
+    bevy::tasks::IoTaskPool::get_or_init(|| {
+        bevy::tasks::TaskPoolBuilder::new()
+            .num_threads((bevy::tasks::available_parallelism() / 4).clamp(1, 4))
+            .stack_size(64 * 1024 * 1024)
+            .thread_name("IO Task Pool".into())
+            .build()
+    });
     let mut app = App::new();
-    let index = configuration.as_ref().ok().map(|pack| pack.index.clone());
-    app.register_asset_source(
-        bevy::asset::io::AssetSourceId::Default,
-        bevy::asset::io::AssetSourceBuilder::new(move || {
-            Box::new(assets::PackAssetReader(index.clone()))
-        }),
-    );
-    app.insert_resource(bevy::anti_alias::dlss::DlssProjectId(
-        bevy::asset::uuid::uuid!("8981c4df-a1f4-4597-b6f1-6196f5cb5237"),
-    ));
-    let benchmark = options.benchmark;
-    let release_benchmark = options.release_benchmark;
-    let ads_capture = options.verify_ads;
-    let fixed_resolution = ads_capture || benchmark || options.validation_remote.is_some();
-    let flythrough = options.flythrough;
+    let asset_root = options.asset_root.to_string_lossy().into_owned();
     app.insert_resource(options);
-    app.insert_resource(bevy::render::render_asset::RenderAssetBytesPerFrame::new(
-        64 * 1024 * 1024,
-    ));
     let default_plugins = DefaultPlugins.build();
-    #[cfg(not(debug_assertions))]
+    #[cfg(all(not(debug_assertions), not(feature = "dev-tools")))]
     let default_plugins = default_plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(
         default_plugins
-            .set(
-                bevy::gltf::GltfPlugin::default()
-                    .add_custom_vertex_attribute(
-                        "ORIGINS_NORMAL",
-                        rendering::opaque::FLAG_SOURCE_NORMAL,
-                    )
-                    .add_custom_vertex_attribute(
-                        "ORIGINS_TANGENT",
-                        rendering::opaque::FLAG_SOURCE_TANGENT,
-                    )
-                    .add_custom_vertex_attribute(
-                        "ORIGINS_PACKED_BASIS",
-                        rendering::opaque::FLAG_PACKED_BASIS,
-                    ),
-            )
-            .disable::<bevy::anti_alias::AntiAliasPlugin>()
+            .set(AssetPlugin { file_path: asset_root, ..default() })
+            .set(bevy::gltf::GltfPlugin::default()
+                .add_custom_vertex_attribute("SURFACE", assets::ATTRIBUTE_SURFACE))
             .set(bevy::render::RenderPlugin {
                 render_creation: bevy::render::settings::RenderCreation::Automatic(Box::new(
-                    render_backend::settings(),
+                    bevy::render::settings::WgpuSettings {
+                        backends: Some(bevy::render::settings::Backends::VULKAN),
+                        ..default()
+                    },
                 )),
-                ..default()
-            })
-            .set(bevy::log::LogPlugin {
-                custom_layer: verification::error_layer,
                 ..default()
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: if flythrough {
-                        "Origins — visual flythrough"
-                    } else {
-                        "Origins"
-                    }
-                    .into(),
+                    title: "Origins".into(),
                     mode: bevy::window::WindowMode::Windowed,
                     decorations: false,
-                    resizable: !ads_capture,
-                    enabled_buttons: bevy::window::EnabledButtons {
-                        maximize: !ads_capture,
-                        ..default()
-                    },
-                    resolution: if fixed_resolution {
-                        bevy::window::WindowResolution::new(1920, 1080)
-                            .with_scale_factor_override(1.)
-                    } else {
-                        bevy::window::WindowResolution::new(1920, 1080)
-                    },
-                    present_mode: if benchmark {
-                        bevy::window::PresentMode::AutoNoVsync
-                    } else {
-                        default()
-                    },
+                    resolution: bevy::window::WindowResolution::new(1920, 1080),
                     ..default()
                 }),
                 ..default()
             }),
     )
-    .add_plugins(bevy::anti_alias::dlss::DlssPlugin)
     .add_plugins(avian3d::prelude::PhysicsPlugins::new(PostUpdate).with_collision_hooks::<crate::enemies::RagdollCollisionHooks>())
     .init_state::<GameState>()
     .insert_resource(Time::<Fixed>::from_hz(60.0))
-    .insert_resource(delivery_scope)
     .insert_resource(assets::LoadConfiguration(configuration))
     .add_plugins(animation::GameAnimationPlugin)
     .add_plugins((
@@ -232,7 +174,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         interactions::InteractionPlugin,
         presentation::PresentationPlugin,
         hud::HudPlugin,
-        verification::VerificationPlugin,
     ));
     app.add_plugins((
         native_fx::NativeFxPlugin,
@@ -240,55 +181,34 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         generators::GeneratorPlugin,
         powerups::PowerupPlugin,
     ));
-    if delivery_scope == origins::DeliveryScope::FullOrigins {
-        app.add_plugins((
-            quests::QuestPlugin,
-            stations::StationPlugin,
-            crafting::CraftingPlugin,
-            buildables::BuildablePlugin,
-            tank::TankPlugin,
-            panzer::PanzerPlugin,
-        ));
-        app.add_plugins((
-            side_rewards::SideRewardPlugin,
-            side_secrets::SecretPlugin,
-            achievements::AchievementPlugin,
-        ));
-        app.add_plugins((
-            portals::PortalPlugin,
-            robots::RobotPlugin,
-            rituals::RitualPlugin,
-            staff_fields::StaffFieldsPlugin,
-            chamber::ChamberPlugin,
-            staff_puzzles::StaffPuzzlePlugin,
-            staff_upgrades::StaffUpgradePlugin,
-            tablets::TabletPlugin,
-            main_quest::MainQuestPlugin,
-            quest_recovery::RecoveryPlugin,
-            finale::FinalePlugin,
-            cinematics::CinematicPlugin,
-        ));
-    } else {
-        app.init_resource::<quests::MainQuest>()
-            .init_resource::<buildables::BuildableState>()
-            .init_resource::<crafting::Crafting>()
-            .init_resource::<panzer::PanzerWaves>()
-            .init_resource::<robots::Robots>()
-            .init_resource::<rituals::Rituals>()
-            .init_resource::<staff_upgrades::StaffUpgrades>()
-            .init_resource::<staff_puzzles::StaffPuzzles>()
-            .init_resource::<side_secrets::Secrets>()
-            .add_message::<quests::SoulCollected>();
-    }
-    if cfg!(debug_assertions)
-        && !release_benchmark
-        && !flythrough
-        && (benchmark || cfg!(feature = "profile-tracy") || cfg!(feature = "profile-chrome"))
-    {
-        if !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
-            app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
-        }
-    }
-    app.add_plugins(run_environment::UnattendedRunPlugin);
+    app.add_plugins((
+        quests::QuestPlugin,
+        stations::StationPlugin,
+        crafting::CraftingPlugin,
+        buildables::BuildablePlugin,
+        tank::TankPlugin,
+        panzer::PanzerPlugin,
+    ));
+    app.add_plugins((
+        side_rewards::SideRewardPlugin,
+        side_secrets::SecretPlugin,
+        achievements::AchievementPlugin,
+    ));
+    app.add_plugins((
+        portals::PortalPlugin,
+        robots::RobotPlugin,
+        rituals::RitualPlugin,
+        staff_fields::StaffFieldsPlugin,
+        chamber::ChamberPlugin,
+        staff_puzzles::StaffPuzzlePlugin,
+        staff_upgrades::StaffUpgradePlugin,
+        tablets::TabletPlugin,
+        main_quest::MainQuestPlugin,
+        quest_recovery::RecoveryPlugin,
+        finale::FinalePlugin,
+        cinematics::CinematicPlugin,
+    ));
+
     app
 }
+

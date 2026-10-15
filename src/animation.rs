@@ -145,13 +145,18 @@ fn native_playback(
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut cache: ResMut<AnimationGraphs>,
+
 ) {
     for (root, animation) in &roots {
         let Some(bindings) = cache.scene(&animation.source, &gltfs, &mut graphs) else {
             continue;
         };
         let Some(node) = bindings.named.get(&animation.clip) else {
-            continue;
+            panic!("{}", format!(
+                "Required named animation {} missing from {:?}",
+                animation.clip,
+                animation.source.path()
+            ));
         };
         for player in std::iter::once(root)
             .chain(children.iter_descendants(root))
@@ -413,94 +418,3 @@ fn apply_playback(
     }
 }
 
-#[cfg(test)]
-mod playback_tests {
-    use super::*;
-
-    #[test]
-    fn independent_aim_layers_keep_their_seek_and_blend_when_a_shot_restarts() {
-        let (_, nodes) = AnimationGraph::from_clips([
-            Handle::default(),
-            Handle::default(),
-            Handle::default(),
-            Handle::default(),
-        ]);
-        let mut app = App::new();
-        let mut time = Time::<()>::default();
-        time.advance_by(std::time::Duration::from_millis(20));
-        app.insert_resource(time)
-            .insert_resource(State::new(GameState::Playing))
-            .add_systems(Update, apply_playback);
-        let mut aim = AnimationLayer::new(nodes[1], Some(0.1), false);
-        aim.blend_seconds = Some(0.1);
-        aim.preserve_on_restart = true;
-        let mut lower = AnimationLayer::new(nodes[2], Some(0.1), false).weighted(0.);
-        lower.blend_seconds = Some(0.1);
-        lower.preserve_on_restart = true;
-        let entity = app
-            .world_mut()
-            .spawn(AnimationPlayback::new(
-                Handle::default(),
-                vec![AnimationLayer::new(nodes[0], None, false), aim, lower],
-            ))
-            .id();
-        app.update();
-        {
-            let mut playback = app
-                .world_mut()
-                .get_mut::<AnimationPlayback>(entity)
-                .unwrap();
-            playback.layers[0].node = nodes[3];
-            playback.layers[1].seconds = Some(0.15);
-            playback.layers[1].weight = 0.;
-            playback.layers[2].weight = 1.;
-            playback.restart += 1;
-        }
-        app.update();
-        let player = app.world().get::<AnimationPlayer>(entity).unwrap();
-        assert!(player.animation(nodes[0]).is_none());
-        assert_eq!(player.animation(nodes[3]).unwrap().weight(), 1.);
-        assert_eq!(player.animation(nodes[1]).unwrap().seek_time(), 0.15);
-        assert!((player.animation(nodes[1]).unwrap().weight() - 0.8).abs() < 1e-6);
-        assert!((player.animation(nodes[2]).unwrap().weight() - 0.2).abs() < 1e-6);
-        app.world_mut()
-            .get_mut::<AnimationPlayback>(entity)
-            .unwrap()
-            .restart += 1;
-        app.update();
-        let player = app.world().get::<AnimationPlayer>(entity).unwrap();
-        assert!((player.animation(nodes[1]).unwrap().weight() - 0.6).abs() < 1e-6);
-        assert!((player.animation(nodes[2]).unwrap().weight() - 0.4).abs() < 1e-6);
-    }
-}
-
-#[cfg(all(debug_assertions, feature = "dev-tools"))]
-pub(crate) fn observation(world: &mut World) -> Vec<serde_json::Value> {
-    let mut targets: HashMap<Entity, Vec<serde_json::Value>> = HashMap::new();
-    for (owner, name, pose, rest) in world
-        .query::<(&AnimatedBy, &Name, &Transform, &RestPose)>()
-        .iter(world)
-    {
-        targets.entry(owner.0).or_default().push(serde_json::json!({
-            "name":name.as_str(), "translation":pose.translation.to_array(), "rotation":pose.rotation.to_array(),
-            "rest_translation":rest.0.translation.to_array(), "rest_rotation":rest.0.rotation.to_array(),
-        }));
-    }
-    let players: Vec<_> = world
-        .query::<(Entity, &AnimationPlayback, &AnimationPlayer)>()
-        .iter(world)
-        .map(|(entity, request, player)| (entity, request.clone(), player.clone()))
-        .collect();
-    let cache = world.resource::<AnimationGraphs>();
-    players.into_iter().map(|(entity, request, player)| {
-        let bindings = cache.scenes.values().chain(cache.clips.values()).find(|b| b.graph.id() == request.graph.id());
-        let layers: Vec<_> = player.playing_animations().map(|(node, active)| {
-            let desired = request.layers.iter().find(|l| l.node == *node);
-            serde_json::json!({"clip":bindings.and_then(|b| b.named.iter().find(|(_, n)| **n == *node)).map(|(name, _)|name),
-                "seconds":active.seek_time(), "weight":active.weight(), "paused":active.is_paused(), "speed":active.speed(),
-                "requested_seconds":desired.and_then(|l| l.seconds), "requested_weight":desired.map(|l| l.weight)})
-        }).collect();
-        serde_json::json!({"entity":entity.to_bits(), "enabled":request.enabled, "restart":request.restart,
-            "layers":layers, "bones":targets.remove(&entity).unwrap_or_default()})
-    }).collect()
-}

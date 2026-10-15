@@ -158,7 +158,7 @@ impl Plugin for RobotPlugin {
                     .before(bevy::transform::TransformSystems::Propagate),
             )
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 setup.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -408,7 +408,7 @@ fn follow_sockets(
                 local = pose.to_matrix() * local;
                 cursor = ancestor.parent();
             }
-            Some((entity, Transform::from_matrix(local)))
+            Some((entity, Transform::from_matrix(local).with_scale(Vec3::ONE)))
         })
         .collect();
     for (entity, followed) in followed {

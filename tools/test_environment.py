@@ -546,7 +546,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15707')
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--game', type=Path, default=Path(__file__).resolve().parents[1]/'target/debug/origins.pack/game.json')
+    parser.add_argument('--game', type=Path, default=Path(__file__).resolve().parents[1]/'target/assets/game.json')
     parser.add_argument('--case', action='append')
     args = parser.parse_args()
     client = Client(args.url)

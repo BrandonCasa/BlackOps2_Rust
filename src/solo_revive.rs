@@ -13,7 +13,6 @@ use serde::Deserialize;
 use std::{collections::BTreeSet, time::Duration};
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SoloReviveProfile {
     pub perk: PerkId,
     pub seconds: f32,
@@ -29,63 +28,13 @@ pub struct SoloReviveProfile {
     pub downed_speed: f32,
 }
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct PistolRank {
     pub weapon: WeaponId,
     pub rank: u32,
 }
 impl SoloReviveProfile {
-    pub fn valid(&self, game: &GameDefinition) -> bool {
-        [
-            self.seconds,
-            self.bleedout_seconds,
-            self.bleedout_poll_seconds,
-            self.downed_height,
-            self.downed_eye,
-            self.downed_speed,
-        ]
-        .iter()
-        .all(|v| v.is_finite() && *v > 0.)
-            && self.seconds < self.bleedout_seconds
-            && self.bleedout_seconds.fract() == 0.
-            && self.bleedout_seconds <= 3600.
-            && self.bleedout_poll_seconds >= 0.001
-            && self.bleedout_poll_seconds <= self.bleedout_seconds
-            && self.maximum_purchases > 0
-            && self.reserve_clips <= 100
-            && !self.pistol_ranks.is_empty()
-            && self
-                .pistol_ranks
-                .iter()
-                .map(|p| &p.weapon)
-                .collect::<BTreeSet<_>>()
-                .len()
-                == self.pistol_ranks.len()
-            && self
-                .pistol_ranks
-                .iter()
-                .map(|p| p.rank)
-                .collect::<BTreeSet<_>>()
-                .len()
-                == self.pistol_ranks.len()
-            && self
-                .pistol_ranks
-                .iter()
-                .all(|p| game.content.weapons.iter().any(|w| w.id == p.weapon))
-            && self
-                .pistol_ranks
-                .iter()
-                .any(|p| p.weapon == self.downed_weapon && p.rank > self.pistol_replace_below)
-            && self.downed_height >= game.tuning.radius * 2.
-            && self.downed_height < game.tuning.standing_height
-            && self.downed_eye < self.downed_height
-            && game.content.perks.iter().any(|p| p.id == self.perk)
-            && game
-                .content
-                .weapons
-                .iter()
-                .any(|w| w.id == self.downed_weapon)
-    }
+
+
     fn choose_weapon(&self, inventory: &WeaponInventory) -> &WeaponId {
         let mut best: Option<&PistolRank> = None;
         for (_, weapon) in inventory.owned() {

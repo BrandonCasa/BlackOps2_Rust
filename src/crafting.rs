@@ -15,7 +15,6 @@ use std::collections::{BTreeMap, BTreeSet};
 mod source;
 
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BenchDefinition {
     pub id: String,
     pub source_trigger: String,
@@ -106,7 +105,7 @@ impl Plugin for CraftingPlugin {
         );
         app.init_resource::<Crafting>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 (setup, bind_parts)
                     .chain()
                     .in_set(crate::session::SessionSetup::World),

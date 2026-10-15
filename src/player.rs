@@ -63,16 +63,12 @@ impl Plugin for PlayerPlugin {
             .init_resource::<crate::movement::MovementEvidence>()
             .add_message::<crate::movement::Landing>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 spawn_player.in_set(crate::session::SessionSetup::Player),
             )
             .add_systems(
                 PreUpdate,
-                look.after(crate::input::collect)
-                    .after(crate::verification::drive)
-                    .run_if(|options: Res<crate::assets::LaunchOptions>| {
-                        options.validation_remote.is_none()
-                    }),
+                look.after(crate::input::collect),
             )
             .add_systems(
                 FixedUpdate,
@@ -89,72 +85,15 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-fn choose_initial_spawn<'a>(
-    spawns: &'a [crate::origins::InitialSpawn],
-    session: &mut crate::gameplay::Session,
-) -> Option<&'a crate::origins::InitialSpawn> {
-    let side = if session.random() % 100 > 50 { 1 } else { 2 };
-    let eligible: Vec<_> = spawns
-        .iter()
-        .filter(|spawn| spawn.excluded_side != side)
-        .collect();
-    session
-        .spawn_index(eligible.len())
-        .map(|index| eligible[index])
-}
-
-#[cfg(test)]
-mod initial_spawn_tests {
-    use super::*;
-
-    #[test]
-    fn source_solo_spawn_selection_keeps_side_exclusion_and_authored_look() {
-        let spawns: Vec<_> = (0..8)
-            .map(|index| crate::origins::InitialSpawn {
-                position: [index as f32, 0., 0.],
-                yaw: index as f32 * 0.1,
-                pitch: if index < 6 { 5_f32.to_radians() } else { 0. },
-                excluded_side: if index < 4 { 1 } else { 2 },
-            })
-            .collect();
-        let mut sides = [false; 2];
-        for seed in 0..1000 {
-            let mut expected = crate::gameplay::Session { seed, ..default() };
-            let side = if expected.random() % 100 > 50 { 1 } else { 2 };
-            sides[(side - 1) as usize] = true;
-            let mut session = crate::gameplay::Session { seed, ..default() };
-            let selected = choose_initial_spawn(&spawns, &mut session).unwrap();
-            assert_ne!(selected.excluded_side, side);
-            let index = selected.position[0] as usize;
-            assert_eq!(selected.yaw, spawns[index].yaw);
-            assert_eq!(selected.pitch, spawns[index].pitch);
-            assert_eq!(session.spawn_cursor, 1);
-        }
-        assert!(sides.into_iter().all(|seen| seen));
-        assert!(choose_initial_spawn(&[], &mut crate::gameplay::Session::default()).is_none());
-    }
-}
-
 fn spawn_player(
     mut commands: Commands,
-    mut physics_evidence: ResMut<crate::movement::physics::PhysicsEvidence>,
     definition: Res<GameDefinition>,
-    mut session: ResMut<crate::gameplay::Session>,
     players: Query<(), With<Player>>,
 ) {
     if !players.is_empty() {
         return;
     }
-    physics_evidence.samples.clear();
-    physics_evidence.projectiles.clear();
-    let (spawn, yaw, pitch) =
-        if definition.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo {
-            let selected = choose_initial_spawn(&definition.initial_spawns, &mut session)
-                .expect("validated source initial spawn candidates");
-            (selected.position, selected.yaw, selected.pitch)
-        } else {
-            (definition.spawn, definition.yaw, 0.)
-        };
+    let (spawn, yaw, pitch) = (definition.spawn, definition.yaw, 0.);
     let height = definition.tuning.standing_height;
     let mut inventory = crate::weapons::WeaponInventory::default();
     if let Some(weapon) = definition
@@ -242,7 +181,6 @@ pub(crate) fn move_player(
     mut actions: ResMut<TickActions>,
     definition: Res<GameDefinition>,
     time: Res<Time<Fixed>>,
-    options: Res<crate::assets::LaunchOptions>,
     reserved: Query<&crate::actions::HandReservation>,
     robot_locks: Query<
         (),
@@ -273,7 +211,6 @@ pub(crate) fn move_player(
     slide: MoveAndSlide,
     mut landings: MessageWriter<crate::movement::Landing>,
     mut evidence: ResMut<crate::movement::MovementEvidence>,
-    mut physics_evidence: ResMut<crate::movement::physics::PhysicsEvidence>,
     surfaces: Query<&crate::movement::physics::SurfaceFlags>,
 ) {
     let prone_edge = std::mem::take(&mut input.prone);
@@ -682,9 +619,6 @@ pub(crate) fn move_player(
         sprint.sprinting && motion_grounded,
         motion_grounded,
     );
-    let velocity_before = player.velocity;
-    let mut motion_wish = desired;
-    let mut apex_clamped = false;
     if launch_dive {
         player.velocity.y =
             (2. * m.dive_jump_height * tuning.gravity).sqrt() * m.dive_launch_multiplier;
@@ -697,7 +631,6 @@ pub(crate) fn move_player(
         } else {
             player.velocity.y.min(0.)
         };
-        apex_clamped = true;
     } else if jump_started {
         player.velocity.y = tuning.jump_speed;
         mobility.jump_recovery = m.jump_recovery;
@@ -729,7 +662,6 @@ pub(crate) fn move_player(
             false,
             false,
         );
-        motion_wish = wish;
         let direction = wish.normalize_or_zero();
         let wish_speed = wish.length();
         let add = wish_speed - player.velocity.dot(direction);
@@ -814,33 +746,8 @@ pub(crate) fn move_player(
         player.velocity.y -= gravity_step * 0.5;
     }
     player.velocity *= step_scale;
-    if cfg!(debug_assertions)
-        && options.validation_remote.is_some()
-        && physics_evidence.samples.len() < 512
-    {
-        physics_evidence.samples.push(serde_json::json!({
-            "seconds":time.elapsed_secs_f64(),"dt":dt,"input":input.movement.to_array(),
-            "grounded":player.grounded,"ground_normal":ground_normal.map(|n| n.to_array()),
-            "surface_flags":surface_flags,"landing_recovery":mobility.landing_recovery,
-            "prone":player.prone,"crouched":player.crouched,"sprinting":sprint.sprinting,
-            "diving":mobility.dive.is_some(),"wish":motion_wish.to_array(),
-            "position_before":feet.to_array(),"position_after":(result.position-Vec3::Y*player.height*0.5).to_array(),
-            "velocity_before":velocity_before.to_array(),"move_velocity":move_velocity.to_array(),
-            "collision_velocity":result.projected_velocity.to_array(),"step_scale":step_scale,
-            "step_adjustment":motion.step_adjustment,
-            "step_rise":motion.step_rise,"step_normal":motion.step_normal.map(|n| n.to_array()),
-            "step_surface_normal":motion.step_surface.map(|(normal, _)| normal.to_array()),
-            "step_surface_height":motion.step_surface.map(|(_, height)| height),
-            "velocity_after":player.velocity.to_array()
-        }));
-    }
-    if cfg!(debug_assertions)
-        && options.validation_remote.is_some()
-        && (mobility.airborne || mobility.dive.is_some())
-        && evidence.motion.len() < 512
-    {
-        evidence.motion.push(serde_json::json!({"seconds":time.elapsed_secs_f64(),"dt":dt,"diving":mobility.dive.is_some(),"elapsed":mobility.dive.map(|d|d.elapsed),"slide_remaining":mobility.dive.and_then(|d|d.slide_remaining),"launch_height":mobility.dive.map(|d|d.launch_height),"apex_clamped":apex_clamped,"feet_before":feet.to_array(),"feet_after":(result.position-Vec3::Y*player.height*0.5).to_array(),"velocity_before":velocity_before.to_array(),"vertical_before_gravity":mobility.fall_velocity,"gravity_step":gravity_step,"move_velocity":move_velocity.to_array(),"velocity_after":player.velocity.to_array()}));
-    }
+    
+    
     if transform.translation.y < -100. {
         transform.translation =
             Vec3::from_array(definition.spawn) + Vec3::Y * (player.height * 0.5);

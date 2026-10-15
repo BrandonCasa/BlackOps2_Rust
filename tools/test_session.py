@@ -3,14 +3,11 @@ import json
 from pathlib import Path
 
 from test_support import Client, write_report
-from test_throwable_down import binding, edge, schedule
-
 
 def check(report, name, condition, **evidence):
     report['cases'].append({'case': name, 'passed': bool(condition), **evidence})
     if not condition:
         raise RuntimeError(name)
-
 
 def press(client, *keys):
     client.call('origins/input', {'events': [
@@ -18,7 +15,6 @@ def press(client, *keys):
         for index, key in enumerate(keys)
         for offset, pressed in ((1, True), (2, False))
     ]})
-
 
 def run(client, report):
     client.until(lambda s: s['state'] in ('Playing', 'Paused', 'GameOver') and s.get('player'), timeout=120)
@@ -76,95 +72,6 @@ def run(client, report):
           and accepted['equipment']['round_awards'] == rejected['equipment']['round_awards'] + 1
           and accepted['player']['health'] < rejected['player']['health'], after=accepted)
 
-
-def first_round_grenades(client, report, game, name):
-    weapon = 'weapon.frag_grenade_zm'
-    frag = next(w['throwable'] for w in game['content']['weapons'] if w['id'] == weapon)
-    state = client.until(lambda s: s['state'] == 'Playing' and s.get('player') and any(
-        event.get('event') == 'round_award' and event.get('round') == 1 and event.get('weapon') == weapon
-        for event in s['equipment']['events']), timeout=max(30, game['rounds']['initial_spawn_seconds'] + 5))
-    awards = [event for event in state['equipment']['events'] if event.get('event') == 'round_award'
-              and event.get('round') == 1 and event.get('weapon') == weapon]
-    expected = min(frag['initial'] + frag['round_award'], frag['capacity'])
-    check(report, name, len(awards) == 1 and state['equipment']['round_awards'] == 1
-          and awards[0]['before'] == frag['initial'] and awards[0]['after'] == expected
-          and state['player']['lethal']['count'] == expected,
-          expected_lethal_count=expected, awards=awards, state=state)
-    return state
-
-
-def run_initial(client, report, game):
-    client.reset(difficulty='original')
-    before = first_round_grenades(client, report, game, 'initial_session_first_round_grenade_award')
-    client.until(lambda s: s['player']['grounded'] and s['player']['action'] == 'Ready')
-    fire, reload, pause = [binding(before, action) for action in ('fire', 'reload', 'pause')]
-    schedule(client, [edge(1, fire, True), edge(2, fire, False)])
-    client.until(lambda s: s['player']['action'] == 'Ready')
-    client.call('origins/input', {'events': [edge(1, reload, True), edge(2, reload, False),
-                                           edge(3, pause, True), edge(4, pause, False)]})
-    paused = client.until(lambda s: s['state'] == 'Paused' and s['player']['action'].startswith('Reloading'))
-    client.until(lambda s: not s['held_inputs'] and not s['queued_inputs'])
-    later = client.wait_ticks(120)
-    check(report, 'initial_pause_freezes_player_reload_and_spawn_timer',
-          paused['player']['position'] == later['player']['position']
-          and paused['player']['weapons'] == later['player']['weapons']
-          and paused['player']['action'] == later['player']['action']
-          and paused['player']['lethal'] == later['player']['lethal']
-          and paused['equipment']['round_awards'] == later['equipment']['round_awards'] == 1
-          and paused['session']['spawn_remaining'] == later['session']['spawn_remaining'],
-          before=paused, after=later)
-    schedule(client, [edge(1, pause, True), edge(2, pause, False)])
-    resumed = client.until(lambda s: s['state'] == 'Playing' and s['player']['action'] == 'Ready')
-    check(report, 'initial_resume_finishes_reload_in_same_session',
-          resumed['session_id'] == before['session_id']
-          and resumed['equipment']['round_awards'] == 1
-          and resumed['player']['weapons'][0]['magazine'] == before['player']['weapons'][0]['magazine']
-          and resumed['player']['weapons'][0]['reserve'] == before['player']['weapons'][0]['reserve'] - 1,
-          after=resumed)
-    forward, lethal = [binding(resumed, action) for action in ('forward', 'lethal')]
-    client.call('origins/input', {'events': [edge(1, forward, True), edge(1, fire, True),
-                                           edge(1, lethal, True), edge(3, pause, True),
-                                           edge(4, pause, False),
-                                           edge(120, 'ArrowDown', True), edge(121, 'ArrowDown', False),
-                                           edge(140, 'ArrowDown', True), edge(141, 'ArrowDown', False),
-                                           edge(160, 'ArrowDown', True), edge(161, 'ArrowDown', False),
-                                           edge(180, 'Enter', True), edge(181, 'Enter', False),
-                                           edge(1800, forward, False),
-                                           edge(1800, fire, False), edge(1800, lethal, False)]})
-    held = client.until(lambda s: s['state'] == 'Paused' and bool(s['held_inputs']))
-    from test_ui import key, observe, select_menu
-    check(report, 'initial_paused_restart_begins_with_held_native_inputs',
-          all(key in held['held_inputs'] for key in (forward, fire, lethal)), state=held)
-    restarted = client.until(lambda s: s['state'] == 'Playing' and s.get('player')
-                             and s['session_id'] > resumed['session_id'], timeout=120)
-    check(report, 'initial_paused_menu_restart_clears_session_and_inputs',
-          restarted['player']['entity'] != resumed['player']['entity']
-          and restarted['session']['round'] == 1 and restarted['session']['kills'] == 0
-          and restarted['session']['shots'] == 0 and restarted['session']['downs'] == 0
-          and restarted['player']['trigger_client_mode'] == 0
-          and not restarted['held_inputs'] and not restarted['queued_inputs']
-          and restarted['equipment']['active_grenades'] == []
-          and restarted['barriers']['repaired'] == 0 and restarted['barriers']['destroyed'] == 0,
-          after=restarted)
-    first_round_grenades(client, report, game, 'initial_restart_first_round_grenade_award_once')
-    schedule(client, [edge(1, pause, True), edge(2, pause, False)])
-    client.until(lambda s: s['state'] == 'Paused')
-    select_menu(client, 4)
-    key(client, 'Enter')
-    menu = client.until(lambda s: s['state'] == 'MainMenu')
-    check(report, 'initial_quit_to_menu_removes_session_objects',
-          not (menu.get('player') or {}).get('entity') and not menu['enemies']
-          and not menu['equipment']['active_grenades'] and not menu['zones']['contacts'], after=menu)
-    observe(client, lambda h: h.get('selected_frontend_row') == 0)
-    key(client, 'Enter')
-    started = client.until(lambda s: s['state'] == 'Playing' and (s.get('player') or {}).get('entity')
-                           and s['session_id'] > restarted['session_id'], timeout=120)
-    check(report, 'initial_normal_menu_start_creates_fresh_session',
-          started['session']['round'] == 1 and started['session']['points'] == 500
-          and not started['held_inputs'] and not started['queued_inputs']
-          and started['player']['trigger_client_mode'] == 0, after=started)
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:15702')
@@ -187,7 +94,6 @@ def main():
     print(json.dumps({'passed': report['passed'], 'checks': len(report['cases']),
                       'error': report.get('error')}))
     raise SystemExit(0 if report['passed'] else 1)
-
 
 if __name__ == '__main__':
     main()

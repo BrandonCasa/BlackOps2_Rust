@@ -18,7 +18,7 @@ impl Plugin for AchievementPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Achievements>()
             .add_systems(Startup, load)
-            .add_systems(OnEnter(GameState::PreparingShaders), reset)
+            .add_systems(OnEnter(GameState::StartingSession), reset)
             .add_systems(
                 FixedUpdate,
                 observe

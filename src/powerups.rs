@@ -260,7 +260,6 @@ fn drop_powerups(
     server: Res<AssetServer>,
     volumes: Query<&crate::environment::hazards::BoundaryVolume>,
 ) {
-    if definition.delivery_scope==crate::origins::DeliveryScope::FirstPlayableSolo {return;}
     if drops.round != session.round {
         drops.round = session.round;
         drops.count = 0;

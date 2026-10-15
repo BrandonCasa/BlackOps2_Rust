@@ -528,7 +528,13 @@ fn capture(
             let Ok(joint) = joints.get(binding.joint) else {
                 continue;
             };
-            let bone = inverse * joint.affine();
+            // Bounds are Y-up metres; OAT joint-local axes remain CoD inches.
+            let bone = inverse * joint.affine()
+                * bevy::math::Affine3A::from_scale_rotation_translation(
+                    Vec3::splat(1. / crate::assets::SOURCE_UNIT_METERS),
+                    Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                    Vec3::ZERO,
+                );
             let bounds = binding.bounds.map(Vec3::from_array);
             let center = (bounds[0] + bounds[1]) * 0.5;
             let start = bone.transform_point3(center);

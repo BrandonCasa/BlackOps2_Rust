@@ -106,9 +106,6 @@ fn setup(
         ))
         .with_children(|parent| {
             for (index, name) in ["kill", "level", "economy", "team"].into_iter().enumerate() {
-                if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo {
-                    break;
-                }
                 let width = if index == 3 { 72.5 } else { 50. };
                 for glow in [false, true] {
                     let name = if glow {
@@ -216,9 +213,6 @@ fn setup(
                     });
             }
             for slot in 0..4 {
-                if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo {
-                    break;
-                }
                 parent.spawn((
                     RaiderMarker(slot),
                     native::image(&game, &server, "zm_hud_icon_evil_crusade"),

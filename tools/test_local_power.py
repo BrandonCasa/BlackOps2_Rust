@@ -74,7 +74,7 @@ def main():
               'limitations': ['Connections opened and defenders removed as setup to isolate power and purchases; capture and purchase use native input.',
                               'Generator shutdown and attack waves remain unfinished.']}
     try:
-        game = Path(__file__).resolve().parent.parent / 'target/debug/origins.pack/game.json'
+        game = Path(__file__).resolve().parent.parent / 'target/assets/game.json'
         content = json.loads(asset_bytes(game))
         run(client, report, content)
         report['passed'] = True

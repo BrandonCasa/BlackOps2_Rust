@@ -11,24 +11,11 @@ use crate::{
 use bevy::prelude::*;
 use std::collections::BTreeSet;
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CherryDefinition {
     pub radius: [f32; 2],
     pub damage: [u32; 2],
     pub cooldown_extra: f32,
     pub stun_seconds: f32,
-}
-impl CherryDefinition {
-    pub fn valid(&self) -> bool {
-        self.radius.iter().all(|r| r.is_finite() && *r > 0.)
-            && self.radius[0] < self.radius[1]
-            && self.damage[0] > 0
-            && self.damage[0] <= self.damage[1]
-            && self.damage[1] <= i32::MAX as u32
-            && [self.cooldown_extra, self.stun_seconds]
-                .iter()
-                .all(|x| x.is_finite() && *x > 0.)
-    }
 }
 #[derive(Component, Default)]
 pub struct CherryState {
@@ -328,22 +315,10 @@ fn fade(
 }
 
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DiveDefinition {
     pub radius: f32,
     pub damage: [u32; 2],
     pub minimum_drop: f32,
-}
-impl DiveDefinition {
-    pub fn valid(&self) -> bool {
-        self.radius.is_finite()
-            && self.radius > 0.
-            && self.minimum_drop.is_finite()
-            && self.minimum_drop > 0.
-            && self.damage[0] > 0
-            && self.damage[0] <= self.damage[1]
-            && self.damage[1] <= i32::MAX as u32
-    }
 }
 fn land(
     mut commands: Commands,

@@ -17,10 +17,11 @@ use bevy::{
 use std::collections::BTreeMap;
 
 pub(crate) mod camo;
+pub(crate) mod cues;
 pub(crate) mod locomotion;
 pub(crate) mod offhand;
+mod source_units;
 pub use offhand::EquipmentPresentationEvidence;
-pub(crate) use offhand::selection as equipment_selection;
 pub struct PresentationPlugin;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct PresentationAnimation;
@@ -78,21 +79,16 @@ pub(crate) struct Rig {
 }
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
-        if app
-            .world()
-            .get_resource::<crate::origins::DeliveryScope>()
-            .copied()
-            .unwrap_or_default()
-            == crate::origins::DeliveryScope::FullOrigins
-        {
-            camo::install(app);
-        }
+        camo::install(app);
+
+        cues::install(app);
+        source_units::install(app);
         locomotion::install(app);
         app.init_resource::<EquipmentPresentationEvidence>()
             .add_systems(
                 Update,
                 (
-                    spawn_viewmodels.run_if(crate::flythrough::normal_play),
+                    spawn_viewmodels,
                     build_graphs,
                     attach_weapons,
                     attachment_visuals.run_if(resource_exists::<GameDefinition>),
@@ -125,7 +121,7 @@ impl Plugin for PresentationPlugin {
                 PostUpdate,
                 camera_pose
                     .in_set(crate::animation::AnimationPoseModifiers)
-                    .run_if(crate::flythrough::normal_play)
+                    
                     .in_set(CameraPose)
                     .after(aim_pose)
                     .before(bevy::transform::TransformSystems::Propagate),
@@ -143,7 +139,6 @@ impl Plugin for PresentationPlugin {
                     .after(camera_pose)
                     .before(bevy::transform::TransformSystems::Propagate),
             )
-            .add_systems(Last, offhand::record_visibility)
             .add_observer(rig_ready);
         app.add_observer(attachment_ready);
     }
@@ -159,7 +154,7 @@ fn spawn_viewmodels(
     existing: Query<(Entity, &FirstPerson)>,
     groups: Query<(Entity, &ViewModelGroup)>,
 ) {
-    if !matches!(**state, GameState::PreparingShaders | GameState::Playing) {
+    if !matches!(**state, GameState::StartingSession | GameState::Playing) {
         return;
     }
     let (Some(definition), Ok(camera)) = (definition, cameras.single()) else {
@@ -510,9 +505,7 @@ fn attachment_ready(
                 avian3d::prelude::LayerMask::NONE,
             ));
         if meshes.contains(child) {
-            commands
-                .entity(child)
-                .insert((RenderLayers::layer(1), crate::rendering::FirstPersonSurface));
+            commands.entity(child).insert(RenderLayers::layer(1));
         }
     }
 }
@@ -545,7 +538,7 @@ fn follow_sockets(
                 local = pose.to_matrix() * local;
                 cursor = ancestor.parent();
             }
-            Some(Transform::from_matrix(local))
+            Some(Transform::from_matrix(local).with_scale(Vec3::ONE))
         })
         .collect();
     for ((_, _, mut pose), followed) in poses.p1().iter_mut().zip(followed) {
@@ -605,7 +598,7 @@ fn rig_ready(
         if meshes.contains(child) {
             commands
                 .entity(child)
-                .insert((RenderLayers::layer(1), crate::rendering::FirstPersonSurface))
+                .insert(RenderLayers::layer(1))
                 .remove::<NoFrustumCulling>();
         }
     }
@@ -700,7 +693,7 @@ fn aim_pose(
             joint.rotation =
                 Quat::IDENTITY.slerp(Quat::from_array(weapon.mechanics.ads_rotation), ads);
         }
-        pose.translation += joint.translation;
+        pose.translation += joint.translation / crate::assets::SOURCE_UNIT_METERS;
         pose.rotation *= joint.rotation;
     }
 }
@@ -719,6 +712,8 @@ fn camera_pose(
     names: Query<(Entity, &Name)>,
     inventories: offhand::Inventories,
     definition: Option<Res<GameDefinition>>,
+    gltfs: Res<Assets<Gltf>>,
+    nodes: Res<Assets<bevy::gltf::GltfNode>>,
     mut poses: ParamSet<(
         Query<(&Transform, Option<&ChildOf>)>,
         Query<(&mut Transform, Option<&ViewModelGroup>, Option<&GameCamera>)>,
@@ -726,7 +721,7 @@ fn camera_pose(
 ) {
     if !matches!(
         **state,
-        GameState::PreparingShaders | GameState::Playing | GameState::Paused | GameState::GameOver
+        GameState::StartingSession | GameState::Playing | GameState::Paused | GameState::GameOver
     ) {
         return;
     }
@@ -774,7 +769,12 @@ fn camera_pose(
             if cursor != root {
                 continue;
             }
-            let eye = camera_tag_pose(local);
+            // The ordinary glTF's static tag_view rotation already converts
+            // source axes. Apply only animation relative to that rest frame.
+            let source = gltfs.get(&rig.source).expect("Viewhands glTF source");
+            let rest = nodes.get(source.named_nodes.get("tag_view").expect("Viewhands tag_view"))
+                .expect("Viewhands tag_view source node").transform.rotation;
+            let eye = camera_tag_pose(local * Mat4::from_quat(rest.inverse()));
             eyes.push((
                 rig.owner,
                 eye,
@@ -836,25 +836,7 @@ fn build_graphs(
         rig.graph = Some(bindings.graph.clone());
     }
 }
-#[cfg(debug_assertions)]
-pub(crate) fn animation_observation(world: &mut World) -> Vec<serde_json::Value> {
-    let rigs: Vec<_> = world.query::<&Rig>().iter(world).cloned().collect();
-    rigs.iter().filter(|r| r.playback.is_some() && !r.knife).map(|rig| {
-        let clocks: Vec<_> = rig.players.iter().filter_map(|e| world.get::<AnimationPlayer>(*e))
-            .flat_map(|p| p.playing_animations().map(|(node, active)| {
-                serde_json::json!({"clip":rig.nodes.iter().find(|(_,n)| **n == *node).map(|(name,_)|name),
-                    "seconds":active.seek_time(),"paused":active.is_paused()})
-            })).collect();
-        let bones: BTreeMap<_,_> = rig.tracked.iter().filter_map(|(e,_)| {
-            let name = world.get::<Name>(*e)?;
-            let pose = world.get::<Transform>(*e)?;
-            Some((name.as_str().to_owned(), serde_json::json!({"translation":pose.translation.to_array(),"rotation":pose.rotation.to_array()})))
-        }).collect();
-        serde_json::json!({"weapon":rig.weapon.0,"arms":rig.arms,"left":rig.left,"ready":rig.ready && (rig.arms || rig.attached),
-            "action":rig.playback.map(|a|format!("{a:?}")),"clocks":clocks,"bones":bones,
-            "locomotion":world.get::<locomotion::WeaponLocomotion>(rig.owner).map(|state|state.observation())})
-    }).collect()
-}
+
 pub(crate) fn hand_action(
     inventory: &WeaponInventory,
     weapon: &crate::origins::content::WeaponDefinition,

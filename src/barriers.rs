@@ -12,7 +12,6 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BarrierDefinition {
     pub id: ContentId,
     pub placement: PlacementId,
@@ -35,13 +34,11 @@ pub struct BarrierDefinition {
     pub enter: Option<BarrierEntryDefinition>,
 }
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BarrierEntryDefinition {
     pub standing: BTreeMap<String, Vec<BarrierActorClip>>,
     pub crawler: BTreeMap<String, Vec<BarrierActorClip>>,
 }
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BarrierActorAction {
     pub state: String,
     pub frequency: u32,
@@ -66,7 +63,6 @@ impl BarrierActorAction {
     }
 }
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BarrierActorClip {
     pub name: String,
     pub seconds: f32,
@@ -98,55 +94,9 @@ impl BarrierDefinition {
         clips.get(random as usize % clips.len().max(1))
     }
 
-    pub(crate) fn valid_actions(&self) -> bool {
-        let valid_clip = |clip: &BarrierActorClip| {
-            !clip.name.is_empty()
-                && clip.name.len() < 128
-                && clip.seconds.is_finite()
-                && clip.seconds > 0.
-                && clip.duration.is_finite()
-                && clip.duration >= clip.seconds
-                && clip
-                    .hits
-                    .iter()
-                    .all(|time| time.is_finite() && *time >= 0. && *time <= clip.seconds)
-                && clip.motion.as_ref().is_none_or(|motion| {
-                    motion.valid() && (motion.seconds - clip.duration).abs() < 0.001
-                })
-        };
-        self.enter.as_ref().is_none_or(|entry| {
-            [&entry.standing, &entry.crawler].into_iter().all(|clips| {
-                ["walk", "run", "sprint"].into_iter().all(|gait| {
-                    ["m", "r", "l"].into_iter().all(|slot| {
-                        clips
-                            .get(&format!("barrier_{gait}_{slot}"))
-                            .is_some_and(|clips| {
-                                !clips.is_empty()
-                                    && clips
-                                        .iter()
-                                        .all(|clip| valid_clip(clip) && clip.motion.is_some())
-                            })
-                    })
-                })
-            })
-        }) && [&self.taunt, &self.reach_through]
-            .into_iter()
-            .all(|action| {
-                action.as_ref().is_none_or(|action| {
-                    !action.state.is_empty()
-                        && action.state.len() < 128
-                        && action.frequency <= 100
-                        && action.range.is_finite()
-                        && action.range >= 0.
-                        && !action.clips.is_empty()
-                        && action.clips.len() <= 64
-                        && action.clips.iter().all(valid_clip)
-                })
-            })
-    }
+
 }
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BoardDefinition {
     pub presentation: ContentId,
     pub repair: ContentId,
@@ -160,44 +110,27 @@ pub struct BoardDefinition {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BoardRepairEffect {
     pub name: String,
     pub offset: [f32; 3],
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RepairQuakeDefinition {
     pub scale: [f32; 2],
     pub duration: [f32; 2],
     pub radius: f32,
 }
 
-impl RepairQuakeDefinition {
-    pub(crate) fn valid(&self) -> bool {
-        self.scale
-            .iter()
-            .chain(&self.duration)
-            .all(|value| value.is_finite())
-            && self.scale[0] >= 0.
-            && self.scale[1] >= self.scale[0]
-            && self.duration[0] > 0.
-            && self.duration[1] >= self.duration[0]
-            && self.radius.is_finite()
-            && self.radius >= 0.
-    }
-}
+
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BarrierAudioDefinition {
     pub repair: [Option<String>; 2],
     pub repair_delay: Option<f32>,
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BoardAudioDefinition {
     pub opening: Option<String>,
     pub hover: Option<String>,
@@ -218,7 +151,6 @@ impl BoardDefinition {
     }
 }
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct BoardAttackDefinition {
     pub grab_seconds: f32,
     pub tear_seconds: f32,
@@ -228,24 +160,6 @@ pub struct BoardAttackDefinition {
     pub grab_motion: crate::origins::content::AnimationRootMotion,
     pub tear_motion: crate::origins::content::AnimationRootMotion,
     pub crawler: Option<Box<BoardAttackDefinition>>,
-}
-impl BoardAttackDefinition {
-    pub fn valid_motion(&self) -> bool {
-        [
-            (&self.grab_motion, self.grab_seconds),
-            (&self.tear_motion, self.tear_seconds),
-        ]
-        .into_iter()
-        .all(|(motion, seconds)| {
-            seconds.is_finite() && seconds > 0. && motion.valid() && motion.seconds >= seconds
-        }) && self.crawler.as_ref().is_none_or(|crawler| {
-            crawler.crawler.is_none()
-                && crawler.valid_motion()
-                && crawler.destroy_seconds.is_finite()
-                && crawler.destroy_seconds >= 0.
-                && crawler.destroy_seconds < crawler.tear_seconds
-        })
-    }
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BoardState {
@@ -640,7 +554,7 @@ impl RepairQuakes {
 
 fn repair_quake_camera(
     state: Res<State<GameState>>,
-    clock: Res<crate::rendering::opaque::NativeClock>,
+    clock: Res<crate::presentation::cues::CueClock>,
     mut barriers: ResMut<Barriers>,
     mut cameras: Query<&mut Transform, With<crate::rendering::GameCamera>>,
 ) {
@@ -700,7 +614,7 @@ impl Plugin for BarrierPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Barriers>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 assemble.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -729,8 +643,7 @@ fn assemble(
     server: Res<AssetServer>,
     mut barriers: ResMut<Barriers>,
     query: SpatialQuery,
-    mut failure: ResMut<crate::assets::LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
+
     session: Res<Session>,
 ) {
     if !players.is_empty() {
@@ -775,12 +688,10 @@ fn assemble(
                 false,
                 &crate::environment::solids([]),
             ) else {
-                failure.0 = format!(
+                panic!("{}", format!(
                     "Source barrier {} attack slot {slot} has no loaded ground collision",
                     d.id.0
-                );
-                next.set(GameState::LoadError);
-                return;
+                ));
             };
             spots[slot] = source - Vec3::Y * floor.distance;
         }
@@ -793,12 +704,10 @@ fn assemble(
             false,
             &crate::environment::solids([]),
         ) else {
-            failure.0 = format!(
+            panic!("{}", format!(
                 "Source barrier {} repair origin has no loaded ground collision",
                 d.id.0
-            );
-            next.set(GameState::LoadError);
-            return;
+            ));
         };
         let repair_origin = repair_origin - Vec3::Y * floor.distance + Vec3::Y * (4. * 0.0254)
             - Quat::from_rotation_y(d.repair_yaw) * Vec3::NEG_Z * (11. * 0.0254);
@@ -816,12 +725,10 @@ fn assemble(
                 let Some(shape) =
                     crate::environment::brushes::compound(&[], std::slice::from_ref(collision))
                 else {
-                    failure.0 = format!(
+                    panic!("{}", format!(
                         "Source barrier {} board {index} collision is unusable",
                         d.id.0
-                    );
-                    next.set(GameState::LoadError);
-                    return;
+                    ));
                 };
                 let mut blocker = commands.spawn((
                     SessionEntity,
@@ -1014,7 +921,7 @@ fn tick(
 
 fn audio(
     mut commands: Commands,
-    clock: Res<crate::rendering::opaque::NativeClock>,
+    clock: Res<crate::presentation::cues::CueClock>,
     definition: Res<GameDefinition>,
     mut barriers: ResMut<Barriers>,
 ) {

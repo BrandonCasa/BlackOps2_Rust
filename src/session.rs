@@ -6,7 +6,7 @@ use crate::{
 };
 use bevy::{
     prelude::*,
-    world_serialization::{DynamicWorldRoot, WorldAssetRoot, WorldInstance, WorldInstanceSpawner},
+    world_serialization::{WorldAssetRoot, WorldInstance, WorldInstanceSpawner},
 };
 use std::hash::BuildHasher;
 
@@ -25,7 +25,7 @@ impl Plugin for SessionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SessionId>()
             .configure_sets(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 (
                     SessionSetup::Initialize,
                     SessionSetup::World,
@@ -34,9 +34,10 @@ impl Plugin for SessionPlugin {
                     .chain(),
             )
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 initialize.in_set(SessionSetup::Initialize),
-            );
+            )
+            .add_systems(Update, finish_starting_session.run_if(in_state(GameState::StartingSession)));
     }
 }
 
@@ -64,24 +65,12 @@ fn initialize(world: &mut World) {
         spawn_timer: Timer::from_seconds(definition.rounds.initial_spawn_seconds, TimerMode::Once),
         ..default()
     };
-    if world
-        .resource::<crate::assets::LaunchOptions>()
-        .verify
-        .is_none()
-    {
-        session.seed = std::collections::hash_map::RandomState::new().hash_one(std::process::id());
-        session.character = (session.seed % 4) as usize;
-    }
+    session.seed = std::collections::hash_map::RandomState::new().hash_one(std::process::id());
+    session.character = (session.seed % 4) as usize;
     world.insert_resource(session);
-    world.insert_resource(
-        if world.resource::<GameDefinition>().delivery_scope
-            == crate::origins::DeliveryScope::FirstPlayableSolo
-        {
-            crate::quests::MainQuest::default()
-        } else {
-            crate::quests::MainQuest::reset(*world.resource::<crate::frontend::Difficulty>())
-        },
-    );
+    world.insert_resource(crate::quests::MainQuest::reset(
+        *world.resource::<crate::frontend::Difficulty>(),
+    ));
     world.insert_resource(crate::damage::CombatHistory::default());
     world.insert_resource(crate::powerups::PowerupEffects::default());
     world.insert_resource(crate::powerups::Drops::default());
@@ -118,7 +107,7 @@ pub(crate) fn teardown(world: &mut World) {
     for (entity, instance) in instances {
         world
             .entity_mut(entity)
-            .remove::<(WorldAssetRoot, DynamicWorldRoot)>();
+            .remove::<WorldAssetRoot>();
         world
             .resource_mut::<WorldInstanceSpawner>()
             .unregister_instance(instance);
@@ -168,15 +157,51 @@ pub(crate) fn teardown(world: &mut World) {
     crate::environment::triggers::reset(world);
     clear::<crate::quests::SoulCollected>(world);
     clear::<crate::projectiles::ProjectileImpact>(world);
-    if world
-        .get_resource::<GameDefinition>()
-        .is_none_or(|game| game.delivery_scope == crate::origins::DeliveryScope::FullOrigins)
-    {
-        clear::<crate::robots::RobotStomp>(world);
-        clear::<crate::tablets::BeaconStrike>(world);
-    }
+    clear::<crate::robots::RobotStomp>(world);
+    clear::<crate::tablets::BeaconStrike>(world);
+
 }
 
 fn clear<M: Message>(world: &mut World) {
     world.resource_mut::<Messages<M>>().clear();
+}
+
+fn finish_starting_session(
+    player: Query<(), With<Player>>,
+    scenes: Query<(&WorldAssetRoot, Option<&WorldInstance>)>,
+    server: Res<AssetServer>,
+    rigs: Query<&crate::presentation::Rig>,
+    textures: Query<&crate::presentation::camo::CamoTexture>,
+    mut cinematic: ResMut<crate::cinematics::LoadingPlayback>,
+    mut next: ResMut<NextState<GameState>>,
+) {
+    cinematic.skippable = false;
+    // Inspect every requested scene for failures before waiting for readiness.
+    let mut scenes_ready = true;
+    for (scene, instance) in &scenes {
+        let error = match server.get_load_state(scene.0.id()) {
+            Some(bevy::asset::LoadState::Failed(error)) => Some(error),
+            _ => match server.get_recursive_dependency_load_state(scene.0.id()) {
+                Some(bevy::asset::RecursiveDependencyLoadState::Failed(error)) => Some(error),
+                _ => None,
+            },
+        };
+        if let Some(error) = error {
+            panic!("Required scene {:?}: {error}", scene.0.path());
+        }
+        scenes_ready &= instance.is_some() && server.is_loaded_with_dependencies(scene.0.id());
+    }
+    let textures_ready = match crate::presentation::camo::assets_ready(&server, &textures) {
+        Ok(ready) => ready,
+        Err(error) => {
+            panic!("{error}");
+        }
+    };
+    if !scenes_ready || !textures_ready || player.is_empty() || rigs.is_empty()
+        || rigs.iter().any(|rig| !rig.ready || (!rig.arms && !rig.attached)) {
+        return;
+    }
+    cinematic.skippable = true;
+    if !cinematic.done { return; }
+    next.set(GameState::Playing);
 }

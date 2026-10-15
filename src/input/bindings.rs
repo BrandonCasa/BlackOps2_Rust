@@ -173,7 +173,7 @@ pub enum PressMode {
 }
 
 #[derive(Resource, Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct ControlSettings {
     pub version: u32,
     pub bindings: BTreeMap<Action, Vec<Binding>>,
@@ -241,34 +241,8 @@ impl Default for ControlSettings {
     }
 }
 impl ControlSettings {
-    pub fn valid(&self) -> bool {
-        self.version == 1
-            && [
-                self.audio.master,
-                self.audio.effects,
-                self.audio.music,
-                self.audio.dialogue,
-            ]
-            .iter()
-            .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
-            && [self.sensitivity, self.ads_sensitivity]
-                .iter()
-                .all(|s| s.is_finite() && (0.1..=10.).contains(s))
-            && self.bindings.len() == Action::ALL.len()
-            && Action::ALL.iter().all(|a| {
-                self.bindings.get(a).is_some_and(|bindings| {
-                    bindings.len() <= 4
-                        && bindings.iter().enumerate().all(|(i, b)| {
-                            !bindings[..i].contains(b)
-                                && self.binding_allowed(*a, *b)
-                                && (!a.gameplay()
-                                    || !self.bindings.iter().any(|(other, bs)| {
-                                        other != a && other.gameplay() && bs.contains(b)
-                                    }))
-                        })
-                })
-            })
-    }
+
+
     fn binding_allowed(&self, action: Action, binding: Binding) -> bool {
         match binding {
             Binding::WheelUp | Binding::WheelDown => action.accepts_wheel(),

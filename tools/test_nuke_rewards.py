@@ -164,7 +164,7 @@ def main():
                               'Electric Cherry, Insta-Kill, melee, and voice behavior are outside this scenario.']}
     try:
         report['schema'] = client.call('origins/schema')
-        game_path = Path(__file__).resolve().parent.parent / 'target/debug/origins.pack/game.json'
+        game_path = Path(__file__).resolve().parent.parent / 'target/assets/game.json'
         run(client, report, json.loads(asset_bytes(game_path)))
         report['passed'] = True
     except Exception as error:

@@ -1,0 +1,41 @@
+{
+  "source": "T6ZMResearch/t6zm-master/evidence/scripts-complete-20261012/decompiled/zm_tomb/aitype + character + xmodelalias",
+  "machines": {
+    "zm_tomb_basic": [
+      "c_zom_tomb_german_body_1a",
+      "c_zom_tomb_german_body_1a_nohat",
+      "c_zom_tomb_german_body_1b",
+      "c_zom_tomb_german_body_1b_nohat",
+      "c_zom_tomb_german_body_3c",
+      "c_zom_tomb_german_body_3c_nohat",
+      "c_zom_tomb_german_head1",
+      "c_zom_tomb_german_head2",
+      "c_zom_tomb_german_head3",
+      "c_zom_tomb_crusader_body_1a",
+      "c_zom_tomb_crusader_body_1a_nohat",
+      "c_zom_tomb_crusader_body_1c",
+      "c_zom_tomb_crusader_body_2b",
+      "c_zom_tomb_crusader_body_2b_nohat",
+      "c_zom_tomb_crusader_body_2c",
+      "c_zom_tomb_crusader_body_zc",
+      "c_zom_tomb_crusader_head1",
+      "c_zom_tomb_crusader_head2",
+      "c_zom_tomb_crusader_headz"
+    ],
+    "zm_tomb_mechz": [
+      "c_zom_mech_body",
+      "c_zom_mech_claw"
+    ],
+    "zm_tomb_giant_robot": [
+      "veh_t6_dlc_zm_robot",
+      "veh_t6_dlc_zm_robot_0",
+      "veh_t6_dlc_zm_robot_1",
+      "veh_t6_dlc_zm_robot_2"
+    ]
+  },
+  "clips": {
+    "t6_wpn_zmb_monkey_bomb_world": [
+      "o_monkey_bomb"
+    ]
+  }
+}

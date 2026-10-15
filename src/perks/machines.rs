@@ -22,13 +22,7 @@ pub(crate) struct PerkMachine {
     paths_disconnected: bool,
 }
 impl PerkMachine {
-    pub(crate) fn retired(&self) -> bool {
-        self.expiry.is_some_and(|elapsed| elapsed >= 5.)
-            && self.visual.is_none()
-            && self.sound.is_none()
-            && self.glow.is_none()
-            && !self.paths_disconnected
-    }
+
 
     pub(crate) fn new(perk: PerkId) -> Self {
         Self {

@@ -682,22 +682,8 @@ impl WeaponInventory {
     pub fn shot_elapsed(&self) -> Option<f32> {
         self.shot_elapsed
     }
-    pub(crate) fn survey_signal(&mut self, signal: WeaponSignal) {
-        self.emit(signal);
-        for hand in &mut self.hands {
-            hand.signal = signal;
-            hand.sequence = self.sequence;
-        }
-    }
-    pub(crate) fn survey_shot_pose(&mut self, elapsed: f32, empty: bool) {
-        self.shot_elapsed = Some(elapsed);
-        self.signal = WeaponSignal::Fire;
-        self.hands[0].shot_elapsed = Some(elapsed);
-        self.hands[0].signal = WeaponSignal::Fire;
-        if let Some(weapon) = &mut self.slots[self.active] {
-            weapon.magazine = if empty { 0 } else { 2 };
-        }
-    }
+
+
     pub fn presentation_timing(
         &self,
         definition: &WeaponDefinition,

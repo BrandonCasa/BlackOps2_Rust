@@ -53,16 +53,16 @@ pub(crate) struct LightShow {
 pub(crate) struct LightSurface {
     disc: Entity,
     pub color: Vec3,
+    material: Option<Handle<StandardMaterial>>,
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct LightPresentation;
 
 pub(super) fn install(app: &mut App) {
-    crate::rendering::opaque::install_quest_lights(app);
     app.init_resource::<LightShow>()
         .add_systems(
-            OnEnter(GameState::PreparingShaders),
+            OnEnter(GameState::StartingSession),
             reset.in_set(crate::session::SessionSetup::World),
         )
         .add_systems(
@@ -71,13 +71,7 @@ pub(super) fn install(app: &mut App) {
                 .after(super::progress)
                 .run_if(in_state(GameState::Playing)),
         )
-        .add_systems(
-            Update,
-            (bind, present)
-                .chain()
-                .in_set(LightPresentation)
-                .after(crate::rendering::SurfacePreparation),
-        );
+        .add_systems(Update, (bind, present).chain().in_set(LightPresentation));
 }
 
 fn reset(mut show: ResMut<LightShow>) {
@@ -229,6 +223,7 @@ fn bind(
             {
                 commands.entity(entity).insert(LightSurface {
                     disc,
+                    material: None,
                     color: Vec3::splat(-1.),
                 });
             }
@@ -236,40 +231,14 @@ fn bind(
     }
 }
 
-#[cfg(feature = "dev-tools")]
-pub(crate) fn binding_snapshot(world: &mut World) -> serde_json::Value {
-    let discs: Vec<_> = world
-        .query::<(Entity, &Disc)>()
-        .iter(world)
-        .map(|(entity, disc)| (entity, disc.0))
-        .collect();
-    let mut result = Vec::new();
-    for (entity, index) in discs {
-        let mut pending = vec![entity];
-        let mut surfaces = Vec::new();
-        while let Some(child) = pending.pop() {
-            if let Some(children) = world.get::<Children>(child) {
-                pending.extend(children.iter());
-            }
-            if let Some(name) = world.get::<GltfMaterialName>(child) {
-                surfaces.push(serde_json::json!({"entity":child.to_bits(),"name":name.0,
-                    "bound":world.get::<LightSurface>(child).is_some(),
-                    "standard":world.get::<MeshMaterial3d<StandardMaterial>>(child).is_some()}));
-            }
-        }
-        result
-            .push(serde_json::json!({"disc":index,"entity":entity.to_bits(),"surfaces":surfaces}));
-    }
-    serde_json::json!(result)
-}
-
 fn present(
     show: Res<LightShow>,
     upgrades: Res<StaffUpgrades>,
     discs: Query<&Disc>,
-    mut surfaces: Query<&mut LightSurface>,
+    mut surfaces: Query<(&mut LightSurface, &mut MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for mut surface in &mut surfaces {
+    for (mut surface, mut handle) in &mut surfaces {
         let Ok(disc) = discs.get(surface.disc) else {
             continue;
         };
@@ -291,5 +260,16 @@ fn present(
             ][upgrades.rings[disc.0] as usize]
         };
         surface.color = color;
+        if surface.material.is_none() {
+            let Some(source) = materials.get(&handle.0).cloned() else {
+                continue;
+            };
+            let target = materials.add(source);
+            handle.0 = target.clone();
+            surface.material = Some(target);
+        }
+        if let Some(mut material) = surface.material.as_ref().and_then(|h| materials.get_mut(h)) {
+            material.emissive = LinearRgba::rgb(color.x, color.y, color.z);
+        }
     }
 }

@@ -19,13 +19,6 @@ pub use crystals::CrystalProfile;
 pub use raids::GeneratorRaids;
 pub(crate) use rewards::BoxGlowRamp;
 
-fn enabled(
-    game: &GameDefinition,
-    generator: &crate::origins::content::GeneratorDefinition,
-) -> bool {
-    game.delivery_scope == crate::origins::DeliveryScope::FullOrigins || generator.number == 1
-}
-
 pub(crate) fn reset(world: &mut World) {
     crystals::reset(world);
     world.insert_resource(Generators::default());
@@ -248,11 +241,11 @@ impl Plugin for GeneratorPlugin {
         .init_resource::<Generators>()
         .init_resource::<raids::GeneratorRaids>()
         .add_systems(
-            OnEnter(GameState::PreparingShaders),
+            OnEnter(GameState::StartingSession),
             raids::reset.in_set(crate::session::SessionSetup::World),
         )
         .add_systems(
-            OnEnter(GameState::PreparingShaders),
+            OnEnter(GameState::StartingSession),
             assemble.in_set(crate::session::SessionSetup::World),
         )
         .add_observer(visual_ready)
@@ -281,37 +274,34 @@ impl Plugin for GeneratorPlugin {
             Update,
             (presentation, audio_evidence).run_if(in_state(GameState::Playing)),
         );
-        if app.world().resource::<crate::origins::DeliveryScope>()
-            == &crate::origins::DeliveryScope::FullOrigins
-        {
-            app.add_systems(
-                FixedUpdate,
-                raids::attack_state
-                    .in_set(GameStep::EnemyIntent)
-                    .after(crate::enemies::lifecycle)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(
-                FixedUpdate,
-                raids::drain
-                    .in_set(GameStep::Zombies)
-                    .before(tick)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(
-                FixedUpdate,
-                raids::tick
-                    .in_set(GameStep::EnemyIntent)
-                    .before(crate::enemies::lifecycle)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(
-                FixedUpdate,
-                raids::deaths
-                    .in_set(GameStep::Rewards)
-                    .run_if(in_state(GameState::Playing)),
-            );
-        }
+        app.add_systems(
+            FixedUpdate,
+            raids::attack_state
+                .in_set(GameStep::EnemyIntent)
+                .after(crate::enemies::lifecycle)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(
+            FixedUpdate,
+            raids::drain
+                .in_set(GameStep::Zombies)
+                .before(tick)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(
+            FixedUpdate,
+            raids::tick
+                .in_set(GameStep::EnemyIntent)
+                .before(crate::enemies::lifecycle)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(
+            FixedUpdate,
+            raids::deaths
+                .in_set(GameStep::Rewards)
+                .run_if(in_state(GameState::Playing)),
+        );
+
     }
 }
 fn defender_intent(
@@ -680,7 +670,6 @@ fn assemble(
         .content
         .generators
         .iter()
-        .filter(|d| enabled(&definition, d))
     {
         generators.sites.insert(d.id.clone(), default());
         let Some(p) = definition
@@ -756,7 +745,6 @@ fn tick(
         .content
         .generators
         .iter()
-        .filter(|d| enabled(&definition, d))
     {
         let Some(p) = definition
             .content

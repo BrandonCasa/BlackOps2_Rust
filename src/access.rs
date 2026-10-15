@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use std::collections::BTreeSet;
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct AccessDefinition {
     pub doors: Vec<DoorDefinition>,
     pub volumes: Vec<ZoneVolumeDefinition>,
@@ -22,13 +22,11 @@ pub struct AccessDefinition {
     pub trigger_activations: Vec<TriggerActivationDefinition>,
 }
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ZoneFlagLinkDefinition {
     pub flag: String,
     pub connections: Vec<ContentId>,
 }
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct TriggerActivationDefinition {
     pub trigger: String,
     pub flags: Vec<String>,
@@ -53,13 +51,11 @@ pub struct ZoneFlagSet(pub String);
 #[derive(Message, Clone, Debug, PartialEq, Eq)]
 pub struct NewZoneActive(pub ZoneId);
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ZoneVolumeDefinition {
     pub zone: ZoneId,
     pub volume: VolumeDefinition,
 }
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SpawnDefinition {
     pub id: String,
     pub zone: ZoneId,
@@ -71,7 +67,6 @@ pub struct SpawnDefinition {
     pub desired_origin: Option<[f32; 3]>,
 }
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ActorSpawnerDefinition {
     pub id: String,
     pub archetype: String,
@@ -80,13 +75,11 @@ pub struct ActorSpawnerDefinition {
     pub desired_origin: Option<[f32; 3]>,
 }
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SpawnEntranceDefinition {
     pub node: ContentId,
     pub position: [f32; 3],
 }
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DoorDefinition {
     pub connection: ContentId,
     pub connections: Vec<ContentId>,
@@ -97,158 +90,11 @@ pub struct DoorDefinition {
     pub sound: ContentId,
 }
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DoorVisual {
     pub presentation: ContentId,
     pub position: [f32; 3],
     pub yaw: f32,
     pub offset: [f32; 3],
-}
-impl AccessDefinition {
-    pub fn valid(
-        &self,
-        content: &ContentCatalog,
-        environment: &crate::environment::EnvironmentDefinition,
-    ) -> bool {
-        self.flag_links.iter().all(|link| {
-            !link.flag.is_empty()
-                && !link.connections.is_empty()
-                && link.connections.iter().all(|id| {
-                    content
-                        .zone_connections
-                        .iter()
-                        .any(|connection| connection.id == *id)
-                })
-        }) && self
-            .flag_links
-            .iter()
-            .map(|link| &link.flag)
-            .collect::<BTreeSet<_>>()
-            .len()
-            == self.flag_links.len()
-            && self.trigger_activations.iter().all(|activation| {
-                !activation.trigger.is_empty()
-                    && !activation.flags.is_empty()
-                    && activation.contents & 0x40000000 != 0
-                    && activation
-                        .flags
-                        .iter()
-                        .all(|flag| self.flag_links.iter().any(|link| link.flag == *flag))
-                    && environment.triggers.iter().any(|trigger| {
-                        trigger.id == activation.trigger
-                            && trigger.source.get("classname").is_some_and(|class| {
-                                matches!(
-                                    class.as_str(),
-                                    "trigger_box"
-                                        | "trigger_radius"
-                                        | "trigger_multiple"
-                                        | "trigger_once"
-                                )
-                            })
-                            && crate::environment::triggers::TriggerState::from_definition(trigger)
-                                .contents
-                                == activation.contents
-                            && trigger.collider().is_some()
-                    })
-            })
-            && self
-                .trigger_activations
-                .iter()
-                .map(|activation| &activation.trigger)
-                .collect::<BTreeSet<_>>()
-                .len()
-                == self.trigger_activations.len()
-            && self.volumes.len() <= 4096
-            && self.volumes.iter().all(|v| {
-                content.zones.iter().any(|z| z.id == v.zone)
-                    && v.volume.position.iter().all(|x| x.is_finite())
-                    && (4..=128).contains(&v.volume.vertices.len())
-                    && v.volume.vertices.iter().flatten().all(|x| x.is_finite())
-                    && Collider::convex_hull(
-                        &v.volume
-                            .vertices
-                            .iter()
-                            .copied()
-                            .map(Vec3::from_array)
-                            .collect::<Vec<_>>(),
-                    )
-                    .is_some()
-            })
-            && self.spawns.len() <= 4096
-            && self.spawns.iter().all(|s| {
-                !s.id.is_empty()
-                    && s.id.len() < 128
-                    && s.position.iter().all(|x| x.is_finite())
-                    && s.yaw.is_finite()
-                    && s.desired_origin
-                        .is_none_or(|point| point.iter().all(|value| value.is_finite()))
-                    && content.zones.iter().any(|z| z.id == s.zone)
-            })
-            && self.spawners.iter().all(|spawner| {
-                !spawner.id.is_empty()
-                    && spawner.id.len() < 128
-                    && spawner.position.iter().all(|value| value.is_finite())
-                    && spawner.yaw.is_finite()
-                    && spawner
-                        .desired_origin
-                        .is_none_or(|point| point.iter().all(|value| value.is_finite()))
-                    && content
-                        .enemies
-                        .iter()
-                        .any(|enemy| enemy.archetype == spawner.archetype)
-            })
-            && self.entrances.iter().all(|entrance| {
-                entrance.position.iter().all(|value| value.is_finite())
-                    && content.navigation_nodes.iter().any(|node| {
-                        node.id == entrance.node
-                            && node.native.is_some_and(|native| native.r#type == 17)
-                    })
-            })
-            && self.doors.len() <= 256
-            && self
-                .doors
-                .iter()
-                .map(|d| &d.connection)
-                .collect::<BTreeSet<_>>()
-                .len()
-                == self.doors.len()
-            && self.doors.iter().all(|d| {
-                d.seconds.is_finite()
-                    && d.seconds > 0.
-                    && d.seconds <= 10.
-                    && !d.connections.is_empty()
-                    && d.connections.contains(&d.connection)
-                    && d.connections
-                        .iter()
-                        .all(|id| content.zone_connections.iter().any(|c| c.id == *id))
-                    && content.sounds.iter().any(|s| s.id == d.sound && !s.looping)
-                    && !d.props.is_empty()
-                    && d.props.len() <= 64
-                    && d.props.iter().all(|p| {
-                        p.yaw.is_finite()
-                            && p.position.iter().chain(&p.offset).all(|v| v.is_finite())
-                            && content
-                                .presentations
-                                .iter()
-                                .any(|s| s.id == p.presentation && s.scene.is_some())
-                    })
-                    && !d.blocks.is_empty()
-                    && d.blocks.len() <= 256
-                    && d.blocks.iter().all(|v| {
-                        v.position.iter().all(|x| x.is_finite())
-                            && (4..=128).contains(&v.vertices.len())
-                            && v.vertices.iter().flatten().all(|x| x.is_finite())
-                            && Collider::convex_hull(
-                                &v.vertices
-                                    .iter()
-                                    .copied()
-                                    .map(Vec3::from_array)
-                                    .collect::<Vec<_>>(),
-                            )
-                            .is_some()
-                    })
-            })
-    }
 }
 #[derive(Resource, Default)]
 pub struct ZoneAccess {
@@ -553,7 +399,7 @@ impl Plugin for AccessPlugin {
             .init_resource::<ZoneScan>()
             .init_resource::<DoorEvidence>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 assemble.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
