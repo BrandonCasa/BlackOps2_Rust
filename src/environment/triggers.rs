@@ -165,13 +165,7 @@ fn volume_center(volume: &VolumeDefinition) -> Vec3 {
             / volume.vertices.len() as f32
 }
 
-fn stable_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() < 128
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-}
+
 
 
 

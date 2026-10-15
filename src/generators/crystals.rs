@@ -27,7 +27,6 @@ struct FlickerProfile {
 
 #[derive(Clone, Deserialize)]
 struct CrystalDefinition {
-    number: u8,
     generator: ContentId,
     target: String,
     presentation: ContentId,
