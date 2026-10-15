@@ -289,7 +289,10 @@ pub(crate) fn bind(
             return Err(format!("Duplicate source zone trigger {}", trigger.id));
         }
     }
+    // Preserve the recorded non-spatial owner for native nodes outside player volumes.
+    let unassigned = game.content.zones.iter().find(|zone| zone.id.0 == "zone.unassigned").cloned();
     game.content.zones = authored.zones;
+    if let Some(zone) = unassigned { game.content.zones.push(zone); }
     game.content.zone_connections = authored.zone_connections;
     game.access.flag_links = authored.flag_links;
     game.environment.triggers.extend(triggers);
