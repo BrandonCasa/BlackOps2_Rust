@@ -577,6 +577,7 @@ impl Navigation {
         self.admissions
             .get(session.spawn_index(self.admissions.len())?)
     }
+    #[expect(dead_code, reason = "Source-native spawn integration remains unfinished")]
     pub(crate) fn choose_entrance(
         &self,
         spawn: &Admission,
