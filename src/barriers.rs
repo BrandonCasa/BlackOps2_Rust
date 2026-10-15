@@ -643,8 +643,7 @@ fn assemble(
     server: Res<AssetServer>,
     mut barriers: ResMut<Barriers>,
     query: SpatialQuery,
-    mut failure: ResMut<crate::assets::LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
+
     session: Res<Session>,
 ) {
     if !players.is_empty() {
@@ -689,12 +688,10 @@ fn assemble(
                 false,
                 &crate::environment::solids([]),
             ) else {
-                failure.0 = format!(
+                panic!("{}", format!(
                     "Source barrier {} attack slot {slot} has no loaded ground collision",
                     d.id.0
-                );
-                next.set(GameState::LoadError);
-                return;
+                ));
             };
             spots[slot] = source - Vec3::Y * floor.distance;
         }
@@ -707,12 +704,10 @@ fn assemble(
             false,
             &crate::environment::solids([]),
         ) else {
-            failure.0 = format!(
+            panic!("{}", format!(
                 "Source barrier {} repair origin has no loaded ground collision",
                 d.id.0
-            );
-            next.set(GameState::LoadError);
-            return;
+            ));
         };
         let repair_origin = repair_origin - Vec3::Y * floor.distance + Vec3::Y * (4. * 0.0254)
             - Quat::from_rotation_y(d.repair_yaw) * Vec3::NEG_Z * (11. * 0.0254);
@@ -730,12 +725,10 @@ fn assemble(
                 let Some(shape) =
                     crate::environment::brushes::compound(&[], std::slice::from_ref(collision))
                 else {
-                    failure.0 = format!(
+                    panic!("{}", format!(
                         "Source barrier {} board {index} collision is unusable",
                         d.id.0
-                    );
-                    next.set(GameState::LoadError);
-                    return;
+                    ));
                 };
                 let mut blocker = commands.spawn((
                     SessionEntity,

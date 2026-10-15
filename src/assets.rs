@@ -28,236 +28,14 @@ const ENGINE_SURFACES: [&str; 33] = [
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
     pub asset_root: PathBuf,
-    pub flythrough: bool,
-    pub validation_remote: Option<u16>,
-    pub verify: Option<PathBuf>,
-    pub verify_controls: bool,
-    pub verify_locomotion: bool,
-    pub benchmark: bool,
-    pub benchmark_view: Option<usize>,
-    pub benchmark_motion: bool,
-    pub benchmark_combat: bool,
-    pub test_combat: bool,
-    pub benchmark_hands: bool,
-    pub verify_wall_weapons: bool,
-    pub verify_weapon_assemblies: bool,
-    pub verify_ads: bool,
-    pub verify_rounds: bool,
-    pub verify_health: bool,
-    pub verify_solo_revive: bool,
-    pub verify_solo_bleedout: bool,
-    pub verify_perk_health: bool,
-    pub verify_speed_cola: bool,
-    pub verify_stamin_up: bool,
-    pub verify_mule_kick: bool,
-    pub verify_firing_perks: bool,
-    pub verify_defensive_perks: bool,
-    pub verify_mobility: bool,
-    pub verify_mud: bool,
-    pub verify_doors: bool,
-    pub verify_navigation: bool,
-    pub verify_traversal: bool,
-    pub verify_audio: bool,
-    pub verify_barriers: bool,
-    pub verify_generators: bool,
-    pub verify_hazards: bool,
-    pub verify_powerups: bool,
-    pub verify_weapon_actions: bool,
-    pub verify_replacements: bool,
-    pub verify_hit_regions: bool,
-    pub verify_grenades: bool,
-    pub verify_semtex: bool,
-    pub verify_claymores: bool,
-    pub verify_monkeys: bool,
-    pub verify_equipment_refills: bool,
-    pub error: Option<String>,
 }
 
 impl LaunchOptions {
-    pub fn parse(args: impl Iterator<Item = OsString>) -> Self {
-        let mut result = Self::default();
-        let mut remaining = Vec::new();
-        let mut arguments = args;
-        while let Some(argument) = arguments.next() {
-            if argument == "--asset-root" {
-                let Some(root) = arguments.next() else {
-                    result.error = Some("--asset-root requires an absolute directory".into());
-                    return result;
-                };
-                if !result.asset_root.as_os_str().is_empty() {
-                    result.error = Some("--asset-root may only be specified once".into());
-                    return result;
-                }
-                result.asset_root = root.into();
-            } else {
-                remaining.push(argument);
-            }
-        }
-        if !result.asset_root.is_absolute() || !result.asset_root.is_dir() {
-            result.error = Some(format!(
-                "--asset-root requires an existing absolute directory: {}",
-                result.asset_root.display()
-            ));
-            return result;
-        }
-        let mut args = remaining.into_iter();
-        if let Some(argument) = args.next() {
-            if argument == "--validation-remote" {
-                let port = args
-                    .next()
-                    .map_or(Some(15702), |v| v.to_str()?.parse::<u16>().ok());
-                if cfg!(all(debug_assertions, feature = "dev-tools"))
-                    && port.is_some_and(|p| p > 0)
-                    && args.next().is_none()
-                {
-                    result.validation_remote = port;
-                } else {
-                    result.error =
-                        Some("Usage: development origins --validation-remote [port]".into());
-                }
-                return result;
-            }
-            if argument == "--verify-controls"
-                || argument == "--verify-hazards"
-                || argument == "--verify-powerups"
-                || argument == "--verify-weapon-actions"
-                || argument == "--verify-replacements"
-            {
-                result.verify_controls = argument == "--verify-controls";
-                result.verify_hazards = argument == "--verify-hazards";
-                result.verify_powerups = argument == "--verify-powerups";
-                result.verify_weapon_actions = argument == "--verify-weapon-actions";
-                result.verify_replacements = argument == "--verify-replacements";
-                result.verify = args.next().map(PathBuf::from);
-                if result.verify.is_none() || args.next().is_some() {
-                    result.error = Some(
-                        "Expected one external output folder after the verification flag".into(),
-                    );
-                }
-                return result;
-            }
-            if argument == "--verify"
-                || argument == "--benchmark"
-                || argument == "--benchmark-view"
-                || argument == "--benchmark-moving-view"
-                || argument == "--benchmark-combat"
-                || argument == "--test-combat"
-                || argument == "--verify-wall-weapons"
-                || argument == "--verify-weapon-assemblies"
-                || argument == "--verify-ads"
-                || argument == "--verify-rounds"
-                || argument == "--verify-solo-bleedout"
-                || argument == "--verify-solo-revive"
-                || argument == "--verify-perk-health"
-                || argument == "--verify-speed-cola"
-                || argument == "--verify-stamin-up"
-                || argument == "--verify-mule-kick"
-                || argument == "--verify-firing-perks"
-                || argument == "--verify-defensive-perks"
-                || argument == "--verify-mobility"
-                || argument == "--verify-mud"
-                || argument == "--verify-doors"
-                || argument == "--verify-navigation"
-                || argument == "--verify-traversal"
-                || argument == "--verify-locomotion"
-                || argument == "--verify-audio"
-                || argument == "--verify-barriers"
-                || argument == "--verify-generators"
-                || argument == "--verify-health"
-                || argument == "--verify-hit-regions"
-                || argument == "--verify-grenades"
-                || argument == "--verify-monkeys"
-                || argument == "--verify-equipment-refills"
-                || argument == "--verify-claymores"
-                || argument == "--verify-semtex"
-            {
-                result.benchmark = argument != "--verify";
-                result.verify = args.next().map(PathBuf::from);
-                result.benchmark_motion = argument == "--benchmark-moving-view";
-                result.test_combat = argument == "--test-combat";
-                result.benchmark_combat = result.test_combat
-                    || argument == "--benchmark-combat"
-                    || argument == "--verify-wall-weapons"
-                    || argument == "--verify-rounds"
-                    || argument == "--verify-solo-bleedout"
-                    || argument == "--verify-solo-revive"
-                    || argument == "--verify-perk-health"
-                    || argument == "--verify-speed-cola"
-                    || argument == "--verify-stamin-up"
-                    || argument == "--verify-mule-kick"
-                    || argument == "--verify-firing-perks"
-                    || argument == "--verify-defensive-perks"
-                    || argument == "--verify-mobility"
-                    || argument == "--verify-mud"
-                    || argument == "--verify-doors"
-                    || argument == "--verify-navigation"
-                    || argument == "--verify-traversal"
-                    || argument == "--verify-audio"
-                    || argument == "--verify-barriers"
-                    || argument == "--verify-generators"
-                    || argument == "--verify-health"
-                    || argument == "--verify-hit-regions"
-                    || argument == "--verify-grenades"
-                    || argument == "--verify-monkeys"
-                    || argument == "--verify-equipment-refills"
-                    || argument == "--verify-claymores"
-                    || argument == "--verify-semtex";
-                result.verify_wall_weapons = argument == "--verify-wall-weapons";
-                result.verify_weapon_assemblies = argument == "--verify-weapon-assemblies";
-                result.verify_ads = argument == "--verify-ads";
-                result.verify_rounds = argument == "--verify-rounds";
-                result.verify_health = argument == "--verify-health";
-                result.verify_solo_revive =
-                    argument == "--verify-solo-revive" || argument == "--verify-solo-bleedout";
-                result.verify_solo_bleedout = argument == "--verify-solo-bleedout";
-                result.verify_perk_health = argument == "--verify-perk-health";
-                result.verify_speed_cola = argument == "--verify-speed-cola";
-                result.verify_stamin_up = argument == "--verify-stamin-up";
-                result.verify_mule_kick = argument == "--verify-mule-kick";
-                result.verify_firing_perks = argument == "--verify-firing-perks";
-                result.verify_defensive_perks = argument == "--verify-defensive-perks";
-                result.verify_mobility = argument == "--verify-mobility";
-                result.verify_mud = argument == "--verify-mud";
-                result.verify_doors = argument == "--verify-doors"
-                    || argument == "--verify-navigation"
-                    || argument == "--verify-traversal";
-                result.verify_navigation =
-                    argument == "--verify-navigation" || argument == "--verify-traversal";
-                result.verify_traversal = argument == "--verify-traversal";
-                result.verify_locomotion = argument == "--verify-locomotion";
-                result.verify_audio = argument == "--verify-audio";
-                result.verify_barriers = argument == "--verify-barriers";
-                result.verify_generators = argument == "--verify-generators";
-                result.verify_hit_regions = argument == "--verify-hit-regions";
-                result.verify_grenades = argument == "--verify-grenades";
-                result.verify_semtex = argument == "--verify-semtex";
-                result.verify_claymores = argument == "--verify-claymores";
-                result.verify_monkeys = argument == "--verify-monkeys";
-                result.verify_equipment_refills = argument == "--verify-equipment-refills";
-                if result.benchmark_combat {
-                    result.benchmark_view = Some(8);
-                }
-                if argument == "--benchmark-view" || result.benchmark_motion {
-                    result.benchmark_view =
-                        args.next().and_then(|value| value.to_str()?.parse().ok());
-                    if result.benchmark_view.is_none() {
-                        result.error = Some(
-                            "View benchmarks require an external folder and a view index".into(),
-                        );
-                    }
-                }
-            }
-            for remaining in args.by_ref() {
-                if !(result.verify_weapon_assemblies && remaining == "--dual-wield-only") {
-                    result.error = Some("Unexpected or repeated launch argument".into());
-                }
-            }
-            if result.verify.is_none() {
-                result.error =
-                    Some("Usage: origins [--verify|--benchmark external-output-folder] or [--benchmark-view|--benchmark-moving-view external-output-folder index]".into());
-            }
-        }
-        result
+    pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
+        let asset_root = args.find(|argument| argument == "--asset-root")
+            .and_then(|_| args.next())
+            .expect("Launch Origins with --asset-root <absolute directory>");
+        Self { asset_root: PathBuf::from(asset_root) }
     }
 }
 
@@ -288,8 +66,6 @@ impl AssetDirectory {
 
 #[derive(Resource)]
 pub struct LoadConfiguration(pub Result<AssetDirectory, String>);
-#[derive(Resource, Default)]
-pub struct LoadFailure(pub String);
 
 pub use crate::origins::{GameDefinition, Tuning};
 #[derive(Component)]
@@ -810,8 +586,7 @@ struct Loading {
 pub struct GameAssetsPlugin;
 impl Plugin for GameAssetsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LoadFailure>()
-            .add_systems(OnEnter(GameState::Loading), begin_load)
+        app.add_systems(OnEnter(GameState::Loading), begin_load)
             .add_observer(scene_ready)
             .add_systems(
                 Update,
@@ -831,7 +606,6 @@ struct DefinitionTask(
 pub(crate) fn begin_load(
     mut commands: Commands,
     config: Res<LoadConfiguration>,
-    options: Res<LaunchOptions>,
     roots: Query<Entity, Or<(With<MapRoot>, With<StaticPropRoot>)>>,
 ) {
     for root in &roots {
@@ -840,8 +614,6 @@ pub(crate) fn begin_load(
     commands.remove_resource::<Loading>();
     commands.remove_resource::<WorldBrushes>();
     commands.remove_resource::<DefinitionTask>();
-    commands.insert_resource(LoadFailure::default());
-    if let Some(error) = &options.error { panic!("Invalid launch options: {error}"); }
     let root = config.0.as_ref().expect("Invalid Origins asset root").root.clone();
     let task = bevy::tasks::IoTaskPool::get().spawn(async move {
         info!("Origins asset root: {}", root.display());
@@ -1129,7 +901,6 @@ fn finish_load(
     config: Res<LoadConfiguration>,
     server: Res<AssetServer>,
     mut next: ResMut<NextState<GameState>>,
-    options: Res<LaunchOptions>,
 ) {
     let Some(loading) = loading else {
         return;
@@ -1170,14 +941,7 @@ fn finish_load(
                 commands.entity(entity).insert(Visibility::Inherited);
             }
         }
-        next.set(
-            if options.verify.is_some() || options.validation_remote.is_some() || options.flythrough
-            {
-                GameState::StartingSession
-            } else {
-                GameState::MainMenu
-            },
-        );
+        next.set(GameState::StartingSession);
     } else if loading.started.elapsed().as_secs() > 120 {
         panic!("Scene loading timed out or collision coverage is incomplete.");
     }

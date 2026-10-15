@@ -10,7 +10,7 @@ pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
-            .add_systems(Update, camera_follow.run_if(crate::flythrough::normal_play));
+            .add_systems(Update, camera_follow);
     }
 }
 pub(crate) fn setup(mut commands: Commands) {

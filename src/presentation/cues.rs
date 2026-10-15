@@ -126,16 +126,14 @@ pub(crate) fn advance(
     virtual_time: Res<Time<Virtual>>,
     state: Res<State<GameState>>,
     mut clock: ResMut<CueClock>,
-    mut failure: ResMut<crate::assets::LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
+
 ) {
     if let Err(error) = clock.advance(
         time.delta(),
         **state == GameState::Paused,
         virtual_time.relative_speed(),
     ) {
-        failure.0 = error;
-        next.set(GameState::LoadError);
+        panic!("{}", error);
     }
 }
 

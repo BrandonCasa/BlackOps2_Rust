@@ -2202,7 +2202,7 @@ fn animate(
     clips: Res<Assets<AnimationClip>>,
     mut rigs: Query<&mut ActorRig>,
     mut evidence: ResMut<EnemyEvidence>,
-    mut failure: ResMut<crate::assets::LoadFailure>,
+
     mut next: ResMut<NextState<GameState>>,
 ) {
     let Some(definition) = definition else {
@@ -2239,12 +2239,10 @@ fn animate(
             if !rig.primary {
                 continue;
             }
-            failure.0 = format!(
+            panic!("{}", format!(
                 "Required actor animation {name} missing from {:?}",
                 rig.source.path()
-            );
-            next.set(GameState::LoadError);
-            return;
+            ));
         };
         let changed = rig.action != Some(zombie.action)
             || rig.clip.as_deref() != Some(name)

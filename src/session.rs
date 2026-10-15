@@ -65,14 +65,8 @@ fn initialize(world: &mut World) {
         spawn_timer: Timer::from_seconds(definition.rounds.initial_spawn_seconds, TimerMode::Once),
         ..default()
     };
-    if world
-        .resource::<crate::assets::LaunchOptions>()
-        .verify
-        .is_none()
-    {
-        session.seed = std::collections::hash_map::RandomState::new().hash_one(std::process::id());
-        session.character = (session.seed % 4) as usize;
-    }
+    session.seed = std::collections::hash_map::RandomState::new().hash_one(std::process::id());
+    session.character = (session.seed % 4) as usize;
     world.insert_resource(session);
     world.insert_resource(crate::quests::MainQuest::reset(
         *world.resource::<crate::frontend::Difficulty>(),

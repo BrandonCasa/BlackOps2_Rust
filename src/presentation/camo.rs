@@ -1,6 +1,6 @@
 use crate::{
     GameState,
-    assets::{GameDefinition, LoadFailure},
+    assets::GameDefinition,
     origins::content::WeaponId,
 };
 use bevy::prelude::*;
@@ -81,11 +81,9 @@ pub(crate) fn assets_ready(
 fn check_dependencies(
     server: Res<AssetServer>,
     textures: Query<&CamoTexture>,
-    mut failure: ResMut<LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
+
 ) {
     if let Err(error) = assets_ready(&server, &textures) {
-        failure.0 = error;
-        next.set(GameState::LoadError);
+        panic!("{}", error);
     }
 }

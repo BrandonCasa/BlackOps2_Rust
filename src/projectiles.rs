@@ -190,8 +190,6 @@ pub(crate) fn flight(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
     game: Res<GameDefinition>,
-    options: Res<crate::assets::LaunchOptions>,
-    mut physics_evidence: ResMut<crate::movement::physics::PhysicsEvidence>,
     session: Res<crate::session::SessionId>,
     mut projectiles: Query<
         (Entity, &mut WeaponProjectile, &mut Transform),
@@ -374,17 +372,7 @@ pub(crate) fn flight(
             distance.min(impact_distance),
         );
         if !projectile.detonate && !impact_distance.is_finite() && projectile.remaining > 0. {
-            if cfg!(debug_assertions)
-                && options.validation_remote.is_some()
-                && physics_evidence.projectiles.len() < 512
-            {
-                physics_evidence.projectiles.push(serde_json::json!({
-                    "kind":"weapon","entity":entity.to_bits(),"weapon":weapon.id.0,"dt":dt,
-                    "gravity":gravity_step / dt.max(f32::MIN_POSITIVE),
-                    "position_before":pose.translation.to_array(),"position_after":(pose.translation+delta).to_array(),
-                    "velocity_after":projectile.velocity.to_array()
-                }));
-            }
+            
             pose.translation += delta;
             projectile.traveled += distance;
             continue;

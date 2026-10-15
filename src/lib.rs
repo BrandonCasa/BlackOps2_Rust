@@ -34,7 +34,6 @@ pub mod enemies;
 pub mod environment;
 pub mod equipment;
 pub mod finale;
-pub mod flythrough;
 pub mod frontend;
 pub mod gameplay;
 pub mod generators;
@@ -65,7 +64,6 @@ pub mod rendering;
 pub mod rituals;
 pub mod robots;
 pub mod rounds;
-mod run_environment;
 mod session;
 pub mod side_rewards;
 pub mod side_secrets;
@@ -76,7 +74,6 @@ pub mod staff_upgrades;
 pub mod stations;
 pub mod tablets;
 pub mod tank;
-pub mod verification;
 pub mod weapons;
 
 use bevy::prelude::*;
@@ -91,7 +88,7 @@ pub enum GameState {
     Paused,
     GameOver,
     Ending,
-    LoadError,
+
 }
 
 pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
@@ -111,10 +108,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     });
     let mut app = App::new();
     let asset_root = options.asset_root.to_string_lossy().into_owned();
-    let benchmark = options.benchmark;
-    let ads_capture = options.verify_ads;
-    let fixed_resolution = ads_capture || benchmark || options.validation_remote.is_some();
-    let flythrough = options.flythrough;
     app.insert_resource(options);
     let default_plugins = DefaultPlugins.build();
     #[cfg(all(not(debug_assertions), not(feature = "dev-tools")))]
@@ -135,30 +128,10 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: if flythrough {
-                        "Origins — visual flythrough"
-                    } else {
-                        "Origins"
-                    }
-                    .into(),
+                    title: "Origins".into(),
                     mode: bevy::window::WindowMode::Windowed,
                     decorations: false,
-                    resizable: !ads_capture,
-                    enabled_buttons: bevy::window::EnabledButtons {
-                        maximize: !ads_capture,
-                        ..default()
-                    },
-                    resolution: if fixed_resolution {
-                        bevy::window::WindowResolution::new(1920, 1080)
-                            .with_scale_factor_override(1.)
-                    } else {
-                        bevy::window::WindowResolution::new(1920, 1080)
-                    },
-                    present_mode: if benchmark {
-                        bevy::window::PresentMode::AutoNoVsync
-                    } else {
-                        default()
-                    },
+                    resolution: bevy::window::WindowResolution::new(1920, 1080),
                     ..default()
                 }),
                 ..default()
@@ -201,7 +174,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         interactions::InteractionPlugin,
         presentation::PresentationPlugin,
         hud::HudPlugin,
-        verification::VerificationPlugin,
     ));
     app.add_plugins((
         native_fx::NativeFxPlugin,
@@ -237,14 +209,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         cinematics::CinematicPlugin,
     ));
 
-    if cfg!(debug_assertions)
-        && !flythrough
-        && (benchmark || cfg!(feature = "profile-tracy") || cfg!(feature = "profile-chrome"))
-    {
-        if !app.is_plugin_added::<bevy::render::diagnostic::RenderDiagnosticsPlugin>() {
-            app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
-        }
-    }
-    app.add_plugins(run_environment::UnattendedRunPlugin);
     app
 }
+

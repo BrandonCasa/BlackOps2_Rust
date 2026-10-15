@@ -109,7 +109,6 @@ impl Plugin for CinematicPlugin {
             )
             .add_systems(OnEnter(GameState::Playing), close)
             .add_systems(OnEnter(GameState::MainMenu), close)
-            .add_systems(OnEnter(GameState::LoadError), close)
             .add_systems(OnEnter(GameState::Ending), start.after(crate::audio::stop))
             .add_systems(
                 Update,

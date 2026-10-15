@@ -1,5 +1,5 @@
 use crate::hud::native::{self, Canvas, NativeText, rect};
-use crate::{GameState, assets::LaunchOptions};
+use crate::GameState;
 use bevy::picking::{events::PointerPress, hover::Hovered, pointer::PointerButton};
 use bevy::prelude::*;
 use bevy::ui_widgets::Button as UiButton;
@@ -57,7 +57,6 @@ pub enum FrontendAction {
     SelectDifficulty(Difficulty),
     Restart,
     MainMenu,
-    RetryLoad,
     Exit,
 }
 
@@ -70,14 +69,6 @@ struct FrontendButton(FrontendAction, usize);
 #[derive(Resource, Default)]
 struct FrontendSelection(usize);
 
-#[cfg(all(debug_assertions, feature = "dev-tools"))]
-pub(crate) fn selected_row(world: &World) -> Option<usize> {
-    matches!(
-        world.resource::<State<GameState>>().get(),
-        GameState::MainMenu | GameState::LoadError | GameState::GameOver | GameState::Ending
-    )
-    .then(|| world.resource::<FrontendSelection>().0)
-}
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ApplyFrontendActions;
@@ -100,11 +91,9 @@ impl Plugin for FrontendPlugin {
                     .chain(),
             )
             .add_systems(OnEnter(GameState::MainMenu), show)
-            .add_systems(OnEnter(GameState::LoadError), show)
             .add_systems(OnEnter(GameState::GameOver), show)
             .add_systems(OnEnter(GameState::Ending), show)
             .add_systems(OnExit(GameState::MainMenu), hide)
-            .add_systems(OnExit(GameState::LoadError), hide)
             .add_systems(OnExit(GameState::GameOver), hide)
             .add_systems(OnExit(GameState::Ending), hide);
     }
@@ -114,16 +103,11 @@ fn show(
     mut commands: Commands,
     state: Res<State<GameState>>,
     difficulty: Res<Difficulty>,
-    options: Res<LaunchOptions>,
     cameras: Query<Entity, With<crate::rendering::GameCamera>>,
     game: Option<Res<crate::assets::GameDefinition>>,
     server: Res<AssetServer>,
     mut selected: ResMut<FrontendSelection>,
-    failure: Res<crate::assets::LoadFailure>,
 ) {
-    if options.verify.is_some() || options.flythrough {
-        return;
-    }
     let Ok(camera) = cameras.single() else { return };
     selected.0 = 0;
     let rows = match **state {
@@ -137,10 +121,6 @@ fn show(
                 "Easy difficulty",
                 FrontendAction::SelectDifficulty(Difficulty::Easy),
             ),
-            ("Exit application", FrontendAction::Exit),
-        ],
-        GameState::LoadError => vec![
-            ("Retry loading", FrontendAction::RetryLoad),
             ("Exit application", FrontendAction::Exit),
         ],
         GameState::GameOver => vec![
@@ -165,20 +145,7 @@ fn show(
             }),
         ))
         .with_children(|parent| {
-            if **state == GameState::LoadError {
-                parent.spawn((
-                    Text::new(format!(
-                        "Unable to load Origins\n{}\nENTER  Select     ESC  Exit     Arrow Keys  Navigate",
-                        failure.0
-                    )),
-                    TextFont {
-                        font_size: FontSize::Px(24.),
-                        ..default()
-                    },
-                    rect(110., 92., 1040., 430.),
-                ));
-            }
-            if !matches!(**state, GameState::GameOver | GameState::LoadError) {
+            if !matches!(**state, GameState::GameOver) {
                 if let Some(game) = &game
                     && game.content.ui_assets.iter().any(|asset| asset.id.0 == "ui.menu_zm_map_tomb")
                 {
@@ -196,7 +163,7 @@ fn show(
                     rect(110., 92., 560., 120.),
                 ));
             }
-            let y = if matches!(**state, GameState::GameOver | GameState::LoadError) {
+            let y = if matches!(**state, GameState::GameOver) {
                 558.
             } else {
                 264.
@@ -211,21 +178,10 @@ fn show(
                         BackgroundColor(Color::NONE),
                     ))
                     .with_children(|button| {
-                        if **state == GameState::LoadError {
-                            button.spawn((
-                                Text::new(label.to_uppercase()),
-                                TextFont {
-                                    font_size: FontSize::Px(27.),
-                                    ..default()
-                                },
-                                rect(10., 0., 460., 34.),
-                            ));
-                        } else {
-                            button.spawn((
-                                NativeText::new(label.to_uppercase(), 27.),
-                                rect(10., 0., 460., 34.),
-                            ));
-                        }
+                        button.spawn((
+                            NativeText::new(label.to_uppercase(), 27.),
+                            rect(10., 0., 460., 34.),
+                        ));
                     });
             }
             parent.spawn((
@@ -290,14 +246,6 @@ fn shortcuts(
                 actions.write(FrontendAction::Exit);
             }
         }
-        GameState::LoadError => {
-            if keys.just_pressed(KeyCode::Enter) {
-                actions.write(chosen.unwrap_or(FrontendAction::RetryLoad));
-            }
-            if keys.just_pressed(KeyCode::Escape) {
-                actions.write(FrontendAction::Exit);
-            }
-        }
         GameState::GameOver => {
             if keys.just_pressed(KeyCode::Enter)
                 && let Some(action) = chosen
@@ -344,10 +292,6 @@ fn apply_actions(
             {
                 commands.queue(crate::session::teardown);
                 next.set(GameState::MainMenu);
-            }
-            FrontendAction::RetryLoad if **state == GameState::LoadError => {
-                commands.queue(crate::session::teardown);
-                next.set(GameState::Loading);
             }
             FrontendAction::Exit => {
                 exit.write(AppExit::Success);

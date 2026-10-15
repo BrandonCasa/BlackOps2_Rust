@@ -957,8 +957,6 @@ pub(crate) fn flight(
     session: Res<crate::session::SessionId>,
     time: Res<Time<Fixed>>,
     definition: Res<GameDefinition>,
-    options: Res<crate::assets::LaunchOptions>,
-    mut physics_evidence: ResMut<crate::movement::physics::PhysicsEvidence>,
     mut grenades: Query<(Entity, &mut Grenade, &mut Transform)>,
     targets: Query<(), (With<Vitality>, With<Transform>, Without<Grenade>)>,
     poses: Query<(&Transform, &GlobalTransform, Has<ChildOf>), Without<Grenade>>,
@@ -1213,17 +1211,7 @@ pub(crate) fn flight(
                         }
                     }
                 } else {
-                    if cfg!(debug_assertions)
-                        && options.validation_remote.is_some()
-                        && physics_evidence.projectiles.len() < 512
-                    {
-                        physics_evidence.projectiles.push(serde_json::json!({
-                            "kind":"throwable","entity":entity.to_bits(),"weapon":weapon.id.0,"dt":motion_dt,
-                            "gravity":definition.tuning.gravity,
-                            "position_before":transform.translation.to_array(),"position_after":(transform.translation+delta).to_array(),
-                            "velocity_after":velocity.to_array()
-                        }));
-                    }
+                    
                     transform.translation += delta;
                     grenade.motion = GrenadeMotion::Flying(velocity);
                 }

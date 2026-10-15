@@ -19,7 +19,7 @@ resolver = "3"
 
 [features]
 default = ["game"]
-game = ["dep:bevy", "dep:avian3d", "dep:bevy_input", "dep:keepawake"]
+game = ["dep:bevy", "dep:avian3d", "dep:bevy_input"]
 dev-tools = ["bevy/bevy_remote"]
 profile-tracy = ["bevy/trace_tracy", "bevy/debug", "dep:tracy-client"]
 profile-tracy-memory = ["profile-tracy", "bevy/trace_tracy_memory"]
@@ -37,7 +37,6 @@ tracy-client = { version = "=0.19.0", default-features = false, features = ["onl
 
 
 [target.'cfg(windows)'.dependencies]
-keepawake = { version = "=0.6.1", optional = true }
 
 [profile.dev]
 opt-level = 0

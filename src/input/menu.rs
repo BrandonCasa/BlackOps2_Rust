@@ -167,11 +167,6 @@ fn label(choice: Choice, settings: &ControlSettings) -> String {
 }
 pub(super) fn install(app: &mut App) {
     app.init_resource::<ControlMenu>();
-    let options = app.world().resource::<crate::assets::LaunchOptions>();
-    if options.verify.is_some() && !options.verify_controls {
-        return;
-    }
-    let remote = options.validation_remote.is_some();
     app.add_observer(pointer_activate)
         .add_systems(OnEnter(GameState::Paused), open)
         .add_systems(OnExit(GameState::Paused), close)
@@ -186,7 +181,7 @@ pub(super) fn install(app: &mut App) {
                 .before(super::pause_and_restart)
                 .run_if(in_state(GameState::Paused)),
         );
-    if !remote {
+
         app.add_systems(
             Update,
             navigate
@@ -194,7 +189,7 @@ pub(super) fn install(app: &mut App) {
                 .before(crate::frontend::ApplyFrontendActions)
                 .run_if(in_state(GameState::Paused)),
         );
-    }
+    
 }
 fn open(mut menu: ResMut<ControlMenu>) {
     *menu = ControlMenu {

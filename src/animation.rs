@@ -145,21 +145,18 @@ fn native_playback(
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut cache: ResMut<AnimationGraphs>,
-    mut failure: ResMut<crate::assets::LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
+
 ) {
     for (root, animation) in &roots {
         let Some(bindings) = cache.scene(&animation.source, &gltfs, &mut graphs) else {
             continue;
         };
         let Some(node) = bindings.named.get(&animation.clip) else {
-            failure.0 = format!(
+            panic!("{}", format!(
                 "Required named animation {} missing from {:?}",
                 animation.clip,
                 animation.source.path()
-            );
-            next.set(GameState::LoadError);
-            return;
+            ));
         };
         for player in std::iter::once(root)
             .chain(children.iter_descendants(root))

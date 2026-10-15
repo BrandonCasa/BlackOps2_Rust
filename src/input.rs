@@ -167,12 +167,7 @@ pub struct GameInputPlugin;
 pub struct RestartGame;
 impl Plugin for GameInputPlugin {
     fn build(&self, app: &mut App) {
-        let options = app.world().resource::<crate::assets::LaunchOptions>();
-        let path = options
-            .verify
-            .as_ref()
-            .map(|root| root.join("settings.json"))
-            .or_else(settings::local_path);
+        let path = settings::local_path();
         let (settings, store) = settings::SettingsStore::load(path);
         if let Some(error) = &store.error {
             warn!("{error}");
@@ -186,22 +181,15 @@ impl Plugin for GameInputPlugin {
                 PreUpdate,
                 toggle_fullscreen
                     .after(InputSystems)
-                    .before(collect)
-                    .run_if(|options: Res<crate::assets::LaunchOptions>| !options.verify_ads),
+                    .before(collect),
             )
             .add_systems(
                 PreUpdate,
-                collect
-                    .after(InputSystems)
-                    .run_if(|options: Res<crate::assets::LaunchOptions>| {
-                        options.validation_remote.is_none() && !options.flythrough
-                    }),
+                collect.after(InputSystems),
             )
             .add_systems(
                 Update,
-                pause_and_restart.run_if(|options: Res<crate::assets::LaunchOptions>| {
-                    options.validation_remote.is_none() && !options.flythrough
-                }),
+                pause_and_restart,
             )
             .add_systems(
                 FixedUpdate,
@@ -248,17 +236,14 @@ pub(crate) fn collect(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<(&Window, &CursorOptions)>,
     state: Res<State<GameState>>,
-    options: Res<crate::assets::LaunchOptions>,
     settings: Res<ControlSettings>,
     mut actions: ResMut<Actions>,
     mut input: ResMut<GameInput>,
 ) {
     let active = **state == GameState::Playing
-        && ((options.verify.is_some() && !options.verify_controls)
-            || options.validation_remote.is_some()
-            || windows.iter().any(|(window, cursor)| {
+        && windows.iter().any(|(window, cursor)| {
                 window.focused && cursor.grab_mode != CursorGrabMode::None
-            }));
+            });
     let mappings_changed = settings.bindings != actions.settings.bindings
         || settings.aim_mode != actions.settings.aim_mode
         || settings.crouch_mode != actions.settings.crouch_mode
@@ -384,14 +369,10 @@ pub(crate) fn pause_and_restart(
     mut next: ResMut<NextState<GameState>>,
     mut cursors: Query<(&Window, &mut CursorOptions)>,
     mut commands: Commands,
-    options: Res<crate::assets::LaunchOptions>,
     settings: Res<ControlSettings>,
     menu: Res<menu::ControlMenu>,
     mut restart: MessageReader<RestartGame>,
 ) {
-    if options.flythrough {
-        return;
-    }
     let requested = restart.read().count() > 0;
     if menu.capturing.is_none()
         && !menu.handled_input
@@ -404,9 +385,7 @@ pub(crate) fn pause_and_restart(
             _ => {}
         }
     }
-    if options.validation_remote.is_none()
-        && (options.verify.is_none() || options.verify_controls)
-        && **state == GameState::Playing
+    if **state == GameState::Playing
         && cursors.iter().any(|(w, _)| !w.focused)
     {
         next.set(GameState::Paused);
@@ -418,8 +397,7 @@ pub(crate) fn pause_and_restart(
         next.set(GameState::StartingSession);
     }
     for (window, mut cursor) in &mut cursors {
-        let capture = (options.verify.is_none() || options.verify_controls)
-            && window.focused
+        let capture = window.focused
             && **state == GameState::Playing;
         let grab_mode = if capture {
             CursorGrabMode::Locked
