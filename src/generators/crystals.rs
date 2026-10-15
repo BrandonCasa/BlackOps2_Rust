@@ -2,15 +2,13 @@ use crate::{
     GameState,
     assets::GameDefinition,
     gameplay::{Session, SessionEntity},
-    origins::{ContentCatalog, ContentId},
+    origins::{ContentId},
     presentation::cues::CueParameters,
 };
 use bevy::prelude::*;
 use serde::Deserialize;
-use std::collections::BTreeSet;
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CrystalProfile {
     initial_state: [f32; 4],
     sample_seconds: f32,
@@ -20,25 +18,14 @@ pub struct CrystalProfile {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct FlickerProfile {
     range: [f32; 2],
     transition_seconds: [f32; 2],
     hold_seconds: [f32; 2],
 }
 
-impl FlickerProfile {
-    fn valid(&self, sample_seconds: f32) -> bool {
-        [self.range, self.transition_seconds, self.hold_seconds]
-            .iter()
-            .all(|range| range.iter().all(|value| value.is_finite()) && range[0] <= range[1])
-            && self.transition_seconds[0] >= sample_seconds
-            && self.hold_seconds[0] > 0.
-    }
-}
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct CrystalDefinition {
     number: u8,
     generator: ContentId,
@@ -49,35 +36,6 @@ struct CrystalDefinition {
     yaw: f32,
 }
 
-impl CrystalProfile {
-    pub(crate) fn valid(&self, content: &ContentCatalog) -> bool {
-        let mut numbers = BTreeSet::new();
-        let mut targets = BTreeSet::new();
-        self.sample_seconds.is_finite()
-            && self.sample_seconds > 0.
-            && self.initial_state.iter().all(|value| value.is_finite())
-            && self.zombie_controlled.valid(self.sample_seconds)
-            && self.player_controlled.valid(self.sample_seconds)
-            && !self.crystals.is_empty()
-            && self.crystals.iter().all(|crystal| {
-                crystal.number > 0
-                    && numbers.insert(crystal.number)
-                    && targets.insert(&crystal.target)
-                    && !crystal.target.is_empty()
-                    && !crystal.generator.0.is_empty()
-                    && !crystal.source_model.is_empty()
-                    && crystal.position.iter().all(|value| value.is_finite())
-                    && crystal.yaw.is_finite()
-                    && content.generators.iter().all(|generator| {
-                        generator.number != crystal.number || generator.id == crystal.generator
-                    })
-                    && content.presentations.iter().any(|presentation| {
-                        presentation.id == crystal.presentation && presentation.scene.is_some()
-                    })
-            })
-            && numbers.contains(&1)
-    }
-}
 
 #[derive(Component)]
 struct CrystalGlow {
@@ -193,8 +151,6 @@ fn assemble(
     server: Res<AssetServer>,
     existing: Query<(Entity, &Name, &GlobalTransform), With<crate::assets::StaticPropRoot>>,
     mut inputs: Query<&mut CueParameters>,
-    mut failure: ResMut<crate::assets::LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
 ) {
     let Some(profile) = &game.generator_crystals else {
         return;
@@ -212,12 +168,7 @@ fn assemble(
             })
             .collect::<Vec<_>>();
         if candidates.len() > 1 {
-            failure.0 = format!(
-                "Source crystal {} resolves multiple existing scene owners",
-                crystal.target
-            );
-            next.set(GameState::LoadError);
-            return;
+            panic!("Source crystal {} resolves multiple existing scene owners", crystal.target);
         }
         let entity = if let Some(&entity) = candidates.first() {
             entity
@@ -229,12 +180,7 @@ fn assemble(
                 .find(|presentation| presentation.id == crystal.presentation)
                 .and_then(|presentation| presentation.scene.as_ref())
             else {
-                failure.0 = format!(
-                    "Source crystal {} presentation is unavailable",
-                    crystal.target
-                );
-                next.set(GameState::LoadError);
-                return;
+                panic!("Source crystal {} presentation is unavailable", crystal.target);
             };
             commands
                 .spawn((

@@ -106,12 +106,7 @@ pub struct NativeLimit {
 pub struct SoundCurve(pub [[f32; 2]; 8]);
 
 impl SoundCurve {
-    fn valid(&self) -> bool {
-        self.0
-            .iter()
-            .all(|point| point.iter().all(|value| value.is_finite()))
-            && self.0.windows(2).all(|points| points[0][0] <= points[1][0])
-    }
+
     fn sample(&self, value: f32) -> f32 {
         let value = if value.is_nan() { 0. } else { value };
         if value <= self.0[0][0] {
@@ -201,61 +196,7 @@ impl NativeSound {
             / (self.priority_threshold[1] - self.priority_threshold[0]);
         self.priority[0] as f32 * (1. - fraction) + self.priority[1] as f32 * fraction
     }
-    fn valid(&self, game: &GameDefinition) -> bool {
-        self.id != 0
-            && self.bus < 9
-            && self.obstruction.is_finite()
-            && (0. ..=1.).contains(&self.obstruction)
-            && self
-                .pan
-                .iter()
-                .flatten()
-                .all(|gain| gain.is_finite() && *gain >= 0.)
-            && game.audio.master.is_some()
-            && self.duck_group < 32
-            && self
-                .duck
-                .is_none_or(|id| game.audio.ducks.contains_key(&id))
-            && self.motion <= 7
-            && self.motion_seconds.is_finite()
-            && self.motion_seconds >= 0.
-            && self.randomize <= 7
-            && self.volume_max.is_finite()
-            && self.volume_max >= 0.
-            && self.limit.policy <= 3
-            && self.entity_limit.policy <= 3
-            && self.delay.is_finite()
-            && self.delay >= 0.
-            && self.fades.iter().all(|value| value.is_finite())
-            && self
-                .priority_threshold
-                .iter()
-                .all(|value| value.is_finite() && (0. ..=1.).contains(value))
-            && self.curves.iter().all(SoundCurve::valid)
-            && self.reverb_curves.iter().all(SoundCurve::valid)
-            && self.reverb_send.is_finite()
-            && (0. ..=100.).contains(&self.reverb_send)
-            && self
-                .wet_distance
-                .iter()
-                .all(|value| value.is_finite() && *value >= 0.)
-            && self
-                .secondary
-                .as_ref()
-                .is_none_or(|alias| game.audio.named_alias(alias).is_some())
-            && match &self.sound {
-                Some(id) => {
-                    self.seconds
-                        .is_some_and(|seconds| seconds.is_finite() && seconds > 0.)
-                        && game.content.sounds.iter().any(|sound| {
-                            sound.id == *id
-                                && sound.volume <= self.volume_max
-                                && (!self.spatial || sound.distance >= sound.distance_min)
-                        })
-                }
-                None => self.seconds.is_none(),
-            }
-    }
+
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -276,25 +217,7 @@ pub struct WaterDefinition {
     pub triangles: Vec<[[f32; 3]; 3]>,
 }
 impl WaterDefinition {
-    fn valid(&self) -> bool {
-        self.volumes.len() <= 65536
-            && self.triangles.len() <= 1048576
-            && self.volumes.iter().all(|planes| {
-                (6..=1024).contains(&planes.len())
-                    && planes.iter().all(|plane| {
-                        plane.iter().all(|value| value.is_finite())
-                            && (plane[..3].iter().map(|value| value * value).sum::<f32>() - 1.)
-                                .abs()
-                                < 0.001
-                    })
-            })
-            && self
-                .triangles
-                .iter()
-                .flatten()
-                .flatten()
-                .all(|value| value.is_finite())
-    }
+
     fn touches(&self, position: Vec3) -> bool {
         let start = position + Vec3::Y * 200. * 0.0254;
         let movement = Vec3::NEG_Y * 400. * 0.0254;
@@ -386,139 +309,7 @@ impl AudioDefinition {
             })
             .map(String::as_str)
     }
-    pub fn valid(&self, game: &GameDefinition) -> bool {
-        self.character < 4
-            && self.master.as_ref().is_none_or(MasterDefinition::valid)
-            && self
-                .rooms
-                .values()
-                .all(|room| room.parameters.iter().all(|value| value.is_finite()))
-            && (!self
-                .aliases
-                .values()
-                .flat_map(|alias| &alias.native)
-                .any(|sound| sound.reverb_send > 0.)
-                || (self.rooms.contains_key("tomb_outdoor")
-                    && self
-                        .room_contexts
-                        .keys()
-                        .all(|room| self.rooms.contains_key(room))))
-            && self.ducks.values().all(DuckProfile::valid)
-            && self.water.valid()
-            && (self.footsteps.is_empty()
-                || (self.footsteps.len() == 32
-                    && self.footsteps.iter().flatten().flatten().all(|alias| {
-                        self.named_alias(alias).is_some() || self.absent_alias(alias).is_some()
-                    })))
-            && self.aliases.len() <= 8192
-            && self
-                .aliases
-                .keys()
-                .map(|name| name.to_ascii_lowercase())
-                .collect::<BTreeSet<_>>()
-                .len()
-                == self.aliases.len()
-            && self.emitters.len() <= 4096
-            && self.aliases.iter().all(|(name, a)| {
-                if !a.native.is_empty() {
-                    return !name.is_empty()
-                        && a.native.len() <= 64
-                        && a.native.iter().all(|sound| sound.valid(game));
-                }
-                !name.is_empty()
-                    && !a.sounds.is_empty()
-                    && a.limit > 0
-                    && a.limit <= 32
-                    && a.seconds.is_finite()
-                    && a.seconds > 0.
-                    && a.reverb_send.is_finite()
-                    && (0. ..=100.).contains(&a.reverb_send)
-                    && a.wet_distance_min.is_finite()
-                    && a.wet_distance_min >= 0.
-                    && a.wet_distance_max.is_finite()
-                    && a.wet_distance_max >= a.wet_distance_min
-                    && a.secondary
-                        .as_ref()
-                        .is_none_or(|n| self.named_alias(n).is_some())
-                    && a.sounds.iter().all(|id| {
-                        game.content
-                            .sounds
-                            .iter()
-                            .any(|s| s.id == *id && (!a.spatial || s.distance > s.distance_min))
-                    })
-            })
-            && self.aliases.keys().all(|name| {
-                let mut pending = vec![(name.as_str(), BTreeSet::new())];
-                while let Some((name, mut path)) = pending.pop() {
-                    let Some((name, alias)) = self.named_alias(name) else {
-                        return false;
-                    };
-                    if !path.insert(name) {
-                        return false;
-                    }
-                    let secondary = if alias.native.is_empty() {
-                        alias
-                            .secondary
-                            .iter()
-                            .map(String::as_str)
-                            .collect::<Vec<_>>()
-                    } else {
-                        alias
-                            .native
-                            .iter()
-                            .filter_map(|sound| sound.secondary.as_deref())
-                            .collect()
-                    };
-                    pending.extend(secondary.into_iter().map(|name| (name, path.clone())));
-                }
-                true
-            })
-            && self
-                .bindings
-                .values()
-                .all(|name| self.named_alias(name).is_some())
-            && game.content.barriers.iter().all(|barrier| {
-                barrier
-                    .audio
-                    .repair
-                    .iter()
-                    .flatten()
-                    .chain(barrier.boards.iter().flat_map(|board| {
-                        [&board.audio.opening, &board.audio.hover]
-                            .into_iter()
-                            .flatten()
-                    }))
-                    .all(|name| self.named_alias(name).is_some())
-            })
-            && self.timelines.iter().all(|(id, notes)| {
-                game.content.animations.iter().any(|a| a.id.0 == *id)
-                    && notes.iter().all(|n| {
-                        n.seconds.is_finite()
-                            && n.seconds >= 0.
-                            && (self.named_alias(&n.alias).is_some()
-                                || self.absent_alias(&n.alias).is_some())
-                    })
-            })
-            && self.emitters.iter().all(|e| {
-                e.position.iter().all(|x| x.is_finite()) && self.named_alias(&e.alias).is_some()
-            })
-            && self.surfaces.values().all(|s| {
-                matches!(
-                    s.as_str(),
-                    "mud"
-                        | "dirt"
-                        | "wood"
-                        | "metal"
-                        | "brick"
-                        | "concrete"
-                        | "rock"
-                        | "gravel"
-                        | "grass"
-                        | "water"
-                        | "default"
-                )
-            })
-    }
+
 }
 #[derive(Resource, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -811,33 +602,7 @@ pub struct DynamicsDefinition {
 }
 
 impl MasterDefinition {
-    fn valid(&self) -> bool {
-        self.gain.is_finite()
-            && self.gain >= 0.
-            && self
-                .buses
-                .iter()
-                .all(|gain| gain.is_finite() && *gain >= 0.)
-            && self.equalizers.iter().all(|eq| {
-                [eq.gain, eq.frequency, eq.quality]
-                    .iter()
-                    .all(|value| value.is_finite())
-                    && (!eq.enabled || (eq.frequency > 0. && eq.quality > 0.))
-            })
-            && [&self.compressor, &self.limiter].iter().all(|dynamics| {
-                [
-                    dynamics.pre_gain,
-                    dynamics.post_gain,
-                    dynamics.threshold,
-                    dynamics.ratio,
-                    dynamics.attack,
-                    dynamics.release,
-                ]
-                .iter()
-                .all(|value| value.is_finite() && *value >= 0.)
-                    && (!dynamics.enabled || (dynamics.threshold > 0. && dynamics.ratio > 0.))
-            })
-    }
+
 }
 
 #[derive(Clone, Deserialize)]
@@ -859,19 +624,7 @@ pub struct DuckProfile {
     pub update_while_paused: bool,
 }
 impl DuckProfile {
-    fn valid(&self) -> bool {
-        !self.name.is_empty()
-            && self
-                .fades
-                .iter()
-                .chain([&self.delay, &self.distance, &self.length])
-                .all(|value| value.is_finite() && *value >= 0.)
-            && self
-                .attenuation
-                .iter()
-                .chain(&self.filter)
-                .all(|value| value.is_finite() && (0. ..=1.).contains(value))
-    }
+
     fn amount(&self, age: f32, stopped: Option<f32>, distance: f32) -> Option<f32> {
         let start = age - self.delay;
         let fade = if let Some(stopped) = stopped.filter(|stopped| age > *stopped) {
@@ -2644,7 +2397,6 @@ mod tests {
             ]],
             triangles: Vec::new(),
         };
-        assert!(water.valid());
         assert!(water.touches(Vec3::new(0., -0.5, 0.)));
         assert!(!water.touches(Vec3::new(0., 0.1, 0.)));
         assert!(!water.touches(Vec3::new(2., -0.5, 0.)));

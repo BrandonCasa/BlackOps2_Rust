@@ -9,7 +9,7 @@ pub mod support;
 pub mod triggers;
 pub mod weather;
 #[derive(Clone, Default, serde::Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct EnvironmentDefinition {
     pub mud: Option<MudDefinition>,
     pub triggers: Vec<triggers::TriggerDefinition>,
@@ -20,7 +20,6 @@ pub struct EnvironmentDefinition {
     pub crafting_benches: Vec<crate::crafting::BenchDefinition>,
 }
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MudDefinition {
     pub scale: f32,
     pub stamin_scale: f32,
@@ -30,7 +29,6 @@ pub struct MudDefinition {
     pub volumes: Vec<VolumeDefinition>,
 }
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct VolumeDefinition {
     pub id: String,
     pub position: [f32; 3],
@@ -39,88 +37,6 @@ pub struct VolumeDefinition {
     pub contents: u32,
     #[serde(default)]
     pub surface_flags: Vec<u32>,
-}
-impl EnvironmentDefinition {
-    pub fn valid(&self, game: &GameDefinition) -> bool {
-        !self.crafting_benches.is_empty()
-            && triggers::valid(&self.triggers)
-            && brushes::valid(&self.brush_entities)
-            && support::valid(self)
-            && parts::valid(&self.parts, &game.content)
-            && self.crafting_benches.iter().all(|bench| {
-                !bench.id.is_empty()
-                    && !bench.source_trigger.is_empty()
-                    && !bench.targetname.is_empty()
-                    && !bench.equipname.is_empty()
-                    && self.triggers.iter().any(|trigger| {
-                        trigger.id == bench.source_trigger
-                            && trigger.source.get("targetname") == Some(&bench.targetname)
-                    })
-                    && self.ownership.iter().any(|owner| {
-                        owner.id == bench.source_trigger
-                            && owner.owner == support::EnvironmentOwner::Crafting
-                            && !owner.shootable
-                    })
-                    && bench
-                        .position
-                        .iter()
-                        .chain(&bench.angles)
-                        .all(|value| value.is_finite())
-                    && bench
-                        .dimensions
-                        .iter()
-                        .all(|value| value.is_finite() && *value > 0.)
-                    && bench.use_seconds.is_finite()
-                    && bench.use_seconds > 0.
-            })
-            && self
-                .crafting_benches
-                .iter()
-                .map(|bench| &bench.id)
-                .collect::<std::collections::BTreeSet<_>>()
-                .len()
-                == self.crafting_benches.len()
-            && self
-                .crafting_benches
-                .iter()
-                .map(|bench| &bench.source_trigger)
-                .collect::<std::collections::BTreeSet<_>>()
-                .len()
-                == self.crafting_benches.len()
-            && self.digging.as_ref().is_none_or(|d| d.valid(game))
-            && self.mud.as_ref().is_none_or(|m| {
-                [m.scale, m.stamin_scale, m.step, m.stamin_step, m.interval]
-                    .iter()
-                    .all(|v| v.is_finite() && *v > 0.)
-                    && m.scale <= m.stamin_scale
-                    && m.stamin_scale <= 1.
-                    && m.step <= 1.
-                    && m.stamin_step <= m.step
-                    && !m.volumes.is_empty()
-                    && m.volumes.len() <= 4096
-                    && m.volumes.iter().all(|v| {
-                        !v.id.is_empty()
-                            && v.id.len() < 128
-                            && v.position.iter().all(|p| p.is_finite())
-                            && (4..=128).contains(&v.vertices.len())
-                            && v.vertices.iter().flatten().all(|p| p.is_finite())
-                            && Collider::convex_hull(
-                                &v.vertices
-                                    .iter()
-                                    .copied()
-                                    .map(Vec3::from_array)
-                                    .collect::<Vec<_>>(),
-                            )
-                            .is_some()
-                    })
-                    && m.volumes
-                        .iter()
-                        .map(|v| &v.id)
-                        .collect::<std::collections::BTreeSet<_>>()
-                        .len()
-                        == m.volumes.len()
-            })
-    }
 }
 pub fn solids(excluded: impl IntoIterator<Item = Entity>) -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask(LayerMask::DEFAULT).with_excluded_entities(excluded)

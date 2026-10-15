@@ -21,7 +21,6 @@ pub struct RoundEnding {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RoundProfile {
     pub health_start: u32,
     pub health_increase: u32,
@@ -56,47 +55,8 @@ fn native_actor_think_seconds() -> f32 {
     0.05
 }
 impl RoundProfile {
-    pub fn valid(&self) -> bool {
-        self.health_start > 0
-            && self.health_start <= i32::MAX as u32
-            && self.health_increase > 0
-            && self.health_increase <= i32::MAX as u32
-            && self.exponential_round >= 2
-            && self.population_base > 0
-            && self.population_round_divisor > 0
-            && self.population_acceleration_round > 0
-            && self.ordinary_cap > 0
-            && self.actor_cap >= self.ordinary_cap
-            && (1..=8).contains(&self.corpse_limit)
-            && self.actor_think_seconds.is_finite()
-            && self.actor_think_seconds > 0.
-            && self.speed_random_band > 0
-            && self.speed_multiplier > 0
-            && self.gait_thresholds[0] < self.gait_thresholds[1]
-            && [
-                self.health_multiplier,
-                self.solo_population_increment,
-                self.population_acceleration,
-            ]
-            .iter()
-            .all(|v| v.is_finite() && *v > 0.)
-            && self
-                .early_population
-                .iter()
-                .all(|v| v.is_finite() && *v > 0. && *v <= 1.)
-            && [
-                self.spawn_seconds,
-                self.spawn_decay,
-                self.minimum_spawn_seconds,
-                self.initial_spawn_seconds,
-                self.first_spawn_seconds,
-                self.between_round_seconds,
-            ]
-            .iter()
-            .all(|v| v.is_finite() && *v > 0.)
-            && self.spawn_decay <= 1.
-            && self.minimum_spawn_seconds <= self.spawn_seconds
-    }
+
+
     pub fn health(&self, round: u32) -> u32 {
         let mut health = self.health_start;
         for r in 2..=round.clamp(1, 255) {

@@ -71,7 +71,7 @@ impl SprintState {
 }
 
 #[derive(Clone, serde::Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct MobilityTuning {
     pub prone_height: f32,
     pub prone_eye: f32,
@@ -130,50 +130,8 @@ impl Default for MobilityTuning {
         }
     }
 }
-impl MobilityTuning {
-    pub fn valid(&self, radius: f32, crouch: f32) -> bool {
-        [
-            self.prone_height,
-            self.prone_eye,
-            self.prone_speed,
-            self.prone_step,
-            self.jump_recovery,
-            self.dive_jump_height,
-            self.dive_launch_multiplier,
-            self.dive_apex_seconds,
-            self.dive_recovery,
-            self.dive_startup,
-            self.dive_minimum_speed,
-            self.dive_exhaustion,
-            self.dive_slide,
-            self.dive_fall_minimum,
-            self.dive_fall_fatal,
-            self.fall_minimum,
-            self.fall_fatal,
-            self.landing_dip,
-            self.landing_seconds,
-            self.sway_limit,
-            self.sway_response,
-            self.walk_bob[0],
-            self.walk_bob[1],
-            self.sprint_bob[0],
-            self.sprint_bob[1],
-            self.stride[0],
-            self.stride[1],
-        ]
-        .iter()
-        .all(|v| v.is_finite() && *v > 0.)
-            && self.prone_height >= 2. * radius
-            && self.prone_height < crouch
-            && self.prone_eye < self.prone_height
-            && self.fall_minimum < self.fall_fatal
-            && self.dive_fall_minimum < self.dive_fall_fatal
-            && self.stance.valid()
-    }
-}
 
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct StanceTuning {
     pub seconds: [f32; 4],
     pub curves: [Vec<[f32; 2]>; 4],
@@ -231,20 +189,8 @@ impl Default for StanceTuning {
     }
 }
 impl StanceTuning {
-    fn valid(&self) -> bool {
-        self.seconds.iter().all(|v| v.is_finite() && *v > 0.)
-            && self.other_speed.is_finite()
-            && self.other_speed > 0.
-            && self.curves.iter().all(|curve| {
-                curve.len() >= 2
-                    && curve.first().unwrap()[0] == 0.
-                    && curve.last().unwrap()[0] == 100.
-                    && curve
-                        .iter()
-                        .all(|point| point.iter().all(|v| v.is_finite()))
-                    && curve.windows(2).all(|pair| pair[0][0] < pair[1][0])
-            })
-    }
+
+
     fn sample(&self, kind: usize, percent: f32) -> f32 {
         let points = &self.curves[kind];
         let Some(pair) = points.windows(2).find(|pair| percent <= pair[1][0]) else {

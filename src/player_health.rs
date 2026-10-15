@@ -9,7 +9,6 @@ use bevy::prelude::*;
 use serde::Deserialize;
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct HealthProfile {
     pub maximum: u32,
     pub regular_delay: f32,
@@ -23,32 +22,6 @@ pub struct HealthProfile {
     pub immunity_critical_enter: f32,
     pub immunity_critical_repeat: f32,
     pub feedback_seconds: f32,
-}
-impl HealthProfile {
-    pub fn valid(&self) -> bool {
-        self.maximum > 0
-            && self.maximum <= i32::MAX as u32
-            && [
-                self.regular_delay,
-                self.regular_step_fraction,
-                self.critical_delay,
-                self.critical_ratio,
-                self.critical_step_seconds,
-                self.critical_step_fraction,
-                self.worthy_damage_ratio,
-                self.immunity_regular,
-                self.immunity_critical_enter,
-                self.immunity_critical_repeat,
-                self.feedback_seconds,
-            ]
-            .iter()
-            .all(|v| v.is_finite() && *v > 0.)
-            && self.critical_delay >= self.regular_delay
-            && self.critical_ratio <= 1.
-            && self.regular_step_fraction <= 1.
-            && self.critical_step_fraction <= 1.
-            && self.worthy_damage_ratio <= 1.
-    }
 }
 #[derive(Component)]
 pub struct Recovery {

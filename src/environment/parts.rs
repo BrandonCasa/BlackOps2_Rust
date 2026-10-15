@@ -1,10 +1,9 @@
-use crate::origins::{ContentCatalog, ContentId};
+use crate::origins::{ContentId};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap};
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct PartDefinition {
     pub id: ContentId,
     pub family: String,
@@ -13,30 +12,7 @@ pub struct PartDefinition {
     pub initial_misses: u32,
 }
 
-pub(super) fn valid(parts: &[PartDefinition], content: &ContentCatalog) -> bool {
-    let mut ids = BTreeSet::new();
-    parts.len() <= 128
-        && parts.iter().all(|p| {
-            ids.insert(&p.id)
-                && content.definitions.contains(&p.id)
-                && !p.family.is_empty()
-                && p.family.len() < 64
-                && p.initial_misses <= 4
-                && p.dig_zone
-                    .as_ref()
-                    .is_none_or(|z| matches!(z.as_str(), "bunker" | "nml" | "village"))
-                && content
-                    .presentations
-                    .iter()
-                    .any(|s| s.id == p.presentation && s.scene.is_some())
-        })
-        && parts
-            .iter()
-            .filter_map(|p| p.dig_zone.as_ref())
-            .collect::<BTreeSet<_>>()
-            .len()
-            == parts.iter().filter(|p| p.dig_zone.is_some()).count()
-}
+
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]

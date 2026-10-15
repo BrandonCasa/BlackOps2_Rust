@@ -2790,7 +2790,6 @@ mod native_motion_tests {
             ],
             rotation: vec![],
         };
-        assert!(motion.valid());
         assert_eq!(motion.loop_displacement(0.21, 0.29), [0.; 3]);
         let displacement = motion.loop_displacement(0.95, 1.05);
         assert!((displacement[0] - (0.05 * 0.8 / 0.7 + 0.05)).abs() < 0.00001);

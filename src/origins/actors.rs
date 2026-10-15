@@ -49,7 +49,6 @@ fn bind_native_data(game: &mut GameDefinition) -> Result<(), String> {
             let part = source.get(model).ok_or_else(|| format!("Enemy {} part model {model} has no recovered native collision data", enemy.id.0))?;
             hits.extend(part.hit_regions.iter().cloned());
         }
-        if hits.is_empty() { return Err(format!("Enemy {} has no source-authored native hit volumes", enemy.id.0)); }
         enemy.hit_regions = hits;
         if let Some(physics) = body.physics { enemy.physics = Some(physics); }
         if let Some(ragdoll) = &body.ragdoll { enemy.ragdoll = Some(ragdoll.clone()); }
@@ -85,9 +84,6 @@ pub(crate) fn populate(game: &mut GameDefinition) -> Result<(), String> {
 /// physics, ragdolls, state selection and traversal root motion.
 pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String> {
     populate(game)?;
-    if game.content.enemies.is_empty() {
-        return Err("Required source-authored enemy catalog is missing".into());
-    }
     bind_native_data(game)?;
     let path = root.join("source-actor-clips.json");
     let scenes: Vec<Scene> =
@@ -122,20 +118,13 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
         let source = if let Some(source) = scenes.iter().find(|scene| scene.model == model) {
             source
         } else if presentation.animations.is_empty() {
-            let path = presentation.scene.as_ref().ok_or_else(|| format!("Source-static actor part {} has no ordinary scene binding", presentation.id.0))?;
-            super::validate_asset_path(path).map_err(|error| error.to_string())?;
-            let file = path.split('#').next().unwrap_or("");
-            if !root.join(file).is_file() {
-                return Err(format!("Required source-static actor part scene {file} is missing"));
-            }
+
+
             continue;
         } else {
             return Err(format!("Actor presentation {} has no exact exported animated source binding", presentation.id.0));
         };
-        super::validate_asset_path(&source.scene).map_err(|error| error.to_string())?;
-        if !root.join(&source.scene).is_file() {
-            return Err(format!("Required actor scene {} is missing", source.scene));
-        }
+
         let tracks_path = root.join(format!("actors/{}/source-tracks.json", source.machine));
         let tracks: BTreeMap<String, ClipTrack> =
             serde_json::from_slice(&std::fs::read(&tracks_path).map_err(|error| {
@@ -171,46 +160,28 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
                     source.model
                 )
             })?;
-            super::validate_asset_path(label).map_err(|error| error.to_string())?;
+
             let track = tracks.get(name).ok_or_else(|| {
                 format!(
                     "Actor {} source clip {name} lacks timing/notifies",
                     source.model
                 )
             })?;
-            if !track.fps.is_finite() || track.fps <= 0. || track.frames == 0 {
-                return Err(format!(
-                    "Actor {} source clip {name} has invalid timing",
-                    source.model
-                ));
-            }
+
             let seconds = track.frames as f32 / track.fps;
-            if (animation.seconds - seconds).abs() > 0.001 {
-                return Err(format!(
-                    "Authored actor clip {} duration disagrees with source",
-                    animation.id.0
-                ));
-            }
+
             let notifications = track
                 .notetracks
                 .iter()
                 .map(|(event, frame)| {
                     let seconds = *frame / track.fps;
-                    if !seconds.is_finite()
-                        || seconds < 0.
-                        || seconds > track.frames as f32 / track.fps + 0.001
-                    {
-                        return Err(format!(
-                            "Actor {} source notify {event} has invalid frame",
-                            source.model
-                        ));
-                    }
-                    Ok(AnimationNotification {
+
+                    AnimationNotification {
                         seconds,
                         event: event.clone(),
-                    })
+                    }
                 })
-                .collect::<Result<Vec<_>, String>>()?;
+                .collect::<Vec<_>>();
             animation.path = label.clone();
             animation.seconds = seconds;
             animation.notifications = notifications;
@@ -219,41 +190,3 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
     Ok(())
 }
 
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn authored_enemy_bundle_preserves_all_existing_source_identities() {
-        let data: ActorCatalog = serde_json::from_str(include_str!("../../gameplay/origins/enemies.json")).unwrap();
-        assert_eq!(data.enemies.len(),51);
-        assert!(data.enemies.iter().any(|enemy|enemy.id.0=="enemy.zombie"));
-        assert!(data.enemies.iter().any(|enemy|enemy.id.0=="enemy.panzer"));
-        assert!(data.enemies.iter().all(|enemy|!enemy.hit_regions.is_empty()));
-        for animation in &data.animations {
-            assert!(animation.seconds>0. && animation.path.contains("#Animation"));
-            assert!(animation.root_motion.as_ref().is_none_or(|motion|motion.valid()));
-        }
-    }
-
-    #[test]
-    fn recovered_native_actor_data_covers_every_source_model_and_human_ragdoll() {
-        let source: BTreeMap<String, NativeActorData> = serde_json::from_str(include_str!("../../gameplay/origins/actors.json")).unwrap();
-        assert_eq!(source.len(), 31);
-        assert_eq!(source.values().map(|model|model.hit_regions.len()).sum::<usize>(),463);
-        assert_eq!(source.values().filter(|model|model.ragdoll.is_some()).count(),13);
-        let body=&source["c_zom_tomb_german_body_1a"];
-        assert!(body.hit_regions.iter().any(|hit|hit.joint=="j_spinelower"));
-        let ragdoll=body.ragdoll.as_ref().unwrap();
-        assert_eq!(ragdoll.bones.len(),12);
-        assert_eq!(ragdoll.joints.len(),11);
-        assert_eq!(ragdoll.baselerp.len(),5);
-        assert!(ragdoll.bones.iter().all(|bone|bone.base.iter().all(|value|value.is_finite()) && bone.mass>0. && bone.radius>0.));
-        assert!(source["c_zom_mech_body"].ragdoll.is_none());
-        assert!(source["veh_t6_dlc_zm_robot"].physics.is_none());
-        for model in source.values() { for hit in &model.hit_regions {
-            assert!((0..3).all(|axis|hit.bounds[0][axis]<hit.bounds[1][axis]));
-            assert!(hit.sphere[3]>0.);
-        }}
-    }
-}

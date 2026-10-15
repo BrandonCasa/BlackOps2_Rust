@@ -2,7 +2,7 @@
 mod visuals;
 use crate::{
     GameState,
-    assets::{GameDefinition, LoadFailure},
+    assets::GameDefinition,
     gameplay::SessionEntity,
 };
 use bevy::{asset::RecursiveDependencyLoadState, math::Affine2, prelude::*};
@@ -244,40 +244,11 @@ impl Plugin for NativeFxPlugin {
         );
     }
 }
-fn load_catalog(
-    mut commands: Commands,
-    mut failure: ResMut<LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
-) {
-    match serde_json::from_str::<Catalog>(include_str!("../gameplay/origins/fx_catalog.json")) {
-        Ok(catalog) => {
-            if catalog.random_table.len() < 512
-                || catalog
-                    .random_table
-                    .iter()
-                    // Channels -6..23 and native seeds 0..478 address 0..507.
-                    // The exported tail includes adjacent non-random constants.
-                    .take(508)
-                    .any(|value| !value.is_finite() || !(0. ..=1.).contains(value))
-            {
-                fail(
-                    &mut failure,
-                    &mut next,
-                    "Invalid recovered native FX random table".into(),
-                );
-                return;
-            }
-            commands.insert_resource(catalog);
-            commands.insert_resource(CloudPoints::native_initial_state());
-        }
-        Err(error) => {
-            fail(
-                &mut failure,
-                &mut next,
-                format!("Invalid source FX catalog: {error}"),
-            );
-        }
-    }
+fn load_catalog(mut commands: Commands) {
+    let catalog: Catalog = serde_json::from_str(include_str!("../gameplay/origins/fx_catalog.json"))
+        .expect("load source FX catalog");
+    commands.insert_resource(catalog);
+    commands.insert_resource(CloudPoints::native_initial_state());
 }
 pub(crate) fn emit(
     commands: &mut Commands,
@@ -323,12 +294,6 @@ fn integer_range(range: Range, catalog: &Catalog, seed: u64, offset: i32) -> f32
     range.base + ((bits * (range.amplitude as u32 + 1)) >> 16) as f32
 }
 
-fn fail(failure: &mut LoadFailure, next: &mut NextState<GameState>, text: String) {
-    error!("Unable to load Origins: {text}");
-    failure.0 = text;
-    next.set(GameState::LoadError);
-}
-
 // Source attached FX retain their initial orientation and only follow xyz.
 fn follow_source_attachments(
     mut commands: Commands,
@@ -364,8 +329,6 @@ fn spawn(
         Option<&Stopped>,
     )>,
     particles: Query<&Owned>,
-    mut failure: ResMut<LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
 ) {
     let Some(catalog) = catalog else {
         return;
@@ -378,15 +341,11 @@ fn spawn(
             continue;
         }
         let Some(effect) = catalog.effects.get(&emitter.name) else {
-            fail(
-                &mut failure,
-                &mut next,
-                format!(
+            panic!("{}", format!(
                     "Required source effect definition missing: {}",
                     emitter.name
                 ),
             );
-            return;
         };
         if emitter.next.is_empty() {
             let start_ms = (time.elapsed_secs() * 1000.) as u32;
@@ -468,8 +427,7 @@ fn spawn(
                     if let Err(error) =
                         visuals::sound(&mut commands, &game, alias, pose.translation)
                     {
-                        fail(&mut failure, &mut next, error);
-                        return;
+                        panic!("{}", error);
                     }
                 }
                 let visual = e
@@ -484,12 +442,8 @@ fn spawn(
                     if let Some(name) = visual.and_then(|v| v.effect.as_ref()) {
                         emit(&mut commands, name, pose);
                     } else {
-                        fail(
-                            &mut failure,
-                            &mut next,
-                            format!("Source runner has no effect: {}", emitter.name),
+                        panic!("{}", format!("Source runner has no effect: {}", emitter.name),
                         );
-                        return;
                     }
                     continue;
                 }
@@ -498,21 +452,12 @@ fn spawn(
                         if let Err(error) =
                             visuals::sound(&mut commands, &game, alias, pose.translation)
                         {
-                            fail(&mut failure, &mut next, error);
-                            return;
+                            panic!("{}", error);
                         }
                     }
                     continue;
                 }
                 let life = integer_range(e.life_ms, &catalog, particle_seed, 11) * 0.001;
-                if !life.is_finite() || life <= 0. {
-                    fail(
-                        &mut failure,
-                        &mut next,
-                        format!("Invalid source effect element lifetime: {}", emitter.name),
-                    );
-                    return;
-                }
                 let particle_entity = commands
                     .spawn((SessionEntity, Owned(entity), pose, Visibility::default()))
                     .id();
@@ -540,14 +485,6 @@ fn spawn(
                 };
                 if !matches!(e.kind, 7 | 8) {
                     let entries = e.atlas.entry_count_and_range & 0x1ff;
-                    if entries == 0 {
-                        fail(
-                            &mut failure,
-                            &mut next,
-                            "Source FX atlas has no entries".into(),
-                        );
-                        return;
-                    }
                     particle.atlas_start = match e.atlas.behavior & 3 {
                         0 => e.atlas.index,
                         1 => {
@@ -563,20 +500,15 @@ fn spawn(
                     visuals::light(&mut commands, particle_entity);
                 } else if e.kind == 7 {
                     let Some(model) = visual.and_then(|v| v.model.as_ref()) else {
-                        fail(
-                            &mut failure,
-                            &mut next,
-                            format!("Source model effect has no model: {}", emitter.name),
+                        panic!("{}", format!("Source model effect has no model: {}", emitter.name),
                         );
-                        return;
                     };
                     match visuals::model(&mut commands, &server, particle_entity, model) {
                         Ok(scene) => {
                             particle.scene = Some(scene);
                         }
                         Err(error) => {
-                            fail(&mut failure, &mut next, error);
-                            return;
+                            panic!("{}", error);
                         }
                     }
                 } else {
@@ -588,23 +520,15 @@ fn spawn(
                         }
                     });
                     let Some(name) = name else {
-                        fail(
-                            &mut failure,
-                            &mut next,
-                            format!(
+                        panic!("{}", format!(
                                 "Source effect type {} has no visual: {}",
                                 e.kind, emitter.name
                             ),
                         );
-                        return;
                     };
                     let Some(source) = catalog.materials.get(name.trim_start_matches(',')) else {
-                        fail(
-                            &mut failure,
-                            &mut next,
-                            format!("Required source effect material missing: {name}"),
+                        panic!("{}", format!("Required source effect material missing: {name}"),
                         );
-                        return;
                     };
                     let image = server.load(source.image.clone());
                     particle.image = Some(image.clone());
@@ -618,24 +542,16 @@ fn spawn(
                             "mask" => AlphaMode::Mask(match source.alpha_cutoff {
                                 Some(value) => value,
                                 None => {
-                                    fail(
-                                        &mut failure,
-                                        &mut next,
-                                        format!(
+                                    panic!("{}", format!(
                                             "Source masked FX material has no alpha cutoff: {name}"
                                         ),
                                     );
-                                    return;
                                 }
                             }),
                             "opaque" => AlphaMode::Opaque,
                             other => {
-                                fail(
-                                    &mut failure,
-                                    &mut next,
-                                    format!("Unsupported source effect alpha mode: {other}"),
+                                panic!("{}", format!("Unsupported source effect alpha mode: {other}"),
                                 );
-                                return;
                             }
                         },
                         ..default()
@@ -652,15 +568,11 @@ fn spawn(
                         particle.material = Some(handle.clone());
                         let mesh = if e.kind == 5 {
                             let Some(trail) = &e.trail else {
-                                fail(
-                                    &mut failure,
-                                    &mut next,
-                                    format!(
+                                panic!("{}", format!(
                                         "Required source trail geometry missing: {}",
                                         emitter.name
                                     ),
                                 );
-                                return;
                             };
                             let start = emitter.trail_points[i].unwrap_or(pose.translation);
                             emitter.trail_points[i] = Some(pose.translation);
@@ -668,8 +580,7 @@ fn spawn(
                             match trail_mesh(trail, pose, start, Vec2::ZERO) {
                                 Ok(mesh) => mesh,
                                 Err(error) => {
-                                    fail(&mut failure, &mut next, error);
-                                    return;
+                                    panic!("{}", error);
                                 }
                             }
                         } else {
@@ -765,15 +676,6 @@ fn schedule_element(
 }
 fn trail_mesh(source: &Trail, pose: Transform, start: Vec3, size: Vec2) -> Result<Mesh, String> {
     use bevy::mesh::{Indices, PrimitiveTopology};
-    if source.vertices.is_empty()
-        || source.indices.len() % 2 != 0
-        || source
-            .indices
-            .iter()
-            .any(|i| *i as usize >= source.vertices.len())
-    {
-        return Err("Invalid source trail cross section".into());
-    }
     let local_start = pose.rotation.inverse() * (start - pose.translation);
     let length = local_start.length();
     let sections = if source.split_distance > 0. {
@@ -878,9 +780,6 @@ fn visual(s: &VisualSample, r: f32, seed: u64, catalog: &Catalog) -> ([f32; 4], 
 // Exact native atlas stepping recovered from 005b5130.
 fn atlas_transform(atlas: &Atlas, start: u32, age: f32, life: f32) -> Result<Affine2, String> {
     let entries = atlas.entry_count_and_range & 0x1ff;
-    if entries == 0 {
-        return Err("Source FX atlas has zero entries".into());
-    }
     if entries == 1 {
         return Ok(Affine2::IDENTITY);
     }
@@ -889,9 +788,6 @@ fn atlas_transform(atlas: &Atlas, start: u32, age: f32, life: f32) -> Result<Aff
     } else {
         entries
     };
-    if range == 0 {
-        return Err("Source FX atlas has zero index range".into());
-    }
     let advance = if atlas.behavior & 4 != 0 {
         (age / life * range as f32) as u32
     } else {
@@ -936,8 +832,6 @@ fn animate(
         Option<&mut PointLight>,
         Option<&Mesh3d>,
     )>,
-    mut failure: ResMut<LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
 ) {
     let camera = cameras
         .iter()
@@ -957,12 +851,8 @@ fn animate(
         };
         match state {
             Some(RecursiveDependencyLoadState::Failed(error)) => {
-                fail(
-                    &mut failure,
-                    &mut next,
-                    format!("Required source effect dependency failed: {error}"),
+                panic!("{}", format!("Required source effect dependency failed: {error}"),
                 );
-                return;
             }
             Some(RecursiveDependencyLoadState::Loaded) => {}
             _ => continue,
@@ -1033,12 +923,8 @@ fn animate(
         }
         if let Some(child) = &e.effect_emitted {
             if p.emit_step <= 0. {
-                fail(
-                    &mut failure,
-                    &mut next,
-                    "Source emitted effect has invalid distance interval".into(),
+                panic!("{}", "Source emitted effect has invalid distance interval",
                 );
-                return;
             }
             let mut distance = pose.translation.distance(p.emitted_at);
             while distance >= p.emit_step {
@@ -1105,20 +991,15 @@ fn animate(
                         }
                     }
                     Err(error) => {
-                        fail(&mut failure, &mut next, error);
-                        return;
+                        panic!("{}", error);
                     }
                 }
             }
         }
         if e.kind == 6 {
             let Some(density) = e.cloud_density else {
-                fail(
-                    &mut failure,
-                    &mut next,
-                    "Source cloud has no density range".into(),
+                panic!("{}", "Source cloud has no density range",
                 );
-                return;
             };
             let count = integer_range(density, &catalog, p.seed, 23).clamp(1., 1024.) as usize;
             let selection = channel(&catalog, p.seed, 23).to_bits() & 0xffff;
@@ -1161,8 +1042,7 @@ fn animate(
         let mut uv = match atlas_transform(&e.atlas, p.atlas_start, p.age, p.life) {
             Ok(uv) => uv,
             Err(error) => {
-                fail(&mut failure, &mut next, error);
-                return;
+                panic!("{}", error);
             }
         };
         if let Some(trail) = &e.trail {

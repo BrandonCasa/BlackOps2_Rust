@@ -25,7 +25,6 @@ const ENGINE_SURFACES: [&str; 33] = [
     "asphalt", "ceramic", "plastic", "rubber", "cushion", "fruit", "paintedmetal", "riotshield", "slush", "player", "tallgrass",
 ];
 
-
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
     pub asset_root: PathBuf,
@@ -384,11 +383,6 @@ impl WorldBrushes {
             .map(|(_, brush)| {
                 let midpoint = brush.bounds.mid.array();
                 let half = brush.bounds.half.array();
-                if midpoint.iter().any(|v| !v.is_finite())
-                    || half.iter().any(|v| !v.is_finite() || *v < 0.)
-                {
-                    return Err("External clipmap brush has invalid bounds".to_owned());
-                }
                 let mut planes = Vec::with_capacity(6 + brush.sides.len());
                 for axis in 0..3 {
                     let mut normal = [0.; 3];
@@ -403,11 +397,6 @@ impl WorldBrushes {
                         .into_iter()
                         .map(|side| plane(side.normal, side.dist)),
                 );
-                if planes.iter().any(|plane| {
-                    !plane.is_finite() || (plane.truncate().length_squared() - 1.).abs() > 0.001
-                }) {
-                    return Err("External clipmap brush has invalid planes".to_owned());
-                }
                 Ok((brush.contents, planes))
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -502,11 +491,16 @@ fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String
     let Some(VertexAttributeValues::Float32(surfaces)) = mesh.attribute(ATTRIBUTE_SURFACE) else {
         return Err("Required collision mesh has no Float32 _SURFACE attribute".into());
     };
-    if surfaces.len() != positions.len() || surfaces.iter().any(|id| !id.is_finite() || *id < 0. || id.fract() != 0. || *id >= ENGINE_SURFACES.len() as f32) {
+    if surfaces.len() != positions.len() {
         return Err("Required collision mesh contains invalid _SURFACE IDs or vertex count".into());
     }
     let indices: Vec<u32> = if let Some(indices) = mesh.indices() {
-        indices.iter().map(|index| u32::try_from(index).map_err(|_| "Collision vertex index exceeds u32".to_owned())).collect::<Result<_, _>>()?
+        indices
+            .iter()
+            .map(|index| {
+                u32::try_from(index).map_err(|_| "Collision vertex index exceeds u32".to_owned())
+            })
+            .collect::<Result<_, _>>()?
     } else {
         (0..u32::try_from(positions.len()).map_err(|_| "Collision vertex count exceeds u32")?).collect()
     };
@@ -522,11 +516,20 @@ fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String
         }
         groups.entry(ids[0] as usize).or_default().extend_from_slice(triangle);
     }
-    groups.into_iter().map(|(surface, indices)| {
-        let group = mesh.clone().with_inserted_indices(Indices::U32(indices));
-        world_mesh_collider(&group).map(|collider| (surface, collider))
-            .ok_or_else(|| format!("Cannot construct collision surface {}", ENGINE_SURFACES[surface]))
-    }).collect()
+    groups
+        .into_iter()
+        .map(|(surface, indices)| {
+            let group = mesh.clone().with_inserted_indices(Indices::U32(indices));
+            world_mesh_collider(&group)
+                .map(|collider| (surface, collider))
+                .ok_or_else(|| {
+                    format!(
+                        "Cannot construct collision surface {}",
+                        ENGINE_SURFACES[surface]
+                    )
+                })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -775,18 +778,6 @@ impl StaticProp {
         let source_rotation = Mat3::from_cols_array_2d(&self.axis);
         let frame = Mat3::from_cols(Vec3::X, Vec3::NEG_Z, Vec3::Y);
         let rotation = frame * source_rotation * frame.transpose();
-        if !position.is_finite()
-            || !self.scale.is_finite()
-            || self.scale <= 0.
-            || !rotation.is_finite()
-            || (rotation.determinant() - 1.).abs() > 0.001
-            || (rotation.transpose() * rotation - Mat3::IDENTITY)
-                .to_cols_array()
-                .iter()
-                .any(|v| v.abs() > 0.001)
-        {
-            return Err(format!("Invalid exported static prop pose: {}", self.model));
-        }
         // OAT GLBs already use Y-up but retain source inches.
         Ok(Transform {
             translation: position,
@@ -822,17 +813,25 @@ impl Plugin for GameAssetsPlugin {
         app.init_resource::<LoadFailure>()
             .add_systems(OnEnter(GameState::Loading), begin_load)
             .add_observer(scene_ready)
-            .add_systems(Update, finish_load.run_if(in_state(GameState::Loading)));
+            .add_systems(
+                Update,
+                (poll_definition, finish_load)
+                    .chain()
+                    .run_if(in_state(GameState::Loading)),
+            );
     }
 }
+
+type StaticProps = Vec<(String, String, Transform)>;
+#[derive(Resource)]
+struct DefinitionTask(
+    bevy::tasks::Task<Result<(GameDefinition, WorldBrushes, StaticProps), String>>,
+);
 
 pub(crate) fn begin_load(
     mut commands: Commands,
     config: Res<LoadConfiguration>,
     options: Res<LaunchOptions>,
-    server: Res<AssetServer>,
-    mut failure: ResMut<LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
     roots: Query<Entity, Or<(With<MapRoot>, With<StaticPropRoot>)>>,
 ) {
     for root in &roots {
@@ -840,24 +839,23 @@ pub(crate) fn begin_load(
     }
     commands.remove_resource::<Loading>();
     commands.remove_resource::<WorldBrushes>();
-    failure.0.clear();
-    let definition = (|| {
-        if let Some(error) = &options.error {
-            return Err(error.clone());
-        }
-        let config = config.0.as_ref().map_err(Clone::clone)?;
-        info!("Origins asset root: {}", config.root.display());
+    commands.remove_resource::<DefinitionTask>();
+    commands.insert_resource(LoadFailure::default());
+    if let Some(error) = &options.error { panic!("Invalid launch options: {error}"); }
+    let root = config.0.as_ref().expect("Invalid Origins asset root").root.clone();
+    let task = bevy::tasks::IoTaskPool::get().spawn(async move {
+        info!("Origins asset root: {}", root.display());
         let definition =
-            GameDefinition::load_from_root(&config.root).map_err(|error| error.to_string())?;
-        let volumes = config.root.join(&definition.collision_metadata);
+            GameDefinition::load_from_root(&root).map_err(|error| error.to_string())?;
+        let volumes = root.join(&definition.collision_metadata);
         let bytes = std::fs::read(&volumes).map_err(|error| {
             format!(
                 "Required external collision metadata {}: {error}",
                 volumes.display()
             )
         })?;
-        commands.insert_resource(WorldBrushes::load(&bytes)?);
-        let metadata_path = config.root.join(&definition.world_metadata);
+        let brushes = WorldBrushes::load(&bytes)?;
+        let metadata_path = root.join(&definition.world_metadata);
         let bytes = std::fs::read(&metadata_path).map_err(|error| {
             format!(
                 "Required world metadata {}: {error}",
@@ -870,9 +868,6 @@ pub(crate) fn begin_load(
                 metadata_path.display()
             )
         })?;
-        if metadata.static_models.is_empty() {
-            return Err("External world metadata contains no static model instances".into());
-        }
         let mut props = Vec::new();
         for prop in metadata.static_models {
             let transform = prop.transform()?;
@@ -880,19 +875,27 @@ pub(crate) fn begin_load(
                 continue;
             }
             let path = format!("model_export/{}_lod0.glb", prop.model);
-            crate::origins::validate_asset_path(&path).map_err(|error| error.to_string())?;
-            if !config.root.join(&path).is_file() {
-                return Err(format!(
-                    "Required static prop asset is missing: {}",
-                    config.root.join(path).display()
-                ));
-            }
             props.push((path, prop.model, transform));
         }
-        Ok((definition, props))
-    })();
-    match definition {
-        Ok((definition, props)) => {
+        Ok((definition, brushes, props))
+    });
+    commands.insert_resource(DefinitionTask(task));
+}
+
+fn poll_definition(
+    mut commands: Commands,
+    pending: Option<ResMut<DefinitionTask>>,
+    server: Res<AssetServer>,
+) {
+    let Some(mut pending) = pending else {
+        return;
+    };
+    let Some(definition) = bevy::tasks::futures::check_ready(&mut pending.0) else {
+        return;
+    };
+    commands.remove_resource::<DefinitionTask>();
+    let (definition, brushes, props) = definition.expect("Origins source asset loading failed");
+            commands.insert_resource(brushes);
             let mut handles = Vec::new();
             let scene_count = 2 + definition.additional_scenes.len();
             for (path, collision) in std::iter::once((&definition.scene, false))
@@ -905,7 +908,6 @@ pub(crate) fn begin_load(
                 )
             {
                 let handle: Handle<WorldAsset> = server.load(path.clone());
-                server.reload(path.clone());
                 commands.spawn((
                     WorldAssetRoot(handle.clone()),
                     MapRoot { collision },
@@ -931,13 +933,6 @@ pub(crate) fn begin_load(
                 colliders: 0,
                 started: Instant::now(),
             });
-        }
-        Err(error) => {
-            error!("Unable to load Origins: {error}");
-            failure.0 = error;
-            next.set(GameState::LoadError);
-        }
-    }
 }
 
 pub(crate) fn native_scene<'a>(game: &'a GameDefinition, model: &str) -> Option<&'a String> {
@@ -960,8 +955,6 @@ fn scene_ready(
     meshes: Res<Assets<Mesh>>,
     loading: Option<ResMut<Loading>>,
     mut commands: Commands,
-    mut failure: ResMut<LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
 ) {
     let Some(mut loading) = loading else { return };
     let Ok(root) = roots.get(event.entity) else {
@@ -974,9 +967,7 @@ fn scene_ready(
                 continue;
             };
             let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&extra.value) else {
-                failure.0 = format!("Invalid scene extras on {entity:?}");
-                next.set(GameState::LoadError);
-                return;
+                panic!("Invalid scene extras on {entity:?}");
             };
             let Some(part) = metadata["part"].as_str() else {
                 continue;
@@ -987,9 +978,7 @@ fn scene_ready(
                     .get("model")
                     .is_some_and(|model| model == part)
             }) else {
-                failure.0 = format!("Exported brush part {part} has no gameplay owner");
-                next.set(GameState::LoadError);
-                return;
+                panic!("Exported brush part {part} has no gameplay owner");
             };
             let owner = *owners.entry(part.to_owned()).or_insert_with(|| {
                 let owner = commands
@@ -1031,10 +1020,7 @@ fn scene_ready(
                     match serde_json::from_str::<serde_json::Value>(&extra.value) {
                         Ok(value) if value.get("group").is_some() => break Some(value),
                         Err(error) => {
-                            failure.0 =
-                                format!("Invalid collision extras on {ancestor:?}: {error}");
-                            next.set(GameState::LoadError);
-                            return;
+                            panic!("Invalid collision extras on {ancestor:?}: {error}");
                         }
                         _ => {}
                     }
@@ -1048,9 +1034,7 @@ fn scene_ready(
                 }
             };
             let Some(metadata) = metadata else {
-                failure.0 = format!("Collision mesh {entity:?} has no exported group metadata");
-                next.set(GameState::LoadError);
-                return;
+                panic!("Collision mesh {entity:?} has no exported group metadata");
             };
             if metadata.get("part").is_some() {
                 // The visible part's gameplay owner supplies its moving collider.
@@ -1066,48 +1050,66 @@ fn scene_ready(
                 })
                 .or_else(|| (metadata["group"] == "soup").then_some(1));
             let Some(contents) = contents else {
-                failure.0 = format!(
+                panic!(
                     "Collision group {:?} has no source contents",
                     metadata["group"]
                 );
-                next.set(GameState::LoadError);
-                return;
             };
             let groups = match meshes.get(&mesh.0).ok_or_else(|| "Required collision mesh asset is missing".to_owned()).and_then(world_surface_colliders) {
                 Ok(groups) => groups,
                 Err(error) => {
-                    failure.0 = format!("Collision mesh {:?}: {error}", mesh.0.path());
-                    next.set(GameState::LoadError);
-                    return;
+                    panic!("Collision mesh {:?}: {error}", mesh.0.path());
                 }
             };
             let source_flags = match metadata.get("surface_flags") {
                 None => 0,
-                Some(value) => match value.as_u64().and_then(|bits| u32::try_from(bits).ok())
-                    .or_else(|| value.as_str().and_then(|bits| u32::from_str_radix(bits.trim_start_matches("0x"), 16).ok())) {
+                Some(value) => match value
+                    .as_u64()
+                    .and_then(|bits| u32::try_from(bits).ok())
+                    .or_else(|| {
+                        value.as_str().and_then(|bits| {
+                            u32::from_str_radix(bits.trim_start_matches("0x"), 16).ok()
+                        })
+                    }) {
                     Some(bits) => bits,
                     None => {
-                        failure.0 = format!("Collision mesh {:?} has invalid exported surface_flags", mesh.0.path());
-                        next.set(GameState::LoadError);
-                        return;
+                        panic!(
+                            "Collision mesh {:?} has invalid exported surface_flags",
+                            mesh.0.path()
+                        );
                     }
                 },
             };
-            if let Some(error) = groups.iter().find_map(|(surface, _)| native_surface_type(*surface).err()) {
-                failure.0 = error;
-                next.set(GameState::LoadError);
-                return;
+            if let Some(error) = groups
+                .iter()
+                .find_map(|(surface, _)| native_surface_type(*surface).err())
+            {
+                panic!("{}", error);
             }
             // Keep the original mesh as the scene pivot; its children contain
             // disjoint original triangle groups, so there is no duplicate collider.
-            commands.entity(entity).remove::<(Collider, RigidBody, WorldCollider, WorldContents, WorldTerrain, CollisionLayers)>();
+            commands.entity(entity).remove::<(
+                Collider,
+                RigidBody,
+                WorldCollider,
+                WorldContents,
+                WorldTerrain,
+                CollisionLayers,
+            )>();
             for (surface, collider) in groups {
                 let mut child = commands.spawn((
                     ChildOf(entity), Transform::default(), Visibility::default(),
                     Name::new(format!("Collision surface {}", ENGINE_SURFACES[surface])),
-                    RigidBody::Static, collider, WorldCollider, WorldContents(contents),
-                    world_collision_layers(contents), crate::audio::SurfaceSound(ENGINE_SURFACES[surface].to_owned()),
-                    crate::movement::physics::SurfaceFlags((source_flags & !(0x3f << 20)) | (native_surface_type(surface).expect("surface type validated") << 20)),
+                    RigidBody::Static,
+                    collider,
+                    WorldCollider,
+                    WorldContents(contents),
+                    world_collision_layers(contents),
+                    crate::audio::SurfaceSound(ENGINE_SURFACES[surface].to_owned()),
+                    crate::movement::physics::SurfaceFlags(
+                        (source_flags & !(0x3f << 20))
+                            | (native_surface_type(surface).expect("surface type validated") << 20),
+                    ),
                 ));
                 if metadata["group"] == "soup" { child.insert(WorldTerrain); }
                 loading.colliders += 1;
@@ -1115,9 +1117,7 @@ fn scene_ready(
         }
     }
     if root.collision && loading.colliders == 0 {
-        failure.0 = "Required collision scene contains no usable collision meshes".into();
-        next.set(GameState::LoadError);
-        return;
+        panic!("Required collision scene contains no usable collision meshes");
     }
     loading.ready += 1;
 }
@@ -1128,13 +1128,9 @@ fn finish_load(
     loading: Option<ResMut<Loading>>,
     config: Res<LoadConfiguration>,
     server: Res<AssetServer>,
-    mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
     options: Res<LaunchOptions>,
 ) {
-    if !failure.0.is_empty() {
-        return;
-    }
     let Some(loading) = loading else {
         return;
     };
@@ -1152,13 +1148,10 @@ fn finish_load(
                 .as_ref()
                 .map(|c| c.root.display().to_string())
                 .unwrap_or_default();
-            failure.0 = format!(
+            panic!(
                 "Asset root: {root}\nRequired scene {:?}: {error}",
                 handle.path()
             );
-            error!("Unable to load Origins: {}", failure.0);
-            next.set(GameState::LoadError);
-            return;
         }
     }
     if loading.ready == loading.scene_count
@@ -1186,7 +1179,6 @@ fn finish_load(
             },
         );
     } else if loading.started.elapsed().as_secs() > 120 {
-        failure.0 = "Scene loading timed out or collision coverage is incomplete.".into();
-        next.set(GameState::LoadError);
+        panic!("Scene loading timed out or collision coverage is incomplete.");
     }
 }

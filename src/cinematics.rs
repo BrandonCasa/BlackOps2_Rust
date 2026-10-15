@@ -339,7 +339,6 @@ fn advance(
     mut frames: Query<&mut ImageNode, With<CinematicFrame>>,
     mut events: MessageReader<PlaybackEvent>,
     mut next: ResMut<NextState<GameState>>,
-    mut failure: ResMut<crate::assets::LoadFailure>,
 ) {
     if keys.just_pressed(KeyCode::Escape)
         || keys.just_pressed(KeyCode::Space)
@@ -357,8 +356,7 @@ fn advance(
             commands.entity(sound).try_despawn();
         }
         if playback.0.failed {
-            failure.0 = "Ending cinematic media could not be read".into();
-            next.set(GameState::LoadError);
+            panic!("Ending cinematic media could not be read");
         } else {
             next.set(GameState::GameOver);
         }
@@ -427,8 +425,6 @@ fn loading_advance(
     mut prompts: Query<&mut crate::hud::native::NativeText, With<SkipPrompt>>,
     roots: Query<Entity, With<CinematicRoot>>,
     mut events: MessageReader<PlaybackEvent>,
-    mut failure: ResMut<crate::assets::LoadFailure>,
-    mut next: ResMut<NextState<GameState>>,
 ) {
     for mut prompt in &mut prompts {
         let text = if playback.skippable { "ESC / SPACE   Skip" } else { "Loading world..." };
@@ -457,8 +453,7 @@ fn loading_advance(
             commands.entity(sound).try_despawn();
         }
         if playback.sequence.failed {
-            failure.0 = "Loading cinematic media could not be read".into();
-            next.set(GameState::LoadError);
+            panic!("Loading cinematic media could not be read");
         }
     }
 }

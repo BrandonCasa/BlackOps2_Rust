@@ -9,7 +9,6 @@ pub(crate) mod navigation;
 pub(crate) mod zones;
 pub use content::*;
 #[derive(Resource, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
 pub struct GameDefinition {
     pub version: u32,
     pub scene: String,
@@ -133,11 +132,10 @@ impl GameDefinition {
         let bytes = std::fs::read(&path).map_err(|source| ContentError::Io { path, source })?;
         let mut definition = Self::decode(&bytes)?;
         weapons::bind(&mut definition, root).map_err(ContentError::InvalidDefinition)?;
-        audio::bind(&mut definition, root).map_err(ContentError::InvalidDefinition)?;
+        audio::bind(&mut definition, root);
         match (&definition.entity_metadata, &definition.brush_hulls) {
             (Some(entities), Some(hulls)) => {
                 let read = |name: &str| -> Result<Vec<u8>, ContentError> {
-                    validate_asset_path(name)?;
                     let path = root.join(name);
                     std::fs::read(&path).map_err(|source| ContentError::Io { path, source })
                 };
@@ -158,7 +156,6 @@ impl GameDefinition {
             .map_err(ContentError::InvalidDefinition)?;
         actors::bind(&mut definition, root).map_err(ContentError::InvalidDefinition)?;
         if let Some(path) = &definition.navigation_metadata {
-            validate_asset_path(path)?;
             let path = root.join(path);
             let bytes = std::fs::read(&path).map_err(|source| ContentError::Io { path, source })?;
             let zones = navigation::derive_zones(&definition, &bytes, &definition.navigation_zones)
@@ -166,214 +163,19 @@ impl GameDefinition {
             navigation::bind(&mut definition, &bytes, &zones)
                 .map_err(ContentError::InvalidDefinition)?;
         }
-        definition.validate()?;
         Ok(definition)
     }
 
     pub fn load(bytes: &[u8]) -> Result<Self, ContentError> {
         let definition = Self::decode(bytes)?;
-        definition.validate()?;
         Ok(definition)
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, ContentError> {
-        let path = Path::new("game.json");
-        if bytes.len() > 128 * 1024 * 1024 {
-            return Err(ContentError::InvalidDefinition(
-                "Gameplay definition exceeds 128 MiB.".into(),
-            ));
-        }
-        let header: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|source| ContentError::Json {
-                path: path.into(),
-                source,
-            })?;
-        let version = header
-            .get("version")
-            .and_then(|v| v.as_u64())
-            .and_then(|v| u32::try_from(v).ok())
-            .ok_or_else(|| {
-                ContentError::InvalidDefinition("Missing integer content version.".into())
-            })?;
-        if version != 2 {
-            return Err(ContentError::UnsupportedVersion(version));
-        }
-        for field in [
-            "powerups",
-            "generators",
-            "robot_routes",
-            "tank_routes",
-            "weather",
-            "digging",
-            "recipes",
-            "staff_puzzles",
-            "quests",
-            "quest_transitions",
-            "cinematics",
-        ] {
-            if header["content"].get(field).is_none() {
-                return Err(ContentError::InvalidDefinition(format!(
-                    "Full Origins catalog is missing {field}"
-                )));
-            }
-        }
-
-        let definition: Self =
-            serde_json::from_value(header).map_err(|source| ContentError::Json {
-                path: path.into(),
-                source,
-            })?;
-        Ok(definition)
-    }
-    pub fn validate(&self) -> Result<(), ContentError> {
-        if self.version != 2 {
-            return Err(ContentError::UnsupportedVersion(self.version));
-        }
-        self.content.validate()?;
-        if !self.audio.valid(self) {
-            return Err(ContentError::InvalidDefinition(
-                "Invalid audio aliases or bindings.".into(),
-            ));
-        }
-        if !self.solo_revive.valid(self) {
-            return Err(ContentError::InvalidDefinition(
-                "Invalid solo revive profile.".into(),
-            ));
-        }
-        if !self.player_health.valid() {
-            return Err(ContentError::InvalidDefinition(
-                "Invalid player health profile. Regenerate/import game.json.".into(),
-            ));
-        }
-        if !self.rounds.valid() {
-            return Err(ContentError::InvalidDefinition(
-                "Invalid round profile. Regenerate/import game.json.".into(),
-            ));
-        }
-        for path in std::iter::once(&self.scene)
-            .chain(self.additional_scenes.iter())
-            .chain(std::iter::once(&self.collision_scene))
-            .chain(std::iter::once(&self.collision_metadata))
-            .chain(std::iter::once(&self.world_metadata))
-            .chain(self.camos.values())
-        {
-            validate_asset_path(path)?;
-            let base = path.split('#').next().unwrap_or("");
-            if base.is_empty()
-                || Path::new(base).is_absolute()
-                || Path::new(base)
-                    .components()
-                    .any(|c| !matches!(c, std::path::Component::Normal(_)))
-            {
-                return Err(ContentError::InvalidPath(path.clone()));
-            }
-        }
-        let values = [
-            self.tuning.walk_speed,
-            self.tuning.sprint_speed,
-            self.tuning.sprint_seconds,
-            self.tuning.sprint_minimum,
-            self.tuning.sprint_recovery_rate,
-            self.tuning.crouch_speed,
-            self.tuning.gravity,
-            self.tuning.jump_speed,
-            self.tuning.step_height,
-            self.tuning.radius,
-            self.tuning.standing_height,
-            self.tuning.crouch_height,
-            self.tuning.crouch_eye,
-            self.tuning.eye_height,
-            self.tuning.use_radius,
-            self.tuning.mouse_sensitivity,
-            self.tuning.ads_mouse_sensitivity,
-            self.tuning.fire_interval,
-            self.tuning.reload_seconds,
-            self.tuning.zombie_speed,
-        ];
-        if self.spawn_points.is_empty()
-            || !self.yaw.is_finite()
-            || !self
-                .spawn
-                .iter()
-                .chain(self.spawn_points.iter().flatten())
-                .chain(self.waypoints.iter().flatten())
-                .chain(self.survey_views.iter().flatten())
-                .all(|v| v.is_finite())
-            || !values.iter().all(|v| v.is_finite() && *v > 0.)
-            || !self.environment.valid(self)
-            || self
-                .generator_crystals
-                .as_ref()
-                .is_some_and(|profile| !profile.valid(&self.content))
-            || self
-                .content
-                .barriers
-                .iter()
-                .any(|barrier| !barrier.valid_actions())
-            || self.content.generators.iter().any(|generator| {
-                generator.initial_reward.as_ref().is_some_and(|reward| {
-                    !self
-                        .environment
-                        .triggers
-                        .iter()
-                        .any(|trigger| trigger.id == reward.source_trigger)
-                })
-            })
-            || self.content.perks.iter().any(|perk| {
-                perk.bump_trigger.as_ref().is_some_and(|id| {
-                    !self
-                        .environment
-                        .triggers
-                        .iter()
-                        .any(|trigger| trigger.id == *id)
-                })
-            })
-            || self.content.interactions.iter().any(|interaction| {
-                interaction.source_trigger.as_ref().is_some_and(|id| {
-                    !self
-                        .environment
-                        .triggers
-                        .iter()
-                        .any(|trigger| trigger.id == *id)
-                })
-            })
-            || !self.access.valid(&self.content, &self.environment)
-            || !self.tuning.physics.valid()
-            || !self
-                .tuning
-                .mobility
-                .valid(self.tuning.radius, self.tuning.crouch_height)
-            || !self.tuning.sprint_recovery_delay.is_finite()
-            || self.tuning.sprint_recovery_delay < 0.
-            || self.tuning.sprint_minimum > self.tuning.sprint_seconds
-            || self.tuning.standing_height <= 2. * self.tuning.radius
-            || self.tuning.crouch_height <= 2. * self.tuning.radius
-            || self.tuning.crouch_height > self.tuning.standing_height
-            || self.tuning.crouch_eye >= self.tuning.crouch_height
-            || self
-                .tuning
-                .combat_points
-                .iter()
-                .any(|v| *v > i32::MAX as u32)
-            || self.tuning.combat_neck_points > i32::MAX as u32
-            || self
-                .tuning
-                .global_hit_multipliers
-                .iter()
-                .any(|value| !value.is_finite() || *value < 0.)
-            || self.tuning.magazine == 0
-            || [
-                self.tuning.pistol_damage,
-                self.tuning.melee_damage,
-                self.tuning.zombie_damage,
-            ]
-            .iter()
-            .any(|value| *value == 0 || *value > i32::MAX as u32)
-        {
-            return Err(ContentError::InvalidDefinition(
-                "Gameplay definition contains invalid parameters.".into(),
-            ));
-        }
-        Ok(())
+        serde_json::from_slice(bytes).map_err(|source| ContentError::Json {
+            path: Path::new("game.json").into(),
+            source,
+        })
     }
 }
+

@@ -178,16 +178,10 @@ fn finish_starting_session(
     server: Res<AssetServer>,
     rigs: Query<&crate::presentation::Rig>,
     textures: Query<&crate::presentation::camo::CamoTexture>,
-    definition: Res<GameDefinition>,
     mut cinematic: ResMut<crate::cinematics::LoadingPlayback>,
-    mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
 ) {
     cinematic.skippable = false;
-    if !failure.0.is_empty() {
-        next.set(GameState::LoadError);
-        return;
-    }
     // Inspect every requested scene for failures before waiting for readiness.
     let mut scenes_ready = true;
     for (scene, instance) in &scenes {
@@ -199,28 +193,16 @@ fn finish_starting_session(
             },
         };
         if let Some(error) = error {
-            failure.0 = format!("Required scene {:?}: {error}", scene.0.path());
-            next.set(GameState::LoadError);
-            return;
+            panic!("Required scene {:?}: {error}", scene.0.path());
         }
         scenes_ready &= instance.is_some() && server.is_loaded_with_dependencies(scene.0.id());
     }
     let textures_ready = match crate::presentation::camo::assets_ready(&server, &textures) {
         Ok(ready) => ready,
         Err(error) => {
-            failure.0 = error;
-            next.set(GameState::LoadError);
-            return;
+            panic!("{error}");
         }
     };
-    if !definition.content.cinematics.iter().any(|sequence| {
-        (sequence.id.0.contains("loading") || sequence.id.0.contains("intro"))
-            && !sequence.frames.is_empty()
-    }) {
-        failure.0 = "Required Origins loading cinematic is missing".into();
-        next.set(GameState::LoadError);
-        return;
-    }
     if !scenes_ready || !textures_ready || player.is_empty() || rigs.is_empty()
         || rigs.iter().any(|rig| !rig.ready || (!rig.arms && !rig.attached)) {
         return;

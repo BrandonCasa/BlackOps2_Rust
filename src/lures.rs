@@ -12,22 +12,11 @@ use avian3d::prelude::*;
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 use std::collections::{BTreeMap, HashMap};
 #[derive(Clone, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct LureDefinition {
     pub range: f32,
     pub capacity: u32,
     pub spacing: f32,
     pub animation: ContentId,
-}
-impl LureDefinition {
-    pub fn valid(&self) -> bool {
-        self.range.is_finite()
-            && self.range > 0.
-            && self.spacing.is_finite()
-            && self.spacing > 0.
-            && self.spacing < self.range
-            && self.capacity > 0
-    }
 }
 #[derive(Clone, Copy)]
 pub struct Attraction {

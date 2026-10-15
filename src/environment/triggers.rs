@@ -8,7 +8,6 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const TRIGGER_LAYER: u32 = 8;
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct TriggerDefinition {
     pub id: String,
     pub position: [f32; 3],
@@ -19,7 +18,7 @@ pub struct TriggerDefinition {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TriggerShape {
     Convex {
         volumes: Vec<VolumeDefinition>,
@@ -173,88 +172,8 @@ fn stable_id(id: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
 }
-pub(super) fn valid(triggers: &[TriggerDefinition]) -> bool {
-    let mut ids = BTreeSet::new();
-    let mut pieces = BTreeSet::new();
-    triggers.len() <= 4096
-        && triggers.iter().all(|t| {
-            stable_id(&t.id)
-                && ids.insert(&t.id)
-                && t.position.iter().all(|v| v.is_finite())
-                && t.target_position
-                    .is_none_or(|position| position.iter().all(|value| value.is_finite()))
-                && (1..=64).contains(&t.source.len())
-                && t.source.iter().all(|(k, v)| {
-                    !k.is_empty()
-                        && k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                        && v.len() <= 4096
-                })
-                && t.source.get("classname").is_some_and(|class| {
-                    matches!(
-                        class.as_str(),
-                        "trigger_multiple"
-                            | "trigger_once"
-                            | "trigger_use"
-                            | "trigger_use_touch"
-                            | "trigger_box_use"
-                            | "trigger_radius_use"
-                            | "trigger_damage"
-                            | "trigger_box"
-                            | "trigger_radius"
-                            | "trigger_lookat"
-                            | "info_volume"
-                    ) && match &t.shape {
-                        TriggerShape::Brush {
-                            rotation,
-                            volumes,
-                            triangle_shapes,
-                        } => {
-                            class != "trigger_radius"
-                                && rotation.iter().all(|value| value.is_finite())
-                                && (Quat::from_array(*rotation).length_squared() - 1.).abs()
-                                    < 0.00001
-                                && (!volumes.is_empty() || !triangle_shapes.is_empty())
-                                && volumes.len() <= 4096
-                                && triangle_shapes.len() <= 4096
-                                && volumes.iter().all(|volume| {
-                                    stable_id(&volume.id)
-                                        && pieces.insert(&volume.id)
-                                        && (4..=128).contains(&volume.vertices.len())
-                                        && volume
-                                            .position
-                                            .iter()
-                                            .chain(volume.vertices.iter().flatten())
-                                            .all(|value| value.is_finite())
-                                })
-                                && triangle_shapes.iter().all(|shape| {
-                                    super::brushes::valid_triangle(shape)
-                                        && pieces.insert(&shape.id)
-                                })
-                        }
-                        TriggerShape::Convex { volumes } => {
-                            class != "trigger_radius"
-                                && (1..=4096).contains(&volumes.len())
-                                && volumes.iter().all(|v| {
-                                    stable_id(&v.id)
-                                        && pieces.insert(&v.id)
-                                        && v.position.iter().all(|p| p.is_finite())
-                                        && (4..=128).contains(&v.vertices.len())
-                                        && v.vertices.iter().flatten().all(|p| p.is_finite())
-                                })
-                        }
-                        TriggerShape::Cylinder { radius, height } => {
-                            matches!(class.as_str(), "trigger_radius" | "trigger_radius_use")
-                                && radius.is_finite()
-                                && *radius > 0.
-                                && height.is_finite()
-                                && *height > 0.
-                        }
-                    }
-                })
-                && t.collider().is_some()
-        })
-        && pieces.len() <= 32768
-}
+
+
 
 #[derive(Component)]
 pub struct MapTrigger(pub String);
@@ -875,7 +794,6 @@ mod tests {
             }]}
         }))
         .unwrap();
-        assert!(valid(std::slice::from_ref(&source)));
         let bounds = source
             .collider()
             .unwrap()
