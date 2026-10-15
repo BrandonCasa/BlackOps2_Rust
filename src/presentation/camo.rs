@@ -1,5 +1,4 @@
 use crate::{
-    GameState,
     assets::GameDefinition,
     origins::content::WeaponId,
 };

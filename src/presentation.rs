@@ -22,7 +22,6 @@ pub(crate) mod locomotion;
 pub(crate) mod offhand;
 mod source_units;
 pub use offhand::EquipmentPresentationEvidence;
-pub(crate) use offhand::selection as equipment_selection;
 pub struct PresentationPlugin;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct PresentationAnimation;

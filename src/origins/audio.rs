@@ -8,8 +8,6 @@ use std::path::Path;
 struct SourceAudio {
     audio: AudioDefinition,
     sounds: Vec<SoundDefinition>,
-    #[serde(rename = "sources")]
-    _sources: Vec<String>,
 }
 
 pub(crate) fn bind(game: &mut GameDefinition, root: &Path) {

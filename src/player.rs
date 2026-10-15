@@ -619,8 +619,6 @@ pub(crate) fn move_player(
         sprint.sprinting && motion_grounded,
         motion_grounded,
     );
-    let mut motion_wish = desired;
-    let mut apex_clamped = false;
     if launch_dive {
         player.velocity.y =
             (2. * m.dive_jump_height * tuning.gravity).sqrt() * m.dive_launch_multiplier;
@@ -633,7 +631,6 @@ pub(crate) fn move_player(
         } else {
             player.velocity.y.min(0.)
         };
-        apex_clamped = true;
     } else if jump_started {
         player.velocity.y = tuning.jump_speed;
         mobility.jump_recovery = m.jump_recovery;
@@ -665,7 +662,6 @@ pub(crate) fn move_player(
             false,
             false,
         );
-        motion_wish = wish;
         let direction = wish.normalize_or_zero();
         let wish_speed = wish.length();
         let add = wish_speed - player.velocity.dot(direction);

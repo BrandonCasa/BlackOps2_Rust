@@ -2203,7 +2203,6 @@ fn animate(
     mut rigs: Query<&mut ActorRig>,
     mut evidence: ResMut<EnemyEvidence>,
 
-    mut next: ResMut<NextState<GameState>>,
 ) {
     let Some(definition) = definition else {
         return;

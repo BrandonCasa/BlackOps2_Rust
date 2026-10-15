@@ -3,9 +3,6 @@ use bevy::prelude::*;
 pub(crate) const BASE_FOV_DEGREES: f32 = 55.;
 #[derive(Component)]
 pub struct GameCamera;
-#[cfg(feature = "dev-tools")]
-#[derive(Resource)]
-pub(crate) struct ValidationView(pub Transform);
 pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
@@ -36,7 +33,6 @@ pub(crate) fn setup(mut commands: Commands) {
     ));
 }
 fn camera_follow(
-    #[cfg(feature = "dev-tools")] validation_view: Option<Res<ValidationView>>,
     players: Query<
         (
             &Player,
@@ -53,13 +49,6 @@ fn camera_follow(
     definition: Option<Res<GameDefinition>>,
     state: Res<State<GameState>>,
 ) {
-    #[cfg(feature = "dev-tools")]
-    if let Some(view) = validation_view {
-        for (mut transform, _) in &mut camera {
-            *transform = view.0;
-        }
-        return;
-    }
     if !matches!(
         **state,
         GameState::StartingSession | GameState::Playing | GameState::Paused | GameState::GameOver
