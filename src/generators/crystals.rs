@@ -3,7 +3,7 @@ use crate::{
     assets::GameDefinition,
     gameplay::{Session, SessionEntity},
     origins::{ContentCatalog, ContentId},
-    rendering::NativeArtInputs,
+    presentation::cues::CueParameters,
 };
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -166,7 +166,8 @@ pub(super) fn reset(world: &mut World) {
         .map(|(entity, glow)| (entity, glow.previous))
         .collect::<Vec<_>>();
     for (entity, (vector, available)) in existing {
-        if let Some(mut inputs) = world.get_mut::<NativeArtInputs>(entity) {
+        if let Some(mut inputs) = world.get_mut::<CueParameters>(entity) {
+            inputs.luminous_channel = Some((0, 0));
             inputs.script_vectors[0] = vector;
             inputs.script_available = (inputs.script_available & !1) | u8::from(available);
         }
@@ -178,15 +179,10 @@ pub(super) struct CrystalPlugin;
 impl Plugin for CrystalPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
-            OnEnter(GameState::PreparingShaders),
+            OnEnter(GameState::StartingSession),
             assemble.in_set(crate::session::SessionSetup::World),
         )
-        .add_systems(
-            Update,
-            animate
-                .before(crate::rendering::SurfacePreparation)
-                .run_if(in_state(GameState::Playing)),
-        );
+        .add_systems(Update, animate.run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -195,8 +191,8 @@ fn assemble(
     game: Res<GameDefinition>,
     session: Res<Session>,
     server: Res<AssetServer>,
-    existing: Query<(Entity, &bevy::gltf::GltfExtras, &GlobalTransform)>,
-    mut inputs: Query<&mut NativeArtInputs>,
+    existing: Query<(Entity, &Name, &GlobalTransform), With<crate::assets::StaticPropRoot>>,
+    mut inputs: Query<&mut CueParameters>,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
 ) {
@@ -206,17 +202,12 @@ fn assemble(
     for (index, crystal) in profile.crystals.iter().enumerate() {
         let candidates = existing
             .iter()
-            .filter_map(|(entity, extras, pose)| {
-                let metadata: serde_json::Value = serde_json::from_str(&extras.value).ok()?;
-                (metadata["native_entity"]["targetname"] == crystal.target
-                    || metadata["static_instance"] == true
-                        && metadata["source_model"]
-                            .as_str()
-                            .is_some_and(|model| model.eq_ignore_ascii_case(&crystal.source_model))
-                        && pose
-                            .translation()
-                            .distance_squared(Vec3::from_array(crystal.position))
-                            < 0.0001)
+            .filter_map(|(entity, name, pose)| {
+                (name.as_str().eq_ignore_ascii_case(&crystal.source_model)
+                    && pose
+                        .translation()
+                        .distance_squared(Vec3::from_array(crystal.position))
+                        < 0.0001)
                     .then_some(entity)
             })
             .collect::<Vec<_>>();
@@ -258,11 +249,12 @@ fn assemble(
         };
         let previous = if let Ok(mut inputs) = inputs.get_mut(entity) {
             let previous = (inputs.script_vectors[0], inputs.script_available & 1 != 0);
+            inputs.luminous_channel = Some((0, 0));
             inputs.script_vectors[0] = profile.initial_state;
             inputs.script_available |= 1;
             previous
         } else {
-            commands.entity(entity).insert(NativeArtInputs {
+            commands.entity(entity).insert(CueParameters {
                 script_vectors: [profile.initial_state, [0.; 4], [0.; 4], [0.; 4]],
                 script_available: 1,
                 ..default()
@@ -282,7 +274,7 @@ fn animate(
     time: Res<Time>,
     game: Res<GameDefinition>,
     generators: Res<super::Generators>,
-    mut crystals: Query<(&mut CrystalGlow, &mut NativeArtInputs)>,
+    mut crystals: Query<(&mut CrystalGlow, &mut CueParameters)>,
 ) {
     let Some(profile) = &game.generator_crystals else {
         return;
@@ -296,6 +288,7 @@ fn animate(
             generators.powered(&crystal.generator),
             profile,
         );
+        inputs.luminous_channel = Some((0, 0));
         inputs.script_vectors[0] = [
             glow.value,
             profile.initial_state[1],
@@ -352,7 +345,7 @@ mod tests {
         let owner = world
             .spawn((
                 CrystalGlow::new(0, 7, &profile, ([0.2, 0.3, 0.4, 0.5], false)),
-                NativeArtInputs {
+                CueParameters {
                     script_vectors: [profile.initial_state, [0.7; 4], [0.; 4], [0.; 4]],
                     script_available: 3,
                     ..default()
@@ -361,7 +354,7 @@ mod tests {
             .id();
         reset(&mut world);
         assert!(world.get::<CrystalGlow>(owner).is_none());
-        let inputs = world.get::<NativeArtInputs>(owner).unwrap();
+        let inputs = world.get::<CueParameters>(owner).unwrap();
         assert_eq!(inputs.script_vectors[0], [0.2, 0.3, 0.4, 0.5]);
         assert_eq!(inputs.script_vectors[1], [0.7; 4]);
         assert_eq!(inputs.script_available, 2);

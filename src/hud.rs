@@ -21,7 +21,7 @@ impl Plugin for HudPlugin {
             performance::PerformanceOverlayPlugin,
             origins::OriginsHudPlugin,
         ))
-        .add_systems(OnEnter(GameState::PreparingShaders), setup)
+        .add_systems(OnEnter(GameState::StartingSession), setup)
         .add_systems(Update, damage_feedback);
     }
 }

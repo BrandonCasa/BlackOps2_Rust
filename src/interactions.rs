@@ -66,7 +66,7 @@ impl Plugin for InteractionPlugin {
             .init_resource::<WallMaterials>()
             .init_resource::<PointLedger>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 assemble.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(OnExit(GameState::Playing), clear_focus)

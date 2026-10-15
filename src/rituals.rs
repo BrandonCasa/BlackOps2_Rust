@@ -72,7 +72,11 @@ impl SoulBoxGlow {
         self.pending.push((self.elapsed + delay, active));
     }
 
-    fn advance(&mut self, dt: f32, inputs: &mut crate::rendering::NativeArtInputs) -> Vec<bool> {
+    fn advance(
+        &mut self,
+        dt: f32,
+        inputs: &mut crate::presentation::cues::CueParameters,
+    ) -> Vec<bool> {
         self.ramps.retain_mut(|ramp| ramp.tick(dt, inputs));
         self.elapsed += dt;
         self.pending.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -85,6 +89,7 @@ impl SoulBoxGlow {
             let (_, active) = self.pending.remove(0);
             if self.active != active {
                 self.active = active;
+                inputs.luminous_channel = Some((1, 0));
                 inputs.script_vectors[1] = [0.; 4];
                 inputs.script_available |= 1 << 1;
                 self.ramps.push(crate::generators::BoxGlowRamp::new(active));
@@ -100,7 +105,7 @@ impl Plugin for RitualPlugin {
         app.init_resource::<Rituals>()
             .register_required_components::<Player, IronFists>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 setup.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -113,7 +118,7 @@ impl Plugin for RitualPlugin {
             .add_systems(
                 FixedUpdate,
                 soul_box_glow.after(track).run_if(
-                    in_state(GameState::PreparingShaders).or_else(in_state(GameState::Playing)),
+                    in_state(GameState::StartingSession).or_else(in_state(GameState::Playing)),
                 ),
             )
             .add_systems(
@@ -144,8 +149,7 @@ fn setup(
             SessionEntity,
             SoulChest(i),
             SoulBoxGlow::default(),
-            crate::rendering::opaque::NativeShaderStart(0.),
-            crate::rendering::NativeArtInputs::default(),
+            crate::presentation::cues::CueParameters::default(),
             Transform::from_translation(Vec3::from_array(*position)).with_rotation(
                 Quat::from_rotation_y(-[94.8_f32, 355., 180., 170.][i].to_radians()),
             ),
@@ -172,7 +176,7 @@ fn soul_box_glow(
     mut boxes: Query<(
         Entity,
         &mut SoulBoxGlow,
-        &mut crate::rendering::NativeArtInputs,
+        &mut crate::presentation::cues::CueParameters,
     )>,
 ) {
     for (entity, mut glow, mut inputs) in &mut boxes {
@@ -541,7 +545,7 @@ mod tests {
     #[test]
     fn soul_box_material_maps_source_slot_on_startup_souls_completion_and_stomp() {
         let mut glow = SoulBoxGlow::default();
-        let mut inputs = crate::rendering::NativeArtInputs::default();
+        let mut inputs = crate::presentation::cues::CueParameters::default();
         assert!(glow.advance(0.99, &mut inputs).is_empty());
         assert_eq!(inputs.script_available, 0);
         assert_eq!(glow.advance(0.01, &mut inputs), [true]);

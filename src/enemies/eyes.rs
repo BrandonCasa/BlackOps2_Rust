@@ -1,7 +1,7 @@
 use super::Zombie;
 use crate::{
     life::{LifeState, Vitality},
-    rendering::NativeArtInputs,
+    presentation::cues::CueParameters,
 };
 use bevy::prelude::*;
 
@@ -13,7 +13,7 @@ pub(super) enum EyeSpawn {
 }
 
 #[derive(Component, Default)]
-#[require(NativeArtInputs)]
+#[require(CueParameters)]
 pub(super) struct ActorEyes {
     born: Option<i32>,
     rise_started: Option<i32>,
@@ -22,11 +22,12 @@ pub(super) struct ActorEyes {
 }
 
 impl ActorEyes {
-    fn set(&mut self, enabled: bool, inputs: &mut NativeArtInputs) {
+    fn set(&mut self, enabled: bool, inputs: &mut CueParameters) {
         if enabled == self.enabled {
             return;
         }
         self.enabled = enabled;
+        inputs.luminous_channel = Some((2, 1));
         inputs.script_vectors[2] = [0., if enabled { 3. } else { 0.25 }, 0., 0.];
         inputs.script_available |= 1 << 2;
     }
@@ -40,7 +41,7 @@ impl ActorEyes {
         alive: bool,
         headless: bool,
         panzer: bool,
-        inputs: &mut NativeArtInputs,
+        inputs: &mut CueParameters,
     ) {
         let born = *self.born.get_or_insert(milliseconds);
         if !alive || headless {
@@ -77,22 +78,23 @@ impl ActorEyes {
 }
 
 pub(super) fn update(
-    clock: Res<crate::rendering::opaque::NativeClock>,
+    clock: Res<crate::presentation::cues::CueClock>,
     mut commands: Commands,
     mut removed: RemovedComponents<Zombie>,
-    mut former: Query<&mut NativeArtInputs, Without<Zombie>>,
+    mut former: Query<&mut CueParameters, Without<Zombie>>,
     mut actors: Query<(
         Ref<Zombie>,
         &Vitality,
         &crate::combat_effects::Wounds,
         Has<crate::panzer::Panzer>,
         &mut ActorEyes,
-        &mut NativeArtInputs,
+        &mut CueParameters,
     )>,
 ) {
     for entity in removed.read() {
         if let Ok(mut inputs) = former.get_mut(entity) {
             inputs.script_available &= !(1 << 2);
+            inputs.luminous_channel = Some((2, 1));
             inputs.script_vectors[2] = [0.; 4];
             commands.entity(entity).remove::<ActorEyes>();
         }
@@ -101,6 +103,7 @@ pub(super) fn update(
         if zombie.is_added() {
             *eyes = ActorEyes::default();
             inputs.script_available &= !(1 << 2);
+            inputs.luminous_channel = Some((2, 1));
             inputs.script_vectors[2] = [0.; 4];
         }
         let Some(milliseconds) = clock.server_milliseconds() else {
@@ -130,7 +133,7 @@ mod tests {
     #[test]
     fn recycled_actor_clears_only_its_eye_override_and_removes_retired_state() {
         let mut app = App::new();
-        app.init_resource::<crate::rendering::opaque::NativeClock>()
+        app.init_resource::<crate::presentation::cues::CueClock>()
             .add_systems(Update, update);
         let actor = app
             .world_mut()
@@ -141,7 +144,7 @@ mod tests {
                     crate::rounds::Gait::Walk,
                 ),
                 Vitality::ordinary_actor(100, 100).unwrap(),
-                NativeArtInputs {
+                CueParameters {
                     script_vectors: [[2.; 4]; 4],
                     script_available: 15,
                     ..default()
@@ -149,12 +152,12 @@ mod tests {
             ))
             .id();
         app.update();
-        let inputs = app.world().get::<NativeArtInputs>(actor).unwrap();
+        let inputs = app.world().get::<CueParameters>(actor).unwrap();
         assert_eq!(inputs.script_available, 11);
         assert_eq!(inputs.script_vectors[2], [0.; 4]);
         assert_eq!(inputs.script_vectors[1], [2.; 4]);
         app.world_mut()
-            .get_mut::<NativeArtInputs>(actor)
+            .get_mut::<CueParameters>(actor)
             .unwrap()
             .script_available = 15;
         app.world_mut().entity_mut(actor).remove::<Zombie>();
@@ -162,7 +165,7 @@ mod tests {
         assert!(app.world().get::<ActorEyes>(actor).is_none());
         assert_eq!(
             app.world()
-                .get::<NativeArtInputs>(actor)
+                .get::<CueParameters>(actor)
                 .unwrap()
                 .script_available,
             11
@@ -176,7 +179,7 @@ mod tests {
         assert!(app.world().get::<ActorEyes>(actor).is_some());
         assert_eq!(
             app.world()
-                .get::<NativeArtInputs>(actor)
+                .get::<CueParameters>(actor)
                 .unwrap()
                 .script_available
                 & 4,
@@ -187,7 +190,7 @@ mod tests {
     #[test]
     fn actor_eye_callbacks_distinguish_initial_zero_delayed_enable_and_later_disable() {
         let mut eyes = ActorEyes::default();
-        let mut inputs = NativeArtInputs::default();
+        let mut inputs = CueParameters::default();
         for milliseconds in [1000, 1499] {
             eyes.tick(
                 milliseconds,
@@ -240,7 +243,7 @@ mod tests {
     #[test]
     fn ground_dug_and_panzer_eye_callbacks_follow_distinct_source_boundaries() {
         let mut ground = ActorEyes::default();
-        let mut inputs = NativeArtInputs::default();
+        let mut inputs = CueParameters::default();
         ground.tick(
             0,
             EyeSpawn::Ground,
@@ -284,7 +287,7 @@ mod tests {
         );
         assert_eq!(inputs.script_vectors[2][1], 3.);
         let mut off_phase = ActorEyes::default();
-        inputs = NativeArtInputs::default();
+        inputs = CueParameters::default();
         off_phase.tick(
             0,
             EyeSpawn::Ground,
@@ -328,7 +331,7 @@ mod tests {
         );
         assert_eq!(inputs.script_vectors[2][1], 3.);
         let mut dug = ActorEyes::default();
-        inputs = NativeArtInputs::default();
+        inputs = CueParameters::default();
         dug.tick(
             2000,
             EyeSpawn::Dug,
@@ -352,7 +355,7 @@ mod tests {
         );
         assert_eq!(inputs.script_vectors[2][1], 3.);
         let mut panzer = ActorEyes::default();
-        inputs = NativeArtInputs::default();
+        inputs = CueParameters::default();
         panzer.tick(
             0,
             EyeSpawn::Ordinary,

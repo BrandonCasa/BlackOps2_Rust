@@ -1,0 +1,125 @@
+{
+  "source": "Fresh OpenAssetTools/open-fastfile entity and PATHDATA records; source zombie_spawner script_int=1; every exterior_goal endpoint retained.",
+  "spawners": [
+    {
+      "id": "spawner.native.282",
+      "archetype": "actor_zm_tomb_basic_german2",
+      "position": [
+        0.0,
+        104.03860807721617,
+        -1.6256032512065026
+      ],
+      "yaw": 0.0,
+      "desired_origin": null
+    },
+    {
+      "id": "spawner.native.4449",
+      "archetype": "actor_zm_tomb_basic_german",
+      "position": [
+        -0.8128016256032513,
+        104.03860807721617,
+        -1.6256032512065026
+      ],
+      "yaw": 0.0,
+      "desired_origin": null
+    }
+  ],
+  "entrances": [
+    {
+      "node": "node.native.666",
+      "position": [
+        -63.19532639065279,
+        3.0226060452120906,
+        2.1844043688087376
+      ]
+    },
+    {
+      "node": "node.native.1268",
+      "position": [
+        28.573533147066296,
+        1.9558039116078234,
+        72.5501651003302
+      ]
+    },
+    {
+      "node": "node.native.1270",
+      "position": [
+        15.568732537465078,
+        1.9558039116078234,
+        76.00457200914403
+      ]
+    },
+    {
+      "node": "node.native.1296",
+      "position": [
+        28.760477520955043,
+        8.356616713233427,
+        62.05384810769622
+      ]
+    },
+    {
+      "node": "node.native.1923",
+      "position": [
+        77.26695453390907,
+        -8.864617729235459,
+        -130.0482600965202
+      ]
+    },
+    {
+      "node": "node.native.1937",
+      "position": [
+        71.17094234188468,
+        -7.645415290830583,
+        -110.03302006604014
+      ]
+    },
+    {
+      "node": "node.native.1941",
+      "position": [
+        69.08813817627636,
+        -8.661417322834646,
+        -142.08788417576835
+      ]
+    },
+    {
+      "node": "node.native.1991",
+      "position": [
+        17.678435356870715,
+        -2.565405130810262,
+        -50.342900685801375
+      ]
+    },
+    {
+      "node": "node.native.2314",
+      "position": [
+        -26.46685293370587,
+        -2.1590043180086362,
+        -69.08813817627636
+      ]
+    },
+    {
+      "node": "node.native.2341",
+      "position": [
+        -26.46685293370587,
+        -5.816611633223267,
+        -69.08813817627636
+      ]
+    },
+    {
+      "node": "node.native.2353",
+      "position": [
+        -13.614427228854458,
+        -2.1590043180086362,
+        -77.6733553467107
+      ]
+    },
+    {
+      "node": "node.native.2470",
+      "position": [
+        46.68529337058674,
+        -7.035814071628144,
+        -125.57785115570232
+      ]
+    }
+  ]
+}

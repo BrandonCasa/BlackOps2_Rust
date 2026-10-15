@@ -171,7 +171,7 @@ impl Plugin for EnvironmentPlugin {
             .init_resource::<parts::Parts>()
             .register_required_components::<Player, hazards::BoundaryMonitor>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 (triggers::spawn, spawn, hazards::spawn)
                     .in_set(crate::session::SessionSetup::World),
             )

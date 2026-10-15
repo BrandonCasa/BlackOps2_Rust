@@ -248,11 +248,11 @@ impl Plugin for GeneratorPlugin {
         .init_resource::<Generators>()
         .init_resource::<raids::GeneratorRaids>()
         .add_systems(
-            OnEnter(GameState::PreparingShaders),
+            OnEnter(GameState::StartingSession),
             raids::reset.in_set(crate::session::SessionSetup::World),
         )
         .add_systems(
-            OnEnter(GameState::PreparingShaders),
+            OnEnter(GameState::StartingSession),
             assemble.in_set(crate::session::SessionSetup::World),
         )
         .add_observer(visual_ready)

@@ -1,4 +1,8 @@
-use std::{ffi::OsString, path::PathBuf, time::Instant};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use avian3d::prelude::*;
 use bevy::{
@@ -9,23 +13,17 @@ use bevy::{
 
 use crate::GameState;
 
-pub(crate) mod prepared;
-mod reader;
-pub(crate) use reader::PackAssetReader;
+pub(crate) const SOURCE_UNIT_METERS: f32 = 0.0254;
 
 #[derive(Resource, Default)]
 pub struct LaunchOptions {
+    pub asset_root: PathBuf,
     pub flythrough: bool,
     pub validation_remote: Option<u16>,
-    pub material_debug: u32,
     pub verify: Option<PathBuf>,
     pub verify_controls: bool,
     pub verify_locomotion: bool,
-    pub verify_resident_textures: bool,
-    pub verify_viewmodel_shadows: bool,
-    pub verify_actor_shadows: bool,
     pub benchmark: bool,
-    pub release_benchmark: bool,
     pub benchmark_view: Option<usize>,
     pub benchmark_motion: bool,
     pub benchmark_combat: bool,
@@ -66,47 +64,46 @@ pub struct LaunchOptions {
 }
 
 impl LaunchOptions {
-    pub fn parse(mut args: impl Iterator<Item = OsString>) -> Self {
+    pub fn parse(args: impl Iterator<Item = OsString>) -> Self {
         let mut result = Self::default();
+        let mut remaining = Vec::new();
+        let mut arguments = args;
+        while let Some(argument) = arguments.next() {
+            if argument == "--asset-root" {
+                let Some(root) = arguments.next() else {
+                    result.error = Some("--asset-root requires an absolute directory".into());
+                    return result;
+                };
+                if !result.asset_root.as_os_str().is_empty() {
+                    result.error = Some("--asset-root may only be specified once".into());
+                    return result;
+                }
+                result.asset_root = root.into();
+            } else {
+                remaining.push(argument);
+            }
+        }
+        if !result.asset_root.is_absolute() || !result.asset_root.is_dir() {
+            result.error = Some(format!(
+                "--asset-root requires an existing absolute directory: {}",
+                result.asset_root.display()
+            ));
+            return result;
+        }
+        let mut args = remaining.into_iter();
         if let Some(argument) = args.next() {
             if argument == "--validation-remote" {
                 let port = args
                     .next()
                     .map_or(Some(15702), |v| v.to_str()?.parse::<u16>().ok());
                 if cfg!(all(debug_assertions, feature = "dev-tools"))
-                    && port.is_some_and(|p| p > 0 && p != 15703)
+                    && port.is_some_and(|p| p > 0)
                     && args.next().is_none()
                 {
                     result.validation_remote = port;
                 } else {
                     result.error =
-                        Some("Usage: development origins --validation-remote [port]; port 15703 is reserved for render BRP".into());
-                }
-                return result;
-            }
-            if argument == "--verify-resident-textures"
-                || argument == "--verify-viewmodel-shadows"
-                || argument == "--verify-actor-shadows"
-            {
-                result.verify_resident_textures = argument == "--verify-resident-textures";
-                result.verify_viewmodel_shadows = argument == "--verify-viewmodel-shadows";
-                result.verify_actor_shadows = argument == "--verify-actor-shadows";
-                result.verify = args.next().map(PathBuf::from);
-                if result.verify.is_none() || args.next().is_some() {
-                    result.error = Some(
-                        "Usage: origins --verify-resident-textures/--verify-viewmodel-shadows/--verify-actor-shadows external-output-folder".into(),
-                    );
-                }
-                return result;
-            }
-            if argument == "--release-benchmark-moving" || argument == "--release-benchmark-combat"
-            {
-                result.benchmark = true;
-                result.release_benchmark = true;
-                result.benchmark_combat = argument == "--release-benchmark-combat";
-                result.verify = args.next().map(PathBuf::from);
-                if result.verify.is_none() || args.next().is_some() {
-                    result.error = Some("Usage: origins --release-benchmark-moving|--release-benchmark-combat external-output-folder".into());
+                        Some("Usage: development origins --validation-remote [port]".into());
                 }
                 return result;
             }
@@ -126,32 +123,6 @@ impl LaunchOptions {
                     result.error = Some(
                         "Expected one external output folder after the verification flag".into(),
                     );
-                }
-                return result;
-            }
-            if argument == "--material-debug"
-                || argument == "--material-debug-combat"
-                || argument == "--material-debug-hands"
-            {
-                result.benchmark = true;
-                result.benchmark_combat = argument == "--material-debug-combat";
-                result.benchmark_hands = argument == "--material-debug-hands";
-                result.verify = args.next().map(PathBuf::from);
-                result.material_debug = args
-                    .next()
-                    .and_then(|v| v.to_str()?.parse().ok())
-                    .unwrap_or(0);
-                result.benchmark_view = if result.benchmark_combat {
-                    Some(8)
-                } else {
-                    args.next().and_then(|v| v.to_str()?.parse().ok())
-                };
-                if result.verify.is_none()
-                    || !(u32::from(!result.benchmark_hands)..=12).contains(&result.material_debug)
-                    || !result.benchmark_view.is_some_and(|view| view < 18)
-                    || args.next().is_some()
-                {
-                    result.error = Some("Usage: origins --material-debug external-output-folder mode[1..12] view[0..17], or --material-debug-combat external-output-folder mode[1..12]".into());
                 }
                 return result;
             }
@@ -281,33 +252,32 @@ impl LaunchOptions {
 }
 
 #[derive(Debug)]
-pub struct AssetPack {
-    pub pack_root: PathBuf,
-    pub contents: crate::pack::Pack,
-    pub index: std::sync::Arc<crate::pack::PackIndex>,
+pub struct AssetDirectory {
+    pub root: PathBuf,
 }
 
-impl AssetPack {
-    pub fn discover() -> Result<Self, String> {
-        let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-        let path = executable
-            .parent()
-            .ok_or("Executable directory is unavailable")?
-            .join("origins.pack");
-        let index = crate::pack::PackIndex::read(&path).map_err(|error| {
-            format!("Cannot load runtime pack {}: {error}. Build origins.pack from the authorized game installation and place it beside origins.exe.", path.display())
-        })?;
-        let contents = index.metadata().map_err(|error| error.to_string())?;
+impl AssetDirectory {
+    pub fn discover(root: &Path) -> Result<Self, String> {
+        if !root.is_absolute() || !root.is_dir() {
+            return Err(format!(
+                "Asset root must be an existing absolute directory: {}",
+                root.display()
+            ));
+        }
+        if !root.join("game.json").is_file() {
+            return Err(format!(
+                "Required gameplay definition is missing: {}",
+                root.join("game.json").display()
+            ));
+        }
         Ok(Self {
-            pack_root: path,
-            contents,
-            index: std::sync::Arc::new(index),
+            root: root.to_owned(),
         })
     }
 }
 
 #[derive(Resource)]
-pub struct LoadConfiguration(pub Result<AssetPack, String>);
+pub struct LoadConfiguration(pub Result<AssetDirectory, String>);
 #[derive(Resource, Default)]
 pub struct LoadFailure(pub String);
 
@@ -343,33 +313,96 @@ pub(crate) struct WorldBrushes(Vec<(u32, Vec<Vec4>)>);
 impl WorldBrushes {
     fn load(bytes: &[u8]) -> Result<Self, String> {
         #[derive(serde::Deserialize)]
-        #[serde(deny_unknown_fields)]
+        struct Vector {
+            x: f32,
+            y: f32,
+            z: f32,
+        }
+        impl Vector {
+            fn array(&self) -> [f32; 3] {
+                [self.x, self.y, self.z]
+            }
+        }
+        #[derive(serde::Deserialize)]
+        struct Bounds {
+            #[serde(rename = "midPoint")]
+            mid: Vector,
+            #[serde(rename = "halfSize")]
+            half: Vector,
+        }
+        #[derive(serde::Deserialize)]
+        struct Side {
+            normal: [f32; 3],
+            dist: f32,
+        }
+        #[derive(serde::Deserialize)]
         struct Brush {
             contents: u32,
-            planes: Vec<[f32; 4]>,
+            bounds: Bounds,
+            sides: Vec<Side>,
         }
-        let scene: serde_json::Value =
-            serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-        let brushes: Vec<Brush> = serde_json::from_value(scene["extras"]["static_volumes"].clone())
-            .map_err(|error| format!("Native world collision volumes are invalid: {error}"))?;
-        let brushes = brushes
+        #[derive(serde::Deserialize)]
+        struct Model {
+            brushes: Vec<usize>,
+        }
+        #[derive(serde::Deserialize)]
+        struct ClipMap {
+            brushes: Vec<Brush>,
+            cmodels: Vec<Model>,
+        }
+        let clip: ClipMap = serde_json::from_slice(bytes)
+            .map_err(|error| format!("External clipmap gameplay records are invalid: {error}"))?;
+        let movable: std::collections::HashSet<usize> = clip
+            .cmodels
+            .iter()
+            .skip(1)
+            .flat_map(|model| model.brushes.iter().copied())
+            .collect();
+        if movable.iter().any(|index| *index >= clip.brushes.len()) {
+            return Err("External clipmap contains an invalid movable brush reference".into());
+        }
+        // Match the external exporter's documented Y-up metre convention exactly.
+        let plane = |normal: [f32; 3], distance: f32| {
+            Vec4::new(normal[0], normal[2], -normal[1], distance / 39.37)
+        };
+        let brushes = clip
+            .brushes
             .into_iter()
-            .map(|brush| {
-                let planes = brush
-                    .planes
-                    .into_iter()
-                    .map(Vec4::from_array)
-                    .collect::<Vec<_>>();
-                if planes.len() < 6
-                    || planes.iter().any(|plane| {
-                        !plane.is_finite() || (plane.truncate().length_squared() - 1.).abs() > 0.001
-                    })
+            .enumerate()
+            .filter(|(index, _)| !movable.contains(index))
+            .map(|(_, brush)| {
+                let midpoint = brush.bounds.mid.array();
+                let half = brush.bounds.half.array();
+                if midpoint.iter().any(|v| !v.is_finite())
+                    || half.iter().any(|v| !v.is_finite() || *v < 0.)
                 {
-                    return Err("Native world collision volume has invalid planes".to_owned());
+                    return Err("External clipmap brush has invalid bounds".to_owned());
+                }
+                let mut planes = Vec::with_capacity(6 + brush.sides.len());
+                for axis in 0..3 {
+                    let mut normal = [0.; 3];
+                    normal[axis] = 1.;
+                    planes.push(plane(normal, midpoint[axis] + half[axis]));
+                    normal[axis] = -1.;
+                    planes.push(plane(normal, -midpoint[axis] + half[axis]));
+                }
+                planes.extend(
+                    brush
+                        .sides
+                        .into_iter()
+                        .map(|side| plane(side.normal, side.dist)),
+                );
+                if planes.iter().any(|plane| {
+                    !plane.is_finite() || (plane.truncate().length_squared() - 1.).abs() > 0.001
+                }) {
+                    return Err("External clipmap brush has invalid planes".to_owned());
                 }
                 Ok((brush.contents, planes))
             })
             .collect::<Result<Vec<_>, String>>()?;
+        if brushes.is_empty() {
+            return Err("External clipmap contains no static brush volumes".into());
+        }
         Ok(Self(brushes))
     }
     pub(crate) fn trace(&self, start: Vec3, end: Vec3, mask: u32) -> (bool, f32) {
@@ -419,7 +452,8 @@ fn world_mesh_collider(mesh: &Mesh) -> Option<Collider> {
             .then(|| Collider::trimesh_from_mesh(mesh))
             .flatten();
     }
-    let VertexAttributeValues::Float32x3(vertices) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)? else {
+    let VertexAttributeValues::Float32x3(vertices) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?
+    else {
         return None;
     };
     let count = u32::try_from(vertices.len()).ok()?;
@@ -427,7 +461,9 @@ fn world_mesh_collider(mesh: &Mesh) -> Option<Collider> {
         return None;
     }
     Collider::trimesh_from_mesh(
-        &mesh.clone().with_inserted_indices(Indices::U32((0..count).collect())),
+        &mesh
+            .clone()
+            .with_inserted_indices(Indices::U32((0..count).collect())),
     )
 }
 
@@ -440,26 +476,189 @@ mod collision_tests {
         use bevy::asset::RenderAssetUsages;
         use bevy::mesh::{Indices, PrimitiveTopology};
         let vertices = vec![
-            [0., 0., 0.], [1., 0., 0.], [0., 0., 1.],
-            [2., 0., 0.], [3., 0., 0.], [2., 0., 1.],
+            [0., 0., 0.],
+            [1., 0., 0.],
+            [0., 0., 1.],
+            [2., 0., 0.],
+            [3., 0., 0.],
+            [2., 0., 1.],
         ];
-        let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices.clone());
+        let mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::MAIN_WORLD,
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices.clone());
         let collider = world_mesh_collider(&mesh).unwrap();
         let triangles = collider.shape().as_trimesh().unwrap();
         assert_eq!(triangles.indices().len(), 2);
         for (index, triangle) in triangles.triangles().enumerate() {
             for (vertex, source) in [triangle.a, triangle.b, triangle.c]
-                .iter().zip(&vertices[index * 3..index * 3 + 3]) {
+                .iter()
+                .zip(&vertices[index * 3..index * 3 + 3])
+            {
                 assert_eq!([vertex.x, vertex.y, vertex.z], *source);
             }
         }
         assert!(mesh.indices().is_none());
-        assert!(world_mesh_collider(&mesh.clone().with_inserted_indices(Indices::U32((0..6).collect()))).is_some());
-        assert!(world_mesh_collider(&mesh.clone().with_inserted_indices(Indices::U32(vec![0, 1, 2, 3]))).is_none());
-        assert!(world_mesh_collider(&mesh.clone().with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices[..5].to_vec())).is_none());
-        assert!(world_mesh_collider(&Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::MAIN_WORLD)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)).is_none());
+        assert!(
+            world_mesh_collider(
+                &mesh
+                    .clone()
+                    .with_inserted_indices(Indices::U32((0..6).collect()))
+            )
+            .is_some()
+        );
+        assert!(
+            world_mesh_collider(
+                &mesh
+                    .clone()
+                    .with_inserted_indices(Indices::U32(vec![0, 1, 2, 3]))
+            )
+            .is_none()
+        );
+        assert!(
+            world_mesh_collider(
+                &mesh
+                    .clone()
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices[..5].to_vec())
+            )
+            .is_none()
+        );
+        assert!(
+            world_mesh_collider(
+                &Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::MAIN_WORLD)
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn static_prop_pose_preserves_source_basis_scale_and_units() {
+        let prop = StaticProp {
+            origin: SourcePosition {
+                x: 39.37,
+                y: 78.74,
+                z: 118.11,
+            },
+            axis: [[0., 1., 0.], [-1., 0., 0.], [0., 0., 1.]],
+            scale: 2.,
+            model: "source_prop".into(),
+        };
+        let pose = prop.transform().unwrap();
+        assert!((pose.translation - Vec3::new(1., 3., -2.)).length() < 0.00001);
+        assert!((pose.rotation * Vec3::X - Vec3::NEG_Z).length() < 0.00001);
+        assert!((pose.rotation * Vec3::Y - Vec3::Y).length() < 0.00001);
+        assert!((pose.scale - Vec3::splat(2. / 39.37)).length() < 0.00001);
+        let mut invalid = prop;
+        invalid.axis[0][0] = f32::NAN;
+        assert!(invalid.transform().is_err());
+        invalid.axis = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]];
+        invalid.scale = -1.;
+        assert!(invalid.transform().is_err());
+    }
+
+    fn external_brush(contents: u32) -> serde_json::Value {
+        serde_json::json!({
+            "contents": contents,
+            "bounds": {
+                "midPoint": {"x":39.37,"y":78.74,"z":118.11},
+                "halfSize": {"x":39.37,"y":39.37,"z":39.37}
+            },
+            "sides": [{"normal":[1.,0.,0.],"dist":59.055}]
+        })
+    }
+
+    fn load_external(
+        brushes: Vec<serde_json::Value>,
+        cmodels: serde_json::Value,
+    ) -> Result<WorldBrushes, String> {
+        WorldBrushes::load(
+            &serde_json::to_vec(&serde_json::json!({
+                "brushes": brushes, "cmodels": cmodels
+            }))
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn external_clipmap_preserves_axes_scale_side_planes_and_projectile_masks() {
+        let brushes = load_external(
+            vec![external_brush(0x10000)],
+            serde_json::json!([{"brushes":[]}]),
+        )
+        .unwrap();
+        let center = Vec3::new(1., 3., -2.);
+        assert!(brushes.trace(center, center + Vec3::Y * 3., 0x0281ee93).0);
+        assert_eq!(
+            brushes.trace(center, center + Vec3::Y * 3., 0x0280ec93),
+            (false, 1.)
+        );
+        // Axial bounds and non-axial side data must agree after the same conversion.
+        assert!(
+            !brushes
+                .trace(Vec3::new(1.75, 3., -2.), Vec3::new(2., 3., -2.), 0x10000)
+                .0
+        );
+        assert!(brushes.trace(Vec3::new(1.4, 3., -2.), center, 0x10000).0);
+        assert!(
+            !brushes
+                .trace(Vec3::new(1., 3., 2.), Vec3::new(1., 3., 3.), 0x10000)
+                .0
+        );
+        assert!(
+            brushes.0[0]
+                .1
+                .iter()
+                .any(|plane| (*plane - Vec4::new(0., 1., 0., 4.)).length() < 0.00001)
+        );
+        assert!(
+            brushes.0[0]
+                .1
+                .iter()
+                .any(|plane| (*plane - Vec4::new(1., 0., 0., 1.5)).length() < 0.00001)
+        );
+    }
+
+    #[test]
+    fn external_clipmap_excludes_inline_model_owned_brushes() {
+        let mut owned = external_brush(1);
+        owned["bounds"]["midPoint"]["x"] = serde_json::json!(393.7);
+        owned["sides"] = serde_json::json!([]);
+        let brushes = load_external(
+            vec![external_brush(1), owned],
+            serde_json::json!([{"brushes":[]},{"brushes":[1]}]),
+        )
+        .unwrap();
+        assert_eq!(brushes.0.len(), 1);
+        assert_eq!(
+            brushes.trace(Vec3::new(10., 3., -2.), Vec3::new(10., 4., -2.), 1),
+            (false, 1.)
+        );
+        assert!(
+            brushes
+                .trace(Vec3::new(1., 3., -2.), Vec3::new(1., 4., -2.), 1)
+                .0
+        );
+    }
+
+    #[test]
+    fn external_clipmap_rejects_bad_references_bounds_and_planes() {
+        assert!(
+            load_external(
+                vec![external_brush(1)],
+                serde_json::json!([{"brushes":[]},{"brushes":[2]}])
+            )
+            .is_err()
+        );
+        let mut brush = external_brush(1);
+        brush["bounds"]["halfSize"]["x"] = serde_json::json!(-1.);
+        assert!(load_external(vec![brush], serde_json::json!([])).is_err());
+        let mut brush = external_brush(1);
+        brush["sides"][0]["normal"] = serde_json::json!([2., 0., 0.]);
+        assert!(load_external(vec![brush], serde_json::json!([])).is_err());
+        // JSON cannot represent infinity; oversized numeric input must fail rather than reach traces.
+        assert!(WorldBrushes::load(br#"{"brushes":[{"contents":1,"bounds":{"midPoint":{"x":1e100,"y":0,"z":0},"halfSize":{"x":1,"y":1,"z":1}},"sides":[]}],"cmodels":[]}"#).is_err());
     }
 
     #[test]
@@ -487,13 +686,72 @@ mod collision_tests {
         assert!(brushes.trace(Vec3::ZERO, Vec3::X * 2., 0x0281ee93).0);
     }
 }
+#[derive(Component)]
+pub(crate) struct StaticPropRoot;
+
+#[derive(serde::Deserialize)]
+struct WorldMetadata {
+    #[serde(rename = "staticModels")]
+    static_models: Vec<StaticProp>,
+}
+#[derive(serde::Deserialize)]
+struct StaticProp {
+    origin: SourcePosition,
+    axis: [[f32; 3]; 3],
+    scale: f32,
+    model: String,
+}
+#[derive(serde::Deserialize)]
+struct SourcePosition {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+impl StaticProp {
+    fn transform(&self) -> Result<Transform, String> {
+        let position = Vec3::new(self.origin.x, self.origin.z, -self.origin.y) / 39.37;
+        let source_rotation = Mat3::from_cols_array_2d(&self.axis);
+        let frame = Mat3::from_cols(Vec3::X, Vec3::NEG_Z, Vec3::Y);
+        let rotation = frame * source_rotation * frame.transpose();
+        if !position.is_finite()
+            || !self.scale.is_finite()
+            || self.scale <= 0.
+            || !rotation.is_finite()
+            || (rotation.determinant() - 1.).abs() > 0.001
+            || (rotation.transpose() * rotation - Mat3::IDENTITY)
+                .to_cols_array()
+                .iter()
+                .any(|v| v.abs() > 0.001)
+        {
+            return Err(format!("Invalid exported static prop pose: {}", self.model));
+        }
+        // OAT GLBs already use Y-up but retain source inches.
+        Ok(Transform {
+            translation: position,
+            rotation: Quat::from_mat3(&rotation),
+            scale: Vec3::splat(self.scale / 39.37),
+        })
+    }
+    fn gameplay_owned(&self) -> bool {
+        matches!(
+            self.model.as_str(),
+            "veh_t6_dlc_mkiv_tank"
+                | "veh_t6_dlc_zm_robot"
+                | "p6_zm_tm_soul_box"
+                | "p6_zm_tm_elm_divider"
+                | "p6_zm_tm_wind_ceiling_ring"
+                | "p6_zm_tm_chamber_mid_piece"
+        )
+    }
+}
+
 #[derive(Resource)]
 struct Loading {
     handles: Vec<Handle<WorldAsset>>,
     ready: usize,
+    scene_count: usize,
     colliders: usize,
     started: Instant,
-    ready_at: Option<Instant>,
 }
 
 pub struct GameAssetsPlugin;
@@ -513,13 +771,12 @@ pub(crate) fn begin_load(
     server: Res<AssetServer>,
     mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
-    roots: Query<Entity, With<MapRoot>>,
+    roots: Query<Entity, Or<(With<MapRoot>, With<StaticPropRoot>)>>,
 ) {
     for root in &roots {
         commands.entity(root).despawn();
     }
     commands.remove_resource::<Loading>();
-    commands.remove_resource::<prepared::PreparedArt>();
     commands.remove_resource::<WorldBrushes>();
     failure.0.clear();
     let definition = (|| {
@@ -527,39 +784,64 @@ pub(crate) fn begin_load(
             return Err(error.clone());
         }
         let config = config.0.as_ref().map_err(Clone::clone)?;
-        info!("Origins asset pack: {}", config.pack_root.display());
-        reload_failed_pack_assets(&server, &config.index);
-        let mut definition = GameDefinition::load(
-            config
-                .contents
-                .get("game.json")
-                .map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-        let art = prepared::PreparedArt::load(&config.contents)?;
-        art.bind(&mut definition)?;
-        definition.validate().map_err(|error| error.to_string())?;
-        let collision = definition
-            .collision_scene
-            .split('#')
-            .next()
-            .ok_or("Native collision scene path is missing")?;
-        commands.insert_resource(WorldBrushes::load(
-            config
-                .contents
-                .get(collision)
-                .map_err(|error| error.to_string())?,
-        )?);
-        commands.insert_resource(art);
-        Ok(definition)
+        info!("Origins asset root: {}", config.root.display());
+        let definition =
+            GameDefinition::load_from_root(&config.root).map_err(|error| error.to_string())?;
+        let volumes = config.root.join(&definition.collision_metadata);
+        let bytes = std::fs::read(&volumes).map_err(|error| {
+            format!(
+                "Required external collision metadata {}: {error}",
+                volumes.display()
+            )
+        })?;
+        commands.insert_resource(WorldBrushes::load(&bytes)?);
+        let metadata_path = config.root.join(&definition.world_metadata);
+        let bytes = std::fs::read(&metadata_path).map_err(|error| {
+            format!(
+                "Required world metadata {}: {error}",
+                metadata_path.display()
+            )
+        })?;
+        let metadata: WorldMetadata = serde_json::from_slice(&bytes).map_err(|error| {
+            format!(
+                "Invalid world metadata {}: {error}",
+                metadata_path.display()
+            )
+        })?;
+        if metadata.static_models.is_empty() {
+            return Err("External world metadata contains no static model instances".into());
+        }
+        let mut props = Vec::new();
+        for prop in metadata.static_models {
+            let transform = prop.transform()?;
+            if prop.gameplay_owned() {
+                continue;
+            }
+            let path = format!("model_export/{}_lod0.glb", prop.model);
+            crate::origins::validate_asset_path(&path).map_err(|error| error.to_string())?;
+            if !config.root.join(&path).is_file() {
+                return Err(format!(
+                    "Required static prop asset is missing: {}",
+                    config.root.join(path).display()
+                ));
+            }
+            props.push((path, prop.model, transform));
+        }
+        Ok((definition, props))
     })();
     match definition {
-        Ok(definition) => {
+        Ok((definition, props)) => {
             let mut handles = Vec::new();
-            for (path, collision) in [
-                (&definition.scene, false),
-                (&definition.collision_scene, true),
-            ] {
+            let scene_count = 2 + definition.additional_scenes.len();
+            for (path, collision) in std::iter::once((&definition.scene, false))
+                .chain(std::iter::once((&definition.collision_scene, true)))
+                .chain(
+                    definition
+                        .additional_scenes
+                        .iter()
+                        .map(|path| (path, false)),
+                )
+            {
                 let handle: Handle<WorldAsset> = server.load(path.clone());
                 server.reload(path.clone());
                 commands.spawn((
@@ -569,31 +851,29 @@ pub(crate) fn begin_load(
                 ));
                 handles.push(handle);
             }
+            for (path, model, transform) in props {
+                let handle: Handle<WorldAsset> = server.load(format!("{path}#Scene0"));
+                handles.push(handle.clone());
+                commands.spawn((
+                    WorldAssetRoot(handle),
+                    StaticPropRoot,
+                    transform,
+                    Name::new(model),
+                ));
+            }
             commands.insert_resource(definition);
             commands.insert_resource(Loading {
                 handles,
                 ready: 0,
+                scene_count,
                 colliders: 0,
                 started: Instant::now(),
-                ready_at: None,
             });
         }
         Err(error) => {
             error!("Unable to load Origins: {error}");
             failure.0 = error;
             next.set(GameState::LoadError);
-        }
-    }
-}
-
-fn reload_failed_pack_assets(server: &AssetServer, pack: &crate::pack::PackIndex) {
-    for path in pack.entries.keys() {
-        if server
-            .get_path_ids(path.clone())
-            .iter()
-            .any(|id| matches!(server.get_load_state(*id), Some(LoadState::Failed(_))))
-        {
-            server.reload(path.clone());
         }
     }
 }
@@ -611,11 +891,8 @@ fn scene_ready(
     event: On<WorldInstanceReady>,
     roots: Query<&MapRoot>,
     children: Query<&Children>,
-    mesh_entities: Query<(
-        &Mesh3d,
-        Option<&bevy::gltf::GltfMaterialName>,
-        Option<&bevy::gltf::GltfMaterialExtras>,
-    )>,
+    parents: Query<&ChildOf>,
+    mesh_entities: Query<&Mesh3d>,
     extras: Query<&bevy::gltf::GltfExtras>,
     definition: Res<GameDefinition>,
     meshes: Res<Assets<Mesh>>,
@@ -623,148 +900,139 @@ fn scene_ready(
     mut commands: Commands,
     mut failure: ResMut<LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
-    mut cache: Local<std::collections::HashMap<AssetId<Mesh>, Collider>>,
 ) {
-    let Some(mut loading) = loading else {
-        return;
-    };
+    let Some(mut loading) = loading else { return };
     let Ok(root) = roots.get(event.entity) else {
         return;
     };
     if !root.collision {
+        let mut owners = std::collections::HashMap::new();
         for entity in children.iter_descendants(event.entity) {
-            let Some(metadata) = extras
-                .get(entity)
-                .ok()
-                .and_then(|e| serde_json::from_str::<serde_json::Value>(&e.value).ok())
-            else {
+            let Ok(extra) = extras.get(entity) else {
                 continue;
             };
-            if metadata["static_instance"].as_bool() == Some(true)
-                && metadata["fixture_emitter"].as_bool() == Some(true)
-            {
-                for surface in children.iter_descendants(entity) {
-                    if mesh_entities.contains(surface) {
-                        commands
-                            .entity(surface)
-                            .insert(crate::rendering::FixtureEmitter(
-                                metadata["source_model"]
-                                    .as_str()
-                                    .unwrap_or_default()
-                                    .to_owned(),
-                            ));
-                    }
-                }
-            }
-            if metadata["static_instance"].as_bool() == Some(true)
-                && metadata["source_model"].as_str().is_some_and(|model| {
-                    matches!(
-                        model,
-                        "veh_t6_dlc_mkiv_tank"
-                            | "veh_t6_dlc_zm_robot"
-                            | "p6_zm_tm_soul_box"
-                            | "p6_zm_tm_elm_divider"
-                            | "p6_zm_tm_wind_ceiling_ring"
-                            | "p6_zm_tm_chamber_mid_piece"
-                    )
-                })
-            {
-                commands
-                    .entity(entity)
-                    .insert((Visibility::Hidden, ColliderDisabled));
-                for child in children.iter_descendants(entity) {
-                    commands.entity(child).insert(ColliderDisabled);
-                }
-            }
-            let Some(id) = metadata["brush_entity"].as_str() else {
+            let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&extra.value) else {
+                failure.0 = format!("Invalid scene extras on {entity:?}");
+                next.set(GameState::LoadError);
+                return;
+            };
+            let Some(part) = metadata["part"].as_str() else {
                 continue;
             };
-            if let Some(source) = definition
-                .environment
-                .brush_entities
-                .iter()
-                .find(|b| b.id == id)
-            {
-                let meshes = children
-                    .iter_descendants(entity)
-                    .filter(|e| mesh_entities.contains(*e))
-                    .count();
+            let Some(source) = definition.environment.brush_entities.iter().find(|source| {
+                source
+                    .source
+                    .get("model")
+                    .is_some_and(|model| model == part)
+            }) else {
+                failure.0 = format!("Exported brush part {part} has no gameplay owner");
+                next.set(GameState::LoadError);
+                return;
+            };
+            let owner = *owners.entry(part.to_owned()).or_insert_with(|| {
+                let owner = commands
+                    .spawn((
+                        ChildOf(event.entity),
+                        source.transform(),
+                        Visibility::default(),
+                        Name::new(source.id.clone()),
+                    ))
+                    .id();
                 crate::environment::brushes::bind(
                     &mut commands,
-                    entity,
+                    owner,
                     source,
-                    meshes,
+                    source.visual_meshes,
                     definition
                         .environment
                         .ownership
                         .iter()
-                        .find(|o| o.id == source.id),
+                        .find(|item| item.id == source.id),
                 );
-            } else if !definition
-                .environment
-                .triggers
-                .iter()
-                .any(|trigger| trigger.id == id)
-            {
-                failure.0 = format!("Unknown brush entity {id}");
+                owner
+            });
+            // External parts are already placed in world coordinates. Keep that
+            // placement while giving gameplay an ordinary movable scene pivot.
+            commands.entity(entity).insert(Transform::from_matrix(
+                source.transform().to_matrix().inverse(),
+            ));
+            commands.entity(owner).add_child(entity);
+        }
+    } else {
+        for entity in children.iter_descendants(event.entity) {
+            let Ok(mesh) = mesh_entities.get(entity) else {
+                continue;
+            };
+            let mut ancestor = entity;
+            let metadata = loop {
+                if let Ok(extra) = extras.get(ancestor) {
+                    match serde_json::from_str::<serde_json::Value>(&extra.value) {
+                        Ok(value) if value.get("group").is_some() => break Some(value),
+                        Err(error) => {
+                            failure.0 =
+                                format!("Invalid collision extras on {ancestor:?}: {error}");
+                            next.set(GameState::LoadError);
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+                let Ok(parent) = parents.get(ancestor) else {
+                    break None;
+                };
+                ancestor = parent.parent();
+                if ancestor == event.entity {
+                    break None;
+                }
+            };
+            let Some(metadata) = metadata else {
+                failure.0 = format!("Collision mesh {entity:?} has no exported group metadata");
                 next.set(GameState::LoadError);
+                return;
+            };
+            if metadata.get("part").is_some() {
+                // The visible part's gameplay owner supplies its moving collider.
+                continue;
             }
+            let contents = metadata["contents"]
+                .as_str()
+                .and_then(|bits| u32::from_str_radix(bits.trim_start_matches("0x"), 16).ok())
+                .or_else(|| {
+                    metadata["contents"]
+                        .as_u64()
+                        .and_then(|bits| u32::try_from(bits).ok())
+                })
+                .or_else(|| (metadata["group"] == "soup").then_some(1));
+            let Some(contents) = contents else {
+                failure.0 = format!(
+                    "Collision group {:?} has no source contents",
+                    metadata["group"]
+                );
+                next.set(GameState::LoadError);
+                return;
+            };
+            let Some(collider) = meshes.get(&mesh.0).and_then(world_mesh_collider) else {
+                failure.0 = format!("Cannot construct collider for {:?}", mesh.0.path());
+                next.set(GameState::LoadError);
+                return;
+            };
+            commands.entity(entity).insert((
+                RigidBody::Static,
+                collider,
+                WorldCollider,
+                WorldContents(contents),
+                world_collision_layers(contents),
+            ));
+            if metadata["group"] == "soup" {
+                commands.entity(entity).insert(WorldTerrain);
+            }
+            loading.colliders += 1;
         }
     }
-    if root.collision {
-        for entity in children.iter_descendants(event.entity) {
-            if let Ok((mesh, material, metadata)) = mesh_entities.get(entity) {
-                let collider = cache.get(&mesh.0.id()).cloned().or_else(|| {
-                    let collider = meshes.get(&mesh.0).and_then(world_mesh_collider)?;
-                    cache.insert(mesh.0.id(), collider.clone());
-                    Some(collider)
-                });
-                if let Some(collider) = collider {
-                    let metadata = metadata.and_then(|extras| {
-                        serde_json::from_str::<serde_json::Value>(&extras.value).ok()
-                    });
-                    let Some(contents) = metadata
-                        .as_ref()
-                        .and_then(|value| value["surface"]["contents"].as_u64())
-                        .and_then(|value| u32::try_from(value).ok())
-                    else {
-                        failure.0 = "A native map collision mesh lacks source contents.".into();
-                        next.set(GameState::LoadError);
-                        continue;
-                    };
-                    commands.entity(entity).insert((
-                        RigidBody::Static,
-                        collider,
-                        WorldCollider,
-                        WorldContents(contents),
-                        world_collision_layers(contents),
-                        crate::movement::physics::SurfaceFlags(
-                            metadata
-                                .as_ref()
-                                .and_then(|value| value["surface"]["flags"].as_u64())
-                                .unwrap_or(0) as u32,
-                        ),
-                        crate::audio::SurfaceSound(
-                            material
-                                .and_then(|m| definition.audio.surfaces.get(&m.0))
-                                .cloned()
-                                .unwrap_or_else(|| "default".into()),
-                        ),
-                    ));
-                    if metadata
-                        .as_ref()
-                        .is_some_and(|value| value["surface"]["terrain"] == true)
-                    {
-                        commands.entity(entity).insert(WorldTerrain);
-                    }
-                    loading.colliders += 1;
-                } else {
-                    error!("Could not build collision for {:?}", mesh.0.path());
-                    failure.0 = "A map collision mesh could not be constructed.".into();
-                    next.set(GameState::LoadError);
-                }
-            }
-        }
+    if root.collision && loading.colliders == 0 {
+        failure.0 = "Required collision scene contains no usable collision meshes".into();
+        next.set(GameState::LoadError);
+        return;
     }
     loading.ready += 1;
 }
@@ -772,11 +1040,7 @@ fn scene_ready(
 fn finish_load(
     mut commands: Commands,
     roots: Query<(Entity, &MapRoot)>,
-    surfaces: Res<crate::rendering::OpaqueSurfaceStatus>,
-    effects: Option<Res<crate::native_fx::NativeFxAssets>>,
-    library: Option<Res<crate::rendering::opaque::SurfaceLibrary>>,
     loading: Option<ResMut<Loading>>,
-    definition: Option<Res<GameDefinition>>,
     config: Res<LoadConfiguration>,
     server: Res<AssetServer>,
     mut failure: ResMut<LoadFailure>,
@@ -786,7 +1050,7 @@ fn finish_load(
     if !failure.0.is_empty() {
         return;
     }
-    let (Some(mut loading), Some(definition)) = (loading, definition) else {
+    let Some(loading) = loading else {
         return;
     };
     for handle in &loading.handles {
@@ -801,10 +1065,10 @@ fn finish_load(
             let root = config
                 .0
                 .as_ref()
-                .map(|c| c.pack_root.display().to_string())
+                .map(|c| c.root.display().to_string())
                 .unwrap_or_default();
             failure.0 = format!(
-                "Asset pack: {root}\nScene {:?}: {error}\nReplace origins.pack with a complete runtime pack and restart the game.",
+                "Asset root: {root}\nRequired scene {:?}: {error}",
                 handle.path()
             );
             error!("Unable to load Origins: {}", failure.0);
@@ -812,54 +1076,16 @@ fn finish_load(
             return;
         }
     }
-    if loading.ready == 2 && loading.colliders == definition.collision_meshes {
-        if loading.started.elapsed().as_secs() > 120 {
-            failure.0 = "Opaque material assembly timed out.".into();
-            next.set(GameState::LoadError);
-            return;
-        }
-        let Some(library) = library else { return };
-        let textures_ready = match library.textures_ready(&server) {
-            Ok(ready) => ready,
-            Err(error) => {
-                failure.0 = error;
-                next.set(GameState::LoadError);
-                return;
-            }
-        };
-        let Some(effects) = effects else {
-            return;
-        };
-        if let Some(RecursiveDependencyLoadState::Failed(error)) =
-            server.get_recursive_dependency_load_state(effects.0.id())
-        {
-            failure.0 = format!("Native effects dependency: {error}");
-            next.set(GameState::LoadError);
-            return;
-        }
-        if let Some(LoadState::Failed(error)) = server.get_load_state(effects.0.id()) {
-            failure.0 = format!("Native effects: {error}");
-            next.set(GameState::LoadError);
-            return;
-        }
-        if !surfaces.ready()
-            || !textures_ready
-            || !server.is_loaded_with_dependencies(effects.0.id())
-        {
-            return;
-        }
-        if loading
-            .ready_at
-            .get_or_insert_with(Instant::now)
-            .elapsed()
-            .as_secs_f32()
-            < 0.1
-        {
-            return;
-        }
+    if loading.ready == loading.scene_count
+        && loading.colliders > 0
+        && loading
+            .handles
+            .iter()
+            .all(|handle| server.is_loaded_with_dependencies(handle.id()))
+    {
         info!(
-            "Origins scene ready: {} source surfaces, {} colliders, {} static instances",
-            definition.source_surfaces, loading.colliders, definition.static_model_instances
+            "Origins scene dependencies loaded: {} colliders",
+            loading.colliders
         );
         for (entity, root) in &roots {
             if !root.collision {
@@ -869,7 +1095,7 @@ fn finish_load(
         next.set(
             if options.verify.is_some() || options.validation_remote.is_some() || options.flythrough
             {
-                GameState::PreparingShaders
+                GameState::StartingSession
             } else {
                 GameState::MainMenu
             },

@@ -415,7 +415,7 @@ pub(crate) fn pause_and_restart(
         && (settings.just_pressed(Action::Restart, &keys, &mouse) || requested)
     {
         commands.queue(crate::session::teardown);
-        next.set(GameState::PreparingShaders);
+        next.set(GameState::StartingSession);
     }
     for (window, mut cursor) in &mut cursors {
         let capture = (options.verify.is_none() || options.verify_controls)

@@ -109,7 +109,7 @@ impl Plugin for VendorPlugin {
             return;
         }
         app.add_systems(
-            OnEnter(GameState::PreparingShaders),
+            OnEnter(GameState::StartingSession),
             setup.in_set(crate::session::SessionSetup::World),
         )
             .add_systems(

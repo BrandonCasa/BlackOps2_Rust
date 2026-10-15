@@ -227,11 +227,6 @@ def main():
                 ('c96_zm', True, True, False)):
             weapon_case(client, report, game, args.native_weapons, name, aimed, empty, rechamber)
         zombie_cases(client, report, game, states)
-        pipelines = client.call('origins/materials')['pipelines']
-        mesh = pipelines['mesh_consistency']
-        check(report, 'gpu_input_mesh_and_skin_offsets_match_allocator', pipelines['error'] is None
-              and mesh['frames'] > 0 and mesh['checked'] > 0 and mesh['mismatch_frames'] == 0,
-              pipelines=pipelines)
         report['passed'] = True
     except Exception as error:
         report['error'] = str(error)

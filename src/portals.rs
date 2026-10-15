@@ -80,7 +80,7 @@ impl Plugin for PortalPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Portals>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 setup.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -98,20 +98,13 @@ fn setup(
     mut portals: ResMut<Portals>,
     game: Res<GameDefinition>,
     server: Res<AssetServer>,
-    extras: Query<(Entity, &bevy::gltf::GltfExtras)>,
+    props: Query<(Entity, &Name), With<crate::assets::StaticPropRoot>>,
     children: Query<&Children>,
 ) {
     *portals = default();
-    for (entity, metadata) in &extras {
-        if serde_json::from_str::<serde_json::Value>(&metadata.value)
-            .ok()
-            .is_some_and(|d| {
-                d["static_instance"] == true
-                    && d["source_model"].as_str().is_some_and(|m| {
-                        m == "fxanim_zom_tomb_portal_mod"
-                            || m.starts_with("p6_zm_tm_elm_plinth_top_")
-                    })
-            })
+    for (entity, name) in &props {
+        if name.as_str() == "fxanim_zom_tomb_portal_mod"
+            || name.as_str().starts_with("p6_zm_tm_elm_plinth_top_")
         {
             commands
                 .entity(entity)

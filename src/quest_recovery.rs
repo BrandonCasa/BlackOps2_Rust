@@ -44,7 +44,7 @@ impl Plugin for RecoveryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Recovery>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 reset.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(

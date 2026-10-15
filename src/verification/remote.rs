@@ -36,15 +36,6 @@ struct RemoteState {
     queue: BTreeMap<u64, Vec<InputEvent>>,
     held: BTreeMap<String, Edge>,
 }
-#[derive(Resource, Default)]
-struct MaterialProbeState(Vec<(Entity, Handle<StandardMaterial>)>);
-
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct MaterialProbeRequest {
-    entities: Vec<u64>,
-    no_culling: bool,
-}
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Edge {
@@ -139,13 +130,8 @@ struct RemoteBlast {
     radius: f32,
 }
 pub(super) fn install(app: &mut App, port: u16) {
-    super::pipelines::install(app);
-    if std::env::var("ORIGINS_RENDER_DIAGNOSTICS").is_ok_and(|value| value == "1") {
-        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
-    }
     app.add_observer(preview_ready)
         .init_resource::<RemoteState>()
-        .init_resource::<MaterialProbeState>()
         .init_resource::<crate::audio::RequestedAliases>()
         .configure_sets(PreUpdate, InputSystems.run_if(|| false))
         .add_plugins((
@@ -162,8 +148,6 @@ pub(super) fn install(app: &mut App, port: u16) {
                 .with_method_main("origins/quests/setup", quests::setup)
                 .with_method_main("origins/stations/setup", stations::setup)
                 .with_method_main("origins/stations", stations::snapshot)
-                .with_method_main("origins/materials", materials)
-                .with_method_main("origins/material-probe", material_probe)
                 .with_method_main("origins/capture", capture)
                 .with_method_main("origins/preview", preview)
                 .with_method_main("origins/assets", asset_observation)
@@ -178,7 +162,7 @@ pub(super) fn install(app: &mut App, port: u16) {
                 .with_port(port),
         ))
         .add_systems(
-            OnEnter(GameState::PreparingShaders),
+            OnEnter(GameState::StartingSession),
             reset_inputs
                 .after(crate::session::SessionSetup::Initialize)
                 .before(crate::session::SessionSetup::World),
@@ -302,15 +286,14 @@ fn schema(_: In<Option<Value>>, port: Res<bevy::remote::http::HostPort>) -> BrpR
     Ok(json!({
         "version":1,"transport":"Bevy Remote Protocol","tick_schedule":"FixedPreUpdate",
         "bevy_version":"0.20.0",
-        "endpoints":{"main":format!("http://127.0.0.1:{}",port.0),"render":"http://127.0.0.1:15703"},
+        "endpoints":{"main":format!("http://127.0.0.1:{}",port.0)},
         "discovery":{"methods":"rpc.discover","schemas":"registry.schema"},
         "methods":{
             "origins/animations":{"params":{},"result":"fixed_tick, players (enabled, restart, actual and requested clip clocks and weights, pause, speed, local and rest bone poses), weapons (ready, action, clip clocks, local bone poses), enemies (action, gait, native combat state, sequence, elapsed, notetracks, rig poses and clocks)"},
             "origins/state":{"params":{},"result":"fixed_tick, fixed_delta_seconds, epoch, session_id, state, queued_inputs, held_inputs, session, player (life, ads, prone, crouched, grounded, velocity, mobility, sprint, lethal, tactical, mine), movement (events, motion: first 512 airborne or dive fixed ticks, physics: first 512 motor fixed ticks, projectiles: first 512 free-flight fixed ticks), firing (shots with stance, speed, spread, ADS and perk scales; first 128), enemies (nuked, ready, hit_regions with world endpoints), damage (recent with base_amount and insta_kill promotion, awarded_points, headshot_kills, melee_kills), generators, population, round_evidence, equipment (events, active_grenades, mine_placed), drops (spawned, collected, expired, active), effects, audio (requests before mixer rejection, events started, sinks), controls, focus"},
-            "origins/materials":{"params":{},"result":"pending, first_person, world, inventory; native material, texture, tangent readiness"},
             "origins/ui":{"params":{},"result":"Visible native labels, widget dimensions, original image paths and load counts, crosshair and scoreboard visibility"},
             "origins/preview":{"params":{"weapon":"optional native weapon ID","presentation":"optional content presentation ID","animation":"optional named clip","distance":"optional camera distance in metres"},"effect":"Asset scenario setup attached to camera; omitted IDs clear preview"},
-            "origins/assets":{"params":{},"result":"Preview load state, mesh visibility ranges, skin readiness, animation players and local bone poses"},
+            "origins/assets":{"params":{},"result":"Preview glTF load state, mesh visibility, skinning, animation players, local poses, and first-person rig readiness"},
             "origins/capture":{"params":{"path":"absolute PNG path"},"result":"asynchronous screenshot request"},
             "origins/reset":{"params":{"difficulty":"optional original or easy"},"effect":"Release inputs, select next session difficulty, transition to GameOver, send normal RestartGame"},
             "origins/input":{"params":{"events":[{"tick":"relative integer 1..3600","key":"Bevy KeyCode name or MouseLeft/MouseRight/MouseMiddle","pressed":"boolean"},{"tick":"relative integer 1..3600","motion":"finite [dx,dy] mouse pixels"}]},"max_events":512,"effect":"Queue native input messages; automatic button release after final scheduled tick"},
@@ -899,118 +882,6 @@ fn setup(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
     )
 }
 
-fn material_probe(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
-    let request: MaterialProbeRequest = parse(value)?;
-    if !matches!(
-        world.resource::<State<GameState>>().get(),
-        GameState::Playing | GameState::Paused
-    ) {
-        return Err(error("Material probe requires Playing or Paused"));
-    }
-    if request.entities.len() > 2
-        || (request.entities.len() == 2 && request.entities[0] == request.entities[1])
-    {
-        return Err(error("Select at most two distinct existing meshes"));
-    }
-    if request.entities.is_empty() {
-        let originals = std::mem::take(&mut world.resource_mut::<MaterialProbeState>().0);
-        let mut restored = 0;
-        for (entity, original) in originals {
-            if let Some(mut material) = world.get_mut::<MeshMaterial3d<StandardMaterial>>(entity) {
-                material.0 = original;
-                restored += 1;
-            }
-        }
-        super::pipelines::probe_entities(world, &[]);
-        return Ok(json!({"setup_applied":true,"gameplay_evidence":false,"restored":restored}));
-    }
-    if !world.resource::<MaterialProbeState>().0.is_empty() {
-        return Err(error(
-            "Restore the existing material probe before selecting new meshes",
-        ));
-    }
-    let mut selected = Vec::new();
-    for bits in request.entities {
-        let entity = Entity::try_from_bits(bits).ok_or_else(|| error("Invalid mesh entity"))?;
-        if world.get::<Mesh3d>(entity).is_none() {
-            return Err(error("Selected entity is not an existing mesh"));
-        }
-        let handle = world
-            .get::<MeshMaterial3d<StandardMaterial>>(entity)
-            .map(|material| material.0.clone())
-            .ok_or_else(|| error("Selected mesh requires StandardMaterial"))?;
-        let material = world
-            .resource::<Assets<StandardMaterial>>()
-            .get(&handle)
-            .cloned()
-            .ok_or_else(|| error("Selected source material is unavailable"))?;
-        selected.push((entity, handle, material));
-    }
-    let stimulus = world
-        .query_filtered::<&bevy::camera::Exposure, With<crate::rendering::GameCamera>>()
-        .single(world)
-        .map_or(1., |exposure| exposure.exposure().recip());
-    let mut changed = Vec::new();
-    for (index, (entity, original, source)) in selected.into_iter().enumerate() {
-        let color = if index == 0 {
-            Color::linear_rgb(stimulus, 0., stimulus)
-        } else {
-            Color::linear_rgb(0., stimulus, stimulus)
-        };
-        let handle = world
-            .resource_mut::<Assets<StandardMaterial>>()
-            .add(StandardMaterial {
-                base_color: color,
-                unlit: true,
-                fog_enabled: false,
-                cull_mode: if request.no_culling { None } else { source.cull_mode },
-                double_sided: request.no_culling || source.double_sided,
-                alpha_mode: source.alpha_mode,
-                depth_bias: source.depth_bias,
-                opaque_render_method: bevy::material::OpaqueRendererMethod::Forward,
-                ..default()
-            });
-        world.entity_mut(entity).insert(MeshMaterial3d(handle));
-        world
-            .resource_mut::<MaterialProbeState>()
-            .0
-            .push((entity, original));
-        changed.push(json!({"entity":entity.to_bits(),"name":world.get::<Name>(entity).map(Name::as_str),
-            "color":color.to_linear().to_f32_array(),"unlit":true,"source_cull":format!("{:?}",source.cull_mode),
-            "source_double_sided":source.double_sided}));
-    }
-    let entities: Vec<_> = world.resource::<MaterialProbeState>().0.iter().map(|(entity, _)| *entity).collect();
-    super::pipelines::probe_entities(world, &entities);
-    Ok(json!({"setup_applied":true,"gameplay_evidence":false,"meshes":changed}))
-}
-
-fn materials(_: In<Option<Value>>, world: &mut World) -> BrpResult {
-    let mut result = crate::rendering::weapon_material_snapshot(world);
-    result["pipelines"] = super::pipelines::snapshot(world);
-    result["atmosphere"] = crate::rendering::atmosphere::snapshot(world);
-    result["preprocessing"] = world
-        .resource::<crate::rendering::PreprocessingStatus>()
-        .report();
-    if let Some(diagnostics) = world.get_resource::<bevy::diagnostic::DiagnosticsStore>() {
-        result["render_diagnostics"] = json!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| {
-                    json!({"path":diagnostic.path().as_str(),"value":diagnostic.value(),
-                "average":diagnostic.average(),"unit":diagnostic.suffix})
-                })
-                .collect::<Vec<_>>()
-        );
-    }
-    if let Ok(progress) = world
-        .resource::<crate::rendering::preparation::ShaderProgress>()
-        .0
-        .lock()
-    {
-        result["preparation"] = json!(*progress);
-    }
-    Ok(result)
-}
 fn capture(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
     use bevy::render::view::screenshot::{Screenshot, save_to_disk};
     #[derive(Deserialize)]
@@ -1038,7 +909,7 @@ fn capture(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
 }
 
 #[derive(Component)]
-struct MaterialPreview;
+struct PreviewRoot;
 #[derive(Component)]
 struct AssetPreview {
     source: Handle<bevy::gltf::Gltf>,
@@ -1101,7 +972,7 @@ fn preview(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         scene = Some((None, path));
     }
     let previous: Vec<_> = world
-        .query_filtered::<Entity, With<MaterialPreview>>()
+        .query_filtered::<Entity, With<PreviewRoot>>()
         .iter(world)
         .collect();
     for entity in previous {
@@ -1118,7 +989,7 @@ fn preview(In(value): In<Option<Value>>, world: &mut World) -> BrpResult {
         let handle = world.resource::<AssetServer>().load(scene);
         let mut preview = world.spawn((
             bevy::world_serialization::WorldAssetRoot(handle),
-            MaterialPreview,
+            PreviewRoot,
             AssetPreview {
                 source,
                 clip: request.animation.clone(),
@@ -1218,12 +1089,16 @@ fn asset_observation(_: In<Option<Value>>, world: &mut World) -> BrpResult {
             "players":players,"bones":bones,"meshes":meshes,
             "load_state":format!("{:?}",world.resource::<AssetServer>().get_load_state(source.id()))}));
     }
-    Ok(json!({"previews":result}))
+    let first_person: Vec<_> = world.query::<(Entity, &crate::presentation::Rig)>()
+        .iter(world).map(|(entity, rig)| json!({"entity":entity.to_bits(),
+            "weapon":rig.weapon.0,"ready":rig.ready,"arms":rig.arms,
+            "players":rig.players.iter().map(|e|e.to_bits()).collect::<Vec<_>>()})).collect();
+    Ok(json!({"previews":result,"first_person":first_person}))
 }
 fn preview_ready(
     event: On<bevy::world_serialization::WorldInstanceReady>,
     mut commands: Commands,
-    roots: Query<(), With<MaterialPreview>>,
+    roots: Query<(), With<PreviewRoot>>,
     children: Query<&Children>,
     meshes: Query<(), With<Mesh3d>>,
 ) {

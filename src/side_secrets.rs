@@ -63,7 +63,7 @@ impl Plugin for SecretPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Secrets>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 setup.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(

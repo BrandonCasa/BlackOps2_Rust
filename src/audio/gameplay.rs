@@ -65,7 +65,7 @@ pub(super) fn install(app: &mut App) {
     app.init_resource::<VocalChoke>();
     app.init_resource::<TriggerAudio>()
         .add_observer(trigger_sound)
-        .add_systems(OnEnter(GameState::PreparingShaders), reset_trigger_audio)
+        .add_systems(OnEnter(GameState::StartingSession), reset_trigger_audio)
         .add_systems(
             FixedUpdate,
             trigger_audio
@@ -79,7 +79,7 @@ pub(super) fn install(app: &mut App) {
             .after(GameStep::Rounds)
             .run_if(in_state(GameState::Playing)),
     );
-    app.add_systems(OnEnter(GameState::PreparingShaders), reset_gameplay_audio);
+    app.add_systems(OnEnter(GameState::StartingSession), reset_gameplay_audio);
 }
 fn reset_gameplay_audio(mut state: ResMut<AudioState>, mut choke: ResMut<VocalChoke>) {
     *state = AudioState::default();

@@ -41,7 +41,7 @@ pub(super) fn client_scene(state: Res<State<GameState>>) -> bool {
 }
 
 fn client_clock(
-    source: Res<crate::rendering::opaque::NativeClock>,
+    source: Res<crate::presentation::cues::CueClock>,
     state: Res<State<GameState>>,
     mut clock: ResMut<ClientPhysicsClock>,
     mut physics: ResMut<Time<Physics>>,
@@ -50,7 +50,7 @@ fn client_clock(
 ) {
     let active = matches!(
         **state,
-        GameState::PreparingShaders
+        GameState::StartingSession
             | GameState::Playing
             | GameState::Paused
             | GameState::GameOver

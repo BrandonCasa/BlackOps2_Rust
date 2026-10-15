@@ -1,0 +1,331 @@
+{
+  "crafting_benches": [
+    {
+      "id": "crafting.trigger.5f7188ad.8dcd55b76056cfff85ecf4fe.0",
+      "source_trigger": "trigger.5f7188ad.8dcd55b76056cfff85ecf4fe.0",
+      "targetname": "quadrotor_zm_craftable_trigger",
+      "equipname": "equip_dieseldrone_zm",
+      "weaponname": "equip_dieseldrone_zm",
+      "hint": "ZM_TOMB_TQ",
+      "position": [
+        -178.816,
+        -3.9116,
+        -11.5062
+      ],
+      "angles": [
+        0.0,
+        180.0,
+        0.0
+      ],
+      "dimensions": [
+        2.54,
+        1.6256,
+        0.8128
+      ],
+      "use_seconds": 3.0,
+      "persistent": true,
+      "delete_source": true,
+      "require_look_at": true
+    },
+    {
+      "id": "crafting.trigger.b6daea29.0c0b5d4f113cc760a2a97386.0",
+      "source_trigger": "trigger.b6daea29.0c0b5d4f113cc760a2a97386.0",
+      "targetname": "riotshield_zm_craftable_trigger",
+      "equipname": "tomb_shield_zm",
+      "weaponname": "tomb_shield_zm",
+      "hint": "ZOMBIE_GRAB_RIOTSHIELD",
+      "position": [
+        -178.816,
+        -3.9116,
+        -15.773399999999999
+      ],
+      "angles": [
+        0.0,
+        180.0,
+        0.0
+      ],
+      "dimensions": [
+        2.54,
+        1.6256,
+        0.8128
+      ],
+      "use_seconds": 3.0,
+      "persistent": true,
+      "delete_source": true,
+      "require_look_at": true
+    },
+    {
+      "id": "crafting.trigger.9bce3bd6.06866da15ff138c8bdd5dc56.0",
+      "source_trigger": "trigger.9bce3bd6.06866da15ff138c8bdd5dc56.0",
+      "targetname": "open_craftable_trigger",
+      "equipname": "open_table",
+      "weaponname": "",
+      "hint": "OPEN_CRAFTABLE",
+      "position": [
+        -22.5552,
+        -4.9784,
+        -59.3598
+      ],
+      "angles": [
+        0.0,
+        180.0,
+        0.0
+      ],
+      "dimensions": [
+        2.54,
+        1.6256,
+        0.8128
+      ],
+      "use_seconds": 3.0,
+      "persistent": false,
+      "delete_source": true,
+      "require_look_at": true
+    },
+    {
+      "id": "crafting.trigger.9bce3bd6.881304de52452b0d346ddf2a.0",
+      "source_trigger": "trigger.9bce3bd6.881304de52452b0d346ddf2a.0",
+      "targetname": "open_craftable_trigger",
+      "equipname": "open_table",
+      "weaponname": "",
+      "hint": "OPEN_CRAFTABLE",
+      "position": [
+        58.724799999999995,
+        1.016,
+        -18.5166
+      ],
+      "angles": [
+        0.0,
+        180.0,
+        0.0
+      ],
+      "dimensions": [
+        2.54,
+        1.6256,
+        0.8128
+      ],
+      "use_seconds": 3.0,
+      "persistent": false,
+      "delete_source": true,
+      "require_look_at": true
+    },
+    {
+      "id": "crafting.trigger.9bce3bd6.0d4ce0724f8586891389a398.0",
+      "source_trigger": "trigger.9bce3bd6.0d4ce0724f8586891389a398.0",
+      "targetname": "open_craftable_trigger",
+      "equipname": "open_table",
+      "weaponname": "",
+      "hint": "OPEN_CRAFTABLE",
+      "position": [
+        3.7173662000000003,
+        2.7432,
+        75.719432
+      ],
+      "angles": [
+        0.0,
+        105.0,
+        0.0
+      ],
+      "dimensions": [
+        2.54,
+        1.6256,
+        0.8128
+      ],
+      "use_seconds": 3.0,
+      "persistent": false,
+      "delete_source": true,
+      "require_look_at": true
+    },
+    {
+      "id": "crafting.trigger.b7856565.59fe536f08e064785451d912.0",
+      "source_trigger": "trigger.b7856565.59fe536f08e064785451d912.0",
+      "targetname": "gramophone_craftable_trigger",
+      "equipname": "gramophone",
+      "weaponname": "gramophone",
+      "hint": "ZOMBIE_GRAB_GRAMOPHONE",
+      "position": [
+        68.9864,
+        -8.331199999999999,
+        -141.986
+      ],
+      "angles": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "dimensions": [
+        2.54,
+        1.6256,
+        0.8128
+      ],
+      "use_seconds": 3.0,
+      "persistent": true,
+      "delete_source": true,
+      "require_look_at": true
+    },
+    {
+      "id": "crafting.trigger.d5baa514.a57a6cd317efe75c91a7a0db.0",
+      "source_trigger": "trigger.d5baa514.a57a6cd317efe75c91a7a0db.0",
+      "targetname": "staff_air_craftable_trigger",
+      "equipname": "elemental_staff_air",
+      "weaponname": "staff_air_zm",
+      "hint": "ZM_TOMB_PUAS",
+      "position": [
+        -4.130548,
+        -18.3388,
+        -5.554726
+      ],
+      "angles": [
+        0.0,
+        309.6,
+        0.0
+      ],
+      "dimensions": [
+        2.54,
+        1.6256,
+        0.8128
+      ],
+      "use_seconds": 3.0,
+      "persistent": true,
+      "delete_source": true,
+      "require_look_at": true
+    },
+    {
+      "id": "crafting.trigger.65235db7.35bc027c2aae7d5ef7031e48.0",
+      "source_trigger": "trigger.65235db7.35bc027c2aae7d5ef7031e48.0",
+      "targetname": "staff_lightning_craftable_trigger",
+      "equipname": "elemental_staff_lightning",
+      "weaponname": "staff_lightning_zm",
+      "hint": "ZM_TOMB_PULS",
+      "position": [
+        1.563116,
+        -18.3388,
+        -6.769607999999999
+      ],
+      "angles": [
+        0.0,
+        257.1,
+        0.0
+      ],
+      "dimensions": [
+        2.54,
+        1.6256,
+        0.8128
+      ],
+      "use_seconds": 3.0,
+      "persistent": true,
+      "delete_source": true,
+      "require_look_at": true
+    },
+    {
+      "id": "crafting.trigger.232fb949.3d06f19695af18d19e537353.0",
+      "source_trigger": "trigger.232fb949.3d06f19695af18d19e537353.0",
+      "targetname": "staff_fire_craftable_trigger",
+      "equipname": "elemental_staff_fire",
+      "weaponname": "staff_fire_zm",
+      "hint": "ZM_TOMB_PUFS",
+      "position": [
+        4.124198,
+        -18.3388,
+        -5.553456
+      ],
+      "angles": [
+        0.0,
+        235.8,
+        0.0
+      ],
+      "dimensions": [
+        2.54,
+        1.6256,
+        0.8128
+      ],
+      "use_seconds": 3.0,
+      "persistent": true,
+      "delete_source": true,
+      "require_look_at": true
+    },
+    {
+      "id": "crafting.trigger.064c7d7c.790231c794e313734e9c9e09.0",
+      "source_trigger": "trigger.064c7d7c.790231c794e313734e9c9e09.0",
+      "targetname": "staff_water_craftable_trigger",
+      "equipname": "elemental_staff_water",
+      "weaponname": "staff_water_zm",
+      "hint": "ZM_TOMB_PUIS",
+      "position": [
+        -1.599184,
+        -18.3388,
+        -6.787642
+      ],
+      "angles": [
+        0.0,
+        285.0,
+        0.0
+      ],
+      "dimensions": [
+        2.54,
+        1.6256,
+        0.8128
+      ],
+      "use_seconds": 3.0,
+      "persistent": true,
+      "delete_source": true,
+      "require_look_at": true
+    }
+  ],
+  "ownership": [
+    {
+      "id": "trigger.5f7188ad.8dcd55b76056cfff85ecf4fe.0",
+      "owner": "crafting",
+      "shootable": false
+    },
+    {
+      "id": "trigger.b6daea29.0c0b5d4f113cc760a2a97386.0",
+      "owner": "crafting",
+      "shootable": false
+    },
+    {
+      "id": "trigger.9bce3bd6.06866da15ff138c8bdd5dc56.0",
+      "owner": "crafting",
+      "shootable": false
+    },
+    {
+      "id": "trigger.9bce3bd6.881304de52452b0d346ddf2a.0",
+      "owner": "crafting",
+      "shootable": false
+    },
+    {
+      "id": "trigger.9bce3bd6.0d4ce0724f8586891389a398.0",
+      "owner": "crafting",
+      "shootable": false
+    },
+    {
+      "id": "trigger.b7856565.59fe536f08e064785451d912.0",
+      "owner": "crafting",
+      "shootable": false
+    },
+    {
+      "id": "trigger.d5baa514.a57a6cd317efe75c91a7a0db.0",
+      "owner": "crafting",
+      "shootable": false
+    },
+    {
+      "id": "trigger.65235db7.35bc027c2aae7d5ef7031e48.0",
+      "owner": "crafting",
+      "shootable": false
+    },
+    {
+      "id": "trigger.232fb949.3d06f19695af18d19e537353.0",
+      "owner": "crafting",
+      "shootable": false
+    },
+    {
+      "id": "trigger.064c7d7c.790231c794e313734e9c9e09.0",
+      "owner": "crafting",
+      "shootable": false
+    }
+  ],
+  "sources": [
+    "source/server-tomb/maps/mp/zm_tomb_craftables.gsc:482-518",
+    "source/server-tomb/maps/mp/zombies/_zm_craftables.gsc:1121-1176,2335-2340",
+    "Fresh Steam entities.json source trigger origin/angles and stable existing trigger IDs; source inch-to-metre axis conversion x,z,-y."
+  ]
+}

@@ -640,7 +640,7 @@ impl RepairQuakes {
 
 fn repair_quake_camera(
     state: Res<State<GameState>>,
-    clock: Res<crate::rendering::opaque::NativeClock>,
+    clock: Res<crate::presentation::cues::CueClock>,
     mut barriers: ResMut<Barriers>,
     mut cameras: Query<&mut Transform, With<crate::rendering::GameCamera>>,
 ) {
@@ -700,7 +700,7 @@ impl Plugin for BarrierPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Barriers>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 assemble.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -1014,7 +1014,7 @@ fn tick(
 
 fn audio(
     mut commands: Commands,
-    clock: Res<crate::rendering::opaque::NativeClock>,
+    clock: Res<crate::presentation::cues::CueClock>,
     definition: Res<GameDefinition>,
     mut barriers: ResMut<Barriers>,
 ) {

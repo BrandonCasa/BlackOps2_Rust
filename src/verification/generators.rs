@@ -22,11 +22,6 @@ pub(super) struct Coverage {
     progress_written_at: Option<Instant>,
     progress_written_state: Option<(u8, usize, usize)>,
 }
-impl Coverage {
-    pub(super) fn finished(&self) -> bool {
-        self.phase == 10
-    }
-}
 pub fn install(app: &mut App) {
     app.init_resource::<Coverage>().add_systems(
         FixedUpdate,

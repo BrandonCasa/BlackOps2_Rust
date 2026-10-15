@@ -13,26 +13,20 @@ name = "origins"
 path = "src/main.rs"
 required-features = ["game"]
 
-[[bin]]
-name = "build_assets"
-path = "tools/build_assets.rs"
-required-features = ["asset-builder"]
-
 [workspace]
 members = ["."]
 resolver = "3"
 
 [features]
 default = ["game"]
-game = ["dep:bevy", "dep:avian3d", "dep:bevy_input", "dep:keepawake", "dep:wgpu"]
-asset-builder = ["dep:half", "dep:ctt-intel-texture-compressor", "dep:flate2", "dep:wgpu", "wgpu/wgsl"]
-dev-tools = ["bevy/bevy_remote", "bevy/png"]
+game = ["dep:bevy", "dep:avian3d", "dep:bevy_input", "dep:keepawake"]
+dev-tools = ["bevy/bevy_remote"]
 profile-tracy = ["bevy/trace_tracy", "bevy/debug", "dep:tracy-client"]
 profile-tracy-memory = ["profile-tracy", "bevy/trace_tracy_memory"]
 profile-chrome = ["bevy/trace_chrome", "bevy/debug"]
 
 [dependencies]
-bevy = { optional = true, version = "=0.20.0", default-features = false, features = ["std", "debug", "async_executor", "multi_threaded", "bevy_asset", "bevy_scene", "bevy_gltf", "bevy_animation", "bevy_curve", "gltf_animation", "bevy_audio", "vorbis", "flac", "mp3", "wav", "ktx2", "bevy_pbr", "bevy_solari", "dlss", "pbr_specular_textures", "bevy_post_process", "bevy_anti_alias", "bevy_winit", "bevy_state", "bevy_ui", "bevy_ui_render", "bevy_ui_widgets", "ui_picking", "bevy_text", "default_font", "keyboard", "mouse", "tonemapping_luts", "bevy_log", "bevy_mikktspace", "reflect_auto_register", "zstd_rust"] }
+bevy = { optional = true, version = "=0.20.0", default-features = false, features = ["std", "debug", "async_executor", "multi_threaded", "bevy_asset", "bevy_scene", "bevy_gltf", "bevy_animation", "bevy_curve", "gltf_animation", "bevy_audio", "vorbis", "flac", "mp3", "wav", "png", "dds", "tga", "ktx2", "bevy_pbr", "pbr_specular_textures", "bevy_anti_alias", "bevy_winit", "bevy_state", "bevy_ui", "bevy_ui_render", "bevy_ui_widgets", "ui_picking", "bevy_text", "default_font", "keyboard", "mouse", "tonemapping_luts", "bevy_log", "bevy_mikktspace", "reflect_auto_register", "zstd_rust"] }
 avian3d = { optional = true, git = "https://github.com/andriyDev/avian.git", rev = "34c9b008d2f40638a953d9218db48d54f661365d", default-features = false, features = ["3d", "parry-f32", "collider-from-mesh", "parallel", "enhanced-determinism", "xpbd_joints"] }
 bevy_input = { optional = true, version = "=0.20.0", features = ["serialize"] }
 serde = { version = "=1.0.229", features = ["derive"] }
@@ -41,10 +35,6 @@ log = { version = "=0.4.34", features = ["max_level_debug", "release_max_level_o
 tracing = { version = "=0.1.44", default-features = false, features = ["std", "release_max_level_off"] }
 tracy-client = { version = "=0.19.0", default-features = false, features = ["only-localhost"], optional = true }
 
-half = { version = "=2.7.1", optional = true }
-ctt-intel-texture-compressor = { version = "=0.5.0", optional = true }
-flate2 = { version = "=1.1.10", optional = true }
-wgpu = { optional = true, version = "=30.0.1", default-features = false, features = ["std", "vulkan"] }
 
 [target.'cfg(windows)'.dependencies]
 keepawake = { version = "=0.6.1", optional = true }

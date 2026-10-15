@@ -49,14 +49,6 @@ pub struct Weather {
     audio: Option<Entity>,
 }
 impl Weather {
-    pub(crate) fn sun_color_blend(&self) -> f32 {
-        self.color_blend
-    }
-
-    pub(crate) fn sun_brightness(&self, normal: f32) -> f32 {
-        normal + (self.flash_peak * 30. - normal) * (self.flash / self.flash_peak).clamp(0., 1.)
-    }
-
     fn random(&mut self) -> u32 {
         self.client_seed = self
             .client_seed

@@ -50,7 +50,6 @@ pub mod movement;
 mod native_fx;
 pub mod navigation;
 pub mod origins;
-pub mod pack;
 pub mod panzer;
 pub mod perk_effects;
 pub mod perks;
@@ -62,7 +61,6 @@ pub mod presentation;
 pub mod projectiles;
 pub mod quest_recovery;
 pub mod quests;
-mod render_backend;
 pub mod rendering;
 pub mod rituals;
 pub mod robots;
@@ -88,7 +86,7 @@ pub enum GameState {
     #[default]
     Loading,
     MainMenu,
-    PreparingShaders,
+    StartingSession,
     Playing,
     Paused,
     GameOver,
@@ -102,64 +100,35 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 }
 
 pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
-    let configuration = assets::AssetPack::discover();
+    let configuration = assets::AssetDirectory::discover(&options.asset_root);
     let delivery_scope = configuration
         .as_ref()
         .ok()
-        .and_then(|pack| pack.contents.get("game.json").ok())
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .and_then(|directory| std::fs::read(directory.root.join("game.json")).ok())
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .and_then(|value| value.get("delivery_scope").cloned())
         .and_then(|value| serde_json::from_value::<origins::DeliveryScope>(value).ok())
-        .unwrap_or_default();
+        .unwrap_or(origins::DeliveryScope::FullOrigins);
     let mut app = App::new();
-    let index = configuration.as_ref().ok().map(|pack| pack.index.clone());
-    app.register_asset_source(
-        bevy::asset::io::AssetSourceId::Default,
-        bevy::asset::io::AssetSourceBuilder::new(move || {
-            Box::new(assets::PackAssetReader(index.clone()))
-        }),
-    );
-    app.insert_resource(bevy::anti_alias::dlss::DlssProjectId(
-        bevy::asset::uuid::uuid!("8981c4df-a1f4-4597-b6f1-6196f5cb5237"),
-    ));
+    let asset_root = options.asset_root.to_string_lossy().into_owned();
     let benchmark = options.benchmark;
-    let release_benchmark = options.release_benchmark;
     let ads_capture = options.verify_ads;
     let fixed_resolution = ads_capture || benchmark || options.validation_remote.is_some();
     let flythrough = options.flythrough;
     app.insert_resource(options);
-    app.insert_resource(bevy::render::render_asset::RenderAssetBytesPerFrame::new(
-        64 * 1024 * 1024,
-    ));
     let default_plugins = DefaultPlugins.build();
     #[cfg(not(debug_assertions))]
     let default_plugins = default_plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(
         default_plugins
-            .set(
-                bevy::gltf::GltfPlugin::default()
-                    .add_custom_vertex_attribute(
-                        "ORIGINS_NORMAL",
-                        rendering::opaque::FLAG_SOURCE_NORMAL,
-                    )
-                    .add_custom_vertex_attribute(
-                        "ORIGINS_TANGENT",
-                        rendering::opaque::FLAG_SOURCE_TANGENT,
-                    )
-                    .add_custom_vertex_attribute(
-                        "ORIGINS_PACKED_BASIS",
-                        rendering::opaque::FLAG_PACKED_BASIS,
-                    ),
-            )
-            .disable::<bevy::anti_alias::AntiAliasPlugin>()
+            .set(AssetPlugin { file_path: asset_root, ..default() })
             .set(bevy::render::RenderPlugin {
                 render_creation: bevy::render::settings::RenderCreation::Automatic(Box::new(
-                    render_backend::settings(),
+                    bevy::render::settings::WgpuSettings {
+                        backends: Some(bevy::render::settings::Backends::VULKAN),
+                        ..default()
+                    },
                 )),
-                ..default()
-            })
-            .set(bevy::log::LogPlugin {
-                custom_layer: verification::error_layer,
                 ..default()
             })
             .set(WindowPlugin {
@@ -193,7 +162,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
                 ..default()
             }),
     )
-    .add_plugins(bevy::anti_alias::dlss::DlssPlugin)
     .add_plugins(avian3d::prelude::PhysicsPlugins::new(PostUpdate).with_collision_hooks::<crate::enemies::RagdollCollisionHooks>())
     .init_state::<GameState>()
     .insert_resource(Time::<Fixed>::from_hz(60.0))
@@ -281,7 +249,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
             .add_message::<quests::SoulCollected>();
     }
     if cfg!(debug_assertions)
-        && !release_benchmark
         && !flythrough
         && (benchmark || cfg!(feature = "profile-tracy") || cfg!(feature = "profile-chrome"))
     {

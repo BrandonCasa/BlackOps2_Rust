@@ -53,7 +53,11 @@ impl BoxGlowRamp {
             sample_wait: 0.11,
         }
     }
-    pub(crate) fn tick(&mut self, dt: f32, inputs: &mut crate::rendering::NativeArtInputs) -> bool {
+    pub(crate) fn tick(
+        &mut self,
+        dt: f32,
+        inputs: &mut crate::presentation::cues::CueParameters,
+    ) -> bool {
         self.timer_wait -= dt;
         if self.timer_wait <= 0. {
             self.timer += 0.016;
@@ -61,6 +65,7 @@ impl BoxGlowRamp {
         }
         self.sample_wait -= dt;
         if self.sample_wait <= 0. {
+            inputs.luminous_channel = Some((1, 0));
             inputs.script_vectors[1] = [
                 if self.fading_in {
                     1. - self.timer
@@ -85,7 +90,7 @@ impl Plugin for CaptureRewardsPlugin {
         app.init_resource::<CaptureRewards>()
             .add_observer(ready)
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 setup.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -109,7 +114,7 @@ fn setup(
     mut rewards: ResMut<CaptureRewards>,
     game: Res<GameDefinition>,
     server: Res<AssetServer>,
-    extras: Query<(Entity, &bevy::gltf::GltfExtras, &GlobalTransform)>,
+    props: Query<(Entity, &Name, &GlobalTransform), With<crate::assets::StaticPropRoot>>,
     children: Query<&Children>,
 ) {
     *rewards = default();
@@ -123,14 +128,9 @@ fn setup(
         return;
     };
     let position = Vec3::from_array(reward.position);
-    for (entity, metadata, pose) in &extras {
+    for (entity, name, pose) in &props {
         if pose.translation().distance_squared(position) < 0.0001
-            && serde_json::from_str::<serde_json::Value>(&metadata.value)
-                .ok()
-                .is_some_and(|value| {
-                    value["static_instance"] == true
-                        && value["source_model"] == "p6_zm_tm_challenge_box"
-                })
+            && name.as_str() == "p6_zm_tm_challenge_box"
         {
             commands.entity(entity).insert(Visibility::Hidden);
             for child in children.iter_descendants(entity) {
@@ -154,8 +154,7 @@ fn setup(
                 sound: None,
                 glow_ramps: Vec::new(),
             },
-            crate::rendering::NativeArtInputs::default(),
-            crate::rendering::opaque::NativeShaderStart(0.),
+            crate::presentation::cues::CueParameters::default(),
             WorldAssetRoot(server.load(scene.clone())),
             Transform::from_translation(position).with_rotation(Quat::from_rotation_y(reward.yaw)),
         ));
@@ -181,7 +180,11 @@ fn tick(
     mut rewards: ResMut<CaptureRewards>,
     game: Res<GameDefinition>,
     server: Res<AssetServer>,
-    mut chests: Query<(Entity, &mut Chest, &mut crate::rendering::NativeArtInputs)>,
+    mut chests: Query<(
+        Entity,
+        &mut Chest,
+        &mut crate::presentation::cues::CueParameters,
+    )>,
     mut visuals: Query<&mut Transform, With<Reward>>,
 ) {
     let Some(profile) = game
@@ -285,6 +288,7 @@ fn tick(
             && chest.glow.is_none()
             && let Some(origin) = chest.origin_tag
         {
+            inputs.luminous_channel = Some((1, 0));
             inputs.script_vectors[1] = [0.; 4];
             inputs.script_available |= 1 << 1;
             chest.glow_ramps.push(BoxGlowRamp::new(true));
@@ -301,6 +305,7 @@ fn tick(
             ));
         } else if !glowing {
             if let Some(glow) = chest.glow.take() {
+                inputs.luminous_channel = Some((1, 0));
                 inputs.script_vectors[1] = [0.; 4];
                 inputs.script_available |= 1 << 1;
                 chest.glow_ramps.push(BoxGlowRamp::new(false));

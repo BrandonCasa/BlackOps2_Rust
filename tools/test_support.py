@@ -14,40 +14,14 @@ import urllib.request
 
 
 def asset_bytes(path):
-    path = Path(path)
-    pack = next((parent for parent in path.parents if parent.suffix == '.pack'), None)
-    if pack is None:
-        return path.read_bytes()
-    wanted = path.relative_to(pack).as_posix()
-    with pack.open('rb') as stream:
-        if stream.read(8) != b'ORIGPAK1':
-            raise ValueError('Unsupported runtime pack')
-        count_bytes = stream.read(4)
-        if len(count_bytes) != 4:
-            raise ValueError('Truncated runtime pack')
-        count, = struct.unpack('<I', count_bytes)
-        for _ in range(count):
-            header = stream.read(12)
-            if len(header) != 12:
-                raise ValueError('Truncated runtime pack entry')
-            name_size, size = struct.unpack('<IQ', header)
-            if name_size > 4096 or size > pack.stat().st_size - stream.tell() - name_size:
-                raise ValueError('Invalid runtime pack entry length')
-            name = stream.read(name_size).decode('utf-8')
-            if name == wanted:
-                data = stream.read(size)
-                if len(data) != size:
-                    raise ValueError('Truncated runtime asset')
-                return data
-            stream.seek(size, 1)
-    raise FileNotFoundError('Runtime pack is missing ' + wanted)
+    return Path(path).read_bytes()
 
 
 def initial_zones(game):
     content = game['content']
     enabled = {zone['id'] for zone in content['zones'] if zone['initially_open']}
     if not enabled:
-        raise ValueError('Packed content has no initially open zone')
+        raise ValueError('Game content has no initially open zone')
     while True:
         previous = enabled.copy()
         for connection in content['zone_connections']:

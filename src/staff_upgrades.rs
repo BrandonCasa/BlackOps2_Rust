@@ -89,7 +89,7 @@ impl Plugin for StaffUpgradePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<StaffUpgrades>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 setup.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -130,7 +130,7 @@ fn setup(
     mut session: ResMut<crate::gameplay::Session>,
     game: Res<crate::assets::GameDefinition>,
     server: Res<AssetServer>,
-    extras: Query<(Entity, &bevy::gltf::GltfExtras)>,
+    props: Query<(Entity, &Name), With<crate::assets::StaticPropRoot>>,
 ) {
     *state = default();
     randomize(&mut state, &mut session);
@@ -217,16 +217,8 @@ fn setup(
             disc.insert(WorldAssetRoot(server.load(scene.clone())));
         }
     }
-    for (entity, extras) in &extras {
-        if serde_json::from_str::<serde_json::Value>(&extras.value)
-            .ok()
-            .is_some_and(|data| {
-                data["static_instance"] == true
-                    && data["source_model"]
-                        .as_str()
-                        .is_some_and(|model| model.contains("p6_zm_tm_chamber_mid_piece"))
-            })
-        {
+    for (entity, name) in &props {
+        if name.as_str().contains("p6_zm_tm_chamber_mid_piece") {
             commands.entity(entity).insert(Visibility::Hidden);
         }
     }

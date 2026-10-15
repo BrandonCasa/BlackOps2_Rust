@@ -1,6 +1,6 @@
 # Origins: built-in Bevy rendering and external assets
 
-Status: architecture specification; implementation has not started.
+Status: implementation in progress. Built-in rendering and ordinary asset loading compile; full-game runtime acceptance remains outstanding.
 Branch: `codex/basic-bevy-rendering`.
 Base commit: `8ee2cc13b66dba85bd43894e2006c72ac94f8491`.
 
@@ -45,29 +45,41 @@ External tools remain external dependencies pinned by release or upstream commit
 
 ## 4. External tool selection and current evidence
 
-| Responsibility | Selection | Evidence / acceptance boundary |
+| Responsibility | Pinned external tool | Observed result and acceptance boundary |
 | --- | --- | --- |
-| Primary BO2 extraction | OpenAssetTools Unlinker v0.33.0 | Runs against installed `zm_tomb.ff`; model GLB/glTF and ordinary asset export are supported. Full Origins coverage is not established. |
-| Native world and collision gap | `eithan1231/open-fastfile`, commit `088dac3bdee0e6e653871f877ad8ee4326d314a4` | Candidate only. Contains T6 `gfxworld` and `clipmap` dumpers and an existing `--collision-only` GLB export command. Not yet run on Origins. |
-| Render-world alternatives | Existing Husky / C2M releases | BO2 rendered geometry and placements are documented. Their rendered mesh is not proof of native collision coverage. |
-| Specific missing model, animation, image support | Tom Crowley's tools, Greyhound, or another existing exporter/importer | Use only when the primary route lacks a required capability; prove the exact export and import on representative Origins content. |
-| Format conversion | Existing application/import-export plugin | Use its ordinary conversion path. Do not write a converter or introduce baking. |
+| Models and audio | OpenAssetTools Unlinker v0.33.0 | All 494 models used by 14,480 map placements exported; 1,381 WAV and 248 FLAC files exported. Code-post and localized code-post preloads do not resolve OAT's 1,235 missing-image errors. Those image errors remain visible in logs. |
+| World and collision | `eithan1231/open-fastfile` commit `088dac3bdee0e6e653871f877ad8ee4326d314a4` | Existing APIs exported the world shell, decals, raw authored world metadata, collision GLB and raw clipmap. No lightmap/material baking invoked. Full collision semantics require gameplay verification. |
+| Streamed source images | Tom Crowley's iPak Exporter download/readme v1.22 | `dlczm4.ipak`: 940 DDS + 289 normal TGA files, 100 percent names linked. Shared base and zombie IPAKs provide remaining dependencies. Use `-n -ra` to retain normals and alpha; exporter normal orientation is its documented default. |
+| Ordinary image encoding | Microsoft DirectXTex texconv `may2026` | Existing CLI converts DDS/TGA to full-resolution RGBA PNG; normal TGA to RGBA DDS retains the original OAT model URI extension. No compositing, material evaluation, resizing or baking. |
 
-The OAT probe found both `gfxworld` and `clipmap` named `maps/mp/zm_tomb.d3dbsp`. Its targeted export exited successfully but wrote only `zone_source/zm_tomb.zone`; no world or collision payload was produced. Exit status alone is not an asset-coverage check.
+The current full-map prop dependency audit observes all 494 unique model files and zero missing image URI paths. This is file dependency evidence, not Bevy visual or gameplay acceptance. Nested OAT `mlv` models resolve `../images` through ordinary hardlinks to the same generated images. The engine-provided `$identitynormalmap.dds` name aliases the unchanged source `global_normal_flat_16x16.dds`; no pixels are generated.
 
-The open-fastfile candidate reads native collision records; its source exposes brush contents, face flags, terrain triangles, submodels, static models, and dynamic entities. Its downstream collision GLB exporter filters/groups content for its own game, and its documentation names unsupported cases. Verify that the output retains everything Origins needs; do not assume the raw dumper's coverage survives into the GLB.
+Unlinker executable SHA256: `9d1664baea42fe42b63c20ba04b3afcd866fd74ed7ec7c55d62581d6be78eb63`.
+Tom iPak executable SHA256: `bb254915d835711af927ffe598b8cac18ef5fa4de5d612f297a5be148dc00052` (download/readme v1.22; historical console banner says v1.1).
+Texconv executable SHA256: `dcfdec10244e02cf5037fba089c55fb7e1326b1c8181742d77d15fa5cb5eef06`.
 
-Use the candidate only for the missing export capabilities. Do not adopt its browser engine, gameplay, renderer, material baking, lighting pipeline, or unrelated conventions. It is recent and experimental, not a proven Origins exporter. A blocked external command is reported with its exact input and failure; it is not repaired with local extraction code.
+Reproduction entry point: `powershell -File tools/export_assets.ps1`; `-SkipOat` restricts it to the collision evidence route. The tracked script pins downloads, invokes unchanged external tools/APIs, stages ordinary files, and checks actual OAT errors. It requires existing game-owned `game.json`; it does not create gameplay definitions or claim full animation coverage. Tom's console exporter completes its output then waits for Enter; an owned interactive run exited after Enter. Redirected stdin was tested and does not release its legacy exit prompt. The script observes the exporter completion summary and closes only the process it created in a finally block; it reports incomplete output explicitly.
+
+Evidence is under ignored `target/reports`: `oat-preload.log`, `ipak-dlczm4.log`, `images-zm.log`, `normal-dds.log`, `props-dependencies.json`, and `world-base.log`. WAV samples were opened as 48 kHz, 16-bit PCM; FLAC samples have valid `fLaC` headers. Decoder playback and game audio remain separate acceptance checks.
+
+Cinematic conversion uses established FFmpeg `n8.1-11-g75d37c499d-20260502` (executable SHA256 `e6a46ceeab46caab9cfcad7a16ca3dd578491a78fd19b156cf9c126dbf723e0e`): all 5,888 loading frames and 2,400 ending frames are ordinary 1280x720 PNG at source 30 fps. Source audio aliases and their secondary dialogue/music layers are recorded in `target/reports/cinematic-bindings.json`; the existing player consumes authored `frame_directory` bindings. `.duk` exports are JSON audio-duck definitions, not video.
+
+The raw audio source route exported 5,864 alias JSON records plus ordinary OAT sound-driver globals CSV. Mapping their complete curves, mixer ancestry, panning, ducking and source alias rules into the existing `AudioDefinition` remains outstanding; no partial runtime adapter or guessed defaults were installed.
+
+**Blocking external capability:** the inspected OAT v0.33 XModel JSON schema does not preserve native `boneInfo` bounds/spheres or part classification. Greyhound's BO2 model reader likewise exports skeletons/surfaces without those fields. Exact native actor hit volumes and ragdoll bodies/constraints therefore remain unproven for the source actor catalog. Skin-derived boxes are not substituted. OAT exports physics presets, but those do not establish the missing per-bone data. Stop the dependent full-game migration until an established exporter preserves these fields; do not implement a replacement decoder.
 
 Sources:
 
 - https://openassettools.dev/
 - https://github.com/Laupetin/OpenAssetTools/blob/main/docs/SupportedAssetTypes.md
+- https://github.com/Laupetin/OpenAssetTools/issues/283
 - https://tom-crowley.co.uk/downloads/
-- https://github.com/eithan1231/open-fastfile
-- https://github.com/eithan1231/open-fastfile/blob/088dac3bdee0e6e653871f877ad8ee4326d314a4/scripts/cod/t6/dumpers/clipmap.py
-- https://github.com/sheilan102/C2M
-- https://github.com/Scobalula/Husky
+- https://github.com/microsoft/DirectXTex/releases/tag/may2026
+- https://github.com/eithan1231/open-fastfile/tree/088dac3bdee0e6e653871f877ad8ee4326d314a4
+
+- https://github.com/Laupetin/OpenAssetTools/blob/v0.33.0/src/ObjCommon/XModel/JsonXModel.h.template
+- https://github.com/Scobalula/Greyhound/blob/master/src/WraithXCOD/WraithXCOD/GameBlackOps2.cpp
+- https://ffmpeg.org/general.html
 
 ## 5. Runtime asset contract
 
@@ -208,3 +220,22 @@ If an external capability cannot preserve required content, stop the affected mi
 The isolated worktree and branch exist. OAT v0.33.0 is downloaded and its world/collision limitation has been reproduced. Husky/C2M source was inspected. The unmodified open-fastfile candidate and its isolated Python dependencies are present under `target/tools`; its Origins collision export has not been executed. No game code has been changed, no infrastructure has been deleted, and no game build or runtime acceptance has run.
 
 The next action after this specification is reviewed is to test that candidate's existing collision-only export, without enabling its baking or modifying its implementation.
+
+
+## Current migration evidence
+
+The external route has exported the Origins world and decals with no missing named color-map images, all 14,480 static placements and their 494 referenced models, collision meshes and raw brush metadata, and 1,381 WAV plus 248 FLAC audio files. Stock Bevy loads ordinary files and instances props directly from external world metadata. Tom Crowley iPakExporter 1.22 and official texconv supply source images without material baking. `tools/export_assets.ps1` and `tools/export_world.py` invoke unchanged third-party tools and APIs.
+
+Full Origins acceptance includes the entire implemented weapon and actor catalog, interactions, quests, map traversal, death and restart. A Mauser animation export proves one tool route only. Full game-owned definitions and animation bindings remain in progress; missing `game.json` is an explicit loading failure. Existing gameplay systems remain authoritative and are preserved.
+
+Known external appearance approximations: shell export does not supply normal, response or emissive texture bindings; source water has no exported color-map binding. Native collision face/surface semantics and dynamic brush ownership require runtime verification. No full-game visual or gameplay success is claimed by export counts or compilation.
+
+### Source-backed ordinary gameplay profiles
+
+`gameplay/origins/profiles.json` preserves player health, round and solo-revive data as ordinary game-owned records. These are not a complete game.json or a reduced delivery scope. Health values follow authorized recovered `source/server-patch/maps/mp/zombies/_zm_playerhealth.gsc` lines46-53,120,195-196 and `_zm_perks.gsc` health_reboot branch (maximum100). Round defaults and growth follow `_zm.gsc` set_zombie_var,round_spawning,default_max_zombie_func,ai_calculate_health; actor cap31 follows lines116-117. This corrects the former assembly's32 literal to the actual source31. Solo revive timing,bleedout and pistol rank ordering follow `_zm.gsc` last_stand_pistol_rank_init and solo laststand; purchase limit follows `_zm_perks.gsc`. Existing source-derived timing constants and source-unit conversions are carried from the committed game-domain assembly. No native decoder or old pack is used.
+
+Full catalog wiring remains required: source weapon mechanics and animation notifies; actor machines/hit regions/spawn entrances; perks and authored trigger ownership; zone access and navigation; generators,robots,tank,weather,digging,parts,crafting,staff puzzles and quest transitions; audio aliases/localization/UI/cinematics. Export metadata supplies raw entity identities and positions but cannot substitute empty arrays for these owners. Ordinary `additional_scenes` includes separately exported decals in scene readiness.
+
+## Current run
+
+The user authorized research-derived gameplay data as tracked JSON and set the stopping point to building and opening the isolated game, then committing. Authored values live under gameplay/origins; ignored target/assets contains regenerated exports and launch copies. Native actor bounds and ragdoll values were recovered from the authorized research master. The initial real launch exposed legacy barrier schema differences; source data migration is being verified by the running game. Full gameplay acceptance is not claimed.

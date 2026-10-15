@@ -1,8 +1,12 @@
 use bevy::prelude::*;
 use serde::Deserialize;
 use std::path::Path;
-pub mod camo;
+pub(crate) mod actors;
+pub(crate) mod weapons;
+pub(crate) mod audio;
 pub mod content;
+pub(crate) mod navigation;
+pub(crate) mod zones;
 pub use content::*;
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -30,7 +34,27 @@ pub struct GameDefinition {
     #[serde(default)]
     pub initial_spawns: Vec<InitialSpawn>,
     pub scene: String,
+    #[serde(default)]
+    pub additional_scenes: Vec<String>,
     pub collision_scene: String,
+    pub collision_metadata: String,
+    pub world_metadata: String,
+    #[serde(default)]
+    pub navigation_metadata: Option<String>,
+    #[serde(default)]
+    pub entity_metadata: Option<String>,
+    #[serde(default)]
+    pub brush_hulls: Option<String>,
+    #[serde(default)]
+    pub navigation_zones: std::collections::BTreeMap<u16, ZoneId>,
+    #[serde(default)]
+    pub effects: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub effect_lifetimes: std::collections::BTreeMap<String, f32>,
+    #[serde(default)]
+    pub looping_effects: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    pub camos: std::collections::BTreeMap<String, String>,
     pub spawn: [f32; 3],
     pub yaw: f32,
     pub spawn_points: Vec<[f32; 3]>,
@@ -38,10 +62,6 @@ pub struct GameDefinition {
     pub waypoints: Vec<[f32; 3]>,
     #[serde(default)]
     pub survey_views: Vec<[f32; 3]>,
-    pub source_surfaces: usize,
-    pub render_meshes: usize,
-    pub collision_meshes: usize,
-    pub static_model_instances: usize,
     pub content: ContentCatalog,
     pub player_health: crate::player_health::HealthProfile,
     pub rounds: crate::rounds::RoundProfile,
@@ -135,7 +155,55 @@ impl Default for Tuning {
 }
 
 impl GameDefinition {
+    pub fn load_from_root(root: &Path) -> Result<Self, ContentError> {
+        let path = root.join("game.json");
+        let bytes = std::fs::read(&path).map_err(|source| ContentError::Io { path, source })?;
+        let mut definition = Self::decode(&bytes)?;
+        weapons::bind(&mut definition, root).map_err(ContentError::InvalidDefinition)?;
+        audio::bind(&mut definition, root).map_err(ContentError::InvalidDefinition)?;
+        match (&definition.entity_metadata, &definition.brush_hulls) {
+            (Some(entities), Some(hulls)) => {
+                let read = |name: &str| -> Result<Vec<u8>, ContentError> {
+                    validate_asset_path(name)?;
+                    let path = root.join(name);
+                    std::fs::read(&path).map_err(|source| ContentError::Io { path, source })
+                };
+                let entities = read(entities)?;
+                let hulls = read(hulls)?;
+                let clip = read(&definition.collision_metadata)?;
+                zones::bind(&mut definition, &entities, &clip, &hulls)
+                    .map_err(ContentError::InvalidDefinition)?;
+            }
+            (None, None) => {}
+            _ => {
+                return Err(ContentError::InvalidDefinition(
+                    "External zone binding requires both entity_metadata and brush_hulls".into(),
+                ));
+            }
+        }
+        crate::cinematics::bind_frames(&mut definition, root)
+            .map_err(ContentError::InvalidDefinition)?;
+        actors::bind(&mut definition, root).map_err(ContentError::InvalidDefinition)?;
+        if let Some(path) = &definition.navigation_metadata {
+            validate_asset_path(path)?;
+            let path = root.join(path);
+            let bytes = std::fs::read(&path).map_err(|source| ContentError::Io { path, source })?;
+            let zones = navigation::derive_zones(&definition, &bytes, &definition.navigation_zones)
+                .map_err(ContentError::InvalidDefinition)?;
+            navigation::bind(&mut definition, &bytes, &zones)
+                .map_err(ContentError::InvalidDefinition)?;
+        }
+        definition.validate()?;
+        Ok(definition)
+    }
+
     pub fn load(bytes: &[u8]) -> Result<Self, ContentError> {
+        let definition = Self::decode(bytes)?;
+        definition.validate()?;
+        Ok(definition)
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, ContentError> {
         let path = Path::new("game.json");
         if bytes.len() > 32 * 1024 * 1024 {
             return Err(ContentError::InvalidDefinition(
@@ -186,7 +254,6 @@ impl GameDefinition {
                 path: path.into(),
                 source,
             })?;
-        definition.validate()?;
         Ok(definition)
     }
     pub fn validate(&self) -> Result<(), ContentError> {
@@ -196,7 +263,8 @@ impl GameDefinition {
         self.content.validate()?;
         if self.delivery_scope == DeliveryScope::FirstPlayableSolo {
             self.content.validate_first_playable()?;
-            if self.access.spawners.is_empty() || self.access.entrances.is_empty()
+            if self.access.spawners.is_empty()
+                || self.access.entrances.is_empty()
                 || self.initial_spawns.is_empty()
                 || self.initial_spawns.iter().any(|spawn| {
                     !spawn.position.iter().all(|value| value.is_finite())
@@ -215,16 +283,11 @@ impl GameDefinition {
                     "First playable solo lacks valid source initial spawn candidates".into(),
                 ));
             }
-            if !self
-                .content
-                .perks
-                .iter()
-                .any(|perk| {
-                    perk.id == self.solo_revive.perk
-                        && !perk.collision.is_empty()
-                        && perk.path_bounds_radius.is_some()
-                })
-                || self.content.sounds.is_empty()
+            if !self.content.perks.iter().any(|perk| {
+                perk.id == self.solo_revive.perk
+                    && !perk.collision.is_empty()
+                    && perk.path_bounds_radius.is_some()
+            }) || self.content.sounds.is_empty()
                 || self.audio.aliases.is_empty()
                 || self.audio.bindings.is_empty()
             {
@@ -253,7 +316,14 @@ impl GameDefinition {
                 "Invalid round profile. Regenerate/import game.json.".into(),
             ));
         }
-        for path in [&self.scene, &self.collision_scene] {
+        for path in std::iter::once(&self.scene)
+            .chain(self.additional_scenes.iter())
+            .chain(std::iter::once(&self.collision_scene))
+            .chain(std::iter::once(&self.collision_metadata))
+            .chain(std::iter::once(&self.world_metadata))
+            .chain(self.effects.values())
+            .chain(self.camos.values())
+        {
             validate_asset_path(path)?;
             let base = path.split('#').next().unwrap_or("");
             if base.is_empty()
@@ -264,6 +334,21 @@ impl GameDefinition {
             {
                 return Err(ContentError::InvalidPath(path.clone()));
             }
+        }
+        if self.effect_lifetimes.iter().any(|(name, seconds)| {
+            !self.effects.contains_key(name) || !seconds.is_finite() || *seconds <= 0.
+        }) {
+            return Err(ContentError::InvalidDefinition(
+                "Effect lifetimes require an effect binding and finite positive source seconds"
+                    .into(),
+            ));
+        }
+        if self.looping_effects.iter().any(|name| {
+            !self.effects.contains_key(name) || self.effect_lifetimes.contains_key(name)
+        }) || self.effects.keys().any(|name| {
+            !self.effect_lifetimes.contains_key(name) && !self.looping_effects.contains(name)
+        }) {
+            return Err(ContentError::InvalidDefinition("Every effect requires either finite source timing or an explicit looping classification".into()));
         }
         let values = [
             self.tuning.walk_speed,
@@ -288,8 +373,6 @@ impl GameDefinition {
             self.tuning.zombie_speed,
         ];
         if self.spawn_points.is_empty()
-            || self.render_meshes == 0
-            || self.collision_meshes == 0
             || !self.yaw.is_finite()
             || !self
                 .spawn
@@ -305,11 +388,35 @@ impl GameDefinition {
                 .as_ref()
                 .is_some_and(|profile| !profile.valid(&self.content))
             || (self.delivery_scope == DeliveryScope::FirstPlayableSolo
-                && self.content.generators.iter().any(|generator| generator.number == 1)
+                && self
+                    .content
+                    .generators
+                    .iter()
+                    .any(|generator| generator.number == 1)
                 && self.generator_crystals.is_none())
-            || self.content.barriers.iter().any(|barrier|!barrier.valid_actions())
-            || self.content.generators.iter().any(|generator| generator.initial_reward.as_ref().is_some_and(|reward| !self.environment.triggers.iter().any(|trigger|trigger.id==reward.source_trigger)))
-            || self.content.perks.iter().any(|perk| perk.bump_trigger.as_ref().is_some_and(|id| !self.environment.triggers.iter().any(|trigger| trigger.id == *id)))
+            || self
+                .content
+                .barriers
+                .iter()
+                .any(|barrier| !barrier.valid_actions())
+            || self.content.generators.iter().any(|generator| {
+                generator.initial_reward.as_ref().is_some_and(|reward| {
+                    !self
+                        .environment
+                        .triggers
+                        .iter()
+                        .any(|trigger| trigger.id == reward.source_trigger)
+                })
+            })
+            || self.content.perks.iter().any(|perk| {
+                perk.bump_trigger.as_ref().is_some_and(|id| {
+                    !self
+                        .environment
+                        .triggers
+                        .iter()
+                        .any(|trigger| trigger.id == *id)
+                })
+            })
             || self.content.interactions.iter().any(|interaction| {
                 interaction.source_trigger.as_ref().is_some_and(|id| {
                     !self
@@ -353,29 +460,9 @@ impl GameDefinition {
             .any(|value| *value == 0 || *value > i32::MAX as u32)
         {
             return Err(ContentError::InvalidDefinition(
-                "Asset pack contains invalid gameplay parameters or incomplete scene coverage."
-                    .into(),
+                "Gameplay definition contains invalid parameters.".into(),
             ));
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod packed_definition_tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "requires a freshly built initial runtime pack"]
-    fn installed_initial_runtime_game_definition() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/origins.pack");
-        let pack = crate::pack::Pack::read(&path).unwrap();
-        let mut definition = GameDefinition::load(pack.get("game.json").unwrap()).unwrap();
-        crate::assets::prepared::PreparedArt::load(&pack)
-            .unwrap()
-            .bind(&mut definition)
-            .unwrap();
-        definition.validate().unwrap();
-        assert_eq!(definition.delivery_scope, DeliveryScope::FirstPlayableSolo);
     }
 }

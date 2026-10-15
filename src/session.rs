@@ -6,7 +6,7 @@ use crate::{
 };
 use bevy::{
     prelude::*,
-    world_serialization::{DynamicWorldRoot, WorldAssetRoot, WorldInstance, WorldInstanceSpawner},
+    world_serialization::{WorldAssetRoot, WorldInstance, WorldInstanceSpawner},
 };
 use std::hash::BuildHasher;
 
@@ -25,7 +25,7 @@ impl Plugin for SessionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SessionId>()
             .configure_sets(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 (
                     SessionSetup::Initialize,
                     SessionSetup::World,
@@ -34,9 +34,10 @@ impl Plugin for SessionPlugin {
                     .chain(),
             )
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 initialize.in_set(SessionSetup::Initialize),
-            );
+            )
+            .add_systems(Update, finish_starting_session.run_if(in_state(GameState::StartingSession)));
     }
 }
 
@@ -118,7 +119,7 @@ pub(crate) fn teardown(world: &mut World) {
     for (entity, instance) in instances {
         world
             .entity_mut(entity)
-            .remove::<(WorldAssetRoot, DynamicWorldRoot)>();
+            .remove::<WorldAssetRoot>();
         world
             .resource_mut::<WorldInstanceSpawner>()
             .unregister_instance(instance);
@@ -179,4 +180,63 @@ pub(crate) fn teardown(world: &mut World) {
 
 fn clear<M: Message>(world: &mut World) {
     world.resource_mut::<Messages<M>>().clear();
+}
+
+
+fn finish_starting_session(
+    player: Query<(), With<Player>>,
+    scenes: Query<(&WorldAssetRoot, Option<&WorldInstance>)>,
+    server: Res<AssetServer>,
+    rigs: Query<&crate::presentation::Rig>,
+    textures: Query<&crate::presentation::camo::CamoTexture>,
+    definition: Res<GameDefinition>,
+    cinematic: Res<crate::cinematics::LoadingPlayback>,
+    mut failure: ResMut<crate::assets::LoadFailure>,
+    mut next: ResMut<NextState<GameState>>,
+) {
+    if !failure.0.is_empty() {
+        next.set(GameState::LoadError);
+        return;
+    }
+    // Inspect every requested scene for failures before waiting for readiness.
+    let mut scenes_ready = true;
+    for (scene, instance) in &scenes {
+        let error = match server.get_load_state(scene.0.id()) {
+            Some(bevy::asset::LoadState::Failed(error)) => Some(error),
+            _ => match server.get_recursive_dependency_load_state(scene.0.id()) {
+                Some(bevy::asset::RecursiveDependencyLoadState::Failed(error)) => Some(error),
+                _ => None,
+            },
+        };
+        if let Some(error) = error {
+            failure.0 = format!("Required scene {:?}: {error}", scene.0.path());
+            next.set(GameState::LoadError);
+            return;
+        }
+        scenes_ready &= instance.is_some() && server.is_loaded_with_dependencies(scene.0.id());
+    }
+    let textures_ready = match crate::presentation::camo::assets_ready(&server, &textures) {
+        Ok(ready) => ready,
+        Err(error) => {
+            failure.0 = error;
+            next.set(GameState::LoadError);
+            return;
+        }
+    };
+    if definition.delivery_scope == crate::origins::DeliveryScope::FullOrigins {
+        if !definition.content.cinematics.iter().any(|sequence| {
+            (sequence.id.0.contains("loading") || sequence.id.0.contains("intro"))
+                && !sequence.frames.is_empty()
+        }) {
+            failure.0 = "Required Origins loading cinematic is missing".into();
+            next.set(GameState::LoadError);
+            return;
+        }
+        if !cinematic.done { return; }
+    }
+    if !scenes_ready || !textures_ready || player.is_empty() || rigs.is_empty()
+        || rigs.iter().any(|rig| !rig.ready || (!rig.arms && !rig.attached)) {
+        return;
+    }
+    next.set(GameState::Playing);
 }

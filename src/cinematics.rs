@@ -5,6 +5,57 @@ use crate::{
 use bevy::prelude::*;
 use std::collections::BTreeMap;
 const BUFFER: usize = 8;
+
+/// Bind an authored ordinary PNG directory to the existing sequence player.
+pub(crate) fn bind_frames(
+    game: &mut crate::origins::GameDefinition,
+    root: &std::path::Path,
+) -> Result<(), String> {
+    bind_frame_sequences(&mut game.content.cinematics, root)
+}
+fn bind_frame_sequences(
+    sequences: &mut [crate::origins::content::CinematicSequence],
+    root: &std::path::Path,
+) -> Result<(), String> {
+    let root = root.canonicalize().map_err(|error| format!("Cinematic asset root: {error}"))?;
+    for sequence in sequences {
+        let Some(directory) = &sequence.frame_directory else { continue };
+        if !sequence.frames.is_empty() {
+            return Err(format!("Cinematic {} defines both frames and frame_directory", sequence.id.0));
+        }
+        let relative = std::path::Path::new(directory);
+        if relative.is_absolute() {
+            return Err(format!("Cinematic {} frame_directory must be relative to the asset root", sequence.id.0));
+        }
+        let directory = root.join(relative).canonicalize()
+            .map_err(|error| format!("Cinematic {} frame directory {directory}: {error}", sequence.id.0))?;
+        if !directory.starts_with(&root) || !directory.is_dir() {
+            return Err(format!("Cinematic {} frame_directory must be an existing directory inside the asset root", sequence.id.0));
+        }
+        let mut frames = Vec::new();
+        for entry in std::fs::read_dir(&directory)
+            .map_err(|error| format!("Cinematic {} frame directory: {error}", sequence.id.0))? {
+            let entry = entry.map_err(|error| format!("Cinematic {} frame entry: {error}", sequence.id.0))?;
+            if entry.path().extension().and_then(|extension| extension.to_str()) != Some("png") { continue; }
+            let path = entry.path().canonicalize()
+                .map_err(|error| format!("Cinematic {} frame {:?}: {error}", sequence.id.0, entry.path()))?;
+            if !path.is_file() || !path.starts_with(&root) {
+                return Err(format!("Cinematic {} frame {:?} is not an ordinary file inside the asset root", sequence.id.0, path));
+            }
+            let path = path.strip_prefix(&root).unwrap().to_str()
+                .ok_or_else(|| format!("Cinematic {} frame path is not UTF-8", sequence.id.0))?
+                .replace('\\', "/");
+            frames.push(path);
+        }
+        frames.sort();
+        if frames.is_empty() {
+            return Err(format!("Cinematic {} frame directory {:?} contains no PNG frames", sequence.id.0, directory));
+        }
+        sequence.frames = frames;
+    }
+    Ok(())
+}
+
 #[derive(Resource, Default)]
 struct Playback(SequencePlayback);
 #[derive(Default)]
@@ -37,16 +88,16 @@ impl Plugin for CinematicPlugin {
         app.init_resource::<Playback>()
             .init_resource::<LoadingPlayback>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 loading_start.after(crate::session::SessionSetup::Player),
             )
             .add_systems(
                 Update,
                 loading_advance
                     .before(crate::audio::AudioPlayback)
-                    .run_if(in_state(GameState::PreparingShaders)),
+                    .run_if(in_state(GameState::StartingSession)),
             )
-            .add_systems(OnExit(GameState::PreparingShaders), close)
+            .add_systems(OnExit(GameState::StartingSession), close)
             .add_systems(OnEnter(GameState::Ending), start.after(crate::audio::stop))
             .add_systems(
                 Update,
@@ -367,5 +418,63 @@ fn loading_advance(
             failure.0 = "Loading cinematic media could not be read".into();
             next.set(GameState::LoadError);
         }
+    }
+}
+
+#[cfg(test)]
+mod frame_binding_tests {
+    use super::*;
+    use std::{path::PathBuf, sync::atomic::{AtomicU64, Ordering}};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    struct Root(PathBuf);
+    impl Root {
+        fn new() -> Self {
+            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cinematic-binding-tests")
+                .join(format!("{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            std::fs::create_dir_all(root.join("frames")).unwrap();
+            Self(root)
+        }
+    }
+    impl Drop for Root {
+        fn drop(&mut self) {
+            for entry in std::fs::read_dir(self.0.join("frames")).unwrap() {
+                std::fs::remove_file(entry.unwrap().path()).unwrap();
+            }
+            std::fs::remove_dir(self.0.join("frames")).unwrap();
+            std::fs::remove_dir(&self.0).unwrap();
+        }
+    }
+    fn sequence(directory: &str) -> crate::origins::content::CinematicSequence {
+        crate::origins::content::CinematicSequence {
+            id: crate::origins::ContentId("cinematic.loading.zm_tomb".into()),
+            frame_directory: Some(directory.into()), frames: Vec::new(),
+            frames_per_second: 30., audio: None,
+        }
+    }
+    #[test]
+    fn ordinary_png_frames_are_sorted_without_changing_source_rate() {
+        let root = Root::new();
+        for name in ["frame_000002.png", "frame_000001.png"] {
+            std::fs::write(root.0.join("frames").join(name), []).unwrap();
+        }
+        let mut sequences = [sequence("frames")];
+        bind_frame_sequences(&mut sequences, &root.0).unwrap();
+        assert_eq!(sequences[0].frames, ["frames/frame_000001.png", "frames/frame_000002.png"]);
+        assert_eq!(sequences[0].frames_per_second, 30.);
+    }
+    #[test]
+    fn missing_empty_and_escaping_frame_directories_are_errors() {
+        let root = Root::new();
+        for directory in ["missing", "frames", ".."] {
+            let error = bind_frame_sequences(&mut [sequence(directory)], &root.0).unwrap_err();
+            assert!(error.contains("cinematic.loading.zm_tomb"));
+        }
+    }
+    #[test]
+    fn explicit_frames_and_directory_cannot_conflict() {
+        let root = Root::new();
+        let mut sequences = [sequence("frames")];
+        sequences[0].frames.push("existing.png".into());
+        assert!(bind_frame_sequences(&mut sequences, &root.0).unwrap_err().contains("both frames and frame_directory"));
     }
 }

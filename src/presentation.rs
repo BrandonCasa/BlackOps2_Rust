@@ -17,8 +17,10 @@ use bevy::{
 use std::collections::BTreeMap;
 
 pub(crate) mod camo;
+pub(crate) mod cues;
 pub(crate) mod locomotion;
 pub(crate) mod offhand;
+mod source_units;
 pub use offhand::EquipmentPresentationEvidence;
 pub(crate) use offhand::selection as equipment_selection;
 pub struct PresentationPlugin;
@@ -87,6 +89,8 @@ impl Plugin for PresentationPlugin {
         {
             camo::install(app);
         }
+        cues::install(app);
+        source_units::install(app);
         locomotion::install(app);
         app.init_resource::<EquipmentPresentationEvidence>()
             .add_systems(
@@ -159,7 +163,7 @@ fn spawn_viewmodels(
     existing: Query<(Entity, &FirstPerson)>,
     groups: Query<(Entity, &ViewModelGroup)>,
 ) {
-    if !matches!(**state, GameState::PreparingShaders | GameState::Playing) {
+    if !matches!(**state, GameState::StartingSession | GameState::Playing) {
         return;
     }
     let (Some(definition), Ok(camera)) = (definition, cameras.single()) else {
@@ -510,9 +514,7 @@ fn attachment_ready(
                 avian3d::prelude::LayerMask::NONE,
             ));
         if meshes.contains(child) {
-            commands
-                .entity(child)
-                .insert((RenderLayers::layer(1), crate::rendering::FirstPersonSurface));
+            commands.entity(child).insert(RenderLayers::layer(1));
         }
     }
 }
@@ -545,7 +547,7 @@ fn follow_sockets(
                 local = pose.to_matrix() * local;
                 cursor = ancestor.parent();
             }
-            Some(Transform::from_matrix(local))
+            Some(Transform::from_matrix(local).with_scale(Vec3::ONE))
         })
         .collect();
     for ((_, _, mut pose), followed) in poses.p1().iter_mut().zip(followed) {
@@ -605,7 +607,7 @@ fn rig_ready(
         if meshes.contains(child) {
             commands
                 .entity(child)
-                .insert((RenderLayers::layer(1), crate::rendering::FirstPersonSurface))
+                .insert(RenderLayers::layer(1))
                 .remove::<NoFrustumCulling>();
         }
     }
@@ -700,7 +702,7 @@ fn aim_pose(
             joint.rotation =
                 Quat::IDENTITY.slerp(Quat::from_array(weapon.mechanics.ads_rotation), ads);
         }
-        pose.translation += joint.translation;
+        pose.translation += joint.translation / crate::assets::SOURCE_UNIT_METERS;
         pose.rotation *= joint.rotation;
     }
 }
@@ -726,7 +728,7 @@ fn camera_pose(
 ) {
     if !matches!(
         **state,
-        GameState::PreparingShaders | GameState::Playing | GameState::Paused | GameState::GameOver
+        GameState::StartingSession | GameState::Playing | GameState::Paused | GameState::GameOver
     ) {
         return;
     }

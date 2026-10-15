@@ -353,7 +353,7 @@ fn apply_actions(
             }
             FrontendAction::StartSolo if **state == GameState::MainMenu => {
                 commands.queue(crate::session::teardown);
-                next.set(GameState::PreparingShaders);
+                next.set(GameState::StartingSession);
             }
             FrontendAction::Restart
                 if matches!(**state, GameState::Paused | GameState::GameOver)
@@ -363,7 +363,7 @@ fn apply_actions(
                         })) =>
             {
                 commands.queue(crate::session::teardown);
-                next.set(GameState::PreparingShaders);
+                next.set(GameState::StartingSession);
             }
             FrontendAction::MainMenu
                 if matches!(**state, GameState::Paused | GameState::GameOver)

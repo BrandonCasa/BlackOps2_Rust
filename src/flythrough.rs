@@ -9,7 +9,6 @@ use crate::{
     rendering::GameCamera,
 };
 use bevy::{
-    camera::primitives::Aabb,
     prelude::*,
     window::{PrimaryWindow, WindowCloseRequested},
 };
@@ -57,7 +56,6 @@ struct Tour {
     saved: bool,
     warmed: bool,
     discard_interval: bool,
-    materials_ready: Option<Instant>,
 }
 
 impl Default for Tour {
@@ -74,7 +72,6 @@ impl Default for Tour {
             saved: false,
             warmed: false,
             discard_interval: true,
-            materials_ready: None,
         }
     }
 }
@@ -84,11 +81,9 @@ pub fn app(mut arguments: impl Iterator<Item = OsString>) -> Result<App, String>
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let base = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/reports");
     let mut settings = Settings {
-        output: base.join(format!("Origins/benchmarks/flythrough-{timestamp}")),
+        output: base.join(format!("flythrough-{timestamp}")),
         speed: 1.,
         exit_on_finish: false,
     };
@@ -99,6 +94,7 @@ pub fn app(mut arguments: impl Iterator<Item = OsString>) -> Result<App, String>
     };
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
+            Some("--asset-root") => options.asset_root = arguments.next().map(PathBuf::from).ok_or("--asset-root requires a directory")?,
             Some("--output") => settings.output = arguments.next().map(PathBuf::from).ok_or("--output requires a directory")?,
             Some("--speed") => {
                 settings.speed = arguments.next().and_then(|v| v.to_str()?.parse().ok())
@@ -110,13 +106,19 @@ pub fn app(mut arguments: impl Iterator<Item = OsString>) -> Result<App, String>
                 options.validation_remote = Some(arguments.next().and_then(|v| v.to_str()?.parse().ok())
                     .filter(|p: &u16| *p > 0 && *p != 15703).ok_or("--validation-remote requires a loopback port other than 15703")?);
             },
-            _ => return Err("Usage: origins --flythrough [--output directory] [--speed 0.25..8] [--exit-on-finish]".into()),
+            _ => return Err("Usage: origins --flythrough --asset-root absolute-directory [--output directory] [--speed 0.25..8] [--exit-on-finish]".into()),
         }
+    }
+    if !options.asset_root.is_absolute() || !options.asset_root.is_dir() {
+        return Err("--asset-root requires an existing absolute directory".into());
     }
     if !settings.output.is_absolute() {
         settings.output = std::env::current_dir()
             .map_err(|e| e.to_string())?
             .join(settings.output);
+    }
+    if !settings.output.starts_with(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target")) {
+        return Err("Flythrough output must be under this checkout target directory".into());
     }
     std::fs::create_dir_all(&settings.output)
         .map_err(|e| format!("Cannot create flythrough output: {e}"))?;
@@ -176,8 +178,8 @@ fn prepare(
         site.state = crate::generators::GeneratorState::Active;
     }
     tour.ready = Some(Instant::now());
-    status.phase = "warmup".into();
-    status.label = "Spawn bunker / warming up".into();
+    status.phase = "starting".into();
+    status.label = "Preparing camera tour".into();
 }
 
 fn controls(
@@ -233,9 +235,7 @@ fn fly(
     time: Res<Time<Real>>,
     state: Res<State<GameState>>,
     game: Option<Res<GameDefinition>>,
-    surfaces: Res<crate::rendering::OpaqueSurfaceStatus>,
     settings: Res<Settings>,
-    lamps: Query<(&GlobalTransform, &Aabb), With<crate::rendering::FixtureEmitter>>,
     mut cameras: Query<&mut Transform, With<GameCamera>>,
     mut tour: ResMut<Tour>,
     mut status: ResMut<TourStatus>,
@@ -249,7 +249,7 @@ fn fly(
         exit.write(AppExit::error());
         return;
     }
-    let (Some(game), Ok(mut camera), Some(ready)) = (game, cameras.single_mut(), tour.ready) else {
+    let (Some(game), Ok(mut camera), Some(_ready)) = (game, cameras.single_mut(), tour.ready) else {
         return;
     };
     if **state != GameState::Playing {
@@ -258,31 +258,7 @@ fn fly(
     if !tour.warmed {
         let spawn = Vec3::from_array(game.spawn) + Vec3::Y * game.tuning.eye_height;
         *camera = Transform::from_translation(spawn).with_rotation(Quat::from_rotation_y(game.yaw));
-        if surfaces.ready() && tour.materials_ready.is_none() {
-            tour.materials_ready = Some(Instant::now());
-        }
-        if !surfaces.ready()
-            || tour
-                .materials_ready
-                .is_none_or(|start| start.elapsed().as_secs_f64() < 10.)
-        {
-            if ready.elapsed().as_secs() > 180 {
-                status.phase = "failed".into();
-                status.label = "Material preparation timed out".into();
-                exit.write(AppExit::error());
-            }
-            return;
-        }
-        let mut positions: Vec<_> = lamps
-            .iter()
-            .map(|(pose, bounds)| pose.transform_point(Vec3::from(bounds.center)))
-            .collect();
-        positions.sort_by(|a, b| {
-            a.x.total_cmp(&b.x)
-                .then(a.y.total_cmp(&b.y))
-                .then(a.z.total_cmp(&b.z))
-        });
-        positions.dedup_by(|a, b| a.distance_squared(*b) < 0.25);
+        let positions = Vec::new();
         tour.shots = route::build(&game, &positions);
         status.shots = tour.shots.len();
         status.duration_seconds = tour.shots.iter().map(|s| s.seconds / settings.speed).sum();
@@ -405,7 +381,7 @@ fn save(settings: &Settings, tour: &mut Tour, status: &mut TourStatus, window: O
             "GPU is this process's busiest Windows GPU engine, sampled about once a second; unavailable counters are null.",
             "PowerShell/CIM sampling runs outside the measured game process and adds system load.",
             "Navigation follows source travel links; disconnected areas use explicit camera cuts.",
-            "Pause intervals are excluded; loading and initial ten-second warmup are excluded."]
+            "Pause intervals are excluded; loading and scene setup are excluded."]
     });
     let result = serde_json::to_vec_pretty(&report)
         .map_err(std::io::Error::other)

@@ -553,7 +553,7 @@ impl Plugin for AccessPlugin {
             .init_resource::<ZoneScan>()
             .init_resource::<DoorEvidence>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 assemble.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(

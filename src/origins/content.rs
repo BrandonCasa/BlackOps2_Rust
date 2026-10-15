@@ -66,7 +66,7 @@ impl fmt::Display for ContentError {
         match self {
             Self::Io { path, source } => write!(
                 f,
-                "Cannot read {}: {source}. Restore the runtime pack.",
+                "Cannot read {}: {source}. Restore the required asset files.",
                 path.display()
             ),
             Self::Json { path, source } => write!(
@@ -76,7 +76,7 @@ impl fmt::Display for ContentError {
             ),
             Self::UnsupportedVersion(v) => write!(
                 f,
-                "Unsupported content version {v}; expected 2. Regenerate/import the runtime pack."
+                "Unsupported content version {v}; expected 2. Restore a supported game.json definition."
             ),
             Self::InvalidPath(p) => write!(f, "Unsafe runtime asset path: {p}"),
             Self::InvalidDefinition(reason) => f.write_str(reason),
@@ -1248,6 +1248,9 @@ pub struct LocalizedString {
 #[serde(deny_unknown_fields)]
 pub struct CinematicSequence {
     pub id: ContentId,
+    #[serde(default)]
+    pub frame_directory: Option<String>,
+    #[serde(default)]
     pub frames: Vec<String>,
     pub frames_per_second: f32,
     pub audio: Option<ContentId>,

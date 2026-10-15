@@ -1,0 +1,15 @@
+{
+  "source": "Steam zm_tomb entity metadata initial_spawn_points; source/server-tomb/maps/mp/zm_tomb.gsc and existing source spawn selection",
+  "spawn": [69.9008, -8.636, -139.8016],
+  "yaw": 3.1415927,
+  "initial_spawns": [
+    {"position":[69.9008,-8.636,-139.8016],"yaw":3.1415927,"pitch":0,"excluded_side":1},
+    {"position":[68.2752,-8.636,-139.8016],"yaw":3.1415927,"pitch":0,"excluded_side":2},
+    {"position":[69.9008,-8.8392,-130.048],"yaw":0,"pitch":0,"excluded_side":2},
+    {"position":[68.2752,-8.8392,-130.048],"yaw":0,"pitch":0,"excluded_side":1},
+    {"position":[63.3984,-8.636,-136.5504],"yaw":-1.5707962,"pitch":0,"excluded_side":1},
+    {"position":[63.3984,-8.636,-134.9248],"yaw":-1.5707962,"pitch":0,"excluded_side":2},
+    {"position":[73.152,-8.636,-134.9248],"yaw":1.0471976,"pitch":0,"excluded_side":1},
+    {"position":[73.152,-8.636,-138.176],"yaw":2.0943952,"pitch":0,"excluded_side":2}
+  ]
+}

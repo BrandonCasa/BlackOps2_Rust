@@ -34,19 +34,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--asset-root", type=Path, required=True)
     parser.add_argument("--speed", type=float, default=4)
     parser.add_argument("--port", type=int, default=15708)
     args = parser.parse_args()
     bundle = args.bundle.resolve()
     output = args.output.resolve()
-    require(not output.is_relative_to(Path(__file__).resolve().parent.parent), "Evidence must be external")
+    require(output.is_relative_to(Path(__file__).resolve().parent.parent / "target"), "Evidence must be under checkout target")
     output.mkdir(parents=True, exist_ok=False)
     report = {'passed': False, 'statuses': [], 'captures': []}
     client = Client(f"http://127.0.0.1:{args.port}")
     wait_for_slot()
     with (output / "game.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen([str(bundle / "origins.exe"), "--flythrough", "--output", str(output),
-                                    "--speed", str(args.speed), "--validation-remote", str(args.port)],
+                                    "--asset-root", str(args.asset_root.resolve()), "--speed", str(args.speed), "--validation-remote", str(args.port)],
                                    cwd=bundle, stdout=log, stderr=subprocess.STDOUT,
                                    env={**os.environ, "RUST_LOG": "info,wgpu=error,naga=warn", "NO_COLOR": "1"},
                                    creationflags=subprocess.CREATE_NO_WINDOW)
@@ -122,6 +123,12 @@ def main():
             except subprocess.TimeoutExpired:
                 report["passed"] = False
                 report["process_exit_error"] = "Owned flythrough did not exit after BRP shutdown"
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=10)
             report["exit_code"] = process.poll()
             write_report(output, "verification.json", report)
     require(report["passed"], report.get("error", "Flythrough verification failed"))

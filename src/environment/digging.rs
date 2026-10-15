@@ -194,7 +194,7 @@ impl Plugin for DiggingPlugin {
         app.init_resource::<Digging>()
             .register_required_components::<Player, Digger>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 spawn.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
@@ -343,8 +343,7 @@ fn spawn(
         );
         commands.entity(entity).insert((
             DigTarget::Shovel(i),
-            crate::rendering::opaque::NativeShaderStart(0.),
-            crate::rendering::NativeArtInputs::default(),
+            crate::presentation::cues::CueParameters::default(),
         ));
     }
     for (i, spot) in d.mounds.iter().enumerate() {

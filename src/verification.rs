@@ -30,26 +30,18 @@ mod mobility;
 mod monkeys;
 mod mud;
 mod mule_kick;
-mod performance;
 mod perk_health;
-mod pipelines;
 mod placements;
 mod powerups;
-mod release_performance;
 #[cfg(all(debug_assertions, feature = "dev-tools"))]
 mod remote;
-#[cfg(all(debug_assertions, feature = "dev-tools"))]
-mod rendering;
 mod replacements;
 mod weapon_actions;
-pub(crate) use pipelines::error_layer;
-mod resident_textures;
 mod semtex;
 mod solo_revive;
 mod speed_cola;
 mod stamin_up;
 mod triggers;
-mod viewmodel_shadows;
 mod weapon_assemblies;
 
 #[derive(Resource)]
@@ -154,40 +146,13 @@ impl Plugin for VerificationPlugin {
         #[cfg(all(debug_assertions, feature = "dev-tools"))]
         if let Some(port) = app.world().resource::<LaunchOptions>().validation_remote {
             remote::install(app, port);
-            rendering::install(app);
             return;
         }
         if app.world().resource::<LaunchOptions>().verify_locomotion {
-            pipelines::install(app);
             locomotion::install(app);
             return;
         }
-        if app
-            .world()
-            .resource::<LaunchOptions>()
-            .verify_viewmodel_shadows
-            || app.world().resource::<LaunchOptions>().verify_actor_shadows
-        {
-            pipelines::install(app);
-            viewmodel_shadows::install(app);
-            return;
-        }
-        if app
-            .world()
-            .resource::<LaunchOptions>()
-            .verify_resident_textures
-        {
-            pipelines::install(app);
-            resident_textures::install(app);
-            return;
-        }
-        if app.world().resource::<LaunchOptions>().release_benchmark {
-            pipelines::install(app);
-            release_performance::install(app);
-            return;
-        }
         if app.world().resource::<LaunchOptions>().verify_powerups {
-            pipelines::install(app);
             powerups::install(app);
             return;
         }
@@ -196,22 +161,18 @@ impl Plugin for VerificationPlugin {
             .resource::<LaunchOptions>()
             .verify_weapon_actions
         {
-            pipelines::install(app);
             weapon_actions::install(app);
             return;
         }
         if app.world().resource::<LaunchOptions>().verify_replacements {
-            pipelines::install(app);
             replacements::install(app);
             return;
         }
         if app.world().resource::<LaunchOptions>().verify_hazards {
-            pipelines::install(app);
             hazards::install(app);
             return;
         }
         if app.world().resource::<LaunchOptions>().verify_controls {
-            pipelines::install(app);
             controls::install(app);
             return;
         }
@@ -230,7 +191,6 @@ impl Plugin for VerificationPlugin {
                 generators::install(app);
             }
             audio::install(app);
-            pipelines::install(app);
             if app.world().resource::<LaunchOptions>().verify_barriers {
                 barriers::install(app);
             }
@@ -299,17 +259,13 @@ impl Plugin for VerificationPlugin {
                     .after(bevy::input::InputSystems)
                     .after(crate::input::collect),
             )
-            .add_systems(Update, check)
-            .add_systems(
-                Last,
-                performance::record.after(bevy::diagnostic::update_frame_count),
-            );
+            .add_systems(Update, check);
     }
 }
 fn setup(mut commands: Commands, options: Res<LaunchOptions>) {
     if let Some(output) = &options.verify {
-        if output.starts_with(env!("CARGO_MANIFEST_DIR")) {
-            error!("Verification output must be external");
+        if !output.starts_with(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target")) {
+            error!("Verification output must be under this checkout target directory");
             commands.write_message(AppExit::error());
             return;
         }
@@ -701,10 +657,6 @@ fn check(
     mut next: ResMut<NextState<GameState>>,
     enemies: Query<(&Transform, &Zombie), Without<Player>>,
     query: avian3d::prelude::SpatialQuery,
-    render_status: (
-        Res<crate::rendering::OpaqueSurfaceStatus>,
-        Res<crate::rendering::profile::VisualProfile>,
-    ),
     mut cameras: Query<
         (&Transform, &mut Projection),
         (
@@ -724,7 +676,6 @@ fn check(
 ) {
     let mut screenshot = None;
     let (sites, trigger_sites, brush_sites, puzzles) = map_sites;
-    let (surfaces, profile) = render_status;
     let (
         session,
         history,
@@ -1080,7 +1031,7 @@ fn check(
         });
         if verification.combat_test {
             let passed = session.kills >= 6 && session.shots > 0;
-            let receipt = serde_json::json!({"passed": passed, "round": session.round, "kills": session.kills, "shots": session.shots, "combat": verification.combat_receipt, "renderer": "solari", "antialiasing": "dlss_ray_reconstruction"});
+            let receipt = serde_json::json!({"passed": passed, "round": session.round, "kills": session.kills, "shots": session.shots, "combat": verification.combat_receipt});
             let _ = std::fs::write(verification.output.join("combat.json"), receipt.to_string());
             info!("Combat test: {receipt}");
             commands.write_message(if passed {
@@ -1118,7 +1069,7 @@ fn check(
             if let Ok((_, mut projection)) = cameras.single_mut()
                 && let Projection::Perspective(perspective) = &mut *projection
             {
-                perspective.fov = profile.comparison_fov_degrees.to_radians();
+                perspective.fov = crate::rendering::BASE_FOV_DEGREES.to_radians();
             }
             let sweep = if verification.moving_view {
                 ((verification.playing - 1.) * 0.6).sin()
@@ -1294,7 +1245,6 @@ fn check(
             && restart_health_clear
             && rounds_exercised
             && restart_damage_clear
-            && surfaces.pending == 0
             && if verification.benchmark {
                 (!verification.combat || verification.round_two)
                     && verification.camera_views.len()
@@ -1340,9 +1290,8 @@ fn check(
             "combat_rewards":verification.combat_receipt,"melee_frame_captured":verification.melee_frame,
             "restart_damage_clear":restart_damage_clear,
             "ads_reached": verification.ads_seen, "recoil_observed": verification.recoil_seen,
-            "source_surfaces":definition.source_surfaces, "static_instances":definition.static_model_instances,
             "survey_views":verification.camera_views.len(), "water_animation_seconds":verification.water_times,
-            "camera_views":verification.camera_views, "opaque_materials": &*surfaces});
+            "camera_views":verification.camera_views});
         receipt["enemy_bounds"] = serde_json::json!({
             "native_frames": enemy_evidence.native_bounds_frames,
             "fallback_frames": enemy_evidence.fallback_bounds_frames,
@@ -1360,12 +1309,6 @@ fn check(
             "restarted":restarted_brushes});
         receipt["traversal_links"] = serde_json::json!({"initial": verification.negotiation_observation,
             "restarted":restarted_negotiations});
-        receipt["texture_loading"] =
-            serde_json::json!({"method":"resident", "runtime_mip_replacement":false});
-        receipt["shared_lighting"] = serde_json::json!({
-            "method": "native_raster", "ray_tracing": false,
-            "indirect": "atmosphere_environment_and_ssao",
-        });
         receipt["enemy_traversal"] = serde_json::json!({"started":enemy_evidence.traversals_started,"finished":enemy_evidence.traversals_finished,"rising_finished":enemy_evidence.rising_finished,"blocked_landings":enemy_evidence.traversal_blocked_landings,"adjusted_landings":enemy_evidence.adjusted_landings});
         receipt["enemy_navigation"] = serde_json::json!({"replans":enemy_evidence.replans,"target_replans":enemy_evidence.target_replans,"blocker_replans":enemy_evidence.blocker_replans,"direct_pursuits":enemy_evidence.direct_pursuits,"stuck_recoveries":enemy_evidence.stuck_recoveries,"separations":enemy_evidence.separations});
         receipt["monkeys_exercised"] = verification.monkeys_exercised.into();

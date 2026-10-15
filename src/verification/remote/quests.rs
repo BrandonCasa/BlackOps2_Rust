@@ -30,7 +30,6 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         "inserted":upgrades.inserted,"charged":upgrades.charged,"souls":upgrades.souls,
         "lights":{"active":show.active,"mode":show.mode,"on":show.on,"elapsed":show.elapsed,
             "cycles":show.cycles,"sequence":show.sequence,"events":show.events}});
-    result["light_materials"] = crate::rendering::opaque::quest_light_snapshot(world);
     result["light_bindings"] = crate::staff_upgrades::lights::binding_snapshot(world);
     result
 }

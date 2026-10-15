@@ -146,12 +146,6 @@ def initial_start(client, report, game, output):
              'player': state['player'], 'session': state['session']}
     scene['early'] = early
     try:
-        observed = client.call('origins/materials')
-        early['readiness'] = {key: observed.get(key) for key in
-                              ('pending', 'pipelines', 'preparation', 'first_person')}
-    except Exception as error:
-        early['readiness_error'] = f'{type(error).__name__}: {error}'
-    try:
         early['camera'] = camera_snapshot(client)
         camera = early['camera']['cameras'][0]['entity']
         early['camera_component_types'] = client.call('world.list_components', {'entity': camera})
@@ -166,8 +160,7 @@ def initial_start(client, report, game, output):
     awards = [event for event in state['equipment']['events'] if event.get('event') == 'round_award'
               and event.get('round') == 1 and event.get('weapon') == 'weapon.frag_grenade_zm']
     expected_frag = min(frag['initial'] + len(awards) * frag['round_award'], frag['capacity'])
-    check(report, 'initial_pack_declares_scoped_content', game['delivery_scope'] == 'first_playable_solo'
-          and game['render_meshes'] > 0 and game['collision_meshes'] > 0,
+    check(report, 'initial_content_declares_world_and_collision', bool(game['scene']) and bool(game['collision_scene']),
           scene=game['scene'], collision_scene=game['collision_scene'])
     check(report, 'initial_source_loadout_without_grants', len(owned) == 1
           and owned[0]['id'] == pistol['id'] and owned[0]['magazine'] == pistol['magazine']
@@ -179,24 +172,11 @@ def initial_start(client, report, game, output):
           and state['player']['health'] == game['player_health']['maximum']
           and min(math.dist(state['player']['position'], spawn['position'])
                   for spawn in game['initial_spawns']) < 2, state=state)
-    deadline = time.monotonic() + 30
-    while True:
-        materials = client.call('origins/materials')
-        if materials['pipelines']['error'] is not None:
-            break
-        if (materials['pipelines']['pending'] == 0 and materials['pending'] == 0
-                and materials['first_person']
-                and all(row['textures_ready'] for row in materials['first_person'])):
-            break
-        if time.monotonic() >= deadline:
-            break
-        time.sleep(.05)
-    check(report, 'initial_render_pipelines_ready', materials['pipelines']['pending'] == 0
-          and materials['pipelines']['error'] is None, materials=materials)
-    check(report, 'initial_first_person_model_and_textures_loaded', materials['pending'] == 0
-          and bool(materials['first_person'])
-          and all(row['textures_ready'] for row in materials['first_person']), materials=materials)
-    scene['materials'] = materials
+    assets = client.call('origins/assets')
+    rigs = assets['first_person']
+    check(report, 'initial_first_person_scene_loaded', bool(rigs)
+          and all(row['ready'] for row in rigs), assets=assets)
+    scene['assets'] = assets
     try:
         scene['animations'] = client.call('origins/animations')
     except Exception as error:

@@ -7,7 +7,7 @@ use crate::{
     powerups::{Drops, Pickup, PowerupEffects},
     weapons::WeaponInventory,
 };
-use bevy::{prelude::*, world_serialization::WorldAssetRoot};
+use bevy::prelude::*;
 use std::time::Instant;
 
 #[derive(Resource)]

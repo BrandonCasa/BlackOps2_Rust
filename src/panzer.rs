@@ -330,7 +330,7 @@ impl Plugin for PanzerPlugin {
             .add_message::<PanzerClawReleased>()
             .add_message::<PanzerDestroyed>()
             .add_systems(
-                OnEnter(GameState::PreparingShaders),
+                OnEnter(GameState::StartingSession),
                 reset.in_set(crate::session::SessionSetup::World),
             )
             .add_systems(
