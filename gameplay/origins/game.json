@@ -1294673,7 +1294673,12 @@
       {
         "id": "presentation.generator.pump",
         "scene": "model_export/fxanim_zom_tomb_generator_pump_mod_lod0.glb#Scene0",
-        "animations": [],
+        "animations": [
+          "animation.generator.fxanim_zom_tomb_generator_start_anim",
+          "animation.generator.fxanim_zom_tomb_generator_up_idle_anim",
+          "animation.generator.fxanim_zom_tomb_generator_down_idle_anim",
+          "animation.generator.fxanim_zom_tomb_generator_end_anim"
+        ],
         "sounds": []
       },
       {
@@ -1347946,6 +1347951,130 @@
         "notifications": [],
         "looping": false,
         "root_motion": null
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_start_anim",
+        "path": "model_export/fxanim_zom_tomb_generator_pump_mod_lod0.glb#Animation5",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_start"
+          },
+          {
+            "seconds": 0.4,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 0.7333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 1.1333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 1.4,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 1.7,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 1.9333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 1.9666666666666666,
+            "event": "end"
+          }
+        ],
+        "seconds": 1.9666666666666666,
+        "looping": false
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_up_idle_anim",
+        "path": "model_export/fxanim_zom_tomb_generator_pump_mod_lod0.glb#Animation6",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 0.26666666666666666,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 0.8,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 1.0333333333333334,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 1.0666666666666667,
+            "event": "end"
+          }
+        ],
+        "seconds": 1.0666666666666667,
+        "looping": true
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_down_idle_anim",
+        "path": "model_export/fxanim_zom_tomb_generator_pump_mod_lod0.glb#Animation0",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 0.6,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 1.0333333333333334,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 1.0666666666666667,
+            "event": "end"
+          }
+        ],
+        "seconds": 1.0666666666666667,
+        "looping": true
+      },
+      {
+        "id": "animation.generator.fxanim_zom_tomb_generator_end_anim",
+        "path": "model_export/fxanim_zom_tomb_generator_pump_mod_lod0.glb#Animation1",
+        "skeleton": "presentation.generator.pump",
+        "notifications": [
+          {
+            "seconds": 0.03333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_stop"
+          },
+          {
+            "seconds": 0.5,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 1.1333333333333333,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 2.1666666666666665,
+            "event": "sndnt#zmb_capturezone_generator_piston_down"
+          },
+          {
+            "seconds": 3.0,
+            "event": "sndnt#zmb_capturezone_generator_piston_up"
+          },
+          {
+            "seconds": 3.3666666666666667,
+            "event": "end"
+          }
+        ],
+        "seconds": 3.3666666666666667,
+        "looping": false
       }
     ],
     "ui_assets": [
@@ -1388007,7 +1388136,7 @@
       {
         "id": "string.MENU_BETA_SETUP_CAPS",
         "key": "MENU_BETA_SETUP_CAPS",
-        "text": "Welcome to Call of Duty\u00ae: Black Ops II"
+        "text": "Welcome to Call of Duty®: Black Ops II"
       },
       {
         "id": "string.MENU_BETA_SETUP_INSTRUCTIONS",
@@ -1389562,7 +1389691,7 @@
       {
         "id": "string.MENU_CONTENT_WARNING",
         "key": "MENU_CONTENT_WARNING",
-        "text": "Call of Duty\u00ae: Black Ops II contains graphic content and historical footage which some players may find disturbing. Player discretion is advised."
+        "text": "Call of Duty®: Black Ops II contains graphic content and historical footage which some players may find disturbing. Player discretion is advised."
       },
       {
         "id": "string.MENU_CONTEXTUAL_VOTING_TITLE",
@@ -1390977,7 +1391106,7 @@
       {
         "id": "string.MENU_DESCRIPTION_RANKEDMATCH",
         "key": "MENU_DESCRIPTION_RANKEDMATCH",
-        "text": "Play competitive matches to improve your TrueSkill\u2122 rankings."
+        "text": "Play competitive matches to improve your TrueSkill™ rankings."
       },
       {
         "id": "string.MENU_DESELECT",
@@ -1391142,12 +1391271,12 @@
       {
         "id": "string.MENU_DIRECTX_7",
         "key": "MENU_DIRECTX_7",
-        "text": "DirectX\u00ae 7"
+        "text": "DirectX® 7"
       },
       {
         "id": "string.MENU_DIRECTX_9",
         "key": "MENU_DIRECTX_9",
-        "text": "DirectX\u00ae 9"
+        "text": "DirectX® 9"
       },
       {
         "id": "string.MENU_DISABLED",
@@ -1391482,7 +1391611,7 @@
       {
         "id": "string.MENU_DOYOUWANT_MATURE_CONTENT",
         "key": "MENU_DOYOUWANT_MATURE_CONTENT",
-        "text": "Call of Duty\u00ae: Black Ops II contains graphic content, historical footage and language which some players may find disturbing. Player discretion is advised.\n\nWould you like to enable graphic content?"
+        "text": "Call of Duty®: Black Ops II contains graphic content, historical footage and language which some players may find disturbing. Player discretion is advised.\n\nWould you like to enable graphic content?"
       },
       {
         "id": "string.MENU_DOYOUWISHTOCONTINUE",
@@ -1393617,7 +1393746,7 @@
       {
         "id": "string.MENU_FORCE_DX7_MODE",
         "key": "MENU_FORCE_DX7_MODE",
-        "text": "Force DirectX\u00ae 7 Mode"
+        "text": "Force DirectX® 7 Mode"
       },
       {
         "id": "string.MENU_FORCE_RESPAWN",
@@ -1393832,7 +1393961,7 @@
       {
         "id": "string.MENU_GAME_INVITE_MESSAGE",
         "key": "MENU_GAME_INVITE_MESSAGE",
-        "text": "&&1 invites you to play Call of Duty\u00ae: Black Ops II."
+        "text": "&&1 invites you to play Call of Duty®: Black Ops II."
       },
       {
         "id": "string.MENU_GAME_MODE_CAPS",
@@ -1397592,7 +1397721,7 @@
       {
         "id": "string.MENU_NEED_PLAYER_PROFILE",
         "key": "MENU_NEED_PLAYER_PROFILE",
-        "text": "You need a player profile to play Call of Duty\u00ae: Black Ops II."
+        "text": "You need a player profile to play Call of Duty®: Black Ops II."
       },
       {
         "id": "string.MENU_NETLINK_CAPS",
@@ -1398782,7 +1398911,7 @@
       {
         "id": "string.MENU_PLAYING_COD",
         "key": "MENU_PLAYING_COD",
-        "text": "Playing Call of Duty\u00ae: Black Ops II"
+        "text": "Playing Call of Duty®: Black Ops II"
       },
       {
         "id": "string.MENU_PLAYLISTS_CAPS",
@@ -1400542,7 +1400671,7 @@
       {
         "id": "string.MENU_R_CIRCLE",
         "key": "MENU_R_CIRCLE",
-        "text": "\u00ae"
+        "text": "®"
       },
       {
         "id": "string.MENU_SAFE",
@@ -1401427,7 +1401556,7 @@
       {
         "id": "string.MENU_SETUP_CAPS",
         "key": "MENU_SETUP_CAPS",
-        "text": "Welcome to Call of Duty\u00ae: Black Ops II"
+        "text": "Welcome to Call of Duty®: Black Ops II"
       },
       {
         "id": "string.MENU_SETUP_INSTRUCTIONS",
@@ -1402377,7 +1402506,7 @@
       {
         "id": "string.MENU_STORE_PS3_CAPS",
         "key": "MENU_STORE_PS3_CAPS",
-        "text": "PlayStation\u00aeStore"
+        "text": "PlayStation®Store"
       },
       {
         "id": "string.MENU_STORE_THEMES_CATEGORY",
@@ -1408607,7 +1408736,7 @@
       {
         "id": "string.MPUI_DIGITAL_UNLOCK_IW_GHOST_DESC",
         "key": "MPUI_DIGITAL_UNLOCK_IW_GHOST_DESC",
-        "text": "Call of Duty\u00ae: Ghosts Bonus Reward"
+        "text": "Call of Duty®: Ghosts Bonus Reward"
       },
       {
         "id": "string.MPUI_DIG_CAPS",
@@ -1408897,7 +1409026,7 @@
       {
         "id": "string.MPUI_DSPPROMOTION_BODY",
         "key": "MPUI_DSPPROMOTION_BODY",
-        "text": "Hey &&1,\n\nIt looks like you have the Revolution Map Pack. We have the Season Pass available for you at a 20% discount!\n\nBuy the Call of Duty\u00ae: Black Ops II Season Pass and get access to three additional downloadable Map Packs, plus Nuketown Zombies, and an exclusive Calling Card - \"The Deuce\".\n\nDon't miss out on currently available content:"
+        "text": "Hey &&1,\n\nIt looks like you have the Revolution Map Pack. We have the Season Pass available for you at a 20% discount!\n\nBuy the Call of Duty®: Black Ops II Season Pass and get access to three additional downloadable Map Packs, plus Nuketown Zombies, and an exclusive Calling Card - \"The Deuce\".\n\nDon't miss out on currently available content:"
       },
       {
         "id": "string.MPUI_DSPPROMOTION_SUBTITLE",
@@ -1409122,7 +1409251,7 @@
       {
         "id": "string.MPUI_ELITE_BENEFITS_1",
         "key": "MPUI_ELITE_BENEFITS_1",
-        "text": "Connect with friends, track your stats, get tips & strategies to improve your skills, and much more\u2026\n\nSign-up for FREE and join over 10 million Call of Duty fans around the world!"
+        "text": "Connect with friends, track your stats, get tips & strategies to improve your skills, and much more…\n\nSign-up for FREE and join over 10 million Call of Duty fans around the world!"
       },
       {
         "id": "string.MPUI_ELITE_BENEFITS_2",
@@ -1433487,7 +1433616,7 @@
       {
         "id": "string.XBOXLIVE_GENERICDISCONNECT",
         "key": "XBOXLIVE_GENERICDISCONNECT",
-        "text": "You have been disconnected from the Call of Duty\u00ae: Black Ops II servers."
+        "text": "You have been disconnected from the Call of Duty®: Black Ops II servers."
       },
       {
         "id": "string.XBOXLIVE_GUEST_SIGNIN",
@@ -1442001,8 +1442130,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1445874,8 +1446003,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1449380,8 +1449509,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1452995,8 +1453124,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1456164,8 +1456293,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1459830,8 +1459959,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1459863,8 +1459992,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1463133,8 +1463262,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1467006,8 +1467135,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1470512,8 +1470641,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1474127,8 +1474256,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1477296,8 +1477425,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1480962,8 +1481091,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1480995,8 +1481124,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1484265,8 +1484394,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1488138,8 +1488267,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1491644,8 +1491773,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1495259,8 +1495388,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1498428,8 +1498557,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1502094,8 +1502223,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1502127,8 +1502256,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1505397,8 +1505526,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1509270,8 +1509399,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1512776,8 +1512905,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1516391,8 +1516520,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1519560,8 +1519689,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1523226,8 +1523355,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1523259,8 +1523388,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1526529,8 +1526658,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1530402,8 +1530531,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1533908,8 +1534037,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1537523,8 +1537652,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1540692,8 +1540821,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1544358,8 +1544487,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1544391,8 +1544520,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1547661,8 +1547790,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1551534,8 +1551663,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1555040,8 +1555169,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1558655,8 +1558784,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1561824,8 +1561953,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1565490,8 +1565619,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1565523,8 +1565652,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1568793,8 +1568922,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1572666,8 +1572795,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1576172,8 +1576301,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1579787,8 +1579916,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1582956,8 +1583085,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1586622,8 +1586751,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1586655,8 +1586784,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1589925,8 +1590054,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1593798,8 +1593927,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1597304,8 +1597433,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1600919,8 +1601048,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1604088,8 +1604217,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1607754,8 +1607883,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1607787,8 +1607916,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1611057,8 +1611186,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1614930,8 +1615059,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1618436,8 +1618565,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1622051,8 +1622180,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1625220,8 +1625349,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1628886,8 +1629015,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1628919,8 +1629048,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1632189,8 +1632318,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1636062,8 +1636191,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1639568,8 +1639697,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1643183,8 +1643312,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1646352,8 +1646481,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1650018,8 +1650147,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1650051,8 +1650180,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1653321,8 +1653450,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1657194,8 +1657323,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1660700,8 +1660829,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1664315,8 +1664444,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1667484,8 +1667613,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1671150,8 +1671279,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1671183,8 +1671312,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
@@ -1674453,8 +1674582,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1678326,8 +1678455,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1681832,8 +1681961,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1685447,8 +1685576,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1688616,8 +1688745,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1692282,8 +1692411,8 @@
               }
             ],
             "audio": {
-              "opening": "@cf350162",
-              "hover": "@791d41ff",
+              "opening": "zmb_break_boards",
+              "hover": "zmb_boards_float",
               "repeat_pause": [
                 0.3,
                 0.6
@@ -1692315,8 +1692444,8 @@
         ],
         "audio": {
           "repair": [
-            "@fe43acaa",
-            "@41b37cd3"
+            "zmb_repair_boards",
+            "zmb_board_slam"
           ],
           "repair_delay": 0.3
         },
