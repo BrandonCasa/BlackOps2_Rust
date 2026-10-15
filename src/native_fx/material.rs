@@ -92,12 +92,17 @@ impl Definition {
         if self.game != "t6" || self.kind != "material" || self.version != 1 {
             return Err("requires the original T6 material.v1 record".into());
         }
-        if self.technique_set != "effect_w77q49e8" {
-            return Err(format!(
-                "port the original {} UNLIT/EMISSIVE programs before submitting this effect",
-                self.technique_set
-            ));
-        }
+        let program = match self.technique_set.as_str() {
+            "effect_w77q49e8" => NativeEffectProgram::Zfeather,
+            "particlecloud_ew972295" => NativeEffectProgram::CloudRain,
+            "particlecloud_j32z635q" => NativeEffectProgram::CloudSnow,
+            _ => {
+                return Err(format!(
+                    "port the original {} UNLIT/EMISSIVE programs before submitting this effect",
+                    self.technique_set
+                ));
+            }
+        };
         if self.camera_region != "emissiveFx" {
             return Err(format!(
                 "requires original camera region {}",
@@ -200,18 +205,24 @@ impl Definition {
         if textures.next().is_some() || texture.semantic != "colorMap" || texture.image.is_empty() {
             return Err("required colorMap must have one original colorMap image".into());
         }
-        let mut constants = self
-            .constants
-            .iter()
-            .filter(|v| v.name.as_deref() == Some("featherParms"));
-        let constant = constants.next().ok_or("required featherParms is absent")?;
-        if constants.next().is_some() || !constant.literal.iter().all(|v| v.is_finite()) {
-            return Err("required featherParms must be one finite source float4".into());
-        }
+        let feather_parms = if program == NativeEffectProgram::Zfeather {
+            let mut constants = self
+                .constants
+                .iter()
+                .filter(|v| v.name.as_deref() == Some("featherParms"));
+            let constant = constants.next().ok_or("required featherParms is absent")?;
+            if constants.next().is_some() || !constant.literal.iter().all(|v| v.is_finite()) {
+                return Err("required featherParms must be one finite source float4".into());
+            }
+            Vec4::from_array(constant.literal)
+        } else {
+            Vec4::ZERO
+        }; // Cloud programs consume no material constants.
         Ok(NativeEffectMaterial {
+            program,
             color_map: image(server, &texture.image),
             color_sampler: texture.sampler_state.descriptor()?,
-            feather_parms: Vec4::from_array(constant.literal),
+            feather_parms,
             state: NativeEffectState {
                 cull_mode,
                 front_face: FrontFace::Cw,

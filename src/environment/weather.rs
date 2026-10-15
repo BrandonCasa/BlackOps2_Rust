@@ -1,7 +1,7 @@
 use crate::{
     GameState,
     assets::GameDefinition,
-    gameplay::{GameStep, Session, SessionEntity},
+    gameplay::{GameStep, Session},
     player::Player,
 };
 use avian3d::prelude::*;
@@ -113,15 +113,13 @@ pub(crate) fn reset(world: &mut World) {
 pub struct WeatherPlugin;
 impl Plugin for WeatherPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Weather>()
-            .add_systems(
-                FixedUpdate,
-                (round_weather, tick)
-                    .chain()
-                    .after(GameStep::Rounds)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(Update, particles.run_if(in_state(GameState::Playing)));
+        app.init_resource::<Weather>().add_systems(
+            FixedUpdate,
+            (round_weather, tick)
+                .chain()
+                .after(GameStep::Rounds)
+                .run_if(in_state(GameState::Playing)),
+        );
     }
 }
 
@@ -171,19 +169,6 @@ fn round_weather(
     }
 }
 
-#[derive(Component)]
-struct Precipitation {
-    velocity: Vec3,
-    remaining: f32,
-}
-
-#[derive(Resource)]
-pub(crate) struct PrecipitationAssets {
-    rain: Handle<Mesh>,
-    snow: Handle<Mesh>,
-    material: Handle<StandardMaterial>,
-}
-
 pub(crate) fn tick(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
@@ -193,9 +178,6 @@ pub(crate) fn tick(
     spatial: SpatialQuery,
     triggers: Query<&super::triggers::MapTrigger>,
     exists: Query<()>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    assets: Option<Res<PrecipitationAssets>>,
 ) {
     let Ok((player_entity, player, pose, collider)) = players.single() else {
         return;
@@ -361,19 +343,6 @@ pub(crate) fn tick(
     if weather.presented == WeatherKind::Clear {
         return;
     }
-    let Some(assets) = assets else {
-        commands.insert_resource(PrecipitationAssets {
-            rain: meshes.add(Cuboid::new(0.008, 0.3, 0.008)),
-            snow: meshes.add(Cuboid::new(0.025, 0.025, 0.025)),
-            material: materials.add(StandardMaterial {
-                base_color: Color::srgba(0.82, 0.88, 1., 0.65),
-                unlit: true,
-                alpha_mode: AlphaMode::Blend,
-                ..default()
-            }),
-        });
-        return;
-    };
     weather.precipitation_clock -= dt;
     if weather.precipitation_clock > 0. {
         return;
@@ -383,90 +352,21 @@ pub(crate) fn tick(
         _ => 0.5 / weather.presented_intensity.max(1) as f32,
     };
     weather.precipitation_bursts += 1;
-    for _ in 0..24 {
-        let position = pose.translation
-            + Vec3::new(
-                (weather.random() % 10000) as f32 * 0.0016 - 8.,
-                6.,
-                (weather.random() % 10000) as f32 * 0.0016 - 8.,
-            );
-        let floor = spatial
-            .cast_ray(
-                position,
-                Dir3::NEG_Y,
-                12.,
-                true,
-                &super::solids([player_entity]),
-            )
-            .map_or(12., |h| h.distance);
-        let roof = spatial
-            .cast_ray(
-                position - Vec3::Y * 6.,
-                Dir3::Y,
-                100.,
-                true,
-                &super::solids([player_entity]),
-            )
-            .is_some();
-        if roof || floor < 0.3 {
-            continue;
-        }
-        let speed = if weather.presented == WeatherKind::Rain {
-            20.
+    // zm_tomb.csc::_rain_thread/_snow_thread emit the original cloud effect at
+    // self.origin. Its source definition owns particles, velocity and lifetime.
+    crate::native_fx::emit(
+        &mut commands,
+        if weather.presented == WeatherKind::Rain {
+            "maps/zombie_tomb/fx_tomb_player_weather_rain"
         } else {
-            1.8
-        };
-        commands.spawn((
-            SessionEntity,
-            Precipitation {
-                velocity: Vec3::new(if speed < 2. { 0.3 } else { 1. }, -speed, 0.),
-                remaining: floor / speed,
-            },
-            Mesh3d(if speed < 2. {
-                assets.snow.clone()
-            } else {
-                assets.rain.clone()
-            }),
-            MeshMaterial3d(assets.material.clone()),
-            Transform::from_translation(position),
-            bevy::light::NotShadowCaster,
-        ));
-    }
+            "maps/zombie_tomb/fx_tomb_player_weather_snow"
+        },
+        Transform::from_translation(pose.translation - Vec3::Y * (player.height * 0.5)),
+    );
 }
 
 fn sound(commands: &mut Commands, game: &GameDefinition, alias: &str, position: Vec3) {
     if game.audio.aliases.contains_key(alias) {
         crate::audio::emit(commands, alias, crate::audio::SoundSource::World(position));
-    }
-}
-
-fn particles(
-    mut commands: Commands,
-    time: Res<Time>,
-    weather: Res<Weather>,
-    spatial: SpatialQuery,
-    players: Query<Entity, With<Player>>,
-    mut drops: Query<(Entity, &mut Precipitation, &mut Transform)>,
-) {
-    let filter = super::solids(players.iter());
-    for (e, mut drop, mut pose) in &mut drops {
-        drop.remaining -= time.delta_secs();
-        let movement = drop.velocity * time.delta_secs();
-        let collision = Dir3::new(movement).ok().is_some_and(|direction| {
-            spatial
-                .cast_ray(
-                    pose.translation,
-                    direction,
-                    movement.length() + 0.15,
-                    true,
-                    &filter,
-                )
-                .is_some()
-        });
-        if weather.presented == WeatherKind::Clear || drop.remaining <= 0. || collision {
-            commands.entity(e).despawn();
-        } else {
-            pose.translation += movement;
-        }
     }
 }

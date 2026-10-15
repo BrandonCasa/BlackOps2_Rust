@@ -1,6 +1,6 @@
 //! Original PACKED32 particle inputs; no Bevy material or mesh adapter.
 use super::Trail;
-use crate::rendering::native_effect::NativeEffectGeometry;
+use crate::rendering::native_effect::{NativeEffectGeometry, NativeEffectVertexLayout};
 use bevy::{camera::primitives::Aabb, math::Affine2, prelude::*};
 
 // 005b52a0 writes this binary16 packing, including its source truncation and
@@ -65,7 +65,11 @@ pub(super) fn quad(
         .flat_map(u16::to_le_bytes)
         .collect();
     (
-        NativeEffectGeometry { vertices, indices },
+        NativeEffectGeometry {
+            layout: NativeEffectVertexLayout::Packed32,
+            vertices,
+            indices,
+        },
         Aabb::from_min_max(
             Vec3::new(-trim[0].abs().max(trim[1].abs()) * 0.5, -0.5, 0.),
             Vec3::new(trim[0].abs().max(trim[1].abs()) * 0.5, 0.5, 0.),
@@ -144,7 +148,11 @@ pub(super) fn trail(
     }
     let index_count = (indices.len() / 2) as u32;
     Ok((
-        NativeEffectGeometry { vertices, indices },
+        NativeEffectGeometry {
+            layout: NativeEffectVertexLayout::Packed32,
+            vertices,
+            indices,
+        },
         Aabb::from_min_max(minimum, maximum),
         index_count,
     ))

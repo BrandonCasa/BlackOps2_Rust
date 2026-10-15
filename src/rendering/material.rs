@@ -58,6 +58,7 @@ struct StateDefinition {
 #[serde(rename_all = "camelCase")]
 struct TextureDefinition {
     name: Option<String>,
+    name_hash: Option<u32>,
     semantic: String,
     image: String,
     sampler_state: SamplerDefinition,
@@ -76,6 +77,8 @@ struct SamplerDefinition {
 #[derive(Deserialize)]
 struct ConstantDefinition {
     name: Option<String>,
+    #[serde(rename = "nameHash")]
+    name_hash: Option<u32>,
     literal: [f32; 4],
 }
 
@@ -104,22 +107,143 @@ impl MaterialDefinition {
         server: &AssetServer,
         probe: Handle<Image>,
     ) -> Result<(super::native_model::NativeModelMaterial, NativeWorldState), String> {
+        use super::native_model::{
+            NativeModelColorTexture, NativeModelDiffuseTextures, NativeModelMaterial,
+            NativeModelTextures,
+        };
         let bind = || {
-            if self.technique_set() != "mc_lit_sm_r0c0n0x0_q361191u" {
-                return Err(format!(
-                    "Port original model LIT techniqueSet {}",
-                    self.technique_set()
+            let family = self.technique_set();
+            if !matches!(
+                family,
+                "mc_lit_sm_r0c0n0x0_q361191u"
+                    | "mc_lit_sm_r0c0n0x0_53144qq1"
+                    | "mc_lit_sm_r0c0n0_2z223015"
+                    | "mc_lit_sm_t0c0n0_9qf6e4qj"
+                    | "mc_lit_sm_r0c0_77e21qq8"
+                    | "mc_lit_sm_r0c0n0s0_zqq1fze7"
+                    | "mc_lit_sm_t0c0n0s0_47jq982j"
+            ) {
+                return Err(format!("Port original model LIT techniqueSet {}", family));
+            }
+            // These two original PS programs implement the exact ge128 fused
+            // discard. Match the material's logical state to that program.
+            let alpha_test = if matches!(
+                family,
+                "mc_lit_sm_t0c0n0_9qf6e4qj" | "mc_lit_sm_t0c0n0s0_47jq982j"
+            ) {
+                "ge128"
+            } else {
+                "disabled"
+            };
+            let state = self.lit_state_with_alpha(alpha_test)?;
+            let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+            if family == "mc_lit_sm_r0c0_77e21qq8" {
+                return Ok((
+                    NativeModelMaterial::GeometricDiffuse(NativeModelColorTexture {
+                        color_map,
+                        color_sampler,
+                    }),
+                    state,
                 ));
             }
-            let state = self.lit_state()?;
-            let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
             let (normal_map, normal_sampler) = self.texture(server, "normalMap", "normalMap")?;
-            Ok((
-                super::native_model::NativeModelMaterial {
+            if matches!(
+                family,
+                "mc_lit_sm_r0c0n0_2z223015" | "mc_lit_sm_t0c0n0_9qf6e4qj"
+            ) {
+                let textures = NativeModelDiffuseTextures {
                     color_map,
                     color_sampler,
                     normal_map,
                     normal_sampler,
+                };
+                return Ok((
+                    if family == "mc_lit_sm_t0c0n0_9qf6e4qj" {
+                        NativeModelMaterial::AlphaDiffuse(textures)
+                    } else {
+                        NativeModelMaterial::Diffuse(textures)
+                    },
+                    state,
+                ));
+            }
+            let base = NativeModelTextures {
+                color_map,
+                color_sampler,
+                normal_map,
+                normal_sampler,
+                reflection_probe: probe,
+                reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+            };
+            let material = match family {
+                "mc_lit_sm_r0c0n0x0_q361191u" => NativeModelMaterial::ImplicitSpecular(base),
+                "mc_lit_sm_r0c0n0x0_53144qq1" => NativeModelMaterial::VertexOcclusion(base),
+                "mc_lit_sm_r0c0n0s0_zqq1fze7" | "mc_lit_sm_t0c0n0s0_47jq982j" => {
+                    let (specular_map, specular_sampler) =
+                        self.texture(server, "specularMap", "specularMap")?;
+                    let occlusion_amount = self.constant("occlusionAmount")?;
+                    if family == "mc_lit_sm_t0c0n0s0_47jq982j" {
+                        NativeModelMaterial::AlphaSpecular {
+                            base,
+                            specular_map,
+                            specular_sampler,
+                            occlusion_amount,
+                        }
+                    } else {
+                        NativeModelMaterial::NormalSpecular {
+                            base,
+                            specular_map,
+                            specular_sampler,
+                            occlusion_amount,
+                        }
+                    }
+                }
+                _ => unreachable!("selected original model family"),
+            };
+            Ok((material, state))
+        };
+        bind().map_err(|error| format!("Material {}: {error}", self.path.display()))
+    }
+
+    pub(crate) fn water(
+        &self,
+        server: &AssetServer,
+        lightmap: Handle<Image>,
+        probe: Handle<Image>,
+    ) -> Result<(super::native_water::NativeWaterMaterial, NativeWorldState), String> {
+        use super::native_water::{NativeWaterConstants, NativeWaterMaterial};
+        let bind = || {
+            if self.technique_set() != "wpc_cod7water_we876z2f" {
+                return Err(format!(
+                    "Port original water techniqueSet {}",
+                    self.technique_set()
+                ));
+            }
+            let state = self.lit_state()?;
+            let (normal_map00, normal_sampler00) =
+                self.texture_key(server, "normalMap00", "normalMap", Some(449481359))?;
+            let (normal_map01, normal_sampler01) =
+                self.texture_key(server, "normalMap01", "normalMap", Some(449481358))?;
+            Ok((
+                NativeWaterMaterial {
+                    constants: NativeWaterConstants {
+                        normal_position_scale: self
+                            .constant_hash("waterNormalPositionScale", 3341333671)?,
+                        lo_normal_scroll: self.constant_hash("waterLoNormalScroll", 1855396200)?,
+                        hi_normal_scroll: self.constant_hash("waterHiNormalScroll", 27397098)?,
+                        normal_scroll_speed: self
+                            .constant_hash("waterNormalScrollSpeed", 323802060)?,
+                        control0: self.constant_hash("waterControlVar0", 2815841959)?,
+                        control1: self.constant_hash("waterControlVar1", 2815841958)?,
+                        color_n: self.constant("waterColorN")?,
+                        color_s: self.constant("waterColorS")?,
+                        normal_scale: self.constant_hash("waterNormalScale", 2251460126)?,
+                    },
+                    normal_map00,
+                    normal_sampler00,
+                    normal_map01,
+                    normal_sampler01,
+                    lightmap_secondary: lightmap,
+                    lightmap_sampler: code_sampler(MipmapFilterMode::Nearest),
                     reflection_probe: probe,
                     reflection_sampler: code_sampler(MipmapFilterMode::Linear),
                 },
@@ -322,6 +446,10 @@ impl MaterialDefinition {
     }
 
     fn lit_state(&self) -> Result<NativeWorldState, String> {
+        self.lit_state_with_alpha("disabled")
+    }
+
+    fn lit_state_with_alpha(&self, alpha_test: &str) -> Result<NativeWorldState, String> {
         if self.camera_region != "litOpaque" {
             return Err(format!(
                 "Add the original {} camera-region pass before binding this material",
@@ -344,10 +472,10 @@ impl MaterialDefinition {
                 "Add this material's original blend state to the native pipeline".to_owned(),
             );
         }
-        if state.alpha_test != "disabled" {
+        if state.alpha_test != alpha_test {
             return Err(format!(
-                "Port original alphaTest {} into this material's WESL program",
-                state.alpha_test
+                "Original alphaTest {} does not match this WESL program's {} test",
+                state.alpha_test, alpha_test
             ));
         }
         if state.polymode_line || state.polygon_offset != "offset0" {
@@ -405,10 +533,20 @@ impl MaterialDefinition {
         name: &str,
         semantic: &str,
     ) -> Result<(Handle<Image>, SamplerDescriptor<'static>), String> {
-        let mut matches = self
-            .textures
-            .iter()
-            .filter(|texture| texture.name.as_deref() == Some(name));
+        self.texture_key(server, name, semantic, None)
+    }
+
+    fn texture_key(
+        &self,
+        server: &AssetServer,
+        name: &str,
+        semantic: &str,
+        hash: Option<u32>,
+    ) -> Result<(Handle<Image>, SamplerDescriptor<'static>), String> {
+        let mut matches = self.textures.iter().filter(|texture| match hash {
+            Some(hash) => texture.name_hash == Some(hash),
+            None => texture.name.as_deref() == Some(name),
+        });
         let texture = matches
             .next()
             .ok_or_else(|| format!("Export the required original texture slot {name}"))?;
@@ -428,10 +566,18 @@ impl MaterialDefinition {
     }
 
     fn constant(&self, name: &str) -> Result<Vec4, String> {
-        let mut matches = self
-            .constants
-            .iter()
-            .filter(|constant| constant.name.as_deref() == Some(name));
+        self.constant_key(name, None)
+    }
+
+    fn constant_hash(&self, name: &str, hash: u32) -> Result<Vec4, String> {
+        self.constant_key(name, Some(hash))
+    }
+
+    fn constant_key(&self, name: &str, hash: Option<u32>) -> Result<Vec4, String> {
+        let mut matches = self.constants.iter().filter(|constant| match hash {
+            Some(hash) => constant.name_hash == Some(hash),
+            None => constant.name.as_deref() == Some(name),
+        });
         let constant = matches
             .next()
             .ok_or_else(|| format!("Export the required original constant {name}"))?;
@@ -490,7 +636,7 @@ impl SamplerDefinition {
     }
 }
 
-fn code_sampler(mipmap_filter: MipmapFilterMode) -> SamplerDescriptor<'static> {
+pub(crate) fn code_sampler(mipmap_filter: MipmapFilterMode) -> SamplerDescriptor<'static> {
     // R's world LIT setup (00475300) binds source sampler 0x62 at s13 and
     // 0x72 at s15. At quality 1 they resolve through 00432ba0 to min/mag
     // linear with nearest/linear mip filtering respectively. Both clamp UV,

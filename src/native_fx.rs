@@ -1,9 +1,11 @@
 //! Origins source-authored effect timelines and original native draw inputs.
+mod cloud;
 mod geometry;
 mod material;
 mod visuals;
 use crate::rendering::native_effect::{
-    NativeEffectDraw, NativeEffectGeometry, NativeEffectMaterial, NativeEffectTransform,
+    NativeCloudObject, NativeEffectDraw, NativeEffectGeometry, NativeEffectMaterial,
+    NativeEffectProgram, NativeEffectTransform, NativeOutdoorMap,
 };
 use crate::{GameState, assets::GameDefinition, gameplay::SessionEntity};
 use bevy::{asset::RecursiveDependencyLoadState, math::Affine2, prelude::*};
@@ -109,6 +111,8 @@ struct Element {
     flags: i32,
     spawn: Spawn,
     delay_ms: Range,
+    fade_in_range: Range,
+    fade_out_range: Range,
     life_ms: Range,
     origin: [Range; 3],
     angles: [Range; 3],
@@ -132,8 +136,7 @@ struct Element {
     billboard_trim: Option<BillboardTrim>,
     lighting_fraction: i8,
     trail: Option<Trail>,
-    #[serde(rename = "cloud_density")]
-    _cloud_density: Option<Range>,
+    cloud_density: Option<Range>,
 }
 #[derive(Deserialize)]
 struct SourceEffect {
@@ -167,6 +170,8 @@ struct Owned(Entity);
 #[derive(Component)]
 struct AttachedSource(Entity);
 #[derive(Component)]
+struct EffectParent(Entity);
+#[derive(Component)]
 struct Stopped;
 #[derive(Component)]
 struct Particle {
@@ -183,6 +188,7 @@ struct Particle {
     atlas_start: u32,
     emitted_at: Vec3,
     emit_step: f32,
+    cloud: Option<cloud::State>,
 }
 pub(crate) struct NativeFxPlugin;
 impl Plugin for NativeFxPlugin {
@@ -210,6 +216,7 @@ fn load_catalog(
     options: Res<crate::assets::LaunchOptions>,
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<NativeEffectMaterial>>,
+    mut geometries: ResMut<Assets<NativeEffectGeometry>>,
 ) {
     let catalog: Catalog = crate::origins::read(&options.asset_root.join("fx_catalog.json"));
     commands.insert_resource(material::Materials::load(
@@ -219,6 +226,42 @@ fn load_catalog(
         &mut materials,
     ));
     commands.insert_resource(catalog);
+    commands.insert_resource(cloud::geometry(&mut geometries));
+}
+
+///004fa310 ->005c6f00(flag0) ->005c6ba0 ->005c61c0 stops this effect
+/// and its registered child effects.005c5740 clears the active bit; unlike
+///005c6310's kill path, it leaves existing particle lists to finish naturally.
+pub(crate) fn stop(commands: &mut Commands, entity: Entity) {
+    commands.queue(move |world: &mut World| {
+        let mut descendants: BTreeMap<Entity, Vec<Entity>> = BTreeMap::new();
+        let mut query = world.query::<(Entity, &EffectParent)>();
+        for (child, parent) in query.iter(world) {
+            descendants.entry(parent.0).or_default().push(child);
+        }
+        let mut pending = vec![entity];
+        while let Some(effect) = pending.pop() {
+            if let Ok(mut entity) = world.get_entity_mut(effect) {
+                if entity.contains::<Emitter>() {
+                    entity.insert(Stopped);
+                }
+            }
+            if let Some(children) = descendants.remove(&effect) {
+                pending.extend(children);
+            }
+        }
+    });
+}
+
+fn emit_child(
+    commands: &mut Commands,
+    name: impl Into<String>,
+    pose: Transform,
+    parent: Entity,
+) -> Entity {
+    let child = emit(commands, name, pose);
+    commands.entity(child).insert(EffectParent(parent));
+    child
 }
 pub(crate) fn emit(
     commands: &mut Commands,
@@ -277,7 +320,7 @@ fn follow_source_attachments(
         if let Ok(owner) = owners.get(source.0) {
             pose.translation = owner.translation;
         } else {
-            commands.entity(entity).insert(Stopped);
+            stop(&mut commands, entity);
         }
     }
 }
@@ -289,6 +332,8 @@ fn spawn(
     game: Res<GameDefinition>,
     materials: Res<material::Materials>,
     native_materials: Res<Assets<NativeEffectMaterial>>,
+    cloud_geometry: Res<cloud::Geometry>,
+    outdoor: Option<Res<NativeOutdoorMap>>,
     mut geometries: ResMut<Assets<NativeEffectGeometry>>,
     mut emitters: Query<(
         Entity,
@@ -415,7 +460,7 @@ fn spawn(
                     .and_then(Option::as_ref);
                 if e.kind == 12 {
                     if let Some(name) = visual.and_then(|v| v.effect.as_ref()) {
-                        emit(&mut commands, name, pose);
+                        emit_child(&mut commands, name, pose, entity);
                     } else {
                         panic!(
                             "{}",
@@ -442,7 +487,9 @@ fn spawn(
                 let mut particle = Particle {
                     element: i,
                     initial: pose,
-                    age: (emitter.elapsed - born).max(0.),
+                    // animate advances every particle after this system's
+                    // births. Subtract this frame once to retain source age.
+                    age: emitter.elapsed - born - time.delta_secs(),
                     life,
                     random: r,
                     rotation: e
@@ -458,8 +505,9 @@ fn spawn(
                         + e.emit_distance_variance
                             .sample(channel(&catalog, particle_seed, 14)))
                         * 0.0254,
+                    cloud: None,
                 };
-                if !matches!(e.kind, 7 | 8) {
+                if !matches!(e.kind, 6..=9) {
                     let entries = e.atlas.entry_count_and_range & 0x1ff;
                     particle.atlas_start = match e.atlas.behavior & 3 {
                         0 => e.atlas.index,
@@ -515,12 +563,6 @@ fn spawn(
                             emitter.name
                         );
                     } else {
-                        if e.kind == 6 {
-                            panic!(
-                                "Original FX {} element {i}: particle clouds require the original PARTICLECLOUD declaration and selected cloud program",
-                                emitter.name
-                            );
-                        }
                         if e.lighting_fraction != 0 {
                             panic!(
                                 "Original FX {} element {i}: lighting fraction {} requires original particle light-probe inputs (005b4da0)",
@@ -530,50 +572,87 @@ fn spawn(
                         let handle = materials.get(name).unwrap_or_else(|error| {
                             panic!("Original FX {} element {i}: {error}", emitter.name)
                         });
-                        particle.image = Some(
-                            native_materials
-                                .get(&handle)
-                                .expect("FX material was inserted during loading")
-                                .color_map
-                                .clone(),
-                        );
-                        if e.kind == 5 {
-                            if e.trail.is_none() {
-                                panic!(
-                                    "{}",
-                                    format!(
-                                        "Required source trail geometry missing: {}",
-                                        emitter.name
-                                    ),
-                                );
-                            };
-                            let start = emitter.trail_points[i].unwrap_or(pose.translation);
-                            emitter.trail_points[i] = Some(pose.translation);
-                            particle.trail_start = Some(start);
+                        let native_material = native_materials
+                            .get(&handle)
+                            .expect("FX material was inserted during loading");
+                        particle.image = Some(native_material.color_map.clone());
+                        if e.kind == 6 {
+                            assert!(
+                                outdoor.is_some(),
+                                "Original particle clouds require the world's outdoorImage and outdoorLookupMatrix"
+                            );
+                            assert!(
+                                matches!(
+                                    native_material.program,
+                                    NativeEffectProgram::CloudRain | NativeEffectProgram::CloudSnow
+                                ),
+                                "Original cloud element requires its selected PARTICLECLOUD program"
+                            );
+                            particle.cloud = Some(cloud::State {
+                                program: native_material.program,
+                                size: Vec2::ZERO,
+                                velocity: Vec3::ZERO,
+                                color: [0.; 4],
+                            });
+                            let (first_index, index_count) =
+                                cloud_range(e, &catalog, particle_seed);
+                            commands.entity(particle_entity).insert((
+                                bevy::camera::primitives::Aabb::from_min_max(
+                                    Vec3::splat(-1.),
+                                    Vec3::ONE,
+                                ),
+                                NativeEffectDraw {
+                                    geometry: cloud_geometry.0.clone(),
+                                    material: handle,
+                                    vertex_byte_offset: 0,
+                                    first_index,
+                                    index_count,
+                                    sort_center: pose.translation,
+                                },
+                            ));
+                        } else {
+                            assert!(
+                                native_material.program == NativeEffectProgram::Zfeather,
+                                "Original sprite element requires its selected packed particle program"
+                            );
+                            if e.kind == 5 {
+                                if e.trail.is_none() {
+                                    panic!(
+                                        "{}",
+                                        format!(
+                                            "Required source trail geometry missing: {}",
+                                            emitter.name
+                                        ),
+                                    );
+                                };
+                                let start = emitter.trail_points[i].unwrap_or(pose.translation);
+                                emitter.trail_points[i] = Some(pose.translation);
+                                particle.trail_start = Some(start);
+                            }
+                            let (geometry, bounds, index_count) = geometry::quad(
+                                [255.; 4],
+                                Affine2::IDENTITY,
+                                e.billboard_trim
+                                    .expect("billboard source trim is required")
+                                    .widths(),
+                            );
+                            commands.entity(particle_entity).insert((
+                                bounds,
+                                NativeEffectDraw {
+                                    geometry: geometries.add(geometry),
+                                    material: handle,
+                                    vertex_byte_offset: 0,
+                                    first_index: 0,
+                                    index_count,
+                                    sort_center: pose.translation,
+                                },
+                            ));
                         }
-                        let (geometry, bounds, index_count) = geometry::quad(
-                            [255.; 4],
-                            Affine2::IDENTITY,
-                            e.billboard_trim
-                                .expect("billboard source trim is required")
-                                .widths(),
-                        );
-                        commands.entity(particle_entity).insert((
-                            bounds,
-                            NativeEffectDraw {
-                                geometry: geometries.add(geometry),
-                                material: handle,
-                                vertex_byte_offset: 0,
-                                first_index: 0,
-                                index_count,
-                                sort_center: pose.translation,
-                            },
-                        ));
                     }
                 }
                 commands.entity(particle_entity).insert(particle);
                 if let Some(child) = &e.effect_attached {
-                    let attached = emit(&mut commands, child, pose);
+                    let attached = emit_child(&mut commands, child, pose, entity);
                     commands
                         .entity(attached)
                         .insert(AttachedSource(particle_entity));
@@ -658,6 +737,43 @@ fn indices(length: usize, age: f32) -> (usize, usize, f32) {
     let f = age.clamp(0., 1.) * length.saturating_sub(1) as f32;
     let a = f.floor() as usize;
     (a, (a + 1).min(length.saturating_sub(1)), f.fract())
+}
+
+fn cloud_range(element: &Element, catalog: &Catalog, seed: u64) -> (u32, u32) {
+    //005b7490/00473970 choose a contiguous range in the source shared buffers.
+    let count = integer_range(
+        element
+            .cloud_density
+            .expect("original cloud density is required"),
+        catalog,
+        seed,
+        23,
+    )
+    .clamp(1., 1024.) as u32;
+    let selection = channel(catalog, seed, 23).to_bits() & 0xffff;
+    let start = ((1025 - count) * selection) >> 16;
+    let distribution = if element.flags & (1 << 22) != 0 {
+        1024
+    } else {
+        0
+    };
+    ((start + distribution) * 6, count * 6)
+}
+
+fn distance_fade(element: &Element, distance: f32) -> f32 {
+    // Literal005b7390 return: min(first falling ramp, second rising ramp).
+    let falling = |range: Range| (1. - (distance - range.base) / range.amplitude).clamp(0., 1.);
+    let first = if element.fade_in_range.amplitude == 0. {
+        1.
+    } else {
+        falling(element.fade_in_range)
+    };
+    let second = if element.fade_out_range.amplitude == 0. {
+        1.
+    } else {
+        1. - falling(element.fade_out_range)
+    };
+    first.min(second)
 }
 fn visual(s: &VisualSample, r: f32, seed: u64, catalog: &Catalog) -> ([f32; 4], Vec2, f32, f32) {
     (
@@ -753,7 +869,7 @@ fn animate(
         p.age += time.delta_secs();
         if p.age >= p.life {
             if let Some(child) = &e.effect_on_death {
-                emit(&mut commands, child, *pose);
+                emit_child(&mut commands, child, *pose, owner.0);
             }
             commands.entity(entity).try_despawn();
             continue;
@@ -801,7 +917,7 @@ fn animate(
                 {
                     let mut impact = *pose;
                     impact.translation = previous_position + *direction * hit.distance;
-                    emit(&mut commands, child, impact);
+                    emit_child(&mut commands, child, impact, owner.0);
                     commands.entity(entity).try_despawn();
                     continue;
                 }
@@ -818,7 +934,7 @@ fn animate(
                 p.emitted_at += direction * emit_step;
                 let mut emitted = *pose;
                 emitted.translation = p.emitted_at;
-                emit(&mut commands, child, emitted);
+                emit_child(&mut commands, child, emitted, owner.0);
                 distance = pose.translation.distance(p.emitted_at);
             }
         }
@@ -836,7 +952,10 @@ fn animate(
         let angular: [f32; 3] = std::array::from_fn(|i| {
             e.angular_velocity[i].sample(channel(&catalog, p.seed, i as i32 - 3)) * p.age * 1000.
         });
-        if matches!(e.kind, 1 | 2 | 7) {
+        if e.kind == 6 {
+            pose.rotation = p.initial.rotation
+                * Quat::from_euler(EulerRot::YXZ, -angular[1], angular[0], -angular[2]);
+        } else if matches!(e.kind, 1 | 2 | 7) {
             pose.rotation = p.initial.rotation
                 * Quat::from_euler(
                     EulerRot::YXZ,
@@ -874,6 +993,46 @@ fn animate(
         let Some(mut draw) = draw else {
             continue;
         };
+        if e.kind == 6 {
+            pose.scale = p.initial.scale * (scale * 0.0254);
+            let seed = p.seed;
+            let age = p.age;
+            let state = p
+                .cloud
+                .as_mut()
+                .expect("cloud source program validated at birth");
+            state.size = size;
+            state.velocity =
+                direction * (1000. * e.velocity_samples.len().saturating_sub(1).max(1) as f32);
+            state.velocity.y -= e.gravity.sample(channel(&catalog, seed, 9)) * age * 20.32;
+            state.color = color;
+            let fade = camera.map_or(1., |camera| {
+                distance_fade(e, camera.translation.distance(pose.translation) / 0.0254)
+            });
+            state.color[3] *= fade;
+            let (first_index, index_count) = cloud_range(e, &catalog, seed);
+            draw.first_index = first_index;
+            let alpha = state.color[3].clamp(0., 255.) as u8;
+            let threshold = if e.flags & 0x40000 != 0 { 0 } else { 6 };
+            draw.index_count = if scale == 0. || fade <= 0.015686275 || alpha <= threshold {
+                0
+            } else {
+                index_count
+            };
+            draw.sort_center = pose.translation;
+            if let Some(mut bounds) = bounds {
+                let extent = if scale == 0. {
+                    1.
+                } else {
+                    1. + size.abs().max_element() / scale.abs()
+                };
+                *bounds = bevy::camera::primitives::Aabb::from_min_max(
+                    Vec3::splat(-extent),
+                    Vec3::splat(extent),
+                );
+            }
+            continue;
+        }
         let mut uv = match atlas_transform(&e.atlas, p.atlas_start, p.age, p.life) {
             Ok(uv) => uv,
             Err(error) => {
@@ -927,11 +1086,14 @@ fn object_constants(
         (
             Entity,
             Ref<GlobalTransform>,
+            &Particle,
             Option<&mut NativeEffectTransform>,
+            Option<&mut NativeCloudObject>,
         ),
         With<NativeEffectDraw>,
     >,
     mut previous_eye: Local<Option<Vec3>>,
+    outdoor: Option<Res<NativeOutdoorMap>>,
 ) {
     let Ok(camera) = cameras.single() else {
         return;
@@ -941,7 +1103,23 @@ fn object_constants(
     *previous_eye = Some(eye);
     let source_from_bevy = crate::rendering::world::source_frame().inverse();
     let to_eye = source_from_bevy * Mat4::from_translation(-eye);
-    for (entity, transform, constants) in &mut particles {
+    for (entity, transform, particle, constants, cloud_constants) in &mut particles {
+        if let Some(state) = &particle.cloud {
+            let updated = cloud::constants(
+                &transform,
+                &camera,
+                outdoor
+                    .as_ref()
+                    .expect("original cloud outdoor inputs are required"),
+                state,
+            );
+            if let Some(mut constants) = cloud_constants {
+                *constants = updated;
+            } else {
+                commands.entity(entity).insert(updated);
+            }
+            continue;
+        }
         if !eye_changed && !transform.is_changed() && constants.is_some() {
             continue;
         }

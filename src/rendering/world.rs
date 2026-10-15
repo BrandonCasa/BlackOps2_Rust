@@ -2,12 +2,17 @@
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
+    sync::Arc,
 };
 
 use bevy::{camera::primitives::Aabb, prelude::*};
 use serde::Deserialize;
 
-use super::{material::MaterialDefinition, native::*};
+use super::native_water::{
+    LightDefinition, NativeWaterLights, NativeWaterMaterial, NativeWaterSurface,
+    PrimaryLightDefinition, SunLightDefinition, WaterTechniqueDefinition,
+};
+use super::{material::MaterialDefinition, models::ReflectionProbe, native::*};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +25,12 @@ pub(crate) struct WorldDrawDefinition {
     models: Vec<BrushModel>,
     lightmaps: Vec<Lightmap>,
     reflection_probes: Vec<ReflectionProbe>,
+    outdoor_image: String,
+    outdoor_lookup_matrix: [[f32; 4]; 4],
+    primary_lights: Vec<PrimaryLightDefinition>,
+    sun_primary_light_index: u32,
+    light_definitions: BTreeMap<String, LightDefinition>,
+    water_techniques: Vec<WaterTechniqueDefinition>,
 }
 
 #[derive(Deserialize)]
@@ -33,6 +44,8 @@ struct Surface {
     vertex_data_offset1: u64,
     lightmap_index: usize,
     reflection_probe_index: usize,
+    primary_light_index: u8,
+    source_surface_index: u32,
     bounds: [[f32; 3]; 2],
     #[serde(skip)]
     vertex_reach: u64,
@@ -50,13 +63,6 @@ struct Lightmap {
     secondary: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ReflectionProbe {
-    reflection_image: String,
-    lighting_sh: [f32; 12],
-}
-
 /// IO ownership ends when the geometry is handed to Bevy's render assets.
 pub(crate) struct LoadedWorld {
     definition: WorldDrawDefinition,
@@ -65,6 +71,10 @@ pub(crate) struct LoadedWorld {
 }
 
 impl WorldDrawDefinition {
+    pub(crate) fn reflection_probes(&self) -> &[ReflectionProbe] {
+        &self.reflection_probes
+    }
+
     pub(crate) fn load(mut self, root: &Path) -> LoadedWorld {
         let read = |path: &str| {
             std::fs::read(root.join(path))
@@ -150,6 +160,9 @@ impl NativeWorldRoot {
 #[derive(Component)]
 pub(crate) struct WorldSurfaceLighting(pub(crate) [Vec4; 3]);
 
+#[derive(Resource)]
+pub(crate) struct WorldWaterLighting(pub(crate) Arc<NativeWaterLights>);
+
 /// Native inches / Z up to Bevy metres / Y up. Keep this single boundary for
 /// draw positions, object constants and the manually supplied culling bounds.
 pub(crate) fn source_frame() -> Mat4 {
@@ -164,6 +177,8 @@ impl LoadedWorld {
         server: &AssetServer,
         geometries: &mut Assets<NativeWorldGeometry>,
         materials: &mut Assets<NativeWorldMaterial>,
+        water_materials: &mut Assets<NativeWaterMaterial>,
+        sun: &SunLightDefinition,
         game: &crate::assets::GameDefinition,
     ) {
         let world = self.definition;
@@ -178,6 +193,7 @@ impl LoadedWorld {
             .map(|probe| super::material::image(server, &probe.reflection_image))
             .collect();
         let mut bound = BTreeMap::new();
+        let mut bound_water = BTreeMap::new();
         let mut missing = BTreeMap::<String, String>::new();
         let mut images = HashMap::new();
         for surface in &world.surfaces {
@@ -186,7 +202,10 @@ impl LoadedWorld {
                 surface.lightmap_index,
                 surface.reflection_probe_index,
             );
-            if bound.contains_key(&key) || missing.contains_key(&surface.material_file) {
+            if bound.contains_key(&key)
+                || bound_water.contains_key(&key)
+                || missing.contains_key(&surface.material_file)
+            {
                 continue;
             }
             let source = &self.materials[&surface.material_file];
@@ -196,6 +215,24 @@ impl LoadedWorld {
                     source.technique_set(), surface.lightmap_index));
                 continue;
             };
+            if source.technique_set() == "wpc_cod7water_we876z2f" {
+                match source.water(
+                    server,
+                    lightmap.clone(),
+                    probes[surface.reflection_probe_index].clone(),
+                ) {
+                    Ok((material, state)) => {
+                        for image in material.images() {
+                            images.entry(image.id()).or_insert_with(|| image.clone());
+                        }
+                        bound_water.insert(key, (water_materials.add(material), state));
+                    }
+                    Err(error) => {
+                        missing.insert(surface.material_file.clone(), error);
+                    }
+                }
+                continue;
+            }
             match source.world(
                 server,
                 lightmap.clone(),
@@ -222,6 +259,38 @@ impl LoadedWorld {
                 .join("\n")
         );
 
+        let water_lights = NativeWaterLights::from_source(
+            &world.primary_lights,
+            world.sun_primary_light_index,
+            sun,
+            &world.light_definitions,
+            &world.water_techniques,
+            world
+                .surfaces
+                .iter()
+                .filter(|surface| {
+                    self.materials[&surface.material_file].technique_set()
+                        == "wpc_cod7water_we876z2f"
+                })
+                .map(|surface| surface.primary_light_index),
+            server,
+        )
+        .unwrap_or_else(|error| panic!("Original water lighting: {error}"));
+        for image in water_lights.images() {
+            images.entry(image.id()).or_insert_with(|| image.clone());
+        }
+        commands.insert_resource(WorldWaterLighting(water_lights));
+        let outdoor = super::material::image(server, &world.outdoor_image);
+        images
+            .entry(outdoor.id())
+            .or_insert_with(|| outdoor.clone());
+        commands.insert_resource(super::native_effect::NativeOutdoorMap {
+            image: outdoor,
+            lookup_rows: world.outdoor_lookup_matrix.map(Vec4::from_array),
+            sampler: super::material::code_sampler(
+                bevy::render::render_resource::MipmapFilterMode::Nearest,
+            ),
+        });
         let images = images.into_values().collect();
         let root = commands
             .spawn((
@@ -299,21 +368,8 @@ impl LoadedWorld {
                     surface.lightmap_index,
                     surface.reflection_probe_index,
                 );
-                let (material, state) = &bound[&key];
-                if let Some(stride) = materials
-                    .get(material)
-                    .expect("bound original world material")
-                    .auxiliary_stride()
-                {
-                    assert!(
-                        surface.vertex_data_offset1 + surface.vertex_reach * stride
-                            <= auxiliary_len,
-                        "Original auxiliary vertex range for {}",
-                        surface.material
-                    );
-                }
                 let sh = &world.reflection_probes[surface.reflection_probe_index].lighting_sh;
-                commands.spawn((
+                let mut entity = commands.spawn((
                     ChildOf(owner),
                     frame,
                     Visibility::Inherited,
@@ -321,7 +377,41 @@ impl LoadedWorld {
                         Vec3::from_array(surface.bounds[0]),
                         Vec3::from_array(surface.bounds[1]),
                     ),
-                    NativeWorldSurface {
+                    WorldSurfaceLighting(std::array::from_fn(|i| {
+                        Vec4::from_slice(&sh[i * 4..i * 4 + 4])
+                    })),
+                    Name::new(surface.material.clone()),
+                ));
+                if let Some((material, state)) = bound_water.get(&key) {
+                    entity.insert(NativeWaterSurface {
+                        geometry: geometry.clone(),
+                        material: material.clone(),
+                        state: *state,
+                        primary_light_index: surface.primary_light_index,
+                        primary_byte_offset: surface.vertex_data_offset0,
+                        first_index: surface.base_index,
+                        index_count: surface.tri_count * 3,
+                        // 00442ec0 builds the world key with primaryLightIndex
+                        // at44. All water shares one material; source order is
+                        // the remaining tie. This is a relative sorting key.
+                        sort_key: (u64::from(surface.primary_light_index) << 44)
+                            | u64::from(surface.source_surface_index),
+                    });
+                } else {
+                    let (material, state) = &bound[&key];
+                    if let Some(stride) = materials
+                        .get(material)
+                        .expect("bound original world material")
+                        .auxiliary_stride()
+                    {
+                        assert!(
+                            surface.vertex_data_offset1 + surface.vertex_reach * stride
+                                <= auxiliary_len,
+                            "Original auxiliary vertex range for {}",
+                            surface.material
+                        );
+                    }
+                    entity.insert(NativeWorldSurface {
                         geometry: geometry.clone(),
                         material: material.clone(),
                         state: *state,
@@ -329,12 +419,8 @@ impl LoadedWorld {
                         auxiliary_byte_offset: surface.vertex_data_offset1,
                         first_index: surface.base_index,
                         index_count: surface.tri_count * 3,
-                    },
-                    WorldSurfaceLighting(std::array::from_fn(|i| {
-                        Vec4::from_slice(&sh[i * 4..i * 4 + 4])
-                    })),
-                    Name::new(surface.material.clone()),
-                ));
+                    });
+                }
             }
         }
     }

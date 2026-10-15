@@ -1,4 +1,4 @@
-//! Original mc_lit_sm_r0c0n0x0_q361191u static-model LIT draws.
+//! Original T6 static-model LIT draws, using each source material's program.
 //!
 //! NativeWorldPlugin owns geometry upload and common scene/object extraction.
 //! This renderer supplies the original model-lighting atlas and cb3 constants
@@ -48,8 +48,8 @@ use bevy::{
 
 /// Construct only after resolving the exact native LIT technique identity.
 /// The selected placement's authored reflectionProbeIndex owns the cube input.
-#[derive(Asset, TypePath, Clone)]
-pub(crate) struct NativeModelMaterial {
+#[derive(Clone)]
+pub(crate) struct NativeModelTextures {
     pub color_map: Handle<Image>,
     pub color_sampler: SamplerDescriptor<'static>,
     pub normal_map: Handle<Image>,
@@ -58,10 +58,114 @@ pub(crate) struct NativeModelMaterial {
     pub reflection_sampler: SamplerDescriptor<'static>,
 }
 
+#[derive(Clone)]
+pub(crate) struct NativeModelDiffuseTextures {
+    pub color_map: Handle<Image>,
+    pub color_sampler: SamplerDescriptor<'static>,
+    pub normal_map: Handle<Image>,
+    pub normal_sampler: SamplerDescriptor<'static>,
+}
+
+#[derive(Clone)]
+pub(crate) struct NativeModelColorTexture {
+    pub color_map: Handle<Image>,
+    pub color_sampler: SamplerDescriptor<'static>,
+}
+
+#[derive(Asset, TypePath, Clone)]
+pub(crate) enum NativeModelMaterial {
+    ImplicitSpecular(NativeModelTextures),
+    VertexOcclusion(NativeModelTextures),
+    Diffuse(NativeModelDiffuseTextures),
+    AlphaDiffuse(NativeModelDiffuseTextures),
+    GeometricDiffuse(NativeModelColorTexture),
+    NormalSpecular {
+        base: NativeModelTextures,
+        specular_map: Handle<Image>,
+        specular_sampler: SamplerDescriptor<'static>,
+        occlusion_amount: Vec4,
+    },
+    AlphaSpecular {
+        base: NativeModelTextures,
+        specular_map: Handle<Image>,
+        specular_sampler: SamplerDescriptor<'static>,
+        occlusion_amount: Vec4,
+    },
+}
+
 impl NativeModelMaterial {
     pub(crate) fn images(&self) -> impl Iterator<Item = &Handle<Image>> {
-        [&self.color_map, &self.normal_map, &self.reflection_probe].into_iter()
+        self.textures().map(|(_, image, _)| image)
     }
+
+    fn textures(&self) -> impl Iterator<Item = (u32, &Handle<Image>, &SamplerDescriptor<'static>)> {
+        let bindings = match self {
+            Self::ImplicitSpecular(base) | Self::VertexOcclusion(base) => [
+                Some((0, &base.color_map, &base.color_sampler)),
+                Some((2, &base.normal_map, &base.normal_sampler)),
+                Some((4, &base.reflection_probe, &base.reflection_sampler)),
+                None,
+            ],
+            Self::Diffuse(base) | Self::AlphaDiffuse(base) => [
+                Some((0, &base.color_map, &base.color_sampler)),
+                Some((2, &base.normal_map, &base.normal_sampler)),
+                None,
+                None,
+            ],
+            Self::GeometricDiffuse(base) => [
+                Some((0, &base.color_map, &base.color_sampler)),
+                None,
+                None,
+                None,
+            ],
+            Self::NormalSpecular {
+                base,
+                specular_map,
+                specular_sampler,
+                ..
+            }
+            | Self::AlphaSpecular {
+                base,
+                specular_map,
+                specular_sampler,
+                ..
+            } => [
+                Some((0, &base.color_map, &base.color_sampler)),
+                Some((2, &base.normal_map, &base.normal_sampler)),
+                Some((4, &base.reflection_probe, &base.reflection_sampler)),
+                Some((6, specular_map, specular_sampler)),
+            ],
+        };
+        bindings.into_iter().flatten()
+    }
+
+    fn family(&self) -> NativeModelFamily {
+        match self {
+            Self::ImplicitSpecular(_) => NativeModelFamily::ImplicitSpecular,
+            Self::VertexOcclusion(_) => NativeModelFamily::VertexOcclusion,
+            Self::Diffuse(_) => NativeModelFamily::Diffuse,
+            Self::AlphaDiffuse(_) => NativeModelFamily::AlphaDiffuse,
+            Self::GeometricDiffuse(_) => NativeModelFamily::GeometricDiffuse,
+            Self::NormalSpecular { .. } => NativeModelFamily::NormalSpecular,
+            Self::AlphaSpecular { .. } => NativeModelFamily::AlphaSpecular,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum NativeModelFamily {
+    ImplicitSpecular,
+    VertexOcclusion,
+    Diffuse,
+    AlphaDiffuse,
+    GeometricDiffuse,
+    NormalSpecular,
+    AlphaSpecular,
+}
+
+#[derive(ShaderType)]
+struct NativeModelOcclusion {
+    occlusion_amount: Vec4,
 }
 
 #[derive(Component, Clone)]
@@ -145,6 +249,7 @@ impl Plugin for NativeModelPlugin {
             RenderAssetPlugin::<PreparedModelMaterial, GpuImage>::default(),
         ));
         load_shader_library!(app, "native_model.wesl");
+        load_shader_library!(app, "native_model_variants.wesl");
         embedded_asset!(app, "native_model_entry.wesl");
         let shader = load_embedded_asset!(app, "native_model_entry.wesl");
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
@@ -172,6 +277,9 @@ struct ModelPipeline {
     scene_layout: BindGroupLayoutDescriptor,
     object_layout: BindGroupLayoutDescriptor,
     material_layout: BindGroupLayoutDescriptor,
+    diffuse_material_layout: BindGroupLayoutDescriptor,
+    geometric_material_layout: BindGroupLayoutDescriptor,
+    specular_material_layout: BindGroupLayoutDescriptor,
     lighting_layout: BindGroupLayoutDescriptor,
 }
 
@@ -207,6 +315,45 @@ impl ModelPipeline {
                     ),
                 ),
             ),
+            diffuse_material_layout: BindGroupLayoutDescriptor::new(
+                "native model diffuse textures",
+                &BindGroupLayoutEntries::sequential(
+                    ShaderStages::FRAGMENT,
+                    (
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
+                    ),
+                ),
+            ),
+            geometric_material_layout: BindGroupLayoutDescriptor::new(
+                "native model geometric diffuse texture",
+                &BindGroupLayoutEntries::sequential(
+                    ShaderStages::FRAGMENT,
+                    (
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
+                    ),
+                ),
+            ),
+            specular_material_layout: BindGroupLayoutDescriptor::new(
+                "native model explicit specular textures and occlusion",
+                &BindGroupLayoutEntries::sequential(
+                    ShaderStages::FRAGMENT,
+                    (
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
+                        texture_cube(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                        sampler(SamplerBindingType::Filtering),
+                        uniform_buffer::<NativeModelOcclusion>(false),
+                    ),
+                ),
+            ),
             lighting_layout: BindGroupLayoutDescriptor::new(
                 "native model lighting atlas",
                 &BindGroupLayoutEntries::sequential(
@@ -219,6 +366,21 @@ impl ModelPipeline {
             ),
         }
     }
+
+    fn material_layout(&self, family: NativeModelFamily) -> &BindGroupLayoutDescriptor {
+        match family {
+            NativeModelFamily::ImplicitSpecular | NativeModelFamily::VertexOcclusion => {
+                &self.material_layout
+            }
+            NativeModelFamily::Diffuse | NativeModelFamily::AlphaDiffuse => {
+                &self.diffuse_material_layout
+            }
+            NativeModelFamily::GeometricDiffuse => &self.geometric_material_layout,
+            NativeModelFamily::NormalSpecular | NativeModelFamily::AlphaSpecular => {
+                &self.specular_material_layout
+            }
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -226,66 +388,90 @@ struct ModelPipelineKey {
     target: TextureFormat,
     samples: u32,
     state: NativeWorldState,
+    family: NativeModelFamily,
 }
 
 impl SpecializedRenderPipeline for ModelPipeline {
     type Key = ModelPipelineKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
+        let mut attributes = vec![
+            VertexAttribute {
+                format: if key.family == NativeModelFamily::GeometricDiffuse {
+                    VertexFormat::Float32x3
+                } else {
+                    VertexFormat::Float32x4
+                },
+                offset: 0,
+                shader_location: 0,
+            },
+            VertexAttribute {
+                format: VertexFormat::Unorm8x4,
+                offset: 16,
+                shader_location: 1,
+            },
+            VertexAttribute {
+                format: VertexFormat::Float16x2,
+                offset: 20,
+                shader_location: 2,
+            },
+            VertexAttribute {
+                format: VertexFormat::Unorm10_10_10_2,
+                offset: 24,
+                shader_location: 3,
+            },
+        ];
+        if key.family != NativeModelFamily::GeometricDiffuse {
+            attributes.push(VertexAttribute {
+                format: VertexFormat::Unorm10_10_10_2,
+                offset: 28,
+                shader_location: 4,
+            });
+        }
+        let fragment = match (key.family, key.target.is_srgb()) {
+            (NativeModelFamily::ImplicitSpecular, false) => "fragment",
+            (NativeModelFamily::ImplicitSpecular, true) => "fragment_srgb",
+            (NativeModelFamily::VertexOcclusion, false) => "fragment_vertex_occlusion",
+            (NativeModelFamily::VertexOcclusion, true) => "fragment_vertex_occlusion_srgb",
+            (NativeModelFamily::Diffuse, false) => "fragment_diffuse",
+            (NativeModelFamily::Diffuse, true) => "fragment_diffuse_srgb",
+            (NativeModelFamily::AlphaDiffuse, false) => "fragment_alpha_diffuse",
+            (NativeModelFamily::AlphaDiffuse, true) => "fragment_alpha_diffuse_srgb",
+            (NativeModelFamily::GeometricDiffuse, false) => "fragment_geometric_diffuse",
+            (NativeModelFamily::GeometricDiffuse, true) => "fragment_geometric_diffuse_srgb",
+            (NativeModelFamily::NormalSpecular, false) => "fragment_specular",
+            (NativeModelFamily::NormalSpecular, true) => "fragment_specular_srgb",
+            (NativeModelFamily::AlphaSpecular, false) => "fragment_alpha_specular",
+            (NativeModelFamily::AlphaSpecular, true) => "fragment_alpha_specular_srgb",
+        };
         RenderPipelineDescriptor {
             label: Some("T6 original light-probe static model".into()),
             layout: vec![
                 self.scene_layout.clone(),
                 self.object_layout.clone(),
-                self.material_layout.clone(),
+                self.material_layout(key.family).clone(),
                 self.lighting_layout.clone(),
             ],
             vertex: VertexState {
                 shader: self.shader.clone(),
-                entry_point: Some("vertex".into()),
+                entry_point: Some(
+                    if key.family == NativeModelFamily::GeometricDiffuse {
+                        "vertex_geometric"
+                    } else {
+                        "vertex"
+                    }
+                    .into(),
+                ),
                 buffers: vec![VertexBufferLayout {
                     array_stride: 32,
                     step_mode: VertexStepMode::Vertex,
-                    attributes: vec![
-                        VertexAttribute {
-                            format: VertexFormat::Float32x4,
-                            offset: 0,
-                            shader_location: 0,
-                        },
-                        VertexAttribute {
-                            format: VertexFormat::Unorm8x4,
-                            offset: 16,
-                            shader_location: 1,
-                        },
-                        VertexAttribute {
-                            format: VertexFormat::Float16x2,
-                            offset: 20,
-                            shader_location: 2,
-                        },
-                        VertexAttribute {
-                            format: VertexFormat::Unorm10_10_10_2,
-                            offset: 24,
-                            shader_location: 3,
-                        },
-                        VertexAttribute {
-                            format: VertexFormat::Unorm10_10_10_2,
-                            offset: 28,
-                            shader_location: 4,
-                        },
-                    ],
+                    attributes,
                 }],
                 ..default()
             },
             fragment: Some(FragmentState {
                 shader: self.shader.clone(),
-                entry_point: Some(
-                    if key.target.is_srgb() {
-                        "fragment_srgb"
-                    } else {
-                        "fragment"
-                    }
-                    .into(),
-                ),
+                entry_point: Some(fragment.into()),
                 targets: vec![Some(ColorTargetState {
                     format: key.target,
                     blend: None,
@@ -317,12 +503,14 @@ impl SpecializedRenderPipeline for ModelPipeline {
 
 struct PreparedModelMaterial {
     bind_group: BindGroup,
+    family: NativeModelFamily,
 }
 
 impl RenderAsset for PreparedModelMaterial {
     type SourceAsset = NativeModelMaterial;
     type Param = (
         SRes<RenderDevice>,
+        SRes<RenderQueue>,
         SRes<PipelineCache>,
         SRes<ModelPipeline>,
         SRes<RenderAssets<GpuImage>>,
@@ -331,44 +519,73 @@ impl RenderAsset for PreparedModelMaterial {
     fn prepare_asset(
         source: Self::SourceAsset,
         _: AssetId<Self::SourceAsset>,
-        (device, cache, pipeline, images): &mut SystemParamItem<Self::Param>,
+        (device, queue, cache, pipeline, images): &mut SystemParamItem<Self::Param>,
         _: Option<&Self>,
     ) -> Result<Self, PrepareAssetError<Self::SourceAsset>> {
-        let (Some(color), Some(normal), Some(probe)) = (
-            images.get(source.color_map.id()),
-            images.get(source.normal_map.id()),
-            images.get(source.reflection_probe.id()),
-        ) else {
+        let family = source.family();
+        let textures: Vec<_> = source.textures().collect();
+        let Some(gpu_images): Option<Vec<_>> = textures
+            .iter()
+            .map(|(_, handle, _)| images.get(handle.id()))
+            .collect()
+        else {
+            drop(textures);
             return Err(PrepareAssetError::RetryNextUpdate(source));
         };
-        for image in [color, normal, probe] {
+        let mut views = Vec::with_capacity(textures.len());
+        let mut samplers = Vec::with_capacity(textures.len());
+        for ((binding, _, descriptor), image) in textures.into_iter().zip(gpu_images) {
             assert!(
                 !image.texture_descriptor.format.is_srgb(),
                 "native model inputs require original encoded UNORM texture reads"
             );
+            assert!(
+                descriptor.compare.is_none(),
+                "native model material inputs require ordinary source samplers"
+            );
+            views.push((binding, &image.texture_view));
+            samplers.push(device.create_sampler(descriptor));
         }
-        assert!(
-            source.color_sampler.compare.is_none()
-                && source.normal_sampler.compare.is_none()
-                && source.reflection_sampler.compare.is_none(),
-            "native model material inputs require ordinary source samplers"
-        );
-        let color_sampler = device.create_sampler(&source.color_sampler);
-        let normal_sampler = device.create_sampler(&source.normal_sampler);
-        let reflection_sampler = device.create_sampler(&source.reflection_sampler);
+        let mut occlusion_uniform = match &source {
+            NativeModelMaterial::NormalSpecular {
+                occlusion_amount, ..
+            }
+            | NativeModelMaterial::AlphaSpecular {
+                occlusion_amount, ..
+            } => Some(UniformBuffer::from(NativeModelOcclusion {
+                occlusion_amount: *occlusion_amount,
+            })),
+            _ => None,
+        };
+        if let Some(uniform) = &mut occlusion_uniform {
+            uniform.write_buffer(device, queue);
+        }
+        let mut entries =
+            Vec::with_capacity(views.len() * 2 + usize::from(occlusion_uniform.is_some()));
+        for ((binding, view), sampler) in views.into_iter().zip(&samplers) {
+            entries.push(BindGroupEntry {
+                binding,
+                resource: BindingResource::TextureView(view),
+            });
+            entries.push(BindGroupEntry {
+                binding: binding + 1,
+                resource: BindingResource::Sampler(sampler),
+            });
+        }
+        if let Some(uniform) = &occlusion_uniform {
+            entries.push(BindGroupEntry {
+                binding: 8,
+                resource: uniform
+                    .binding()
+                    .expect("uploaded original model occlusionAmount"),
+            });
+        }
         let bind_group = device.create_bind_group(
             "native model material",
-            &cache.get_bind_group_layout(&pipeline.material_layout),
-            &BindGroupEntries::sequential((
-                &color.texture_view,
-                &color_sampler,
-                &normal.texture_view,
-                &normal_sampler,
-                &probe.texture_view,
-                &reflection_sampler,
-            )),
+            &cache.get_bind_group_layout(pipeline.material_layout(family)),
+            &entries,
         );
-        Ok(Self { bind_group })
+        Ok(Self { bind_group, family })
     }
 }
 
@@ -528,7 +745,7 @@ fn queue_models(
             if surface.index_count == 0 {
                 continue;
             }
-            let (Some(geometry), Some(_)) = (
+            let (Some(geometry), Some(material)) = (
                 geometries.get(surface.geometry),
                 materials.get(surface.material),
             ) else {
@@ -577,6 +794,7 @@ fn queue_models(
                     target: target.main_texture_format(),
                     samples: msaa.samples(),
                     state: surface.state,
+                    family: material.family,
                 },
             );
             phase.add(

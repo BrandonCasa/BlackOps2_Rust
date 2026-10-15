@@ -312,25 +312,6 @@ fn world_surface_colliders(mesh: &Mesh) -> Result<Vec<(usize, Collider)>, String
 mod collision_tests {
     use super::*;
 
-    #[test]
-    fn static_prop_pose_preserves_source_basis_scale_and_units() {
-        let prop = StaticProp {
-            origin: SourcePosition {
-                x: 39.37,
-                y: 78.74,
-                z: 118.11,
-            },
-            axis: [[0., 1., 0.], [-1., 0., 0.], [0., 0., 1.]],
-            scale: 2.,
-            model: "source_prop".into(),
-        };
-        let pose = prop.transform();
-        assert!((pose.translation - Vec3::new(1., 3., -2.)).length() < 0.00001);
-        assert!((pose.rotation * Vec3::X - Vec3::NEG_Z).length() < 0.00001);
-        assert!((pose.rotation * Vec3::Y - Vec3::Y).length() < 0.00001);
-        assert!((pose.scale - Vec3::splat(2. / 39.37)).length() < 0.00001);
-    }
-
     fn external_brush(contents: u32) -> serde_json::Value {
         serde_json::json!({
             "contents": contents,
@@ -464,8 +445,8 @@ pub(crate) struct StaticPropRoot;
 
 #[derive(serde::Deserialize)]
 struct WorldMetadata {
-    #[serde(rename = "staticModels")]
-    static_models: Vec<StaticProp>,
+    #[serde(flatten)]
+    models: crate::rendering::models::StaticModelDefinition,
     #[serde(flatten)]
     fog: crate::rendering::fog::WorldFogDefinition,
     #[serde(flatten)]
@@ -475,45 +456,6 @@ struct WorldMetadata {
     #[serde(rename = "lightGridCoefficientCount")]
     light_grid_coefficient_count: usize,
 }
-#[derive(serde::Deserialize)]
-struct StaticProp {
-    origin: SourcePosition,
-    axis: [[f32; 3]; 3],
-    scale: f32,
-    model: String,
-}
-#[derive(serde::Deserialize)]
-struct SourcePosition {
-    x: f32,
-    y: f32,
-    z: f32,
-}
-impl StaticProp {
-    fn transform(&self) -> Transform {
-        let position = Vec3::new(self.origin.x, self.origin.z, -self.origin.y) / 39.37;
-        let source_rotation = Mat3::from_cols_array_2d(&self.axis);
-        let frame = Mat3::from_cols(Vec3::X, Vec3::NEG_Z, Vec3::Y);
-        let rotation = frame * source_rotation * frame.transpose();
-        // OAT GLBs already use Y-up but retain source inches.
-        Transform {
-            translation: position,
-            rotation: Quat::from_mat3(&rotation),
-            scale: Vec3::splat(self.scale / 39.37),
-        }
-    }
-    fn gameplay_owned(&self) -> bool {
-        matches!(
-            self.model.as_str(),
-            "veh_t6_dlc_mkiv_tank"
-                | "veh_t6_dlc_zm_robot"
-                | "p6_zm_tm_soul_box"
-                | "p6_zm_tm_elm_divider"
-                | "p6_zm_tm_wind_ceiling_ring"
-                | "p6_zm_tm_chamber_mid_piece"
-        )
-    }
-}
-
 pub struct GameAssetsPlugin;
 impl Plugin for GameAssetsPlugin {
     fn build(&self, app: &mut App) {
@@ -529,13 +471,12 @@ impl Plugin for GameAssetsPlugin {
     }
 }
 
-type StaticProps = Vec<(String, String, Transform)>;
 #[derive(Resource)]
 struct DefinitionTask(
     bevy::tasks::Task<(
         GameDefinition,
         WorldBrushes,
-        StaticProps,
+        crate::rendering::models::LoadedModels,
         crate::rendering::fog::WorldFogDefinition,
         crate::rendering::world::LoadedWorld,
         crate::rendering::model_lighting::ModelLightingSource,
@@ -547,11 +488,14 @@ pub(crate) fn begin_load(
     options: Res<LaunchOptions>,
     roots: Query<
         Entity,
-        Or<(
-            With<MapRoot>,
-            With<StaticPropRoot>,
-            With<crate::rendering::world::NativeWorldRoot>,
-        )>,
+        (
+            Without<ChildOf>,
+            Or<(
+                With<MapRoot>,
+                With<crate::rendering::models::NativeModelsRoot>,
+                With<crate::rendering::world::NativeWorldRoot>,
+            )>,
+        ),
     >,
 ) {
     for root in &roots {
@@ -560,6 +504,8 @@ pub(crate) fn begin_load(
     commands.remove_resource::<WorldBrushes>();
     commands.remove_resource::<crate::rendering::fog::WorldFogDefinition>();
     commands.remove_resource::<crate::rendering::model_lighting::ModelLightingSource>();
+    commands.remove_resource::<crate::rendering::world::WorldWaterLighting>();
+    commands.remove_resource::<crate::rendering::native_effect::NativeOutdoorMap>();
     commands.remove_resource::<DefinitionTask>();
     let root = options.asset_root.clone();
     let task = bevy::tasks::IoTaskPool::get().spawn(async move {
@@ -588,19 +534,13 @@ pub(crate) fn begin_load(
         let lighting = crate::rendering::model_lighting::ModelLightingSource(std::sync::Arc::new(
             crate::rendering::lighting::LightingCoefficients::from_bytes(&coefficient_bytes),
         ));
-        let mut props = Vec::new();
-        for prop in metadata.static_models {
-            let transform = prop.transform();
-            if prop.gameplay_owned() {
-                continue;
-            }
-            let path = format!("model_export/{}_lod0.glb", prop.model);
-            props.push((path, prop.model, transform));
-        }
+        let models = metadata
+            .models
+            .load(&root, metadata.draws.reflection_probes());
         (
             definition,
             brushes,
-            props,
+            models,
             metadata.fog,
             metadata.draws.load(&root),
             lighting,
@@ -615,6 +555,8 @@ fn poll_definition(
     server: Res<AssetServer>,
     mut geometries: ResMut<Assets<crate::rendering::native::NativeWorldGeometry>>,
     mut materials: ResMut<Assets<crate::rendering::native::NativeWorldMaterial>>,
+    mut model_materials: ResMut<Assets<crate::rendering::native_model::NativeModelMaterial>>,
+    mut water_materials: ResMut<Assets<crate::rendering::native_water::NativeWaterMaterial>>,
 ) {
     let Some(mut pending) = pending else {
         return;
@@ -623,8 +565,9 @@ fn poll_definition(
         return;
     };
     commands.remove_resource::<DefinitionTask>();
-    let (definition, brushes, props, fog, draws, lighting) = definition;
+    let (definition, brushes, models, fog, draws, lighting) = definition;
     commands.insert_resource(brushes);
+    let sun = fog.initial_sun_light();
     commands.insert_resource(fog);
     commands.insert_resource(lighting);
     draws.spawn(
@@ -632,6 +575,8 @@ fn poll_definition(
         &server,
         &mut geometries,
         &mut materials,
+        &mut water_materials,
+        &sun,
         &definition,
     );
     let handle: Handle<WorldAsset> = server
@@ -643,23 +588,12 @@ fn poll_definition(
         })
         .load(definition.collision_scene.clone());
     commands.spawn((WorldAssetRoot(handle), MapRoot, Visibility::Hidden));
-    for (path, model, transform) in props {
-        let handle: Handle<WorldAsset> = server
-            .load_builder()
-            .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
-                settings.load_animations = false;
-                settings.load_meshes = bevy::asset::RenderAssetUsages::RENDER_WORLD;
-                settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
-            })
-            .load(format!("{path}#Scene0"));
-        commands.spawn((
-            WorldAssetRoot(handle),
-            StaticPropRoot,
-            Visibility::Hidden,
-            transform,
-            Name::new(model),
-        ));
-    }
+    models.spawn(
+        &mut commands,
+        &server,
+        &mut geometries,
+        &mut model_materials,
+    );
     commands.insert_resource(definition);
 }
 
@@ -812,38 +746,33 @@ fn asset_failures(mut failures: MessageReader<bevy::asset::UntypedAssetLoadFaile
 
 fn finish_load(
     mut commands: Commands,
-    roots: Query<
-        (
-            Entity,
-            &WorldAssetRoot,
-            Option<&WorldInstance>,
-            Option<&MapRoot>,
-        ),
-        Or<(With<MapRoot>, With<StaticPropRoot>)>,
-    >,
+    roots: Query<(&WorldAssetRoot, Option<&WorldInstance>), With<MapRoot>>,
     spawner: Res<WorldInstanceSpawner>,
     server: Res<AssetServer>,
     native_worlds: Query<(Entity, &crate::rendering::world::NativeWorldRoot)>,
+    native_models: Query<(Entity, &crate::rendering::models::NativeModelsRoot)>,
     mut next: ResMut<NextState<GameState>>,
 ) {
     if roots.is_empty()
         || native_worlds.is_empty()
+        || native_models.is_empty()
         || native_worlds
             .iter()
             .any(|(_, world)| !world.images_ready(&server))
-        || roots.iter().any(|(_, scene, instance, _)| {
+        || native_models
+            .iter()
+            .any(|(_, models)| !models.images_ready(&server))
+        || roots.iter().any(|(scene, instance)| {
             !instance.is_some_and(|instance| spawner.instance_is_ready(**instance))
                 || !server.is_loaded_with_dependencies(scene.0.id())
         })
     {
         return;
     }
-    for (entity, _, _, root) in &roots {
-        if root.is_none() {
-            commands.entity(entity).insert(Visibility::Inherited);
-        }
-    }
     for (entity, _) in &native_worlds {
+        commands.entity(entity).insert(Visibility::Inherited);
+    }
+    for (entity, _) in &native_models {
         commands.entity(entity).insert(Visibility::Inherited);
     }
     next.set(GameState::StartingSession);

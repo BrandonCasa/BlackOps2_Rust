@@ -20,7 +20,10 @@ pub(crate) struct WorldFogDefinition {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Sun {
+    angles: [f32; 3],
+    sun_cd: [f32; 4],
     exposure: f32,
 }
 
@@ -59,6 +62,13 @@ struct FogModifier {
 }
 
 impl WorldFogDefinition {
+    pub(crate) fn initial_sun_light(&self) -> super::native_water::SunLightDefinition {
+        super::native_water::SunLightDefinition::from_world_sun(
+            Vec3::from_array(self.sun.angles),
+            Vec4::from_array(self.sun.sun_cd),
+        )
+    }
+
     /// Check required source data once when loading the world.
     pub(crate) fn validate(&self) {
         assert!(

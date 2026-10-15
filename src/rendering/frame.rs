@@ -1,5 +1,6 @@
 //! Source scene attachments, reciprocal-depth resolve and final display transfer.
 use super::native_effect::NativeEffectView;
+use super::native_water::{PreparedWaterView, render_water};
 use bevy::{
     asset::{RenderAssetUsages, embedded_asset, load_embedded_asset},
     camera::{CameraOutputMode, CameraUpdateSystems},
@@ -36,7 +37,13 @@ pub const NATIVE_DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32FloatStenci
 pub struct NativeRenderView;
 
 #[derive(Component)]
-pub struct NativeDepthImage(AssetId<Image>);
+pub struct NativeDepthImage {
+    float_z: AssetId<Image>,
+    resolved_scene: AssetId<Image>,
+}
+
+#[derive(Component)]
+pub struct NativeSceneImage(pub(crate) Handle<Image>);
 
 impl SyncComponent<RenderApp> for NativeRenderView {
     type Target = (
@@ -48,12 +55,21 @@ impl SyncComponent<RenderApp> for NativeRenderView {
 }
 
 impl ExtractComponent<RenderApp> for NativeRenderView {
-    type QueryData = Option<&'static NativeEffectView>;
+    type QueryData = (
+        Option<&'static NativeEffectView>,
+        Option<&'static NativeSceneImage>,
+    );
     type QueryFilter = With<NativeRenderView>;
     type Out = (Self, NativeDepthImage);
 
-    fn extract_component(input: QueryItem<'_, '_, Self::QueryData>) -> Option<Self::Out> {
-        input.map(|input| (Self, NativeDepthImage(input.float_z.id())))
+    fn extract_component((depth, scene): QueryItem<'_, '_, Self::QueryData>) -> Option<Self::Out> {
+        Some((
+            Self,
+            NativeDepthImage {
+                float_z: depth?.float_z.id(),
+                resolved_scene: scene?.0.id(),
+            },
+        ))
     }
 }
 
@@ -88,7 +104,13 @@ impl Plugin for NativeFramePlugin {
             .add_systems(
                 Core3d,
                 (
-                    resolve_float_z
+                    (
+                        resolve_float_z,
+                        snapshot_scene,
+                        render_water,
+                        resolve_water_float_z,
+                    )
+                        .chain()
                         .after(main_opaque_pass_3d)
                         .before(main_transparent_pass_3d)
                         .in_set(Core3dSystems::MainPass),
@@ -120,7 +142,7 @@ fn source_float_z_sampler() -> SamplerDescriptor<'static> {
     }
 }
 
-fn maintain_float_z(
+pub(crate) fn maintain_float_z(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut cameras: Query<
@@ -130,11 +152,12 @@ fn maintain_float_z(
             &Projection,
             &mut Tonemapping,
             Option<&mut NativeEffectView>,
+            Option<&NativeSceneImage>,
         ),
         With<NativeRenderView>,
     >,
 ) {
-    for (entity, mut camera, projection, mut tone, input) in &mut cameras {
+    for (entity, mut camera, projection, mut tone, input, scene) in &mut cameras {
         // The native final output pass owns presentation of encoded scene RGB.
         if !matches!(camera.output_mode, CameraOutputMode::Skip) {
             camera.output_mode = CameraOutputMode::Skip;
@@ -164,6 +187,30 @@ fn maintain_float_z(
             height: size.y,
             depth_or_array_layers: 1,
         };
+        if let Some(scene) = scene {
+            let image = images
+                .get(scene.0.id())
+                .expect("owned native resolved scene Image");
+            if image.texture_descriptor.size != extent {
+                images
+                    .get_mut(scene.0.id())
+                    .expect("owned native resolved scene Image")
+                    .resize(extent);
+            }
+        } else {
+            let mut image = Image::new_uninit(
+                extent,
+                TextureDimension::D2,
+                TextureFormat::Rgba8Unorm,
+                RenderAssetUsages::default(),
+            );
+            image.texture_descriptor.label = Some("T6 resolved scene / resolvedPostSun alias");
+            image.texture_descriptor.usage =
+                TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING;
+            commands
+                .entity(entity)
+                .insert(NativeSceneImage(images.add(image)));
+        }
         if let Some(mut input) = input {
             let image = images
                 .get(input.float_z.id())
@@ -420,9 +467,10 @@ fn prepare_frame_groups(
         pipeline.fullscreen = Some(fullscreen.clone());
     }
     for (entity, float_z, depth, target, previous) in &views {
-        let (Some(image), Some(output_format)) =
-            (images.get(float_z.0), target.out_texture_view_format())
-        else {
+        let (Some(image), Some(output_format)) = (
+            images.get(float_z.float_z),
+            target.out_texture_view_format(),
+        ) else {
             continue;
         };
         assert!(
@@ -489,11 +537,39 @@ fn resolve_float_z(
     view: ViewQuery<(&NativeDepthImage, &PreparedNativeFrame), With<NativeRenderView>>,
     images: Res<RenderAssets<GpuImage>>,
     cache: Res<PipelineCache>,
-    mut ctx: RenderContext,
+    ctx: RenderContext,
 ) {
     let (float_z, prepared) = view.into_inner();
+    resolve_depth(float_z, prepared, &images, &cache, ctx);
+}
+
+fn resolve_water_float_z(
+    view: ViewQuery<(
+        &NativeDepthImage,
+        &PreparedNativeFrame,
+        Option<&PreparedWaterView>,
+    )>,
+    images: Res<RenderAssets<GpuImage>>,
+    cache: Res<PipelineCache>,
+    ctx: RenderContext,
+) {
+    let (float_z, prepared, water) = view.into_inner();
+    if water.is_some_and(PreparedWaterView::has_draws) {
+        // Native00424ff0 resolves depth again only when post-resolve geometry
+        // ran, making water's depth available to the subsequent FX pass.
+        resolve_depth(float_z, prepared, &images, &cache, ctx);
+    }
+}
+
+fn resolve_depth(
+    float_z: &NativeDepthImage,
+    prepared: &PreparedNativeFrame,
+    images: &RenderAssets<GpuImage>,
+    cache: &PipelineCache,
+    mut ctx: RenderContext,
+) {
     let (Some(image), Some(pipeline)) = (
-        images.get(float_z.0),
+        images.get(float_z.float_z),
         cache.get_render_pipeline(prepared.depth_pipeline),
     ) else {
         return;
@@ -520,6 +596,42 @@ fn resolve_float_z(
     pass.set_pipeline(pipeline);
     pass.set_bind_group(0, &prepared.depth_bind_group, &[]);
     pass.draw(0..3, 0..1);
+}
+
+fn snapshot_scene(
+    view: ViewQuery<(&ViewTarget, &NativeDepthImage, Option<&PreparedWaterView>)>,
+    images: Res<RenderAssets<GpuImage>>,
+    mut ctx: RenderContext,
+) {
+    let (target, frame, water) = view.into_inner();
+    if !water.is_some_and(PreparedWaterView::has_draws) {
+        return;
+    }
+    let Some(resolved) = images.get(frame.resolved_scene) else {
+        return;
+    };
+    let source = target.main_texture();
+    assert!(
+        source.sample_count() == 1 && source.size() == resolved.texture_descriptor.size,
+        "Original resolved scene must match the resolved main attachment"
+    );
+    // Native004549a0/00453ea0 alias logical code9 resolvedPostSun and code10
+    // resolvedScene. 00468f50 updates that image before opaque water draws.
+    ctx.command_encoder().copy_texture_to_texture(
+        TexelCopyTextureInfo {
+            texture: source,
+            mip_level: 0,
+            origin: Origin3d::ZERO,
+            aspect: TextureAspect::All,
+        },
+        TexelCopyTextureInfo {
+            texture: &resolved.texture,
+            mip_level: 0,
+            origin: Origin3d::ZERO,
+            aspect: TextureAspect::All,
+        },
+        resolved.texture_descriptor.size,
+    );
 }
 
 fn output_scene(

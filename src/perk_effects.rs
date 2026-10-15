@@ -22,6 +22,7 @@ pub struct CherryState {
     pub consecutive: u32,
     pub cooldown: f32,
     blocked: BTreeSet<WeaponId>,
+    reload_fx: Option<(Entity, f32)>,
 }
 #[derive(Message, Clone)]
 pub struct ReloadEvent {
@@ -49,13 +50,6 @@ struct Shock {
     remaining: f32,
     stun: f32,
 }
-#[derive(Component)]
-struct Flash(f32);
-#[derive(Resource, Default)]
-struct FlashAssets {
-    mesh: Option<Handle<Mesh>>,
-    material: Option<Handle<StandardMaterial>>,
-}
 pub struct PerkEffectsPlugin;
 impl Plugin for PerkEffectsPlugin {
     fn build(&self, app: &mut App) {
@@ -67,10 +61,9 @@ impl Plugin for PerkEffectsPlugin {
         )
         .add_message::<ReloadEvent>()
         .init_resource::<EffectEvidence>()
-        .init_resource::<FlashAssets>()
         .add_systems(
             FixedUpdate,
-            (maintain, discharge, deliver, fade)
+            (maintain, discharge, deliver)
                 .chain()
                 .in_set(GameStep::Combat)
                 .after(crate::gameplay::combat)
@@ -79,6 +72,7 @@ impl Plugin for PerkEffectsPlugin {
     }
 }
 fn maintain(
+    mut commands: Commands,
     time: Res<Time<Fixed>>,
     game: Res<GameDefinition>,
     mut players: Query<(
@@ -91,12 +85,22 @@ fn maintain(
     mut evidence: ResMut<EffectEvidence>,
 ) {
     for (owner, perks, health, inventory, mut state) in &mut players {
+        if let Some((emitter, remaining)) = &mut state.reload_fx {
+            *remaining -= time.delta_secs();
+            if *remaining <= 0. {
+                crate::native_fx::stop(&mut commands, *emitter);
+                state.reload_fx = None;
+            }
+        }
         let owned = game
             .content
             .perks
             .iter()
             .any(|p| p.cherry.is_some() && perks.owned.contains(&p.id));
         if !owned || health.state() != LifeState::Standing {
+            if let Some((emitter, _)) = state.reload_fx.take() {
+                crate::native_fx::stop(&mut commands, emitter);
+            }
             *state = CherryState::default();
             continue;
         }
@@ -129,9 +133,6 @@ fn discharge(
     )>,
     enemies: Query<(Entity, &Transform, &Vitality), With<crate::enemies::Zombie>>,
     mut evidence: ResMut<EffectEvidence>,
-    mut visual: ResMut<FlashAssets>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for event in events.read() {
         let Ok((player, pose, health, owned, inventory, mut state)) = players.get_mut(event.owner)
@@ -225,34 +226,25 @@ fn discharge(
             "zmb_cherry_explode",
             crate::audio::SoundSource::World(pose.translation),
         );
-        let mesh = visual
-            .mesh
-            .get_or_insert_with(|| meshes.add(Sphere::new(0.05).mesh().ico(1).unwrap()))
-            .clone();
-        let material = visual
-            .material
-            .get_or_insert_with(|| {
-                materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.3, 0.55, 1.),
-                    emissive: LinearRgba::new(3., 8., 20., 1.),
-                    unlit: true,
-                    ..default()
-                })
-            })
-            .clone();
-        for i in 0..16 {
-            let angle = i as f32 * std::f32::consts::TAU / 16.;
-            commands.spawn((
-                SessionEntity,
-                Flash(1.),
-                bevy::light::NotShadowCaster,
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(material.clone()),
-                Transform::from_translation(
-                    center + Vec3::new(angle.cos() * radius, 0.25, angle.sin() * radius),
-                ),
-            ));
+        // _zm_perk_electric_cherry::{electric_cherry_reload_fx, client callback}:
+        // the original ammo fraction selects one attached effect for one second.
+        if let Some((emitter, _)) = state.reload_fx.take() {
+            crate::native_fx::stop(&mut commands, emitter);
         }
+        let effect = if fraction >= 0.67 {
+            "maps/zombie_alcatraz/fx_alcatraz_electric_cherry_sm"
+        } else if fraction >= 0.33 {
+            "maps/zombie_alcatraz/fx_alcatraz_electric_cherry_player"
+        } else {
+            "maps/zombie_alcatraz/fx_alcatraz_electric_cherry_lg"
+        };
+        let emitter = crate::native_fx::attach(
+            &mut commands,
+            effect,
+            event.owner,
+            Transform::from_translation(Vec3::NEG_Y * (player.height * 0.5)),
+        );
+        state.reload_fx = Some((emitter, 1.));
     }
 }
 fn deliver(
@@ -300,20 +292,6 @@ fn deliver(
         commands.entity(entity).despawn();
     }
 }
-fn fade(
-    mut commands: Commands,
-    time: Res<Time<Fixed>>,
-    mut flashes: Query<(Entity, &mut Flash, &mut Transform)>,
-) {
-    for (e, mut flash, mut pose) in &mut flashes {
-        flash.0 -= time.delta_secs();
-        pose.scale = Vec3::splat(flash.0.max(0.));
-        if flash.0 <= 0. {
-            commands.entity(e).despawn();
-        }
-    }
-}
-
 #[derive(Clone, serde::Deserialize)]
 pub struct DiveDefinition {
     pub radius: f32,
@@ -385,6 +363,11 @@ fn land(
                     &mut commands,
                     "zmb_phdflop_explo",
                     crate::audio::SoundSource::World(landing.position),
+                );
+                crate::native_fx::emit(
+                    &mut commands,
+                    "maps/zombie/fx_zmb_phdflopper_exp",
+                    Transform::from_translation(landing.position),
                 );
                 blasts.0.push(crate::equipment::BlastRequest {
                     session: *session,

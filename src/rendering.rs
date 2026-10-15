@@ -5,9 +5,11 @@ pub(crate) mod frame;
 pub(crate) mod lighting;
 pub(crate) mod material;
 pub(crate) mod model_lighting;
+pub(crate) mod models;
 pub mod native;
 pub(crate) mod native_effect;
 pub(crate) mod native_model;
+pub(crate) mod native_water;
 pub(crate) mod world;
 pub(crate) const BASE_FOV_DEGREES: f32 = 55.;
 #[derive(Component)]
@@ -21,6 +23,7 @@ impl Plugin for GameRenderingPlugin {
             native_effect::NativeEffectPlugin,
             model_lighting::ModelLightingPlugin,
             native_model::NativeModelPlugin,
+            native_water::NativeWaterPlugin,
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, camera_follow)
@@ -28,7 +31,15 @@ impl Plugin for GameRenderingPlugin {
             PostUpdate,
             (source_camera_constants, world::object_constants)
                 .after(bevy::camera::CameraUpdateSystems)
+                .after(frame::maintain_float_z)
                 .after(bevy::transform::TransformSystems::Propagate),
+        )
+        .add_systems(
+            PostUpdate,
+            models::select_lods
+                .after(bevy::camera::CameraUpdateSystems)
+                .after(bevy::transform::TransformSystems::Propagate)
+                .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
         );
     }
 }
@@ -59,8 +70,19 @@ fn source_camera_constants(
     world: Option<Res<fog::WorldFogDefinition>>,
     weather: Res<crate::environment::weather::Weather>,
     clock: Option<Res<crate::session::SessionClock>>,
+    water_lights: Option<Res<world::WorldWaterLighting>>,
     time: Res<Time<Virtual>>,
-    mut cameras: Query<(Entity, &Camera, &GlobalTransform, &mut fog::CameraFog), With<GameCamera>>,
+    mut cameras: Query<
+        (
+            Entity,
+            &Camera,
+            &GlobalTransform,
+            &mut fog::CameraFog,
+            Option<&frame::NativeSceneImage>,
+            Option<&mut native_water::NativeWaterView>,
+        ),
+        With<GameCamera>,
+    >,
 ) {
     let (Some(world), Some(clock)) = (world, clock) else {
         return;
@@ -72,8 +94,29 @@ fn source_camera_constants(
     };
     // Native eye-relative inches -> Bevy eye-relative Y-up metres.
     let basis = world::source_frame();
-    for (entity, camera, transform, mut fog) in &mut cameras {
+    for (entity, camera, transform, mut fog, resolved_scene, water) in &mut cameras {
         let (_, rotation, eye) = transform.to_scale_rotation_translation();
+        let eye_native = Vec3::new(eye.x, -eye.z, eye.y) / crate::assets::SOURCE_UNIT_METERS;
+        if let (Some(lights), Some(image)) = (&water_lights, resolved_scene) {
+            // 0041ba60 converts current refdef milliseconds to float seconds.
+            let seconds = clock.milliseconds(&time) as f32 * 0.001;
+            if let Some(mut water) = water {
+                water.game_time_seconds = seconds;
+                water.eye_position = eye_native;
+                if !std::sync::Arc::ptr_eq(&water.lights, &lights.0) {
+                    water.lights = lights.0.clone();
+                }
+            } else {
+                commands
+                    .entity(entity)
+                    .insert(native_water::NativeWaterView {
+                        resolved_post_sun: image.0.clone(),
+                        game_time_seconds: seconds,
+                        eye_position: eye_native,
+                        lights: lights.0.clone(),
+                    });
+            }
+        }
         let projection = camera.clip_from_view() * Mat4::from_quat(rotation.inverse()) * basis;
         // Native 00425750 clears depth to zero. Its depth-state table maps the
         // material's logical less/less_equal names to Greater/GreaterEqual.
@@ -94,7 +137,7 @@ fn source_camera_constants(
         };
         fog.write_scene(
             &world,
-            Vec3::new(eye.x, -eye.z, eye.y) / crate::assets::SOURCE_UNIT_METERS,
+            eye_native,
             bank,
             clock.milliseconds(&time),
             clock.is_changed() || world.is_changed(),
