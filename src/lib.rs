@@ -101,14 +101,6 @@ pub fn app(arguments: impl Iterator<Item = std::ffi::OsString>) -> App {
 
 pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     let configuration = assets::AssetDirectory::discover(&options.asset_root);
-    let delivery_scope = configuration
-        .as_ref()
-        .ok()
-        .and_then(|directory| std::fs::read(directory.root.join("game.json")).ok())
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .and_then(|value| value.get("delivery_scope").cloned())
-        .and_then(|value| serde_json::from_value::<origins::DeliveryScope>(value).ok())
-        .unwrap_or(origins::DeliveryScope::FullOrigins);
     let mut app = App::new();
     let asset_root = options.asset_root.to_string_lossy().into_owned();
     let benchmark = options.benchmark;
@@ -165,7 +157,6 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
     .add_plugins(avian3d::prelude::PhysicsPlugins::new(PostUpdate).with_collision_hooks::<crate::enemies::RagdollCollisionHooks>())
     .init_state::<GameState>()
     .insert_resource(Time::<Fixed>::from_hz(60.0))
-    .insert_resource(delivery_scope)
     .insert_resource(assets::LoadConfiguration(configuration))
     .add_plugins(animation::GameAnimationPlugin)
     .add_plugins((
@@ -208,46 +199,34 @@ pub(crate) fn configured_app(options: assets::LaunchOptions) -> App {
         generators::GeneratorPlugin,
         powerups::PowerupPlugin,
     ));
-    if delivery_scope == origins::DeliveryScope::FullOrigins {
-        app.add_plugins((
-            quests::QuestPlugin,
-            stations::StationPlugin,
-            crafting::CraftingPlugin,
-            buildables::BuildablePlugin,
-            tank::TankPlugin,
-            panzer::PanzerPlugin,
-        ));
-        app.add_plugins((
-            side_rewards::SideRewardPlugin,
-            side_secrets::SecretPlugin,
-            achievements::AchievementPlugin,
-        ));
-        app.add_plugins((
-            portals::PortalPlugin,
-            robots::RobotPlugin,
-            rituals::RitualPlugin,
-            staff_fields::StaffFieldsPlugin,
-            chamber::ChamberPlugin,
-            staff_puzzles::StaffPuzzlePlugin,
-            staff_upgrades::StaffUpgradePlugin,
-            tablets::TabletPlugin,
-            main_quest::MainQuestPlugin,
-            quest_recovery::RecoveryPlugin,
-            finale::FinalePlugin,
-            cinematics::CinematicPlugin,
-        ));
-    } else {
-        app.init_resource::<quests::MainQuest>()
-            .init_resource::<buildables::BuildableState>()
-            .init_resource::<crafting::Crafting>()
-            .init_resource::<panzer::PanzerWaves>()
-            .init_resource::<robots::Robots>()
-            .init_resource::<rituals::Rituals>()
-            .init_resource::<staff_upgrades::StaffUpgrades>()
-            .init_resource::<staff_puzzles::StaffPuzzles>()
-            .init_resource::<side_secrets::Secrets>()
-            .add_message::<quests::SoulCollected>();
-    }
+    app.add_plugins((
+        quests::QuestPlugin,
+        stations::StationPlugin,
+        crafting::CraftingPlugin,
+        buildables::BuildablePlugin,
+        tank::TankPlugin,
+        panzer::PanzerPlugin,
+    ));
+    app.add_plugins((
+        side_rewards::SideRewardPlugin,
+        side_secrets::SecretPlugin,
+        achievements::AchievementPlugin,
+    ));
+    app.add_plugins((
+        portals::PortalPlugin,
+        robots::RobotPlugin,
+        rituals::RitualPlugin,
+        staff_fields::StaffFieldsPlugin,
+        chamber::ChamberPlugin,
+        staff_puzzles::StaffPuzzlePlugin,
+        staff_upgrades::StaffUpgradePlugin,
+        tablets::TabletPlugin,
+        main_quest::MainQuestPlugin,
+        quest_recovery::RecoveryPlugin,
+        finale::FinalePlugin,
+        cinematics::CinematicPlugin,
+    ));
+
     if cfg!(debug_assertions)
         && !flythrough
         && (benchmark || cfg!(feature = "profile-tracy") || cfg!(feature = "profile-chrome"))

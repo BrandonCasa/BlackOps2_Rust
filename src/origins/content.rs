@@ -1433,42 +1433,6 @@ pub fn validate_asset_path(path: &str) -> Result<(), ContentError> {
     )
 }
 impl ContentCatalog {
-    pub fn validate_first_playable(&self) -> Result<(), ContentError> {
-        for name in ["weapon.c96_zm", "weapon.knife_zm", "weapon.frag_grenade_zm"] {
-            let weapon = self
-                .weapons
-                .iter()
-                .find(|weapon| weapon.id.0 == name)
-                .ok_or_else(|| ContentError::MissingReference {
-                    owner: "first_playable_solo".into(),
-                    target: name.into(),
-                })?;
-            valid(
-                weapon.presentation.is_some()
-                    && (name == "weapon.knife_zm" || !weapon.animation_actions.is_empty()),
-                "First playable weapon lacks its source presentation or animations",
-            )?;
-        }
-        valid(
-            !self.enemies.is_empty()
-                && !self.barriers.is_empty()
-                && self.barriers.iter().all(|barrier| barrier.enter.is_some())
-                && self
-                    .zones
-                    .iter()
-                    .any(|zone| zone.id.0 == "zone.start" && zone.initially_open)
-                && !self.navigation_nodes.is_empty()
-                && self.navigation_nodes.iter().all(|node| node.native.is_some())
-                && !self.navigation_links.is_empty()
-                && self.navigation_links.iter().all(|link| link.cost.is_some())
-                && !self.presentations.is_empty()
-                && !self.animations.is_empty()
-                && !self.ui_assets.is_empty()
-                && !self.localized_strings.is_empty(),
-            "First playable solo lacks required enemy, barrier, zone, navigation, animation, or HUD data",
-        )?;
-        Ok(())
-    }
 
     pub fn index(&self) -> Result<ContentIndex<'_>, ContentError> {
         let mut index = ContentIndex(BTreeMap::new());

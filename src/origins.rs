@@ -8,31 +8,10 @@ pub mod content;
 pub(crate) mod navigation;
 pub(crate) mod zones;
 pub use content::*;
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DeliveryScope {
-    #[default]
-    FullOrigins,
-    FirstPlayableSolo,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct InitialSpawn {
-    pub position: [f32; 3],
-    pub yaw: f32,
-    pub pitch: f32,
-    pub excluded_side: u8,
-}
-
 #[derive(Resource, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct GameDefinition {
     pub version: u32,
-    #[serde(default)]
-    pub delivery_scope: DeliveryScope,
-    #[serde(default)]
-    pub initial_spawns: Vec<InitialSpawn>,
     pub scene: String,
     #[serde(default)]
     pub additional_scenes: Vec<String>,
@@ -225,30 +204,26 @@ impl GameDefinition {
         if version != 2 {
             return Err(ContentError::UnsupportedVersion(version));
         }
-        if header
-            .get("delivery_scope")
-            .is_none_or(|scope| scope == "full_origins")
-        {
-            for field in [
-                "powerups",
-                "generators",
-                "robot_routes",
-                "tank_routes",
-                "weather",
-                "digging",
-                "recipes",
-                "staff_puzzles",
-                "quests",
-                "quest_transitions",
-                "cinematics",
-            ] {
-                if header["content"].get(field).is_none() {
-                    return Err(ContentError::InvalidDefinition(format!(
-                        "Full Origins catalog is missing {field}"
-                    )));
-                }
+        for field in [
+            "powerups",
+            "generators",
+            "robot_routes",
+            "tank_routes",
+            "weather",
+            "digging",
+            "recipes",
+            "staff_puzzles",
+            "quests",
+            "quest_transitions",
+            "cinematics",
+        ] {
+            if header["content"].get(field).is_none() {
+                return Err(ContentError::InvalidDefinition(format!(
+                    "Full Origins catalog is missing {field}"
+                )));
             }
         }
+
         let definition: Self =
             serde_json::from_value(header).map_err(|source| ContentError::Json {
                 path: path.into(),
@@ -261,41 +236,6 @@ impl GameDefinition {
             return Err(ContentError::UnsupportedVersion(self.version));
         }
         self.content.validate()?;
-        if self.delivery_scope == DeliveryScope::FirstPlayableSolo {
-            self.content.validate_first_playable()?;
-            if self.access.spawners.is_empty()
-                || self.access.entrances.is_empty()
-                || self.initial_spawns.is_empty()
-                || self.initial_spawns.iter().any(|spawn| {
-                    !spawn.position.iter().all(|value| value.is_finite())
-                        || !spawn.yaw.is_finite()
-                        || !spawn.pitch.is_finite()
-                        || spawn.pitch.abs() > 1.5
-                        || !(1..=2).contains(&spawn.excluded_side)
-                })
-                || !(1..=2).all(|side| {
-                    self.initial_spawns
-                        .iter()
-                        .any(|spawn| spawn.excluded_side != side)
-                })
-            {
-                return Err(ContentError::InvalidDefinition(
-                    "First playable solo lacks valid source initial spawn candidates".into(),
-                ));
-            }
-            if !self.content.perks.iter().any(|perk| {
-                perk.id == self.solo_revive.perk
-                    && !perk.collision.is_empty()
-                    && perk.path_bounds_radius.is_some()
-            }) || self.content.sounds.is_empty()
-                || self.audio.aliases.is_empty()
-                || self.audio.bindings.is_empty()
-            {
-                return Err(ContentError::InvalidDefinition(
-                    "First playable solo requires source Quick Revive and essential audio".into(),
-                ));
-            }
-        }
         if !self.audio.valid(self) {
             return Err(ContentError::InvalidDefinition(
                 "Invalid audio aliases or bindings.".into(),
@@ -387,13 +327,6 @@ impl GameDefinition {
                 .generator_crystals
                 .as_ref()
                 .is_some_and(|profile| !profile.valid(&self.content))
-            || (self.delivery_scope == DeliveryScope::FirstPlayableSolo
-                && self
-                    .content
-                    .generators
-                    .iter()
-                    .any(|generator| generator.number == 1)
-                && self.generator_crystals.is_none())
             || self
                 .content
                 .barriers

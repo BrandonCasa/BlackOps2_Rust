@@ -671,7 +671,6 @@ fn refresh(
             .collect();
         let filter = crate::environment::solids(excluded);
         let shape = capsule(0.3, 1.7);
-        let native = definition.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo;
         let pool = ComputeTaskPool::get();
         let admitted = {
             let _stage = bevy::log::info_span!("navigation_node_admission").entered();
@@ -686,14 +685,6 @@ fn refresh(
                         .iter()
                         .map(|source| {
                             let point = Vec3::from_array(source.position);
-                            if native {
-                                return Node {
-                                    point,
-                                    zone: source.zone.clone(),
-                                    ready: true,
-                                    native: source.native,
-                                };
-                            }
                             let floor = query.cast_ray(
                                 point + Vec3::Y * 0.5,
                                 Dir3::NEG_Y,

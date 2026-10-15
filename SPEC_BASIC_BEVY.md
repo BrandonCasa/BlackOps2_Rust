@@ -115,7 +115,7 @@ Preserve source-derived tuning, weapon definitions, spawn rules, hit regions, co
 
 Use the existing definition's content records for file, node, clip, and material references. Extend only fields required by actual consumers. Delete `PreparedArt`, `prepared/runtime.json`, source-zone ranking at runtime, native material contracts, and duplicate registries. Resolve source patch precedence during external extraction and staging, with one explicit final binding per identity. Conflicts are errors, not runtime search heuristics.
 
-Full-map asset coverage and gameplay completion are separate. Preserve existing delivery-scope distinctions; never silently downgrade to the first playable area or advertise unfinished full-game systems as complete.
+Full-map asset coverage and gameplay completion are separate. Do not advertise unfinished full-game systems as complete.
 
 ## 6. Module responsibilities
 
@@ -220,7 +220,6 @@ If an external capability cannot preserve required content, stop the affected mi
 The isolated worktree and branch exist. OAT v0.33.0 is downloaded and its world/collision limitation has been reproduced. Husky/C2M source was inspected. The unmodified open-fastfile candidate and its isolated Python dependencies are present under `target/tools`; its Origins collision export has not been executed. No game code has been changed, no infrastructure has been deleted, and no game build or runtime acceptance has run.
 
 The next action after this specification is reviewed is to test that candidate's existing collision-only export, without enabling its baking or modifying its implementation.
-
 
 ## Current migration evidence
 

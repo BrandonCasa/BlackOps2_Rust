@@ -89,57 +89,10 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-fn choose_initial_spawn<'a>(
-    spawns: &'a [crate::origins::InitialSpawn],
-    session: &mut crate::gameplay::Session,
-) -> Option<&'a crate::origins::InitialSpawn> {
-    let side = if session.random() % 100 > 50 { 1 } else { 2 };
-    let eligible: Vec<_> = spawns
-        .iter()
-        .filter(|spawn| spawn.excluded_side != side)
-        .collect();
-    session
-        .spawn_index(eligible.len())
-        .map(|index| eligible[index])
-}
-
-#[cfg(test)]
-mod initial_spawn_tests {
-    use super::*;
-
-    #[test]
-    fn source_solo_spawn_selection_keeps_side_exclusion_and_authored_look() {
-        let spawns: Vec<_> = (0..8)
-            .map(|index| crate::origins::InitialSpawn {
-                position: [index as f32, 0., 0.],
-                yaw: index as f32 * 0.1,
-                pitch: if index < 6 { 5_f32.to_radians() } else { 0. },
-                excluded_side: if index < 4 { 1 } else { 2 },
-            })
-            .collect();
-        let mut sides = [false; 2];
-        for seed in 0..1000 {
-            let mut expected = crate::gameplay::Session { seed, ..default() };
-            let side = if expected.random() % 100 > 50 { 1 } else { 2 };
-            sides[(side - 1) as usize] = true;
-            let mut session = crate::gameplay::Session { seed, ..default() };
-            let selected = choose_initial_spawn(&spawns, &mut session).unwrap();
-            assert_ne!(selected.excluded_side, side);
-            let index = selected.position[0] as usize;
-            assert_eq!(selected.yaw, spawns[index].yaw);
-            assert_eq!(selected.pitch, spawns[index].pitch);
-            assert_eq!(session.spawn_cursor, 1);
-        }
-        assert!(sides.into_iter().all(|seen| seen));
-        assert!(choose_initial_spawn(&[], &mut crate::gameplay::Session::default()).is_none());
-    }
-}
-
 fn spawn_player(
     mut commands: Commands,
     mut physics_evidence: ResMut<crate::movement::physics::PhysicsEvidence>,
     definition: Res<GameDefinition>,
-    mut session: ResMut<crate::gameplay::Session>,
     players: Query<(), With<Player>>,
 ) {
     if !players.is_empty() {
@@ -147,14 +100,7 @@ fn spawn_player(
     }
     physics_evidence.samples.clear();
     physics_evidence.projectiles.clear();
-    let (spawn, yaw, pitch) =
-        if definition.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo {
-            let selected = choose_initial_spawn(&definition.initial_spawns, &mut session)
-                .expect("validated source initial spawn candidates");
-            (selected.position, selected.yaw, selected.pitch)
-        } else {
-            (definition.spawn, definition.yaw, 0.)
-        };
+    let (spawn, yaw, pitch) = (definition.spawn, definition.yaw, 0.);
     let height = definition.tuning.standing_height;
     let mut inventory = crate::weapons::WeaponInventory::default();
     if let Some(weapon) = definition

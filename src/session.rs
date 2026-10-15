@@ -74,15 +74,9 @@ fn initialize(world: &mut World) {
         session.character = (session.seed % 4) as usize;
     }
     world.insert_resource(session);
-    world.insert_resource(
-        if world.resource::<GameDefinition>().delivery_scope
-            == crate::origins::DeliveryScope::FirstPlayableSolo
-        {
-            crate::quests::MainQuest::default()
-        } else {
-            crate::quests::MainQuest::reset(*world.resource::<crate::frontend::Difficulty>())
-        },
-    );
+    world.insert_resource(crate::quests::MainQuest::reset(
+        *world.resource::<crate::frontend::Difficulty>(),
+    ));
     world.insert_resource(crate::damage::CombatHistory::default());
     world.insert_resource(crate::powerups::PowerupEffects::default());
     world.insert_resource(crate::powerups::Drops::default());
@@ -169,19 +163,14 @@ pub(crate) fn teardown(world: &mut World) {
     crate::environment::triggers::reset(world);
     clear::<crate::quests::SoulCollected>(world);
     clear::<crate::projectiles::ProjectileImpact>(world);
-    if world
-        .get_resource::<GameDefinition>()
-        .is_none_or(|game| game.delivery_scope == crate::origins::DeliveryScope::FullOrigins)
-    {
-        clear::<crate::robots::RobotStomp>(world);
-        clear::<crate::tablets::BeaconStrike>(world);
-    }
+    clear::<crate::robots::RobotStomp>(world);
+    clear::<crate::tablets::BeaconStrike>(world);
+
 }
 
 fn clear<M: Message>(world: &mut World) {
     world.resource_mut::<Messages<M>>().clear();
 }
-
 
 fn finish_starting_session(
     player: Query<(), With<Player>>,
@@ -223,17 +212,16 @@ fn finish_starting_session(
             return;
         }
     };
-    if definition.delivery_scope == crate::origins::DeliveryScope::FullOrigins {
-        if !definition.content.cinematics.iter().any(|sequence| {
-            (sequence.id.0.contains("loading") || sequence.id.0.contains("intro"))
-                && !sequence.frames.is_empty()
-        }) {
-            failure.0 = "Required Origins loading cinematic is missing".into();
-            next.set(GameState::LoadError);
-            return;
-        }
-        if !cinematic.done { return; }
+    if !definition.content.cinematics.iter().any(|sequence| {
+        (sequence.id.0.contains("loading") || sequence.id.0.contains("intro"))
+            && !sequence.frames.is_empty()
+    }) {
+        failure.0 = "Required Origins loading cinematic is missing".into();
+        next.set(GameState::LoadError);
+        return;
     }
+    if !cinematic.done { return; }
+
     if !scenes_ready || !textures_ready || player.is_empty() || rigs.is_empty()
         || rigs.iter().any(|rig| !rig.ready || (!rig.arms && !rig.attached)) {
         return;

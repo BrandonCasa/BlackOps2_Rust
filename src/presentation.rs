@@ -80,15 +80,8 @@ pub(crate) struct Rig {
 }
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
-        if app
-            .world()
-            .get_resource::<crate::origins::DeliveryScope>()
-            .copied()
-            .unwrap_or_default()
-            == crate::origins::DeliveryScope::FullOrigins
-        {
-            camo::install(app);
-        }
+        camo::install(app);
+
         cues::install(app);
         source_units::install(app);
         locomotion::install(app);

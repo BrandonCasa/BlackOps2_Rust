@@ -31,7 +31,7 @@ struct PathLink {
 }
 
 /// Authored game-zone ownership is separate from native streaming zones.
-/// No nodes or directed links are filtered by area or first-playable scope.
+/// No nodes or directed links are filtered by area.
 pub(crate) fn bind(
     game: &mut GameDefinition,
     bytes: &[u8],

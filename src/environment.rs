@@ -42,8 +42,7 @@ pub struct VolumeDefinition {
 }
 impl EnvironmentDefinition {
     pub fn valid(&self, game: &GameDefinition) -> bool {
-        (game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
-            || !self.crafting_benches.is_empty())
+        !self.crafting_benches.is_empty()
             && triggers::valid(&self.triggers)
             && brushes::valid(&self.brush_entities)
             && support::valid(self)
@@ -194,18 +193,8 @@ impl Plugin for EnvironmentPlugin {
                     .before(crate::player::move_player)
                     .run_if(in_state(GameState::Playing)),
             );
-        if app
-            .world()
-            .get_resource::<crate::origins::DeliveryScope>()
-            .copied()
-            .unwrap_or_default()
-            == crate::origins::DeliveryScope::FullOrigins
-        {
-            app.add_plugins((weather::WeatherPlugin, digging::DiggingPlugin));
-        } else {
-            app.init_resource::<weather::Weather>()
-                .init_resource::<digging::Digging>();
-        }
+        app.add_plugins((weather::WeatherPlugin, digging::DiggingPlugin));
+
     }
 }
 fn spawn(mut commands: Commands, game: Res<GameDefinition>, existing: Query<(), With<MudVolume>>) {

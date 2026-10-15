@@ -220,19 +220,6 @@ fn setup(
             .into_iter()
             .enumerate()
             {
-                if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
-                    && !game.content.powerups.iter().any(|powerup| {
-                        powerup.id.0
-                            == [
-                                "powerup.double_points",
-                                "powerup.insta_kill",
-                                "powerup.zombie_blood",
-                                "powerup.fire_sale",
-                            ][index]
-                    })
-                {
-                    continue;
-                }
                 parent.spawn((
                     Powerup(index),
                     native::image(&game, &server, name),
@@ -264,11 +251,6 @@ fn setup(
                 ("helmet", "zom_hud_helmet_gold", 1250., 555., 30., 30.),
                 ("tablet", "zm_hud_icon_oneinch_dirty", 0., 574., 50., 50.),
             ] {
-                if game.delivery_scope == crate::origins::DeliveryScope::FirstPlayableSolo
-                    && key != "lethal"
-                {
-                    continue;
-                }
                 let count = match key {
                     "lethal" => 4,
                     "tactical" => 3,
