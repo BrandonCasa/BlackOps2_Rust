@@ -142,7 +142,7 @@ struct NativeEffectConstants {
     feather_parms: Vec4,
 }
 
-/// Native GENERIC32 vertices and little-endian Uint16 indices. Modified CPU
+/// Native PACKED32 vertices and little-endian Uint16 indices. Modified CPU
 /// vectors are moved into extraction. Refill both vectors for the next update;
 /// the prepared GPU buffers keep their allocation while capacity is sufficient.
 #[derive(Asset, TypePath, Clone)]
@@ -271,7 +271,7 @@ impl RenderAsset for PreparedEffectGeometry {
     ) -> Result<Self, PrepareAssetError<Self::SourceAsset>> {
         assert!(
             !source.vertices.is_empty() && source.vertices.len().is_multiple_of(32),
-            "native zfeather vertices must use the complete GENERIC32 layout"
+            "native zfeather vertices must use the complete PACKED32 layout"
         );
         assert!(
             !source.indices.is_empty() && source.indices.len().is_multiple_of(2),
@@ -421,7 +421,9 @@ impl SpecializedRenderPipeline for EffectPipeline {
                             shader_location: 1,
                         },
                         VertexAttribute {
-                            format: VertexFormat::Float32x2,
+                            // Original particle writer005b52a0 packs binary16 UV
+                            // at20; normal/tangent remain at24/28 in PACKED32.
+                            format: VertexFormat::Float16x2,
                             offset: 20,
                             shader_location: 2,
                         },
@@ -665,7 +667,7 @@ fn queue_effects(
             assert!(
                 draw.vertex_byte_offset.is_multiple_of(32)
                     && draw.vertex_byte_offset < geometry.vertex_bytes,
-                "native effect draw must bind a complete GENERIC32 vertex range"
+                "native effect draw must bind a complete PACKED32 vertex range"
             );
             assert!(
                 draw.index_count.is_multiple_of(3)

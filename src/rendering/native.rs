@@ -170,6 +170,13 @@ pub struct NativeWorldLayerTextures {
 }
 
 #[derive(Clone)]
+pub struct NativeWorldSpecularLayerTextures {
+    pub layer: NativeWorldLayerTextures,
+    pub specular_map: Handle<Image>,
+    pub specular_sampler: SamplerDescriptor<'static>,
+}
+
+#[derive(Clone)]
 pub struct NativeWorldColorLayerTextures {
     pub base: NativeWorldTextures,
     pub color_map: Handle<Image>,
@@ -229,6 +236,19 @@ pub enum NativeWorldMaterial {
         layer_specular_sampler: SamplerDescriptor<'static>,
         alpha_reveal_parms1: Vec4,
     },
+    ThreeLayerReveal {
+        base: NativeWorldTextures,
+        layer1: NativeWorldLayerTextures,
+        layer2: NativeWorldSpecularLayerTextures,
+        alpha_reveal_parms2: Vec4,
+    },
+    ThreeLayerDoubleReveal {
+        base: NativeWorldTextures,
+        layer1: NativeWorldSpecularLayerTextures,
+        layer2: NativeWorldSpecularLayerTextures,
+        alpha_reveal_parms1: Vec4,
+        alpha_reveal_parms2: Vec4,
+    },
 }
 
 impl NativeWorldMaterial {
@@ -245,12 +265,15 @@ impl NativeWorldMaterial {
     fn textures(&self) -> impl Iterator<Item = (u32, &Handle<Image>, &SamplerDescriptor<'static>)> {
         fn base_bindings(
             base: &NativeWorldTextures,
-        ) -> [Option<(u32, &Handle<Image>, &SamplerDescriptor<'static>)>; 7] {
+        ) -> [Option<(u32, &Handle<Image>, &SamplerDescriptor<'static>)>; 10] {
             [
                 Some((0, &base.color_map, &base.color_sampler)),
                 Some((2, &base.normal_map, &base.normal_sampler)),
                 Some((4, &base.lightmap_secondary, &base.lightmap_sampler)),
                 Some((6, &base.reflection_probe, &base.reflection_sampler)),
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -262,6 +285,9 @@ impl NativeWorldMaterial {
                 Some((0, &base.color_map, &base.color_sampler)),
                 Some((2, &base.normal_map, &base.normal_sampler)),
                 Some((4, &base.lightmap_secondary, &base.lightmap_sampler)),
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -281,6 +307,9 @@ impl NativeWorldMaterial {
                 Some((4, &base.lightmap_secondary, &base.lightmap_sampler)),
                 Some((6, &base.reflection_probe, &base.reflection_sampler)),
                 Some((8, &base.specular_map, &base.specular_sampler)),
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -309,6 +338,35 @@ impl NativeWorldMaterial {
                 bindings[6] = Some((12, layer_specular_map, layer_specular_sampler));
                 bindings
             }
+            Self::ThreeLayerReveal {
+                base,
+                layer1,
+                layer2,
+                ..
+            } => {
+                let mut bindings = base_bindings(base);
+                bindings[4] = Some((8, &layer1.color_map, &layer1.color_sampler));
+                bindings[5] = Some((10, &layer1.normal_map, &layer1.normal_sampler));
+                bindings[7] = Some((14, &layer2.layer.color_map, &layer2.layer.color_sampler));
+                bindings[8] = Some((16, &layer2.layer.normal_map, &layer2.layer.normal_sampler));
+                bindings[9] = Some((18, &layer2.specular_map, &layer2.specular_sampler));
+                bindings
+            }
+            Self::ThreeLayerDoubleReveal {
+                base,
+                layer1,
+                layer2,
+                ..
+            } => {
+                let mut bindings = base_bindings(base);
+                bindings[4] = Some((8, &layer1.layer.color_map, &layer1.layer.color_sampler));
+                bindings[5] = Some((10, &layer1.layer.normal_map, &layer1.layer.normal_sampler));
+                bindings[6] = Some((12, &layer1.specular_map, &layer1.specular_sampler));
+                bindings[7] = Some((14, &layer2.layer.color_map, &layer2.layer.color_sampler));
+                bindings[8] = Some((16, &layer2.layer.normal_map, &layer2.layer.normal_sampler));
+                bindings[9] = Some((18, &layer2.specular_map, &layer2.specular_sampler));
+                bindings
+            }
         };
         bindings.into_iter().flatten()
     }
@@ -325,6 +383,8 @@ impl NativeWorldMaterial {
             Self::Layered { .. } => NativeWorldFamily::Layered,
             Self::RevealLayered { .. } => NativeWorldFamily::RevealLayered,
             Self::RevealSpecularLayered { .. } => NativeWorldFamily::RevealSpecularLayered,
+            Self::ThreeLayerReveal { .. } => NativeWorldFamily::ThreeLayerReveal,
+            Self::ThreeLayerDoubleReveal { .. } => NativeWorldFamily::ThreeLayerDoubleReveal,
         }
     }
 }
@@ -341,6 +401,8 @@ enum NativeWorldFamily {
     Layered,
     RevealLayered,
     RevealSpecularLayered,
+    ThreeLayerReveal,
+    ThreeLayerDoubleReveal,
 }
 
 impl NativeWorldFamily {
@@ -348,6 +410,7 @@ impl NativeWorldFamily {
         match self {
             Self::ColorMultiply | Self::ColorBlend | Self::ColorAdd => Some(4),
             Self::Layered | Self::RevealLayered | Self::RevealSpecularLayered => Some(8),
+            Self::ThreeLayerReveal | Self::ThreeLayerDoubleReveal => Some(16),
             _ => None,
         }
     }
@@ -356,6 +419,17 @@ impl NativeWorldFamily {
 #[derive(ShaderType)]
 struct NativeWorldRevealMaterial {
     alpha_reveal_parms1: Vec4,
+}
+
+#[derive(ShaderType)]
+struct NativeWorldThreeLayerRevealMaterial {
+    alpha_reveal_parms2: Vec4,
+}
+
+#[derive(ShaderType)]
+struct NativeWorldThreeLayerDoubleRevealMaterial {
+    alpha_reveal_parms1: Vec4,
+    alpha_reveal_parms2: Vec4,
 }
 
 /// Values decoded from this technique's original state bits. The camera's
@@ -435,14 +509,17 @@ impl Plugin for NativeWorldPlugin {
         load_shader_library!(app, "native_world_layers.wesl");
         load_shader_library!(app, "native_world_plain.wesl");
         load_shader_library!(app, "native_world_color_layers.wesl");
+        load_shader_library!(app, "native_world_three_layers.wesl");
         embedded_asset!(app, "native_entry.wesl");
         embedded_asset!(app, "native_layer_entry.wesl");
         embedded_asset!(app, "native_plain_entry.wesl");
         embedded_asset!(app, "native_color_layer_entry.wesl");
+        embedded_asset!(app, "native_three_layer_entry.wesl");
         let shader = load_embedded_asset!(app, "native_entry.wesl");
         let layer_shader = load_embedded_asset!(app, "native_layer_entry.wesl");
         let plain_shader = load_embedded_asset!(app, "native_plain_entry.wesl");
         let color_layer_shader = load_embedded_asset!(app, "native_color_layer_entry.wesl");
+        let three_layer_shader = load_embedded_asset!(app, "native_three_layer_entry.wesl");
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -452,6 +529,7 @@ impl Plugin for NativeWorldPlugin {
                 layer_shader,
                 plain_shader,
                 color_layer_shader,
+                three_layer_shader,
             ))
             .insert_resource(GpuPreprocessingSupport {
                 max_supported_mode: GpuPreprocessingMode::None,
@@ -476,6 +554,7 @@ struct NativePipeline {
     layer_shader: Handle<Shader>,
     plain_shader: Handle<Shader>,
     color_layer_shader: Handle<Shader>,
+    three_layer_shader: Handle<Shader>,
     scene_layout: BindGroupLayoutDescriptor,
     object_layout: BindGroupLayoutDescriptor,
     material_layout: BindGroupLayoutDescriptor,
@@ -485,6 +564,8 @@ struct NativePipeline {
     layer_material_layout: BindGroupLayoutDescriptor,
     reveal_material_layout: BindGroupLayoutDescriptor,
     reveal_specular_material_layout: BindGroupLayoutDescriptor,
+    three_layer_material_layout: BindGroupLayoutDescriptor,
+    three_layer_double_reveal_material_layout: BindGroupLayoutDescriptor,
 }
 
 impl NativePipeline {
@@ -493,6 +574,7 @@ impl NativePipeline {
         layer_shader: Handle<Shader>,
         plain_shader: Handle<Shader>,
         color_layer_shader: Handle<Shader>,
+        three_layer_shader: Handle<Shader>,
     ) -> Self {
         let mut entries = BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
@@ -561,11 +643,41 @@ impl NativePipeline {
         ));
         let reveal_specular_material_layout =
             BindGroupLayoutDescriptor::new("native reveal specular world material", &entries);
+        entries.retain(|entry| entry.binding != 14);
+        for binding in [14, 16, 18] {
+            entries.extend_from_slice(&BindGroupLayoutEntries::with_indices(
+                ShaderStages::FRAGMENT,
+                (
+                    (
+                        binding,
+                        texture_2d(TextureSampleType::Float { filterable: true }),
+                    ),
+                    (binding + 1, sampler(SamplerBindingType::Filtering)),
+                ),
+            ));
+        }
+        let mut three_layer_entries = entries.clone();
+        three_layer_entries.retain(|entry| entry.binding != 12 && entry.binding != 13);
+        three_layer_entries.push(
+            uniform_buffer::<NativeWorldThreeLayerRevealMaterial>(false)
+                .build(20, ShaderStages::FRAGMENT),
+        );
+        let three_layer_material_layout = BindGroupLayoutDescriptor::new(
+            "native three-layer reveal material",
+            &three_layer_entries,
+        );
+        entries.push(
+            uniform_buffer::<NativeWorldThreeLayerDoubleRevealMaterial>(false)
+                .build(21, ShaderStages::FRAGMENT),
+        );
+        let three_layer_double_reveal_material_layout =
+            BindGroupLayoutDescriptor::new("native three-layer double reveal material", &entries);
         Self {
             shader,
             layer_shader,
             plain_shader,
             color_layer_shader,
+            three_layer_shader,
             scene_layout: BindGroupLayoutDescriptor::new(
                 "native world scene",
                 &BindGroupLayoutEntries::single(
@@ -587,6 +699,8 @@ impl NativePipeline {
             layer_material_layout,
             reveal_material_layout,
             reveal_specular_material_layout,
+            three_layer_material_layout,
+            three_layer_double_reveal_material_layout,
         }
     }
 
@@ -602,6 +716,10 @@ impl NativePipeline {
             NativeWorldFamily::Layered => &self.layer_material_layout,
             NativeWorldFamily::RevealLayered => &self.reveal_material_layout,
             NativeWorldFamily::RevealSpecularLayered => &self.reveal_specular_material_layout,
+            NativeWorldFamily::ThreeLayerReveal => &self.three_layer_material_layout,
+            NativeWorldFamily::ThreeLayerDoubleReveal => {
+                &self.three_layer_double_reveal_material_layout
+            }
         }
     }
 }
@@ -662,7 +780,11 @@ impl SpecializedRenderPipeline for NativePipeline {
         let mut buffers = vec![vertex_layout];
         if let Some(stride) = key.family.auxiliary_stride() {
             let mut attributes = vec![VertexAttribute {
-                format: VertexFormat::Float16x2,
+                format: if stride == 16 {
+                    VertexFormat::Float16x4
+                } else {
+                    VertexFormat::Float16x2
+                },
                 offset: 0,
                 shader_location: 6,
             }];
@@ -672,6 +794,20 @@ impl SpecializedRenderPipeline for NativePipeline {
                     offset: 4,
                     shader_location: 7,
                 });
+            }
+            if stride == 16 {
+                attributes.extend([
+                    VertexAttribute {
+                        format: VertexFormat::Unorm8x4,
+                        offset: 8,
+                        shader_location: 7,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Unorm8x4,
+                        offset: 12,
+                        shader_location: 8,
+                    },
+                ]);
             }
             buffers.push(VertexBufferLayout {
                 array_stride: stride,
@@ -692,6 +828,9 @@ impl SpecializedRenderPipeline for NativePipeline {
             NativeWorldFamily::Layered
             | NativeWorldFamily::RevealLayered
             | NativeWorldFamily::RevealSpecularLayered => (&self.layer_shader, "vertex"),
+            NativeWorldFamily::ThreeLayerReveal | NativeWorldFamily::ThreeLayerDoubleReveal => {
+                (&self.three_layer_shader, "vertex")
+            }
         };
         let fragment = match (key.family, key.target.is_srgb()) {
             (NativeWorldFamily::Diffuse, false) => "fragment_diffuse",
@@ -706,6 +845,10 @@ impl SpecializedRenderPipeline for NativePipeline {
             (NativeWorldFamily::ColorBlend, true) => "fragment_blend_srgb",
             (NativeWorldFamily::ColorAdd, false) => "fragment_add",
             (NativeWorldFamily::ColorAdd, true) => "fragment_add_srgb",
+            (NativeWorldFamily::ThreeLayerReveal, false) => "fragment",
+            (NativeWorldFamily::ThreeLayerReveal, true) => "fragment_srgb",
+            (NativeWorldFamily::ThreeLayerDoubleReveal, false) => "fragment_double_reveal",
+            (NativeWorldFamily::ThreeLayerDoubleReveal, true) => "fragment_double_reveal_srgb",
             (NativeWorldFamily::RevealLayered, false) => "fragment_reveal",
             (NativeWorldFamily::RevealLayered, true) => "fragment_reveal_srgb",
             (NativeWorldFamily::RevealSpecularLayered, false) => "fragment_reveal_specular",
@@ -818,6 +961,34 @@ impl RenderAsset for PreparedNativeMaterial {
         if let Some(uniform) = &mut reveal_uniform {
             uniform.write_buffer(device, queue);
         }
+        let mut three_layer_uniform = match &source {
+            NativeWorldMaterial::ThreeLayerReveal {
+                alpha_reveal_parms2,
+                ..
+            } => Some(UniformBuffer::from(NativeWorldThreeLayerRevealMaterial {
+                alpha_reveal_parms2: *alpha_reveal_parms2,
+            })),
+            _ => None,
+        };
+        if let Some(uniform) = &mut three_layer_uniform {
+            uniform.write_buffer(device, queue);
+        }
+        let mut double_reveal_uniform = match &source {
+            NativeWorldMaterial::ThreeLayerDoubleReveal {
+                alpha_reveal_parms1,
+                alpha_reveal_parms2,
+                ..
+            } => Some(UniformBuffer::from(
+                NativeWorldThreeLayerDoubleRevealMaterial {
+                    alpha_reveal_parms1: *alpha_reveal_parms1,
+                    alpha_reveal_parms2: *alpha_reveal_parms2,
+                },
+            )),
+            _ => None,
+        };
+        if let Some(uniform) = &mut double_reveal_uniform {
+            uniform.write_buffer(device, queue);
+        }
         let mut entries = Vec::with_capacity(views.len() * 2 + usize::from(reveal.is_some()));
         for ((binding, view), sampler) in views.into_iter().zip(&samplers) {
             entries.push(BindGroupEntry {
@@ -833,6 +1004,22 @@ impl RenderAsset for PreparedNativeMaterial {
             entries.push(BindGroupEntry {
                 binding: 14,
                 resource: uniform.binding().expect("uploaded native reveal constants"),
+            });
+        }
+        if let Some(uniform) = &three_layer_uniform {
+            entries.push(BindGroupEntry {
+                binding: 20,
+                resource: uniform
+                    .binding()
+                    .expect("uploaded source layer2 reveal constants"),
+            });
+        }
+        if let Some(uniform) = &double_reveal_uniform {
+            entries.push(BindGroupEntry {
+                binding: 21,
+                resource: uniform
+                    .binding()
+                    .expect("uploaded source layer1/layer2 reveal constants"),
             });
         }
         let bind_group = device.create_bind_group(

@@ -148,7 +148,7 @@ impl NativeWorldRoot {
 }
 
 #[derive(Component)]
-pub(crate) struct WorldSurfaceLighting([Vec4; 3]);
+pub(crate) struct WorldSurfaceLighting(pub(crate) [Vec4; 3]);
 
 /// Native inches / Z up to Bevy metres / Y up. Keep this single boundary for
 /// draw positions, object constants and the manually supplied culling bounds.

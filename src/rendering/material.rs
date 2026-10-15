@@ -15,7 +15,7 @@ use serde::Deserialize;
 use super::native::{
     NativeWorldColorLayerTextures, NativeWorldDiffuseTextures,
     NativeWorldGeometricSpecularTextures, NativeWorldLayerTextures, NativeWorldMaterial,
-    NativeWorldState, NativeWorldTextures,
+    NativeWorldSpecularLayerTextures, NativeWorldState, NativeWorldTextures,
 };
 
 #[derive(Deserialize)]
@@ -99,6 +99,36 @@ impl MaterialDefinition {
         &self.technique_set
     }
 
+    pub(crate) fn model(
+        &self,
+        server: &AssetServer,
+        probe: Handle<Image>,
+    ) -> Result<(super::native_model::NativeModelMaterial, NativeWorldState), String> {
+        let bind = || {
+            if self.technique_set() != "mc_lit_sm_r0c0n0x0_q361191u" {
+                return Err(format!(
+                    "Port original model LIT techniqueSet {}",
+                    self.technique_set()
+                ));
+            }
+            let state = self.lit_state()?;
+            let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+            let (normal_map, normal_sampler) = self.texture(server, "normalMap", "normalMap")?;
+            Ok((
+                super::native_model::NativeModelMaterial {
+                    color_map,
+                    color_sampler,
+                    normal_map,
+                    normal_sampler,
+                    reflection_probe: probe,
+                    reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                },
+                state,
+            ))
+        };
+        bind().map_err(|error| format!("Material {}: {error}", self.path.display()))
+    }
+
     pub(crate) fn world(
         &self,
         server: &AssetServer,
@@ -119,6 +149,8 @@ impl MaterialDefinition {
                     | "lit_sm_r0c0n0x0_b1c1n1"
                     | "lit_sm_r0c0n0x0_b1c1n1v1"
                     | "lit_sm_r0c0n0x0_b1c1n1s1v1"
+                    | "lit_sm_r0c0n0x0_b1c1n1_b2c2n2s2v2"
+                    | "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2s2v2"
             ) {
                 return Err(format!(
                     "Port the original LIT technique for techniqueSet {family} before binding this world material"
@@ -187,6 +219,55 @@ impl MaterialDefinition {
                     },
                     state,
                 ));
+            }
+            if matches!(
+                family,
+                "lit_sm_r0c0n0x0_b1c1n1_b2c2n2s2v2" | "lit_sm_r0c0n0x0_b1c1n1s1v1_b2c2n2s2v2"
+            ) {
+                let layer = |index: u8| -> Result<NativeWorldLayerTextures, String> {
+                    let (color_map, color_sampler) =
+                        self.texture(server, &format!("colorMap{index}"), "colorMap")?;
+                    let (normal_map, normal_sampler) =
+                        self.texture(server, &format!("normalMap{index}"), "normalMap")?;
+                    Ok(NativeWorldLayerTextures {
+                        color_map,
+                        color_sampler,
+                        normal_map,
+                        normal_sampler,
+                    })
+                };
+                let layer1 = layer(1)?;
+                let (specular_map, specular_sampler) =
+                    self.texture(server, "specularMap2", "specularMap")?;
+                let layer2 = NativeWorldSpecularLayerTextures {
+                    layer: layer(2)?,
+                    specular_map,
+                    specular_sampler,
+                };
+                let alpha_reveal_parms2 = self.constant("alphaRevealParms2")?;
+                let material = if family == "lit_sm_r0c0n0x0_b1c1n1_b2c2n2s2v2" {
+                    NativeWorldMaterial::ThreeLayerReveal {
+                        base,
+                        layer1,
+                        layer2,
+                        alpha_reveal_parms2,
+                    }
+                } else {
+                    let (specular_map, specular_sampler) =
+                        self.texture(server, "specularMap1", "specularMap")?;
+                    NativeWorldMaterial::ThreeLayerDoubleReveal {
+                        base,
+                        layer1: NativeWorldSpecularLayerTextures {
+                            layer: layer1,
+                            specular_map,
+                            specular_sampler,
+                        },
+                        layer2,
+                        alpha_reveal_parms1: self.constant("alphaRevealParms1")?,
+                        alpha_reveal_parms2,
+                    }
+                };
+                return Ok((material, state));
             }
             let (color_map, color_sampler) = self.texture(server, "colorMap1", "colorMap")?;
             if matches!(
