@@ -125,7 +125,7 @@ impl SmokeRecipe {
                         .filter(|argument| {
                             contract::argument(
                                 argument,
-                                [kind, value as u64, buffer, location as u64, size],
+                                [kind, value as u64, buffer, location as u64, size as u64],
                             )
                         })
                         .count()

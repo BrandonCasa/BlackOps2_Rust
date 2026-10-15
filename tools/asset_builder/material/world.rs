@@ -345,7 +345,7 @@ impl WorldRecipe {
             }
             Self::Embers => {
                 let controls = EmberControls::read(native)?;
-                let color = bake_embers(native, images, &controls, 0.)?;
+                let color = bake_embers(native, images, controls, 0.)?;
                 let normal = ordinary::bake(image(native, images, 2485960688)?, "normal", None)?;
                 let mut channels = Vec::new();
                 for (role, image) in [("color", color), ("normal", normal)] {
@@ -390,57 +390,29 @@ fn image<'a>(
     Ok(image)
 }
 
-fn source_image(
-    native: &Value,
-    images: &BTreeMap<String, texture::Image>,
-    hash: u32,
-    purpose: &str,
-    shared: &mut BTreeMap<(String, String), String>,
-    pack: &mut Pack,
-) -> Result<String> {
-    let source = image(native, images, hash)?;
-    let name = contract::texture_binding(native, hash)?["image"]
-        .as_str()
-        .unwrap()
-        .to_ascii_lowercase();
-    let key = (name, purpose.into());
-    if let Some(uri) = shared.get(&key) {
-        return Ok(uri.clone());
-    }
-    let uri = store_image(
-        source,
-        format!("prepared/material-channels/{}/{purpose}.ktx2", shared.len()),
-        false,
-        "source_encoded",
-        pack,
-    )?;
-    shared.insert(key, uri.clone());
-    Ok(uri)
-}
-
 struct WaterControls {
-    position: [f32; 4],
+    _position: [f32; 4],
     speed: [f32; 4],
     lo: [f32; 4],
     hi: [f32; 4],
-    normal: [f32; 4],
+    _normal: [f32; 4],
     control0: [f32; 4],
-    control1: [f32; 4],
-    color_n: [f32; 4],
+    _control1: [f32; 4],
+    _color_n: [f32; 4],
     color_s: [f32; 4],
 }
 
 impl WaterControls {
     fn read(native: &Value) -> Result<Self> {
         Ok(Self {
-            position: contract::literal(native, 3341333671)?,
+            _position: contract::literal(native, 3341333671)?,
             speed: contract::literal(native, 323802060)?,
             lo: contract::literal(native, 1855396200)?,
             hi: contract::literal(native, 27397098)?,
-            normal: contract::literal(native, 2251460126)?,
+            _normal: contract::literal(native, 2251460126)?,
             control0: contract::literal(native, 2815841959)?,
-            control1: contract::literal(native, 2815841958)?,
-            color_n: contract::literal(native, 3178532486)?,
+            _control1: contract::literal(native, 2815841958)?,
+            _color_n: contract::literal(native, 3178532486)?,
             color_s: contract::literal(native, 3178532507)?,
         })
     }
@@ -457,7 +429,7 @@ impl WaterControls {
     #[cfg(test)]
     fn uv(&self, layer: usize, source_xy: [f32; 2], time: f32) -> [f32; 2] {
         let velocity = self.velocity(layer);
-        std::array::from_fn(|axis| source_xy[axis] * self.position[layer] + time * velocity[axis])
+        std::array::from_fn(|axis| source_xy[axis] * self._position[layer] + time * velocity[axis])
     }
 }
 
@@ -488,7 +460,7 @@ fn water_normal(
         );
         let index = if layer < 2 { 0 } else { 2 };
         for axis in 0..2 {
-            slope[axis] += sample[axis] * controls.normal[index] + controls.normal[index + 1];
+            slope[axis] += sample[axis] * controls._normal[index] + controls._normal[index + 1];
         }
     }
     let length = (slope[0] * slope[0] + slope[1] * slope[1] + 1.).sqrt();
@@ -522,7 +494,6 @@ impl EmberControls {
         })
     }
 
-    #[cfg(test)]
     fn flicker(self, time: f32) -> f32 {
         let ten = time * 10.;
         let q = (ten - (ten - ten.floor())) * 0.1 + self.seed;
@@ -538,7 +509,6 @@ impl EmberControls {
         self.minimum + (self.maximum - self.minimum) * state[0]
     }
 
-    #[cfg(test)]
     fn uv(self, uv: [f32; 2], time: f32) -> [f32; 2] {
         std::array::from_fn(|axis| {
             let scroll = time * self.direction[axis] * self.scale;

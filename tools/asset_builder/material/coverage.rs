@@ -143,7 +143,7 @@ pub fn accept_initial_visual_approximations(
         }
         let mut roles = vec!["color"];
         let mut shadow_only = false;
-        let mut live_only = false;
+        let live_only = false;
         let feature = if live_layers {
             let (count, mode) = if let Some(recipe) = falloff_recipe(family) {
                 validate_falloff(name, material, recipe)?;
