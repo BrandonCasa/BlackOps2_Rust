@@ -1246,7 +1246,9 @@ impl Plugin for GameAudioPlugin {
             )
             .add_systems(OnEnter(GameState::GameOver), (stop, game_over).chain())
             .add_systems(OnEnter(GameState::Loading), stop);
-        app.add_systems(OnEnter(GameState::StartingSession), stop);
+        app.add_systems(OnEnter(GameState::StartingSession), stop.run_if(
+            |intro: Res<crate::cinematics::LoadingPlayback>| !intro.active()
+        ));
         app.add_systems(OnEnter(GameState::MainMenu), stop);
         app.add_systems(OnEnter(GameState::Ending), stop);
         gameplay::install(app);
@@ -1324,7 +1326,7 @@ fn play(
     }
     if !matches!(
         **state,
-        GameState::Playing | GameState::GameOver | GameState::Ending | GameState::StartingSession
+        GameState::Playing | GameState::GameOver | GameState::Ending | GameState::StartingSession | GameState::Loading
     ) {
         for (e, ..) in &requests {
             commands.entity(e).try_despawn();

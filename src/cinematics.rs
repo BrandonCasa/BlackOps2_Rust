@@ -85,13 +85,25 @@ pub(crate) struct CinematicAudioPaused(pub bool);
 #[derive(Resource, Default)]
 pub(crate) struct LoadingPlayback {
     pub done: bool,
+    pub skippable: bool,
     sequence: SequencePlayback,
 }
+impl LoadingPlayback {
+    pub(crate) fn active(&self) -> bool {
+        !self.done && !self.sequence.frames.is_empty()
+    }
+}
+#[derive(Component)]
+struct SkipPrompt;
 pub struct CinematicPlugin;
 impl Plugin for CinematicPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Playback>()
             .init_resource::<LoadingPlayback>()
+            .add_systems(
+                OnEnter(GameState::Loading),
+                loading_start.after(crate::assets::begin_load).after(crate::audio::stop),
+            )
             .add_systems(
                 OnEnter(GameState::StartingSession),
                 loading_start.after(crate::session::SessionSetup::Player),
@@ -100,9 +112,11 @@ impl Plugin for CinematicPlugin {
                 Update,
                 loading_advance
                     .before(crate::audio::AudioPlayback)
-                    .run_if(in_state(GameState::StartingSession)),
+                    .run_if(|state: Res<State<GameState>>| matches!(**state, GameState::Loading | GameState::StartingSession)),
             )
-            .add_systems(OnExit(GameState::StartingSession), close)
+            .add_systems(OnEnter(GameState::Playing), close)
+            .add_systems(OnEnter(GameState::MainMenu), close)
+            .add_systems(OnEnter(GameState::LoadError), close)
             .add_systems(OnEnter(GameState::Ending), start.after(crate::audio::stop))
             .add_systems(
                 Update,
@@ -145,7 +159,7 @@ fn preload(playback: &mut SequencePlayback, server: &AssetServer, index: usize) 
             .or_insert_with(|| server.load(playback.frames[i].clone()));
     }
 }
-fn root(commands: &mut Commands, camera: Entity, playback: &SequencePlayback) {
+fn root(commands: &mut Commands, camera: Entity, playback: &SequencePlayback, skippable: bool) {
     commands
         .spawn((
             CinematicRoot,
@@ -184,7 +198,8 @@ fn root(commands: &mut Commands, camera: Entity, playback: &SequencePlayback) {
                 ));
             }
             parent.spawn((
-                crate::hud::native::NativeText::new("ESC / SPACE   Skip", 18.),
+                SkipPrompt,
+                crate::hud::native::NativeText::new(if skippable { "ESC / SPACE   Skip" } else { "Loading world..." }, 18.),
                 Node {
                     position_type: PositionType::Absolute,
                     bottom: px(20.),
@@ -216,7 +231,7 @@ fn start(
             ..default()
         });
     if let Ok(camera) = cameras.single() {
-        root(&mut commands, camera, &playback.0);
+        root(&mut commands, camera, &playback.0, true);
     }
 }
 fn step(
@@ -281,7 +296,7 @@ fn step(
                 alias,
                 crate::audio::SoundSource::World(Vec3::ZERO),
             );
-            commands.entity(sound).insert(CinematicAudioPaused(false));
+            commands.entity(sound).remove::<crate::gameplay::SessionEntity>().insert(CinematicAudioPaused(false));
             playback.sound = Some(sound);
             playback.audio_paused = false;
         } else {
@@ -373,14 +388,21 @@ fn close(
     {
         commands.entity(sound).try_despawn();
     }
+    loading.sequence = SequencePlayback::default();
+    loading.done = true;
+    loading.skippable = false;
 }
 fn loading_start(
     mut commands: Commands,
     mut playback: ResMut<LoadingPlayback>,
-    game: Res<crate::assets::GameDefinition>,
+    game: Option<Res<crate::assets::GameDefinition>>,
     server: Res<AssetServer>,
     cameras: Query<Entity, With<crate::rendering::GameCamera>>,
 ) {
+    if playback.active() || !playback.sequence.frames.is_empty() {
+        return;
+    }
+    let Some(game) = game else { return; };
     *playback = LoadingPlayback {
         done: true,
         ..default()
@@ -399,7 +421,7 @@ fn loading_start(
     playback.done = false;
     playback.sequence = prepare(sequence, &game, &server);
     if let Ok(camera) = cameras.single() {
-        root(&mut commands, camera, &playback.sequence);
+        root(&mut commands, camera, &playback.sequence, false);
     }
 }
 fn loading_advance(
@@ -410,16 +432,20 @@ fn loading_advance(
     images: Res<Assets<Image>>,
     mut playback: ResMut<LoadingPlayback>,
     mut frames: Query<&mut ImageNode, With<CinematicFrame>>,
+    mut prompts: Query<&mut crate::hud::native::NativeText, With<SkipPrompt>>,
     roots: Query<Entity, With<CinematicRoot>>,
     mut events: MessageReader<PlaybackEvent>,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
 ) {
+    for mut prompt in &mut prompts {
+        let text = if playback.skippable { "ESC / SPACE   Skip" } else { "Loading world..." };
+        if prompt.value != text { prompt.value = text.into(); }
+    }
     if playback.done {
         return;
     }
-    if keys.just_pressed(KeyCode::Escape)
-        || keys.just_pressed(KeyCode::Space)
+    if (playback.skippable && (keys.pressed(KeyCode::Escape) || keys.pressed(KeyCode::Space)))
         || step(
             &mut commands,
             time.delta_secs(),

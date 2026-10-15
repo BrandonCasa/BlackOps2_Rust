@@ -179,10 +179,11 @@ fn finish_starting_session(
     rigs: Query<&crate::presentation::Rig>,
     textures: Query<&crate::presentation::camo::CamoTexture>,
     definition: Res<GameDefinition>,
-    cinematic: Res<crate::cinematics::LoadingPlayback>,
+    mut cinematic: ResMut<crate::cinematics::LoadingPlayback>,
     mut failure: ResMut<crate::assets::LoadFailure>,
     mut next: ResMut<NextState<GameState>>,
 ) {
+    cinematic.skippable = false;
     if !failure.0.is_empty() {
         next.set(GameState::LoadError);
         return;
@@ -220,11 +221,11 @@ fn finish_starting_session(
         next.set(GameState::LoadError);
         return;
     }
-    if !cinematic.done { return; }
-
     if !scenes_ready || !textures_ready || player.is_empty() || rigs.is_empty()
         || rigs.iter().any(|rig| !rig.ready || (!rig.arms && !rig.attached)) {
         return;
     }
+    cinematic.skippable = true;
+    if !cinematic.done { return; }
     next.set(GameState::Playing);
 }
