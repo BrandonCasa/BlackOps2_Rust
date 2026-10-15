@@ -157,6 +157,11 @@ impl Recipe {
         surface: &Surface,
         index: usize,
     ) -> Result<([f32; 2], [f32; 2], [f32; 4], [f32; 4], [f32; 2])> {
+        if self.special == 127 {
+            let uv = surface.uv[index];
+            let color = surface.colors[index].map(|value| value as f32 / 255.);
+            return Ok((uv, uv, color, color, uv));
+        }
         if self.alpha_reveal {
             let uv = *surface
                 .uv
@@ -514,7 +519,7 @@ impl Recipe {
     }
 
     pub(super) fn input_uv(&self, index: usize) -> usize {
-        if self.alpha_reveal {
+        if self.alpha_reveal || self.special == 127 {
             0
         } else if self.third_multiply && index + 1 == self.inputs.len() {
             3

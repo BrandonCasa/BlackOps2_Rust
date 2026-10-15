@@ -167,8 +167,11 @@ pub(super) fn store(
     let mut native_specular = Value::Null;
     for (role, pixels) in outputs {
         let static_normal = if role == "normal" && matches!(&family, Family::ScriptLayers(_)) {
-            uri.split_once("/frames/")
-                .map(|(base, _)| format!("{base}/normals/surface/normal.ktx2"))
+            uri.split_once("/states/").and_then(|(base, state)| {
+                state
+                    .split_once('/')
+                    .map(|(_, page)| format!("{base}/normals/{page}/normal.ktx2"))
+            })
         } else {
             None
         };
@@ -233,6 +236,7 @@ pub(super) fn store(
         material["extras"]["surface"]["approximations"].as_array_mut().unwrap().push(json!("Source gloss mixes base color alpha and layer specular alpha with the authored reveal weight. Mixed linear RGB specular and encoded gloss retained in native-specular. The shared metallic/GGX fit cannot exactly reproduce the native probe Fresnel/mip response or direct-sun lobe geometry/amplitude; view-dependent lighting is not baked into albedo or emission"));
     }
     if let Family::ScriptLayers(mode) = family {
+        material["extras"]["surface"]["standard"]["baked_emission_scale"] = json!(emission_scale);
         material["extras"]["surface"]["standard"]["emissive"] =
             json!([emission_scale, emission_scale, emission_scale]);
         script_layers::finish(native, mode, &mut material)?;

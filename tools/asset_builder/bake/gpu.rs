@@ -33,7 +33,7 @@ struct Compute {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
-    script_pipeline: wgpu::ComputePipeline,
+    average_pipeline: wgpu::ComputePipeline,
 }
 
 impl Compute {
@@ -67,11 +67,11 @@ impl Compute {
             compilation_options: Default::default(),
             cache: None,
         });
-        let script_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let average_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Precomposed animation frame"),
             layout: None,
             module: &shader,
-            entry_point: Some("script_frame"),
+            entry_point: Some("script_average"),
             compilation_options: Default::default(),
             cache: None,
         });
@@ -88,7 +88,7 @@ impl Compute {
             device,
             queue,
             pipeline,
-            script_pipeline,
+            average_pipeline,
         })
     }
 }
@@ -100,9 +100,10 @@ pub(super) struct Baker {
     output: wgpu::Buffer,
     readback: wgpu::Buffer,
     bindings: wgpu::BindGroup,
-    script_bindings: wgpu::BindGroup,
+    average_bindings: wgpu::BindGroup,
     capacity: usize,
     image_count: usize,
+    average: wgpu::Buffer,
 }
 
 impl Baker {
@@ -156,6 +157,11 @@ impl Baker {
             (capacity * 64) as u64,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
+        let average = buffer(
+            "Linear temporal average",
+            (capacity * 48) as u64,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        );
         let entries: Vec<_> = [&parameters, &images, &samples, &output]
             .into_iter()
             .enumerate()
@@ -169,9 +175,9 @@ impl Baker {
             layout: &compute.pipeline.get_bind_group_layout(0),
             entries: &entries,
         });
-        let script_bindings = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let average_bindings = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Animation frame inputs"),
-            layout: &compute.script_pipeline.get_bind_group_layout(0),
+            layout: &compute.average_pipeline.get_bind_group_layout(0),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -183,7 +189,7 @@ impl Baker {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: output.as_entire_binding(),
+                    resource: average.as_entire_binding(),
                 },
             ],
         });
@@ -194,13 +200,14 @@ impl Baker {
             output,
             readback,
             bindings,
-            script_bindings,
+            average_bindings,
             capacity,
             image_count: recipe.inputs.len(),
+            average,
         })
     }
 
-    pub(super) fn set_script_frame(&self, transforms: &[[f32; 6]], state: [f32; 4]) -> Result<()> {
+    pub(super) fn set_script_sample(&self, transforms: &[[f32; 6]], state: [f32; 4]) -> Result<()> {
         if transforms.len() > self.image_count
             || transforms
                 .iter()
@@ -302,18 +309,26 @@ impl Baker {
         Ok(pixels)
     }
 
-    pub(super) fn script_frame(
+    pub(super) fn average(
         &self,
         width: usize,
         height: usize,
         bounds: [[f32; 2]; 2],
-    ) -> Result<Vec<[f32; 4]>> {
+        samples: usize,
+        state: [f32; 4],
+        transform: impl Fn(usize) -> Vec<[f32; 6]>,
+        premultiplied: bool,
+    ) -> Result<[Vec<[f32; 4]>; 2]> {
         let count = width
             .checked_mul(height)
             .filter(|count| *count <= u32::MAX as usize)
-            .ok_or("Animation frame dimensions exceed the GPU address range")?;
-        if width == 0 || height == 0 || bounds.iter().flatten().any(|value| !value.is_finite()) {
-            return Err("Invalid animation frame UV domain".into());
+            .ok_or("Temporal average exceeds the GPU address range")?;
+        if width == 0
+            || height == 0
+            || samples == 0
+            || bounds.iter().flatten().any(|value| !value.is_finite())
+        {
+            return Err("Invalid temporal averaging domain".into());
         }
         let mut domain = Vec::new();
         for value in [
@@ -327,36 +342,52 @@ impl Baker {
         self.compute
             .queue
             .write_buffer(&self.parameters, 32, &domain);
-        let mut pixels = Vec::with_capacity(count);
+        let (mut colors, mut normals) = (Vec::with_capacity(count), Vec::with_capacity(count));
         for offset in (0..count).step_by(self.capacity) {
             let batch = (count - offset).min(self.capacity);
             self.compute
                 .queue
                 .write_buffer(&self.parameters, 4, &(batch as u32).to_le_bytes());
-            let mut slots = Vec::new();
-            for value in [width as u32, offset as u32, height as u32, 0] {
-                push32(&mut slots, value);
+            for sample in 0..samples {
+                self.set_script_sample(&transform(sample), state)?;
+                let mut slots = Vec::new();
+                for value in [width as u32, offset as u32, height as u32, sample as u32] {
+                    push32(&mut slots, value);
+                }
+                self.compute
+                    .queue
+                    .write_buffer(&self.parameters, 96, &slots);
+                let mut commands =
+                    self.compute
+                        .device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("Temporal integration"),
+                        });
+                {
+                    let mut pass = commands.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                        label: Some("Linear source radiance accumulation"),
+                        timestamp_writes: None,
+                    });
+                    pass.set_pipeline(&self.compute.average_pipeline);
+                    pass.set_bind_group(0, &self.average_bindings, &[]);
+                    pass.dispatch_workgroups((batch as u32).div_ceil(64), 1, 1);
+                }
+                let submission = self.compute.queue.submit([commands.finish()]);
+                if sample % 32 == 31 || sample + 1 == samples {
+                    self.compute.device.poll(wgpu::PollType::Wait {
+                        submission_index: Some(submission),
+                        timeout: Some(Duration::from_secs(60)),
+                    })?;
+                }
             }
-            self.compute
-                .queue
-                .write_buffer(&self.parameters, 96, &slots);
+            let size = (batch * 48) as u64;
             let mut commands =
                 self.compute
                     .device
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("Animation frame dispatch"),
+                        label: Some("Temporal average readback"),
                     });
-            {
-                let mut pass = commands.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("Precomposed frame"),
-                    timestamp_writes: None,
-                });
-                pass.set_pipeline(&self.compute.script_pipeline);
-                pass.set_bind_group(0, &self.script_bindings, &[]);
-                pass.dispatch_workgroups((batch as u32).div_ceil(64), 1, 1);
-            }
-            let size = (batch * 16) as u64;
-            commands.copy_buffer_to_buffer(&self.output, 0, &self.readback, 0, size);
+            commands.copy_buffer_to_buffer(&self.average, 0, &self.readback, 0, size);
             let submission = self.compute.queue.submit([commands.finish()]);
             let (sender, receiver) = std::sync::mpsc::sync_channel(1);
             self.readback
@@ -370,19 +401,34 @@ impl Baker {
             receiver.recv_timeout(Duration::from_secs(1))??;
             let decoded = (|| -> Result<()> {
                 let mapped = self.readback.get_mapped_range(0..size)?;
-                for bytes in mapped.chunks_exact(16) {
-                    let pixel =
-                        std::array::from_fn(|channel| f32::from_bits(u32_at(bytes, channel * 4)));
-                    if pixel.iter().any(|value| !value.is_finite()) {
-                        return Err("GPU animation frame produced a non-finite channel".into());
+                for bytes in mapped.chunks_exact(48) {
+                    let mut color: [f32; 4] = std::array::from_fn(|channel| {
+                        f32::from_bits(u32_at(bytes, channel * 4)) / samples as f32
+                    });
+                    let normal: [f32; 4] = std::array::from_fn(|channel| {
+                        f32::from_bits(u32_at(bytes, 32 + channel * 4))
+                    });
+                    if color.iter().chain(&normal).any(|value| !value.is_finite()) {
+                        return Err("Non-finite temporal average".into());
                     }
-                    pixels.push(pixel);
+                    if premultiplied {
+                        let coverage = color[3];
+                        for channel in &mut color[..3] {
+                            *channel = if coverage > 0. {
+                                *channel / coverage
+                            } else {
+                                0.
+                            };
+                        }
+                    }
+                    colors.push(color);
+                    normals.push(normal);
                 }
                 Ok(())
             })();
             self.readback.unmap();
             decoded?;
         }
-        Ok(pixels)
+        Ok([colors, normals])
     }
 }

@@ -392,7 +392,7 @@ pub(super) fn layered(
         for chart in &page.charts {
             for triangle in &chart.triangles {
                 let surface = &surfaces[triangle.surface];
-                let frame = if constant_frame(surface, triangle.first) {
+                let frame = if recipe.special == 127 || constant_frame(surface, triangle.first) {
                     None
                 } else {
                     Some(NormalFrame::read(surface, triangle.first)?)
@@ -590,7 +590,9 @@ pub(super) fn layered(
                     }
                     let sign = surface.tangents[first][3];
                     for index in first..first + 3 {
-                        if recipe.alpha_reveal {
+                        if recipe.special == 127 {
+                            continue;
+                        } else if recipe.alpha_reveal {
                             surface.colors[index][3] = 255;
                         } else {
                             surface.colors[index] = [255; 4];

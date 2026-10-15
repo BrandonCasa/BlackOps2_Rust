@@ -447,7 +447,7 @@ struct Frame {
     channels: Vec<PreparedTexture>,
     factors: Value,
 }
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub(super) struct AnimatedMaterial {
     driver: String,
     fps: f32,
@@ -492,6 +492,35 @@ pub(super) struct ScalarAnimation {
     script_component: usize,
     #[serde(skip)]
     owner: Option<Entity>,
+}
+
+#[derive(Component)]
+pub(super) struct ScalarRayPrimary;
+
+#[derive(Component)]
+pub(super) struct ScalarRay {
+    primary: Entity,
+    mean: f32,
+}
+
+impl ScalarAnimation {
+    fn mean_emission(&self) -> f32 {
+        let intensity = |value: f32| self.minimum + (self.maximum - self.minimum) * value;
+        self.lookup
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                let a = intensity(*value);
+                if self.sampler & 7 == 1 {
+                    a * a
+                } else {
+                    let b = intensity(self.lookup[(index + 1) % self.lookup.len()]);
+                    (a * a + a * b + b * b) / 3.
+                }
+            })
+            .sum::<f32>()
+            / self.lookup.len() as f32
+    }
 }
 
 fn elapsed_time_mode() -> String {
@@ -911,7 +940,7 @@ fn validate_animation(surface: &Value) -> Result<(), String> {
             .filter(|frames| !frames.is_empty())
             .ok_or("Material animation has no frames")?;
         match animation["driver"].as_str() {
-            Some("time" | "staff_charge" | "native_layers") => {
+            Some("time" | "staff_charge") => {
                 if animation["fps"]
                     .as_f64()
                     .is_none_or(|fps| !fps.is_finite() || fps <= 0.)
@@ -929,20 +958,6 @@ fn validate_animation(surface: &Value) -> Result<(), String> {
                         return Err("Staff material animation has invalid state banks".into());
                     }
                 }
-                if animation["driver"] == "native_layers" {
-                    let states: Vec<[f32; 4]> = serde_json::from_value(animation["states"].clone())
-                        .map_err(|error| error.to_string())?;
-                    let count = animation["time_frames"]
-                        .as_u64()
-                        .filter(|count| *count > 0)
-                        .ok_or("Baked native sequence has no time frames")?;
-                    if states.is_empty()
-                        || states.iter().flatten().any(|value| !value.is_finite())
-                        || count.checked_mul(states.len() as u64) != Some(frames.len() as u64)
-                    {
-                        return Err("Invalid baked native sequence banks".into());
-                    }
-                }
             }
             Some("frozen_stone") => {}
             _ => return Err("Unknown source material animation driver".into()),
@@ -950,6 +965,24 @@ fn validate_animation(surface: &Value) -> Result<(), String> {
         for frame in frames {
             super::pbr::textures(&frame["channels"])?;
             super::pbr::uv_transform(&frame["standard"])?;
+        }
+    }
+    if !surface["static_states"].is_null() {
+        let palette = &surface["static_states"];
+        let states: Vec<[f32; 4]> =
+            serde_json::from_value(palette["states"].clone()).map_err(|error| error.to_string())?;
+        let surfaces = palette["surfaces"]
+            .as_array()
+            .ok_or("Static ray states have no surfaces")?;
+        if states.is_empty()
+            || states.len() != surfaces.len()
+            || states.iter().flatten().any(|value| !value.is_finite())
+        {
+            return Err("Invalid static ray material states".into());
+        }
+        for surface in surfaces {
+            super::pbr::textures(&surface["channels"])?;
+            super::pbr::uv_transform(&surface["standard"])?;
         }
     }
     if !surface["scalar_animation"].is_null() {
@@ -994,6 +1027,8 @@ pub(super) fn convert(
             Has<super::DynamicSurface>,
             Option<&SkinnedMesh>,
             Option<&FlagMotion>,
+            &GlobalTransform,
+            &InheritedVisibility,
         ),
         (With<PbrReady>, With<SurfaceReady>, Without<StandardReady>),
     >,
@@ -1010,7 +1045,7 @@ pub(super) fn convert(
     mut next: ResMut<NextState<crate::GameState>>,
 ) {
     status.pending = 0;
-    for (entity, original, name, mesh, dynamic, skin, flag) in &query {
+    for (entity, original, name, mesh, dynamic, skin, flag, global, visibility) in &query {
         let Some(base) = materials.get(&original.0).cloned() else {
             status.pending += 1;
             continue;
@@ -1042,12 +1077,19 @@ pub(super) fn convert(
                 .is_some_and(|v| v["static_instance"] == true);
             current = parents.get(ancestor).ok().map(ChildOf::parent);
         }
-        let animation = &definition.metadata["animation"];
+        let static_states = !definition.metadata["static_states"].is_null();
+        let animation = if static_states {
+            &definition.metadata["static_states"]
+        } else {
+            &definition.metadata["animation"]
+        };
         let live_mesh = dynamic
             || !definition.metadata["uv_animation"].is_null()
             || !definition.metadata["source_flag_motion"].is_null();
         if definition.frames.is_empty()
-            && let Some(source_frames) = animation["frames"].as_array()
+            && let Some(source_frames) = animation["frames"]
+                .as_array()
+                .or_else(|| animation["surfaces"].as_array())
         {
             for frame in source_frames {
                 let textures = super::pbr::textures(&frame["channels"]).unwrap();
@@ -1124,6 +1166,34 @@ pub(super) fn convert(
                 serde_json::from_value(definition.metadata["scalar_animation"].clone())
                     .expect("Source-built scalar material animation");
             animation.owner = owner;
+            if animation.sampler & 64 == 0 && animation.speed != 0. {
+                let mean = animation.mean_emission();
+                let mut averaged = base.clone();
+                averaged.emissive = LinearRgba::rgb(mean, mean, mean);
+                let mut ray = commands.spawn((
+                    ChildOf(entity),
+                    Mesh3d(mesh.0.clone()),
+                    MeshMaterial3d(materials.add(averaged)),
+                    Transform::IDENTITY,
+                    *global,
+                    Visibility::Inherited,
+                    *visibility,
+                    bevy::camera::visibility::RenderLayers::none(),
+                    super::hybrid::RayOwner(entity),
+                    ScalarRay {
+                        primary: entity,
+                        mean,
+                    },
+                    StandardReady,
+                ));
+                if let Some(skin) = skin {
+                    ray.insert(skin.clone());
+                }
+                commands.entity(entity).insert(ScalarRayPrimary).remove::<(
+                    bevy::solari::prelude::RaytracingMesh3d,
+                    super::solari::RayMeshSource,
+                )>();
+            }
             commands.entity(entity).insert(animation);
         }
         if !definition.metadata["uv_animation"].is_null() {
@@ -1137,7 +1207,11 @@ pub(super) fn convert(
         }
         if !frames.is_empty() {
             commands.entity(entity).insert(AnimatedMaterial {
-                driver: animation["driver"].as_str().unwrap().into(),
+                driver: if static_states {
+                    "native_script_state".into()
+                } else {
+                    animation["driver"].as_str().unwrap().into()
+                },
                 fps: animation["fps"].as_f64().unwrap_or(0.) as f32,
                 time_frames: animation["time_frames"].as_u64().unwrap_or(1).max(1) as usize,
                 state_threshold: animation["state_threshold"].as_f64().unwrap_or(1.) as f32,
@@ -1173,57 +1247,30 @@ pub(super) fn convert(
 
 pub(super) fn animate(
     time: Res<MaterialTime>,
-    clock: Option<Res<NativeClock>>,
     inputs: Query<&NativeArtInputs>,
     server: Res<AssetServer>,
     inventories: Query<&crate::weapons::WeaponInventory>,
     stones: Query<&crate::staff_puzzles::FrozenStone>,
-    mut entities: Query<(
-        &mut AnimatedMaterial,
-        Option<&MeshMaterial3d<StandardMaterial>>,
-        Option<&super::baked::Base>,
-    )>,
+    mut entities: Query<(&mut AnimatedMaterial, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut failure: Option<ResMut<crate::assets::LoadFailure>>,
     mut next: Option<ResMut<NextState<crate::GameState>>>,
 ) {
-    for (mut animation, handle, baked) in &mut entities {
-        let Some(handle) = handle
-            .map(|handle| &handle.0)
-            .or_else(|| baked.map(|base| &base.material))
-        else {
-            continue;
-        };
+    for (mut animation, handle) in &mut entities {
+        let handle = &handle.0;
         let count = animation.frames.len();
-        let mut seconds = time.0
+        let seconds = time.0
             - animation
                 .owner
                 .and_then(|owner| inputs.get(owner).ok())
                 .map_or(0., |input| input.time_offset as f64);
-        if animation.driver == "native_layers" {
-            let input = animation.owner.and_then(|owner| inputs.get(owner).ok());
-            let Some((milliseconds, start)) =
-                input.and_then(|input| input.shader_time).or_else(|| {
-                    clock
-                        .as_ref()
-                        .and_then(|clock| clock.render_milliseconds())
-                        .map(|milliseconds| (milliseconds, 0.))
-                })
-            else {
-                continue;
-            };
-            let Ok(native) = game_time(milliseconds, start) else {
-                continue;
-            };
-            seconds = f64::from(native[3]);
-        }
         let phase = |count: usize| {
             (seconds * animation.fps as f64)
                 .floor()
                 .rem_euclid(count as f64) as usize
         };
         let desired = match animation.driver.as_str() {
-            "native_layers" => {
+            "native_script_state" => {
                 let state = animation
                     .owner
                     .and_then(|owner| inputs.get(owner).ok())
@@ -1246,7 +1293,7 @@ pub(super) fn animate(
                         })
                         .map_or(0, |(index, _)| index)
                 });
-                bank * animation.time_frames + phase(animation.time_frames)
+                bank
             }
             "staff_charge" => {
                 let charged = animation
@@ -1269,10 +1316,11 @@ pub(super) fn animate(
             _ => phase(count),
         };
         let following = match animation.driver.as_str() {
-            "staff_charge" | "native_layers" => {
+            "staff_charge" => {
                 desired / animation.time_frames * animation.time_frames
                     + (desired + 1) % animation.time_frames
             }
+            "native_script_state" => desired,
             "frozen_stone" => (desired + 1).min(count - 1),
             _ => (desired + 1) % count,
         };
@@ -1554,6 +1602,7 @@ pub(super) fn animate_scalars(
     normal_views: Query<(), (With<super::GameCamera>, With<Camera3d>)>,
     inputs: Query<&NativeArtInputs>,
     entities: Query<(&ScalarAnimation, &MeshMaterial3d<StandardMaterial>)>,
+    rays: Query<(&ScalarRay, &MeshMaterial3d<StandardMaterial>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut status: ResMut<OpaqueSurfaceStatus>,
     mut failure: ResMut<crate::assets::LoadFailure>,
@@ -1642,6 +1691,27 @@ pub(super) fn animate_scalars(
         let emissive = LinearRgba::rgb(emission, emission, emission);
         if let Some(material) = materials.get(&handle.0)
             && material.emissive != emissive
+            && let Some(mut material) = materials.get_mut(&handle.0)
+        {
+            material.emissive = emissive;
+        }
+    }
+    for (average, handle) in &rays {
+        let Ok((animation, _)) = entities.get(average.primary) else {
+            continue;
+        };
+        let script = animation
+            .owner
+            .and_then(|owner| inputs.get(owner).ok())
+            .filter(|input| input.script_available & (1 << animation.script_vector) != 0)
+            .map_or(0., |input| {
+                input.script_vectors[animation.script_vector][animation.script_component]
+            });
+        let emission = average.mean * (1. - script).clamp(0., 1.).powi(2);
+        let emissive = LinearRgba::rgb(emission, emission, emission);
+        if materials
+            .get(&handle.0)
+            .is_some_and(|material| material.emissive != emissive)
             && let Some(mut material) = materials.get_mut(&handle.0)
         {
             material.emissive = emissive;
@@ -1807,6 +1877,18 @@ mod tests {
         mesh.insert_attribute(FLAG_SOURCE_NORMAL, vec![[0., 0.5, 0.]; 3]);
         mesh.insert_attribute(FLAG_SOURCE_TANGENT, vec![[2., 0., 0.]; 3]);
         mesh
+    }
+
+    #[test]
+    fn ray_emission_integrates_squared_source_lookup_after_filtering() {
+        let mut animation: ScalarAnimation = serde_json::from_value(json!({
+            "lookup":[0.,1.], "sampler":20, "speed":1., "minimum":0., "maximum":1.,
+            "script_vector":1, "script_component":0,
+        }))
+        .unwrap();
+        assert!((animation.mean_emission() - 1. / 3.).abs() < 0.000001);
+        animation.sampler = 1;
+        assert_eq!(animation.mean_emission(), 0.5);
     }
 
     #[test]
@@ -2184,7 +2266,7 @@ mod tests {
             .unwrap()
             .0
             .clone();
-        assert_ne!(proxy, previous_proxy);
+        assert_eq!(proxy, previous_proxy);
         let meshes = app.world().resource::<Assets<Mesh>>();
         let raster = meshes.get(&target).unwrap();
         for attribute in [Mesh::ATTRIBUTE_JOINT_INDEX, Mesh::ATTRIBUTE_JOINT_WEIGHT] {
@@ -2416,7 +2498,7 @@ mod tests {
             .unwrap()
             .0
             .clone();
-        assert_ne!(proxy, previous_proxy);
+        assert_eq!(proxy, previous_proxy);
         let meshes = app.world().resource::<Assets<Mesh>>();
         let Some(VertexAttributeValues::Float32x3(positions)) = meshes
             .get(&proxy)
@@ -2433,12 +2515,12 @@ mod tests {
         assert_eq!(
             changes
                 .iter()
-                .filter(|event| matches!(event, AssetEvent::Added { id } if *id == proxy.id()))
+                .filter(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
                 .count(),
             1
         );
         assert!(!changes.iter().any(|event| matches!(event,
-            AssetEvent::Modified { id } if *id == previous_proxy.id() || *id == proxy.id())));
+            AssetEvent::Added { id } if *id == previous_proxy.id() || *id == proxy.id())));
         app.update();
         assert_eq!(
             app.world().get::<RaytracingMesh3d>(objects[0].1).unwrap().0,
@@ -2474,7 +2556,7 @@ mod tests {
             .unwrap()
             .0
             .clone();
-        assert_ne!(proxy, previous_proxy);
+        assert_eq!(proxy, previous_proxy);
         let changes: Vec<_> = events
             .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
             .copied()
@@ -2482,12 +2564,12 @@ mod tests {
         assert_eq!(
             changes
                 .iter()
-                .filter(|event| matches!(event, AssetEvent::Added { id } if *id == proxy.id()))
+                .filter(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
                 .count(),
             1
         );
         assert!(!changes.iter().any(|event| matches!(event,
-            AssetEvent::Modified { id } if *id == previous_proxy.id() || *id == proxy.id())));
+            AssetEvent::Added { id } if *id == previous_proxy.id() || *id == proxy.id())));
         let meshes = app.world().resource::<Assets<Mesh>>();
         assert_eq!(
             meshes
@@ -2518,7 +2600,7 @@ mod tests {
             .unwrap()
             .0
             .clone();
-        assert_ne!(proxy, previous_proxy);
+        assert_eq!(proxy, previous_proxy);
         let changes: Vec<_> = events
             .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
             .copied()
@@ -2526,12 +2608,12 @@ mod tests {
         assert_eq!(
             changes
                 .iter()
-                .filter(|event| matches!(event, AssetEvent::Added { id } if *id == proxy.id()))
+                .filter(|event| matches!(event, AssetEvent::Modified { id } if *id == proxy.id()))
                 .count(),
             1
         );
         assert!(!changes.iter().any(|event| matches!(event,
-            AssetEvent::Modified { id } if *id == previous_proxy.id() || *id == proxy.id())));
+            AssetEvent::Added { id } if *id == previous_proxy.id() || *id == proxy.id())));
         let Some(VertexAttributeValues::Float32x3(positions)) = app
             .world()
             .resource::<Assets<Mesh>>()
@@ -3058,7 +3140,7 @@ mod tests {
     }
 
     #[test]
-    fn baked_native_frames_select_scoped_script_banks_and_native_shader_time() {
+    fn static_ray_states_follow_owner_inputs_independently_of_shader_time() {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
             .init_asset::<Image>()
@@ -3066,7 +3148,7 @@ mod tests {
             .insert_resource(MaterialTime(9999.))
             .add_systems(Update, animate);
         let frames: Arc<Vec<Frame>> = Arc::new(
-            (1..=4)
+            (1..=2)
                 .map(|value| Frame {
                     channels: Vec::new(),
                     factors: json!({"emissive":[value as f32,0.,0.],"emissive_exposure_weight":1.}),
@@ -3092,7 +3174,7 @@ mod tests {
             app.world_mut().spawn((
                 MeshMaterial3d(handle.clone()),
                 AnimatedMaterial {
-                    driver: "native_layers".into(),
+                    driver: "native_script_state".into(),
                     fps: 2.,
                     time_frames: 2,
                     state_threshold: 1.,
@@ -3109,12 +3191,12 @@ mod tests {
         }
         app.update();
         let materials = app.world().resource::<Assets<StandardMaterial>>();
-        assert_eq!(materials.get(&handles[0]).unwrap().emissive.red, 3.);
+        assert_eq!(materials.get(&handles[0]).unwrap().emissive.red, 2.);
         assert_eq!(
             materials.get(&handles[0]).unwrap().emissive_exposure_weight,
             1.
         );
-        assert_eq!(materials.get(&handles[1]).unwrap().emissive.red, 2.);
+        assert_eq!(materials.get(&handles[1]).unwrap().emissive.red, 1.);
         app.world_mut()
             .get_mut::<NativeArtInputs>(owners[0])
             .unwrap()

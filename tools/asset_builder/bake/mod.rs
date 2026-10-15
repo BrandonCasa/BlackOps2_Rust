@@ -190,21 +190,6 @@ pub fn surfaces(
             });
         }
     }
-    let mut animation_bytes = 0;
-    for (key, material) in &required {
-        if let Some(mode) =
-            crate::material::script_layer_mode(material["technique_set"].as_str().unwrap())
-        {
-            let surfaces = groups.get(*key).ok_or_else(|| {
-                format!("Animated material {key} has no supplied source geometry")
-            })?;
-            animation_bytes += script_layers::preflight(mode, material, surfaces, images)?;
-        }
-    }
-    println!(
-        "Prepared animation frame estimate: {:.2} GiB",
-        animation_bytes as f64 / 1073741824.
-    );
     let mut baked = BTreeMap::<String, Vec<Surface>>::new();
     for (key, material) in required {
         let surfaces = groups

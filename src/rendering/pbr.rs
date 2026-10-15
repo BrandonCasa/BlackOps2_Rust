@@ -54,7 +54,7 @@ impl bevy::pbr::MaterialExtension for WaterExtension {
 type WaterMaterial = bevy::pbr::ExtendedMaterial<StandardMaterial, WaterExtension>;
 
 pub(super) fn install(app: &mut App) {
-    super::baked::install(app);
+    super::hybrid::install(app);
     bevy::shader::load_shader_library!(app, "water.wesl");
     app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
         .add_systems(PostUpdate, advance_water.after(super::MaterialAnimation));
@@ -220,20 +220,10 @@ pub(crate) fn validate(surface: &serde_json::Value) -> Result<(), String> {
         return Err(format!("Unresolved material runtime binding: {reason}"));
     }
     textures(&surface["channels"])?;
-    if surface["bake"]["script_layers"] == true {
-        if surface["baked_effect"]["mode"]
-            .as_u64()
-            .is_none_or(|mode| mode > 8)
-            || surface["baked_effect"]["falloff_power"]
-                .as_f64()
-                .is_none_or(|power| !power.is_finite())
-        {
-            return Err("Invalid baked effect shading parameters".into());
-        }
-    }
+    super::hybrid::validate(surface)?;
     water_controls(surface)?;
     if surface["source_script_layers"]["consumer"] == "native_live_layers" {
-        return Err("Native layered material has no baked animation frames".into());
+        return Err("Native animated material has no static ray average".into());
     }
     super::animated_surfaces::validate(surface)?;
     if !surface["source_shadow_only"].is_null() {

@@ -53,7 +53,12 @@ struct Pixel {
 @group(0) @binding(1) var<storage, read> images: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read> samples: array<Sample>;
 @group(0) @binding(3) var<storage, read_write> output: array<Pixel>;
-@group(0) @binding(4) var<storage, read_write> frame_color: array<vec4<f32>>;
+struct Average {
+    sum: vec4<f32>,
+    correction: vec4<f32>,
+    normal: vec4<f32>,
+}
+@group(0) @binding(4) var<storage, read_write> averages: array<Average>;
 
 fn flag(bit: u32) -> bool { return (recipe.flags & bit) != 0u; }
 fn address(value: i32, size: i32, clamped: bool) -> u32 {
@@ -227,6 +232,17 @@ fn special_surface(uv: vec2<f32>) -> Pixel {
 fn script_layer(uv0: vec2<f32>, vertex: vec4<f32>) -> Pixel {
         let count = u32(recipe.special_parms[2].x);
         let mode = u32(recipe.special_parms[2].y);
+        if recipe.special_parms[2].w >= 2.0 {
+            var result: Pixel;
+            result.color = sample_image(0u, uv0);
+            if mode == 1u || mode == 5u { result.color = vec4(result.color.rgb * vertex.rgb * vertex.rgb, result.color.a); }
+            if mode == 5u { result.color = vec4(result.color.rgb * pow(vertex.a, 4.0), result.color.a); }
+            result.normal = vec4(0.0, 0.0, 1.0, 1.0);
+            if recipe.special_parms[2].w == 3.0 { result.normal = sample_image(1u, uv0); }
+            result.response = vec4(1.0, 1.0, 0.0, 1.0);
+            result.specular = vec4(0.0);
+            return result;
+        }
         var values: array<vec4<f32>, 4>;
         var weights: array<f32, 4>;
         for (var i = 0u; i < count; i += 1u) {
@@ -258,14 +274,26 @@ fn script_layer(uv0: vec2<f32>, vertex: vec4<f32>) -> Pixel {
 }
 
 @compute @workgroup_size(64)
-fn script_frame(@builtin(global_invocation_id) invocation: vec3<u32>) {
+fn script_average(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let index = invocation.x;
     if index >= recipe.count { return; }
     let source = index + recipe.slots.y;
     let dimensions = vec2<f32>(recipe.slots.xz);
     let uv = recipe.second_parms.xy + recipe.second_parms.zw *
         (vec2<f32>(f32(source % recipe.slots.x), f32(source / recipe.slots.x)) + vec2<f32>(0.5)) / dimensions;
-    frame_color[index] = script_layer(uv, vec4<f32>(1.0)).color;
+    let pixel = script_layer(uv, vec4<f32>(1.0));
+    var value = pixel.color;
+    let mode = u32(recipe.special_parms[2].y);
+    if mode == 0u || mode == 3u || mode == 6u { value = vec4(value.rgb * value.a, value.a); }
+    if recipe.slots.w == 0u {
+        averages[index].sum = vec4(0.0);
+        averages[index].correction = vec4(0.0);
+        averages[index].normal = pixel.normal;
+    }
+    let delta = value - averages[index].correction;
+    let next = averages[index].sum + delta;
+    averages[index].correction = (next - averages[index].sum) - delta;
+    averages[index].sum = next;
 }
 
 @compute @workgroup_size(64)

@@ -18,7 +18,7 @@ mod lighting_inspection;
 mod lod;
 pub(crate) mod opaque;
 mod pbr;
-mod baked;
+mod hybrid;
 pub(crate) mod postprocess;
 pub(crate) mod preparation;
 mod preprocessing;

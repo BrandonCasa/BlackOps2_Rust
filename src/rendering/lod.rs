@@ -36,11 +36,16 @@ pub(super) struct NativeLod {
     level: usize,
     source: NativeDistances,
     selected: bool,
+    ray_selected: bool,
 }
 
 impl NativeLod {
     pub(super) fn is_selected(&self) -> bool {
         self.selected
+    }
+
+    pub(super) fn is_ray_selected(&self) -> bool {
+        self.ray_selected
     }
 }
 
@@ -84,6 +89,7 @@ fn prepare(
                             level,
                             source,
                             selected: false,
+                            ray_selected: false,
                         }));
                     }
                 }
@@ -162,6 +168,11 @@ pub(super) fn select(
                 None
             }
         });
+        let ray_active = selected.map(|level| (level + 1).min(lod.source.distances.len() - 1))
+            == Some(lod.level);
+        if lod.ray_selected != ray_active {
+            lod.ray_selected = ray_active;
+        }
         let active = selected == Some(lod.level);
         if lod.selected != active {
             lod.selected = active;
@@ -201,6 +212,7 @@ mod tests {
                                 cull_distance: 100.,
                             },
                             selected: false,
+                            ray_selected: false,
                         },
                         GlobalTransform::from_translation(position),
                         VisibilityRange::abrupt(0., 0.),
@@ -474,6 +486,7 @@ mod tests {
                                 cull_distance: 100.,
                             },
                             selected: false,
+                            ray_selected: false,
                         },
                         GlobalTransform::from_translation(Vec3::new(10., 0., 0.)),
                         VisibilityRange::abrupt(0., 0.),

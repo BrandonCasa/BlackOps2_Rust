@@ -31,6 +31,7 @@ fn release(
         ),
         (
             Without<WorldCollider>,
+            Without<super::opaque::ScalarRayPrimary>,
             With<GlobalTransform>,
             With<InheritedVisibility>,
         ),

@@ -378,25 +378,19 @@ mod tests {
             ),
         );
         cache.get(1, water, &definitions).unwrap();
-        let baked = AssetId::Uuid {
+        let hybrid = AssetId::Uuid {
             uuid: bevy::asset::uuid::Uuid::from_u128(index + 3),
         };
         cache.set_shader(
-            baked,
+            hybrid,
             Shader::from_wesl(
-                include_str!("baked.wesl"),
-                "embedded://origins/rendering/baked.wesl",
+                include_str!("hybrid.wesl"),
+                "embedded://origins/rendering/hybrid.wesl",
             ),
         );
-        for mode in 0..=8 {
-            let mut definitions = definitions.to_vec();
-            definitions.push(ShaderDefVal::UInt("BAKED_MODE".into(), mode));
-            definitions.push(ShaderDefVal::UInt(
-                "BAKED_FALLOFF_BITS".into(),
-                1.5_f32.to_bits(),
-            ));
-            cache.get(2, baked, &definitions).unwrap();
-        }
+        let mut hybrid_definitions = definitions.to_vec();
+        hybrid_definitions.push(ShaderDefVal::Bool("VERTEX_UVS_B".into(), true));
+        cache.get(2, hybrid, &hybrid_definitions).unwrap();
         let animated = AssetId::Uuid {
             uuid: bevy::asset::uuid::Uuid::from_u128(index + 4),
         };

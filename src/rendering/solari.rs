@@ -120,13 +120,16 @@ pub(super) fn prepare_meshes(
             Has<super::opaque::AnimatedMaterial>,
             Has<super::DynamicSurface>,
             Option<&super::lod::NativeLod>,
+            Option<&super::hybrid::RayOwner>,
         ),
         (
             With<MeshMaterial3d<StandardMaterial>>,
             Without<crate::assets::WorldCollider>,
+            Without<super::opaque::ScalarRayPrimary>,
         ),
     >,
     transforms: Query<&GlobalTransform>,
+    lods: Query<&super::lod::NativeLod>,
     bindposes: Res<Assets<SkinnedMeshInverseBindposes>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut cache: Local<HashMap<RayMeshKey, Handle<Mesh>>>,
@@ -166,6 +169,7 @@ pub(super) fn prepare_meshes(
         animated_material,
         dynamic,
         native_lod,
+        ray_owner,
     ) in &mut surfaces
     {
         let source_id = raster.0.id();
@@ -196,7 +200,14 @@ pub(super) fn prepare_meshes(
                 .live
                 .insert(RayMeshKey::new(prepared.source, prepared.uv_transform));
         }
-        if native_lod.is_some_and(|lod| !lod.is_selected()) {
+        let native_lod = native_lod.or_else(|| ray_owner.and_then(|owner| lods.get(owner.0).ok()));
+        if native_lod.is_some_and(|lod| {
+            if skin.is_some() {
+                !lod.is_ray_selected()
+            } else {
+                !lod.is_selected()
+            }
+        }) {
             if current.is_some() {
                 commands.entity(entity).remove::<RaytracingMesh3d>();
             }
@@ -367,7 +378,17 @@ pub(super) fn prepare_meshes(
             );
             proxy.insert_indices(Indices::U32(indices));
             proxy.enable_raytracing = true;
-            meshes.add(proxy)
+            if let Some(handle) = prepared
+                .as_deref()
+                .filter(|prepared| !shared && prepared.ownership == ProxyOwnership::Private)
+                .map(|prepared| prepared.proxy.clone())
+                && let Some(mut existing) = meshes.get_mut(&handle)
+            {
+                *existing = proxy;
+                handle
+            } else {
+                meshes.add(proxy)
+            }
         };
         let ownership = if shared {
             ProxyOwnership::Shared
@@ -763,22 +784,22 @@ mod tests {
                 .uv_transform = bevy::math::Affine2::from_translation(Vec2::new(offset as f32, 0.));
             app.update();
             let updated = proxy(&app, first);
-            assert_ne!(updated, private);
+            assert_eq!(updated, private);
             assert_eq!(proxy(&app, second), shared);
             let events: Vec<_> = cursor
                 .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
                 .collect();
             assert!(
-                events
-                    .iter()
-                    .any(|event| matches!(event, AssetEvent::Added { id } if *id == updated.id()))
-            );
-            assert!(
-                !events.iter().any(
-                    |event| matches!(event, AssetEvent::Modified { id } if *id == private.id())
+                events.iter().any(
+                    |event| matches!(event, AssetEvent::Modified { id } if *id == updated.id())
                 )
             );
-            assert_eq!(app.world().resource::<ChangedProxies>().0, vec![first]);
+            assert!(
+                !events
+                    .iter()
+                    .any(|event| matches!(event, AssetEvent::Added { id } if *id == private.id()))
+            );
+            assert!(app.world().resource::<ChangedProxies>().0.is_empty());
             private = updated;
         }
         for _ in 0..3 {
@@ -872,19 +893,19 @@ mod tests {
             .insert(InheritedVisibility::VISIBLE);
         app.update();
         let resumed = proxy(&app, first);
-        assert_ne!(resumed, private);
+        assert_eq!(resumed, private);
         let events: Vec<_> = cursor
             .read(app.world().resource::<Messages<AssetEvent<Mesh>>>())
             .collect();
         assert!(
             events
                 .iter()
-                .any(|event| matches!(event, AssetEvent::Added { id } if *id == resumed.id()))
+                .any(|event| matches!(event, AssetEvent::Modified { id } if *id == resumed.id()))
         );
         assert!(
             !events
                 .iter()
-                .any(|event| matches!(event, AssetEvent::Modified { id } if *id == private.id()))
+                .any(|event| matches!(event, AssetEvent::Added { id } if *id == private.id()))
         );
         assert_eq!(proxy(&app, second), shared);
         let meshes = app.world().resource::<Assets<Mesh>>();
