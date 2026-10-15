@@ -23,25 +23,13 @@ pub enum Element {
     Lightning,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum QuestTimerKind {
-    StrikeAuthorization,
-}
-
-pub struct QuestTimer {
-    pub kind: QuestTimerKind,
-    pub stage: QuestStage,
-    pub remaining: f32,
-}
-
 #[derive(Resource, Default)]
 pub struct MainQuest {
     pub enabled: bool,
     pub stage: QuestStage,
     pub upgraded: BTreeSet<Element>,
     pub placed: BTreeSet<Element>,
-    pub timers: Vec<QuestTimer>,
-    pub round_holds: BTreeSet<QuestStage>,
+    strike_remaining: f32,
 }
 
 impl MainQuest {
@@ -70,8 +58,7 @@ impl MainQuest {
             return false;
         }
         self.stage = next;
-        self.timers.clear();
-        self.round_holds.clear();
+        self.strike_remaining = 0.;
         true
     }
 
@@ -79,35 +66,12 @@ impl MainQuest {
         if !self.enabled || self.stage != QuestStage::BreakSeal {
             return false;
         }
-        self.timers
-            .retain(|timer| timer.kind != QuestTimerKind::StrikeAuthorization);
-        self.timers.push(QuestTimer {
-            kind: QuestTimerKind::StrikeAuthorization,
-            stage: self.stage,
-            remaining: 25.,
-        });
+        self.strike_remaining = 25.;
         true
     }
 
     pub fn strike_authorized(&self) -> bool {
-        self.enabled
-            && self.stage == QuestStage::BreakSeal
-            && self.timers.iter().any(|timer| {
-                timer.stage == self.stage
-                    && timer.kind == QuestTimerKind::StrikeAuthorization
-                    && timer.remaining > 0.
-            })
-    }
-
-    pub fn hold_round(&mut self, stage: QuestStage) -> bool {
-        if !self.enabled || self.stage != stage {
-            return false;
-        }
-        self.round_holds.insert(stage)
-    }
-
-    pub fn round_held(&self) -> bool {
-        self.enabled && self.round_holds.contains(&self.stage)
+        self.enabled && self.stage == QuestStage::BreakSeal && self.strike_remaining > 0.
     }
 }
 
@@ -224,7 +188,7 @@ impl Plugin for QuestPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                timers
+                strike_window
                     .before(crate::rounds::advance)
                     .run_if(in_state(GameState::Playing)),
             )
@@ -238,15 +202,8 @@ impl Plugin for QuestPlugin {
     }
 }
 
-fn timers(time: Res<Time<Fixed>>, mut quest: ResMut<MainQuest>) {
-    let stage = quest.stage;
-    for timer in &mut quest.timers {
-        timer.remaining -= time.delta_secs();
-    }
-    quest
-        .timers
-        .retain(|timer| timer.stage == stage && timer.remaining > 0.);
-    quest.round_holds.retain(|owner| *owner == stage);
+fn strike_window(time: Res<Time<Fixed>>, mut quest: ResMut<MainQuest>) {
+    quest.strike_remaining = (quest.strike_remaining - time.delta_secs()).max(0.);
 }
 
 pub(crate) fn souls(

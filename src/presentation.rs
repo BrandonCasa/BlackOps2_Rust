@@ -3,7 +3,7 @@ use crate::{
     assets::GameDefinition,
     gameplay::SessionEntity,
     hud::PlayerOverlay,
-    origins::content::{WeaponAnimation, WeaponId},
+    origins::content::{ContentId, WeaponAnimation, WeaponId},
     player::Player,
     rendering::GameCamera,
     weapons::{WeaponInventory, WeaponSignal},
@@ -76,11 +76,36 @@ pub(crate) struct Rig {
     dual: bool,
     playback: Option<WeaponAnimation>,
     main_node: Option<AnimationNodeIndex>,
+    selected_clip: Option<ContentId>,
+    source_sample: Option<f32>,
+    selection_sequence: u64,
     sprinting: bool,
     sprint_phase: Option<(WeaponAnimation, f32)>,
     ads_from: [f32; 2],
     ads_elapsed: f32,
     ads_requested: Option<bool>,
+}
+impl Rig {
+    pub(crate) fn action_sample<'a>(
+        &'a self,
+        player: &AnimationPlayer,
+    ) -> Option<(Entity, bool, &'a ContentId, u64, f32, bool)> {
+        if !self.arms || self.knife || self.playback.is_none() {
+            return None;
+        }
+        let active = player.animation(self.main_node?)?;
+        Some((
+            self.owner,
+            self.left,
+            self.selected_clip.as_ref()?,
+            self.selection_sequence,
+            self.source_sample.unwrap_or_else(|| active.elapsed()),
+            matches!(
+                active.repeat_mode(),
+                bevy::animation::RepeatAnimation::Forever
+            ),
+        ))
+    }
 }
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
@@ -283,6 +308,7 @@ fn spawn_viewmodels(
                     .load_builder()
                     .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
                         settings.load_animations = false;
+                        settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
                     })
                     .load(scene.split('#').next().unwrap_or(scene).to_owned());
                 let rig = commands
@@ -292,6 +318,8 @@ fn spawn_viewmodels(
                                 .load_builder()
                                 .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
                                     settings.load_animations = false;
+                                    settings.load_materials =
+                                        bevy::asset::RenderAssetUsages::RENDER_WORLD;
                                 })
                                 .load(scene.to_owned()),
                         ),
@@ -315,6 +343,9 @@ fn spawn_viewmodels(
                             dual: weapon.dual_weapon.is_some(),
                             playback: None,
                             main_node: None,
+                            selected_clip: None,
+                            source_sample: None,
+                            selection_sequence: 0,
                             sprinting: false,
                             sprint_phase: None,
                             ads_from: [0.; 2],
@@ -478,6 +509,7 @@ fn attachment_visuals(
                         .load_builder()
                         .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
                             settings.load_animations = false;
+                            settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
                         })
                         .load(scene.clone()),
                 ),
@@ -851,7 +883,9 @@ fn build_graphs(
                 continue;
             };
             if let Some((node, _)) = loaded.node(path, &mut graph, &mut assets) {
-                rig.nodes.insert(name.to_owned(), node);
+                if !rig.nodes.contains_key(name) {
+                    rig.nodes.insert(name.to_owned(), node);
+                }
             } else {
                 complete = false;
             }
@@ -959,6 +993,7 @@ pub(crate) fn hand_action(
     (action, None)
 }
 fn animate(
+    mut commands: Commands,
     time: Res<Time>,
     state: Res<State<GameState>>,
     definition: Option<Res<GameDefinition>>,
@@ -1095,15 +1130,10 @@ fn animate(
                     };
                 rig.sprint_phase = match phase {
                     WeaponAnimation::SprintEnter if enter.is_none_or(|d| elapsed >= d) => looping
-                        .map(|duration| {
-                            (
-                                WeaponAnimation::SprintLoop,
-                                (elapsed - enter.unwrap_or(0.)).rem_euclid(duration),
-                            )
-                        }),
-                    WeaponAnimation::SprintLoop => looping.map(|duration| {
-                        (WeaponAnimation::SprintLoop, elapsed.rem_euclid(duration))
-                    }),
+                        .map(|_| (WeaponAnimation::SprintLoop, elapsed - enter.unwrap_or(0.))),
+                    WeaponAnimation::SprintLoop => {
+                        looping.map(|_| (WeaponAnimation::SprintLoop, elapsed))
+                    }
                     WeaponAnimation::SprintLeave if leave.is_none_or(|d| elapsed >= d) => None,
                     _ => Some((phase, elapsed)),
                 };
@@ -1178,7 +1208,9 @@ fn animate(
         let Some((node, clip_duration)) = loaded.node(path, &mut graph, &mut assets) else {
             continue;
         };
-        rig.nodes.insert(name.to_owned(), node);
+        if !rig.nodes.contains_key(name) {
+            rig.nodes.insert(name.to_owned(), node);
+        }
         let melee = definition
             .content
             .weapons
@@ -1195,7 +1227,7 @@ fn animate(
             .or_else(|| selected.as_ref().and_then(|s| s.timing))
             .or_else(|| inventory.hand_reload_timing(rig.left))
             .or_else(|| inventory.presentation_timing(weapon, melee));
-        let seek = (|| {
+        let source_sample = (|| {
             if let Some((_, elapsed, duration, looping)) = locomotion {
                 let duration = if duration > 0. {
                     duration
@@ -1205,14 +1237,22 @@ fn animate(
                 if duration <= 0. {
                     return None;
                 }
-                let elapsed = if looping {
-                    elapsed.rem_euclid(duration)
-                } else {
-                    elapsed.min(duration)
-                };
-                Some(elapsed / duration * clip_duration)
+                Some(
+                    if looping {
+                        elapsed
+                    } else {
+                        elapsed.min(duration)
+                    } / duration
+                        * clip_duration,
+                )
             } else if let Some(fraction) = sprint_fraction {
-                Some(fraction.clamp(0., 1.) * clip_duration)
+                Some(
+                    if action == WeaponAnimation::SprintLoop {
+                        fraction
+                    } else {
+                        fraction.clamp(0., 1.)
+                    } * clip_duration,
+                )
             } else if let Some((duration, remaining)) = timing {
                 Some(((duration - remaining).max(0.) / duration * clip_duration).min(clip_duration))
             } else if selected.is_none() && shot_seek.is_some() {
@@ -1221,16 +1261,42 @@ fn animate(
                 None
             }
         })();
-        let looping = clip
-            .and_then(|id| {
-                definition
-                    .content
-                    .animations
-                    .iter()
-                    .find(|source| source.id == *id)
-            })
-            .is_some_and(|source| source.looping);
+        let looping = locomotion.is_some_and(|(_, _, _, looping)| looping)
+            || action == WeaponAnimation::SprintLoop
+            || clip
+                .and_then(|id| {
+                    definition
+                        .content
+                        .animations
+                        .iter()
+                        .find(|source| source.id == *id)
+                })
+                .is_some_and(|source| source.looping);
+        let restarted = source_sample
+            .zip(rig.source_sample)
+            .is_some_and(|(now, previous)| now + 0.001 < previous);
+        let changed = changed || rig.selected_clip.as_ref() != clip || restarted;
         if changed {
+            rig.selection_sequence = rig.selection_sequence.wrapping_add(1);
+            rig.selected_clip = clip.cloned();
+            if rig.arms {
+                let event = match action {
+                    WeaponAnimation::Equip => Some("equip"),
+                    WeaponAnimation::Unequip => Some("unequip"),
+                    WeaponAnimation::Prime => Some("prime"),
+                    WeaponAnimation::Melee => Some("melee"),
+                    WeaponAnimation::Fire if selected.is_some() => Some("throw"),
+                    _ => None,
+                };
+                if let Some(event) = event {
+                    crate::audio::binding(
+                        &mut commands,
+                        &definition,
+                        &format!("{}.{}", weapon.id.0, event),
+                        crate::audio::SoundSource::attached(rig.owner),
+                    );
+                }
+            }
             if let Some(previous) = rig.main_node {
                 // Main action clips have no source crossfade; ADS layers retain their weights.
                 player.stop(previous);
@@ -1248,8 +1314,13 @@ fn animate(
         } else {
             bevy::animation::RepeatAnimation::Never
         });
-        if let Some(seconds) = seek {
-            active.set_seek_time(seconds).pause();
+        if let Some(seconds) = source_sample {
+            let seek = if looping && clip_duration > 0. {
+                seconds.rem_euclid(clip_duration)
+            } else {
+                seconds.min(clip_duration)
+            };
+            active.set_seek_time(seek).pause();
         } else if **state == GameState::Playing {
             active.resume();
         } else {
@@ -1302,6 +1373,7 @@ fn animate(
                     .pause();
             }
         }
+        rig.source_sample = source_sample;
         rig.sequence = Some(sequence);
         rig.phase = selected.as_ref().map(|s| s.action);
         rig.playback = Some(action);

@@ -10,15 +10,7 @@ use crate::{
     player::Player,
 };
 use avian3d::prelude::*;
-use bevy::{
-    camera::{
-        primitives::Aabb,
-        visibility::{DynamicSkinnedMeshBounds, VisibilitySystems},
-    },
-    mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
-    prelude::*,
-    world_serialization::WorldInstanceReady,
-};
+use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 mod eyes;
 mod gibs;
@@ -286,6 +278,10 @@ impl Zombie {
         self.eye_spawn = eyes::EyeSpawn::Dug;
         self
     }
+    pub(crate) fn dug(mut self) -> Self {
+        self.eye_spawn = eyes::EyeSpawn::Dug;
+        self
+    }
     fn transition(&mut self, action: EnemyAnimation) {
         if self.action != action {
             if EnemyLocomotion::for_action(action).is_some() {
@@ -487,33 +483,6 @@ impl TraversalMotion {
         self.start + self.rotation * sample + (self.end - self.start - finish) * fraction
     }
 }
-#[derive(Resource, Default)]
-pub struct EnemyEvidence {
-    pub variants: BTreeSet<String>,
-    pub animations: BTreeSet<String>,
-    pub locomotion_clips: BTreeSet<String>,
-    pub attached_heads: u32,
-    pub attacks_started: u32,
-    pub replans: u32,
-    pub target_replans: u32,
-    pub blocker_replans: u32,
-    pub direct_pursuits: u32,
-    pub stuck_recoveries: u32,
-    pub separations: u32,
-    pub attack_hits: u32,
-    pub deaths: u32,
-    pub corpses_retired: u32,
-    pub corpses_evicted: u32,
-    pub corpses_removed: u32,
-    pub bounds_updates: u64,
-    pub native_bounds_frames: u64,
-    pub fallback_bounds_frames: u64,
-    pub traversals_started: u32,
-    pub traversals_finished: u32,
-    pub traversal_blocked_landings: u32,
-    pub rising_finished: u32,
-    pub adjusted_landings: u32,
-}
 #[derive(Component)]
 #[require(crate::animation::SceneClips)]
 pub(crate) struct ActorRig {
@@ -544,13 +513,7 @@ impl ActorRig {
 #[derive(Component)]
 struct PartialRoot;
 #[derive(Component)]
-struct ActorMesh {
-    owner: Entity,
-}
-#[derive(Component)]
 struct HasActor;
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
-pub(crate) struct EnemyBounds;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) struct EnemyRetirement;
 #[derive(Component)]
@@ -566,8 +529,7 @@ impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         ragdoll::plugin(app);
         gibs::plugin(app);
-        app.init_resource::<EnemyEvidence>()
-            .add_systems(Update, eyes::update.run_if(in_state(GameState::Playing)))
+        app.add_systems(Update, eyes::update.run_if(in_state(GameState::Playing)))
             .add_systems(
                 FixedUpdate,
                 clone_animation
@@ -615,14 +577,6 @@ impl Plugin for EnemyPlugin {
                     .in_set(crate::animation::AnimationPoseModifiers)
                     .after(bevy::app::AnimationSystems)
                     .before(bevy::transform::TransformSystems::Propagate),
-            )
-            .add_systems(
-                PostUpdate,
-                animated_bounds
-                    .in_set(EnemyBounds)
-                    .after(bevy::transform::TransformSystems::Propagate)
-                    .after(VisibilitySystems::CalculateBounds)
-                    .before(VisibilitySystems::CheckVisibility),
             )
             .add_observer(ready);
     }
@@ -678,6 +632,7 @@ pub(crate) fn spawn_visual_clone(
             .load_builder()
             .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
                 settings.load_animations = false;
+                settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
             })
             .load(scene.split('#').next().unwrap_or(scene).to_owned());
         let body = socket.is_none();
@@ -688,6 +643,7 @@ pub(crate) fn spawn_visual_clone(
                     .load_builder()
                     .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
                         settings.load_animations = false;
+                        settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
                     })
                     .load(scene.to_owned()),
             ),
@@ -780,7 +736,6 @@ pub(crate) fn lifecycle(
     slide: MoveAndSlide,
     query: SpatialQuery,
     mut impacts: ResMut<crate::damage::DamageQueue>,
-    mut evidence: ResMut<EnemyEvidence>,
     mut barriers: ResMut<crate::barriers::Barriers>,
     goals: Query<(&EnemyGoal, Option<&crate::buildables::ShieldAggro>)>,
 ) {
@@ -880,9 +835,7 @@ pub(crate) fn lifecycle(
             zombie.velocity = Vec3::ZERO;
             continue;
         }
-        if zombie.elapsed == 0. && zombie.traversal.as_ref().is_some_and(|m| m.alias == "rise") {
-            evidence.traversals_started += 1;
-        }
+
         zombie.elapsed += dt * wounds.movement_scale();
         zombie.barrier_wait -= dt;
         if let Some(id) = zombie
@@ -1099,9 +1052,6 @@ pub(crate) fn lifecycle(
                         None
                     };
                 if let Some(landing) = landing {
-                    if landing.distance_squared(motion.end) > 0.01 {
-                        evidence.adjusted_landings += 1;
-                    }
                     transform.translation = landing;
                     if let Some((_, point)) = positions.iter_mut().find(|(e, _)| *e == entity) {
                         *point = landing;
@@ -1109,16 +1059,16 @@ pub(crate) fn lifecycle(
                     let rising = motion.alias == "rise"
                         && (enemy.physics.is_some()
                             || matches!(zombie.eye_spawn, eyes::EyeSpawn::Dug));
-                    if motion.alias == "rise" {
-                        evidence.rising_finished += 1;
-                    } else if zombie.source_entrance.as_ref().is_some_and(|entrance| {
-                        definition.content.navigation_nodes.iter().any(|node| {
-                            node.id == entrance.node
-                                && (Vec3::from_array(node.position) + Vec3::Y * half_height)
-                                    .distance_squared(motion.start)
-                                    < 0.001
+                    if motion.alias != "rise"
+                        && zombie.source_entrance.as_ref().is_some_and(|entrance| {
+                            definition.content.navigation_nodes.iter().any(|node| {
+                                node.id == entrance.node
+                                    && (Vec3::from_array(node.position) + Vec3::Y * half_height)
+                                        .distance_squared(motion.start)
+                                        < 0.001
+                            })
                         })
-                    }) {
+                    {
                         zombie.source_entrance = None;
                     }
                     zombie.traversal = None;
@@ -1137,9 +1087,6 @@ pub(crate) fn lifecycle(
                     }
                     zombie.navigation = 0.;
                     commands.entity(entity).remove::<ColliderDisabled>();
-                    evidence.traversals_finished += 1;
-                } else {
-                    evidence.traversal_blocked_landings += 1;
                 }
             }
             continue;
@@ -1242,7 +1189,6 @@ pub(crate) fn lifecycle(
                 }
             };
             zombie.start_combat(enemy, state);
-            evidence.attacks_started += 1;
         }
         if zombie.action == EnemyAnimation::Attack {
             let clip = zombie.combat_clip(enemy);
@@ -1299,16 +1245,9 @@ pub(crate) fn lifecycle(
         if zombie.route_revision != navigation.revision
             || target.distance_squared(zombie.last_target) > 0.5625
         {
-            if zombie.route_revision != u32::MAX && zombie.route_revision != navigation.revision {
-                evidence.blocker_replans += 1;
-            }
-            if target.distance_squared(zombie.last_target) > 0.5625 {
-                evidence.target_replans += 1;
-            }
             zombie.navigation = 0.;
             zombie.route_revision = navigation.revision;
             zombie.last_target = target;
-            evidence.replans += 1;
         }
         zombie.navigation -= dt;
         if zombie.navigation <= 0. {
@@ -1320,7 +1259,6 @@ pub(crate) fn lifecycle(
                 && navigation.direct_allowed(feet, target - Vec3::Y * target_center, &access)
                 && visible(transform.translation, target)
             {
-                evidence.direct_pursuits += 1;
                 target
             } else {
                 navigation.destination(feet, target - Vec3::Y * target_center, &access)
@@ -1537,7 +1475,7 @@ pub(crate) fn lifecycle(
                     zombie.velocity = Vec3::ZERO;
                     transform.rotation = rotation;
                     commands.entity(entity).insert(ColliderDisabled);
-                    evidence.traversals_started += 1;
+
                     continue;
                 }
             }
@@ -1634,7 +1572,6 @@ pub(crate) fn lifecycle(
             if separate.length_squared() > 0.001 {
                 let separate = separate.clamp_length_max(0.65);
                 zombie.velocity += separate;
-                evidence.separations += 1;
             }
         }
         zombie.velocity.y = (zombie.velocity.y - definition.tuning.gravity * dt).max(-30.);
@@ -1690,7 +1627,6 @@ pub(crate) fn lifecycle(
                 } + Vec3::Y * half_height;
                 zombie.navigation = 0.5;
                 zombie.stuck = 0.;
-                evidence.stuck_recoveries += 1;
             }
         } else if zombie.action != EnemyAnimation::Attack {
             zombie.transition(EnemyAnimation::Idle);
@@ -1780,7 +1716,6 @@ fn corpses(
         ),
         (Without<crate::panzer::Panzer>, Without<Player>),
     >,
-    mut evidence: ResMut<EnemyEvidence>,
     players: Query<(&Player, &Transform), Without<Zombie>>,
 ) {
     let limit = definition.rounds.corpse_limit;
@@ -1858,7 +1793,6 @@ fn corpses(
                     );
                 }
             }
-            evidence.deaths += 1;
         }
         let previous = zombie.elapsed;
         zombie.elapsed += time.delta_secs();
@@ -1908,7 +1842,6 @@ fn corpses(
             let slot = corpse_slot(&occupied, eye, forward);
             if let Some((evicted, _)) = occupied[slot] {
                 commands.entity(evicted).despawn();
-                evidence.corpses_evicted += 1;
             }
             occupied[slot] = Some((
                 entity,
@@ -1917,7 +1850,6 @@ fn corpses(
             commands
                 .entity(entity)
                 .insert(ActorCorpse { slot: slot as u8 });
-            evidence.corpses_retired += 1;
         }
     }
 }
@@ -1963,7 +1895,6 @@ fn spawn_actors(
     server: Res<AssetServer>,
     definition: Option<Res<GameDefinition>>,
     enemies: Query<(Entity, &Zombie), Without<HasActor>>,
-    mut evidence: ResMut<EnemyEvidence>,
 ) {
     let Some(definition) = definition else {
         return;
@@ -2013,6 +1944,7 @@ fn spawn_actors(
                 .load_builder()
                 .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
                     settings.load_animations = false;
+                    settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
                 })
                 .load(scene.split('#').next().unwrap_or(scene).to_owned());
             pending.push((
@@ -2021,6 +1953,7 @@ fn spawn_actors(
                         .load_builder()
                         .with_settings(|settings: &mut bevy::gltf::GltfLoaderSettings| {
                             settings.load_animations = false;
+                            settings.load_materials = bevy::asset::RenderAssetUsages::RENDER_WORLD;
                         })
                         .load(scene.to_owned()),
                 ),
@@ -2062,7 +1995,6 @@ fn spawn_actors(
             }
             world.entity_mut(owner).insert(HasActor);
         });
-        evidence.variants.insert(zombie.definition.0.clone());
     }
 }
 fn ready(
@@ -2070,7 +2002,6 @@ fn ready(
     mut commands: Commands,
     mut rigs: Query<&mut ActorRig>,
     children: Query<&Children>,
-    meshes: Query<(), With<Mesh3d>>,
     names: Query<&Name>,
     definition: Res<GameDefinition>,
     enemies: Query<&Zombie>,
@@ -2129,11 +2060,6 @@ fn ready(
         {
             rig.sockets.entry(name.to_string()).or_insert(child);
         }
-        if meshes.contains(child) {
-            commands
-                .entity(child)
-                .insert(ActorMesh { owner: rig.owner });
-        }
         if rig
             .partial_root
             .as_ref()
@@ -2152,11 +2078,7 @@ fn ready(
         }
     }
 }
-fn attach_parts(
-    mut commands: Commands,
-    mut rigs: Query<(Entity, &mut ActorRig)>,
-    mut evidence: ResMut<EnemyEvidence>,
-) {
+fn attach_parts(mut commands: Commands, mut rigs: Query<(Entity, &mut ActorRig)>) {
     let _span = info_span!("enemy_attachment_lifecycle").entered();
     let attachments: Vec<_> = rigs
         .iter()
@@ -2181,7 +2103,6 @@ fn attach_parts(
         commands.entity(entity).insert(ChildOf(rig.owner));
         rig.socket_entity = Some(parent);
         rig.attached = true;
-        evidence.attached_heads += 1;
     }
 }
 fn admit_ready(
@@ -2235,9 +2156,10 @@ fn animate(
             continue;
         };
         let panzer = panzers.get(rig.owner).ok();
+        let selected = zombie.animation_clip(enemy, &definition);
         let name = panzer
             .map(|panzer| panzer.animation().0)
-            .or_else(|| zombie.animation_name(enemy));
+            .or_else(|| selected.and_then(|clip| clip.id.0.rsplit('.').next()));
         let Some(name) = name else { continue };
         let Some(path) = crate::animation::clip_path(&definition, &rig.source, name) else {
             assert!(
@@ -2248,17 +2170,7 @@ fn animate(
             continue;
         };
         let looping = panzer.map_or_else(
-            || {
-                definition
-                    .content
-                    .animations
-                    .iter()
-                    .find(|animation| {
-                        animation.skeleton == rig.presentation
-                            && animation.id.0.rsplit('.').next() == Some(name)
-                    })
-                    .is_some_and(|animation| animation.looping)
-            },
+            || selected.is_some_and(|clip| clip.looping),
             |panzer| panzer.animation().1,
         );
         let elapsed = panzer.map_or(zombie.elapsed, |panzer| panzer.animation_elapsed);
@@ -2315,87 +2227,6 @@ fn follow_sockets(
         }
     }
 }
-fn animated_bounds(
-    mut meshes: Query<(
-        &ActorMesh,
-        &Mesh3d,
-        &SkinnedMesh,
-        &GlobalTransform,
-        Has<DynamicSkinnedMeshBounds>,
-        &mut Aabb,
-    )>,
-    joints: Query<&GlobalTransform>,
-    enemies: Query<&Zombie>,
-    mesh_assets: Res<Assets<Mesh>>,
-    inverse_binds: Res<Assets<SkinnedMeshInverseBindposes>>,
-    definition: Option<Res<GameDefinition>>,
-    mut evidence: ResMut<EnemyEvidence>,
-) {
-    let Some(definition) = definition else {
-        return;
-    };
-    for (mesh, geometry, skin, transform, dynamic, mut aabb) in &mut meshes {
-        let Ok(zombie) = enemies.get(mesh.owner) else {
-            continue;
-        };
-        let native_ready = dynamic
-            && aabb.center.is_finite()
-            && aabb.half_extents.is_finite()
-            && transform.to_matrix().is_finite()
-            && transform.affine().matrix3.determinant().abs() > 1e-8
-            && mesh_assets.get(&geometry.0).is_some_and(|geometry| {
-                geometry.morph_targets().is_none()
-                    && geometry.skinned_mesh_bounds().is_some_and(|bounds| {
-                        !bounds.aabbs.is_empty()
-                            && inverse_binds
-                                .get(&skin.inverse_bindposes)
-                                .is_some_and(|binds| {
-                                    bounds.iter().all(|(index, _)| {
-                                        let index = usize::from(index.0);
-                                        binds.get(index).is_some_and(|bind| bind.is_finite())
-                                            && skin.joints.get(index).is_some_and(|joint| {
-                                                joints
-                                                    .get(*joint)
-                                                    .is_ok_and(|pose| pose.to_matrix().is_finite())
-                                            })
-                                    })
-                                })
-                    })
-            });
-        if native_ready {
-            evidence.native_bounds_frames += 1;
-            if aabb.is_changed() {
-                evidence.bounds_updates += 1;
-            }
-            continue;
-        }
-        evidence.fallback_bounds_frames += 1;
-        let margin = definition
-            .content
-            .enemies
-            .iter()
-            .find(|e| e.id == zombie.definition)
-            .map_or(2.5, |e| e.bounds_margin);
-        let inverse = transform.affine().inverse();
-        let mut min = Vec3::splat(f32::INFINITY);
-        let mut max = Vec3::splat(f32::NEG_INFINITY);
-        for joint in &skin.joints {
-            if let Ok(pose) = joints.get(*joint) {
-                let p = inverse.transform_point3(pose.translation());
-                min = min.min(p);
-                max = max.max(p);
-            }
-        }
-        if min.is_finite() && max.is_finite() {
-            let next = Aabb::from_min_max(min - Vec3::splat(margin), max + Vec3::splat(margin));
-            if aabb.center != next.center || aabb.half_extents != next.half_extents {
-                *aabb = next;
-                evidence.bounds_updates += 1;
-            }
-        }
-    }
-}
-
 #[derive(Default)]
 struct DistanceClock {
     player: Option<Entity>,

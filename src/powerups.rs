@@ -255,6 +255,7 @@ fn drop_powerups(
     mut session: ResMut<Session>,
     enemies: Query<(&Transform, Option<&crate::rounds::PopulationKind>), With<Zombie>>,
     panzers: Query<(), With<crate::panzer::Panzer>>,
+    pilots: Query<(), With<crate::quest_recovery::Pilot>>,
     players: Query<Entity, With<Player>>,
     spatial: SpatialQuery,
     server: Res<AssetServer>,
@@ -272,6 +273,7 @@ fn drop_powerups(
     for EnemyDeath(receipt) in deaths.read() {
         if enemies.get(receipt.impact.target).is_ok_and(|(_,kind)|kind.is_some_and(|kind|*kind==crate::rounds::PopulationKind::GeneratorDefender)) {continue;}
         if panzers.contains(receipt.impact.target)
+            || pilots.contains(receipt.impact.target)
             || drops.count >= 4
             || !receipt.impact.source.player_attributed()
             || !players.contains(receipt.impact.attacker)

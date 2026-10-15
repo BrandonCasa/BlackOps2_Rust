@@ -850,14 +850,14 @@ impl Plugin for GameAudioPlugin {
             .add_audio_source::<reverb::RoomBus>()
             .add_systems(
                 Update,
-                (settings, reverb::update, play, route, lifecycle, subtitles)
+                (settings, reverb::update)
                     .chain()
-                    .after(crate::input::pause_and_restart)
-                    .in_set(AudioPlayback),
+                    .after(crate::input::pause_and_restart),
             )
             .add_systems(
                 PostUpdate,
-                maintain
+                (play, route, lifecycle, subtitles, maintain)
+                    .chain()
                     .after(bevy::app::AnimationSystems)
                     .after(crate::presentation::CameraPose)
                     .before(bevy::transform::TransformSystems::Propagate)

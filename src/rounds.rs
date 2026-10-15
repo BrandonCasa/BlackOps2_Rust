@@ -248,9 +248,6 @@ pub(crate) fn advance(
     }
     if session.round_complete(population.ordinary + population.special) && panzer_waves.pending == 0
     {
-        if quest.round_held() {
-            return;
-        }
         ending.write(RoundEnding {
             session: *session_id,
             round: session.round,

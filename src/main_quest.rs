@@ -168,7 +168,10 @@ fn progress(
         &crate::environment::triggers::MapTrigger,
         &crate::environment::triggers::TriggerState,
     )>,
-    waves: Res<crate::panzer::PanzerWaves>,
+    (waves, mut session): (
+        Res<crate::panzer::PanzerWaves>,
+        ResMut<crate::gameplay::Session>,
+    ),
 ) {
     for (target, _, mut visible) in &mut targets {
         *visible = if quest.enabled
@@ -364,24 +367,29 @@ fn progress(
             .iter()
             .filter(|(panzer, health, _)| panzer.quest && health.state() == LifeState::ActorAlive)
             .count();
-        if state.spawn_timer <= 0. && alive < 4 {
-            let offsets = [Vec3::X, Vec3::Z, Vec3::NEG_X, Vec3::NEG_Z];
-            let position = Vec3::new(-79.4512, 3.8354, -28.2448)
-                + offsets[state.encounter_spawned as usize % 4] * 3.;
-            crate::panzer::spawn(
-                &mut commands,
-                &game,
-                &server,
-                position,
-                crate::panzer::health_for_wave(&waves),
-                true,
-            );
-            state.encounter_spawned += 1;
-            state.spawn_timer = 0.75;
+        if state.spawn_timer <= 0. {
+            if alive < 4 {
+                crate::panzer::spawn_quest(
+                    &mut commands,
+                    crate::panzer::health_for_wave(&waves),
+                    state.encounter_spawned as usize % 4,
+                );
+                state.encounter_spawned += 1;
+            }
+            // The source waits after every attempt, including a full live cap.
+            state.spawn_timer = 0.5 + session.random() as f32 / u32::MAX as f32 * 0.5;
         }
     }
     if state.encounter_killed >= 8 {
-        quest.transition(QuestStage::PanzerEncounter, QuestStage::RecoverDrone);
+        if let Some(remaining) = state.stage_delay.as_mut() {
+            *remaining -= time.delta_secs();
+            if *remaining <= 0. {
+                quest.transition(QuestStage::PanzerEncounter, QuestStage::RecoverDrone);
+                state.stage_delay = None;
+            }
+        } else {
+            state.stage_delay = Some(0.1);
+        }
     }
 }
 fn buttons(
@@ -674,7 +682,10 @@ pub(crate) fn interact(
     focus.accepted += 1;
     crate::audio::emit(
         &mut commands,
-        "zmb_squest_robot_button",
+        match target {
+            Target::Staff { .. } => "zmb_squest_robot_place_staff",
+            Target::Button(_) => "zmb_squest_robot_button",
+        },
         crate::audio::SoundSource::attached(entity),
     );
 }

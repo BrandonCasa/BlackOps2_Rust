@@ -52,6 +52,11 @@ impl SafeAnchor {
 struct Glyph;
 #[derive(Component)]
 struct Rendered(NativeText);
+#[derive(Component)]
+struct FontAtlas {
+    style: &'static str,
+    image: Handle<Image>,
+}
 
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<FadeCache>().add_systems(
@@ -167,13 +172,14 @@ fn render(
         &mut Node,
         Option<&Rendered>,
         Option<&Children>,
+        Option<&FontAtlas>,
     )>,
     glyphs: Query<(), With<Glyph>>,
 ) {
     let Some(game) = game else { return };
     if !labels
         .iter()
-        .any(|(_, label, _, rendered, _)| rendered.is_none_or(|r| r.0 != *label))
+        .any(|(_, label, _, rendered, _, _)| rendered.is_none_or(|r| r.0 != *label))
     {
         return;
     }
@@ -188,7 +194,7 @@ fn render(
                 .map(|font| (asset.id.0.as_str(), (asset, font)))
         })
         .collect();
-    for (entity, label, mut node, rendered, children) in &mut labels {
+    for (entity, label, mut node, rendered, children, atlas) in &mut labels {
         if rendered.is_some_and(|r| r.0 == *label) {
             continue;
         }
@@ -196,7 +202,17 @@ fn render(
         let (asset, font) = fonts.get(font_id.as_str()).unwrap_or_else(|| {
             panic!("required HUD font {font_id} is missing from the UI catalog")
         });
-        let texture = server.load(asset.path.clone());
+        let texture = if let Some(atlas) = atlas.filter(|atlas| atlas.style == label.style) {
+            atlas.image.clone()
+        } else {
+            let image = server.load(asset.path.clone());
+            // Keep the atlas alive while it loads, before glyphs can hold it.
+            commands.entity(entity).insert(FontAtlas {
+                style: label.style,
+                image: image.clone(),
+            });
+            image
+        };
         let Some(atlas) = images.get(&texture) else {
             continue;
         };

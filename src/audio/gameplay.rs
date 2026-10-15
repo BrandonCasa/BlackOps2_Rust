@@ -2,9 +2,8 @@ use super::*;
 use crate::{
     gameplay::{GameStep, Session},
     life::{LifeState, Vitality},
-    origins::{EnemyAnimation, WeaponAnimation},
+    origins::EnemyAnimation,
     player::Player,
-    weapons::{WeaponInventory, WeaponSignal},
 };
 use avian3d::prelude::*;
 
@@ -12,23 +11,28 @@ use avian3d::prelude::*;
 struct ActionClock {
     key: String,
     sequence: u64,
-    age: f32,
+    sampled: f32,
+}
+struct WeaponNotes {
+    animation: usize,
+    sequence: u64,
     sampled: f32,
 }
 #[derive(Default)]
 struct ActorClock {
     position: Option<Vec3>,
-    joints: [Option<Entity>; 3],
     vocal: f32,
     action: Option<EnemyAnimation>,
     elapsed: f32,
     talking: Option<Entity>,
     animation: ActionClock,
 }
+#[derive(Component)]
+struct AudioJoints([Option<Entity>; 3]);
 #[derive(Resource, Default)]
 struct AudioState {
     player: Option<Entity>,
-    actions: BTreeMap<(Entity, bool), ActionClock>,
+    actions: BTreeMap<Entity, WeaponNotes>,
     actors: BTreeMap<Entity, ActorClock>,
     loops: BTreeMap<String, Entity>,
     perks: BTreeSet<crate::origins::PerkId>,
@@ -62,7 +66,8 @@ impl VocalChoke {
     }
 }
 pub(super) fn install(app: &mut App) {
-    app.init_resource::<VocalChoke>();
+    app.init_resource::<VocalChoke>()
+        .add_observer(bind_actor_joints);
     app.init_resource::<TriggerAudio>()
         .add_observer(trigger_sound)
         .add_systems(OnEnter(GameState::StartingSession), reset_trigger_audio)
@@ -74,9 +79,17 @@ pub(super) fn install(app: &mut App) {
         );
     app.init_resource::<AudioState>().add_systems(
         FixedUpdate,
-        (actions, actors, world, feedback)
+        (actors, world, feedback)
             .chain()
             .after(GameStep::Rounds)
+            .run_if(in_state(GameState::Playing)),
+    );
+    app.add_systems(
+        PostUpdate,
+        actions
+            .after(bevy::app::AnimationSystems)
+            .after(crate::presentation::CameraPose)
+            .before(AudioPlayback)
             .run_if(in_state(GameState::Playing)),
     );
     app.add_systems(OnEnter(GameState::StartingSession), reset_gameplay_audio);
@@ -84,6 +97,29 @@ pub(super) fn install(app: &mut App) {
 fn reset_gameplay_audio(mut state: ResMut<AudioState>, mut choke: ResMut<VocalChoke>) {
     *state = AudioState::default();
     *choke = VocalChoke::default();
+}
+
+fn bind_actor_joints(
+    event: On<Add<crate::hit_regions::SkeletalReady>>,
+    mut commands: Commands,
+    actors: Query<(), With<crate::enemies::Zombie>>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+) {
+    if !actors.contains(event.entity) {
+        return;
+    }
+    let mut joints = [None; 3];
+    for entity in children.iter_descendants(event.entity) {
+        if let Ok(name) = names.get(entity)
+            && let Some(index) = ["j_ball_le", "j_ball_ri", "j_mainroot"]
+                .iter()
+                .position(|joint| *joint == name.as_str())
+        {
+            joints[index] = Some(entity);
+        }
+    }
+    commands.entity(event.entity).insert(AudioJoints(joints));
 }
 
 #[derive(Resource, Default)]
@@ -433,135 +469,52 @@ pub(crate) fn voice(
 fn actions(
     mut commands: Commands,
     game: Res<GameDefinition>,
-    time: Res<Time<Fixed>>,
     mut state: ResMut<AudioState>,
-    players: Query<
-        (
-            Entity,
-            &WeaponInventory,
-            &crate::equipment::GrenadeInventory,
-            &crate::equipment::TacticalInventory,
-            &crate::mines::MineInventory,
-            Option<&crate::perks::PerkDrinking>,
-        ),
-        With<Player>,
-    >,
+    rigs: Query<(Entity, &crate::presentation::Rig, &AnimationPlayer)>,
 ) {
-    state.actions.retain(|(e, _), _| players.contains(*e));
-    for (owner, inventory, lethal, tactical, mines, drinking) in &players {
-        let selected = drinking
-            .map(|d| d.selection())
-            .or_else(|| crate::presentation::offhand::selection(lethal, tactical, mines, &game));
-        let Some(id) = selected
-            .as_ref()
-            .map(|s| &s.weapon)
-            .or_else(|| inventory.active().map(|w| &w.definition))
-        else {
+    state.actions.retain(|entity, _| {
+        rigs.get(*entity)
+            .is_ok_and(|(_, rig, player)| rig.action_sample(player).is_some())
+    });
+    for (entity, rig, player) in &rigs {
+        let Some((owner, _, clip, sequence, sampled, looping)) = rig.action_sample(player) else {
             continue;
         };
-        let Some(weapon) = game.content.weapons.iter().find(|w| w.id == *id) else {
-            continue;
-        };
-        for left in [false, true] {
-            let weapon = if left {
-                if selected.is_some() {
-                    continue;
-                }
-                let Some(partner) = weapon
-                    .dual_weapon
-                    .as_ref()
-                    .and_then(|id| game.content.weapons.iter().find(|w| w.id == *id))
-                else {
-                    continue;
-                };
-                partner
-            } else {
-                weapon
-            };
-            let signal = inventory.hand_signal(left);
-            let (action, shot_seek) = selected.as_ref().map_or_else(
-                || crate::presentation::hand_action(inventory, weapon, &game, left),
-                |s| (s.action, None),
-            );
-            if left && action == WeaponAnimation::Melee {
-                state.actions.remove(&(owner, left));
-                continue;
-            }
-            let animation_weapon = if action == WeaponAnimation::Melee {
-                game.content
-                    .weapons
-                    .iter()
-                    .find(|w| w.id.0 == "weapon.knife_zm")
-                    .unwrap_or(weapon)
-            } else {
-                weapon
-            };
-            let Some(clip) = animation_weapon.animation_actions.get(&action) else {
-                continue;
-            };
-            let clock = state.actions.entry((owner, left)).or_default();
-            let sequence = if selected.is_some() {
-                0
-            } else {
-                inventory.hand_sequence(left)
-            };
-            let timing = selected
-                .as_ref()
-                .and_then(|s| s.timing)
-                .or_else(|| inventory.hand_reload_timing(left))
-                .or_else(|| inventory.presentation_timing(weapon, animation_weapon));
-            let backwards = timing
-                .is_some_and(|(duration, remaining)| duration - remaining + 0.001 < clock.age);
-            let finishing_shot =
-                selected.is_none() && shot_seek.is_some() && signal == WeaponSignal::Idle;
-            let changed =
-                clock.key != clip.0 || (clock.sequence != sequence && !finishing_shot) || backwards;
-            if changed {
-                clock.key = clip.0.clone();
-                clock.sequence = sequence;
-                clock.age = 0.;
-                clock.sampled = -0.001;
-                let event = match action {
-                    WeaponAnimation::Equip => Some("equip"),
-                    WeaponAnimation::Unequip => Some("unequip"),
-                    WeaponAnimation::Prime => Some("prime"),
-                    WeaponAnimation::Melee => Some("melee"),
-                    WeaponAnimation::Fire if selected.is_some() => Some("throw"),
-                    _ => None,
-                };
-                if let Some(event) = event {
-                    binding(
-                        &mut commands,
-                        &game,
-                        &format!("{}.{}", weapon.id.0, event),
-                        SoundSource::attached(owner),
-                    );
-                }
-            }
-            let native_duration = game
-                .content
+        let animation_index = || {
+            game.content
                 .animations
                 .iter()
-                .find(|a| a.id == *clip)
-                .map(|animation| animation.seconds);
-            let Some(native_duration) = native_duration else {
-                continue;
-            };
-            let sampled = if let Some((duration, remaining)) = timing {
-                clock.age = (duration - remaining).max(0.);
-                clock.age / duration * native_duration
-            } else if selected.is_none() && shot_seek.is_some() {
-                clock.age = shot_seek.unwrap_or(0.);
-                clock.age.min(native_duration)
-            } else {
-                clock.age += time.delta_secs();
-                clock.age
-            };
-            if let Some(notes) = game.audio.timelines.get(&clip.0) {
-                for note in notes
-                    .iter()
-                    .filter(|n| n.seconds > clock.sampled && n.seconds <= sampled)
-                {
+                .position(|animation| animation.id == *clip)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "selected weapon animation {} is missing from the catalog",
+                        clip.0
+                    )
+                })
+        };
+        let cursor = state.actions.entry(entity).or_insert_with(|| WeaponNotes {
+            animation: animation_index(),
+            sequence,
+            sampled: -0.001,
+        });
+        if game.content.animations[cursor.animation].id != *clip {
+            cursor.animation = animation_index();
+            cursor.sampled = -0.001;
+        }
+        if cursor.sequence != sequence || sampled < cursor.sampled {
+            cursor.sampled = -0.001;
+        }
+        let animation = &game.content.animations[cursor.animation];
+        if let Some(notes) = game.audio.timelines.get(&clip.0) {
+            for note in notes {
+                let count = note_crossings(
+                    note.seconds,
+                    cursor.sampled,
+                    sampled,
+                    animation.seconds,
+                    looping,
+                );
+                for _ in 0..count {
                     emit(
                         &mut commands,
                         note.alias.clone(),
@@ -569,9 +522,9 @@ fn actions(
                     );
                 }
             }
-            clock.sampled = sampled;
-            clock.sequence = sequence;
         }
+        cursor.sampled = sampled;
+        cursor.sequence = sequence;
     }
 }
 fn actors(
@@ -591,9 +544,9 @@ fn actors(
         &Vitality,
         Option<&crate::generators::GeneratorDefender>,
         Option<&crate::rounds::PopulationKind>,
+        Option<&AudioJoints>,
     )>,
-    children: Query<&Children>,
-    joints: Query<(&Name, &GlobalTransform)>,
+    joints: Query<&GlobalTransform>,
     spatial: SpatialQuery,
     surfaces: Query<&crate::movement::physics::SurfaceFlags>,
 ) {
@@ -604,7 +557,7 @@ fn actors(
         .collect::<BTreeSet<_>>();
     let alive = zombies
         .iter()
-        .filter(|(_, _, _, health, defender, population)| {
+        .filter(|(_, _, _, health, defender, population, _)| {
             health.state() == LifeState::ActorAlive
                 && defender.is_none()
                 && population
@@ -620,7 +573,7 @@ fn actors(
     if footstep_frame.0 != mixer.native_frame {
         *footstep_frame = (mixer.native_frame, 0);
     }
-    for (owner, zombie, pose, health, defender, population) in &zombies {
+    for (owner, zombie, pose, health, defender, population, bound_joints) in &zombies {
         let capture_actor = defender.is_some()
             || population
                 .is_some_and(|kind| *kind == crate::rounds::PopulationKind::GeneratorDefender);
@@ -629,26 +582,6 @@ fn actors(
             position.xz().distance_squared(pose.translation.xz()) / time.delta_secs().powi(2)
         });
         clock.position = Some(pose.translation);
-        if clock.joints.iter().any(Option::is_none) {
-            for entity in children.iter_descendants(owner) {
-                if let Ok((name, _)) = joints.get(entity) {
-                    if let Some(index) = ["j_ball_le", "j_ball_ri", "j_mainroot"]
-                        .iter()
-                        .position(|joint| *joint == name.as_str())
-                    {
-                        clock.joints[index] = Some(entity);
-                    }
-                }
-            }
-        }
-        let feet = [0, 1].map(|index| {
-            clock.joints[index]
-                .and_then(|entity| joints.get(entity).ok())
-                .map_or(pose.translation, |(_, pose)| pose.translation())
-        });
-        let mainroot = clock.joints[2]
-            .and_then(|entity| joints.get(entity).ok())
-            .map(|(_, pose)| pose.translation());
         if clock
             .talking
             .is_some_and(|entity| finished.contains(&entity))
@@ -665,7 +598,7 @@ fn actors(
             let clock = &mut clock.animation;
             if clock.key != animation.id.0
                 || clock.sequence != zombie.animation_sequence()
-                || zombie.elapsed < clock.age
+                || zombie.elapsed < clock.sampled
             {
                 clock.key = animation.id.0.clone();
                 clock.sequence = zombie.animation_sequence();
@@ -700,7 +633,18 @@ fn actors(
                     animation.seconds,
                     animation.looping,
                 );
-                let foot = feet[usize::from(note.event.starts_with("footstep_right_"))];
+                if count == 0 || footstep_frame.1 >= 16 {
+                    continue;
+                }
+                let joint_position = |index| {
+                    bound_joints
+                        .and_then(|bound| bound.0[index])
+                        .and_then(|entity| joints.get(entity).ok())
+                        .map(GlobalTransform::translation)
+                };
+                let foot = joint_position(usize::from(note.event.starts_with("footstep_right_")))
+                    .unwrap_or(pose.translation);
+                let mainroot = joint_position(2);
                 let mut surface = spatial
                     .cast_ray_predicate(
                         foot + Vec3::Y * 15. * 0.0254,
@@ -733,7 +677,6 @@ fn actors(
                 }
             }
             clock.sampled = zombie.elapsed;
-            clock.age = zombie.elapsed;
         }
         if health.state() != LifeState::ActorAlive {
             continue;

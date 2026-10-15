@@ -21,6 +21,17 @@ pub struct CapturedByPanzer(pub Option<Entity>);
 #[derive(Clone, Copy, Debug)]
 pub enum PanzerPhase {
     Landing(f32),
+    Exit {
+        origin: Vec3,
+        yaw: f32,
+        landing: Vec3,
+    },
+    Hover {
+        landing: Vec3,
+    },
+    Arrive {
+        landing: Vec3,
+    },
     Pursuit,
     Melee(f32),
     FlameWindup(f32),
@@ -52,11 +63,15 @@ pub struct Panzer {
     death_attacker: Option<Entity>,
     pub animation_elapsed: f32,
     exploded: bool,
+    boosting: bool,
 }
 impl Panzer {
     pub fn animation(&self) -> (&'static str, bool) {
         match self.phase {
             PanzerPhase::Landing(_) => ("ai_zombie_mech_intro_jump_in", false),
+            PanzerPhase::Exit { .. } => ("ai_zombie_mech_exit", false),
+            PanzerPhase::Hover { .. } => ("ai_zombie_mech_exit_hover", true),
+            PanzerPhase::Arrive { .. } => ("ai_zombie_mech_arrive", false),
             PanzerPhase::Pursuit => ("ai_zombie_mech_walk_basic", true),
             PanzerPhase::Melee(_) => ("ai_zombie_mech_melee_a", false),
             PanzerPhase::FlameWindup(_) => ("ai_zombie_mech_ft_fire_start", false),
@@ -374,18 +389,43 @@ impl Plugin for PanzerPlugin {
 fn reset(mut waves: ResMut<PanzerWaves>) {
     *waves = PanzerWaves::default();
 }
-pub fn spawn(
+// zm_tomb.d3dbsp.ents mech_hole_spawner array order and linked landing structs.
+pub(crate) fn spawn_quest(commands: &mut Commands, health: u32, hole: usize) -> Entity {
+    let (origin, yaw, landing) = [
+        ([-3160., 1160., -16.], 0., [-2248., 656., 184.]),
+        ([-3184., 1064., -16.], 315., [-2456., 40., 232.]),
+        ([-3104., 1080., -16.], 255., [-2712., 32., 232.]),
+        ([-3080., 1168., -16.], 285., [-2464., 288., 232.]),
+    ][hole];
+    let world = |[x, y, z]: [f32; 3]| Vec3::new(x, z, -y) * 0.0254;
+    let origin = world(origin);
+    let yaw = f32::to_radians(yaw);
+    spawn(
+        commands,
+        origin,
+        health,
+        true,
+        PanzerPhase::Exit {
+            origin,
+            yaw,
+            landing: world(landing),
+        },
+        Quat::from_rotation_y(yaw),
+    )
+}
+
+fn spawn(
     commands: &mut Commands,
-    _game: &GameDefinition,
-    _server: &AssetServer,
     position: Vec3,
     health: u32,
     quest: bool,
+    phase: PanzerPhase,
+    rotation: Quat,
 ) -> Entity {
     let entity = commands
         .spawn((
             Panzer {
-                phase: PanzerPhase::Landing(5.8333335),
+                phase,
                 quest,
                 captured: None,
                 flame_cooldown: 2.,
@@ -399,6 +439,7 @@ pub fn spawn(
                 death_attacker: None,
                 animation_elapsed: 0.,
                 exploded: false,
+                boosting: !quest,
             },
             Zombie::new(
                 position + Vec3::Y * 1.2,
@@ -408,7 +449,7 @@ pub fn spawn(
             SessionEntity,
             Collider::capsule(0.5, 1.4),
             ColliderDisabled,
-            Transform::from_translation(position + Vec3::Y * 1.2),
+            Transform::from_translation(position + Vec3::Y * 1.2).with_rotation(rotation),
             Visibility::Inherited,
             Vitality::ordinary_actor(health, health).expect("source Panzer health"),
             Armor::panzer(health),
@@ -418,12 +459,12 @@ pub fn spawn(
         .id();
     if !quest {
         commands.entity(entity).insert(PopulationKind::Special);
+        crate::audio::emit(
+            commands,
+            "zmb_ai_mechz_incoming_alarm",
+            crate::audio::SoundSource::attached(entity),
+        );
     }
-    crate::audio::emit(
-        commands,
-        "zmb_ai_mechz_incoming_alarm",
-        crate::audio::SoundSource::attached(entity),
-    );
     entity
 }
 fn schedule(
@@ -432,8 +473,6 @@ fn schedule(
     mut session: ResMut<Session>,
     mut waves: ResMut<PanzerWaves>,
     access: Res<crate::access::ZoneAccess>,
-    game: Res<GameDefinition>,
-    server: Res<AssetServer>,
     query: SpatialQuery,
     players: Query<&Transform, With<Player>>,
     panzers: Query<&Vitality, With<Panzer>>,
@@ -494,11 +533,11 @@ fn schedule(
     };
     let entity = spawn(
         &mut commands,
-        &game,
-        &server,
         Vec3::from_array(*point),
         health_for_wave(&waves),
         false,
+        PanzerPhase::Landing(5.8333335),
+        Quat::IDENTITY,
     );
     let later = waves.spawned > 0;
     commands.queue(move |world: &mut World| {
@@ -570,6 +609,7 @@ fn behavior(
             &Collider,
             &Vitality,
             &mut Armor,
+            &mut Visibility,
         ),
         Without<Player>,
     >,
@@ -604,7 +644,7 @@ fn behavior(
 ) {
     let dt = time.delta_secs();
     for event in received.read() {
-        if let Ok((_, mut panzer, _, _, health, armor)) = panzers.get_mut(event.impact.target) {
+        if let Ok((_, mut panzer, _, _, health, armor, _)) = panzers.get_mut(event.impact.target) {
             let explosive = matches!(event.impact.category, DamageCategory::Explosive)
                 || event.impact.source.id().contains("staff_");
             if panzer.captured.is_some()
@@ -641,11 +681,18 @@ fn behavior(
                 {
                     release(&mut panzer, &mut captured);
                 }
-                panzer.phase = PanzerPhase::Stunned(4.);
+                if !matches!(
+                    panzer.phase,
+                    PanzerPhase::Exit { .. }
+                        | PanzerPhase::Hover { .. }
+                        | PanzerPhase::Arrive { .. }
+                ) {
+                    panzer.phase = PanzerPhase::Stunned(4.);
+                }
             }
         }
     }
-    for (entity, mut panzer, mut pose, collider, health, mut armor) in &mut panzers {
+    for (entity, mut panzer, mut pose, collider, health, mut armor, mut visible) in &mut panzers {
         armor.ice_cooldown = (armor.ice_cooldown - dt).max(0.);
         if health.state() != LifeState::ActorAlive {
             continue;
@@ -662,12 +709,124 @@ fn behavior(
                 crate::audio::SoundSource::attached(entity),
             );
         }
+        if matches!(
+            panzer.phase,
+            PanzerPhase::Exit { .. } | PanzerPhase::Hover { .. } | PanzerPhase::Arrive { .. }
+        ) {
+            // Step 4 animscripted uses authored anchors and native root motion,
+            // with fx_cleanup's solo network frame, then a three-second hidden hover.
+            let name = panzer.animation().0;
+            let clip = game
+                .content
+                .animations
+                .iter()
+                .find(|clip| {
+                    clip.skeleton.0 == "actor.c_zom_mech_body"
+                        && clip.id.0.rsplit('.').next() == Some(name)
+                })
+                .expect("native quest Panzer entrance clip");
+            let previous = panzer.animation_elapsed;
+            panzer.animation_elapsed += dt;
+            let elapsed = panzer.animation_elapsed;
+            let center = Vec3::Y * 1.2;
+            match panzer.phase {
+                PanzerPhase::Exit { origin, yaw, .. } => {
+                    let motion = clip
+                        .root_motion
+                        .as_ref()
+                        .expect("native Panzer exit root motion");
+                    pose.translation = origin
+                        + center
+                        + Quat::from_rotation_y(yaw)
+                            * Vec3::from_array(motion.translation_at(elapsed));
+                }
+                PanzerPhase::Arrive { landing } => {
+                    let motion = clip
+                        .root_motion
+                        .as_ref()
+                        .expect("native Panzer arrival root motion");
+                    pose.translation =
+                        landing + center + Vec3::from_array(motion.translation_at(elapsed));
+                    pose.rotation = Quat::IDENTITY;
+                }
+                _ => {}
+            }
+            for notify in &clip.notifications {
+                if notify.seconds <= previous || notify.seconds > elapsed {
+                    continue;
+                }
+                match notify.event.as_str() {
+                    "booster_on" => panzer.boosting = true,
+                    "booster_off" => panzer.boosting = false,
+                    "impact" => {
+                        crate::native_fx::emit(
+                            &mut commands,
+                            "maps/zombie_tomb/fx_tomb_mech_jump_landing",
+                            Transform::from_translation(pose.translation - center),
+                        );
+                    }
+                    event => {
+                        if let Some(alias) = event.strip_prefix("sndnt#") {
+                            crate::audio::emit(
+                                &mut commands,
+                                alias,
+                                crate::audio::SoundSource::attached(entity),
+                            );
+                        }
+                    }
+                }
+            }
+            let finished = elapsed
+                >= if matches!(panzer.phase, PanzerPhase::Hover { .. }) {
+                    3.1
+                } else {
+                    clip.seconds
+                };
+            if finished {
+                panzer.phase = match panzer.phase {
+                    PanzerPhase::Exit { landing, .. } => {
+                        *visible = Visibility::Hidden;
+                        PanzerPhase::Hover { landing }
+                    }
+                    PanzerPhase::Hover { landing } => {
+                        let arrival = game
+                            .content
+                            .animations
+                            .iter()
+                            .find(|clip| {
+                                clip.skeleton.0 == "actor.c_zom_mech_body"
+                                    && clip.id.0.rsplit('.').next() == Some("ai_zombie_mech_arrive")
+                            })
+                            .and_then(|clip| clip.root_motion.as_ref())
+                            .expect("native Panzer arrival root motion");
+                        pose.translation =
+                            landing + center + Vec3::from_array(arrival.translation_at(0.));
+                        pose.rotation = Quat::IDENTITY;
+                        *visible = Visibility::Inherited;
+                        PanzerPhase::Arrive { landing }
+                    }
+                    PanzerPhase::Arrive { .. } => {
+                        commands.entity(entity).remove::<ColliderDisabled>();
+                        PanzerPhase::Pursuit
+                    }
+                    _ => unreachable!(),
+                };
+                panzer.animation_elapsed = 0.;
+            }
+            continue;
+        }
         let independent = match panzer.phase {
             PanzerPhase::Landing(remaining) => {
                 panzer.phase = if remaining > dt {
                     PanzerPhase::Landing(remaining - dt)
                 } else {
                     commands.entity(entity).remove::<ColliderDisabled>();
+                    panzer.boosting = false;
+                    crate::native_fx::emit(
+                        &mut commands,
+                        "maps/zombie_tomb/fx_tomb_mech_jump_landing",
+                        Transform::from_translation(pose.translation - Vec3::Y * 1.2),
+                    );
                     PanzerPhase::Pursuit
                 };
                 true
@@ -952,7 +1111,12 @@ fn behavior(
                     panzer.phase = PanzerPhase::Pulling(remaining - dt);
                 }
             }
-            PanzerPhase::Landing(_) | PanzerPhase::Stunned(_) | PanzerPhase::Dead(_) => {}
+            PanzerPhase::Landing(_)
+            | PanzerPhase::Exit { .. }
+            | PanzerPhase::Hover { .. }
+            | PanzerPhase::Arrive { .. }
+            | PanzerPhase::Stunned(_)
+            | PanzerPhase::Dead(_) => {}
         }
         panzer.animation_elapsed = if previous == std::mem::discriminant(&panzer.phase) {
             panzer.animation_elapsed + dt
@@ -1174,19 +1338,20 @@ struct PanzerFeedback {
     headlamp: Option<Entity>,
     exhaust: Option<Entity>,
     boosters: Vec<Entity>,
-    landed: bool,
+    rocket_sound: Option<Entity>,
     helmet: bool,
     powerplant: bool,
 }
 fn feedback(
     mut commands: Commands,
-    mut panzers: Query<(Entity, &Panzer, &Transform, &Armor, &mut PanzerFeedback)>,
+    mut panzers: Query<(Entity, &Panzer, &Armor, &mut PanzerFeedback)>,
     rigs: Query<&crate::enemies::ActorRig>,
 ) {
-    for (entity, panzer, pose, armor, mut state) in &mut panzers {
+    for (entity, panzer, armor, mut state) in &mut panzers {
         let socket = |name: &str| rigs.iter().find_map(|r| r.socket(entity, name));
         let dead = matches!(panzer.phase, PanzerPhase::Dead(_));
-        if !dead {
+        let hidden = matches!(panzer.phase, PanzerPhase::Hover { .. });
+        if !dead && !hidden {
             if state.headlamp.is_none() {
                 if let Some(owner) = socket("tag_headlamp_FX") {
                     state.headlamp = Some(crate::native_fx::attach(
@@ -1251,7 +1416,41 @@ fn feedback(
                 commands.entity(e).despawn();
             }
         }
-        if matches!(panzer.phase, PanzerPhase::Landing(_)) && state.boosters.is_empty() {
+        let boosting = panzer.boosting && !dead;
+        let rocket = boosting && panzer.quest;
+        if rocket && state.rocket_sound.is_none() {
+            crate::audio::emit(
+                &mut commands,
+                "zmb_ai_mechz_rocket_start",
+                crate::audio::SoundSource::attached(entity),
+            );
+            let sound = crate::audio::emit_loop(
+                &mut commands,
+                "zmb_ai_mechz_rocket_loop",
+                crate::audio::SoundSource::attached(entity),
+            );
+            commands.entity(sound).insert(crate::audio::SoundControl {
+                volume: 0.75,
+                ..default()
+            });
+            state.rocket_sound = Some(sound);
+        } else if !rocket && let Some(sound) = state.rocket_sound.take() {
+            if dead {
+                commands.entity(sound).try_despawn();
+            } else {
+                commands.entity(sound).insert(crate::audio::SoundFade {
+                    remaining: 1.,
+                    duration: 1.,
+                    out: true,
+                });
+                crate::audio::emit(
+                    &mut commands,
+                    "zmb_ai_mechz_rocket_stop",
+                    crate::audio::SoundSource::attached(entity),
+                );
+            }
+        }
+        if boosting && !hidden && state.boosters.is_empty() {
             for (tag, name) in [
                 (
                     "tag_booster_LE_FX",
@@ -1279,17 +1478,9 @@ fn feedback(
                     ));
                 }
             }
-        } else if !matches!(panzer.phase, PanzerPhase::Landing(_)) {
+        } else if !boosting || hidden {
             for e in state.boosters.drain(..) {
                 commands.entity(e).despawn();
-            }
-            if !state.landed {
-                state.landed = true;
-                crate::native_fx::emit(
-                    &mut commands,
-                    "maps/zombie_tomb/fx_tomb_mech_jump_landing",
-                    Transform::from_translation(pose.translation - Vec3::Y * 1.2),
-                );
             }
         }
         if armor.broken && !state.helmet {

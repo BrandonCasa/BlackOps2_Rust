@@ -17,6 +17,11 @@ struct Plane {
 #[derive(Component)]
 pub(crate) struct Pilot {
     node: usize,
+    destination: Option<Vec3>,
+    route_revision: u32,
+    vertical_velocity: f32,
+    sprint_clip: usize,
+    sound: Option<Entity>,
 }
 #[derive(Component)]
 pub(crate) struct PilotLanding {
@@ -132,12 +137,20 @@ fn spawn_plane(
 fn movement(
     mut commands: Commands,
     time: Res<Time<Fixed>>,
+    game: Res<crate::assets::GameDefinition>,
+    access: Res<crate::access::ZoneAccess>,
+    mut navigation: ResMut<crate::navigation::Navigation>,
+    spatial: SpatialQuery,
+    slide: MoveAndSlide,
     mut planes: Query<(&mut Plane, &mut Transform), Without<Pilot>>,
     mut pilots: Query<
         (
             Entity,
             &mut Pilot,
+            &mut crate::enemies::Zombie,
             &mut Transform,
+            &Collider,
+            &Vitality,
             Option<&mut PilotLanding>,
         ),
         Without<Plane>,
@@ -154,28 +167,83 @@ fn movement(
             pose.look_to(delta, Vec3::Y);
         }
     }
-    for (entity, mut pilot, mut pose, landing) in &mut pilots {
+    for (entity, mut pilot, mut zombie, mut pose, collider, health, landing) in &mut pilots {
+        if health.state() != LifeState::ActorAlive {
+            continue;
+        }
+        let enemy = game
+            .content
+            .enemies
+            .iter()
+            .find(|enemy| enemy.id == zombie.definition)
+            .expect("native pilot actor definition");
+        let center = crate::enemies::body_center(enemy, false);
         if let Some(mut landing) = landing {
             landing.remaining = (landing.remaining - time.delta_secs()).max(0.);
             pose.translation = landing.from.lerp(landing.to, 1. - landing.remaining / 3.);
             if landing.remaining == 0. {
                 commands.entity(entity).remove::<PilotLanding>();
-                crate::audio::emit_loop(
+                zombie.action = crate::origins::content::EnemyAnimation::Sprint;
+                zombie.elapsed = 0.;
+                pilot.sound = Some(crate::audio::emit_loop(
                     &mut commands,
                     "zmb_zombieblood_3rd_loop_other",
                     crate::audio::SoundSource::attached(entity),
-                );
+                ));
             }
             continue;
         }
-        let destination = Vec3::from_array(source::PILOT[pilot.node]) + Vec3::Y * 0.9;
-        let delta = destination - pose.translation;
-        pose.translation += delta.clamp_length_max(5. * time.delta_secs());
-        if delta.length() < 0.3 {
+        let feet = pose.translation - center;
+        let mut goal = Vec3::from_array(source::PILOT[pilot.node]);
+        if feet.distance_squared(goal) < 0.3_f32.powi(2) {
             pilot.node = (pilot.node + 1) % source::PILOT.len();
+            pilot.destination = None;
+            goal = Vec3::from_array(source::PILOT[pilot.node]);
         }
-        if delta.with_y(0.).length_squared() > 0.01 {
-            pose.look_to(delta.with_y(0.), Vec3::Y);
+        if pilot.route_revision != navigation.revision
+            || pilot
+                .destination
+                .is_none_or(|point| feet.xz().distance_squared(point.xz()) < 0.3_f32.powi(2))
+        {
+            pilot.destination = Some(navigation.destination(feet, goal, &access));
+            pilot.route_revision = navigation.revision;
+        }
+        let delta = (pilot.destination.expect("pilot route") - feet).with_y(0.);
+        let motion = game.content.animations[pilot.sprint_clip]
+            .root_motion
+            .as_ref()
+            .expect("native pilot sprint root motion");
+        let previous = zombie.elapsed;
+        zombie.elapsed += time.delta_secs();
+        let distance = Vec3::from_array(motion.loop_displacement(previous, zombie.elapsed))
+            .xz()
+            .length();
+        let direction = delta.normalize_or_zero();
+        pilot.vertical_velocity -= game.tuning.gravity * time.delta_secs();
+        let velocity = direction * distance.min(delta.length()) / time.delta_secs()
+            + Vec3::Y * pilot.vertical_velocity;
+        let filter = crate::environment::actor_solids([entity]);
+        let grounded = spatial
+            .cast_ray(feet + Vec3::Y * 0.1, Dir3::NEG_Y, 0.25, false, &filter)
+            .is_some_and(|hit| hit.normal.y > 0.65);
+        let result = crate::player::slide_character(
+            &slide,
+            &spatial,
+            crate::player::MotionShape {
+                collider,
+                radius: enemy.physics.expect("native pilot actor physics").radius,
+                step_height: game.tuning.step_height,
+                grounded,
+            },
+            pose.translation,
+            velocity,
+            time.delta(),
+            &filter,
+        );
+        pose.translation = result.position;
+        pilot.vertical_velocity = result.projected_velocity.y;
+        if direction.length_squared() > 0. {
+            pose.rotation = Quat::from_rotation_y((-direction.z).atan2(direction.x));
         }
     }
 }
@@ -196,7 +264,7 @@ fn observe(
     time: Res<Time<Fixed>>,
     mut state: ResMut<Recovery>,
     quest: ResMut<MainQuest>,
-    session: Res<crate::gameplay::Session>,
+    mut session: ResMut<crate::gameplay::Session>,
     access: Res<crate::access::ZoneAccess>,
     game: Res<crate::assets::GameDefinition>,
     server: Res<AssetServer>,
@@ -204,7 +272,7 @@ fn observe(
     mut hits: MessageReader<crate::environment::support::EnvironmentalHit>,
     planes: Query<(Entity, &Plane, &Transform)>,
     mut applied: MessageReader<crate::damage::DamageApplied>,
-    pilots: Query<&Transform, With<Pilot>>,
+    mut pilots: Query<(&Transform, &crate::enemies::Zombie, &mut Pilot)>,
     mut parts: ResMut<crate::environment::parts::Parts>,
     mut drops: Query<(Entity, &mut FirePieceDrop)>,
     players: Query<(), With<crate::player::Player>>,
@@ -259,41 +327,71 @@ fn observe(
                         .total_cmp(&Vec3::from_array(*b.1).distance_squared(plane_pose.translation))
                 })
                 .map_or(0, |(i, _)| i);
-            let feet = Vec3::from_array(source::PILOT[node]);
-            let health = game.rounds.health(session.round);
-            let pilot = commands
-                .spawn((
-                    SessionEntity,
-                    Pilot { node },
-                    PilotLanding {
-                        remaining: 3.,
-                        from: plane_pose.translation,
-                        to: feet + Vec3::Y * 0.9,
-                    },
-                    BloodRestricted,
-                    Transform::from_translation(plane_pose.translation),
-                    Visibility::Inherited,
-                    Vitality::ordinary_actor(health, health).expect("native pilot health"),
-                    crate::hit_regions::Hitboxes::humanoid(1.8, 0.3),
-                    Collider::capsule(0.3, 1.2),
-                ))
-                .id();
-            if let Some(id) = game
+            // Step 5 uses the first authored zombie_spawner_dig: basic German.
+            // Its dug initializer has no rise animation; the script links it to
+            // the falling plane position for three seconds before setting sprint.
+            let count = game
                 .content
                 .enemies
                 .iter()
-                .find_map(|enemy| enemy.presentation.as_ref())
-                && let Some(scene) = game
-                    .content
-                    .presentations
-                    .iter()
-                    .find(|p| p.id == *id)
-                    .and_then(|p| p.scene.as_ref())
-            {
-                commands
-                    .entity(pilot)
-                    .insert(WorldAssetRoot(server.load(scene.clone())));
-            }
+                .filter(|enemy| enemy.archetype == "actor_zm_tomb_basic_german")
+                .count();
+            assert!(count > 0, "native pilot dig-spawner archetype");
+            let enemy = game
+                .content
+                .enemies
+                .iter()
+                .filter(|enemy| enemy.archetype == "actor_zm_tomb_basic_german")
+                .nth(session.random() as usize % count)
+                .unwrap();
+            let center = crate::enemies::body_center(enemy, false);
+            let from = plane_pose.translation + center;
+            let health = game.rounds.health(session.round);
+            let mut zombie =
+                crate::enemies::Zombie::new(from, enemy.id.clone(), crate::rounds::Gait::Sprint)
+                    .with_locomotion_seed(session.random())
+                    .dug();
+            zombie.action = crate::origins::content::EnemyAnimation::Sprint;
+            let sprint = zombie
+                .locomotion_clip(enemy)
+                .expect("native pilot sprint clip");
+            let sprint_clip = game
+                .content
+                .animations
+                .iter()
+                .position(|clip| {
+                    enemy.presentation.as_ref() == Some(&clip.skeleton)
+                        && clip.id.0.rsplit('.').next() == Some(sprint)
+                })
+                .expect("native pilot sprint animation");
+            assert!(
+                game.content.animations[sprint_clip].root_motion.is_some(),
+                "native pilot sprint root motion"
+            );
+            zombie.action = crate::origins::content::EnemyAnimation::Idle;
+            commands.spawn((
+                Name::new("zombie_blood_pilot"),
+                SessionEntity,
+                Pilot {
+                    node,
+                    destination: None,
+                    route_revision: u32::MAX,
+                    vertical_velocity: 0.,
+                    sprint_clip,
+                    sound: None,
+                },
+                PilotLanding {
+                    remaining: 3.,
+                    from,
+                    to: Vec3::from_array(source::PILOT[node]) + center,
+                },
+                BloodRestricted,
+                zombie,
+                Transform::from_translation(from).with_rotation(plane_pose.rotation),
+                Visibility::Inherited,
+                Vitality::ordinary_actor(health, health).expect("native pilot health"),
+                crate::enemies::body_shape(enemy, false),
+            ));
         } else if !plane.quest && !state.fire_down {
             state.fire_down = true;
             commands.spawn((SessionEntity, FirePieceDrop { remaining: 5. }));
@@ -313,14 +411,24 @@ fn observe(
     for hit in applied.read() {
         if hit.lethal
             && !state.pilot_down
-            && let Ok(pose) = pilots.get(hit.impact.target)
+            && let Ok((pose, zombie, mut pilot)) = pilots.get_mut(hit.impact.target)
         {
             state.pilot_down = true;
+            if let Some(sound) = pilot.sound.take() {
+                commands.entity(sound).try_despawn();
+            }
+            let enemy = game
+                .content
+                .enemies
+                .iter()
+                .find(|enemy| enemy.id == zombie.definition)
+                .expect("native pilot actor definition");
+            let feet = pose.translation - crate::enemies::body_center(enemy, false);
             let entity = commands
                 .spawn((
                     SessionEntity,
                     DronePickup,
-                    Transform::from_translation(pose.translation + Vec3::Y * 0.762)
+                    Transform::from_translation(feet + Vec3::Y * 0.762)
                         .with_rotation(pose.rotation),
                     Visibility::Inherited,
                 ))
@@ -332,7 +440,6 @@ fn observe(
                 &game,
                 &server,
             );
-            commands.entity(hit.impact.target).despawn();
         }
     }
 }

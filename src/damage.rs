@@ -140,7 +140,6 @@ pub(crate) fn resolve(
     enemies: Query<&Zombie>,
     definition: Res<GameDefinition>,
     mut evidence: ResMut<crate::player_health::HealthEvidence>,
-    mut enemy_evidence: ResMut<crate::enemies::EnemyEvidence>,
     mut accepted: MessageWriter<DamageApplied>,
     life_events: (
         MessageWriter<crate::player_health::PlayerDamage>,
@@ -439,9 +438,6 @@ pub(crate) fn resolve(
             };
             if let Some(recovery) = recovery.as_mut() {
                 recovery.hit(before, after, health.maximum(), &definition.player_health);
-            }
-            if matches!(impact.source, ImpactSource::Enemy(_)) {
-                enemy_evidence.attack_hits += 1;
             }
             player_damage.write(crate::player_health::PlayerDamage {
                 impact: impact.clone(),
