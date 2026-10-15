@@ -28,7 +28,10 @@ const STATIC_SLOTS: usize = 4096;
 
 #[derive(Resource, Clone, ExtractResource)]
 #[extract_app(RenderApp)]
-pub(crate) struct ModelLightingSource(pub Arc<LightingCoefficients>);
+pub(crate) struct ModelLightingSource {
+    pub coefficients: Arc<LightingCoefficients>,
+    pub grid: Arc<super::light_grid::LightGrid>,
+}
 
 pub(crate) struct ModelLightingPlugin;
 
@@ -55,12 +58,17 @@ fn prepare_atlas(
         return;
     };
     if source.is_changed() || atlas.is_none() {
-        commands.insert_resource(ModelLightingAtlas::new(&device, &queue, source.0.clone()));
+        commands.insert_resource(ModelLightingAtlas::new(
+            &device,
+            &queue,
+            source.coefficients.clone(),
+            source.grid.clone(),
+        ));
     }
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct StaticModelLighting {
+pub(crate) struct ModelLighting {
     /// Zero-based block index. The original nonzero lighting handle is slot+1.
     pub slot: u16,
     pub grid_coords_and_vis: Vec4,
@@ -94,6 +102,10 @@ pub(crate) struct ModelLightingAtlas {
     pub sampler: Sampler,
     queue: RenderQueue,
     coefficients: Arc<LightingCoefficients>,
+    grid: Arc<super::light_grid::LightGrid>,
+    dynamic_usage: DynamicSlots,
+    dynamic_handles: HashMap<MainEntity, u16>,
+    dynamic_slots: Vec<Option<DynamicSlot>>,
     /// Match the original one-based handle; zero remains unassigned.
     handles: HashMap<MainEntity, u16>,
     slots: Vec<StaticSlot>,
@@ -107,6 +119,7 @@ impl ModelLightingAtlas {
         device: &RenderDevice,
         queue: &RenderQueue,
         coefficients: Arc<LightingCoefficients>,
+        grid: Arc<super::light_grid::LightGrid>,
     ) -> Self {
         let texture = device.create_texture(&TextureDescriptor {
             label: Some("Origins original model-lighting atlas"),
@@ -148,6 +161,10 @@ impl ModelLightingAtlas {
             sampler,
             queue: queue.clone(),
             coefficients,
+            grid,
+            dynamic_usage: DynamicSlots::default(),
+            dynamic_handles: HashMap::with_capacity(4096),
+            dynamic_slots: (0..4096).map(|_| None).collect(),
             handles: HashMap::with_capacity(STATIC_SLOTS),
             slots: Vec::with_capacity(STATIC_SLOTS),
             frame: None,
@@ -165,7 +182,7 @@ impl ModelLightingAtlas {
         colors_index: usize,
         visibility: u8,
         frame: u32,
-    ) -> Result<StaticModelLighting, StaticLightingAtlasFull> {
+    ) -> Result<ModelLighting, StaticLightingAtlasFull> {
         if self.frame != Some(frame) {
             self.frame = Some(frame);
             self.reusable.clear();
@@ -180,7 +197,7 @@ impl ModelLightingAtlas {
                 "A static model's authored colorsIndex changed while resident"
             );
             resident.last_used = frame;
-            return Ok(StaticModelLighting {
+            return Ok(ModelLighting {
                 slot,
                 grid_coords_and_vis: grid_coordinates(slot, visibility),
                 sh: resident.sh,
@@ -189,29 +206,7 @@ impl ModelLightingAtlas {
 
         let slot = self.allocate_slot(frame)?;
         let lighting = self.coefficients.static_lighting(colors_index);
-        self.queue.write_texture(
-            TexelCopyTextureInfo {
-                texture: &self.texture,
-                mip_level: 0,
-                origin: Origin3d {
-                    x: u32::from(slot & 127) * 4,
-                    y: u32::from(slot >> 7) * 4,
-                    z: 0,
-                },
-                aspect: TextureAspect::All,
-            },
-            &lighting.texels,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(16),
-                rows_per_image: Some(4),
-            },
-            Extent3d {
-                width: 4,
-                height: 4,
-                depth_or_array_layers: 4,
-            },
-        );
+        self.upload(slot, &lighting.texels);
 
         let resident = StaticSlot {
             owner,
@@ -227,11 +222,85 @@ impl ModelLightingAtlas {
             self.slots[index] = resident;
         }
         self.handles.insert(owner, slot + 1);
-        Ok(StaticModelLighting {
+        Ok(ModelLighting {
             slot,
             grid_coords_and_vis: grid_coordinates(slot, visibility),
             sh: lighting.sh,
         })
+    }
+
+    /// Base light-grid contribution only; the native hero-light stage must be
+    /// applied before claiming complete dynamic lighting parity.
+    pub(crate) fn touch_dynamic_grid(
+        &mut self,
+        owner: MainEntity,
+        origin: Vec3,
+        frame: u32,
+    ) -> Option<(ModelLighting, u8)> {
+        self.dynamic_usage.begin_frame(frame);
+        if let Some(&slot) = self.dynamic_handles.get(&owner) {
+            let resident = self.dynamic_slots[usize::from(slot)]
+                .as_ref()
+                .expect("resident dynamic light slot");
+            if resident.origin == origin {
+                self.dynamic_usage.touch(slot);
+                return Some((resident.lighting, resident.primary_light));
+            }
+        }
+        let slot = self.dynamic_usage.allocate()?;
+        let sample = self.grid.sample(origin);
+        let lighting = self
+            .coefficients
+            .grid_lighting(&sample.coefficients[..sample.count]);
+        let atlas_slot = slot + STATIC_SLOTS as u16;
+        self.upload(atlas_slot, &lighting.texels);
+        let mut coords = grid_coordinates(atlas_slot, 0);
+        coords.w = sample.visibility;
+        let lighting = ModelLighting {
+            slot: atlas_slot,
+            grid_coords_and_vis: coords,
+            sh: lighting.sh,
+        };
+        let resident = &mut self.dynamic_slots[usize::from(slot)];
+        if let Some(old) = resident {
+            if self.dynamic_handles.get(&old.owner) == Some(&slot) {
+                self.dynamic_handles.remove(&old.owner);
+            }
+        }
+        *resident = Some(DynamicSlot {
+            owner,
+            origin,
+            lighting,
+            primary_light: sample.primary_light,
+        });
+        self.dynamic_handles.insert(owner, slot);
+        Some((lighting, sample.primary_light))
+    }
+
+    fn upload(&self, slot: u16, texels: &[u8; 256]) {
+        self.queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: Origin3d {
+                    x: u32::from(slot & 127) * 4,
+                    y: u32::from(slot >> 7) * 4,
+                    z: 0,
+                },
+                aspect: TextureAspect::All,
+            },
+            texels,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(16),
+                rows_per_image: Some(4),
+            },
+            Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 4,
+            },
+        );
     }
 
     fn allocate_slot(&mut self, frame: u32) -> Result<u16, StaticLightingAtlasFull> {
@@ -259,5 +328,110 @@ impl ModelLightingAtlas {
             }
         }
         Err(StaticLightingAtlasFull)
+    }
+}
+// 004578d0 intersects current/previous-two usage masks. A moving instance gets
+// a fresh block; it must not overwrite a block referenced by an in-flight frame.
+struct DynamicSlots {
+    unused: [[u32; 128]; 3],
+    frame: Option<u32>,
+    cursor: usize,
+    current: usize,
+    exhausted: bool,
+}
+
+impl Default for DynamicSlots {
+    fn default() -> Self {
+        Self {
+            unused: [[u32::MAX; 128]; 3],
+            frame: None,
+            cursor: 0,
+            current: 0,
+            exhausted: false,
+        }
+    }
+}
+
+impl DynamicSlots {
+    fn begin_frame(&mut self, frame: u32) {
+        if self.frame == Some(frame) {
+            return;
+        }
+        let elapsed = self
+            .frame
+            .map_or(3, |previous| frame.wrapping_sub(previous).min(3));
+        for _ in 0..elapsed {
+            self.current = (self.current + 1) % 3;
+            self.unused[self.current].fill(u32::MAX);
+        }
+        self.frame = Some(frame);
+        self.exhausted = false;
+    }
+
+    fn touch(&mut self, slot: u16) {
+        let word = usize::from(slot) / 32;
+        self.unused[self.current][word] &= !(0x8000_0000 >> (slot % 32));
+    }
+
+    fn allocate(&mut self) -> Option<u16> {
+        if self.exhausted {
+            return None;
+        }
+        for offset in 0..128 {
+            let word = (self.cursor + offset) % 128;
+            let available = self.unused[0][word] & self.unused[1][word] & self.unused[2][word];
+            if available != 0 {
+                let slot = (word * 32 + available.leading_zeros() as usize) as u16;
+                self.cursor = word;
+                self.touch(slot);
+                return Some(slot);
+            }
+        }
+        self.exhausted = true;
+        None
+    }
+}
+
+struct DynamicSlot {
+    owner: MainEntity,
+    origin: Vec3,
+    lighting: ModelLighting,
+    primary_light: u8,
+}
+
+#[cfg(test)]
+mod dynamic_slot_tests {
+    use super::*;
+
+    #[test]
+    fn preserves_current_and_previous_two_frames() {
+        let mut slots = DynamicSlots::default();
+        slots.begin_frame(0);
+        for expected in 0..4096 {
+            assert_eq!(slots.allocate(), Some(expected));
+        }
+        assert_eq!(slots.allocate(), None);
+        for frame in [1, 2] {
+            slots.begin_frame(frame);
+            assert_eq!(slots.allocate(), None);
+        }
+        slots.begin_frame(3);
+        assert!(slots.allocate().is_some());
+    }
+
+    #[test]
+    fn a_touched_block_remains_unavailable_across_frame_wrap() {
+        let mut slots = DynamicSlots::default();
+        slots.begin_frame(u32::MAX - 1);
+        let retained = slots.allocate().unwrap();
+        slots.begin_frame(u32::MAX);
+        slots.touch(retained);
+        slots.begin_frame(0);
+        slots.touch(retained);
+        slots.begin_frame(1);
+        for _ in 0..4095 {
+            assert_ne!(slots.allocate().unwrap(), retained);
+        }
+        assert_eq!(slots.allocate(), None);
     }
 }

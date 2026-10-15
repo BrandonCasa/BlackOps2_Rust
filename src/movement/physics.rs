@@ -195,7 +195,8 @@ impl PhysicsTuning {
 }
 
 pub fn ground_velocity(velocity: Vec3, normal: Vec3) -> Vec3 {
-    if velocity.xz().length_squared() == 0. {
+    // Native PM_ProjectVelocity (008be2b0) leaves near-vertical contacts unchanged.
+    if normal.y.abs() < 0.001 || velocity.xz().length_squared() == 0. {
         return velocity;
     }
     let tangent = velocity.with_y(-velocity.xz().dot(normal.xz()) / normal.y);
@@ -204,6 +205,31 @@ pub fn ground_velocity(velocity: Vec3, normal: Vec3) -> Vec3 {
         tangent * scale
     } else {
         velocity
+    }
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+
+    #[test]
+    fn vertical_contacts_preserve_velocity() {
+        let velocity = Vec3::new(3., -2., 4.);
+        for vertical in [0., 0.0009, -0.0009] {
+            let normal = Vec3::new(1., vertical, 0.).normalize();
+            assert_eq!(ground_velocity(velocity, normal), velocity);
+        }
+    }
+
+    #[test]
+    fn slopes_preserve_speed_and_project_onto_surface() {
+        let velocity = Vec3::new(3., 0., 4.);
+        for slope in [-0.5, 0.5] {
+            let normal = Vec3::new(slope, 1., 0.).normalize();
+            let projected = ground_velocity(velocity, normal);
+            assert!(projected.dot(normal).abs() < 0.00001);
+            assert!((projected.length() - velocity.length()).abs() < 0.00001);
+        }
     }
 }
 

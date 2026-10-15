@@ -451,10 +451,8 @@ struct WorldMetadata {
     fog: crate::rendering::fog::WorldFogDefinition,
     #[serde(flatten)]
     draws: crate::rendering::world::WorldDrawDefinition,
-    #[serde(rename = "lightGridCoefficientsFile")]
-    light_grid_coefficients_file: String,
-    #[serde(rename = "lightGridCoefficientCount")]
-    light_grid_coefficient_count: usize,
+    #[serde(rename = "lightGrid")]
+    light_grid: crate::rendering::light_grid::GridDefinition,
 }
 pub struct GameAssetsPlugin;
 impl Plugin for GameAssetsPlugin {
@@ -502,6 +500,7 @@ pub(crate) fn begin_load(
         commands.entity(root).despawn();
     }
     commands.remove_resource::<WorldBrushes>();
+    commands.remove_resource::<crate::rendering::reflection::ReflectionWorld>();
     commands.remove_resource::<crate::rendering::fog::WorldFogDefinition>();
     commands.remove_resource::<crate::rendering::model_lighting::ModelLightingSource>();
     commands.remove_resource::<crate::rendering::world::WorldWaterLighting>();
@@ -519,7 +518,7 @@ pub(crate) fn begin_load(
             .unwrap_or_else(|error| panic!("Collision metadata {}: {error}", volumes.display()));
         let metadata: WorldMetadata = crate::origins::read(&root.join(&definition.world_metadata));
         metadata.fog.validate();
-        let coefficient_path = root.join(&metadata.light_grid_coefficients_file);
+        let coefficient_path = root.join(&metadata.light_grid.coefficients_file);
         let coefficient_bytes = std::fs::read(&coefficient_path).unwrap_or_else(|error| {
             panic!(
                 "Read original model lighting {}: {error}",
@@ -528,12 +527,15 @@ pub(crate) fn begin_load(
         });
         assert_eq!(
             coefficient_bytes.len(),
-            metadata.light_grid_coefficient_count * 54,
+            metadata.light_grid.coeff_count * 54,
             "Original model-lighting coefficient count"
         );
-        let lighting = crate::rendering::model_lighting::ModelLightingSource(std::sync::Arc::new(
-            crate::rendering::lighting::LightingCoefficients::from_bytes(&coefficient_bytes),
-        ));
+        let lighting = crate::rendering::model_lighting::ModelLightingSource {
+            coefficients: std::sync::Arc::new(
+                crate::rendering::lighting::LightingCoefficients::from_bytes(&coefficient_bytes),
+            ),
+            grid: std::sync::Arc::new(metadata.light_grid.load(&root)),
+        };
         let models = metadata
             .models
             .load(&root, metadata.draws.reflection_probes());
@@ -556,6 +558,7 @@ fn poll_definition(
     mut geometries: ResMut<Assets<crate::rendering::native::NativeWorldGeometry>>,
     mut materials: ResMut<Assets<crate::rendering::native::NativeWorldMaterial>>,
     mut model_materials: ResMut<Assets<crate::rendering::native_model::NativeModelMaterial>>,
+    mut model_vertex_lighting: ResMut<Assets<crate::rendering::native_model::ModelVertexLighting>>,
     mut water_materials: ResMut<Assets<crate::rendering::native_water::NativeWaterMaterial>>,
 ) {
     let Some(mut pending) = pending else {
@@ -593,6 +596,7 @@ fn poll_definition(
         &server,
         &mut geometries,
         &mut model_materials,
+        &mut model_vertex_lighting,
     );
     commands.insert_resource(definition);
 }

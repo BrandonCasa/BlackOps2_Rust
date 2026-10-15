@@ -130,6 +130,7 @@ fn native_world_layer_lighting(
 fn native_world_layer_fragment(
     input: NativeWorldLayerVaryings,
     scene: NativeWorldScene,
+    hard_select: bool,
     color_map: texture_2d<f32>, color_sampler: sampler,
     normal_map: texture_2d<f32>, normal_sampler: sampler,
     layer_color_map: texture_2d<f32>, layer_color_sampler: sampler,
@@ -141,16 +142,34 @@ fn native_world_layer_fragment(
     let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
     let layer_color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
     let weight = layer_color.a * input.blend_uv.y;
-    let normal = native_world_layer_normal(input, base_normal.rg, layer_normal.rg, weight);
+    let selected = weight >= 0.5;
+    var normal: vec3<f32>;
+    if hard_select {
+        // PS5d72fcf0 selects entire slopes at exactly0.5; it never discards.
+        let base_slope = fma(base_normal.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
+        let layer_slope = fma(layer_normal.rg, vec2<f32>(4.015748023986816), vec2<f32>(-2.0157480239868164));
+        let q = fma(input.normal_transform, vec4<f32>(2.0), vec4<f32>(-1.0));
+        let transformed = vec2<f32>(dot(layer_slope, q.xy), dot(layer_slope, q.zw));
+        let slope = select(base_slope, transformed, selected);
+        let mapped = fma(vec3<f32>(slope.y), input.bitangent,
+            fma(vec3<f32>(slope.x), input.tangent, input.normal_fog.xyz));
+        normal = inverseSqrt(dot(mapped, mapped)) * mapped;
+    } else {
+        normal = native_world_layer_normal(input, base_normal.rg, layer_normal.rg, weight);
+    }
     let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
     // Base alpha stays the gloss even where the layer fully replaces the color.
     let gloss = base_color.a;
     let probe = native_world_layer_probe(input, normal, gloss, reflection_probe, reflection_sampler);
     let strength = fma(gloss, min(probe.fresnel, gloss * 0.4749999940395355),
         fma(gloss, 0.027499999850988388, 0.014999999664723873));
-    let color_gamma = fma(vec3<f32>(weight), layer_color.rgb - base_color.rgb, base_color.rgb);
-    return native_world_layer_lighting(input, scene, normal, color_gamma,
+    var color_gamma: vec3<f32>;
+    if hard_select { color_gamma = select(base_color.rgb, layer_color.rgb, selected); }
+    else { color_gamma = fma(vec3<f32>(weight), layer_color.rgb - base_color.rgb, base_color.rgb); }
+    var result = native_world_layer_lighting(input, scene, normal, color_gamma,
         strength * probe.linear_color, lightmap_secondary, lightmap_sampler);
+    if hard_select { result.a = select(1.0, weight, selected); }
+    return result;
 }
 
 // The reveal threshold sequence is identical in PS18793676 and PS7f753776.
@@ -198,16 +217,18 @@ fn native_world_reveal_layer_fragment(
         strength * probe.linear_color, lightmap_secondary, lightmap_sampler);
 }
 
-// lit_sm_r0c0n0x0_b1c1n1s1v1 additionally binds native t4/s4 layer
-// specular/gloss. No other stored material constants are bound by this pass;
-// in particular colorTint is not applied.
-fn native_world_reveal_specular_layer_fragment(
+// Shared specular/color/normal lighting tail of lit_sm_r0c0n0x0_b1c1n1s1
+// (PS aa3a8509, SHA256 304a7e21cae7f4c99a1cb5f50cac7bcb25ce71e991acb05536736dc2ab2e38c0)
+// and its s1v1 reveal variant. Both bind native t4/s4 specular/gloss.
+// The entry points supply their original blend weight and sampled C1 color;
+// only the reveal variant reads alphaRevealParms1. Neither reads colorTint.
+fn native_world_specular_layer_fragment(
     input: NativeWorldLayerVaryings,
     scene: NativeWorldScene,
-    material: NativeWorldRevealMaterial,
+    layer_color: vec4<f32>,
+    weight: f32,
     color_map: texture_2d<f32>, color_sampler: sampler,
     normal_map: texture_2d<f32>, normal_sampler: sampler,
-    layer_color_map: texture_2d<f32>, layer_color_sampler: sampler,
     layer_normal_map: texture_2d<f32>, layer_normal_sampler: sampler,
     layer_specular_map: texture_2d<f32>, layer_specular_sampler: sampler,
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
@@ -215,8 +236,6 @@ fn native_world_reveal_specular_layer_fragment(
 ) -> vec4<f32> {
     let layer_normal = textureSample(layer_normal_map, layer_normal_sampler, input.blend_uv.zw);
     let base_normal = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
-    let layer_color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
-    let weight = native_world_layer_reveal_weight(input.blend_uv.y, layer_color.a, material);
     let normal = native_world_layer_normal(input, base_normal.rg, layer_normal.rg, weight);
     let layer_specular = textureSample(layer_specular_map, layer_specular_sampler, input.blend_uv.zw);
     let base_color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);

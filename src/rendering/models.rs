@@ -10,21 +10,25 @@ use serde::Deserialize;
 
 use super::{
     material::MaterialDefinition,
-    native::{NativeWorldGeometry, NativeWorldState},
-    native_model::{NativeModelMaterial, NativeModelSurface},
+    native::{NativeWorldGeometry, NativeWorldPass, NativeWorldState},
+    native_model::{ModelVertexLighting, NativeModelMaterial, NativeModelSurface},
     world::{WorldSurfaceLighting, source_frame},
 };
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReflectionProbe {
+    pub origin: [f32; 3],
+    pub probe_volumes: Vec<[[f32; 4]; 6]>,
     pub reflection_image: String,
+    #[serde(rename = "lightingSH")]
     pub lighting_sh: [f32; 12],
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StaticModelDefinition {
+    model_vertex_lighting_file: String,
     static_models: Vec<Placement>,
     model_geometry: BTreeMap<String, ModelDefinition>,
 }
@@ -39,7 +43,16 @@ struct Placement {
     colors_index: u16,
     visibility: u8,
     reflection_probe_index: u8,
+    primary_light_index: u8,
     cull_dist: f32,
+    vertex_lighting: [VertexLightingRange; 4],
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VertexLightingRange {
+    byte_offset: u64,
+    vertex_count: u32,
 }
 
 #[derive(Deserialize)]
@@ -87,6 +100,8 @@ struct LodDefinition {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SurfaceDefinition {
+    material_draw_surf: u64,
+    base_vert_index: u32,
     vertex_byte_offset: u64,
     first_index: u32,
     vertex_count: u32,
@@ -97,6 +112,7 @@ struct SurfaceDefinition {
 }
 
 pub(crate) struct LoadedModels {
+    vertex_lighting: ModelVertexLighting,
     definition: StaticModelDefinition,
     geometry: BTreeMap<String, NativeWorldGeometry>,
     materials: BTreeMap<String, MaterialDefinition>,
@@ -108,6 +124,9 @@ impl StaticModelDefinition {
     /// Run on the existing loading IO task. Model bytes have one render-asset
     /// owner per model; placements share them rather than cloning vertex data.
     pub(crate) fn load(self, root: &Path, probes: &[ReflectionProbe]) -> LoadedModels {
+        let vertex_lighting = std::fs::read(root.join(&self.model_vertex_lighting_file))
+            .expect("Read original per-placement model vertex lighting");
+        assert!(vertex_lighting.len().is_multiple_of(4));
         let mut geometry = BTreeMap::new();
         let mut materials = BTreeMap::new();
         let mut unsupported = BTreeMap::new();
@@ -169,13 +188,19 @@ impl StaticModelDefinition {
                         }),
                         "Original model {name} LOD {lod_index} requires surface-local Uint16 indices"
                     );
-                    if surface.flags != 0 {
-                        // T6_Assets.h XSurfaceFlag: the map's 0x82 surfaces
-                        // are SKINNED|DEFORMED, requiring original blend,
-                        // tension and bone-transform inputs beyond verts0.
-                        unsupported.insert(format!("{name} LOD {lod_index} {}", surface.material), format!(
-                            "Port this original surface's vertex deformation inputs (flags {:#x}); PACKED32 bind-pose data alone is insufficient",
-                            surface.flags));
+                    // Static draw type4 dispatches through 004751d0 to
+                    // 004784f0/004785f0. Both upload verts0 unchanged via
+                    // 00476950 and use the placement transform, including
+                    // SKINNED|DEFORMED (0x82) surfaces. Animated script models
+                    // have a separate pose owner and draw path.
+                    if !matches!(surface.flags, 0 | 0x82) {
+                        unsupported.insert(
+                            format!("{name} LOD {lod_index} {}", surface.material),
+                            format!(
+                                "Unsupported original static surface vertex encoding (flags {:#x})",
+                                surface.flags
+                            ),
+                        );
                     }
                     materials
                         .entry(surface.material_file.clone())
@@ -217,6 +242,40 @@ impl StaticModelDefinition {
                 placement.model
             );
         }
+        for placement in &self.static_models {
+            let model = &self.model_geometry[&placement.model];
+            for (lod_index, range) in placement.vertex_lighting.iter().enumerate() {
+                assert!(
+                    range.byte_offset.is_multiple_of(4)
+                        && range.byte_offset + u64::from(range.vertex_count) * 4
+                            <= vertex_lighting.len() as u64,
+                    "Original model {} vertex lighting range",
+                    placement.model
+                );
+                if range.vertex_count > 0 {
+                    assert!(
+                        lod_index < model.lods.len(),
+                        "Lighting references missing LOD"
+                    );
+                }
+                if let Some(lod) = model.lods.get(lod_index) {
+                    for surface in &lod.surfaces {
+                        if materials[&surface.material_file]
+                            .technique_set()
+                            .starts_with("mlv_")
+                        {
+                            assert!(
+                                u64::from(surface.base_vert_index)
+                                    + u64::from(surface.vertex_count)
+                                    <= u64::from(range.vertex_count),
+                                "Original model {} LOD {lod_index} lacks authored vertex lighting",
+                                placement.model
+                            );
+                        }
+                    }
+                }
+            }
+        }
         for probe in probes {
             assert!(
                 probe.lighting_sh.iter().all(|value| value.is_finite()),
@@ -224,6 +283,7 @@ impl StaticModelDefinition {
             );
         }
         LoadedModels {
+            vertex_lighting: ModelVertexLighting(vertex_lighting),
             definition: self,
             geometry,
             materials,
@@ -247,6 +307,9 @@ impl NativeModelsRoot {
 }
 
 struct BoundSurface {
+    pass: NativeWorldPass,
+    material_draw_surf: u64,
+    base_vert_index: u32,
     material: Handle<NativeModelMaterial>,
     state: NativeWorldState,
     vertex_byte_offset: u64,
@@ -255,6 +318,7 @@ struct BoundSurface {
 }
 
 struct BoundLod {
+    draw_type: u64,
     distance: f32,
     surfaces: Vec<BoundSurface>,
 }
@@ -266,6 +330,10 @@ struct ModelDraws {
 
 #[derive(Component)]
 pub(crate) struct StaticModelInstance {
+    source_index: u32,
+    primary_light_index: u8,
+    vertex_lighting: Handle<ModelVertexLighting>,
+    lighting_ranges: [VertexLightingRange; 4],
     model: Arc<ModelDraws>,
     origin: Vec3,
     scale: f32,
@@ -277,9 +345,26 @@ pub(crate) struct StaticModelInstance {
 }
 
 impl StaticModelInstance {
-    fn surface(&self, placement: Entity, source: &BoundSurface) -> NativeModelSurface {
+    fn surface(&self, placement: Entity, lod: usize, source: &BoundSurface) -> NativeModelSurface {
+        let lighting = self.lighting_ranges[lod];
         NativeModelSurface {
-            geometry: self.model.geometry.clone(),
+            pass: source.pass,
+            // 0045a470 sets primary light and model type, 004307d0 replaces
+            // low16 with a batch pointer. Keep original placement order for
+            // equivalent keys; dynamic-light classification is not yet supplied.
+            sort_key: (
+                (source.material_draw_surf & 0xff00_0fff_3fff_0000)
+                    | (u64::from(self.primary_light_index) << 44)
+                    | (self.model.lods[lod].draw_type << 52),
+                self.source_index,
+            ),
+            vertex_lighting: (lighting.vertex_count > 0).then(|| {
+                (
+                    self.vertex_lighting.clone(),
+                    lighting.byte_offset + u64::from(source.base_vert_index) * 4,
+                )
+            }),
+            geometry: super::native_model::ModelGeometry::Static(self.model.geometry.clone()),
             material: source.material.clone(),
             state: source.state,
             primary_byte_offset: source.vertex_byte_offset,
@@ -327,6 +412,7 @@ impl LoadedModels {
         server: &AssetServer,
         geometries: &mut Assets<NativeWorldGeometry>,
         materials: &mut Assets<NativeModelMaterial>,
+        lighting: &mut Assets<ModelVertexLighting>,
     ) {
         let mut missing = self.unsupported;
         let probes: Vec<_> = self
@@ -381,6 +467,7 @@ impl LoadedModels {
                 .join("\n")
         );
 
+        let vertex_lighting = lighting.add(self.vertex_lighting);
         let geometry: BTreeMap<_, _> = self
             .geometry
             .into_iter()
@@ -397,6 +484,11 @@ impl LoadedModels {
                         .lods
                         .iter()
                         .map(|lod| BoundLod {
+                            draw_type: if lod.surfaces.iter().any(|s| s.flags & 0x80 != 0) {
+                                4
+                            } else {
+                                3
+                            },
                             distance: lod.dist,
                             surfaces: lod
                                 .surfaces
@@ -405,6 +497,9 @@ impl LoadedModels {
                                     let (material, state) =
                                         &bound[&(surface.material_file.as_str(), probe_index)];
                                     BoundSurface {
+                                        pass: self.materials[&surface.material_file].world_pass(),
+                                        material_draw_surf: surface.material_draw_surf,
+                                        base_vert_index: surface.base_vert_index,
                                         material: material.clone(),
                                         state: *state,
                                         vertex_byte_offset: surface.vertex_byte_offset,
@@ -430,7 +525,7 @@ impl LoadedModels {
             ))
             .id();
         let frame = Transform::from_matrix(source_frame());
-        for placement in self.definition.static_models {
+        for (source_index, placement) in self.definition.static_models.into_iter().enumerate() {
             let model = models[placement.model.as_str()][&placement.reflection_probe_index].clone();
             let bounds = self.definition.model_geometry[&placement.model].bounds;
             let pose = placement.transform();
@@ -444,6 +539,10 @@ impl LoadedModels {
                 ))
                 .id();
             let mut instance = StaticModelInstance {
+                source_index: source_index as u32,
+                primary_light_index: placement.primary_light_index,
+                vertex_lighting: vertex_lighting.clone(),
+                lighting_ranges: placement.vertex_lighting,
                 model,
                 origin: placement.origin.vector(),
                 scale: placement.scale,
@@ -466,7 +565,7 @@ impl LoadedModels {
             // source draw. LOD switches retarget slots without entity churn.
             for (index, maximum) in largest.surfaces.iter().enumerate() {
                 let source_surface = instance.model.lods[0].surfaces.get(index);
-                let mut draw = instance.surface(owner, source_surface.unwrap_or(maximum));
+                let mut draw = instance.surface(owner, 0, source_surface.unwrap_or(maximum));
                 if source_surface.is_none() {
                     draw.index_count = 0;
                 }
@@ -546,7 +645,7 @@ pub(crate) fn select_lods(
             if let Some(source) =
                 selected.and_then(|lod| instance.model.lods[lod].surfaces.get(index))
             {
-                *draw = instance.surface(owner, source);
+                *draw = instance.surface(owner, selected.expect("selected source LOD"), source);
             } else {
                 draw.index_count = 0;
             }

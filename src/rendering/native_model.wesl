@@ -1,6 +1,6 @@
 import package::rendering::native_world::{
     NativeWorldScene, NativeWorldObject, NativeWorldVertexInput,
-    native_world_vertex,
+    native_world_vertex, native_world_vertex_with_basis, native_world_unpack_direction,
 };
 
 // T6 mc_lit_sm_r0c0n0x0_q361191u, LIT pimp_technique_lprobe_235c93bf.
@@ -50,6 +50,7 @@ struct NativeModelVaryings {
     eye_to_vertex: vec4<f32>,
     grid_coords_and_vis: vec4<f32>,
     reflection_correction: vec3<f32>,
+    grid_correction: vec3<f32>,
 }
 
 fn native_model_vertex(
@@ -57,14 +58,31 @@ fn native_model_vertex(
     scene: NativeModelScene,
     object: NativeModelObject,
 ) -> NativeModelVaryings {
+    return native_model_vertex_lighting(input, scene, object, vec4<f32>(0.0), false);
+}
+
+// MLV VS 63b41dee: square the authored vertex light, scale by 32, then
+// divide by each SH irradiance before interpolation. MC retains its grid SH.
+fn native_model_vertex_lighting(
+    input: NativeModelVertexInput, scene: NativeModelScene,
+    object: NativeModelObject, vertex_light: vec4<f32>, baked: bool,
+) -> NativeModelVaryings {
+    return native_model_vertex_lighting_with_basis(input, scene, object, vertex_light, baked,
+        native_world_unpack_direction(input.packed_normal), native_world_unpack_direction(input.packed_tangent));
+}
+
+fn native_model_vertex_lighting_with_basis(
+    input: NativeModelVertexInput, scene: NativeModelScene, object: NativeModelObject,
+    vertex_light: vec4<f32>, baked: bool, decoded_normal: vec3<f32>, decoded_tangent: vec3<f32>,
+) -> NativeModelVaryings {
     // The position/fog/basis instructions match the ordinary world program.
     // Its lightmap UV output is unused here; models have no lightmap UV input.
     // Its inverse reflection SH output is also unused: this VS divides the
     // grid irradiance by reflection irradiance directly, before interpolation.
-    let world = native_world_vertex(
+    let world = native_world_vertex_with_basis(
         NativeWorldVertexInput(input.position, input.color, input.uv,
             input.packed_normal, input.packed_tangent, vec2<f32>(0.0)),
-        scene.world,
+        decoded_normal, decoded_tangent, scene.world,
         NativeWorldObject(object.world_rows, object.reflection_lighting_sh0,
             object.reflection_lighting_sh1, object.reflection_lighting_sh2),
     );
@@ -84,10 +102,15 @@ fn native_model_vertex(
     let grid_scale = fma(object.grid_lighting_sh0.w, squared_yz.y, grid_quadratic + grid_linear);
     let grid_irradiance = max(grid_scale * object.grid_lighting_sh0.xyz,
         vec3<f32>(0.10000000149011612));
+    let irradiance = select(grid_irradiance,
+        (vertex_light.rgb * vertex_light.rgb) * 32.0, baked);
+    var grid_coords = object.grid_lighting_coords_and_vis;
+    grid_coords.w = select(grid_coords.w, vertex_light.a, baked);
     return NativeModelVaryings(world.clip_position, world.color, input.uv,
         world.normal_fog, world.fog_color, world.bitangent, world.tangent,
-        vec4<f32>(world.eye_to_vertex, 0.0), object.grid_lighting_coords_and_vis,
-        grid_irradiance / reflection_irradiance);
+        vec4<f32>(world.eye_to_vertex, 0.0), grid_coords,
+        irradiance / reflection_irradiance,
+        select(vec3<f32>(1.0), irradiance / grid_irradiance, baked));
 }
 
 // Native t0/s0 color, t1/s1 normal, t13/s13 MODEL LIGHTING 3D texture,
@@ -126,7 +149,7 @@ fn native_model_fragment(
     let lighting_direction = (normal * scene.lighting_lookup_scale.xyz) / major_axis;
     let lighting_coords = lighting_direction + input.grid_coords_and_vis.xyz;
     let lighting_sample = textureSample(model_lighting, model_lighting_sampler, lighting_coords);
-    let irradiance = lighting_sample.rgb * lighting_sample.rgb;
+    let irradiance = (lighting_sample.rgb * lighting_sample.rgb) * input.grid_correction;
     let diffuse_lighting = diffuse * irradiance;
     let lit = fma(diffuse_lighting, vec3<f32>(32.0), reflected);
     let fogged = fma(vec3<f32>(input.normal_fog.w), lit - input.fog_color, input.fog_color);

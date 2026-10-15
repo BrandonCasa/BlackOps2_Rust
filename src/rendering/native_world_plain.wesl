@@ -1,6 +1,6 @@
 import package::rendering::native_world::{
     NativeWorldScene, NativeWorldObject, NativeWorldVertexInput, NativeWorldVaryings,
-    native_world_unpack_direction,
+    native_world_unpack_direction, native_omni_diffuse,
 };
 
 // Original T6 world LIT programs, from rendering-20261012/{source,shaders}:
@@ -25,7 +25,7 @@ struct NativeWorldGeometricVertexInput {
 // These source VS programs share the position/fog/normal instruction sequence.
 // The returned struct also has slots used by the other world programs. Only
 // the dedicated source wrappers below produce each program's required slots.
-fn native_world_plain_base_vertex(
+fn native_world_position_fog(
     input: NativeWorldGeometricVertexInput,
     scene: NativeWorldScene,
     object: NativeWorldObject,
@@ -66,6 +66,16 @@ fn native_world_plain_base_vertex(
     output.fog_color = fog.xyz;
     output.eye_to_vertex = world_position.xyz;
 
+    output.normal_fog = vec4<f32>(vec3<f32>(0.0), fma(-fog_amount, fog.w, 1.0));
+    return output;
+}
+
+fn native_world_plain_base_vertex(
+    input: NativeWorldGeometricVertexInput,
+    scene: NativeWorldScene,
+    object: NativeWorldObject,
+) -> NativeWorldVaryings {
+    var output = native_world_position_fog(input, scene, object);
     let decoded_normal = native_world_unpack_direction(input.packed_normal);
     let transformed_normal = vec3<f32>(
         dot(decoded_normal, object.world_rows[0].xyz),
@@ -73,7 +83,7 @@ fn native_world_plain_base_vertex(
         dot(decoded_normal, object.world_rows[2].xyz),
     );
     let normal = inverseSqrt(dot(transformed_normal, transformed_normal)) * transformed_normal;
-    output.normal_fog = vec4<f32>(normal, fma(-fog_amount, fog.w, 1.0));
+    output.normal_fog = vec4<f32>(normal, output.normal_fog.w);
     return output;
 }
 
@@ -137,9 +147,11 @@ fn native_world_plain_mapped_normal(
 fn native_world_diffuse_fragment(
     input: NativeWorldVaryings,
     scene: NativeWorldScene,
-    color_map: texture_2d<f32>, color_sampler: sampler,
+    color_sample: vec4<f32>,
     normal_map: texture_2d<f32>, normal_sampler: sampler,
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
+    blended: bool,
+    opacity: f32,
 ) -> vec4<f32> {
     let normal_sample = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_plain_mapped_normal(input, normal_sample.rg);
@@ -156,11 +168,22 @@ fn native_world_diffuse_fragment(
     let ambient_sample = textureSample(lightmap_secondary, lightmap_sampler, ambient_uv);
     let ambient_reciprocal_alpha = 1.0 / (ambient_sample.a + 9.999999974752427e-07);
     let light = fma(ambient_sample.rgb, vec3<f32>(ambient_reciprocal_alpha), directed_light);
-    let color_sample = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
     let colored = color_sample.rgb * input.color.rgb;
     let diffuse = colored * colored;
-    // Preserve the diffuse-only PS's first fused subtract before fog blend.
-    let fog_delta = fma(diffuse, light, -input.fog_color);
+    if blended {
+        let fog_color = opacity * input.fog_color;
+        let fog_delta = fma(light * diffuse, vec3<f32>(opacity), -fog_color);
+        let fogged = fma(vec3<f32>(input.normal_fog.w), fog_delta, fog_color);
+        return vec4<f32>(sqrt(fogged * scene.hdr_control0.x), sqrt(opacity));
+    }
+    // PS37a44012 adds the combined-glight diffuse before fog/exposure. Keep
+    // PSc6b996da's original fused subtract when that variant is inactive.
+    var fog_delta = fma(diffuse, light, -input.fog_color);
+    if scene.omni_lights.enabled.x != 0.0 {
+        let omni = native_omni_diffuse(scene.omni_lights, input.eye_to_vertex, normal);
+        let lit = fma(diffuse, omni, diffuse * light);
+        fog_delta = lit - input.fog_color;
+    }
     let fogged = fma(vec3<f32>(input.normal_fog.w), fog_delta, input.fog_color);
     return vec4<f32>(sqrt(fogged * scene.hdr_control0.x), 1.0);
 }
@@ -196,8 +219,10 @@ fn native_world_plain_specular_lighting(
     scene: NativeWorldScene,
     normal: vec3<f32>,
     reflected: vec3<f32>,
-    color_map: texture_2d<f32>, color_sampler: sampler,
+    color_sample: vec4<f32>,
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
+    blended: bool,
+    opacity: f32,
 ) -> vec4<f32> {
     let lm_uv = input.uv_lightmap.zw;
     let ambient_uv = lm_uv * vec2<f32>(1.0, 0.3333333432674408);
@@ -213,10 +238,15 @@ fn native_world_plain_specular_lighting(
     let reflection_light = fma(directional, vec3<f32>(clamp(dot(light_direction, input.normal_fog.xyz), 0.0, 1.0)), ambient)
         * input.reflection_correction;
     let reflection = reflected * reflection_light;
-    let color_sample = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
     let colored = color_sample.rgb * input.color.rgb;
     let diffuse = colored * colored;
     let lit = fma(diffuse, diffuse_light, reflection);
+    if blended {
+        let fog_color = opacity * input.fog_color;
+        let fog_delta = fma(lit, vec3<f32>(opacity), -fog_color);
+        let fogged = fma(vec3<f32>(input.normal_fog.w), fog_delta, fog_color);
+        return vec4<f32>(sqrt(fogged * scene.hdr_control0.x), sqrt(opacity));
+    }
     let fogged = fma(vec3<f32>(input.normal_fog.w), lit - input.fog_color, input.fog_color);
     return vec4<f32>(sqrt(fogged * scene.hdr_control0.x), 1.0);
 }
@@ -227,11 +257,13 @@ fn native_world_plain_specular_lighting(
 fn native_world_normal_specular_fragment(
     input: NativeWorldVaryings,
     scene: NativeWorldScene,
-    color_map: texture_2d<f32>, color_sampler: sampler,
+    color_sample: vec4<f32>,
     normal_map: texture_2d<f32>, normal_sampler: sampler,
     specular_map: texture_2d<f32>, specular_sampler: sampler,
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
+    blended: bool,
+    opacity: f32,
 ) -> vec4<f32> {
     let normal_sample = textureSample(normal_map, normal_sampler, input.uv_lightmap.xy);
     let normal = native_world_plain_mapped_normal(input, normal_sample.rg);
@@ -239,7 +271,7 @@ fn native_world_normal_specular_fragment(
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex, normal,
         specular, reflection_probe, reflection_sampler);
     return native_world_plain_specular_lighting(input, scene, normal, reflected,
-        color_map, color_sampler, lightmap_secondary, lightmap_sampler);
+        color_sample, lightmap_secondary, lightmap_sampler, blended, opacity);
 }
 
 // qfqz7850 PS native slots: C0/s0, S1/s1, LM13/s13, cube15/s15.
@@ -253,11 +285,35 @@ fn native_world_geometric_specular_fragment(
     specular_map: texture_2d<f32>, specular_sampler: sampler,
     lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
     reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
+    blended: bool,
 ) -> vec4<f32> {
     let normal = inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz)) * input.normal_fog.xyz;
     let specular = textureSample(specular_map, specular_sampler, input.uv_lightmap.xy);
     let reflected = native_world_plain_specular_reflection(input.eye_to_vertex, normal,
         specular, reflection_probe, reflection_sampler);
+    let color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
     return native_world_plain_specular_lighting(input, scene, normal, reflected,
-        color_map, color_sampler, lightmap_secondary, lightmap_sampler);
+        color, lightmap_secondary, lightmap_sampler, blended, color.a * input.color.a);
+}
+
+// wpc_lit_sm_r0c0x0_5j63fj97: PSf4d09842, VSd63b1bf7.
+// Color alpha controls gloss directly, unlike the separate specular-map family.
+fn native_world_geometric_gloss_fragment(
+    input: NativeWorldVaryings, scene: NativeWorldScene,
+    color_map: texture_2d<f32>, color_sampler: sampler,
+    lightmap_secondary: texture_2d<f32>, lightmap_sampler: sampler,
+    reflection_probe: texture_cube<f32>, reflection_sampler: sampler,
+) -> vec4<f32> {
+    let incident = inverseSqrt(dot(input.eye_to_vertex, input.eye_to_vertex)) * input.eye_to_vertex;
+    let normal = inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz)) * input.normal_fog.xyz;
+    let direction = fma(normal, vec3<f32>(-2.0 * dot(incident, normal)), incident);
+    let fresnel = exp2(clamp(dot(normal, -incident), 0.0, 1.0) * -9.279999732971191);
+    let color = textureSample(color_map, color_sampler, input.uv_lightmap.xy);
+    let gloss = color.a;
+    let probe_sample = textureSampleLevel(reflection_probe, reflection_sampler, direction, fma(-4.0, gloss, 4.0));
+    let probe = (1.0 / (probe_sample.a + 9.999999974752427e-07)) * probe_sample.rgb;
+    let strength = fma(gloss, min(fresnel, gloss * 0.4749999940395355),
+        fma(gloss, 0.027499999850988388, 0.014999999664723873));
+    return native_world_plain_specular_lighting(input, scene, normal, strength * probe,
+        color, lightmap_secondary, lightmap_sampler, false, 1.0);
 }

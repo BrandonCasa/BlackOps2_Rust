@@ -14,6 +14,8 @@ pub struct GameDefinition {
     #[serde(skip)]
     pub scene_animations:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, Option<String>>>,
+    #[serde(skip)]
+    pub scene_models: std::collections::BTreeMap<String, String>,
     pub scene: String,
     #[serde(default)]
     pub additional_scenes: Vec<String>,
@@ -170,6 +172,7 @@ impl GameDefinition {
         #[derive(Deserialize)]
         struct Scene {
             scene: String,
+            model: String,
             tracks: Vec<Clip>,
         }
         #[derive(Deserialize)]
@@ -178,6 +181,10 @@ impl GameDefinition {
             animation_path: Option<String>,
         }
         let scenes: Vec<Scene> = read(&root.join("source-model-clips.json"));
+        definition.scene_models = scenes
+            .iter()
+            .map(|scene| (scene.scene.clone(), scene.model.clone()))
+            .collect();
         definition.scene_animations = scenes
             .into_iter()
             .map(|scene| {
@@ -202,7 +209,13 @@ impl GameDefinition {
                 continue;
             };
             let scene = scene.split('#').next().unwrap();
-            let name = animation.id.0.rsplit('.').next().unwrap().to_ascii_lowercase();
+            let name = animation
+                .id
+                .0
+                .rsplit('.')
+                .next()
+                .unwrap()
+                .to_ascii_lowercase();
             if let Some(Some(path)) = definition
                 .scene_animations
                 .get(scene)

@@ -111,7 +111,6 @@ impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
         camo::install(app);
 
-        cues::install(app);
         source_units::install(app);
         locomotion::install(app);
         app.add_systems(
@@ -163,6 +162,7 @@ impl Plugin for PresentationPlugin {
         )
         .add_observer(rig_ready);
         app.add_observer(attachment_ready);
+        app.add_observer(invalidate_socket_bindings);
     }
 }
 fn spawn_viewmodels(
@@ -553,6 +553,24 @@ fn hide_attachment_joints(mut joints: Query<&mut Transform, With<AttachmentHidde
         joint.scale = Vec3::ZERO;
     }
 }
+// Bevy replaces instance entities on asset modification, then sends Ready again.
+// Bindings belong to those entities, not to the persistent WorldAssetRoot.
+fn invalidate_socket_bindings(
+    event: On<WorldInstanceReady>,
+    mut commands: Commands,
+    mut attachments: Query<(Entity, &SocketAttachment, &mut Rig)>,
+) {
+    for (entity, socket, mut rig) in &mut attachments {
+        if entity == event.entity || socket.chain.contains(&event.entity) {
+            rig.attached = false;
+            commands
+                .entity(entity)
+                .remove::<SocketAttachment>()
+                .insert(Visibility::Hidden);
+        }
+    }
+}
+
 fn follow_sockets(
     joints: Query<&Transform, Without<SocketAttachment>>,
     mut attachments: Query<(&SocketAttachment, &mut Transform)>,
@@ -594,6 +612,8 @@ fn rig_ready(
     clips.ready = true;
     rig.ready = true;
     rig.sequence = None;
+    rig.sockets = [None; 3];
+    rig.camera_chain.clear();
     let source = gltfs.get(&rig.source).expect("Ready viewmodel glTF");
     let skin = source
         .skins
@@ -1447,5 +1467,88 @@ mod tests {
             let expected = ancestor_pose.to_matrix() * socket_pose.to_matrix();
             assert!(actual.to_matrix().abs_diff_eq(expected, 1e-6));
         }
+    }
+    #[test]
+    fn replaced_arms_instance_rebinds_weapon_to_new_socket() {
+        let mut app = App::new();
+        app.add_observer(invalidate_socket_bindings);
+        app.add_systems(Update, attach_weapons);
+        app.add_systems(PostUpdate, follow_sockets);
+        let root = app.world_mut().spawn(Transform::default()).id();
+        let make_rig = || Rig {
+            owner: Entity::PLACEHOLDER,
+            weapon: WeaponId("weapon.test".into()),
+            phase: None,
+            source: Handle::default(),
+            nodes: BTreeMap::new(),
+            prefetched: false,
+            sockets: [None; 3],
+            camera_chain: Vec::new(),
+            bind_rotation: Quat::IDENTITY,
+            sequence: None,
+            arms: false,
+            attached: false,
+            ready: true,
+            knife: false,
+            ads: false,
+            left: false,
+            dual: false,
+            playback: None,
+            main_node: None,
+            selected_clip: None,
+            source_sample: None,
+            selection_sequence: 0,
+            sprinting: false,
+            sprint_phase: None,
+            ads_from: [0.; 2],
+            ads_elapsed: 0.,
+            ads_requested: None,
+        };
+        let mut arms_rig = make_rig();
+        arms_rig.arms = true;
+        arms_rig.attached = true;
+        let arms = app
+            .world_mut()
+            .spawn((arms_rig, ChildOf(root), Transform::default()))
+            .id();
+        let old = app
+            .world_mut()
+            .spawn((ChildOf(arms), Transform::from_xyz(1., 0., 0.)))
+            .id();
+        app.world_mut().get_mut::<Rig>(arms).unwrap().sockets[0] = Some(old);
+        let weapon = app
+            .world_mut()
+            .spawn((make_rig(), ChildOf(root), Transform::default()))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world().get::<Transform>(weapon).unwrap().translation.x,
+            1.
+        );
+        app.world_mut().despawn(old);
+        let new = app
+            .world_mut()
+            .spawn((ChildOf(arms), Transform::from_xyz(2., 0., 0.)))
+            .id();
+        app.world_mut().get_mut::<Rig>(arms).unwrap().sockets[0] = Some(new);
+        let instance_id = bevy::world_serialization::WorldInstanceSpawner::default()
+            .spawn(Handle::<bevy::world_serialization::WorldAsset>::default());
+        app.world_mut().trigger(WorldInstanceReady {
+            entity: arms,
+            instance_id,
+        });
+        app.world_mut().flush();
+        assert!(app.world().get::<SocketAttachment>(weapon).is_none());
+        assert!(!app.world().get::<Rig>(weapon).unwrap().attached);
+        app.update();
+        assert_eq!(
+            app.world().get::<Transform>(weapon).unwrap().translation.x,
+            2.
+        );
+        assert_eq!(
+            app.world().get::<SocketAttachment>(weapon).unwrap().chain[0],
+            new
+        );
+        assert!(app.world().get::<Rig>(weapon).unwrap().attached);
     }
 }

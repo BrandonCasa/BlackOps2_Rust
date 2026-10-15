@@ -56,7 +56,7 @@ pub struct NativeFxFrame {
 pub struct ExtractedEffectView {
     float_z: AssetId<Image>,
     sampler: SamplerDescriptor<'static>,
-    filtering: bool,
+    pub(crate) filtering: bool,
 }
 
 fn filtering(descriptor: &SamplerDescriptor<'_>) -> bool {
@@ -114,6 +114,7 @@ impl ExtractComponent<RenderApp> for NativeEffectView {
 #[extract_app(RenderApp)]
 pub struct NativeEffectTransform {
     pub world_rows: [Vec4; 4],
+    pub outdoor_rows: [Vec4; 3],
 }
 
 /// Original absolute native-inch outdoor lookup. The world owns this resource;
@@ -143,13 +144,34 @@ pub(crate) struct NativeCloudObject {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, TypePath)]
 pub enum NativeEffectProgram {
     Zfeather,
+    Additive,
+    AdditiveFeather,
+    LocalAdditiveFeather,
+    SimpleFeather,
+    EyeFeather,
+    SimpleAdditive,
+    EyeAdditive,
+    OutdoorFeather,
     CloudRain,
     CloudSnow,
 }
 
 impl NativeEffectProgram {
+    pub(crate) fn additive(self) -> bool {
+        matches!(
+            self,
+            Self::Additive
+                | Self::AdditiveFeather
+                | Self::LocalAdditiveFeather
+                | Self::SimpleFeather
+                | Self::EyeFeather
+                | Self::SimpleAdditive
+                | Self::EyeAdditive
+                | Self::OutdoorFeather
+        )
+    }
     fn cloud(self) -> bool {
-        self != Self::Zfeather
+        matches!(self, Self::CloudRain | Self::CloudSnow)
     }
 }
 
@@ -180,6 +202,7 @@ pub struct NativeEffectStencil {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NativeEffectState {
+    pub blend: BlendState,
     pub cull_mode: Option<Face>,
     pub front_face: FrontFace,
     pub stencil: Option<NativeEffectStencil>,
@@ -192,12 +215,14 @@ pub struct NativeEffectMaterial {
     pub color_map: Handle<Image>,
     pub color_sampler: SamplerDescriptor<'static>,
     pub feather_parms: Vec4,
+    pub additive_parms: [Vec4; 4],
     pub state: NativeEffectState,
 }
 
 #[derive(ShaderType)]
 struct NativeEffectConstants {
     feather_parms: Vec4,
+    additive_parms: [Vec4; 4],
 }
 
 /// Native PACKED32 vertices and little-endian Uint16 indices. Modified CPU
@@ -399,27 +424,30 @@ struct EffectPipeline {
     cloud_material_layout: BindGroupLayoutDescriptor,
 }
 
+// Shared by model plinth glows and particles: one owner for floatZ and its frame constants.
+pub(crate) fn effect_scene_layout(filtering: bool) -> BindGroupLayoutDescriptor {
+    BindGroupLayoutDescriptor::new(
+        "native effect scene",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::VERTEX_FRAGMENT,
+            (
+                uniform_buffer::<NativeFxFrame>(true),
+                texture_2d(TextureSampleType::Float {
+                    filterable: filtering,
+                }),
+                sampler(if filtering {
+                    SamplerBindingType::Filtering
+                } else {
+                    SamplerBindingType::NonFiltering
+                }),
+            ),
+        ),
+    )
+}
+
 impl EffectPipeline {
     fn new(shader: Handle<Shader>, cloud_shader: Handle<Shader>) -> Self {
-        let scene_layouts = [false, true].map(|filtering| {
-            BindGroupLayoutDescriptor::new(
-                "native effect scene",
-                &BindGroupLayoutEntries::sequential(
-                    ShaderStages::VERTEX_FRAGMENT,
-                    (
-                        uniform_buffer::<NativeFxFrame>(true),
-                        texture_2d(TextureSampleType::Float {
-                            filterable: filtering,
-                        }),
-                        sampler(if filtering {
-                            SamplerBindingType::Filtering
-                        } else {
-                            SamplerBindingType::NonFiltering
-                        }),
-                    ),
-                ),
-            )
-        });
+        let scene_layouts = [false, true].map(effect_scene_layout);
         Self {
             shader,
             cloud_shader,
@@ -469,6 +497,7 @@ struct EffectPipelineKey {
     target: TextureFormat,
     samples: u32,
     depth_filtering: bool,
+    outdoor_filtering: bool,
     state: NativeEffectState,
 }
 
@@ -498,6 +527,14 @@ impl SpecializedRenderPipeline for EffectPipeline {
         };
         let vertex_entry = match key.program {
             NativeEffectProgram::Zfeather => "vertex",
+            NativeEffectProgram::Additive => "vertex_additive",
+            NativeEffectProgram::AdditiveFeather => "vertex_additive_feather",
+            NativeEffectProgram::LocalAdditiveFeather => "vertex_local_additive_feather",
+            NativeEffectProgram::SimpleFeather => "vertex_simple_feather",
+            NativeEffectProgram::EyeFeather => "vertex_eye_feather",
+            NativeEffectProgram::SimpleAdditive => "vertex_simple_additive",
+            NativeEffectProgram::EyeAdditive => "vertex_eye_additive",
+            NativeEffectProgram::OutdoorFeather => "vertex_outdoor_feather",
             NativeEffectProgram::CloudRain => "vertex_rain",
             NativeEffectProgram::CloudSnow => "vertex_snow",
         };
@@ -531,24 +568,33 @@ impl SpecializedRenderPipeline for EffectPipeline {
                         offset: 20,
                         shader_location: 2,
                     },
+                    VertexAttribute {
+                        format: VertexFormat::Uint32,
+                        offset: 24,
+                        shader_location: 3,
+                    },
                 ],
             }
         };
+        let mut layout = vec![
+            self.scene_layouts[usize::from(key.depth_filtering)].clone(),
+            if cloud {
+                self.cloud_object_layout.clone()
+            } else {
+                self.object_layout.clone()
+            },
+            if cloud {
+                self.cloud_material_layout.clone()
+            } else {
+                self.material_layout.clone()
+            },
+        ];
+        if key.program == NativeEffectProgram::OutdoorFeather {
+            layout.push(self.scene_layouts[usize::from(key.outdoor_filtering)].clone());
+        }
         RenderPipelineDescriptor {
             label: Some("T6 source particle effect".into()),
-            layout: vec![
-                self.scene_layouts[usize::from(key.depth_filtering)].clone(),
-                if cloud {
-                    self.cloud_object_layout.clone()
-                } else {
-                    self.object_layout.clone()
-                },
-                if cloud {
-                    self.cloud_material_layout.clone()
-                } else {
-                    self.material_layout.clone()
-                },
-            ],
+            layout,
             vertex: VertexState {
                 shader: shader.clone(),
                 entry_point: Some(vertex_entry.into()),
@@ -557,21 +603,32 @@ impl SpecializedRenderPipeline for EffectPipeline {
             },
             fragment: Some(FragmentState {
                 shader: shader.clone(),
-                entry_point: Some("fragment".into()),
+                entry_point: Some(
+                    if key.program == NativeEffectProgram::OutdoorFeather {
+                        "fragment_outdoor_feather"
+                    } else if matches!(
+                        key.program,
+                        NativeEffectProgram::AdditiveFeather
+                            | NativeEffectProgram::LocalAdditiveFeather
+                            | NativeEffectProgram::SimpleFeather
+                            | NativeEffectProgram::EyeFeather
+                    ) {
+                        "fragment_additive_feather"
+                    } else if matches!(
+                        key.program,
+                        NativeEffectProgram::Additive
+                            | NativeEffectProgram::SimpleAdditive
+                            | NativeEffectProgram::EyeAdditive
+                    ) {
+                        "fragment_additive"
+                    } else {
+                        "fragment"
+                    }
+                    .into(),
+                ),
                 targets: vec![Some(ColorTargetState {
                     format: key.target,
-                    blend: Some(BlendState {
-                        color: BlendComponent {
-                            src_factor: BlendFactor::SrcAlpha,
-                            dst_factor: BlendFactor::OneMinusSrcAlpha,
-                            operation: BlendOperation::Add,
-                        },
-                        alpha: BlendComponent {
-                            src_factor: BlendFactor::OneMinusDstAlpha,
-                            dst_factor: BlendFactor::One,
-                            operation: BlendOperation::Add,
-                        },
-                    }),
+                    blend: Some(key.state.blend),
                     write_mask: ColorWrites::ALL,
                 })],
                 ..default()
@@ -645,6 +702,7 @@ impl RenderAsset for PreparedEffectMaterial {
         } else {
             let mut constants = UniformBuffer::from(NativeEffectConstants {
                 feather_parms: source.feather_parms,
+                additive_parms: source.additive_parms,
             });
             constants.write_buffer(device, queue);
             device.create_bind_group(
@@ -678,7 +736,7 @@ pub struct PreparedEffectView {
     frame_buffer: BufferId,
     depth_view: TextureViewId,
     sampler: SamplerDescriptor<'static>,
-    bind_group: BindGroup,
+    pub(crate) bind_group: BindGroup,
 }
 
 #[derive(Component)]
@@ -862,7 +920,8 @@ fn queue_effects(
                 continue;
             };
             let cloud = material.program.cloud();
-            if (cloud && cloud_view.is_none())
+            if ((cloud || material.program == NativeEffectProgram::OutdoorFeather)
+                && cloud_view.is_none())
                 || (!cloud && images.get(effect_view.float_z).is_none())
             {
                 continue;
@@ -903,6 +962,8 @@ fn queue_effects(
                         effect_view.filtering
                     },
                     state: material.state,
+                    outdoor_filtering: material.program == NativeEffectProgram::OutdoorFeather
+                        && filtering(&cloud_view.expect("outdoor view selected").sampler),
                 },
             );
             phase.add_transient(Transparent3d {
@@ -978,6 +1039,12 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNativeEffect {
             pass.set_bind_group(1, group, &[object.index()]);
         }
         pass.set_bind_group(2, &material.bind_group, &[]);
+        if material.program == NativeEffectProgram::OutdoorFeather {
+            let Some(outdoor) = cloud_view else {
+                return RenderCommandResult::Skip;
+            };
+            pass.set_bind_group(3, &outdoor.bind_group, &[frame.index()]);
+        }
         if let Some(stencil) = material.state.stencil {
             pass.set_stencil_reference(stencil.reference);
         }

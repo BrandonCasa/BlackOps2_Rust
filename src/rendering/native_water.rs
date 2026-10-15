@@ -78,7 +78,7 @@ impl NativeWaterMaterial {
 pub struct PrimaryLightDefinition {
     #[serde(rename = "type")]
     pub kind: u8,
-    pub use_cookie: u8,
+    pub use_cookie: i8,
     pub dir: Vec3,
     pub origin: Vec3,
     pub cos_half_fov_outer: f32,
@@ -509,8 +509,6 @@ impl ExtractComponent<RenderApp> for NativeWaterView {
             view.game_time_seconds.is_finite() && view.eye_position.is_finite(),
             "Water requires the original clock and source eye position"
         );
-        let fraction = view.game_time_seconds - view.game_time_seconds.floor();
-        let (sin, cos) = (fraction * std::f32::consts::TAU).sin_cos();
         Some((
             ExtractedWaterView {
                 resolved_post_sun: view.resolved_post_sun.id(),
@@ -522,7 +520,7 @@ impl ExtractComponent<RenderApp> for NativeWaterView {
             },
             WaterScene {
                 world: *world,
-                game_time: Vec4::new(sin, cos, fraction, view.game_time_seconds),
+                game_time: super::native::shader_game_time(view.game_time_seconds),
                 z_near: frame.z_near,
                 render_target_size: frame.render_target_size,
             },
@@ -725,7 +723,7 @@ impl SpecializedRenderPipeline for WaterPipeline {
                 depth_write_enabled: Some(key.state.depth_write),
                 depth_compare: Some(key.state.depth_compare),
                 stencil: default(),
-                bias: default(),
+                bias: key.state.depth_bias(),
             }),
             multisample: MultisampleState {
                 count: key.samples,

@@ -276,6 +276,7 @@ pub struct Grenade {
     curve: f32,
     random: u64,
     contacts: u32,
+    rest_normal: Vec3,
     pub lure_active: bool,
 }
 impl Grenade {
@@ -400,6 +401,7 @@ pub(crate) fn dig_grenade(
             curve: 0.,
             random: owner.to_bits(),
             contacts: 0,
+            rest_normal: Vec3::ZERO,
             lure_active: false,
         },
         Transform::from_translation(position),
@@ -413,10 +415,6 @@ pub(crate) fn dig_grenade(
     {
         entity.insert(WorldAssetRoot(server.load(scene.clone())));
     }
-}
-#[derive(Component)]
-struct Blast {
-    remaining: f32,
 }
 pub struct BlastRequest {
     pub(crate) session: crate::session::SessionId,
@@ -434,6 +432,84 @@ pub struct BlastRequest {
 }
 #[derive(Resource, Default)]
 pub struct BlastQueue(pub Vec<BlastRequest>);
+
+type ExplosionColliders<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Option<&'static crate::assets::WorldContents>,
+        Option<&'static crate::movement::physics::SurfaceFlags>,
+        Option<&'static Vitality>,
+    ),
+>;
+
+///0060a8f0 traces a point sixteen native inches toward the supporting surface.
+/// Sticky grenades attached to a surface first move the trace start out four
+/// inches. The event retains the missile position, independently of this hit.
+fn explosion_surface(
+    query: &SpatialQuery,
+    colliders: &ExplosionColliders,
+    center: Vec3,
+    rest_normal: Vec3,
+    attached: bool,
+    contents_mask: u32,
+    force_normal_up: bool,
+    excluded: Option<Entity>,
+) -> (u8, Vec3) {
+    assert_ne!(
+        contents_mask, 0,
+        "Original grenade explosion clipmask is required"
+    );
+    let (start, end) = if attached {
+        (
+            center + rest_normal * (4. * 0.0254),
+            center - rest_normal * (16. * 0.0254),
+        )
+    } else {
+        (center, center - Vec3::Y * (16. * 0.0254))
+    };
+    let delta = end - start;
+    let hit = Dir3::new(delta).ok().and_then(|direction| {
+        query.cast_ray_predicate(
+            start,
+            direction,
+            delta.length(),
+            true,
+            &SpatialQueryFilter::from_excluded_entities(excluded),
+            &|entity| {
+                colliders.get(entity).is_ok_and(|(contents, _, vitality)| {
+                    contents.map_or_else(
+                        || {
+                            //005d2710 supplies live client BODY contents;
+                            //005f0300 changes a dead client to CORPSE contents.
+                            vitality.is_some_and(|vitality| {
+                                matches!(
+                                    vitality.state(),
+                                    LifeState::Standing | LifeState::Downed | LifeState::ActorAlive
+                                )
+                            }) && contents_mask & 0x02000000 != 0
+                        },
+                        |contents| contents.0 & contents_mask != 0,
+                    )
+                })
+            },
+        )
+    });
+    let surface = hit.as_ref().map_or(0, |hit| {
+        let (_, flags, _) = colliders.get(hit.entity).expect("traced source collider");
+        // Server box/model traces clear surfaceFlags (006b1900/006b25f0).
+        // The client's separate bullet flesh remap00531e10 does not run here.
+        flags.map_or(0, |flags| ((flags.0 >> 20) & 63) as u8)
+    });
+    let normal = if force_normal_up {
+        Vec3::Y
+    } else {
+        hit.filter(|hit| hit.distance < delta.length())
+            .map_or(rest_normal, |hit| hit.normal)
+    };
+    (surface, normal)
+}
+
 #[derive(Resource, Default)]
 pub struct EquipmentEvidence {
     pub retired_blasts: u32,
@@ -478,9 +554,7 @@ impl Plugin for EquipmentPlugin {
                     (throw_input, flight)
                         .chain()
                         .before(crate::gameplay::combat),
-                    (resolve_blasts, blast_lifetime)
-                        .chain()
-                        .after(crate::gameplay::combat),
+                    resolve_blasts.after(crate::gameplay::combat),
                 )
                     .in_set(GameStep::Combat)
                     .run_if(in_state(GameState::Playing)),
@@ -725,6 +799,7 @@ pub(crate) fn throw_input(
                             curve: 0.,
                             random: seed,
                             contacts: 0,
+                            rest_normal: Vec3::ZERO,
                             lure_active: false,
                         },
                         SessionEntity,
@@ -964,6 +1039,8 @@ pub(crate) fn flight(
         &crate::audio::SurfaceSound,
         Option<&crate::movement::physics::SurfaceFlags>,
     )>,
+    effect_colliders: ExplosionColliders,
+    effects: Res<crate::native_fx::Catalog>,
     query: SpatialQuery,
     mut blasts: ResMut<BlastQueue>,
     mut lures: ResMut<crate::lures::LureEvidence>,
@@ -1091,6 +1168,7 @@ pub(crate) fn flight(
                         surface
                     );
                     if tuning.sticky {
+                        grenade.rest_normal = normal;
                         crate::audio::emit(
                             &mut commands,
                             alias,
@@ -1184,6 +1262,9 @@ pub(crate) fn flight(
                             );
                         }
                         grenade.motion = if resting {
+                            //00608410 retains the settling surface normal for
+                            // explosion traces that subsequently miss geometry.
+                            grenade.rest_normal = normal;
                             GrenadeMotion::Resting
                         } else {
                             GrenadeMotion::Flying(velocity)
@@ -1211,7 +1292,6 @@ pub(crate) fn flight(
                         }
                     }
                 } else {
-                    
                     transform.translation += delta;
                     grenade.motion = GrenadeMotion::Flying(velocity);
                 }
@@ -1235,6 +1315,26 @@ pub(crate) fn flight(
         }
         evidence.detonations += 1;
         let center = transform.translation;
+        let mechanics = &weapon.mechanics;
+        let attached = matches!(mechanics.projectile_stickiness, 1 | 2) && grenade.settled();
+        let (surface, normal) = explosion_surface(
+            &query,
+            &effect_colliders,
+            center,
+            grenade.rest_normal,
+            attached,
+            mechanics.projectile_clipmask,
+            mechanics.projectile_explosion_force_normal_up,
+            Some(entity),
+        );
+        effects.emit_explosion(
+            &mut commands,
+            mechanics.impact_type,
+            surface,
+            mechanics.projectile_effect.as_deref(),
+            center,
+            normal,
+        );
         blasts.0.push(BlastRequest {
             session: *session,
             owner: grenade.owner,
@@ -1253,20 +1353,6 @@ pub(crate) fn flight(
         commands.entity(entity).despawn();
     }
 }
-fn blast_lifetime(
-    mut commands: Commands,
-    time: Res<Time<Fixed>>,
-    mut blasts: Query<(Entity, &mut Blast, &mut Transform), Without<Grenade>>,
-) {
-    for (entity, mut blast, mut transform) in &mut blasts {
-        blast.remaining -= time.delta_secs();
-        transform.scale = Vec3::splat(1. + (0.25 - blast.remaining) * 16.);
-        if blast.remaining <= 0. {
-            commands.entity(entity).despawn();
-        }
-    }
-}
-
 #[cfg(test)]
 mod native_grenade_tests {
     use super::*;
@@ -1307,6 +1393,7 @@ mod native_grenade_tests {
             curve: 0.,
             random: 1,
             contacts: 0,
+            rest_normal: Vec3::ZERO,
             lure_active: false,
         }
     }
@@ -1476,6 +1563,8 @@ pub(crate) fn resolve_blasts(
     game: Res<GameDefinition>,
     mut queue: ResMut<BlastQueue>,
     query: SpatialQuery,
+    effect_colliders: ExplosionColliders,
+    effects: Res<crate::native_fx::Catalog>,
     targets: Query<(
         Entity,
         &Vitality,
@@ -1484,8 +1573,6 @@ pub(crate) fn resolve_blasts(
         Option<&crate::hit_regions::Hitboxes>,
     )>,
     mut impacts: ResMut<crate::damage::DamageQueue>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut evidence: ResMut<EquipmentEvidence>,
     environmental: crate::environment::support::DamageTriggerTargets,
     mut environment_hits: MessageWriter<crate::environment::support::EnvironmentalHit>,
@@ -1497,6 +1584,35 @@ pub(crate) fn resolve_blasts(
             continue;
         }
         let center = blast.center;
+        // Throwables emit while their source missile still exists. Projectile,
+        // perk, and actor owners emit their own authored effects at their sockets
+        // or impact points. Mines reach this resolver directly after detonation.
+        if let Some(weapon) = game
+            .content
+            .weapons
+            .iter()
+            .find(|weapon| weapon.id == blast.definition && weapon.mine.is_some())
+        {
+            let mechanics = &weapon.mechanics;
+            let (surface, normal) = explosion_surface(
+                &query,
+                &effect_colliders,
+                center,
+                Vec3::ZERO,
+                false,
+                mechanics.projectile_clipmask,
+                mechanics.projectile_explosion_force_normal_up,
+                None,
+            );
+            effects.emit_explosion(
+                &mut commands,
+                mechanics.impact_type,
+                surface,
+                mechanics.projectile_effect.as_deref(),
+                center,
+                normal,
+            );
+        }
         if blast.definition.0 == "weapon.frag_grenade_zm" {
             ragdoll_explosions.write(crate::enemies::RagdollExplosion {
                 center,
@@ -1680,18 +1796,5 @@ pub(crate) fn resolve_blasts(
             }
             evidence.record(serde_json::json!({"event":"blast_impact","target":target.to_bits(),"self":player,"distance":distance,"damage":damage}));
         }
-        commands.spawn((
-            SessionEntity,
-            Blast { remaining: 0.25 },
-            Mesh3d(meshes.add(Sphere::new(0.15).mesh().ico(2).unwrap())),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgba(1., 0.45, 0.08, 0.75),
-                emissive: LinearRgba::new(20., 5., 0.5, 1.),
-                alpha_mode: AlphaMode::Blend,
-                unlit: true,
-                ..default()
-            })),
-            Transform::from_translation(center),
-        ));
     }
 }

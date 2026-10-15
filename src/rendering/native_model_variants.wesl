@@ -50,12 +50,21 @@ struct NativeModelGeometricVaryings {
     eye_to_vertex: vec4<f32>,
     grid_coords_and_vis: vec4<f32>,
     reflection_correction: vec3<f32>,
+    grid_correction: vec3<f32>,
 }
 
 fn native_model_geometric_vertex(
     input: NativeModelGeometricVertexInput,
     scene: NativeModelScene,
     object: NativeModelObject,
+) -> NativeModelGeometricVaryings {
+    return native_model_geometric_vertex_lighting(input, scene, object, vec4<f32>(0.0), false);
+}
+
+// Original MLV VSbcc4a7bc retains the same geometric transform and fog.
+fn native_model_geometric_vertex_lighting(
+    input: NativeModelGeometricVertexInput, scene: NativeModelScene,
+    object: NativeModelObject, vertex_light: vec4<f32>, baked: bool,
 ) -> NativeModelGeometricVaryings {
     // Exact shared position/fog/geometric-normal instruction sequence. This
     // model program has no lightmap UV input; the helper's UV.zw is unused.
@@ -83,9 +92,13 @@ fn native_model_geometric_vertex(
         grid_quadratic + grid_linear);
     let grid_irradiance = max(grid_scale * object.grid_lighting_sh0.xyz,
         vec3<f32>(0.10000000149011612));
+    let irradiance = select(grid_irradiance, (vertex_light.rgb * vertex_light.rgb) * 32.0, baked);
+    var grid_coords = object.grid_lighting_coords_and_vis;
+    grid_coords.w = select(grid_coords.w, vertex_light.a, baked);
     return NativeModelGeometricVaryings(world.clip_position, world.color, input.uv,
         world.normal_fog, world.fog_color, vec4<f32>(world.eye_to_vertex, 0.0),
-        object.grid_lighting_coords_and_vis, grid_irradiance / reflection_irradiance);
+        grid_coords, irradiance / reflection_irradiance,
+        select(vec3<f32>(1.0), irradiance / grid_irradiance, baked));
 }
 
 fn native_model_mapped_normal(
@@ -122,11 +135,12 @@ fn native_model_diffuse_lighting(
     normal_fog: vec4<f32>,
     fog_color: vec3<f32>,
     colored: vec3<f32>,
+    irradiance_scale: vec3<f32>,
     scene: NativeModelScene,
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
 ) -> vec3<f32> {
     let irradiance = native_model_atlas_irradiance(normal, grid_coords, scene,
-        model_lighting, model_lighting_sampler);
+        model_lighting, model_lighting_sampler) * irradiance_scale;
     let diffuse = colored * colored;
     let fog_delta = fma(irradiance * diffuse, vec3<f32>(32.0), -fog_color);
     let fogged = fma(vec3<f32>(normal_fog.w), fog_delta, fog_color);
@@ -146,7 +160,7 @@ fn native_model_diffuse_fragment(
     let color_sample = textureSample(color_map, color_sampler, input.uv);
     let result = native_model_diffuse_lighting(normal, input.grid_coords_and_vis.xyz,
         input.normal_fog, input.fog_color, color_sample.rgb * input.color.rgb,
-        scene, model_lighting, model_lighting_sampler);
+        input.grid_correction, scene, model_lighting, model_lighting_sampler);
     return vec4<f32>(result, 1.0);
 }
 
@@ -154,6 +168,7 @@ fn native_model_diffuse_fragment(
 fn native_model_geometric_diffuse_fragment(
     input: NativeModelGeometricVaryings,
     scene: NativeModelScene,
+    alpha_test: bool, vertex_occlusion: bool,
     color_map: texture_2d<f32>, color_sampler: sampler,
     model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
 ) -> vec4<f32> {
@@ -162,8 +177,13 @@ fn native_model_geometric_diffuse_fragment(
     let color_sample = textureSample(color_map, color_sampler, input.uv);
     let result = native_model_diffuse_lighting(normal, input.grid_coords_and_vis.xyz,
         input.normal_fog, input.fog_color, color_sample.rgb * input.color.rgb,
-        scene, model_lighting, model_lighting_sampler);
-    return vec4<f32>(result, 1.0);
+        input.grid_correction * select(1.0, input.color.a, vertex_occlusion), scene, model_lighting, model_lighting_sampler);
+    // PS61d17973 uses the same fused ge128 comparison as the normal-mapped
+    // cutout. PS2a42c1a1 instead scales squared atlas lighting by vertex alpha.
+    if alpha_test && fma(color_sample.a, input.color.a, -0.501960813999176) < 0.0 {
+        discard;
+    }
+    return vec4<f32>(result, select(1.0, color_sample.a * input.color.a, alpha_test));
 }
 
 // 9qf6e4qj: C0/s0, N1/s1, atlas13/s13. The fixed threshold is literal
@@ -180,7 +200,7 @@ fn native_model_alpha_diffuse_fragment(
     let normal_sample = textureSample(normal_map, normal_sampler, input.uv);
     let normal = native_model_mapped_normal(input, normal_sample.rg);
     let result = native_model_diffuse_lighting(normal, input.grid_coords_and_vis.xyz,
-        input.normal_fog, input.fog_color, colored.rgb, scene,
+        input.normal_fog, input.fog_color, colored.rgb, vec3<f32>(1.0), scene,
         model_lighting, model_lighting_sampler);
     // Finish implicit-derivative sampling before terminating a quad lane.
     // This retains the original surviving samples and fused alpha decision.
@@ -206,7 +226,7 @@ fn native_model_specular_lighting(
         * input.reflection_correction;
     let irradiance = native_model_atlas_irradiance(normal,
         input.grid_coords_and_vis.xyz, scene, model_lighting, model_lighting_sampler)
-        * occlusion.occlusion_amount.z;
+        * occlusion.occlusion_amount.z * input.grid_correction;
     let diffuse = colored * colored;
     let lit = fma(irradiance * diffuse, vec3<f32>(32.0), reflection);
     let fogged = fma(vec3<f32>(input.normal_fog.w), lit - input.fog_color, input.fog_color);
@@ -289,10 +309,83 @@ fn native_model_vertex_occlusion_fragment(
     let reflected = ((strength * probe) * input.color.a) * input.reflection_correction;
     let irradiance = native_model_atlas_irradiance(normal,
         input.grid_coords_and_vis.xyz, scene, model_lighting, model_lighting_sampler)
-        * input.color.a;
+        * input.color.a * input.grid_correction;
     let colored = color_sample.rgb * input.color.rgb;
     let diffuse = colored * colored;
     let lit = fma(diffuse * irradiance, vec3<f32>(32.0), reflected);
     let fogged = fma(vec3<f32>(input.normal_fog.w), lit - input.fog_color, input.fog_color);
     return vec4<f32>(sqrt(fogged * scene.world.hdr_control0.x), 1.0);
+}
+
+// PS5c2357e1 / PS0be61ff8 / PS60166054 / PS37d3284d: diffuse and fog
+// are premultiplied by source alpha before the square-root target encoding.
+fn native_model_blended_diffuse(
+    normal: vec3<f32>, grid_coords: vec3<f32>, correction: vec3<f32>,
+    normal_fog: vec4<f32>, fog_color: vec3<f32>, colored: vec4<f32>,
+    scene: NativeModelScene, atlas: texture_3d<f32>, atlas_sampler: sampler,
+) -> vec4<f32> {
+    let irradiance = native_model_atlas_irradiance(normal, grid_coords, scene, atlas, atlas_sampler) * correction;
+    let diffuse = colored.rgb * colored.rgb;
+    let lit = (irradiance * diffuse) * colored.a;
+    let fog = colored.a * fog_color;
+    let delta = fma(lit, vec3<f32>(32.0), -fog);
+    let fogged = fma(vec3<f32>(normal_fog.w), delta, fog);
+    let alpha = sqrt(colored.a);
+    if !(alpha > 0.0) { discard; }
+    return vec4<f32>(sqrt(fogged * scene.world.hdr_control0.x), alpha);
+}
+
+// Geometric specular PS77fb8779, premultiplied PSb781f149 and MLVe044b950.
+fn native_model_geometric_specular_fragment(
+    input: NativeModelGeometricVaryings, scene: NativeModelScene,
+    occlusion: NativeModelOcclusion, transparent: bool,
+    color_map: texture_2d<f32>, color_sampler: sampler,
+    specular_map: texture_2d<f32>, specular_sampler: sampler,
+    atlas: texture_3d<f32>, atlas_sampler: sampler,
+    probe: texture_cube<f32>, probe_sampler: sampler,
+) -> vec4<f32> {
+    let normal = inverseSqrt(dot(input.normal_fog.xyz, input.normal_fog.xyz)) * input.normal_fog.xyz;
+    let specular = textureSample(specular_map, specular_sampler, input.uv);
+    let reflected = native_world_plain_specular_reflection(input.eye_to_vertex.xyz,
+        normal, specular, probe, probe_sampler);
+    let reflection = (reflected * occlusion.occlusion_amount.y) * input.reflection_correction;
+    let irradiance = (native_model_atlas_irradiance(normal, input.grid_coords_and_vis.xyz,
+        scene, atlas, atlas_sampler) * occlusion.occlusion_amount.z) * input.grid_correction;
+    let colored = textureSample(color_map, color_sampler, input.uv) * input.color;
+    let diffuse = colored.rgb * colored.rgb;
+    let lit = fma(irradiance * diffuse, vec3<f32>(32.0), reflection);
+    var delta = lit - input.fog_color;
+    var fog = input.fog_color;
+    var alpha = 1.0;
+    if transparent {
+        fog = colored.a * fog;
+        delta = fma(lit, vec3<f32>(colored.a), -fog);
+        alpha = sqrt(colored.a);
+    }
+    let fogged = fma(vec3<f32>(input.normal_fog.w), delta, fog);
+    if transparent && !(alpha > 0.0) { discard; }
+    return vec4<f32>(sqrt(fogged * scene.world.hdr_control0.x), alpha);
+}
+
+// Original PSecd7a93c / PSbb12e125: detail XY tiles UV; Z weights its normal
+// slope before adding to the base slope. W is unused, not a color multiplier.
+fn native_model_detail_diffuse_fragment(
+    input: NativeModelVaryings, scene: NativeModelScene, detail_scale: vec4<f32>,
+    color_map: texture_2d<f32>, color_sampler: sampler,
+    normal_map: texture_2d<f32>, normal_sampler: sampler,
+    detail_map: texture_2d<f32>, detail_sampler: sampler,
+    model_lighting: texture_3d<f32>, model_lighting_sampler: sampler,
+) -> vec4<f32> {
+    let detail = textureSample(detail_map, detail_sampler, input.uv * detail_scale.xy).rg;
+    let base = textureSample(normal_map, normal_sampler, input.uv).rg;
+    let scale = vec2<f32>(4.015748023986816);
+    let bias = vec2<f32>(-2.0157480239868164);
+    let slopes = fma(vec2<f32>(detail_scale.z), fma(detail, scale, bias), fma(base, scale, bias));
+    let mapped = fma(vec3<f32>(slopes.y), input.bitangent,
+        fma(vec3<f32>(slopes.x), input.tangent, input.normal_fog.xyz));
+    let normal = mapped * inverseSqrt(dot(mapped, mapped));
+    let color = textureSample(color_map, color_sampler, input.uv).rgb * input.color.rgb;
+    return vec4<f32>(native_model_diffuse_lighting(normal, input.grid_coords_and_vis.xyz,
+        input.normal_fog, input.fog_color, color, input.grid_correction, scene,
+        model_lighting, model_lighting_sampler), 1.0);
 }

@@ -94,6 +94,14 @@ impl Definition {
         }
         let program = match self.technique_set.as_str() {
             "effect_w77q49e8" => NativeEffectProgram::Zfeather,
+            "effect_jqj65q53" => NativeEffectProgram::Additive,
+            "effect_5e098749" => NativeEffectProgram::AdditiveFeather,
+            "effect_737e1je4" => NativeEffectProgram::LocalAdditiveFeather,
+            "effect_z096f2e2" => NativeEffectProgram::OutdoorFeather,
+            "effect_50567j38" | "effect_z0z25860" => NativeEffectProgram::SimpleFeather,
+            "effect_ezz8jfwj" => NativeEffectProgram::EyeFeather,
+            "effect_910219f6" => NativeEffectProgram::EyeAdditive,
+            "effect_8e1qf0qq" => NativeEffectProgram::SimpleAdditive,
             "particlecloud_ew972295" => NativeEffectProgram::CloudRain,
             "particlecloud_j32z635q" => NativeEffectProgram::CloudSnow,
             _ => {
@@ -127,16 +135,56 @@ impl Definition {
             selected = Some(state);
         }
         let state = selected.expect("two required source technique slots were selected");
-        // This family has one source blend/depth/alpha contract. Validate every
-        // fixed state so a different material cannot quietly acquire its state.
+        // Validate the original family contract; shader identity does not imply
+        // blend identity (z0z25860 shares 50567j38 shaders but screens RGB).
+        let additive = program.additive();
+        let screen = self.technique_set == "effect_z0z25860";
+        let blend = BlendState {
+            color: BlendComponent {
+                src_factor: if screen {
+                    BlendFactor::OneMinusDst
+                } else if additive {
+                    BlendFactor::One
+                } else {
+                    BlendFactor::SrcAlpha
+                },
+                dst_factor: if additive {
+                    BlendFactor::One
+                } else {
+                    BlendFactor::OneMinusSrcAlpha
+                },
+                operation: BlendOperation::Add,
+            },
+            alpha: BlendComponent {
+                src_factor: if additive {
+                    BlendFactor::Zero
+                } else {
+                    BlendFactor::OneMinusDstAlpha
+                },
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+        };
         for (field, expected) in [
-            ("srcBlendRgb", "srcalpha"),
-            ("dstBlendRgb", "invsrcalpha"),
+            (
+                "srcBlendRgb",
+                if screen {
+                    "invdestcolor"
+                } else if additive {
+                    "one"
+                } else {
+                    "srcalpha"
+                },
+            ),
+            ("dstBlendRgb", if additive { "one" } else { "invsrcalpha" }),
             ("blendOpRgb", "add"),
-            ("srcBlendAlpha", "invdestalpha"),
+            (
+                "srcBlendAlpha",
+                if additive { "zero" } else { "invdestalpha" },
+            ),
             ("dstBlendAlpha", "one"),
             ("blendOpAlpha", "add"),
-            ("alphaTest", "gt0"),
+            ("alphaTest", if additive { "disabled" } else { "gt0" }),
             ("depthTest", "less_equal"),
             ("polygonOffset", "offset0"),
         ] {
@@ -205,7 +253,15 @@ impl Definition {
         if textures.next().is_some() || texture.semantic != "colorMap" || texture.image.is_empty() {
             return Err("required colorMap must have one original colorMap image".into());
         }
-        let feather_parms = if program == NativeEffectProgram::Zfeather {
+        let feather_parms = if matches!(
+            program,
+            NativeEffectProgram::Zfeather
+                | NativeEffectProgram::AdditiveFeather
+                | NativeEffectProgram::LocalAdditiveFeather
+                | NativeEffectProgram::OutdoorFeather
+                | NativeEffectProgram::SimpleFeather
+                | NativeEffectProgram::EyeFeather
+        ) {
             let mut constants = self
                 .constants
                 .iter()
@@ -218,12 +274,58 @@ impl Definition {
         } else {
             Vec4::ZERO
         }; // Cloud programs consume no material constants.
+        let mut additive_parms = [Vec4::ZERO; 4];
+        if matches!(
+            program,
+            NativeEffectProgram::Additive
+                | NativeEffectProgram::AdditiveFeather
+                | NativeEffectProgram::LocalAdditiveFeather
+                | NativeEffectProgram::EyeFeather
+                | NativeEffectProgram::EyeAdditive
+        ) {
+            for (output, name) in additive_parms.iter_mut().zip([
+                "falloffParms",
+                "falloffBeginColor",
+                "falloffEndColor",
+                "eyeOffsetParms",
+            ]) {
+                if matches!(
+                    program,
+                    NativeEffectProgram::EyeFeather | NativeEffectProgram::EyeAdditive
+                ) && name != "eyeOffsetParms"
+                {
+                    continue;
+                }
+                if name == "eyeOffsetParms"
+                    && matches!(
+                        program,
+                        NativeEffectProgram::AdditiveFeather
+                            | NativeEffectProgram::LocalAdditiveFeather
+                    )
+                {
+                    continue;
+                }
+                let mut values = self
+                    .constants
+                    .iter()
+                    .filter(|v| v.name.as_deref() == Some(name));
+                let value = values
+                    .next()
+                    .ok_or_else(|| format!("required {name} is absent"))?;
+                if values.next().is_some() || !value.literal.iter().all(|v| v.is_finite()) {
+                    return Err(format!("required {name} must be one finite source float4"));
+                }
+                *output = Vec4::from_array(value.literal);
+            }
+        }
         Ok(NativeEffectMaterial {
             program,
             color_map: image(server, &texture.image),
             color_sampler: texture.sampler_state.descriptor()?,
             feather_parms,
+            additive_parms,
             state: NativeEffectState {
+                blend,
                 cull_mode,
                 front_face: FrontFace::Cw,
                 stencil,

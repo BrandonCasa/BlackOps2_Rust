@@ -124,7 +124,15 @@ pub(super) fn constants(
                 }
             }
         }
-        NativeEffectProgram::Zfeather => {
+        NativeEffectProgram::Zfeather
+        | NativeEffectProgram::Additive
+        | NativeEffectProgram::AdditiveFeather
+        | NativeEffectProgram::LocalAdditiveFeather
+        | NativeEffectProgram::OutdoorFeather
+        | NativeEffectProgram::SimpleFeather
+        | NativeEffectProgram::EyeFeather
+        | NativeEffectProgram::EyeAdditive
+        | NativeEffectProgram::SimpleAdditive => {
             unreachable!("cloud owns an original cloud vertex program")
         }
     };

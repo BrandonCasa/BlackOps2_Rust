@@ -187,6 +187,9 @@ if (!$SkipOat) {
     } finally { Pop-Location }
     & $python (Join-Path $checkout 'tools/export_world_inputs.py') $checkout $external (Join-Path $zone 'zm_tomb.ff') *> (Join-Path $reports 'external-world-inputs.log')
     if ($LASTEXITCODE -ne 0) { throw 'Original world shader input export failed: inspect target/reports/external-world-inputs.log.' }
+    # Preserve source texels and mip counts while replacing unsupported BGRX DDS.
+    & $python (Join-Path $checkout 'tools/normalize_dds.py') (Join-Path $assets 'images') $texconv (Join-Path $reports 'opaque-dds-normalization.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Original opaque DDS normalization failed.' }
     # Source flat normal is equivalent to the engine's built-in identity normal; unchanged pixels.
     Copy-Item -LiteralPath (Join-Path $assets 'images/global_normal_flat_16x16.dds') -Destination (Join-Path $assets 'images/$identitynormalmap.dds') -Force
     foreach ($name in @('code_post_gfx_zm', 'en_code_post_gfx_zm', 'common_zm', 'patch_zm', 'zm_tomb', 'zm_tomb_patch')) {

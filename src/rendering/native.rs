@@ -1,4 +1,4 @@
-//! Static T6 lightmapped-world draws in Bevy's ordinary opaque pass.
+//! T6 lightmapped-world draws in opaque and source-ordered litTrans passes.
 use bevy::{
     asset::{RenderAssetUsages, embedded_asset, load_embedded_asset},
     camera::visibility::{self, VisibilityClass},
@@ -16,6 +16,7 @@ use bevy::{
             gpu_preprocessing::{GpuPreprocessingMode, GpuPreprocessingSupport},
             sort_binned_render_phase,
         },
+        camera::ExtractedCamera,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         mesh::allocator::MeshSlabs,
         render_asset::{
@@ -30,12 +31,15 @@ use bevy::{
             binding_types::{sampler, texture_2d, texture_cube, uniform_buffer},
             *,
         },
-        renderer::{RenderDevice, RenderQueue},
+        renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
         sync_component::SyncComponent,
         sync_world::MainEntity,
         texture::GpuImage,
         uniform::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
-        view::{ExtractedView, RenderVisibleEntities, RetainedViewEntity, ViewTarget},
+        view::{
+            ExtractedView, RenderVisibleEntities, RetainedViewEntity, ViewDepthStencilTexture,
+            ViewTarget,
+        },
     },
     shader::load_shader_library,
 };
@@ -124,6 +128,20 @@ impl RenderAsset for PreparedNativeGeometry {
     }
 }
 
+/// 00416df0 packs the four view-selected type-5 lights into seven SoA vectors.
+/// Positions are eye-relative source inches; falloffs are negative inverse radii.
+#[derive(Clone, Copy, Default, ShaderType)]
+pub struct NativeOmniLights {
+    pub position_x: Vec4,
+    pub position_y: Vec4,
+    pub position_z: Vec4,
+    pub falloffs: Vec4,
+    pub reds: Vec4,
+    pub greens: Vec4,
+    pub blues: Vec4,
+    pub enabled: Vec4,
+}
+
 /// Camera constants in the source shader's axes and units. Rows, not columns.
 #[derive(Component, Clone, Copy, ShaderType, ExtractComponent)]
 #[extract_app(RenderApp)]
@@ -136,6 +154,10 @@ pub struct NativeWorldScene {
     pub sun_fog_color: Vec4,
     pub sun_fog: Vec4,
     pub hdr_control0: Vec4,
+    pub game_time: Vec4,
+    pub sun_position: Vec4,
+    pub sun_diffuse: Vec4,
+    pub omni_lights: NativeOmniLights,
 }
 
 /// Source world-to-eye-relative transform and the surface's probe coefficients.
@@ -177,6 +199,13 @@ pub struct NativeWorldSpecularLayerTextures {
 }
 
 #[derive(Clone)]
+pub struct NativeWorldSpecularTextures {
+    pub base: NativeWorldTextures,
+    pub specular_map: Handle<Image>,
+    pub specular_sampler: SamplerDescriptor<'static>,
+}
+
+#[derive(Clone)]
 pub struct NativeWorldColorLayerTextures {
     pub base: NativeWorldTextures,
     pub color_map: Handle<Image>,
@@ -207,20 +236,115 @@ pub struct NativeWorldGeometricSpecularTextures {
     pub reflection_sampler: SamplerDescriptor<'static>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum NativeWorldPass {
+    Opaque,
+    EmissiveOpaque,
+    Translucent,
+    QuasiOpaque,
+}
+
+#[derive(Clone, Copy)]
+pub enum NativeUnlitProgram {
+    Replace,
+    Add,
+    DecalAdd,
+    DecalMultiply,
+}
+
+#[derive(ShaderType)]
+struct NativeUnlitConstants {
+    scale_rgb: Vec4,
+}
+
+#[derive(Clone, Copy, ShaderType)]
+pub struct NativeWorldParallaxLayer {
+    pub scale_offset: Vec4,
+    pub scroll_alpha_hdr: Vec4,
+    pub rotation_origin: Vec4,
+    pub depth: Vec4,
+}
+
+#[derive(Clone, Copy, ShaderType)]
+pub struct NativeLavaConstants {
+    pub layers: [NativeWorldParallaxLayer; 3],
+}
+
+#[derive(Clone, Copy, ShaderType)]
+pub struct NativeEmberConstants {
+    pub scale_direction_max: Vec4,
+    pub min_seed: Vec4,
+}
+
 #[derive(Asset, TypePath, Clone)]
 pub enum NativeWorldMaterial {
+    Ember {
+        base: NativeWorldTextures,
+        super_map: Handle<Image>,
+        super_sampler: SamplerDescriptor<'static>,
+        ember_map: Handle<Image>,
+        ember_sampler: SamplerDescriptor<'static>,
+        constants: NativeEmberConstants,
+    },
+    Lava {
+        layers: [(Handle<Image>, SamplerDescriptor<'static>); 3],
+        constants: NativeLavaConstants,
+    },
+    Wallbuy {
+        color_map: Handle<Image>,
+        color_sampler: SamplerDescriptor<'static>,
+        constants: NativeWorldParallaxLayer,
+    },
+    Unlit {
+        program: NativeUnlitProgram,
+        color_map: Handle<Image>,
+        color_sampler: SamplerDescriptor<'static>,
+        scale_rgb: Option<Vec4>,
+    },
+    GeometricGloss {
+        color_map: Handle<Image>,
+        color_sampler: SamplerDescriptor<'static>,
+        lightmap_secondary: Handle<Image>,
+        lightmap_sampler: SamplerDescriptor<'static>,
+        reflection_probe: Handle<Image>,
+        reflection_sampler: SamplerDescriptor<'static>,
+    },
+    GeometricDiffuse {
+        color_map: Handle<Image>,
+        color_sampler: SamplerDescriptor<'static>,
+        lightmap_secondary: Handle<Image>,
+        lightmap_sampler: SamplerDescriptor<'static>,
+    },
     Lightmapped(NativeWorldTextures),
     Diffuse(NativeWorldDiffuseTextures),
+    RevealDiffuse {
+        base: NativeWorldDiffuseTextures,
+        alpha_reveal_parms: Vec4,
+    },
     NormalSpecular {
         base: NativeWorldTextures,
         specular_map: Handle<Image>,
         specular_sampler: SamplerDescriptor<'static>,
     },
+    RevealNormalSpecular {
+        base: NativeWorldTextures,
+        specular_map: Handle<Image>,
+        specular_sampler: SamplerDescriptor<'static>,
+        alpha_reveal_parms: Vec4,
+    },
     GeometricSpecular(NativeWorldGeometricSpecularTextures),
+    DiffuseColorMultiply {
+        base: NativeWorldDiffuseTextures,
+        color_map: Handle<Image>,
+        color_sampler: SamplerDescriptor<'static>,
+        second_layer: Option<(Handle<Image>, SamplerDescriptor<'static>)>,
+    },
     ColorMultiply(NativeWorldColorLayerTextures),
     ColorBlend(NativeWorldColorLayerTextures),
     ColorAdd(NativeWorldColorLayerTextures),
     Layered {
+        hard_select: bool,
         base: NativeWorldTextures,
         layer: NativeWorldLayerTextures,
     },
@@ -229,6 +353,12 @@ pub enum NativeWorldMaterial {
         layer: NativeWorldLayerTextures,
         alpha_reveal_parms1: Vec4,
     },
+    SpecularLayered {
+        base: NativeWorldTextures,
+        layer: NativeWorldLayerTextures,
+        layer_specular_map: Handle<Image>,
+        layer_specular_sampler: SamplerDescriptor<'static>,
+    },
     RevealSpecularLayered {
         base: NativeWorldTextures,
         layer: NativeWorldLayerTextures,
@@ -236,10 +366,60 @@ pub enum NativeWorldMaterial {
         layer_specular_sampler: SamplerDescriptor<'static>,
         alpha_reveal_parms1: Vec4,
     },
+    DiffuseLayerMultiply {
+        base: NativeWorldDiffuseTextures,
+        layer1: NativeWorldLayerTextures,
+        color_map2: Handle<Image>,
+        color_sampler2: SamplerDescriptor<'static>,
+        alpha_reveal_parms1: Option<Vec4>,
+    },
+    LayerAdd {
+        base: NativeWorldTextures,
+        layer1: NativeWorldLayerTextures,
+        color_map2: Handle<Image>,
+        color_sampler2: SamplerDescriptor<'static>,
+    },
+    RevealOverlay {
+        additive: bool,
+        multiply3: Option<(Handle<Image>, SamplerDescriptor<'static>)>,
+        base: NativeWorldTextures,
+        layer1: NativeWorldSpecularLayerTextures,
+        color_map2: Handle<Image>,
+        color_sampler2: SamplerDescriptor<'static>,
+        alpha_reveal_parms1: Vec4,
+    },
+    ColorOverlays {
+        base: NativeWorldTextures,
+        color_map1: Handle<Image>,
+        color_sampler1: SamplerDescriptor<'static>,
+        color_map2: Handle<Image>,
+        color_sampler2: SamplerDescriptor<'static>,
+        add_multiply: bool,
+    },
+    ColorThreeLayer {
+        base: NativeWorldTextures,
+        color_map1: Handle<Image>,
+        color_sampler1: SamplerDescriptor<'static>,
+        layer2: NativeWorldLayerTextures,
+        specular2: Option<(Handle<Image>, SamplerDescriptor<'static>)>,
+        alpha_reveal_parms2: Option<Vec4>,
+    },
+    ThreeLayerNormals {
+        base: NativeWorldTextures,
+        layer1: NativeWorldLayerTextures,
+        layer2: NativeWorldLayerTextures,
+    },
     ThreeLayerReveal {
         base: NativeWorldTextures,
         layer1: NativeWorldLayerTextures,
         layer2: NativeWorldSpecularLayerTextures,
+        alpha_reveal_parms2: Vec4,
+    },
+    ThreeLayerRetainedSpecular {
+        base: NativeWorldTextures,
+        layer1: NativeWorldSpecularLayerTextures,
+        layer2: NativeWorldLayerTextures,
+        alpha_reveal_parms1: Vec4,
         alpha_reveal_parms2: Vec4,
     },
     ThreeLayerDoubleReveal {
@@ -248,6 +428,47 @@ pub enum NativeWorldMaterial {
         layer2: NativeWorldSpecularLayerTextures,
         alpha_reveal_parms1: Vec4,
         alpha_reveal_parms2: Vec4,
+    },
+    BaseSpecularLayered {
+        base: NativeWorldSpecularTextures,
+        layer: NativeWorldLayerTextures,
+    },
+    BaseSpecularRevealLayered {
+        base: NativeWorldSpecularTextures,
+        layer: NativeWorldSpecularLayerTextures,
+        alpha_reveal_parms1: Vec4,
+    },
+    BaseSpecularThreeLayerReveal {
+        base: NativeWorldSpecularTextures,
+        layer1: NativeWorldLayerTextures,
+        layer2: NativeWorldSpecularLayerTextures,
+        alpha_reveal_parms2: Vec4,
+    },
+    BaseSpecularThreeLayerDoubleReveal {
+        base: NativeWorldSpecularTextures,
+        layer1: NativeWorldSpecularLayerTextures,
+        layer2: NativeWorldSpecularLayerTextures,
+        alpha_reveal_parms1: Vec4,
+        alpha_reveal_parms2: Vec4,
+    },
+    DiffuseLayered {
+        base: NativeWorldDiffuseTextures,
+        layer: NativeWorldLayerTextures,
+    },
+    DiffuseRevealLayered {
+        base: NativeWorldDiffuseTextures,
+        layer: NativeWorldLayerTextures,
+        alpha_reveal_parms1: Vec4,
+    },
+    NoBaseGlossRevealLayered {
+        base: NativeWorldTextures,
+        layer: NativeWorldSpecularLayerTextures,
+        alpha_reveal_parms1: Vec4,
+    },
+    GeometricLayered {
+        base: NativeWorldGeometricSpecularTextures,
+        color_map: Handle<Image>,
+        color_sampler: SamplerDescriptor<'static>,
     },
 }
 
@@ -263,154 +484,491 @@ impl NativeWorldMaterial {
     /// The material's actual GPU inputs, with the same bindings used by the
     /// entry shaders. Loading readiness and GPU preparation share this list.
     fn textures(&self) -> impl Iterator<Item = (u32, &Handle<Image>, &SamplerDescriptor<'static>)> {
-        fn base_bindings(
-            base: &NativeWorldTextures,
-        ) -> [Option<(u32, &Handle<Image>, &SamplerDescriptor<'static>)>; 10] {
-            [
-                Some((0, &base.color_map, &base.color_sampler)),
-                Some((2, &base.normal_map, &base.normal_sampler)),
-                Some((4, &base.lightmap_secondary, &base.lightmap_sampler)),
-                Some((6, &base.reflection_probe, &base.reflection_sampler)),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ]
+        type Binding<'a> = (u32, &'a Handle<Image>, &'a SamplerDescriptor<'static>);
+        type Bindings<'a> = [Option<Binding<'a>>; 11];
+        fn base_bindings(base: &NativeWorldTextures) -> Bindings<'_> {
+            let mut out = [None; 11];
+            out[0] = Some((0, &base.color_map, &base.color_sampler));
+            out[1] = Some((2, &base.normal_map, &base.normal_sampler));
+            out[2] = Some((4, &base.lightmap_secondary, &base.lightmap_sampler));
+            out[3] = Some((6, &base.reflection_probe, &base.reflection_sampler));
+            out
         }
-        let bindings = match self {
-            Self::Lightmapped(base) => base_bindings(base),
-            Self::Diffuse(base) => [
-                Some((0, &base.color_map, &base.color_sampler)),
-                Some((2, &base.normal_map, &base.normal_sampler)),
-                Some((4, &base.lightmap_secondary, &base.lightmap_sampler)),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ],
+        fn diffuse_bindings(base: &NativeWorldDiffuseTextures) -> Bindings<'_> {
+            let mut out = [None; 11];
+            out[0] = Some((0, &base.color_map, &base.color_sampler));
+            out[1] = Some((2, &base.normal_map, &base.normal_sampler));
+            out[2] = Some((4, &base.lightmap_secondary, &base.lightmap_sampler));
+            out
+        }
+        fn specular_bindings(base: &NativeWorldSpecularTextures) -> Bindings<'_> {
+            let mut out = base_bindings(&base.base);
+            out[10] = Some((22, &base.specular_map, &base.specular_sampler));
+            out
+        }
+        fn layer_bindings<'a>(
+            out: &mut Bindings<'a>,
+            slot: usize,
+            binding: u32,
+            layer: &'a NativeWorldLayerTextures,
+        ) {
+            out[slot] = Some((binding, &layer.color_map, &layer.color_sampler));
+            out[slot + 1] = Some((binding + 2, &layer.normal_map, &layer.normal_sampler));
+        }
+        fn specular_layer_bindings<'a>(
+            out: &mut Bindings<'a>,
+            slot: usize,
+            binding: u32,
+            layer: &'a NativeWorldSpecularLayerTextures,
+        ) {
+            layer_bindings(out, slot, binding, &layer.layer);
+            out[slot + 2] = Some((binding + 4, &layer.specular_map, &layer.specular_sampler));
+        }
+        let mut out = match self {
+            Self::Ember { base, .. } => base_bindings(base),
+            Self::Lava { layers, .. } => {
+                let mut out = [None; 11];
+                for (slot, binding) in [0, 8, 10].into_iter().enumerate() {
+                    out[slot] = Some((binding, &layers[slot].0, &layers[slot].1));
+                }
+                out
+            }
+            Self::Wallbuy {
+                color_map,
+                color_sampler,
+                ..
+            }
+            | Self::Unlit {
+                color_map,
+                color_sampler,
+                ..
+            } => {
+                let mut out = [None; 11];
+                out[0] = Some((0, color_map, color_sampler));
+                out
+            }
+            Self::GeometricGloss {
+                color_map,
+                color_sampler,
+                lightmap_secondary,
+                lightmap_sampler,
+                reflection_probe,
+                reflection_sampler,
+            } => {
+                let mut out = [None; 11];
+                out[0] = Some((0, color_map, color_sampler));
+                out[2] = Some((4, lightmap_secondary, lightmap_sampler));
+                out[3] = Some((6, reflection_probe, reflection_sampler));
+                out
+            }
+            Self::GeometricDiffuse {
+                color_map,
+                color_sampler,
+                lightmap_secondary,
+                lightmap_sampler,
+            } => {
+                let mut out = [None; 11];
+                out[0] = Some((0, color_map, color_sampler));
+                out[2] = Some((4, lightmap_secondary, lightmap_sampler));
+                out
+            }
+            Self::Diffuse(base)
+            | Self::RevealDiffuse { base, .. }
+            | Self::DiffuseColorMultiply { base, .. }
+            | Self::DiffuseLayerMultiply { base, .. }
+            | Self::DiffuseLayered { base, .. }
+            | Self::DiffuseRevealLayered { base, .. } => diffuse_bindings(base),
+            Self::BaseSpecularLayered { base, .. }
+            | Self::BaseSpecularRevealLayered { base, .. }
+            | Self::BaseSpecularThreeLayerReveal { base, .. }
+            | Self::BaseSpecularThreeLayerDoubleReveal { base, .. } => specular_bindings(base),
+            Self::GeometricSpecular(base) | Self::GeometricLayered { base, .. } => {
+                let mut out = [None; 11];
+                out[0] = Some((0, &base.color_map, &base.color_sampler));
+                out[2] = Some((4, &base.lightmap_secondary, &base.lightmap_sampler));
+                out[3] = Some((6, &base.reflection_probe, &base.reflection_sampler));
+                if matches!(self, Self::GeometricSpecular(_)) {
+                    out[4] = Some((8, &base.specular_map, &base.specular_sampler));
+                } else {
+                    out[10] = Some((22, &base.specular_map, &base.specular_sampler));
+                }
+                out
+            }
+            Self::ColorMultiply(layer) | Self::ColorBlend(layer) | Self::ColorAdd(layer) => {
+                base_bindings(&layer.base)
+            }
+            Self::Lightmapped(base)
+            | Self::NormalSpecular { base, .. }
+            | Self::RevealNormalSpecular { base, .. }
+            | Self::Layered { base, .. }
+            | Self::RevealLayered { base, .. }
+            | Self::SpecularLayered { base, .. }
+            | Self::RevealSpecularLayered { base, .. }
+            | Self::LayerAdd { base, .. }
+            | Self::RevealOverlay { base, .. }
+            | Self::ColorOverlays { base, .. }
+            | Self::ColorThreeLayer { base, .. }
+            | Self::ThreeLayerNormals { base, .. }
+            | Self::ThreeLayerReveal { base, .. }
+            | Self::ThreeLayerRetainedSpecular { base, .. }
+            | Self::ThreeLayerDoubleReveal { base, .. }
+            | Self::NoBaseGlossRevealLayered { base, .. } => base_bindings(base),
+        };
+        match self {
+            Self::Ember {
+                super_map,
+                super_sampler,
+                ember_map,
+                ember_sampler,
+                ..
+            } => {
+                out[4] = Some((8, super_map, super_sampler));
+                out[5] = Some((10, ember_map, ember_sampler));
+            }
             Self::NormalSpecular {
-                base,
                 specular_map,
                 specular_sampler,
-            } => {
-                let mut bindings = base_bindings(base);
-                bindings[4] = Some((8, specular_map, specular_sampler));
-                bindings
+                ..
             }
-            Self::GeometricSpecular(base) => [
-                Some((0, &base.color_map, &base.color_sampler)),
-                Some((4, &base.lightmap_secondary, &base.lightmap_sampler)),
-                Some((6, &base.reflection_probe, &base.reflection_sampler)),
-                Some((8, &base.specular_map, &base.specular_sampler)),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ],
+            | Self::RevealNormalSpecular {
+                specular_map,
+                specular_sampler,
+                ..
+            } => out[4] = Some((8, specular_map, specular_sampler)),
             Self::ColorMultiply(layer) | Self::ColorBlend(layer) | Self::ColorAdd(layer) => {
-                let mut bindings = base_bindings(&layer.base);
-                bindings[4] = Some((8, &layer.color_map, &layer.color_sampler));
-                bindings
+                out[4] = Some((8, &layer.color_map, &layer.color_sampler))
             }
-            Self::Layered { base, layer } | Self::RevealLayered { base, layer, .. } => {
-                let mut bindings = base_bindings(base);
-                bindings[4] = Some((8, &layer.color_map, &layer.color_sampler));
-                bindings[5] = Some((10, &layer.normal_map, &layer.normal_sampler));
-                bindings
+            Self::DiffuseColorMultiply {
+                color_map,
+                color_sampler,
+                second_layer,
+                ..
+            } => {
+                out[4] = Some((8, color_map, color_sampler));
+                if let Some((image, sampler)) = second_layer {
+                    out[7] = Some((14, image, sampler));
+                }
             }
-            Self::RevealSpecularLayered {
-                base,
+            Self::GeometricLayered {
+                color_map,
+                color_sampler,
+                ..
+            } => out[4] = Some((8, color_map, color_sampler)),
+            Self::Layered { layer, .. }
+            | Self::RevealLayered { layer, .. }
+            | Self::BaseSpecularLayered { layer, .. }
+            | Self::DiffuseLayered { layer, .. }
+            | Self::DiffuseRevealLayered { layer, .. } => layer_bindings(&mut out, 4, 8, layer),
+            Self::SpecularLayered {
+                layer,
+                layer_specular_map,
+                layer_specular_sampler,
+                ..
+            }
+            | Self::RevealSpecularLayered {
                 layer,
                 layer_specular_map,
                 layer_specular_sampler,
                 ..
             } => {
-                let mut bindings = base_bindings(base);
-                bindings[4] = Some((8, &layer.color_map, &layer.color_sampler));
-                bindings[5] = Some((10, &layer.normal_map, &layer.normal_sampler));
-                bindings[6] = Some((12, layer_specular_map, layer_specular_sampler));
-                bindings
+                layer_bindings(&mut out, 4, 8, layer);
+                out[6] = Some((12, layer_specular_map, layer_specular_sampler));
             }
-            Self::ThreeLayerReveal {
-                base,
+            Self::BaseSpecularRevealLayered { layer, .. }
+            | Self::NoBaseGlossRevealLayered { layer, .. } => {
+                specular_layer_bindings(&mut out, 4, 8, layer)
+            }
+            Self::LayerAdd {
                 layer1,
-                layer2,
+                color_map2,
+                color_sampler2,
+                ..
+            }
+            | Self::DiffuseLayerMultiply {
+                layer1,
+                color_map2,
+                color_sampler2,
                 ..
             } => {
-                let mut bindings = base_bindings(base);
-                bindings[4] = Some((8, &layer1.color_map, &layer1.color_sampler));
-                bindings[5] = Some((10, &layer1.normal_map, &layer1.normal_sampler));
-                bindings[7] = Some((14, &layer2.layer.color_map, &layer2.layer.color_sampler));
-                bindings[8] = Some((16, &layer2.layer.normal_map, &layer2.layer.normal_sampler));
-                bindings[9] = Some((18, &layer2.specular_map, &layer2.specular_sampler));
-                bindings
+                layer_bindings(&mut out, 4, 8, layer1);
+                out[7] = Some((14, color_map2, color_sampler2));
             }
-            Self::ThreeLayerDoubleReveal {
-                base,
+            Self::RevealOverlay {
+                multiply3,
                 layer1,
-                layer2,
+                color_map2,
+                color_sampler2,
                 ..
             } => {
-                let mut bindings = base_bindings(base);
-                bindings[4] = Some((8, &layer1.layer.color_map, &layer1.layer.color_sampler));
-                bindings[5] = Some((10, &layer1.layer.normal_map, &layer1.layer.normal_sampler));
-                bindings[6] = Some((12, &layer1.specular_map, &layer1.specular_sampler));
-                bindings[7] = Some((14, &layer2.layer.color_map, &layer2.layer.color_sampler));
-                bindings[8] = Some((16, &layer2.layer.normal_map, &layer2.layer.normal_sampler));
-                bindings[9] = Some((18, &layer2.specular_map, &layer2.specular_sampler));
-                bindings
+                specular_layer_bindings(&mut out, 4, 8, layer1);
+                out[7] = Some((14, color_map2, color_sampler2));
+                if let Some((image, sampler)) = multiply3 {
+                    out[8] = Some((26, image, sampler));
+                }
             }
-        };
-        bindings.into_iter().flatten()
+            Self::ColorOverlays {
+                color_map1,
+                color_sampler1,
+                color_map2,
+                color_sampler2,
+                ..
+            } => {
+                out[4] = Some((8, color_map1, color_sampler1));
+                out[7] = Some((14, color_map2, color_sampler2));
+            }
+            Self::ColorThreeLayer {
+                color_map1,
+                color_sampler1,
+                layer2,
+                specular2,
+                ..
+            } => {
+                out[4] = Some((8, color_map1, color_sampler1));
+                layer_bindings(&mut out, 7, 14, layer2);
+                if let Some((image, sampler)) = specular2 {
+                    out[9] = Some((18, image, sampler));
+                }
+            }
+            Self::ThreeLayerNormals { layer1, layer2, .. } => {
+                layer_bindings(&mut out, 4, 8, layer1);
+                layer_bindings(&mut out, 7, 14, layer2);
+            }
+            Self::ThreeLayerReveal { layer1, layer2, .. }
+            | Self::BaseSpecularThreeLayerReveal { layer1, layer2, .. } => {
+                layer_bindings(&mut out, 4, 8, layer1);
+                specular_layer_bindings(&mut out, 7, 14, layer2);
+            }
+            Self::ThreeLayerRetainedSpecular { layer1, layer2, .. } => {
+                specular_layer_bindings(&mut out, 4, 8, layer1);
+                layer_bindings(&mut out, 7, 14, layer2);
+            }
+            Self::ThreeLayerDoubleReveal { layer1, layer2, .. }
+            | Self::BaseSpecularThreeLayerDoubleReveal { layer1, layer2, .. } => {
+                specular_layer_bindings(&mut out, 4, 8, layer1);
+                specular_layer_bindings(&mut out, 7, 14, layer2);
+            }
+            Self::Lava { .. }
+            | Self::Wallbuy { .. }
+            | Self::Unlit { .. }
+            | Self::GeometricGloss { .. }
+            | Self::GeometricDiffuse { .. }
+            | Self::Lightmapped(_)
+            | Self::Diffuse(_)
+            | Self::RevealDiffuse { .. }
+            | Self::GeometricSpecular(_) => {}
+        }
+        out.into_iter().flatten()
     }
 
     fn family(&self) -> NativeWorldFamily {
         match self {
+            Self::Ember { .. } => NativeWorldFamily::Ember,
+            Self::Lava { .. } => NativeWorldFamily::Lava,
+            Self::Wallbuy { .. } => NativeWorldFamily::Wallbuy,
+            Self::Unlit { program, .. } => match program {
+                NativeUnlitProgram::Replace => NativeWorldFamily::UnlitReplace,
+                NativeUnlitProgram::Add => NativeWorldFamily::UnlitAdd,
+                NativeUnlitProgram::DecalAdd => NativeWorldFamily::UnlitDecalAdd,
+                NativeUnlitProgram::DecalMultiply => NativeWorldFamily::UnlitDecalMultiply,
+            },
+            Self::GeometricGloss { .. } => NativeWorldFamily::GeometricGloss,
+            Self::GeometricDiffuse { .. } => NativeWorldFamily::GeometricDiffuse,
             Self::Lightmapped(_) => NativeWorldFamily::Lightmapped,
             Self::Diffuse(_) => NativeWorldFamily::Diffuse,
+            Self::RevealDiffuse { .. } => NativeWorldFamily::RevealDiffuse,
             Self::NormalSpecular { .. } => NativeWorldFamily::NormalSpecular,
+            Self::RevealNormalSpecular { .. } => NativeWorldFamily::RevealNormalSpecular,
             Self::GeometricSpecular(_) => NativeWorldFamily::GeometricSpecular,
+            Self::DiffuseColorMultiply { second_layer, .. } => {
+                if second_layer.is_some() {
+                    NativeWorldFamily::DiffuseDoubleMultiply
+                } else {
+                    NativeWorldFamily::DiffuseColorMultiply
+                }
+            }
             Self::ColorMultiply(_) => NativeWorldFamily::ColorMultiply,
             Self::ColorBlend(_) => NativeWorldFamily::ColorBlend,
             Self::ColorAdd(_) => NativeWorldFamily::ColorAdd,
-            Self::Layered { .. } => NativeWorldFamily::Layered,
+            Self::Layered { hard_select, .. } => {
+                if *hard_select {
+                    NativeWorldFamily::LayerSelected
+                } else {
+                    NativeWorldFamily::Layered
+                }
+            }
             Self::RevealLayered { .. } => NativeWorldFamily::RevealLayered,
+            Self::SpecularLayered { .. } => NativeWorldFamily::SpecularLayered,
             Self::RevealSpecularLayered { .. } => NativeWorldFamily::RevealSpecularLayered,
+            Self::DiffuseLayerMultiply {
+                alpha_reveal_parms1,
+                ..
+            } => {
+                if alpha_reveal_parms1.is_some() {
+                    NativeWorldFamily::DiffuseRevealMultiply
+                } else {
+                    NativeWorldFamily::DiffuseLayerMultiply
+                }
+            }
+            Self::LayerAdd { .. } => NativeWorldFamily::LayerAdd,
+            Self::RevealOverlay {
+                additive,
+                multiply3,
+                ..
+            } => {
+                if multiply3.is_some() {
+                    NativeWorldFamily::FourLayerRevealAddMultiply
+                } else if *additive {
+                    NativeWorldFamily::RevealAdd
+                } else {
+                    NativeWorldFamily::RevealMultiply
+                }
+            }
+            Self::ColorOverlays { add_multiply, .. } => {
+                if *add_multiply {
+                    NativeWorldFamily::ColorAddMultiply
+                } else {
+                    NativeWorldFamily::ColorDoubleBlend
+                }
+            }
+            Self::ColorThreeLayer {
+                alpha_reveal_parms2,
+                specular2,
+                ..
+            } => {
+                if alpha_reveal_parms2.is_some() {
+                    NativeWorldFamily::ColorThreeLayerReveal
+                } else if specular2.is_some() {
+                    NativeWorldFamily::ColorThreeLayerSpecular
+                } else {
+                    NativeWorldFamily::ColorThreeLayerNormal
+                }
+            }
+            Self::ThreeLayerNormals { .. } => NativeWorldFamily::ThreeLayerNormals,
             Self::ThreeLayerReveal { .. } => NativeWorldFamily::ThreeLayerReveal,
+            Self::ThreeLayerRetainedSpecular { .. } => {
+                NativeWorldFamily::ThreeLayerRetainedSpecular
+            }
             Self::ThreeLayerDoubleReveal { .. } => NativeWorldFamily::ThreeLayerDoubleReveal,
+            Self::BaseSpecularLayered { .. } => NativeWorldFamily::BaseSpecularLayered,
+            Self::BaseSpecularRevealLayered { .. } => NativeWorldFamily::BaseSpecularRevealLayered,
+            Self::BaseSpecularThreeLayerReveal { .. } => {
+                NativeWorldFamily::BaseSpecularThreeLayerReveal
+            }
+            Self::BaseSpecularThreeLayerDoubleReveal { .. } => {
+                NativeWorldFamily::BaseSpecularThreeLayerDoubleReveal
+            }
+            Self::DiffuseLayered { .. } => NativeWorldFamily::DiffuseLayered,
+            Self::DiffuseRevealLayered { .. } => NativeWorldFamily::DiffuseRevealLayered,
+            Self::NoBaseGlossRevealLayered { .. } => NativeWorldFamily::NoBaseGlossRevealLayered,
+            Self::GeometricLayered { .. } => NativeWorldFamily::GeometricLayered,
         }
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum NativeWorldFamily {
+    Ember,
+    Lava,
+    Wallbuy,
+    UnlitReplace,
+    UnlitAdd,
+    UnlitDecalAdd,
+    UnlitDecalMultiply,
+    GeometricDiffuse,
+    GeometricGloss,
     Lightmapped,
     Diffuse,
+    RevealDiffuse,
     NormalSpecular,
+    RevealNormalSpecular,
     GeometricSpecular,
+    DiffuseColorMultiply,
+    DiffuseDoubleMultiply,
     ColorMultiply,
     ColorBlend,
     ColorAdd,
     Layered,
+    LayerSelected,
     RevealLayered,
+    SpecularLayered,
     RevealSpecularLayered,
+    DiffuseLayerMultiply,
+    DiffuseRevealMultiply,
+    LayerAdd,
+    FourLayerRevealAddMultiply,
+    RevealMultiply,
+    RevealAdd,
+    ColorDoubleBlend,
+    ColorAddMultiply,
+    ColorThreeLayerReveal,
+    ColorThreeLayerSpecular,
+    ColorThreeLayerNormal,
+    ThreeLayerNormals,
     ThreeLayerReveal,
+    ThreeLayerRetainedSpecular,
     ThreeLayerDoubleReveal,
+    BaseSpecularLayered,
+    BaseSpecularRevealLayered,
+    BaseSpecularThreeLayerReveal,
+    BaseSpecularThreeLayerDoubleReveal,
+    DiffuseLayered,
+    DiffuseRevealLayered,
+    NoBaseGlossRevealLayered,
+    GeometricLayered,
 }
 
 impl NativeWorldFamily {
     fn auxiliary_stride(self) -> Option<u64> {
         match self {
-            Self::ColorMultiply | Self::ColorBlend | Self::ColorAdd => Some(4),
-            Self::Layered | Self::RevealLayered | Self::RevealSpecularLayered => Some(8),
-            Self::ThreeLayerReveal | Self::ThreeLayerDoubleReveal => Some(16),
+            Self::LayerAdd
+            | Self::DiffuseLayerMultiply
+            | Self::DiffuseRevealMultiply
+            | Self::RevealAdd
+            | Self::RevealMultiply
+            | Self::ColorThreeLayerNormal
+            | Self::ColorThreeLayerReveal
+            | Self::ColorThreeLayerSpecular => Some(12),
+            Self::DiffuseColorMultiply
+            | Self::ColorMultiply
+            | Self::ColorBlend
+            | Self::ColorAdd
+            | Self::GeometricLayered => Some(4),
+            Self::ColorDoubleBlend
+            | Self::ColorAddMultiply
+            | Self::DiffuseDoubleMultiply
+            | Self::LayerSelected
+            | Self::Layered
+            | Self::RevealLayered
+            | Self::SpecularLayered
+            | Self::RevealSpecularLayered
+            | Self::BaseSpecularLayered
+            | Self::BaseSpecularRevealLayered
+            | Self::DiffuseLayered
+            | Self::DiffuseRevealLayered
+            | Self::NoBaseGlossRevealLayered => Some(8),
+            Self::FourLayerRevealAddMultiply
+            | Self::ThreeLayerNormals
+            | Self::ThreeLayerReveal
+            | Self::ThreeLayerRetainedSpecular
+            | Self::ThreeLayerDoubleReveal
+            | Self::BaseSpecularThreeLayerReveal
+            | Self::BaseSpecularThreeLayerDoubleReveal => Some(16),
+            _ => None,
+        }
+    }
+
+    fn reveal1_binding(self) -> Option<u32> {
+        match self {
+            Self::FourLayerRevealAddMultiply => Some(24),
+            Self::DiffuseRevealMultiply => Some(24),
+            Self::RevealLayered | Self::RevealSpecularLayered => Some(14),
+            Self::RevealAdd
+            | Self::RevealMultiply
+            | Self::BaseSpecularRevealLayered
+            | Self::RevealNormalSpecular
+            | Self::RevealDiffuse
+            | Self::DiffuseRevealLayered
+            | Self::NoBaseGlossRevealLayered => Some(24),
             _ => None,
         }
     }
@@ -436,17 +994,34 @@ struct NativeWorldThreeLayerDoubleRevealMaterial {
 /// depth convention must agree with depth_compare and its depth clear value.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NativeWorldState {
+    pub blend: Option<BlendState>,
+    pub alpha_test: bool,
     pub depth_compare: CompareFunction,
     pub depth_write: bool,
+    pub polygon_offset: u8,
     pub cull_mode: Option<Face>,
     pub front_face: FrontFace,
     pub color_write: ColorWrites,
+}
+
+impl NativeWorldState {
+    pub(crate) fn depth_bias(self) -> DepthBiasState {
+        // 0046baa0 negates the logical offsets for the original reverse-Z rasterizer.
+        DepthBiasState {
+            constant: i32::from(self.polygon_offset) * 256,
+            slope_scale: f32::from(self.polygon_offset),
+            clamp: 0.0,
+        }
+    }
 }
 
 #[derive(Component, Clone)]
 #[require(VisibilityClass)]
 #[component(on_add = visibility::add_visibility_class::<NativeWorldSurface>)]
 pub struct NativeWorldSurface {
+    pub pass: NativeWorldPass,
+    pub sort_key: u64,
+    pub source_surface_index: u32,
     pub geometry: Handle<NativeWorldGeometry>,
     pub material: Handle<NativeWorldMaterial>,
     pub state: NativeWorldState,
@@ -458,6 +1033,9 @@ pub struct NativeWorldSurface {
 
 #[derive(Component)]
 pub struct ExtractedNativeSurface {
+    pub pass: NativeWorldPass,
+    pub sort_key: u64,
+    pub source_surface_index: u32,
     geometry: AssetId<NativeWorldGeometry>,
     material: AssetId<NativeWorldMaterial>,
     state: NativeWorldState,
@@ -478,6 +1056,9 @@ impl ExtractComponent<RenderApp> for NativeWorldSurface {
 
     fn extract_component(surface: QueryItem<'_, '_, Self::QueryData>) -> Option<Self::Out> {
         Some(ExtractedNativeSurface {
+            pass: surface.pass,
+            sort_key: surface.sort_key,
+            source_surface_index: surface.source_surface_index,
             geometry: surface.geometry.id(),
             material: surface.material.id(),
             state: surface.state,
@@ -506,20 +1087,30 @@ impl Plugin for NativeWorldPlugin {
                 RenderAssetPlugin::<PreparedNativeGeometry>::default(),
             ));
         load_shader_library!(app, "native_world.wesl");
+        load_shader_library!(app, "native_world_wallbuy.wesl");
+        load_shader_library!(app, "native_world_lava.wesl");
+        load_shader_library!(app, "native_world_ember.wesl");
         load_shader_library!(app, "native_world_layers.wesl");
         load_shader_library!(app, "native_world_plain.wesl");
         load_shader_library!(app, "native_world_color_layers.wesl");
         load_shader_library!(app, "native_world_three_layers.wesl");
+        load_shader_library!(app, "native_world_variants.wesl");
         embedded_asset!(app, "native_entry.wesl");
         embedded_asset!(app, "native_layer_entry.wesl");
         embedded_asset!(app, "native_plain_entry.wesl");
         embedded_asset!(app, "native_color_layer_entry.wesl");
         embedded_asset!(app, "native_three_layer_entry.wesl");
+        embedded_asset!(app, "native_variants_entry.wesl");
+        embedded_asset!(app, "native_unlit_entry.wesl");
+        embedded_asset!(app, "native_ember_entry.wesl");
         let shader = load_embedded_asset!(app, "native_entry.wesl");
         let layer_shader = load_embedded_asset!(app, "native_layer_entry.wesl");
         let plain_shader = load_embedded_asset!(app, "native_plain_entry.wesl");
         let color_layer_shader = load_embedded_asset!(app, "native_color_layer_entry.wesl");
         let three_layer_shader = load_embedded_asset!(app, "native_three_layer_entry.wesl");
+        let variants_shader = load_embedded_asset!(app, "native_variants_entry.wesl");
+        let unlit_shader = load_embedded_asset!(app, "native_unlit_entry.wesl");
+        let ember_shader = load_embedded_asset!(app, "native_ember_entry.wesl");
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -530,12 +1121,16 @@ impl Plugin for NativeWorldPlugin {
                 plain_shader,
                 color_layer_shader,
                 three_layer_shader,
+                variants_shader,
+                unlit_shader,
+                ember_shader,
             ))
             .insert_resource(GpuPreprocessingSupport {
                 max_supported_mode: GpuPreprocessingMode::None,
             })
             .init_resource::<SpecializedRenderPipelines<NativePipeline>>()
             .init_resource::<NativeUniformGroups>()
+            .init_resource::<NativeOrderedDraws>()
             .add_render_command::<Opaque3d, (SetItemPipeline, DrawNativeWorld)>()
             .add_systems(
                 Render,
@@ -549,12 +1144,15 @@ impl Plugin for NativeWorldPlugin {
 }
 
 #[derive(Resource)]
-struct NativePipeline {
+pub(crate) struct NativePipeline {
     shader: Handle<Shader>,
     layer_shader: Handle<Shader>,
     plain_shader: Handle<Shader>,
     color_layer_shader: Handle<Shader>,
     three_layer_shader: Handle<Shader>,
+    variants_shader: Handle<Shader>,
+    unlit_shader: Handle<Shader>,
+    ember_shader: Handle<Shader>,
     scene_layout: BindGroupLayoutDescriptor,
     object_layout: BindGroupLayoutDescriptor,
     material_layout: BindGroupLayoutDescriptor,
@@ -566,6 +1164,7 @@ struct NativePipeline {
     reveal_specular_material_layout: BindGroupLayoutDescriptor,
     three_layer_material_layout: BindGroupLayoutDescriptor,
     three_layer_double_reveal_material_layout: BindGroupLayoutDescriptor,
+    variant_material_layouts: HashMap<NativeWorldFamily, BindGroupLayoutDescriptor>,
 }
 
 impl NativePipeline {
@@ -575,6 +1174,9 @@ impl NativePipeline {
         plain_shader: Handle<Shader>,
         color_layer_shader: Handle<Shader>,
         three_layer_shader: Handle<Shader>,
+        variants_shader: Handle<Shader>,
+        unlit_shader: Handle<Shader>,
+        ember_shader: Handle<Shader>,
     ) -> Self {
         let mut entries = BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
@@ -672,12 +1274,180 @@ impl NativePipeline {
         );
         let three_layer_double_reveal_material_layout =
             BindGroupLayoutDescriptor::new("native three-layer double reveal material", &entries);
+        let variant_material_layouts = [
+            (
+                NativeWorldFamily::ColorThreeLayerReveal,
+                &[0, 2, 4, 6, 8, 14, 16, 18][..],
+            ),
+            (
+                NativeWorldFamily::ColorThreeLayerSpecular,
+                &[0, 2, 4, 6, 8, 14, 16, 18][..],
+            ),
+            (
+                NativeWorldFamily::ColorThreeLayerNormal,
+                &[0, 2, 4, 6, 8, 14, 16][..],
+            ),
+            (
+                NativeWorldFamily::RevealMultiply,
+                &[0, 2, 4, 6, 8, 10, 12, 14][..],
+            ),
+            (
+                NativeWorldFamily::RevealAdd,
+                &[0, 2, 4, 6, 8, 10, 12, 14][..],
+            ),
+            (
+                NativeWorldFamily::DiffuseLayerMultiply,
+                &[0, 2, 4, 8, 10, 14][..],
+            ),
+            (
+                NativeWorldFamily::DiffuseRevealMultiply,
+                &[0, 2, 4, 8, 10, 14][..],
+            ),
+            (NativeWorldFamily::LayerAdd, &[0, 2, 4, 6, 8, 10, 14][..]),
+            (
+                NativeWorldFamily::ThreeLayerNormals,
+                &[0, 2, 4, 6, 8, 10, 14, 16][..],
+            ),
+            (
+                NativeWorldFamily::ThreeLayerRetainedSpecular,
+                &[0, 2, 4, 6, 8, 10, 12, 14, 16][..],
+            ),
+            (
+                NativeWorldFamily::ColorDoubleBlend,
+                &[0, 2, 4, 6, 8, 14][..],
+            ),
+            (
+                NativeWorldFamily::ColorAddMultiply,
+                &[0, 2, 4, 6, 8, 14][..],
+            ),
+            (
+                NativeWorldFamily::FourLayerRevealAddMultiply,
+                &[0, 2, 4, 6, 8, 10, 12, 14, 26][..],
+            ),
+            (NativeWorldFamily::GeometricGloss, &[0, 4, 6][..]),
+            (NativeWorldFamily::Ember, &[0, 2, 4, 6, 8, 10][..]),
+            (NativeWorldFamily::Lava, &[0, 8, 10][..]),
+            (NativeWorldFamily::Wallbuy, &[0][..]),
+            (NativeWorldFamily::UnlitReplace, &[0][..]),
+            (NativeWorldFamily::UnlitAdd, &[0][..]),
+            (NativeWorldFamily::UnlitDecalAdd, &[0][..]),
+            (NativeWorldFamily::UnlitDecalMultiply, &[0][..]),
+            (NativeWorldFamily::RevealDiffuse, &[0, 2, 4][..]),
+            (
+                NativeWorldFamily::RevealNormalSpecular,
+                &[0, 2, 4, 6, 8][..],
+            ),
+            (NativeWorldFamily::GeometricDiffuse, &[0, 4][..]),
+            (
+                NativeWorldFamily::BaseSpecularLayered,
+                &[0, 2, 4, 6, 8, 10, 22][..],
+            ),
+            (
+                NativeWorldFamily::BaseSpecularRevealLayered,
+                &[0, 2, 4, 6, 8, 10, 12, 22][..],
+            ),
+            (
+                NativeWorldFamily::BaseSpecularThreeLayerReveal,
+                &[0, 2, 4, 6, 8, 10, 14, 16, 18, 22][..],
+            ),
+            (
+                NativeWorldFamily::BaseSpecularThreeLayerDoubleReveal,
+                &[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 22][..],
+            ),
+            (
+                NativeWorldFamily::SpecularLayered,
+                &[0, 2, 4, 6, 8, 10, 12][..],
+            ),
+            (NativeWorldFamily::DiffuseColorMultiply, &[0, 2, 4, 8][..]),
+            (
+                NativeWorldFamily::DiffuseDoubleMultiply,
+                &[0, 2, 4, 8, 14][..],
+            ),
+            (NativeWorldFamily::DiffuseLayered, &[0, 2, 4, 8, 10][..]),
+            (
+                NativeWorldFamily::DiffuseRevealLayered,
+                &[0, 2, 4, 8, 10][..],
+            ),
+            (
+                NativeWorldFamily::NoBaseGlossRevealLayered,
+                &[0, 2, 4, 6, 8, 10, 12][..],
+            ),
+            (NativeWorldFamily::GeometricLayered, &[0, 4, 6, 8, 22][..]),
+        ]
+        .into_iter()
+        .map(|(family, texture_bindings)| {
+            let mut entries = Vec::with_capacity(texture_bindings.len() * 2 + 1);
+            for &binding in texture_bindings {
+                let texture = if binding == 6 {
+                    texture_cube(TextureSampleType::Float { filterable: true })
+                } else {
+                    texture_2d(TextureSampleType::Float { filterable: true })
+                };
+                entries.push(texture.build(binding, ShaderStages::FRAGMENT));
+                entries.push(
+                    sampler(SamplerBindingType::Filtering)
+                        .build(binding + 1, ShaderStages::FRAGMENT),
+                );
+            }
+            if matches!(
+                family,
+                NativeWorldFamily::UnlitAdd | NativeWorldFamily::UnlitReplace
+            ) {
+                entries.push(
+                    uniform_buffer::<NativeUnlitConstants>(false).build(2, ShaderStages::FRAGMENT),
+                );
+            }
+            if family == NativeWorldFamily::Wallbuy {
+                entries.push(
+                    uniform_buffer::<NativeWorldParallaxLayer>(false)
+                        .build(3, ShaderStages::VERTEX_FRAGMENT),
+                );
+            }
+            if family == NativeWorldFamily::Lava {
+                entries.push(
+                    uniform_buffer::<NativeLavaConstants>(false).build(12, ShaderStages::FRAGMENT),
+                );
+            }
+            if family == NativeWorldFamily::Ember {
+                entries.push(
+                    uniform_buffer::<NativeEmberConstants>(false)
+                        .build(12, ShaderStages::VERTEX_FRAGMENT),
+                );
+            }
+            if let Some(binding) = family.reveal1_binding() {
+                entries.push(
+                    uniform_buffer::<NativeWorldRevealMaterial>(false)
+                        .build(binding, ShaderStages::FRAGMENT),
+                );
+            }
+            match family {
+                NativeWorldFamily::ColorThreeLayerReveal
+                | NativeWorldFamily::BaseSpecularThreeLayerReveal => entries.push(
+                    uniform_buffer::<NativeWorldThreeLayerRevealMaterial>(false)
+                        .build(20, ShaderStages::FRAGMENT),
+                ),
+                NativeWorldFamily::ThreeLayerRetainedSpecular
+                | NativeWorldFamily::BaseSpecularThreeLayerDoubleReveal => entries.push(
+                    uniform_buffer::<NativeWorldThreeLayerDoubleRevealMaterial>(false)
+                        .build(21, ShaderStages::FRAGMENT),
+                ),
+                _ => {}
+            }
+            (
+                family,
+                BindGroupLayoutDescriptor::new("native world variant material", &entries),
+            )
+        })
+        .collect();
         Self {
             shader,
             layer_shader,
             plain_shader,
             color_layer_shader,
             three_layer_shader,
+            variants_shader,
+            unlit_shader,
+            ember_shader,
             scene_layout: BindGroupLayoutDescriptor::new(
                 "native world scene",
                 &BindGroupLayoutEntries::single(
@@ -701,6 +1471,7 @@ impl NativePipeline {
             reveal_specular_material_layout,
             three_layer_material_layout,
             three_layer_double_reveal_material_layout,
+            variant_material_layouts,
         }
     }
 
@@ -713,19 +1484,56 @@ impl NativePipeline {
             | NativeWorldFamily::ColorBlend
             | NativeWorldFamily::ColorAdd => &self.extra_texture_material_layout,
             NativeWorldFamily::GeometricSpecular => &self.geometric_specular_material_layout,
-            NativeWorldFamily::Layered => &self.layer_material_layout,
+            NativeWorldFamily::LayerSelected | NativeWorldFamily::Layered => {
+                &self.layer_material_layout
+            }
             NativeWorldFamily::RevealLayered => &self.reveal_material_layout,
             NativeWorldFamily::RevealSpecularLayered => &self.reveal_specular_material_layout,
             NativeWorldFamily::ThreeLayerReveal => &self.three_layer_material_layout,
             NativeWorldFamily::ThreeLayerDoubleReveal => {
                 &self.three_layer_double_reveal_material_layout
             }
+            NativeWorldFamily::Ember
+            | NativeWorldFamily::Lava
+            | NativeWorldFamily::Wallbuy
+            | NativeWorldFamily::UnlitReplace
+            | NativeWorldFamily::UnlitAdd
+            | NativeWorldFamily::UnlitDecalAdd
+            | NativeWorldFamily::UnlitDecalMultiply
+            | NativeWorldFamily::RevealDiffuse
+            | NativeWorldFamily::RevealNormalSpecular
+            | NativeWorldFamily::GeometricGloss
+            | NativeWorldFamily::GeometricDiffuse
+            | NativeWorldFamily::SpecularLayered
+            | NativeWorldFamily::BaseSpecularLayered
+            | NativeWorldFamily::BaseSpecularRevealLayered
+            | NativeWorldFamily::DiffuseLayerMultiply
+            | NativeWorldFamily::DiffuseRevealMultiply
+            | NativeWorldFamily::FourLayerRevealAddMultiply
+            | NativeWorldFamily::ColorDoubleBlend
+            | NativeWorldFamily::ColorAddMultiply
+            | NativeWorldFamily::ThreeLayerRetainedSpecular
+            | NativeWorldFamily::ThreeLayerNormals
+            | NativeWorldFamily::LayerAdd
+            | NativeWorldFamily::RevealAdd
+            | NativeWorldFamily::RevealMultiply
+            | NativeWorldFamily::ColorThreeLayerNormal
+            | NativeWorldFamily::ColorThreeLayerSpecular
+            | NativeWorldFamily::ColorThreeLayerReveal
+            | NativeWorldFamily::BaseSpecularThreeLayerReveal
+            | NativeWorldFamily::BaseSpecularThreeLayerDoubleReveal
+            | NativeWorldFamily::DiffuseDoubleMultiply
+            | NativeWorldFamily::DiffuseColorMultiply
+            | NativeWorldFamily::DiffuseLayered
+            | NativeWorldFamily::DiffuseRevealLayered
+            | NativeWorldFamily::NoBaseGlossRevealLayered
+            | NativeWorldFamily::GeometricLayered => &self.variant_material_layouts[&family],
         }
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-struct NativePipelineKey {
+pub(crate) struct NativePipelineKey {
     target: TextureFormat,
     samples: u32,
     state: NativeWorldState,
@@ -772,15 +1580,41 @@ impl SpecializedRenderPipeline for NativePipeline {
                 },
             ],
         };
-        if key.family == NativeWorldFamily::GeometricSpecular {
+        if matches!(
+            key.family,
+            NativeWorldFamily::GeometricGloss
+                | NativeWorldFamily::GeometricDiffuse
+                | NativeWorldFamily::GeometricSpecular
+                | NativeWorldFamily::GeometricLayered
+        ) {
             vertex_layout
                 .attributes
                 .retain(|attribute| attribute.shader_location != 4);
+            vertex_layout.attributes[0].format = VertexFormat::Float32x3;
+        }
+        if matches!(
+            key.family,
+            NativeWorldFamily::UnlitReplace
+                | NativeWorldFamily::UnlitAdd
+                | NativeWorldFamily::UnlitDecalAdd
+                | NativeWorldFamily::UnlitDecalMultiply
+        ) {
+            vertex_layout
+                .attributes
+                .retain(|attribute| attribute.shader_location <= 2);
+            vertex_layout.attributes[0].format = VertexFormat::Float32x3;
         }
         let mut buffers = vec![vertex_layout];
         if let Some(stride) = key.family.auxiliary_stride() {
             let mut attributes = vec![VertexAttribute {
-                format: if stride == 16 {
+                format: if stride == 16
+                    || stride == 12
+                    || matches!(
+                        key.family,
+                        NativeWorldFamily::DiffuseDoubleMultiply
+                            | NativeWorldFamily::ColorDoubleBlend
+                            | NativeWorldFamily::ColorAddMultiply
+                    ) {
                     VertexFormat::Float16x4
                 } else {
                     VertexFormat::Float16x2
@@ -788,17 +1622,35 @@ impl SpecializedRenderPipeline for NativePipeline {
                 offset: 0,
                 shader_location: 6,
             }];
-            if stride == 8 {
+            if stride == 8
+                && !matches!(
+                    key.family,
+                    NativeWorldFamily::DiffuseDoubleMultiply
+                        | NativeWorldFamily::ColorDoubleBlend
+                        | NativeWorldFamily::ColorAddMultiply
+                )
+            {
                 attributes.push(VertexAttribute {
                     format: VertexFormat::Unorm8x4,
                     offset: 4,
                     shader_location: 7,
                 });
             }
+            if stride == 12 {
+                attributes.push(VertexAttribute {
+                    format: VertexFormat::Unorm8x4,
+                    offset: 8,
+                    shader_location: 7,
+                });
+            }
             if stride == 16 {
                 attributes.extend([
                     VertexAttribute {
-                        format: VertexFormat::Unorm8x4,
+                        format: if key.family == NativeWorldFamily::FourLayerRevealAddMultiply {
+                            VertexFormat::Float16x2
+                        } else {
+                            VertexFormat::Unorm8x4
+                        },
                         offset: 8,
                         shader_location: 7,
                     },
@@ -816,45 +1668,145 @@ impl SpecializedRenderPipeline for NativePipeline {
             });
         }
         let (shader, vertex) = match key.family {
+            NativeWorldFamily::Ember => (&self.ember_shader, "vertex"),
+            NativeWorldFamily::FourLayerRevealAddMultiply => {
+                (&self.variants_shader, "vertex_four_layer")
+            }
+            NativeWorldFamily::ColorDoubleBlend | NativeWorldFamily::ColorAddMultiply => {
+                (&self.variants_shader, "vertex_color_overlays")
+            }
+            NativeWorldFamily::DiffuseLayerMultiply | NativeWorldFamily::DiffuseRevealMultiply => {
+                (&self.variants_shader, "vertex_diffuse_three")
+            }
+            NativeWorldFamily::Lava => (&self.unlit_shader, "vertex_lava"),
+            NativeWorldFamily::Wallbuy => (&self.unlit_shader, "vertex_wallbuy"),
+            NativeWorldFamily::UnlitDecalAdd => (&self.unlit_shader, "vertex_no_fog"),
+            NativeWorldFamily::UnlitReplace
+            | NativeWorldFamily::UnlitAdd
+            | NativeWorldFamily::UnlitDecalMultiply => (&self.unlit_shader, "vertex_fog"),
+            NativeWorldFamily::GeometricDiffuse => (&self.plain_shader, "vertex_geometric_diffuse"),
             NativeWorldFamily::Lightmapped => (&self.shader, "vertex"),
-            NativeWorldFamily::Diffuse => (&self.plain_shader, "vertex_diffuse"),
-            NativeWorldFamily::NormalSpecular => (&self.plain_shader, "vertex_specular"),
-            NativeWorldFamily::GeometricSpecular => {
+            NativeWorldFamily::Diffuse | NativeWorldFamily::RevealDiffuse => {
+                (&self.plain_shader, "vertex_diffuse")
+            }
+            NativeWorldFamily::NormalSpecular | NativeWorldFamily::RevealNormalSpecular => {
+                (&self.plain_shader, "vertex_specular")
+            }
+            NativeWorldFamily::GeometricGloss | NativeWorldFamily::GeometricSpecular => {
                 (&self.plain_shader, "vertex_geometric_specular")
             }
             NativeWorldFamily::ColorMultiply
             | NativeWorldFamily::ColorBlend
             | NativeWorldFamily::ColorAdd => (&self.color_layer_shader, "vertex"),
-            NativeWorldFamily::Layered
+            NativeWorldFamily::LayerSelected
+            | NativeWorldFamily::Layered
             | NativeWorldFamily::RevealLayered
+            | NativeWorldFamily::SpecularLayered
             | NativeWorldFamily::RevealSpecularLayered => (&self.layer_shader, "vertex"),
             NativeWorldFamily::ThreeLayerReveal | NativeWorldFamily::ThreeLayerDoubleReveal => {
                 (&self.three_layer_shader, "vertex")
             }
+            NativeWorldFamily::BaseSpecularLayered
+            | NativeWorldFamily::BaseSpecularRevealLayered
+            | NativeWorldFamily::NoBaseGlossRevealLayered => {
+                (&self.variants_shader, "vertex_layer")
+            }
+            NativeWorldFamily::LayerAdd
+            | NativeWorldFamily::RevealAdd
+            | NativeWorldFamily::RevealMultiply
+            | NativeWorldFamily::ColorThreeLayerNormal
+            | NativeWorldFamily::ColorThreeLayerSpecular
+            | NativeWorldFamily::ColorThreeLayerReveal => {
+                (&self.variants_shader, "vertex_color_three")
+            }
+            NativeWorldFamily::ThreeLayerRetainedSpecular
+            | NativeWorldFamily::ThreeLayerNormals
+            | NativeWorldFamily::BaseSpecularThreeLayerReveal
+            | NativeWorldFamily::BaseSpecularThreeLayerDoubleReveal => {
+                (&self.variants_shader, "vertex_three")
+            }
+            NativeWorldFamily::DiffuseLayered | NativeWorldFamily::DiffuseRevealLayered => {
+                (&self.variants_shader, "vertex_diffuse_layer")
+            }
+            NativeWorldFamily::DiffuseDoubleMultiply => {
+                (&self.variants_shader, "vertex_diffuse_double_color")
+            }
+            NativeWorldFamily::DiffuseColorMultiply => {
+                (&self.variants_shader, "vertex_diffuse_color")
+            }
+            NativeWorldFamily::GeometricLayered => {
+                (&self.variants_shader, "vertex_geometric_layer")
+            }
         };
-        let fragment = match (key.family, key.target.is_srgb()) {
-            (NativeWorldFamily::Diffuse, false) => "fragment_diffuse",
-            (NativeWorldFamily::Diffuse, true) => "fragment_diffuse_srgb",
-            (NativeWorldFamily::NormalSpecular, false) => "fragment_specular",
-            (NativeWorldFamily::NormalSpecular, true) => "fragment_specular_srgb",
-            (NativeWorldFamily::GeometricSpecular, false) => "fragment_geometric_specular",
-            (NativeWorldFamily::GeometricSpecular, true) => "fragment_geometric_specular_srgb",
-            (NativeWorldFamily::ColorMultiply, false) => "fragment_multiply",
-            (NativeWorldFamily::ColorMultiply, true) => "fragment_multiply_srgb",
-            (NativeWorldFamily::ColorBlend, false) => "fragment_blend",
-            (NativeWorldFamily::ColorBlend, true) => "fragment_blend_srgb",
-            (NativeWorldFamily::ColorAdd, false) => "fragment_add",
-            (NativeWorldFamily::ColorAdd, true) => "fragment_add_srgb",
-            (NativeWorldFamily::ThreeLayerReveal, false) => "fragment",
-            (NativeWorldFamily::ThreeLayerReveal, true) => "fragment_srgb",
-            (NativeWorldFamily::ThreeLayerDoubleReveal, false) => "fragment_double_reveal",
-            (NativeWorldFamily::ThreeLayerDoubleReveal, true) => "fragment_double_reveal_srgb",
-            (NativeWorldFamily::RevealLayered, false) => "fragment_reveal",
-            (NativeWorldFamily::RevealLayered, true) => "fragment_reveal_srgb",
-            (NativeWorldFamily::RevealSpecularLayered, false) => "fragment_reveal_specular",
-            (NativeWorldFamily::RevealSpecularLayered, true) => "fragment_reveal_specular_srgb",
-            (_, false) => "fragment",
-            (_, true) => "fragment_srgb",
+        let fragment = match key.family {
+            NativeWorldFamily::FourLayerRevealAddMultiply => "fragment_four_layer",
+            NativeWorldFamily::LayerSelected => "fragment_selected",
+            NativeWorldFamily::ColorDoubleBlend => "fragment_color_double_blend",
+            NativeWorldFamily::ColorAddMultiply => "fragment_color_add_multiply",
+            NativeWorldFamily::Ember => "fragment",
+            NativeWorldFamily::Lava => "fragment_lava",
+            NativeWorldFamily::Wallbuy => "fragment_wallbuy",
+            NativeWorldFamily::UnlitReplace => "fragment_replace",
+            NativeWorldFamily::UnlitAdd => "fragment_add",
+            NativeWorldFamily::UnlitDecalAdd => "fragment_decal_add",
+            NativeWorldFamily::UnlitDecalMultiply => "fragment_decal_multiply",
+            NativeWorldFamily::GeometricGloss => "fragment_geometric_gloss",
+            NativeWorldFamily::GeometricDiffuse => "fragment_geometric_diffuse",
+            NativeWorldFamily::Lightmapped
+            | NativeWorldFamily::Layered
+            | NativeWorldFamily::ThreeLayerReveal => "fragment",
+            NativeWorldFamily::Diffuse => "fragment_diffuse",
+            NativeWorldFamily::RevealDiffuse => "fragment_diffuse_reveal",
+            NativeWorldFamily::NormalSpecular => "fragment_specular",
+            NativeWorldFamily::RevealNormalSpecular => "fragment_specular_reveal",
+            NativeWorldFamily::GeometricSpecular => "fragment_geometric_specular",
+            NativeWorldFamily::DiffuseDoubleMultiply => "fragment_diffuse_double_multiply",
+            NativeWorldFamily::DiffuseColorMultiply => "fragment_diffuse_multiply",
+            NativeWorldFamily::ColorMultiply => "fragment_multiply",
+            NativeWorldFamily::ColorBlend => "fragment_blend",
+            NativeWorldFamily::ColorAdd => "fragment_add",
+            NativeWorldFamily::ThreeLayerDoubleReveal => "fragment_double_reveal",
+            NativeWorldFamily::RevealLayered => "fragment_reveal",
+            NativeWorldFamily::SpecularLayered => "fragment_specular",
+            NativeWorldFamily::RevealSpecularLayered => "fragment_reveal_specular",
+            NativeWorldFamily::BaseSpecularLayered => "fragment_base_specular_layer",
+            NativeWorldFamily::BaseSpecularRevealLayered => "fragment_base_specular_reveal_layer",
+            NativeWorldFamily::ColorThreeLayerReveal => "fragment_color_three_reveal",
+            NativeWorldFamily::ColorThreeLayerSpecular => "fragment_color_three_specular",
+            NativeWorldFamily::DiffuseLayerMultiply => "fragment_diffuse_layer_multiply",
+            NativeWorldFamily::DiffuseRevealMultiply => "fragment_diffuse_reveal_multiply",
+            NativeWorldFamily::ThreeLayerRetainedSpecular => "fragment_retained_specular",
+            NativeWorldFamily::ThreeLayerNormals => "fragment_three_normals",
+            NativeWorldFamily::LayerAdd => "fragment_layer_add",
+            NativeWorldFamily::RevealAdd => "fragment_reveal_add",
+            NativeWorldFamily::RevealMultiply => "fragment_reveal_multiply",
+            NativeWorldFamily::ColorThreeLayerNormal => "fragment_color_three_normal",
+            NativeWorldFamily::BaseSpecularThreeLayerReveal => {
+                "fragment_base_specular_three_layer_reveal"
+            }
+            NativeWorldFamily::BaseSpecularThreeLayerDoubleReveal => {
+                "fragment_base_specular_three_layer_double_reveal"
+            }
+            NativeWorldFamily::DiffuseLayered => "fragment_diffuse_layer",
+            NativeWorldFamily::DiffuseRevealLayered => "fragment_diffuse_reveal_layer",
+            NativeWorldFamily::NoBaseGlossRevealLayered => "fragment_no_base_gloss_reveal_layer",
+            NativeWorldFamily::GeometricLayered => "fragment_geometric_layer",
+        };
+        let fragment = match (key.family, key.state.alpha_test) {
+            (NativeWorldFamily::Diffuse, true) => "fragment_diffuse_cutout",
+            (NativeWorldFamily::NormalSpecular, true) => "fragment_specular_cutout",
+            _ => fragment,
+        };
+        let fragment = match (key.family, key.state.blend.is_some()) {
+            (NativeWorldFamily::Diffuse, true) => "fragment_diffuse_blend",
+            (NativeWorldFamily::GeometricDiffuse, true) => "fragment_geometric_diffuse_blend",
+            (NativeWorldFamily::GeometricSpecular, true) => "fragment_geometric_specular_blend",
+            _ => fragment,
+        };
+        let fragment = if key.target.is_srgb() {
+            format!("{fragment}_srgb")
+        } else {
+            fragment.to_owned()
         };
         RenderPipelineDescriptor {
             label: Some("T6 lightmapped world".into()),
@@ -874,7 +1826,7 @@ impl SpecializedRenderPipeline for NativePipeline {
                 entry_point: Some(fragment.into()),
                 targets: vec![Some(ColorTargetState {
                     format: key.target,
-                    blend: None,
+                    blend: key.state.blend,
                     write_mask: key.state.color_write,
                 })],
                 ..default()
@@ -890,7 +1842,7 @@ impl SpecializedRenderPipeline for NativePipeline {
                 depth_write_enabled: Some(key.state.depth_write),
                 depth_compare: Some(key.state.depth_compare),
                 stencil: default(),
-                bias: default(),
+                bias: key.state.depth_bias(),
             }),
             multisample: MultisampleState {
                 count: key.samples,
@@ -901,7 +1853,7 @@ impl SpecializedRenderPipeline for NativePipeline {
     }
 }
 
-struct PreparedNativeMaterial {
+pub(crate) struct PreparedNativeMaterial {
     bind_group: BindGroup,
     family: NativeWorldFamily,
 }
@@ -924,11 +1876,37 @@ impl RenderAsset for PreparedNativeMaterial {
     ) -> Result<Self, PrepareAssetError<Self::SourceAsset>> {
         let family = source.family();
         let reveal = match &source {
-            NativeWorldMaterial::RevealLayered {
+            NativeWorldMaterial::RevealDiffuse {
+                alpha_reveal_parms, ..
+            } => Some(*alpha_reveal_parms),
+            NativeWorldMaterial::RevealNormalSpecular {
+                alpha_reveal_parms, ..
+            } => Some(*alpha_reveal_parms),
+            NativeWorldMaterial::DiffuseLayerMultiply {
+                alpha_reveal_parms1: Some(alpha_reveal_parms1),
+                ..
+            }
+            | NativeWorldMaterial::RevealOverlay {
+                alpha_reveal_parms1,
+                ..
+            }
+            | NativeWorldMaterial::RevealLayered {
                 alpha_reveal_parms1,
                 ..
             }
             | NativeWorldMaterial::RevealSpecularLayered {
+                alpha_reveal_parms1,
+                ..
+            }
+            | NativeWorldMaterial::BaseSpecularRevealLayered {
+                alpha_reveal_parms1,
+                ..
+            }
+            | NativeWorldMaterial::DiffuseRevealLayered {
+                alpha_reveal_parms1,
+                ..
+            }
+            | NativeWorldMaterial::NoBaseGlossRevealLayered {
                 alpha_reveal_parms1,
                 ..
             } => Some(*alpha_reveal_parms1),
@@ -965,6 +1943,14 @@ impl RenderAsset for PreparedNativeMaterial {
             NativeWorldMaterial::ThreeLayerReveal {
                 alpha_reveal_parms2,
                 ..
+            }
+            | NativeWorldMaterial::ColorThreeLayer {
+                alpha_reveal_parms2: Some(alpha_reveal_parms2),
+                ..
+            }
+            | NativeWorldMaterial::BaseSpecularThreeLayerReveal {
+                alpha_reveal_parms2,
+                ..
             } => Some(UniformBuffer::from(NativeWorldThreeLayerRevealMaterial {
                 alpha_reveal_parms2: *alpha_reveal_parms2,
             })),
@@ -974,7 +1960,17 @@ impl RenderAsset for PreparedNativeMaterial {
             uniform.write_buffer(device, queue);
         }
         let mut double_reveal_uniform = match &source {
-            NativeWorldMaterial::ThreeLayerDoubleReveal {
+            NativeWorldMaterial::ThreeLayerRetainedSpecular {
+                alpha_reveal_parms1,
+                alpha_reveal_parms2,
+                ..
+            }
+            | NativeWorldMaterial::ThreeLayerDoubleReveal {
+                alpha_reveal_parms1,
+                alpha_reveal_parms2,
+                ..
+            }
+            | NativeWorldMaterial::BaseSpecularThreeLayerDoubleReveal {
                 alpha_reveal_parms1,
                 alpha_reveal_parms2,
                 ..
@@ -989,7 +1985,58 @@ impl RenderAsset for PreparedNativeMaterial {
         if let Some(uniform) = &mut double_reveal_uniform {
             uniform.write_buffer(device, queue);
         }
+        let mut unlit_uniform = match &source {
+            NativeWorldMaterial::Unlit {
+                scale_rgb: Some(scale_rgb),
+                ..
+            } => Some(UniformBuffer::from(NativeUnlitConstants {
+                scale_rgb: *scale_rgb,
+            })),
+            _ => None,
+        };
+        if let Some(uniform) = &mut unlit_uniform {
+            uniform.write_buffer(device, queue);
+        }
         let mut entries = Vec::with_capacity(views.len() * 2 + usize::from(reveal.is_some()));
+        let mut ember_uniform = match &source {
+            NativeWorldMaterial::Ember { constants, .. } => Some(UniformBuffer::from(*constants)),
+            _ => None,
+        };
+        if let Some(uniform) = &mut ember_uniform {
+            uniform.write_buffer(device, queue);
+            entries.push(BindGroupEntry {
+                binding: 12,
+                resource: uniform.binding().expect("original ember constants"),
+            });
+        }
+        let mut lava_uniform = match &source {
+            NativeWorldMaterial::Lava { constants, .. } => Some(UniformBuffer::from(*constants)),
+            _ => None,
+        };
+        if let Some(uniform) = &mut lava_uniform {
+            uniform.write_buffer(device, queue);
+            entries.push(BindGroupEntry {
+                binding: 12,
+                resource: uniform.binding().expect("original lava layer constants"),
+            });
+        }
+        let mut wallbuy_uniform = match &source {
+            NativeWorldMaterial::Wallbuy { constants, .. } => Some(UniformBuffer::from(*constants)),
+            _ => None,
+        };
+        if let Some(uniform) = &mut wallbuy_uniform {
+            uniform.write_buffer(device, queue);
+            entries.push(BindGroupEntry {
+                binding: 3,
+                resource: uniform.binding().expect("original wallbuy constants"),
+            });
+        }
+        if let Some(uniform) = &unlit_uniform {
+            entries.push(BindGroupEntry {
+                binding: 2,
+                resource: uniform.binding().expect("original unlit scaleRGB"),
+            });
+        }
         for ((binding, view), sampler) in views.into_iter().zip(&samplers) {
             entries.push(BindGroupEntry {
                 binding,
@@ -1002,7 +2049,9 @@ impl RenderAsset for PreparedNativeMaterial {
         }
         if let Some(uniform) = &reveal_uniform {
             entries.push(BindGroupEntry {
-                binding: 14,
+                binding: family
+                    .reveal1_binding()
+                    .expect("source layer1 reveal binding"),
                 resource: uniform.binding().expect("uploaded native reveal constants"),
             });
         }
@@ -1032,7 +2081,7 @@ impl RenderAsset for PreparedNativeMaterial {
 }
 
 #[derive(Resource, Default)]
-struct NativeUniformGroups {
+pub(crate) struct NativeUniformGroups {
     scene: Option<(BufferId, BindGroup)>,
     object: Option<(BufferId, BindGroup)>,
 }
@@ -1079,7 +2128,7 @@ fn prepare_uniform_groups(
     }
 }
 
-fn queue_native_world(
+pub(crate) fn queue_native_world(
     pipeline: Res<NativePipeline>,
     cache: Res<PipelineCache>,
     mut variants: ResMut<SpecializedRenderPipelines<NativePipeline>>,
@@ -1093,7 +2142,14 @@ fn queue_native_world(
     >,
     surfaces: Query<&ExtractedNativeSurface, With<NativeWorldObject>>,
     mut queued: Local<HashMap<RetainedViewEntity, Vec<MainEntity>>>,
+    mut translucent: ResMut<NativeOrderedDraws>,
 ) {
+    translucent.0.retain(|(view, _), draws| {
+        draws.clear();
+        views
+            .iter()
+            .any(|(candidate, _, _, _)| candidate.retained_view_entity == *view)
+    });
     // Remove only this renderer's previous membership. This also handles a view
     // losing its native scene constants or a surface becoming invisible.
     queued.retain(|view, entities| {
@@ -1133,6 +2189,19 @@ fn queue_native_world(
                 family: material.family,
             };
             let pipeline = variants.specialize(&cache, &pipeline, key);
+            if surface.pass != NativeWorldPass::Opaque {
+                translucent
+                    .0
+                    .entry((view.retained_view_entity, surface.pass))
+                    .or_default()
+                    .push(NativeOrderedDraw {
+                        entity,
+                        model: false,
+                        pipeline,
+                        sort_key: (surface.sort_key, surface.source_surface_index),
+                    });
+                continue;
+            }
             phase.add(
                 Opaque3dBatchSetKey {
                     pipeline,
@@ -1151,6 +2220,18 @@ fn queue_native_world(
             queued.push(main_entity);
         }
     }
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct NativeOrderedDraws(
+    pub(crate) HashMap<(RetainedViewEntity, NativeWorldPass), Vec<NativeOrderedDraw>>,
+);
+
+pub(crate) struct NativeOrderedDraw {
+    pub(crate) entity: Entity,
+    pub(crate) model: bool,
+    pub(crate) pipeline: CachedRenderPipelineId,
+    pub(crate) sort_key: (u64, u32),
 }
 
 struct DrawNativeWorld;
@@ -1188,23 +2269,171 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNativeWorld {
         ) else {
             return RenderCommandResult::Skip;
         };
-        pass.set_bind_group(0, scene_group, &[scene.index()]);
-        pass.set_bind_group(1, object_group, &[object.index()]);
-        pass.set_bind_group(2, &material.bind_group, &[]);
-        pass.set_vertex_buffer(0, geometry.primary.slice(surface.primary_byte_offset..));
-        if material.family.auxiliary_stride().is_some() {
-            let auxiliary = geometry
-                .auxiliary
-                .as_ref()
-                .expect("native layered world requires the original auxiliary vertex stream");
-            pass.set_vertex_buffer(1, auxiliary.slice(surface.auxiliary_byte_offset..));
-        }
-        pass.set_index_buffer(geometry.indices.slice(..), IndexFormat::Uint16);
-        pass.draw_indexed(
-            surface.first_index..surface.first_index + surface.index_count,
-            0,
-            0..1,
+        draw_surface(
+            pass,
+            surface,
+            material,
+            geometry,
+            scene_group,
+            object_group,
+            scene.index(),
+            object.index(),
         );
         RenderCommandResult::Success
+    }
+}
+
+fn draw_surface<'w>(
+    pass: &mut TrackedRenderPass<'w>,
+    surface: &ExtractedNativeSurface,
+    material: &'w PreparedNativeMaterial,
+    geometry: &'w PreparedNativeGeometry,
+    scene_group: &'w BindGroup,
+    object_group: &'w BindGroup,
+    scene_offset: u32,
+    object_offset: u32,
+) {
+    pass.set_bind_group(0, scene_group, &[scene_offset]);
+    pass.set_bind_group(1, object_group, &[object_offset]);
+    pass.set_bind_group(2, &material.bind_group, &[]);
+    pass.set_vertex_buffer(0, geometry.primary.slice(surface.primary_byte_offset..));
+    if material.family.auxiliary_stride().is_some() {
+        let auxiliary = geometry
+            .auxiliary
+            .as_ref()
+            .expect("native layered world requires the original auxiliary vertex stream");
+        pass.set_vertex_buffer(1, auxiliary.slice(surface.auxiliary_byte_offset..));
+    }
+    pass.set_index_buffer(geometry.indices.slice(..), IndexFormat::Uint16);
+    pass.draw_indexed(
+        surface.first_index..surface.first_index + surface.index_count,
+        0,
+        0..1,
+    );
+}
+
+/// 004189a0 collects BSP litTrans in list7, merges lists7..9 and19..21,
+/// then004438b0 sorts packed keys.00424ff0 draws that list after post-resolve
+/// water/floatZ, before the later emissive effects. Keep source order, not
+/// camera-distance sorting (including alpha-tested decals with blending off).
+pub(crate) fn render_ordered<const PASS: u8>(
+    view: ViewQuery<(
+        &ExtractedView,
+        &ViewTarget,
+        &ViewDepthStencilTexture,
+        &ExtractedCamera,
+        &DynamicUniformIndex<NativeWorldScene>,
+        Option<(
+            &super::native_effect::PreparedEffectView,
+            &DynamicUniformIndex<super::native_effect::NativeFxFrame>,
+        )>,
+    )>,
+    draws: Res<NativeOrderedDraws>,
+    cache: Res<PipelineCache>,
+    groups: Res<NativeUniformGroups>,
+    materials: Res<RenderAssets<PreparedNativeMaterial>>,
+    geometries: Res<RenderAssets<PreparedNativeGeometry>>,
+    surfaces: Query<(
+        &ExtractedNativeSurface,
+        &DynamicUniformIndex<NativeWorldObject>,
+    )>,
+    models: super::native_model::ModelOrderedRenderer,
+    mut ctx: RenderContext,
+) {
+    let (stage, label) = match PASS {
+        x if x == NativeWorldPass::QuasiOpaque as u8 => {
+            (NativeWorldPass::QuasiOpaque, "T6 quasi-opaque")
+        }
+        x if x == NativeWorldPass::EmissiveOpaque as u8 => {
+            (NativeWorldPass::EmissiveOpaque, "T6 emissiveOpaque")
+        }
+        x if x == NativeWorldPass::Translucent as u8 => {
+            (NativeWorldPass::Translucent, "T6 translucent")
+        }
+        _ => unreachable!("ordered renderer requires an ordered source stage"),
+    };
+    let (view, target, depth, camera, scene, effect_depth) = view.into_inner();
+    let Some(draws) = draws
+        .0
+        .get(&(view.retained_view_entity, stage))
+        .filter(|draws| !draws.is_empty())
+    else {
+        return;
+    };
+    let (Some((_, scene_group)), Some((_, object_group))) = (&groups.scene, &groups.object) else {
+        return;
+    };
+    let attachments = [Some(target.get_color_attachment())];
+    let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &attachments,
+        depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    if let Some(viewport) = &camera.viewport {
+        pass.set_camera_viewport(viewport);
+    }
+    for draw in draws {
+        if draw.model {
+            if let Some(pipeline) = cache.get_render_pipeline(draw.pipeline) {
+                pass.set_render_pipeline(pipeline);
+                models.draw(draw.entity, view, effect_depth, &mut pass);
+            }
+            continue;
+        }
+        let (Some(pipeline), Ok((surface, object))) = (
+            cache.get_render_pipeline(draw.pipeline),
+            surfaces.get(draw.entity),
+        ) else {
+            continue;
+        };
+        let (Some(material), Some(geometry)) = (
+            materials.get(surface.material),
+            geometries.get(surface.geometry),
+        ) else {
+            continue;
+        };
+        pass.set_render_pipeline(pipeline);
+        draw_surface(
+            &mut pass,
+            surface,
+            material,
+            geometry,
+            scene_group,
+            object_group,
+            scene.index(),
+            object.index(),
+        );
+    }
+}
+
+/// Shader gameTime: periodic sine/cosine, fractional seconds, total seconds.
+/// Keep world/model and water programs on the same simulation clock encoding.
+pub(crate) fn shader_game_time(seconds: f32) -> Vec4 {
+    let fraction = seconds - seconds.floor();
+    let (sin, cos) = (fraction * std::f32::consts::TAU).sin_cos();
+    Vec4::new(sin, cos, fraction, seconds)
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::shader_game_time;
+
+    #[test]
+    fn scrolling_time_wraps_without_losing_total_time() {
+        for (seconds, fraction) in [
+            (0., 0.),
+            (0.25, 0.25),
+            (1., 0.),
+            (7.75, 0.75),
+            (-0.25, 0.75),
+        ] {
+            let time = shader_game_time(seconds);
+            assert_eq!(time.z, fraction);
+            assert_eq!(time.w, seconds);
+            assert!((time.x * time.x + time.y * time.y - 1.).abs() < 1e-6);
+        }
     }
 }

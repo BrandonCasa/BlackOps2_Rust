@@ -157,6 +157,10 @@ fn finish_starting_session(
     spawner: Res<WorldInstanceSpawner>,
     rigs: Query<&crate::presentation::Rig>,
     textures: Query<&crate::presentation::camo::CamoTexture>,
+    native_models: Query<(
+        &crate::rendering::animated_models::AnimatedModelInstance,
+        Option<&crate::rendering::animated_models::NativeSkinPalette>,
+    )>,
     mut cinematic: ResMut<crate::cinematics::LoadingPlayback>,
     mut next: ResMut<NextState<GameState>>,
 ) {
@@ -168,6 +172,9 @@ fn finish_starting_session(
     let textures_ready = crate::presentation::camo::assets_ready(&server, &textures);
     if !scenes_ready
         || !textures_ready
+        || native_models.iter().any(|(instance, palette)| {
+            palette.is_none() || !server.is_loaded_with_dependencies(instance.model.id())
+        })
         || player.is_empty()
         || rigs.is_empty()
         || rigs

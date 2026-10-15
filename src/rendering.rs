@@ -2,18 +2,24 @@ use crate::{GameState, assets::GameDefinition, player::Player};
 use bevy::prelude::*;
 pub(crate) mod fog;
 pub(crate) mod frame;
+pub(crate) mod light_grid;
 pub(crate) mod lighting;
 pub(crate) mod material;
 pub(crate) mod model_lighting;
 pub(crate) mod models;
 pub mod native;
 pub(crate) mod native_effect;
+pub(crate) mod native_light;
 pub(crate) mod native_model;
 pub(crate) mod native_water;
+pub(crate) mod reflection;
+pub(crate) mod shadow;
+pub(crate) mod skinning;
 pub(crate) mod world;
 pub(crate) const BASE_FOV_DEGREES: f32 = 55.;
 #[derive(Component)]
 pub struct GameCamera;
+pub(crate) mod animated_models;
 pub struct GameRenderingPlugin;
 impl Plugin for GameRenderingPlugin {
     fn build(&self, app: &mut App) {
@@ -23,7 +29,10 @@ impl Plugin for GameRenderingPlugin {
             native_effect::NativeEffectPlugin,
             model_lighting::ModelLightingPlugin,
             native_model::NativeModelPlugin,
+            skinning::NativeSkinningPlugin,
+            animated_models::AnimatedModelPlugin,
             native_water::NativeWaterPlugin,
+            shadow::ShadowPlugin,
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, camera_follow)
@@ -31,6 +40,7 @@ impl Plugin for GameRenderingPlugin {
             PostUpdate,
             (source_camera_constants, world::object_constants)
                 .after(bevy::camera::CameraUpdateSystems)
+                .after(bevy::camera::visibility::VisibilitySystems::UpdateFrusta)
                 .after(frame::maintain_float_z)
                 .after(bevy::transform::TransformSystems::Propagate),
         )
@@ -71,15 +81,20 @@ fn source_camera_constants(
     weather: Res<crate::environment::weather::Weather>,
     clock: Option<Res<crate::session::SessionClock>>,
     water_lights: Option<Res<world::WorldWaterLighting>>,
+    shadow_volumes: Option<Res<shadow::ShadowWorld>>,
     time: Res<Time<Virtual>>,
+    omni_lights: Query<(&GlobalTransform, &native_light::FxOmniLight)>,
     mut cameras: Query<
         (
             Entity,
-            &Camera,
-            &GlobalTransform,
+            Ref<Camera>,
+            Ref<GlobalTransform>,
+            &bevy::camera::primitives::Frustum,
             &mut fog::CameraFog,
             Option<&frame::NativeSceneImage>,
             Option<&mut native_water::NativeWaterView>,
+            Option<&shadow::ShadowViewSettings>,
+            Option<&shadow::sun::SunShadowViews>,
         ),
         With<GameCamera>,
     >,
@@ -94,9 +109,48 @@ fn source_camera_constants(
     };
     // Native eye-relative inches -> Bevy eye-relative Y-up metres.
     let basis = world::source_frame();
-    for (entity, camera, transform, mut fog, resolved_scene, water) in &mut cameras {
+    let sun = world.initial_sun_light();
+    for (
+        entity,
+        camera,
+        transform,
+        frustum,
+        mut fog,
+        resolved_scene,
+        water,
+        shadow_settings,
+        sun_views,
+    ) in &mut cameras
+    {
         let (_, rotation, eye) = transform.to_scale_rotation_translation();
         let eye_native = Vec3::new(eye.x, -eye.z, eye.y) / crate::assets::SOURCE_UNIT_METERS;
+        let mut submissions = native_light::OmniSubmissions::default();
+        for (transform, light) in &omni_lights {
+            let position = transform.translation();
+            if light.radius > 0.
+                && frustum.intersects_sphere(
+                    &bevy::camera::primitives::Sphere {
+                        center: position.into(),
+                        radius: light.radius * crate::assets::SOURCE_UNIT_METERS,
+                    },
+                    !light.ignore_far_plane,
+                )
+            {
+                submissions.submit(
+                    Vec3::new(position.x, -position.z, position.y)
+                        / crate::assets::SOURCE_UNIT_METERS,
+                    light,
+                );
+            }
+        }
+        if let Some(volumes) = &shadow_volumes
+            && (shadow_settings.is_none() || transform.is_changed() || volumes.is_changed())
+        {
+            let settings = volumes.settings(eye_native);
+            if shadow_settings != Some(&settings) {
+                commands.entity(entity).insert(settings);
+            }
+        }
         if let (Some(lights), Some(image)) = (&water_lights, resolved_scene) {
             // 0041ba60 converts current refdef milliseconds to float seconds.
             let seconds = clock.milliseconds(&time) as f32 * 0.001;
@@ -125,6 +179,22 @@ fn source_camera_constants(
         // use it as positive view depth in inches. Cancel the boundary's metre
         // scale on every row, preserving NDC and the original clip-Z = zNear.
         let rows = std::array::from_fn(|i| projection.row(i) / crate::assets::SOURCE_UNIT_METERS);
+        if let Some(shadows) = &shadow_volumes
+            && (sun_views.is_none()
+                || transform.is_changed()
+                || camera.is_changed()
+                || shadows.is_changed()
+                || world.is_changed())
+        {
+            let views = shadows.sun_views(
+                eye_native,
+                sun.dir,
+                Mat4::from_cols(rows[0], rows[1], rows[2], rows[3]).transpose(),
+            );
+            if sun_views != Some(&views) {
+                commands.entity(entity).insert(views);
+            }
+        }
         let mut scene = native::NativeWorldScene {
             view_projection_rows: rows,
             fog_color: Vec4::ZERO,
@@ -134,6 +204,10 @@ fn source_camera_constants(
             sun_fog_color: Vec4::ZERO,
             sun_fog: Vec4::ZERO,
             hdr_control0: Vec4::ZERO,
+            game_time: native::shader_game_time(clock.milliseconds(&time) as f32 * 0.001),
+            sun_position: sun.dir.extend(0.0),
+            sun_diffuse: sun.diffuse_color,
+            omni_lights: submissions.view(eye_native),
         };
         fog.write_scene(
             &world,

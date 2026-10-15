@@ -24,13 +24,25 @@ pub(crate) struct WorldDrawDefinition {
     surfaces: Vec<Surface>,
     models: Vec<BrushModel>,
     lightmaps: Vec<Lightmap>,
-    reflection_probes: Vec<ReflectionProbe>,
+    #[serde(flatten)]
+    reflection: super::reflection::ReflectionWorld,
     outdoor_image: String,
     outdoor_lookup_matrix: [[f32; 4]; 4],
     primary_lights: Vec<PrimaryLightDefinition>,
     sun_primary_light_index: u32,
     light_definitions: BTreeMap<String, LightDefinition>,
     water_techniques: Vec<WaterTechniqueDefinition>,
+    shadow_geometry: Vec<ShadowGeometry>,
+    static_model_count: usize,
+    #[serde(flatten)]
+    shadow_volumes: super::shadow::ShadowWorld,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShadowGeometry {
+    surface_indices: Vec<u16>,
+    static_model_indices: Vec<u16>,
 }
 
 #[derive(Deserialize)]
@@ -45,7 +57,9 @@ struct Surface {
     lightmap_index: usize,
     reflection_probe_index: usize,
     primary_light_index: u8,
+    flags: u8,
     source_surface_index: u32,
+    material_draw_surf: u64,
     bounds: [[f32; 3]; 2],
     #[serde(skip)]
     vertex_reach: u64,
@@ -72,10 +86,11 @@ pub(crate) struct LoadedWorld {
 
 impl WorldDrawDefinition {
     pub(crate) fn reflection_probes(&self) -> &[ReflectionProbe] {
-        &self.reflection_probes
+        &self.reflection.probes
     }
 
     pub(crate) fn load(mut self, root: &Path) -> LoadedWorld {
+        self.reflection.validate();
         let read = |path: &str| {
             std::fs::read(root.join(path))
                 .unwrap_or_else(|error| panic!("Read original world stream {path}: {error}"))
@@ -87,7 +102,11 @@ impl WorldDrawDefinition {
         };
         assert_eq!(geometry.indices.len(), self.index_count * 2);
         let mut materials = BTreeMap::new();
-        for surface in &mut self.surfaces {
+        for (index, surface) in self.surfaces.iter_mut().enumerate() {
+            assert_eq!(
+                surface.source_surface_index as usize, index,
+                "Original shadow lists address source surface order"
+            );
             materials
                 .entry(surface.material_file.clone())
                 .or_insert_with(|| {
@@ -114,7 +133,7 @@ impl WorldDrawDefinition {
                     && (0..3).all(|i| surface.bounds[0][i] <= surface.bounds[1][i]),
                 "Original world surface bounds"
             );
-            assert!(surface.reflection_probe_index < self.reflection_probes.len());
+            assert!(surface.reflection_probe_index < self.reflection.probes.len());
         }
         let mut owned = vec![false; self.surfaces.len()];
         for model in &self.models {
@@ -135,6 +154,44 @@ impl WorldDrawDefinition {
         assert!(
             owned.into_iter().all(|owned| owned),
             "Unowned world surfaces"
+        );
+        assert_eq!(
+            self.shadow_geometry.len(),
+            self.primary_lights.len(),
+            "Original primary-light shadow geometry count"
+        );
+        for geometry in &self.shadow_geometry {
+            assert!(
+                geometry
+                    .surface_indices
+                    .iter()
+                    .all(|&index| usize::from(index) < self.surfaces.len()),
+                "Original primary-light shadow surface range"
+            );
+            assert!(
+                geometry
+                    .static_model_indices
+                    .iter()
+                    .all(|&index| usize::from(index) < self.static_model_count),
+                "Original primary-light shadow static-model range"
+            );
+        }
+        self.shadow_volumes.validate();
+        let shadow_only = self
+            .surfaces
+            .iter()
+            .filter(|surface| surface.flags & 8 != 0)
+            .count();
+        let sun_casters = self
+            .surfaces
+            .iter()
+            .filter(|surface| {
+                surface.flags & 1 != 0 && materials[&surface.material_file].casts_shadow()
+            })
+            .count();
+        info!(
+            shadow_only,
+            sun_casters, "Validated original world shadow inputs; depth rendering remains required"
         );
         LoadedWorld {
             definition: self,
@@ -188,7 +245,8 @@ impl LoadedWorld {
             .map(|map| super::material::image(server, &map.secondary))
             .collect();
         let probes: Vec<_> = world
-            .reflection_probes
+            .reflection
+            .probes
             .iter()
             .map(|probe| super::material::image(server, &probe.reflection_image))
             .collect();
@@ -197,6 +255,13 @@ impl LoadedWorld {
         let mut missing = BTreeMap::<String, String>::new();
         let mut images = HashMap::new();
         for surface in &world.surfaces {
+            let source = &self.materials[&surface.material_file];
+            if source.world_debug_only() {
+                continue;
+            }
+            if surface.flags & 8 != 0 && source.world_shadow_only() {
+                continue;
+            }
             let key = (
                 surface.material_file.clone(),
                 surface.lightmap_index,
@@ -208,14 +273,14 @@ impl LoadedWorld {
             {
                 continue;
             }
-            let source = &self.materials[&surface.material_file];
-            let Some(lightmap) = lightmaps.get(surface.lightmap_index) else {
-                missing.insert(surface.material_file.clone(), format!(
-                    "Port the original {} lighting path; surface has no directional lightmap (index {})",
-                    source.technique_set(), surface.lightmap_index));
-                continue;
-            };
             if source.technique_set() == "wpc_cod7water_we876z2f" {
+                let Some(lightmap) = lightmaps.get(surface.lightmap_index) else {
+                    missing.insert(
+                        surface.material_file.clone(),
+                        "Original water requires its directional lightmap".to_owned(),
+                    );
+                    continue;
+                };
                 match source.water(
                     server,
                     lightmap.clone(),
@@ -235,7 +300,7 @@ impl LoadedWorld {
             }
             match source.world(
                 server,
-                lightmap.clone(),
+                lightmaps.get(surface.lightmap_index).cloned(),
                 probes[surface.reflection_probe_index].clone(),
             ) {
                 Ok((material, state)) => {
@@ -259,6 +324,7 @@ impl LoadedWorld {
                 .join("\n")
         );
 
+        commands.insert_resource(world.shadow_volumes);
         let water_lights = NativeWaterLights::from_source(
             &world.primary_lights,
             world.sun_primary_light_index,
@@ -339,6 +405,7 @@ impl LoadedWorld {
                 "Duplicate original brush owner {part}"
             );
         }
+        let mut shadow_draws = Vec::new();
         for (index, model) in world.models.iter().enumerate() {
             if model.surface_count == 0 {
                 continue;
@@ -363,12 +430,39 @@ impl LoadedWorld {
             };
             let first = model.start_surf_index as usize;
             for surface in &world.surfaces[first..first + model.surface_count] {
+                if surface.flags & 8 != 0
+                    && self.materials[&surface.material_file].world_shadow_only()
+                {
+                    // These original vertices are absolute source coordinates.
+                    // Moving brush casters need their owner's world transform.
+                    assert_eq!(index, 0, "Shadow-only brush requires its transform owner");
+                    if surface.flags & 1 != 0 {
+                        shadow_draws.push(super::shadow::gpu::DepthDraw {
+                            primary_offset: surface.vertex_data_offset0,
+                            first_index: surface.base_index,
+                            index_count: surface.tri_count * 3,
+                        });
+                    }
+                    continue;
+                }
+                assert!(
+                    index == 0
+                        || !matches!(
+                            self.materials[&surface.material_file].technique_set(),
+                            "wpc_sw4_3d_unlit_1layer_8691j77q"
+                                | "wpc_sw4_3d_unlit_3layer_normal_script_q1z1f6w1"
+                        ),
+                    "Parallax entity requires its original scriptVector0 override owner"
+                );
+                if self.materials[&surface.material_file].world_debug_only() {
+                    continue;
+                }
                 let key = (
                     surface.material_file.clone(),
                     surface.lightmap_index,
                     surface.reflection_probe_index,
                 );
-                let sh = &world.reflection_probes[surface.reflection_probe_index].lighting_sh;
+                let sh = &world.reflection.probes[surface.reflection_probe_index].lighting_sh;
                 let mut entity = commands.spawn((
                     ChildOf(owner),
                     frame,
@@ -412,6 +506,12 @@ impl LoadedWorld {
                         );
                     }
                     entity.insert(NativeWorldSurface {
+                        pass: self.materials[&surface.material_file].world_pass(),
+                        // 00442ec0 retains the material key and replaces primary light.
+                        // 004438b0 sorts the packed unsigned key; source index breaks ties.
+                        sort_key: (surface.material_draw_surf & 0xfff0_0fff_fe00_ffff)
+                            | (u64::from(surface.primary_light_index) << 44),
+                        source_surface_index: surface.source_surface_index,
                         geometry: geometry.clone(),
                         material: material.clone(),
                         state: *state,
@@ -423,6 +523,15 @@ impl LoadedWorld {
                 }
             }
         }
+        if !shadow_draws.is_empty() {
+            commands
+                .entity(root)
+                .insert(super::shadow::gpu::ShadowCasters {
+                    geometry,
+                    draws: shadow_draws.into(),
+                });
+        }
+        commands.insert_resource(world.reflection);
     }
 }
 
@@ -431,7 +540,7 @@ pub(crate) fn object_constants(
     mut surfaces: Query<(
         Entity,
         Ref<GlobalTransform>,
-        &WorldSurfaceLighting,
+        Ref<WorldSurfaceLighting>,
         Option<&mut NativeWorldObject>,
     )>,
     mut commands: Commands,
@@ -446,7 +555,7 @@ pub(crate) fn object_constants(
     *previous_eye = Some(eye);
     let to_eye = Mat4::from_translation(-eye) * inverse_frame;
     for (entity, transform, lighting, object) in &mut surfaces {
-        if !eye_changed && !transform.is_changed() && object.is_some() {
+        if !eye_changed && !transform.is_changed() && !lighting.is_changed() && object.is_some() {
             continue;
         }
         let matrix = to_eye * transform.to_matrix();

@@ -372,7 +372,10 @@
         "reload_transfer_seconds": [
           0.3,
           0.4
-        ]
+        ],
+        "impact_type": 5,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -811,7 +814,10 @@
         "reload_transfer_seconds": [
           0.3,
           0.4
-        ]
+        ],
+        "impact_type": 5,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -1170,7 +1176,10 @@
         "reload_transfer_seconds": [
           1.5,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -1655,7 +1664,10 @@
         "reload_transfer_seconds": [
           1.5,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -2014,7 +2026,10 @@
         "reload_transfer_seconds": [
           1.5,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -2499,7 +2514,10 @@
         "reload_transfer_seconds": [
           1.5,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -2951,7 +2969,10 @@
         "reload_transfer_seconds": [
           2.3,
           0.0
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -3469,7 +3490,10 @@
         "reload_transfer_seconds": [
           2.3,
           0.0
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -3683,7 +3707,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 7,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -4025,7 +4052,10 @@
         "reload_transfer_seconds": [
           1.1,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -4403,7 +4433,10 @@
         "reload_transfer_seconds": [
           1.1,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -4745,7 +4778,10 @@
         "reload_transfer_seconds": [
           1.1,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -5136,7 +5172,10 @@
         "reload_transfer_seconds": [
           1.1,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -5606,7 +5645,10 @@
         "reload_transfer_seconds": [
           1.05,
           1.8
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "ads_presentation": "actor.weapon_82e5045b27556061fc0e9d3d",
       "attachments": {},
@@ -5961,7 +6003,10 @@
         "reload_transfer_seconds": [
           1.05,
           1.1
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -6138,7 +6183,11 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 7,
+        "projectile_stickiness": 4,
+        "projectile_explosion_force_normal_up": false,
+        "projectile_clipmask": 8513683
       },
       "mine": {
         "stock": 2,
@@ -6330,7 +6379,11 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 7,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false,
+        "projectile_clipmask": 42002579
       },
       "throwable": {
         "slot": "tactical",
@@ -7129,7 +7182,10 @@
         "reload_transfer_seconds": [
           0.4,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -7589,7 +7645,10 @@
         "reload_transfer_seconds": [
           2.45,
           2.8
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -8141,7 +8200,10 @@
         "reload_transfer_seconds": [
           2.45,
           2.8
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -8347,7 +8409,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 7,
+        "projectile_stickiness": 4,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -8796,7 +8861,10 @@
         "reload_transfer_seconds": [
           1.4,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -9328,7 +9396,10 @@
         "reload_transfer_seconds": [
           1.4,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -9535,7 +9606,10 @@
         "reload_transfer_seconds": [
           0.4,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -9877,7 +9951,10 @@
         "reload_transfer_seconds": [
           1.1,
           0.0
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -10254,7 +10331,10 @@
         "reload_transfer_seconds": [
           1.1,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -10509,7 +10589,10 @@
         "reload_transfer_seconds": [
           1.3,
           1.3
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "dual_weapon": "weapon.fivesevenlh_upgraded_zm",
       "attachments": {},
@@ -10765,7 +10848,10 @@
         "reload_transfer_seconds": [
           1.3,
           1.3
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "dual_weapon": "weapon.fivesevenlh_zm",
       "attachments": {},
@@ -10980,7 +11066,10 @@
         "reload_transfer_seconds": [
           1.3,
           1.3
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "dual_weapon": null,
       "attachments": {},
@@ -11195,7 +11284,10 @@
         "reload_transfer_seconds": [
           1.3,
           1.3
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "dual_weapon": null,
       "attachments": {},
@@ -11626,7 +11718,10 @@
         "reload_transfer_seconds": [
           2.0,
           0.0
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -12105,7 +12200,10 @@
         "reload_transfer_seconds": [
           2.0,
           0.0
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -12276,7 +12374,11 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 7,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false,
+        "projectile_clipmask": 42002579
       },
       "throwable": {
         "slot": "lethal",
@@ -12798,7 +12900,10 @@
         "reload_transfer_seconds": [
           1.575,
           0.0
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -13272,7 +13377,10 @@
         "reload_transfer_seconds": [
           1.575,
           0.0
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -13486,7 +13594,10 @@
         "reload_transfer_seconds": [
           1.4,
           0.0
-        ]
+        ],
+        "impact_type": 7,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -13902,7 +14013,10 @@
         "reload_transfer_seconds": [
           2.75,
           2.75
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -14405,7 +14519,10 @@
         "reload_transfer_seconds": [
           2.75,
           2.75
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -14738,7 +14855,10 @@
         "reload_transfer_seconds": [
           0.9,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -15106,7 +15226,10 @@
         "reload_transfer_seconds": [
           0.9,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -15271,7 +15394,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -15718,7 +15844,10 @@
         "reload_transfer_seconds": [
           0.25,
           0.4
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -16210,7 +16339,10 @@
         "reload_transfer_seconds": [
           0.25,
           0.4
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -16621,7 +16753,10 @@
         "reload_transfer_seconds": [
           1.8,
           1.9
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -17042,7 +17177,10 @@
         "reload_transfer_seconds": [
           1.8,
           1.9
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -17482,7 +17620,10 @@
         "reload_transfer_seconds": [
           0.3,
           0.3
-        ]
+        ],
+        "impact_type": 7,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "ads_presentation": "actor.weapon_6c215a707faa6257c5ae70ab",
       "attachments": {},
@@ -17923,7 +18064,10 @@
         "reload_transfer_seconds": [
           0.3,
           0.3
-        ]
+        ],
+        "impact_type": 7,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "ads_presentation": "actor.weapon_6c215a707faa6257c5ae70ab",
       "attachments": {},
@@ -18257,7 +18401,10 @@
         "reload_transfer_seconds": [
           2.85,
           2.85
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -18623,7 +18770,10 @@
         "reload_transfer_seconds": [
           2.85,
           2.85
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -19076,7 +19226,10 @@
         "reload_transfer_seconds": [
           1.85,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -19529,7 +19682,10 @@
         "reload_transfer_seconds": [
           1.85,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -19982,7 +20138,10 @@
         "reload_transfer_seconds": [
           1.85,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -20448,7 +20607,10 @@
         "reload_transfer_seconds": [
           1.85,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -20877,7 +21039,10 @@
         "reload_transfer_seconds": [
           1.75,
           1.75
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -21306,7 +21471,10 @@
         "reload_transfer_seconds": [
           1.75,
           1.75
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -21472,7 +21640,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -21638,7 +21809,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -21804,7 +21978,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -21970,7 +22147,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -22136,7 +22316,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -22302,7 +22485,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -22757,7 +22943,10 @@
         "reload_transfer_seconds": [
           1.7,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -23307,7 +23496,10 @@
         "reload_transfer_seconds": [
           1.7,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -23645,7 +23837,10 @@
         "reload_transfer_seconds": [
           1.8,
           1.8
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -23984,7 +24179,10 @@
         "reload_transfer_seconds": [
           2.6,
           2.6
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -24364,7 +24562,10 @@
         "reload_transfer_seconds": [
           1.4,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -24837,7 +25038,10 @@
         "reload_transfer_seconds": [
           1.4,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -25528,7 +25732,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -25827,7 +26034,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -26267,7 +26477,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -26707,7 +26920,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -27160,7 +27376,10 @@
         "reload_transfer_seconds": [
           1.25,
           0.0
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -27724,7 +27943,10 @@
         "reload_transfer_seconds": [
           1.25,
           0.0
-        ]
+        ],
+        "impact_type": 3,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -28103,7 +28325,10 @@
         "reload_transfer_seconds": [
           1.4,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -28505,7 +28730,10 @@
         "reload_transfer_seconds": [
           2.15,
           0.0
-        ]
+        ],
+        "impact_type": 5,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -28944,7 +29172,10 @@
         "reload_transfer_seconds": [
           2.15,
           0.0
-        ]
+        ],
+        "impact_type": 5,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -29335,7 +29566,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -29746,7 +29980,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -30157,7 +30394,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -30568,7 +30808,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -30978,7 +31221,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -31369,7 +31615,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -31780,7 +32029,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 2,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -32191,7 +32443,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 2,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -32602,7 +32857,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -33012,7 +33270,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -33403,7 +33664,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -33814,7 +34078,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -34225,7 +34492,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -34636,7 +34906,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -35046,7 +35319,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -35456,7 +35732,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -36173,7 +36452,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -36584,7 +36866,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -36995,7 +37280,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -37406,7 +37694,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -37816,7 +38107,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -38226,7 +38520,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -38397,7 +38694,11 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 7,
+        "projectile_stickiness": 1,
+        "projectile_explosion_force_normal_up": false,
+        "projectile_clipmask": 42002579
       },
       "throwable": {
         "slot": "lethal",
@@ -38660,7 +38961,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -39102,7 +39406,10 @@
         "reload_transfer_seconds": [
           1.4,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -39544,7 +39851,10 @@
         "reload_transfer_seconds": [
           1.4,
           0.0
-        ]
+        ],
+        "impact_type": 1,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -39749,7 +40059,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -40170,7 +40483,10 @@
         "reload_transfer_seconds": [
           1.12,
           0.7
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {
         "defaultattachment": {
@@ -40726,7 +41042,10 @@
         "reload_transfer_seconds": [
           1.66,
           0.0
-        ]
+        ],
+        "impact_type": 2,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -40897,7 +41216,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -41233,7 +41555,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -41893,7 +42218,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -42064,7 +42392,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -42235,7 +42566,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -42406,7 +42740,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -42577,7 +42914,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -42748,7 +43088,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -42919,7 +43262,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -43090,7 +43436,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -43261,7 +43610,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -43432,7 +43784,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -43603,7 +43958,10 @@
         "reload_transfer_seconds": [
           0.0,
           0.0
-        ]
+        ],
+        "impact_type": 0,
+        "projectile_stickiness": 0,
+        "projectile_explosion_force_normal_up": false
       },
       "attachments": {},
       "hud": {
@@ -71981,6 +72339,7 @@
       "reticle_m203": "m203_reticle",
       "hud_flamethrower_reticle": "hud_flamethrower_reticle"
     },
-    "throwable_bounce": "Native materialSurfType_t index order (T6_Assets.h); 30 coefficients from fresh OAT weapon fields. Player and TallGrass fields are absent from OAT infostring mapping and retain zero-initialized OAT reconstruction slots; original native values for those two slots remain unverified."
+    "throwable_bounce": "Native materialSurfType_t index order (T6_Assets.h); 30 coefficients from fresh OAT weapon fields. Player and TallGrass fields are absent from OAT infostring mapping and retain zero-initialized OAT reconstruction slots; original native values for those two slots remain unverified.",
+    "explosion_effects": "Fresh OAT source-weapons.json impactType, stickiness and projExplosionEffectForceNormalUp; native enum order from T6 weapon_fields.json. Throwable and mine clipmasks follow 00607b50 plantable/iProjectileSpeedUp/stickiness branches; explosion trace consumes entity clipmask in 0060a8f0. Other projectile masks are not inferred."
   }
 }

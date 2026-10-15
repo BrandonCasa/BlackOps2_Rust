@@ -33,18 +33,39 @@ impl LightingCoefficients {
     }
 
     pub(crate) fn static_lighting(&self, colors_index: usize) -> StaticLighting {
-        let packed = self.coefficients.get(colors_index).unwrap_or_else(|| {
-            panic!(
-                "Static model colorsIndex {colors_index} has no original light-grid coefficients"
-            )
-        });
-        let coefficients: [Vec3; 9] = std::array::from_fn(|i| {
-            Vec3::new(
-                decode(packed[i * 3]),
-                decode(packed[i * 3 + 1]),
-                decode(packed[i * 3 + 2]),
-            )
-        });
+        let mut lighting =
+            self.grid_lighting(&[(u16::try_from(colors_index).expect("source colorsIndex"), 1.)]);
+        // Static placements store ushort SH (00457430/00457530); dynamic
+        // 00457600 copies the original float SH directly from its 52-byte slot.
+        lighting.sh = lighting
+            .sh
+            .map(|row| Vec4::from_array(row.to_array().map(quantize_sh)));
+        lighting
+    }
+
+    /// Base grid contribution, before the separate native hero-light stage.
+    /// 0044baf0 weights each decoded record, evaluates/clamps its 56 directions,
+    /// then adds those results. Clamping after blending SH changes the lighting.
+    pub(crate) fn grid_lighting(&self, samples: &[(u16, f32)]) -> StaticLighting {
+        assert!(!samples.is_empty() && samples.len() <= 8);
+        let mut decoded = [[Vec3::ZERO; 9]; 8];
+        for (output, &(index, weight)) in decoded.iter_mut().zip(samples) {
+            assert!(weight.is_finite() && weight >= 0.);
+            let packed = &self.coefficients[usize::from(index)];
+            *output = std::array::from_fn(|i| {
+                Vec3::new(
+                    decode(packed[i * 3]),
+                    decode(packed[i * 3 + 1]),
+                    decode(packed[i * 3 + 2]),
+                ) * weight
+            });
+        }
+        let mut coefficients = decoded[0];
+        for record in &decoded[1..samples.len()] {
+            for (sum, value) in coefficients.iter_mut().zip(record) {
+                *sum += *value;
+            }
+        }
 
         let mut texels = [0; 256];
         for z in 0..4 {
@@ -57,7 +78,10 @@ impl LightingCoefficients {
                     }
                     let direction = Vec3::new(x as f32, y as f32, z as f32) * 0.6666667 - Vec3::ONE;
                     let direction = direction * direction.length().recip();
-                    let rgb = evaluate(&coefficients, direction);
+                    let mut rgb = evaluate(&decoded[0], direction);
+                    for record in &decoded[1..samples.len()] {
+                        rgb += evaluate(record, direction);
+                    }
                     let offset = (z * 16 + y * 4 + x) * 4;
                     texels[offset] = encode_texel(rgb.x);
                     texels[offset + 1] = encode_texel(rgb.y);
@@ -68,8 +92,8 @@ impl LightingCoefficients {
         }
 
         // 0044b840 fits one chromaticity and nine luminance coefficients into
-        // the three vec4 object constants. Static models pass no hero-light
-        // origin here; their authored colorsIndex owns this lighting sample.
+        // the three vec4 object constants. Hero lighting changes directional
+        // atlas values separately; it does not enter this grid SH reduction.
         let ambient = luminance(coefficients[0]) + 0.0001;
         let chromaticity = coefficients[0] * ambient.recip();
         let quadratic_z = luminance(coefficients[7]);
@@ -92,8 +116,7 @@ impl LightingCoefficients {
                 luminance(coefficients[6]),
                 luminance(coefficients[8]),
             ),
-        ]
-        .map(|row| Vec4::from_array(row.to_array().map(quantize_sh)));
+        ];
 
         StaticLighting { texels, sh }
     }
@@ -151,4 +174,48 @@ pub(crate) fn grid_coordinates(slot: u16, visibility: u8) -> Vec4 {
 pub(crate) fn lighting_lookup_scale() -> Vec4 {
     // 004189a0:1.5/width, 1.5/height, 1.5/depth for the 512x256x4 atlas.
     Vec4::new(0.0029296875, 0.005859375, 0.375, 0.0)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn weighted_directions_clamp_before_accumulation() {
+        // Opposing constant fields cancel in SH, but the negative directional
+        // sample is clamped before the native atlas adds the positive sample.
+        let mut positive = [32768; 27];
+        let mut negative = [32768; 27];
+        positive[..3].fill(49151);
+        negative[..3].fill(16384);
+        let source = LightingCoefficients {
+            coefficients: vec![positive, negative],
+        };
+        let result = source.grid_lighting(&[(0, 0.5), (1, 0.5)]);
+        for (index, texel) in result.texels.chunks_exact(4).enumerate() {
+            let (x, y, z) = (index % 4, (index / 4) % 4, index / 16);
+            if (1..3).contains(&x) && (1..3).contains(&y) && (1..3).contains(&z) {
+                assert_eq!(texel, &[0; 4]);
+            } else {
+                assert_eq!(texel[3], 255);
+                assert!(texel[..3].iter().all(|&value| (89..=91).contains(&value)));
+            }
+        }
+    }
+
+    #[test]
+    fn dynamic_sh_retains_float_values_while_static_sh_round_trips() {
+        let source = LightingCoefficients {
+            coefficients: vec![[40000; 27]],
+        };
+        let dynamic = source.grid_lighting(&[(0, 1.)]);
+        let static_light = source.static_lighting(0);
+        assert_eq!(dynamic.texels, static_light.texels);
+        assert_eq!(
+            static_light.sh,
+            dynamic
+                .sh
+                .map(|row| Vec4::from_array(row.to_array().map(quantize_sh)))
+        );
+        assert_ne!(dynamic.sh, static_light.sh);
+    }
 }

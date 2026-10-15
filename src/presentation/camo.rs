@@ -1,61 +1,66 @@
-use crate::{assets::GameDefinition, origins::content::WeaponId};
+use crate::{
+    origins::content::WeaponId,
+    rendering::native::NativeWorldState,
+    rendering::native_model::{NativeModelMaterial, NativeModelSurface},
+};
 use bevy::prelude::*;
+
 #[derive(Component)]
 pub(crate) struct WeaponMaterialContext(pub WeaponId);
+
+/// An eligible original material pair, submitted by the weapon/attachment
+/// owner after its native descriptor/model mask and transfer flags resolve.
+/// Replacement owns the actual destination constants, delivered weaponParam6
+/// and preserved weapon normal. One image path cannot express that contract.
 #[derive(Component)]
-struct Applied(String);
+pub(crate) struct NativeCamoOverride {
+    pub source: (Handle<NativeModelMaterial>, NativeWorldState),
+    pub replacement: Option<(Handle<NativeModelMaterial>, NativeWorldState)>,
+}
+
 #[derive(Component)]
 pub(crate) struct CamoTexture {
-    image: Handle<Image>,
+    images: Vec<Handle<Image>>,
 }
 
 pub(super) fn install(app: &mut App) {
     app.add_systems(Update, apply);
 }
+
 fn apply(
     mut commands: Commands,
-    game: Option<Res<GameDefinition>>,
-    server: Res<AssetServer>,
-    contexts: Query<&WeaponMaterialContext>,
-    parents: Query<&ChildOf>,
-    surfaces: Query<(Entity, &MeshMaterial3d<StandardMaterial>, Option<&Applied>)>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut surfaces: Query<
+        (Entity, &NativeCamoOverride, &mut NativeModelSurface),
+        Changed<NativeCamoOverride>,
+    >,
+    materials: Res<Assets<NativeModelMaterial>>,
 ) {
-    let Some(game) = game else { return };
-    for (entity, handle, applied) in &surfaces {
-        let mut owner = entity;
-        let context = loop {
-            if let Ok(context) = contexts.get(owner) {
-                break Some(context);
-            };
-            let Ok(parent) = parents.get(owner) else {
-                break None;
-            };
-            owner = parent.parent();
-        };
-        let Some(context) = context else { continue };
-        let Some(texture) = game.camos.get(&context.0.0) else {
+    for (entity, selection, mut surface) in &mut surfaces {
+        let Some((replacement, state)) = &selection.replacement else {
+            surface.material = selection.source.0.clone();
+            surface.state = selection.source.1;
+            commands.entity(entity).remove::<CamoTexture>();
             continue;
         };
-        if applied.is_some_and(|a| a.0 == *texture) {
-            continue;
-        }
-        let Some(source) = materials.get(&handle.0) else {
-            continue;
-        };
-        let mut material = source.clone();
-        let image = server.load(texture.clone());
-        material.base_color_texture = Some(image.clone());
-        commands.entity(entity).insert((
-            MeshMaterial3d(materials.add(material)),
-            Applied(texture.clone()),
-            CamoTexture { image },
-        ));
+        let material = materials
+            .get(replacement)
+            .expect("submit a selected original camo after binding all required material inputs");
+        assert!(
+            matches!(material, NativeModelMaterial::Camo3Layer { .. }),
+            "port the selected original camo program before submitting its replacement"
+        );
+        surface.material = replacement.clone();
+        surface.state = *state;
+        commands.entity(entity).insert(CamoTexture {
+            images: material.images().cloned().collect(),
+        });
     }
 }
 
 pub(crate) fn assets_ready(server: &AssetServer, textures: &Query<&CamoTexture>) -> bool {
-    textures
-        .iter()
-        .all(|texture| server.is_loaded_with_dependencies(texture.image.id()))
+    textures.iter().all(|camo| {
+        camo.images
+            .iter()
+            .all(|image| server.is_loaded_with_dependencies(image.id()))
+    })
 }

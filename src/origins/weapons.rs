@@ -40,6 +40,14 @@ pub(crate) fn bind(game: &mut GameDefinition, root: &Path) -> Result<(), String>
         .get("dempsey")
         .ok_or("Required named Dempsey source hand clip bindings absent")?;
     for weapon in &catalog.weapons {
+        if (weapon.throwable.is_some() || weapon.mine.is_some())
+            && weapon.mechanics.projectile_clipmask == 0
+        {
+            return Err(format!(
+                "Required source explosion clipmask absent for {}",
+                weapon.id.0
+            ));
+        }
         let name = weapon
             .id
             .0
@@ -109,5 +117,22 @@ mod source_catalog_tests {
         assert_eq!(monkey.tangent_bounce[1], 0.6);
         assert_eq!(monkey.normal_bounce[6], 0.225);
         assert_eq!(monkey.normal_bounce[31], 0.5);
+    }
+
+    #[test]
+    fn explosion_masks_preserve_native_plantable_and_body_rules() {
+        let catalog: Catalog =
+            serde_json::from_str(include_str!("../../gameplay/origins/weapons.json")).unwrap();
+        for (name, mask, stickiness) in [
+            ("weapon.frag_grenade_zm", 0x0280e893, 0),
+            ("weapon.cymbal_monkey_zm", 0x0280e893, 0),
+            ("weapon.sticky_grenade_zm", 0x0280e893, 1),
+            ("weapon.claymore_zm", 0x0081e893, 4),
+        ] {
+            let weapon = catalog.weapons.iter().find(|w| w.id.0 == name).unwrap();
+            assert_eq!(weapon.mechanics.projectile_clipmask, mask, "{name}");
+            assert_eq!(weapon.mechanics.projectile_stickiness, stickiness, "{name}");
+            assert_eq!(weapon.mechanics.impact_type, 7, "{name}");
+        }
     }
 }

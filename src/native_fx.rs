@@ -1,6 +1,7 @@
 //! Origins source-authored effect timelines and original native draw inputs.
 mod cloud;
 mod geometry;
+mod impact;
 mod material;
 mod visuals;
 use crate::rendering::native_effect::{
@@ -81,8 +82,7 @@ struct Visual {
 }
 #[derive(Clone, Deserialize)]
 struct TrailVertex {
-    #[serde(rename = "normal")]
-    _normal: [f32; 2],
+    normal: [f32; 2],
     position: [f32; 2],
     texcoord: f32,
 }
@@ -148,10 +148,12 @@ struct SourceEffect {
 #[derive(Deserialize)]
 struct SourceMaterial {}
 #[derive(Resource, Deserialize)]
-struct Catalog {
+pub(crate) struct Catalog {
     effects: BTreeMap<String, SourceEffect>,
     materials: BTreeMap<String, SourceMaterial>,
     random_table: Vec<f32>,
+    #[serde(flatten)]
+    impacts: impact::ImpactEffects,
 }
 #[derive(Component)]
 struct Emitter {
@@ -219,6 +221,7 @@ fn load_catalog(
     mut geometries: ResMut<Assets<NativeEffectGeometry>>,
 ) {
     let catalog: Catalog = crate::origins::read(&options.asset_root.join("fx_catalog.json"));
+    catalog.impacts.validate();
     commands.insert_resource(material::Materials::load(
         &options.asset_root,
         catalog.materials.keys(),
@@ -520,9 +523,13 @@ fn spawn(
                         _ => 0,
                     };
                 }
-                if matches!(e.kind, 8 | 9) {
+                if e.kind == 8 {
+                    commands
+                        .entity(particle_entity)
+                        .insert(crate::rendering::native_light::FxOmniLight::default());
+                } else if e.kind == 9 {
                     panic!(
-                        "Original FX {} element {i}: the native dynamic-light pass (00410c30) is required before rendering type {}",
+                        "Original FX {} element {i}: native FX light submission (005b7af0/005b7c80) and receiver shading are required before rendering type {}",
                         emitter.name, e.kind
                     );
                 } else if e.kind == 7 {
@@ -612,9 +619,32 @@ fn spawn(
                             ));
                         } else {
                             assert!(
-                                native_material.program == NativeEffectProgram::Zfeather,
+                                e.kind == 5
+                                    || native_material.program
+                                        != NativeEffectProgram::LocalAdditiveFeather,
+                                "Original effect_737e1je4 sprite inputs require a separate source geometry port"
+                            );
+                            assert!(
+                                matches!(
+                                    native_material.program,
+                                    NativeEffectProgram::Zfeather
+                                        | NativeEffectProgram::Additive
+                                        | NativeEffectProgram::AdditiveFeather
+                                        | NativeEffectProgram::LocalAdditiveFeather
+                                        | NativeEffectProgram::OutdoorFeather
+                                        | NativeEffectProgram::SimpleFeather
+                                        | NativeEffectProgram::EyeFeather
+                                        | NativeEffectProgram::EyeAdditive
+                                        | NativeEffectProgram::SimpleAdditive
+                                ),
                                 "Original sprite element requires its selected packed particle program"
                             );
+                            if native_material.program == NativeEffectProgram::OutdoorFeather {
+                                assert!(
+                                    outdoor.is_some(),
+                                    "Original outdoor-feather FX requires the world's outdoorImage and outdoorLookupMatrix"
+                                );
+                            }
                             if e.kind == 5 {
                                 if e.trail.is_none() {
                                     panic!(
@@ -630,6 +660,7 @@ fn spawn(
                                 particle.trail_start = Some(start);
                             }
                             let (geometry, bounds, index_count) = geometry::quad(
+                                pose.rotation * Vec3::Z,
                                 [255.; 4],
                                 Affine2::IDENTITY,
                                 e.billboard_trim
@@ -838,13 +869,14 @@ fn animate(
         &mut Transform,
         Option<&mut NativeEffectDraw>,
         Option<&mut bevy::camera::primitives::Aabb>,
+        Option<&mut crate::rendering::native_light::FxOmniLight>,
     )>,
 ) {
     let camera = cameras
         .iter()
         .next()
         .map(GlobalTransform::compute_transform);
-    for (entity, owner, mut p, mut pose, draw, bounds) in &mut particles {
+    for (entity, owner, mut p, mut pose, draw, bounds, light) in &mut particles {
         let Ok(emitter) = emitters.get(owner.0) else {
             commands.entity(entity).try_despawn();
             continue;
@@ -948,6 +980,18 @@ fn animate(
             rotation += (a.2 + (b.2 - a.2) * t) * p.life * 1000.;
             scale = a.3 + (b.3 - a.3) * t;
         }
+        if let Some(mut light) = light {
+            let fade = camera.map_or(1., |camera| {
+                distance_fade(e, camera.translation.distance(pose.translation) / 0.0254)
+            });
+            color[3] *= fade;
+            *light = crate::rendering::native_light::FxOmniLight::evaluate(
+                if fade > 0.015686275 { size.x } else { 0. },
+                color,
+                e.flags & 0x800 != 0,
+            );
+            continue;
+        }
         pose.scale = p.initial.scale * Vec3::new(size.x.abs() * 0.0508, size.y.abs() * 0.0508, 1.);
         let angular: [f32; 3] = std::array::from_fn(|i| {
             e.angular_velocity[i].sample(channel(&catalog, p.seed, i as i32 - 3)) * p.age * 1000.
@@ -1041,7 +1085,7 @@ fn animate(
         };
         if let Some(trail) = &e.trail {
             if trail.scroll_ms != 0. {
-                uv.translation.y += p.age * 1000. / trail.scroll_ms;
+                uv.translation.x -= p.age * 1000. / trail.scroll_ms;
             }
         }
         let (updated, updated_bounds, index_count) = if e.kind == 5 {
@@ -1050,6 +1094,7 @@ fn animate(
                 p.initial,
                 p.trail_start.expect("trail start recorded at birth"),
                 size,
+                rotation,
                 color,
                 uv,
             )
@@ -1061,6 +1106,7 @@ fn animate(
             })
         } else {
             geometry::quad(
+                pose.rotation * Vec3::Z,
                 color,
                 uv,
                 e.billboard_trim
@@ -1081,12 +1127,14 @@ fn animate(
 
 fn object_constants(
     mut commands: Commands,
+    materials: Res<Assets<NativeEffectMaterial>>,
     cameras: Query<Ref<GlobalTransform>, With<crate::rendering::GameCamera>>,
     mut particles: Query<
         (
             Entity,
             Ref<GlobalTransform>,
             &Particle,
+            &NativeEffectDraw,
             Option<&mut NativeEffectTransform>,
             Option<&mut NativeCloudObject>,
         ),
@@ -1103,7 +1151,7 @@ fn object_constants(
     *previous_eye = Some(eye);
     let source_from_bevy = crate::rendering::world::source_frame().inverse();
     let to_eye = source_from_bevy * Mat4::from_translation(-eye);
-    for (entity, transform, particle, constants, cloud_constants) in &mut particles {
+    for (entity, transform, particle, draw, constants, cloud_constants) in &mut particles {
         if let Some(state) = &particle.cloud {
             let updated = cloud::constants(
                 &transform,
@@ -1120,12 +1168,43 @@ fn object_constants(
             }
             continue;
         }
-        if !eye_changed && !transform.is_changed() && constants.is_some() {
+        let needs_outdoor = materials
+            .get(&draw.material)
+            .expect("particle owns its native material")
+            .program
+            == NativeEffectProgram::OutdoorFeather;
+        if !eye_changed
+            && !(needs_outdoor && camera.is_changed())
+            && !transform.is_changed()
+            && !(needs_outdoor && outdoor.as_ref().is_some_and(|map| map.is_changed()))
+            && constants.is_some()
+        {
             continue;
         }
-        let matrix = to_eye * transform.to_matrix();
+        // Trail vertices already carry source-axis inches and world-oriented
+        // normals (005b6000). Apply only the emitter-origin translation here.
+        let input_world = if particle.trail_start.is_some() {
+            Mat4::from_translation(transform.translation())
+                * crate::rendering::world::source_frame()
+        } else {
+            transform.to_matrix()
+        };
+        let matrix = to_eye * input_world;
+        let outdoor_matrix = if needs_outdoor {
+            let map = outdoor
+                .as_ref()
+                .expect("outdoor-feather source inputs are required");
+            let lookup = Mat4::from_cols_array_2d(&map.lookup_rows.map(|row| row.to_array()));
+            // 0046b3b0 uses the absolute source transform and view-away bias.
+            let bias =
+                source_from_bevy.transform_vector3(camera.rotation() * Vec3::Z * (32. * 0.0254));
+            lookup * Mat4::from_translation(bias) * source_from_bevy * input_world
+        } else {
+            Mat4::ZERO
+        };
         let updated = NativeEffectTransform {
             world_rows: std::array::from_fn(|i| matrix.row(i)),
+            outdoor_rows: std::array::from_fn(|i| outdoor_matrix.row(i)),
         };
         if let Some(mut constants) = constants {
             *constants = updated;

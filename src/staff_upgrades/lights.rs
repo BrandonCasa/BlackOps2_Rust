@@ -1,6 +1,6 @@
 use super::{Disc, StaffUpgrades};
 use crate::{GameState, gameplay::GameStep, quests::MainQuest};
-use bevy::{gltf::GltfMaterialName, prelude::*};
+use bevy::prelude::*;
 use std::collections::VecDeque;
 
 const KEY: &str = "INFERNO";
@@ -49,13 +49,6 @@ pub(crate) struct LightShow {
     steps: VecDeque<LightStep>,
 }
 
-#[derive(Component)]
-pub(crate) struct LightSurface {
-    disc: Entity,
-    pub color: Vec3,
-    material: Option<Handle<StandardMaterial>>,
-}
-
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct LightPresentation;
 
@@ -71,7 +64,7 @@ pub(super) fn install(app: &mut App) {
                 .after(super::progress)
                 .run_if(in_state(GameState::Playing)),
         )
-        .add_systems(Update, (bind, present).chain().in_set(LightPresentation));
+        .add_systems(Update, present.in_set(LightPresentation));
 }
 
 fn reset(mut show: ResMut<LightShow>) {
@@ -209,39 +202,20 @@ fn tick(
     }
 }
 
-fn bind(
-    mut commands: Commands,
-    discs: Query<Entity, With<Disc>>,
-    children: Query<&Children>,
-    names: Query<&GltfMaterialName, Without<LightSurface>>,
-) {
-    for disc in &discs {
-        for entity in children.iter_descendants(disc) {
-            if names
-                .get(entity)
-                .is_ok_and(|name| name.0.ends_with("mtl_p6_zm_tm_chamber_mid_piece_lt"))
-            {
-                commands.entity(entity).insert(LightSurface {
-                    disc,
-                    material: None,
-                    color: Vec3::splat(-1.),
-                });
-            }
-        }
-    }
-}
-
 fn present(
+    mut commands: Commands,
     show: Res<LightShow>,
     upgrades: Res<StaffUpgrades>,
-    discs: Query<&Disc>,
-    mut surfaces: Query<(&mut LightSurface, &mut MeshMaterial3d<StandardMaterial>)>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut discs: Query<(
+        Entity,
+        &Disc,
+        Option<&mut crate::presentation::cues::CueParameters>,
+    )>,
 ) {
-    for (mut surface, mut handle) in &mut surfaces {
-        let Ok(disc) = discs.get(surface.disc) else {
+    for (entity, disc, inputs) in &mut discs {
+        if !show.is_changed() && !upgrades.is_changed() && inputs.is_some() {
             continue;
-        };
+        }
         let color = if show.active {
             match (show.mode, show.on) {
                 (2, true) => Vec3::new(2., 0.1, 0.1),
@@ -259,17 +233,19 @@ fn present(
                 Vec3::new(0.5, 0.5, 0.1),
             ][upgrades.rings[disc.0] as usize]
         };
-        surface.color = color;
-        if surface.material.is_none() {
-            let Some(source) = materials.get(&handle.0).cloned() else {
-                continue;
-            };
-            let target = materials.add(source);
-            handle.0 = target.clone();
-            surface.material = Some(target);
-        }
-        if let Some(mut material) = surface.material.as_ref().and_then(|h| materials.get_mut(h)) {
-            material.emissive = LinearRgba::rgb(color.x, color.y, color.z);
+        // zm_tomb.csc maps client slot0 to ScriptVector3 and submits RGB plus
+        // alpha1. PS88e8a7be consumes it before premultiplication and squaring.
+        let vector = color.extend(1.).to_array();
+        if let Some(mut inputs) = inputs {
+            if inputs.script_vectors[3] != vector || inputs.script_available & 8 == 0 {
+                inputs.script_vectors[3] = vector;
+                inputs.script_available |= 8;
+            }
+        } else {
+            let mut inputs = crate::presentation::cues::CueParameters::default();
+            inputs.script_vectors[3] = vector;
+            inputs.script_available = 8;
+            commands.entity(entity).insert(inputs);
         }
     }
 }

@@ -5,6 +5,18 @@
 // Host entrypoints own bindings and interpolation. These are compact input
 // structs, not byte-compatible copies of the original constant buffers.
 
+// 00416df0 / PS cb0[60..66]. Four globally selected lights, in source units.
+struct NativeOmniLights {
+    position_x: vec4<f32>,
+    position_y: vec4<f32>,
+    position_z: vec4<f32>,
+    falloffs: vec4<f32>,
+    reds: vec4<f32>,
+    greens: vec4<f32>,
+    blues: vec4<f32>,
+    enabled: vec4<f32>,
+}
+
 struct NativeWorldScene {
     // Original cb0[36..40]: dot products with these ROWS produce clip position.
     view_projection_rows: array<vec4<f32>, 4>,
@@ -15,6 +27,30 @@ struct NativeWorldScene {
     sun_fog_color: vec4<f32>,   // cb0[30]
     sun_fog: vec4<f32>,         // cb0[31].xy
     hdr_control0: vec4<f32>,    // PS cb0[20].x
+    game_time: vec4<f32>,      // original gameTime.w in seconds
+    sun_position: vec4<f32>,   // original cb0[18]
+    sun_diffuse: vec4<f32>,    // original cb0[19]
+    omni_lights: NativeOmniLights,
+}
+
+// pimp_shader_lmap_37a44012: combined_glight branch. Preserve the native
+// reciprocal-distance and squared linear falloff, rather than inverse square.
+fn native_omni_diffuse(
+    lights: NativeOmniLights, position: vec3<f32>, normal: vec3<f32>,
+) -> vec3<f32> {
+    let x = lights.position_x - vec4<f32>(position.x);
+    let y = lights.position_y - vec4<f32>(position.y);
+    let z = lights.position_z - vec4<f32>(position.z);
+    let distance = sqrt(fma(z, z, fma(x, x, y * y)));
+    let reciprocal_distance = vec4<f32>(1.0) / distance;
+    let dx = x * reciprocal_distance;
+    let dy = y * reciprocal_distance;
+    let dz = z * reciprocal_distance;
+    let falloff = clamp(fma(distance, lights.falloffs, vec4<f32>(1.0)), vec4<f32>(0.0), vec4<f32>(1.0));
+    let cosine = clamp(fma(dz, vec4<f32>(normal.z),
+        fma(dx, vec4<f32>(normal.x), dy * normal.y)), vec4<f32>(0.0), vec4<f32>(1.0));
+    let weights = cosine * (falloff * falloff);
+    return vec3<f32>(dot(lights.reds, weights), dot(lights.greens, weights), dot(lights.blues, weights));
 }
 
 struct NativeWorldObject {

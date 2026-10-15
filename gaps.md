@@ -88,4 +88,10 @@ These demonstrations informed the behavioral questions above. Their explanations
 - [Black Ops 2: FPS versus jump-height demonstration](https://www.youtube.com/watch?v=Q0vdNSByMvQ) — additional frame-rate sensitivity lead; numerical results not adopted as recovered tuning.
 - [BO2 Zombies knife-lunge tutorial](https://www.youtube.com/watch?v=8FInUnqmGvQ) — historical technique lead; installed-version applicability remains a source question.
 
-No gameplay implementation, build, or runtime verification was performed for this list.
+No gameplay implementation, build, or runtime verification was performed when this list was created.
+
+## Current source audit: 2026-10-15
+
+- Item 14's original description is stale: `src/player.rs` sets the 0.5-second jump recovery on takeoff, not landing. Native `008b3c10.c` requires at least 500 ms since the timestamp written by `008b3920.c`. Command timing and in-game repeated-jump parity still need verification.
+- Item 19: restored the native `008be2b0.c` near-vertical-normal guard in `ground_velocity`. Normals with an absolute vertical component below 0.001 preserve velocity rather than dividing by that component. Two focused tests pass for vertical contacts and ascending/descending slope projection, using the actual function and tests extracted into an isolated Glam harness. This does not establish full collision or slope parity.
+- The initial full-library check failed with eight FX/presentation errors. The continuation supplied the original explosion fields and removed the obsolete cue registration; `cargo check --locked --lib` and the development executable build then passed. Startup exposed additional asset-contract failures under repair. No gameplay or performance acceptance has been established.

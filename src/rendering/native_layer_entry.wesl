@@ -5,7 +5,7 @@ import package::rendering::native_world_layers::{
     NativeWorldLayerVaryings, NativeWorldRevealMaterial,
     native_world_layer_vertex, native_world_layer_fragment,
     native_world_reveal_layer_fragment,
-    native_world_reveal_specular_layer_fragment,
+    native_world_specular_layer_fragment, native_world_layer_reveal_weight,
 };
 
 @group(0) @binding(0) var<uniform> scene: NativeWorldScene;
@@ -68,8 +68,8 @@ fn source_varyings(input: Varyings) -> NativeWorldLayerVaryings {
         input.reflection_correction);
 }
 
-fn shade(input: Varyings) -> vec4<f32> {
-    return native_world_layer_fragment(source_varyings(input), scene,
+fn shade(input: Varyings, hard_select: bool) -> vec4<f32> {
+    return native_world_layer_fragment(source_varyings(input), scene, hard_select,
         color_map, color_sampler, normal_map, normal_sampler,
         layer_color_map, layer_color_sampler, layer_normal_map, layer_normal_sampler,
         lightmap_secondary, lightmap_sampler, reflection_probe, reflection_sampler);
@@ -83,9 +83,22 @@ fn shade_reveal(input: Varyings) -> vec4<f32> {
 }
 
 fn shade_reveal_specular(input: Varyings) -> vec4<f32> {
-    return native_world_reveal_specular_layer_fragment(source_varyings(input), scene, reveal,
+    let color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    let weight = native_world_layer_reveal_weight(input.blend_uv.y, color.a, reveal);
+    return native_world_specular_layer_fragment(source_varyings(input), scene, color, weight,
         color_map, color_sampler, normal_map, normal_sampler,
-        layer_color_map, layer_color_sampler, layer_normal_map, layer_normal_sampler,
+        layer_normal_map, layer_normal_sampler,
+        layer_specular_map, layer_specular_sampler, lightmap_secondary, lightmap_sampler,
+        reflection_probe, reflection_sampler);
+}
+
+// Original PS aa3a8509 uses C1.a * primaryG without alpha-reveal constants.
+fn shade_specular(input: Varyings) -> vec4<f32> {
+    let color = textureSample(layer_color_map, layer_color_sampler, input.blend_uv.zw);
+    return native_world_specular_layer_fragment(source_varyings(input), scene,
+        color, color.a * input.blend_uv.y,
+        color_map, color_sampler, normal_map, normal_sampler,
+        layer_normal_map, layer_normal_sampler,
         layer_specular_map, layer_specular_sampler, lightmap_secondary, lightmap_sampler,
         reflection_probe, reflection_sampler);
 }
@@ -101,12 +114,12 @@ fn attachment_srgb(encoded: vec4<f32>) -> vec4<f32> {
 
 @fragment
 fn fragment(input: Varyings) -> @location(0) vec4<f32> {
-    return shade(input);
+    return shade(input, false);
 }
 
 @fragment
 fn fragment_srgb(input: Varyings) -> @location(0) vec4<f32> {
-    return attachment_srgb(shade(input));
+    return attachment_srgb(shade(input, false));
 }
 
 @fragment
@@ -128,3 +141,18 @@ fn fragment_reveal_specular(input: Varyings) -> @location(0) vec4<f32> {
 fn fragment_reveal_specular_srgb(input: Varyings) -> @location(0) vec4<f32> {
     return attachment_srgb(shade_reveal_specular(input));
 }
+
+@fragment
+fn fragment_specular(input: Varyings) -> @location(0) vec4<f32> {
+    return shade_specular(input);
+}
+
+@fragment
+fn fragment_specular_srgb(input: Varyings) -> @location(0) vec4<f32> {
+    return attachment_srgb(shade_specular(input));
+}
+
+@fragment
+fn fragment_selected(input: Varyings) -> @location(0) vec4<f32> { return shade(input, true); }
+@fragment
+fn fragment_selected_srgb(input: Varyings) -> @location(0) vec4<f32> { return attachment_srgb(shade(input, true)); }

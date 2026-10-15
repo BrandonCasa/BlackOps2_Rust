@@ -14,15 +14,19 @@ use bevy::{
     ecs::query::QueryItem,
     prelude::*,
     render::{
-        Render, RenderApp, RenderSystems,
-        camera::ExtractedCamera,
+        Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
+        camera::{CameraMainPassTextureFormats, ExtractedCamera, extract_cameras},
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         render_asset::RenderAssets,
         render_resource::*,
         renderer::{RenderContext, RenderDevice, ViewQuery},
         sync_component::SyncComponent,
+        sync_world::RenderEntity,
         texture::{DepthStencilAttachment, GpuImage, TextureCache},
-        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget, prepare_view_targets},
+        view::{
+            ExtractedView, ViewDepthStencilTexture, ViewTarget, prepare_view_attachments,
+            prepare_view_targets,
+        },
     },
     shader::ShaderDefVal,
 };
@@ -87,12 +91,19 @@ impl Plugin for NativeFramePlugin {
             return;
         };
         render_app
+            .add_systems(
+                ExtractSchedule,
+                extract_native_target_format
+                    .after(extract_cameras)
+                    .before(bevy::ui_render::extract_ui_camera_view),
+            )
             .insert_resource(NativeFramePipeline::new(depth_shader, output_shader))
             .init_resource::<SpecializedRenderPipelines<NativeFramePipeline>>()
             .add_systems(
                 Render,
                 (
-                    source_scene_format
+                    prepare_native_blit
+                        .after(prepare_view_attachments)
                         .before(prepare_view_targets)
                         .in_set(RenderSystems::PrepareViews),
                     prepare_source_depth
@@ -105,10 +116,19 @@ impl Plugin for NativeFramePlugin {
                 Core3d,
                 (
                     (
+                        super::native::render_ordered::<
+                            { super::native::NativeWorldPass::QuasiOpaque as u8 },
+                        >,
+                        super::native::render_ordered::<
+                            { super::native::NativeWorldPass::EmissiveOpaque as u8 },
+                        >,
                         resolve_float_z,
                         snapshot_scene,
                         render_water,
                         resolve_water_float_z,
+                        super::native::render_ordered::<
+                            { super::native::NativeWorldPass::Translucent as u8 },
+                        >,
                     )
                         .chain()
                         .after(main_opaque_pass_3d)
@@ -158,9 +178,10 @@ pub(crate) fn maintain_float_z(
     >,
 ) {
     for (entity, mut camera, projection, mut tone, input, scene) in &mut cameras {
-        // The native final output pass owns presentation of encoded scene RGB.
-        if !matches!(camera.output_mode, CameraOutputMode::Skip) {
-            camera.output_mode = CameraOutputMode::Skip;
+        // Acquire the window output normally. The render-world preparation
+        // suppresses only the built-in final blit after attachment creation.
+        if matches!(camera.output_mode, CameraOutputMode::Skip) {
+            camera.output_mode = CameraOutputMode::default();
         }
         if *tone != Tonemapping::None {
             *tone = Tonemapping::None;
@@ -252,11 +273,33 @@ pub(crate) fn maintain_float_z(
     }
 }
 
-fn source_scene_format(mut views: Query<&mut ExtractedView, With<NativeRenderView>>) {
-    for mut view in &mut views {
-        // Native004540a0 explicitly maps the typeless $scene texture to RGBA8
-        // UNORM for rendering. Keep both encoded blending and8-bit storage.
-        view.target_format = TextureFormat::Rgba8Unorm;
+// The native 3D shaders produce encoded RGB directly. CompositingSpace is
+// restricted to Bevy's 2D path; set our format before UI derives its subview.
+fn extract_native_target_format(
+    cameras: Extract<Query<RenderEntity, With<NativeRenderView>>>,
+    mut commands: Commands,
+    mut formats: ResMut<CameraMainPassTextureFormats>,
+) {
+    for entity in &cameras {
+        if formats.0.contains_key(&entity) {
+            formats.0.insert(entity, TextureFormat::Rgba8Unorm);
+            // Extraction defers camera insertion until the render world is ready.
+            // Queue this after that insertion while publishing the UI format now.
+            commands.queue(move |world: &mut World| {
+                if let Some(mut view) = world.get_mut::<ExtractedView>(entity) {
+                    view.target_format = TextureFormat::Rgba8Unorm;
+                }
+            });
+        }
+    }
+}
+
+fn prepare_native_blit(mut views: Query<&mut ExtractedCamera, With<NativeRenderView>>) {
+    for mut camera in &mut views {
+        // prepare_windows and prepare_view_attachments require Write to acquire
+        // the swapchain and output attachment. After those owners finish, Skip
+        // suppresses Bevy's blit while our encoded output pass uses the attachment.
+        camera.output_mode = CameraOutputMode::Skip;
     }
 }
 
