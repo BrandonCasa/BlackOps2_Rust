@@ -231,33 +231,6 @@ fn bind(
     }
 }
 
-#[cfg(feature = "dev-tools")]
-pub(crate) fn binding_snapshot(world: &mut World) -> serde_json::Value {
-    let discs: Vec<_> = world
-        .query::<(Entity, &Disc)>()
-        .iter(world)
-        .map(|(entity, disc)| (entity, disc.0))
-        .collect();
-    let mut result = Vec::new();
-    for (entity, index) in discs {
-        let mut pending = vec![entity];
-        let mut surfaces = Vec::new();
-        while let Some(child) = pending.pop() {
-            if let Some(children) = world.get::<Children>(child) {
-                pending.extend(children.iter());
-            }
-            if let Some(name) = world.get::<GltfMaterialName>(child) {
-                surfaces.push(serde_json::json!({"entity":child.to_bits(),"name":name.0,
-                    "bound":world.get::<LightSurface>(child).is_some(),
-                    "standard":world.get::<MeshMaterial3d<StandardMaterial>>(child).is_some()}));
-            }
-        }
-        result
-            .push(serde_json::json!({"disc":index,"entity":entity.to_bits(),"surfaces":surfaces}));
-    }
-    serde_json::json!(result)
-}
-
 fn present(
     show: Res<LightShow>,
     upgrades: Res<StaffUpgrades>,

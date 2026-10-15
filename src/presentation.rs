@@ -829,25 +829,7 @@ fn build_graphs(
         rig.graph = Some(bindings.graph.clone());
     }
 }
-#[cfg(debug_assertions)]
-pub(crate) fn animation_observation(world: &mut World) -> Vec<serde_json::Value> {
-    let rigs: Vec<_> = world.query::<&Rig>().iter(world).cloned().collect();
-    rigs.iter().filter(|r| r.playback.is_some() && !r.knife).map(|rig| {
-        let clocks: Vec<_> = rig.players.iter().filter_map(|e| world.get::<AnimationPlayer>(*e))
-            .flat_map(|p| p.playing_animations().map(|(node, active)| {
-                serde_json::json!({"clip":rig.nodes.iter().find(|(_,n)| **n == *node).map(|(name,_)|name),
-                    "seconds":active.seek_time(),"paused":active.is_paused()})
-            })).collect();
-        let bones: BTreeMap<_,_> = rig.tracked.iter().filter_map(|(e,_)| {
-            let name = world.get::<Name>(*e)?;
-            let pose = world.get::<Transform>(*e)?;
-            Some((name.as_str().to_owned(), serde_json::json!({"translation":pose.translation.to_array(),"rotation":pose.rotation.to_array()})))
-        }).collect();
-        serde_json::json!({"weapon":rig.weapon.0,"arms":rig.arms,"left":rig.left,"ready":rig.ready && (rig.arms || rig.attached),
-            "action":rig.playback.map(|a|format!("{a:?}")),"clocks":clocks,"bones":bones,
-            "locomotion":world.get::<locomotion::WeaponLocomotion>(rig.owner).map(|state|state.observation())})
-    }).collect()
-}
+
 pub(crate) fn hand_action(
     inventory: &WeaponInventory,
     weapon: &crate::origins::content::WeaponDefinition,

@@ -177,13 +177,6 @@ struct Precipitation {
     remaining: f32,
 }
 
-#[cfg(all(debug_assertions, feature = "dev-tools"))]
-pub(crate) fn precipitation_snapshot(world: &mut World) -> serde_json::Value {
-    serde_json::json!(world.query::<(&Precipitation, &Transform)>().iter(world).map(|(drop, pose)| {
-        serde_json::json!({"position":pose.translation.to_array(),"velocity":drop.velocity.to_array(),"remaining":drop.remaining})
-    }).collect::<Vec<_>>())
-}
-
 #[derive(Resource)]
 pub(crate) struct PrecipitationAssets {
     rain: Handle<Mesh>,

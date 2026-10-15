@@ -101,27 +101,5 @@ fn damage_feedback(
     }
 }
 
-pub(crate) fn readout(world: &mut World) -> String {
-    let state = *world.resource::<State<GameState>>().get();
-    let scoreboard =
-        state == GameState::GameOver || world.resource::<crate::input::GameInput>().scoreboard;
-    world
-        .query::<(&origins::Field, &native::NativeText)>()
-        .iter(world)
-        .filter_map(|(field, text)| {
-            let name = match field {
-                origins::Field::Score if scoreboard => "Score",
-                origins::Field::Kills if scoreboard => "Kills",
-                origins::Field::Downs if scoreboard => "Downs",
-                origins::Field::Headshots if scoreboard => "Headshots",
-                origins::Field::GameOver if scoreboard => "Scoreboard",
-                origins::Field::Weapon if !scoreboard => "Weapon",
-                origins::Field::Points if !scoreboard => "Points",
-                _ => return None,
-            };
-            Some(format!("{name} {}", text.value))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
+
 

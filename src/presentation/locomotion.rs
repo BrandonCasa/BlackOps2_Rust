@@ -23,12 +23,7 @@ pub(crate) struct WeaponLocomotion {
 }
 
 impl WeaponLocomotion {
-    #[cfg(debug_assertions)]
-    pub(crate) fn observation(&self) -> serde_json::Value {
-        serde_json::json!({"phase":self.phase.map(|phase|format!("{phase:?}")),
-            "elapsed":self.elapsed,"duration":self.duration,"diving":self.diving,
-            "landed":self.landed,"queued_fire":self.queued_fire})
-    }
+
 
     fn start(&mut self, phase: WeaponAnimation, duration: f32) {
         self.phase = Some(phase);
