@@ -68,10 +68,8 @@ impl SoloReviveProfile {
                 .collect::<BTreeSet<_>>()
                 .len()
                 == self.pistol_ranks.len()
-            && self
-                .pistol_ranks
-                .iter()
-                .all(|p| game.content.weapons.iter().any(|w| w.id == p.weapon))
+            // The shared Zombies rank table includes weapons from other maps.
+            // Require the actual downed weapon below, not every global rank entry.
             && self
                 .pistol_ranks
                 .iter()
