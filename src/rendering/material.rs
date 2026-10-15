@@ -13,7 +13,8 @@ use bevy::{
 use serde::Deserialize;
 
 use super::native::{
-    NativeWorldLayerTextures, NativeWorldMaterial, NativeWorldState, NativeWorldTextures,
+    NativeWorldDiffuseTextures, NativeWorldGeometricSpecularTextures, NativeWorldLayerTextures,
+    NativeWorldMaterial, NativeWorldState, NativeWorldTextures,
 };
 
 #[derive(Deserialize)]
@@ -108,6 +109,9 @@ impl MaterialDefinition {
             if !matches!(
                 family,
                 "wpc_lit_sm_r0c0n0x0_f488034e"
+                    | "wpc_lit_sm_r0c0n0_80fe30wz"
+                    | "wpc_lit_sm_r0c0n0s0_1zzj1138"
+                    | "wpc_lit_sm_r0c0s0_qfqz7850"
                     | "lit_sm_r0c0n0x0_b1c1n1"
                     | "lit_sm_r0c0n0x0_b1c1n1v1"
                     | "lit_sm_r0c0n0x0_b1c1n1s1v1"
@@ -124,7 +128,37 @@ impl MaterialDefinition {
                 _ => None,
             };
             let (color_map, color_sampler) = self.texture(server, "colorMap", "colorMap")?;
+            if family == "wpc_lit_sm_r0c0s0_qfqz7850" {
+                let (specular_map, specular_sampler) =
+                    self.texture(server, "specularMap", "specularMap")?;
+                return Ok((
+                    NativeWorldMaterial::GeometricSpecular(NativeWorldGeometricSpecularTextures {
+                        color_map,
+                        color_sampler,
+                        specular_map,
+                        specular_sampler,
+                        lightmap_secondary: lightmap,
+                        lightmap_sampler: code_sampler(MipmapFilterMode::Nearest),
+                        reflection_probe: probe,
+                        reflection_sampler: code_sampler(MipmapFilterMode::Linear),
+                    }),
+                    state,
+                ));
+            }
             let (normal_map, normal_sampler) = self.texture(server, "normalMap", "normalMap")?;
+            if family == "wpc_lit_sm_r0c0n0_80fe30wz" {
+                return Ok((
+                    NativeWorldMaterial::Diffuse(NativeWorldDiffuseTextures {
+                        color_map,
+                        color_sampler,
+                        normal_map,
+                        normal_sampler,
+                        lightmap_secondary: lightmap,
+                        lightmap_sampler: code_sampler(MipmapFilterMode::Nearest),
+                    }),
+                    state,
+                ));
+            }
             let base = NativeWorldTextures {
                 color_map,
                 color_sampler,
@@ -137,6 +171,18 @@ impl MaterialDefinition {
             };
             if family == "wpc_lit_sm_r0c0n0x0_f488034e" {
                 return Ok((NativeWorldMaterial::Lightmapped(base), state));
+            }
+            if family == "wpc_lit_sm_r0c0n0s0_1zzj1138" {
+                let (specular_map, specular_sampler) =
+                    self.texture(server, "specularMap", "specularMap")?;
+                return Ok((
+                    NativeWorldMaterial::NormalSpecular {
+                        base,
+                        specular_map,
+                        specular_sampler,
+                    },
+                    state,
+                ));
             }
             let (color_map, color_sampler) = self.texture(server, "colorMap1", "colorMap")?;
             let (normal_map, normal_sampler) = self.texture(server, "normalMap1", "normalMap")?;
