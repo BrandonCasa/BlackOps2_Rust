@@ -185,7 +185,8 @@ if (!$SkipOat) {
         & $python (Join-Path $checkout 'tools/export_world.py') $checkout $external $zone *> (Join-Path $reports 'external-world.log')
         if ($LASTEXITCODE -ne 0) { throw 'External world export failed: inspect target/reports/external-world.log.' }
     } finally { Pop-Location }
-    Copy-Item -LiteralPath (Join-Path $work 'gw/maps/mp/zm_tomb.d3dbsp.gfxworld.json') -Destination (Join-Path $assets 'world.json') -Force
+    & $python (Join-Path $checkout 'tools/export_world_inputs.py') $checkout $external (Join-Path $zone 'zm_tomb.ff') *> (Join-Path $reports 'external-world-inputs.log')
+    if ($LASTEXITCODE -ne 0) { throw 'Original world shader input export failed: inspect target/reports/external-world-inputs.log.' }
     # Source flat normal is equivalent to the engine's built-in identity normal; unchanged pixels.
     Copy-Item -LiteralPath (Join-Path $assets 'images/global_normal_flat_16x16.dds') -Destination (Join-Path $assets 'images/$identitynormalmap.dds') -Force
     foreach ($name in @('code_post_gfx_zm', 'en_code_post_gfx_zm', 'common_zm', 'patch_zm', 'zm_tomb', 'zm_tomb_patch')) {
