@@ -202,6 +202,15 @@ if (!$SkipOat) {
     }
 }
 
+# Normalize reserved URI characters with unchanged pygltflib, preserving DDS bytes.
+$uriSdk = Join-Path $tools 'uri-python'
+if (!(Test-Path -LiteralPath (Join-Path $uriSdk 'pygltflib'))) {
+    & $python -m pip install --cache-dir (Join-Path $tools 'pip-cache') --target $uriSdk 'pygltflib==1.16.5' --disable-pip-version-check *> (Join-Path $reports 'gltf-uri-sdk.log')
+    if ($LASTEXITCODE -ne 0) { throw 'glTF URI SDK installation failed.' }
+}
+& $python (Join-Path $checkout 'tools/normalize_gltf_uris.py') --sdk $uriSdk --assets $assets *> (Join-Path $reports 'gltf-uri-normalization.json')
+if ($LASTEXITCODE -ne 0) { throw 'glTF source image URI normalization failed; inspect gltf-uri-normalization.json.' }
+
 if ($oatFailed) { throw 'OAT reported extraction errors. This export is incomplete; no complete asset set was produced.' }
 if (!(Test-Path -LiteralPath (Join-Path $assets 'game.json'))) {
     throw 'Existing game-owned target/assets/game.json is required. This script does not generate gameplay data, complete models/materials/animations, or launch the game.'
